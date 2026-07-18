@@ -222,7 +222,7 @@ This is **informational only**. `deliveryMode: "sharedEchoCache"` means the mode
 3. **Rebuilds** by running the exact same transaction as `install` (§5.1), always without `--promote` — the rebuild publishes a package only; the selector is out of repair's reach entirely.
 4. **Compares the rebuilt manifest hash to the one you asked to restore:**
    - **Exact match** — the original identity is considered restored. `repair` **never writes the selector** (the CLI's `repair` subcommand has no `--promote` flag, and `make repair-renderer` passes none): after an exact-match restore, the source's existing selector — if it pointed at this manifest SHA — simply points at a healthy package again, with nothing rewritten. If you want the selector to point somewhere different, or to exist for the first time, run an explicit `promote` (§5.3) afterward.
-   - **Any other hash** — the rebuild is published as its own new package, sitting *beside* the quarantined original at its own `<manifest SHA>`. The selector is left **completely untouched**, and the command fails with an error reporting both the requested and the rebuilt manifest hashes, stating that the requested identity is **non-resumable** — source has drifted (or the build is no longer reproducible) since that package was originally published, and the old identity cannot be recreated byte-for-byte.
+   - **Any other hash** — the rebuild is published as its own new package, sitting *beside* the quarantined original at its own `<manifest SHA>`. The selector is left **completely untouched**, and the command fails with an error reporting both the requested and the rebuilt manifest hashes, stating that the requested identity is **non-resumable** — source has drifted (or the build is no longer reproducible) since that package was originally published, and the old identity cannot be recreated byte-for-byte. The CLI also emits the pair as machine-readable `requestedManifestSHA256=` / `rebuiltManifestSHA256=` lines on stderr ahead of the message, so a caller can pick up both hashes without parsing prose.
 
 ---
 
@@ -232,7 +232,8 @@ The CLI is deliberately narrow: exactly four subcommands exist — `install`, `v
 
 - old renderer packages that are no longer selected by any `approved-renderer.json` are never garbage-collected;
 - quarantine directories from `repair` (§8) are never removed automatically;
-- nothing periodically re-checks or re-verifies an installed package on its own.
+- nothing periodically re-checks or re-verifies an installed package on its own;
+- a hard crash mid-install (power loss, `kill -9`) can strand a temporary `echo-renderer-staging-<random>` directory *beside* the store root (normal failures clean it up automatically); a stranded one is safe to delete whenever no install is currently running.
 
 Auditing what's on disk, deciding what's safe to delete, and actually deleting it are all manual operator tasks (`ls`/`find`/`rm` against the store layout in §2) — intentionally, so a bug in this tooling can never silently delete a package another process is relying on.
 
@@ -246,6 +247,7 @@ Auditing what's on disk, deciding what's safe to delete, and actually deleting i
 | `64` | Usage error: bad flags, a malformed SHA, an unknown subcommand. |
 | `65` | Verification / corruption / attestation failure. |
 | `69` | The renderer is incompatible with this host (non-Release build, a missing required capability, an unsupported architecture, or a deployment floor above the host's macOS version). |
+| `74` | Operating-system-level failure (`OSError`) outside the verified-content checks — e.g. the lease layer failing to create or lock files under its lock root. Matches BSD `sysexits` `EX_IOERR`; distinct from `65` so environment failures and corruption stay distinguishable. |
 | `75` | Temporary failure: another process holds a live lease on the same resources (including `repair`'s refuse-if-contended check in §8). Retry once the contention clears. |
 
 ---

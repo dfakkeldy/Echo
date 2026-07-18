@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import errno
 import os
 import platform
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -11,7 +13,7 @@ from unittest import mock
 
 import echo_renderer.store as store_module
 from echo_renderer.git_state import ApprovedWorktree
-from echo_renderer.lease import TEMPORARY_FAILURE, LeaseSet, canonical_lease_root
+from echo_renderer.lease import TEMPORARY_FAILURE, LeaseSet
 from echo_renderer.store import (
     InstallRequest,
     InstallResult,
@@ -70,6 +72,7 @@ class InstallRunner:
         }
         self.gate_should_fail = False
         self.make_should_fail = False
+        self.make_stderr = "make failed\n"
         self.gate_calls = 0
         self.make_calls = 0
         self.drop_staged_resource: str | None = None
@@ -112,7 +115,7 @@ class InstallRunner:
             self._record("make")
             if self.make_should_fail:
                 return subprocess.CompletedProcess(
-                    arguments, 1, stdout="", stderr="make failed\n"
+                    arguments, 1, stdout="", stderr=self.make_stderr
                 )
             self.materialize_build_output()
             return subprocess.CompletedProcess(arguments, 0, stdout="", stderr="")
@@ -166,6 +169,18 @@ class InstallFixture(unittest.TestCase):
 
         self.renderer_root = (self.root / "renderers").resolve()
         self.renderer_root.mkdir()
+
+        # Patch the lease root the store looks up (same convention as
+        # PromoteRepairFixture) so every lease acquired by the code under
+        # test lands under this test's temp directory. Lock files are never
+        # deleted by design, so without this each run strands .lock debris
+        # in the real shared ~/.cache/explainer-audiobooks lease root.
+        self.lease_root = (self.root / "leases").resolve()
+        lease_root_patch = mock.patch.object(
+            store_module, "canonical_lease_root", lambda: self.lease_root
+        )
+        lease_root_patch.start()
+        self.addCleanup(lease_root_patch.stop)
 
         self.installer_worktree = (self.root / "installer-worktree").resolve()
         self.installer_worktree.mkdir()
@@ -471,10 +486,84 @@ class InstallationFailureCleanupTests(InstallFixture):
         self.assertEqual(self.staging_leftovers(), [])
 
 
+class ConcurrentPublishRaceTests(InstallFixture):
+    """Losing the publish rename race must confirm-or-refuse, never crash.
+
+    Simulates a concurrent installer that wins between
+    ``_publish_staged_package``'s existence check and its ``os.rename`` by
+    making the rename itself materialize the winner's package and then fail
+    with ``ENOTEMPTY`` -- deterministically exercising the exact
+    interleaving without threads.
+    """
+
+    def _install_with_racing_rename(self, *, corrupt_winner: bool) -> InstallResult:
+        real_rename = os.rename
+
+        def racing_rename(source: object, destination: object) -> None:
+            source_path = Path(os.fsdecode(source))
+            destination_path = Path(os.fsdecode(destination))
+            if (
+                source_path.name.startswith("echo-renderer-staging-")
+                and not destination_path.exists()
+            ):
+                shutil.copytree(source_path, destination_path)
+                if corrupt_winner:
+                    executable = destination_path / "echo-cli"
+                    executable.write_bytes(b"differing concurrent winner\n")
+                raise OSError(
+                    errno.ENOTEMPTY, "Directory not empty", str(destination_path)
+                )
+            real_rename(source, destination)
+
+        with mock.patch.object(store_module.os, "rename", side_effect=racing_rename):
+            return self.store.install(self.request())
+
+    def test_losing_the_rename_race_to_an_identical_package_is_idempotent(self):
+        result = self._install_with_racing_rename(corrupt_winner=False)
+
+        self.assertEqual(self.staging_leftovers(), [])
+        store_module.verify_build_identity(
+            result.verified.build_root,
+            expected_source_sha=self.source_sha,
+            expected_manifest_sha=result.verified.manifest_sha,
+        )
+
+    def test_losing_the_rename_race_to_a_differing_package_is_refused(self):
+        with self.assertRaises(ValueError) as raised:
+            self._install_with_racing_rename(corrupt_winner=True)
+
+        self.assertIn("refusing to overwrite", str(raised.exception))
+        self.assertEqual(self.staging_leftovers(), [])
+
+
+class BuildFailureDiagnosticsTests(InstallFixture):
+    def test_a_failed_make_build_surfaces_its_stderr_in_the_error(self):
+        self.runner.make_should_fail = True
+
+        with self.assertRaises(ValueError) as raised:
+            self.store.install(self.request())
+
+        message = str(raised.exception)
+        self.assertIn("renderer build failed", message)
+        self.assertIn("make failed", message)
+
+    def test_a_long_build_stderr_is_bounded_to_a_tail(self):
+        self.runner.make_should_fail = True
+        self.runner.make_stderr = ("x" * 10_000) + "compiler diagnostic at the end"
+
+        with self.assertRaises(ValueError) as raised:
+            self.store.install(self.request())
+
+        message = str(raised.exception)
+        self.assertIn("compiler diagnostic at the end", message)
+        self.assertIn("stderr tail", message)
+        self.assertLess(len(message), 3_000)
+
+
 class InstallationLeaseTests(InstallFixture):
     def test_contended_lease_exits_75_without_publishing(self):
         held = LeaseSet.acquire(
-            lock_root=canonical_lease_root(), resources=(self.source_worktree,)
+            lock_root=self.lease_root, resources=(self.source_worktree,)
         )
         self.addCleanup(held.close)
 

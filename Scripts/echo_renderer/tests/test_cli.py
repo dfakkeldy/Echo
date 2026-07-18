@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import os
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -12,7 +13,13 @@ from unittest import mock
 from echo_renderer.cli import build_parser, main
 from echo_renderer.identity import FileIdentity, ModelPolicy, RendererManifest, ResourceTreeIdentity
 from echo_renderer.lease import TEMPORARY_FAILURE
-from echo_renderer.store import InstallRequest, InstallResult, RendererIncompatibleError, VerifiedRenderer
+from echo_renderer.store import (
+    InstallRequest,
+    InstallResult,
+    RendererIncompatibleError,
+    RepairMismatchError,
+    VerifiedRenderer,
+)
 
 
 SOURCE_SHA = "ab" * 20
@@ -618,6 +625,98 @@ class RepairDispatchTests(CLITestCase):
         self.assertEqual(raised.exception.code, TEMPORARY_FAILURE)
 
 
+class OSErrorClassificationTests(CLITestCase):
+    """OS-level failures (e.g. the lease layer failing to create or lock
+    files under its lock root) must exit with a classified code and a
+    message on stderr, never escape as a traceback with exit 1."""
+
+    def test_install_oserror_maps_to_exit_74(self) -> None:
+        FakeStore.install_error = OSError("flock failed on the lease root")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            code, stdout, stderr = self.run_main(
+                [
+                    "install",
+                    "--installer-worktree",
+                    "/work/installer",
+                    "--installer-sha",
+                    INSTALLER_SHA,
+                    "--source-worktree",
+                    "/work/source",
+                    "--source-sha",
+                    SOURCE_SHA,
+                    "--renderer-root",
+                    tmp,
+                    "--build-gate",
+                    "/work/gate.sh",
+                ]
+            )
+
+        self.assertEqual(code, 74)
+        self.assertEqual(stdout, "")
+        self.assertIn("flock failed on the lease root", stderr)
+
+    def test_repair_oserror_maps_to_exit_74(self) -> None:
+        FakeStore.repair_error = OSError("cannot create lease lock file")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            code, stdout, stderr = self.run_main(
+                [
+                    "repair",
+                    "--installer-worktree",
+                    "/work/installer",
+                    "--installer-sha",
+                    INSTALLER_SHA,
+                    "--source-worktree",
+                    "/work/source",
+                    "--source-sha",
+                    SOURCE_SHA,
+                    "--manifest-sha",
+                    MANIFEST_SHA,
+                    "--renderer-root",
+                    tmp,
+                    "--build-gate",
+                    "/work/gate.sh",
+                ]
+            )
+
+        self.assertEqual(code, 74)
+        self.assertEqual(stdout, "")
+        self.assertIn("cannot create lease lock file", stderr)
+
+
+class RepairMismatchReportingTests(CLITestCase):
+    def test_repair_mismatch_emits_structured_hash_lines_on_stderr(self) -> None:
+        rebuilt_sha = "fe" * 32
+        FakeStore.repair_error = RepairMismatchError(
+            "renderer repair could not restore the requested identity",
+            requested_manifest_sha=MANIFEST_SHA,
+            rebuilt_manifest_sha=rebuilt_sha,
+        )
+
+        code, stdout, stderr = self.run_main(
+            [
+                "repair",
+                "--installer-worktree",
+                "/work/installer",
+                "--installer-sha",
+                INSTALLER_SHA,
+                "--source-worktree",
+                "/work/source",
+                "--source-sha",
+                SOURCE_SHA,
+                "--manifest-sha",
+                MANIFEST_SHA,
+            ]
+        )
+
+        self.assertEqual(code, 65)
+        self.assertEqual(stdout, "")
+        self.assertIn(f"requestedManifestSHA256={MANIFEST_SHA}\n", stderr)
+        self.assertIn(f"rebuiltManifestSHA256={rebuilt_sha}\n", stderr)
+        self.assertIn("could not restore the requested identity", stderr)
+
+
 class RendererRootCreationTests(CLITestCase):
     """A fresh machine has no ``~/Library/Application Support/Echo/Renderers``
     yet, so the very first ``install`` must not die on that alone.
@@ -766,6 +865,47 @@ class RendererRootCreationTests(CLITestCase):
             self.assertEqual(renderer_root.read_text(), "not a directory")
 
 
+class RelativeRendererRootTests(unittest.TestCase):
+    """A relative --renderer-root is always rejected by the store's
+    canonical-path check, so the CLI must not first mkdir it into the
+    current working directory and leave a stray directory behind."""
+
+    def test_a_relative_renderer_root_is_rejected_without_creating_a_directory(
+        self,
+    ) -> None:
+        original_cwd = os.getcwd()
+        self.addCleanup(os.chdir, original_cwd)
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chdir(tmp)
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                # Deliberately the REAL RendererStore: the contract under
+                # test is "reject without side effects", end to end.
+                code = main(
+                    [
+                        "install",
+                        "--installer-worktree",
+                        "/work/installer",
+                        "--installer-sha",
+                        INSTALLER_SHA,
+                        "--source-worktree",
+                        "/work/source",
+                        "--source-sha",
+                        SOURCE_SHA,
+                        "--renderer-root",
+                        "relative/renderers",
+                        "--build-gate",
+                        "/work/gate.sh",
+                    ]
+                )
+            os.chdir(original_cwd)
+
+            self.assertEqual(code, 65)
+            self.assertIn("renderer store root", stderr.getvalue())
+            self.assertFalse((Path(tmp) / "relative").exists())
+
+
 class TestCIWorkflowRunsInstallerTestsFirst(unittest.TestCase):
     """Contract test: CI must run the fast, no-Xcode renderer installer suite
     before any Xcode-heavy step, and must keep proving echo-cli still compiles.
@@ -794,6 +934,15 @@ class TestCIWorkflowRunsInstallerTestsFirst(unittest.TestCase):
         )
 
         renderer_step_index = text.index("make renderer-install-test")
+        # WARNING: this anchors on the FIRST "xcodebuild" occurrence anywhere
+        # in ci.yml -- a comment mentioning xcodebuild before the renderer
+        # step trips the ordering assertion below just like a real step.
+        self.assertIn(
+            "xcodebuild",
+            text,
+            "ci.yml no longer mentions xcodebuild at all; this contract "
+            "test's ordering anchor vanished -- update it deliberately.",
+        )
         first_xcodebuild_index = text.index("xcodebuild")
 
         self.assertLess(

@@ -3,6 +3,7 @@ Echo renderers."""
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
 import platform
@@ -43,6 +44,7 @@ _ECHO_CLI_MAKE_TARGET = "echo-cli"
 _BUILD_OUTPUT_RELATIVE = Path(".build") / "cli"
 _BUILD_PRODUCTS_RELATIVE = Path("Build") / "Products" / "Release"
 _STAGING_PREFIX = "echo-renderer-staging-"
+_STDERR_TAIL_CHARS = 2000
 _VERSION_PATTERN = re.compile(r"ONNX rv([0-9]+) \(Release\)\n?\Z")
 _ARCHITECTURE_PATTERN = re.compile(r"[A-Za-z0-9_]+\Z")
 _VERSION_NUMBER_PATTERN = re.compile(r"[0-9]+(?:\.[0-9]+){1,2}\Z")
@@ -86,6 +88,28 @@ class RendererIncompatibleError(ValueError):
     so every existing ``assertRaises(ValueError)`` call site keeps working
     unchanged.
     """
+
+
+class RepairMismatchError(ValueError):
+    """Raised when a repair rebuild produced a different manifest hash.
+
+    Carries the requested and rebuilt manifest hashes as attributes so the
+    CLI can emit them as structured ``key=value`` stderr lines in addition
+    to the human-readable message. Subclasses ``ValueError`` so existing
+    ``assertRaises(ValueError)`` call sites and the CLI's generic exit-65
+    mapping keep working unchanged.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        requested_manifest_sha: str,
+        rebuilt_manifest_sha: str,
+    ) -> None:
+        super().__init__(message)
+        self.requested_manifest_sha = requested_manifest_sha
+        self.rebuilt_manifest_sha = rebuilt_manifest_sha
 
 
 @dataclass(frozen=True)
@@ -427,21 +451,18 @@ class RendererStore:
         source_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         destination = source_dir / manifest_sha
         if destination.exists():
-            try:
-                verified = verify_build_identity(
-                    destination,
-                    expected_source_sha=source_sha,
-                    expected_manifest_sha=manifest_sha,
-                )
-            except ValueError as error:
-                raise ValueError(
-                    "refusing to overwrite an existing renderer package that "
-                    f"differs from the newly staged package: {destination}"
-                ) from error
-            _remove_tree(staging)
-            return verified
+            return self._confirm_existing_package(staging, destination, source_sha, manifest_sha)
 
-        os.rename(staging, destination)
+        try:
+            os.rename(staging, destination)
+        except OSError as error:
+            if error.errno not in (errno.EEXIST, errno.ENOTEMPTY):
+                raise
+            # A concurrent installer published this identity between the
+            # existence check above and the rename; content addressing means
+            # an identical winner is a success, so confirm-or-refuse exactly
+            # as if the package had already existed.
+            return self._confirm_existing_package(staging, destination, source_sha, manifest_sha)
         _fsync_directory(source_dir)
         _fsync_directory(self.renderer_root)
         return verify_build_identity(
@@ -449,6 +470,24 @@ class RendererStore:
             expected_source_sha=source_sha,
             expected_manifest_sha=manifest_sha,
         )
+
+    def _confirm_existing_package(
+        self, staging: Path, destination: Path, source_sha: str, manifest_sha: str
+    ) -> VerifiedRenderer:
+        """Verify an already-published package matches the staged identity, or refuse."""
+        try:
+            verified = verify_build_identity(
+                destination,
+                expected_source_sha=source_sha,
+                expected_manifest_sha=manifest_sha,
+            )
+        except ValueError as error:
+            raise ValueError(
+                "refusing to overwrite an existing renderer package that "
+                f"differs from the newly staged package: {destination}"
+            ) from error
+        _remove_tree(staging)
+        return verified
 
     def verify(self, source_sha: str, manifest_sha: str) -> VerifiedRenderer:
         """Strictly verify one source and manifest identity without mutation."""
@@ -553,15 +592,22 @@ class RendererStore:
             lease.close()
 
         if result.verified.manifest_sha != manifest_sha:
-            raise ValueError(
+            raise RepairMismatchError(
                 "renderer repair could not restore the requested identity: "
                 f"requested manifest {manifest_sha} but the rebuild produced "
                 f"{result.verified.manifest_sha}; the new candidate is "
                 "published at its own hash, the selector is left unchanged, "
-                f"and the requested manifest {manifest_sha} is non-resumable"
+                f"and the requested manifest {manifest_sha} is non-resumable",
+                requested_manifest_sha=manifest_sha,
+                rebuilt_manifest_sha=result.verified.manifest_sha,
             )
 
         if request.promote:
+            # API-only path, deliberately unreachable through the CLI: the
+            # repair subcommand hardcodes promote=False because repair never
+            # writes the selector (guide §8). Only a caller constructing
+            # InstallRequest(promote=True) directly gets promote-on-restore,
+            # and only after the rebuild reproduced the exact requested hash.
             self.promote(request.source_sha, result.verified.manifest_sha)
             return InstallResult(verified=result.verified, selector_updated=True)
         return result
@@ -773,7 +819,13 @@ def _run_build_command(runner: Callable, arguments: list[str], *, step: str) -> 
     except (OSError, subprocess.SubprocessError) as error:
         raise ValueError(f"cannot run {step}: {arguments[0]}") from error
     if completed.returncode != 0:
-        raise ValueError(f"{step} failed: {' '.join(arguments)}")
+        message = f"{step} failed: {' '.join(arguments)}"
+        stderr_text = completed.stderr if isinstance(completed.stderr, str) else ""
+        tail = stderr_text[-_STDERR_TAIL_CHARS:]
+        if tail:
+            marker = "…" if len(stderr_text) > len(tail) else ""
+            message = f"{message}; stderr tail: {marker}{tail}"
+        raise ValueError(message)
 
 
 def _copy_regular_file(source: Path, destination: Path, *, mode: int) -> Path:
