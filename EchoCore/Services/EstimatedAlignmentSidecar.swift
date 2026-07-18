@@ -311,7 +311,8 @@ nonisolated enum AlignmentSidecarVerifier {
     /// non-inverted `[start, end)` ranges, monotonic non-decreasing starts, the
     /// first word starting at/after the anchor timestamp (small epsilon), and —
     /// when the anchor resolves to a source block — a word count equal to the
-    /// block's whitespace-tokenized text so `array position == wordIndex` holds.
+    /// ordinary block's whitespace-tokenized text or a `.code` block's resolved
+    /// cue/fallback tokens so `array position == wordIndex` holds.
     private static func wordIssues(
         for anchor: AlignmentSidecar.Anchor,
         words: [AlignmentSidecar.Anchor.Word],
