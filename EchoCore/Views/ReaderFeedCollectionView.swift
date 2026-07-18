@@ -115,6 +115,8 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         collectionView.register(
             ImageCardCell.self, forCellWithReuseIdentifier: ImageCardCell.reuseIdentifier)
         collectionView.register(
+            CodeCardCell.self, forCellWithReuseIdentifier: CodeCardCell.reuseIdentifier)
+        collectionView.register(
             ChapterDividerCell.self, forCellWithReuseIdentifier: ChapterDividerCell.reuseIdentifier)
         collectionView.register(
             BookmarkFeedCell.self, forCellWithReuseIdentifier: BookmarkFeedCell.reuseIdentifier)
@@ -506,6 +508,26 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     )
                     return imageCell
 
+                case EPubBlockRecord.Kind.code.rawValue:
+                    guard
+                        let codeCell = collectionView.dequeueReusableCell(
+                            withReuseIdentifier: CodeCardCell.reuseIdentifier,
+                            for: indexPath
+                        ) as? CodeCardCell
+                    else { return UICollectionViewCell() }
+                    let cardTint =
+                        UIColor(
+                            hex: block.cardColor ?? block.chapterThemeColor ?? settings.cardTintHex)
+                        ?? UIColor.systemBackground
+                    codeCell.configure(with: block, tint: cardTint)
+                    codeCell.isActiveBlock = (block.id == activeBlockID)
+                    codeCell.configureAccessibility(
+                        label: accessibilityLabel(for: block, kind: .code),
+                        hint: accessibilityHint(for: block),
+                        actions: onAccessibilityActions?(block) ?? []
+                    )
+                    return codeCell
+
                 default:
                     guard
                         let paraCell = collectionView.dequeueReusableCell(
@@ -606,6 +628,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             for cell in collectionView.visibleCells {
                 (cell as? HeadingCardCell)?.isActiveBlock = false
                 (cell as? ParagraphCardCell)?.isActiveBlock = false
+                (cell as? CodeCardCell)?.isActiveBlock = false
             }
 
             guard let blockID else { return }
@@ -625,6 +648,8 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     headingCell.isActiveBlock = true
                 } else if let paraCell = cell as? ParagraphCardCell {
                     paraCell.isActiveBlock = true
+                } else if let codeCell = cell as? CodeCardCell {
+                    codeCell.isActiveBlock = true
                 }
             }
 
