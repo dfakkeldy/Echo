@@ -2007,7 +2007,7 @@ git commit -m "feat(cli): export-video subcommand"
 
 ## Task 8: PR 1 — verification, push, PR, CI
 
-- [ ] **Step 1: Full local verification**
+- [x] **Step 1: Full local verification**
 
 ```bash
 git diff --check
@@ -2019,7 +2019,7 @@ git diff --check
 
 All must pass. Run SwiftLint if installed (`swiftlint --strict` from repo root).
 
-- [ ] **Step 2: Optional but recommended real-book smoke test**
+- [x] **Step 2: Optional but recommended real-book smoke test**
 
 If a narrated or aligned book DB is available locally (see `~/Developer/echo-overnight` scratch), run `export-video --simple` against it and open the mp4 + srt in QuickTime/VLC. Record whether mp4 chapter atoms surfaced (spec's attempt-and-verify risk).
 
@@ -2040,9 +2040,9 @@ gh pr create --base nightly --title "feat(export): slideshow video export pipeli
 Spec: docs/superpowers/specs/2026-07-18-slideshow-video-export-design.md (PR 2 adds iOS/macOS UI)
 
 ## Test plan
-- [ ] `make test` (planner, SRT, locator, loader, renderer, service integration suites)
-- [ ] macOS + echo-cli builds
-- [ ] CLI smoke on a real aligned book
+- [x] `make test` (planner, SRT, locator, loader, renderer, service integration suites)
+- [x] macOS + echo-cli builds
+- [x] CLI smoke on a real aligned book
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
