@@ -1898,7 +1898,7 @@ git commit -m "feat(export): whole-book slideshow video export service"
 **Interfaces:**
 - Consumes: `VideoExportService.exportVideo(...)` (Task 6), `DatabaseService(databaseURL:)`, `ExportSourceResolver.isNarrated(audiobookID:databaseWriter:)`.
 
-- [ ] **Step 1: Implement the command**
+- [x] **Step 1: Implement the command**
 
 Create `Tools/echo-cli/ExportVideoCommand.swift`:
 
@@ -1978,7 +1978,7 @@ struct ExportVideoCommand: AsyncParsableCommand {
 }
 ```
 
-- [ ] **Step 2: Register the subcommand**
+- [x] **Step 2: Register the subcommand**
 
 In `Tools/echo-cli/EchoCLI.swift`, add to the `subcommands:` array after `ExportBlocksCommand.self`:
 
@@ -1987,7 +1987,7 @@ In `Tools/echo-cli/EchoCLI.swift`, add to the `subcommands:` array after `Export
             ExportVideoCommand.self,
 ```
 
-- [ ] **Step 3: Build the CLI (only via make echo-cli) and smoke-check help**
+- [x] **Step 3: Build the CLI (only via make echo-cli) and smoke-check help**
 
 ```bash
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && make echo-cli
@@ -1996,7 +1996,7 @@ In `Tools/echo-cli/EchoCLI.swift`, add to the `subcommands:` array after `Export
 
 Expected: BUILD SUCCEEDED; help text lists `--db`, `--audiobook-id`, `--title`, `--out`, `--cache-dir`, `--simple`, `--size`, `--range`. If the new file isn't picked up by the `echo-cli` target (older non-synchronized pbxproj group), follow the existing `Tools/echo-cli/add-target.rb` pattern to add it — check `git log --follow Tools/echo-cli/SidecarCommands.swift` for how the last-added command file was registered.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add Tools/echo-cli/ExportVideoCommand.swift Tools/echo-cli/EchoCLI.swift
