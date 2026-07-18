@@ -37,17 +37,31 @@ struct ExportVideoCommand: AsyncParsableCommand {
             throw ValidationError("This book is narrated; pass --cache-dir <narration cache>.")
         }
 
-        let dimensions = size.split(separator: "x").compactMap { Int($0) }
-        guard dimensions.count == 2 else {
+        let dimensionParts = size.split(separator: "x", omittingEmptySubsequences: false)
+        guard
+            dimensionParts.count == 2,
+            let width = Int(dimensionParts[0]),
+            let height = Int(dimensionParts[1]),
+            width > 0,
+            height > 0
+        else {
             throw ValidationError("--size must look like 1920x1080")
         }
         var clip: Range<TimeInterval>?
         if let range {
-            let parts = range.split(separator: "-").compactMap { TimeInterval($0) }
-            guard parts.count == 2, parts[1] > parts[0] else {
+            let parts = range.split(separator: "-", omittingEmptySubsequences: false)
+            guard
+                parts.count == 2,
+                let start = TimeInterval(parts[0]),
+                let end = TimeInterval(parts[1]),
+                start.isFinite,
+                end.isFinite,
+                start >= 0,
+                end > start
+            else {
                 throw ValidationError("--range must look like start-end with end > start")
             }
-            clip = parts[0]..<parts[1]
+            clip = start..<end
         }
 
         let outDir = URL(fileURLWithPath: out, isDirectory: true)
@@ -60,12 +74,14 @@ struct ExportVideoCommand: AsyncParsableCommand {
             cacheDirectory: URL(fileURLWithPath: cacheDir ?? "/nonexistent-cache"),
             outputDirectory: outDir,
             mode: simple ? .simple : .karaoke,
-            width: dimensions[0],
-            height: dimensions[1],
+            width: width,
+            height: height,
             range: clip,
             onProgress: { fraction in
+                let percent = (fraction * 100).formatted(
+                    .number.precision(.fractionLength(0)))
                 FileHandle.standardError.write(
-                    Data(String(format: "\rprogress %3.0f%%", fraction * 100).utf8))
+                    Data("\rprogress \(percent)%".utf8))
             })
         print("\nVIDEO_DONE \(output.videoURL.path)")
         print("SRT \(output.srtURL.path)")
