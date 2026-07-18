@@ -1,4 +1,4 @@
-.PHONY: help docs architecture whats-new devlog-update devlog-pr-body doc-automation-test test build-tests test-only hooks-test echo-cli
+.PHONY: help docs architecture whats-new devlog-update devlog-pr-body doc-automation-test test build-tests test-only hooks-test echo-cli renderer-install-test install-renderer verify-renderer promote-renderer repair-renderer
 
 help: ## List available targets
 	@echo "Echo: Audiobook Study Player — available targets:"
@@ -83,3 +83,52 @@ echo-cli: ## Build Release echo-cli → .build/cli/Build/Products/Release/echo-c
 	  SWIFT_COMPILATION_MODE=incremental \
 	  -derivedDataPath .build/cli -jobs 5 $(CODESIGN_OFF) -quiet
 	@echo "echo-cli (Release) ready at: .build/cli/Build/Products/Release/echo-cli"
+
+# Renderer install/verify/promote/repair variables. The two "APPROVED_" SHAs
+# are the attested identities the leased renderer transaction checks against
+# -- they are inputs the caller supplies, never inferred from the working
+# tree. ECHO_RENDERER_SOURCE is the worktree holding the approved
+# pronunciation-fix source (APPROVED_ECHO_PRONUNCIATION_SHA is its commit);
+# $(CURDIR), this repo, is always the installer worktree. ECHO_RENDERER_ROOT
+# and ECHO_BUILD_GATE override the CLI's own defaults and are only appended
+# to the command when set.
+APPROVED_ECHO_INSTALLER_SHA ?=
+APPROVED_ECHO_PRONUNCIATION_SHA ?=
+ECHO_RENDERER_SOURCE ?=
+ECHO_RENDERER_MANIFEST_SHA ?=
+ECHO_RENDERER_ROOT ?=
+ECHO_BUILD_GATE ?=
+
+renderer-install-test: ## Run the echo_renderer Python unit tests (store, lease, CLI)
+	@PYTHONPATH=Scripts python3 -m unittest discover -s Scripts/echo_renderer/tests -t Scripts -v
+
+install-renderer: ## Build, stage, verify, and publish one approved renderer package
+	@PYTHONPATH=Scripts python3 -m echo_renderer.cli install \
+	  --installer-worktree $(CURDIR) \
+	  --installer-sha $(APPROVED_ECHO_INSTALLER_SHA) \
+	  --source-worktree $(ECHO_RENDERER_SOURCE) \
+	  --source-sha $(APPROVED_ECHO_PRONUNCIATION_SHA) \
+	  $(if $(ECHO_RENDERER_ROOT),--renderer-root $(ECHO_RENDERER_ROOT)) \
+	  $(if $(ECHO_BUILD_GATE),--build-gate $(ECHO_BUILD_GATE))
+
+verify-renderer: ## Strictly re-verify one published renderer package
+	@PYTHONPATH=Scripts python3 -m echo_renderer.cli verify \
+	  --source-sha $(APPROVED_ECHO_PRONUNCIATION_SHA) \
+	  --manifest-sha $(ECHO_RENDERER_MANIFEST_SHA) \
+	  $(if $(ECHO_RENDERER_ROOT),--renderer-root $(ECHO_RENDERER_ROOT))
+
+promote-renderer: ## Point the renderer selector at one verified package
+	@PYTHONPATH=Scripts python3 -m echo_renderer.cli promote \
+	  --source-sha $(APPROVED_ECHO_PRONUNCIATION_SHA) \
+	  --manifest-sha $(ECHO_RENDERER_MANIFEST_SHA) \
+	  $(if $(ECHO_RENDERER_ROOT),--renderer-root $(ECHO_RENDERER_ROOT))
+
+repair-renderer: ## Quarantine and rebuild one renderer package identity
+	@PYTHONPATH=Scripts python3 -m echo_renderer.cli repair \
+	  --installer-worktree $(CURDIR) \
+	  --installer-sha $(APPROVED_ECHO_INSTALLER_SHA) \
+	  --source-worktree $(ECHO_RENDERER_SOURCE) \
+	  --source-sha $(APPROVED_ECHO_PRONUNCIATION_SHA) \
+	  --manifest-sha $(ECHO_RENDERER_MANIFEST_SHA) \
+	  $(if $(ECHO_RENDERER_ROOT),--renderer-root $(ECHO_RENDERER_ROOT)) \
+	  $(if $(ECHO_BUILD_GATE),--build-gate $(ECHO_BUILD_GATE))

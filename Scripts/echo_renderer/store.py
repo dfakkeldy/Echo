@@ -76,6 +76,18 @@ _VERIFY_SIDECAR_SUBCOMMAND = "verify-sidecar"
 _REQUIRED_CAPABILITIES = _REQUIRED_NARRATE_CAPABILITIES + (_VERIFY_SIDECAR_SUBCOMMAND,)
 
 
+class RendererIncompatibleError(ValueError):
+    """Raised when a live probe shows a renderer cannot run on this host.
+
+    Covers a non-Release build, a missing required capability, an
+    unsupported architecture, and a deployment floor above the host's
+    macOS version -- the CLI maps this to a distinct exit code from
+    generic verification/corruption failures. Subclasses ``ValueError``
+    so every existing ``assertRaises(ValueError)`` call site keeps working
+    unchanged.
+    """
+
+
 @dataclass(frozen=True)
 class RendererProbe:
     render_version: int
@@ -166,7 +178,9 @@ def probe_release_cli(
     )
     version_match = _VERSION_PATTERN.fullmatch(version_output)
     if version_match is None:
-        raise ValueError("echo-cli version must identify one Release render version")
+        raise RendererIncompatibleError(
+            "echo-cli version must identify one Release render version"
+        )
     render_version = int(version_match.group(1))
 
     help_output = _run_probe(
@@ -185,7 +199,7 @@ def probe_release_cli(
         if capability not in observed_capabilities
     ]
     if missing_capabilities:
-        raise ValueError(
+        raise RendererIncompatibleError(
             f"echo-cli narrate help is missing capabilities: {missing_capabilities}"
         )
 
@@ -195,7 +209,7 @@ def probe_release_cli(
         environment=environment,
     )
     if not _capability_present(_VERIFY_SIDECAR_SUBCOMMAND, verify_sidecar_help_output):
-        raise ValueError(
+        raise RendererIncompatibleError(
             f"echo-cli is missing the {_VERIFY_SIDECAR_SUBCOMMAND} subcommand"
         )
     observed_capabilities = observed_capabilities + (_VERIFY_SIDECAR_SUBCOMMAND,)
@@ -216,7 +230,9 @@ def probe_release_cli(
     architectures = tuple(sorted(architecture_values))
     host_architecture = platform.machine()
     if not host_architecture or host_architecture not in architectures:
-        raise ValueError("renderer does not support the current host architecture")
+        raise RendererIncompatibleError(
+            "renderer does not support the current host architecture"
+        )
 
     load_commands = _run_probe(runner, ["/usr/bin/otool", "-l", str(executable)])
     minimum_versions = _MINOS_PATTERN.findall(load_commands)
@@ -229,7 +245,9 @@ def probe_release_cli(
     if not host_macos_version:
         raise ValueError("cannot determine the current host macOS version")
     if _version_tuple(minimum_macos_version) > _version_tuple(host_macos_version):
-        raise ValueError("renderer requires a newer macOS version than this host")
+        raise RendererIncompatibleError(
+            "renderer requires a newer macOS version than this host"
+        )
 
     return RendererProbe(
         render_version=render_version,
