@@ -20,6 +20,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Fast, no-Xcode signal: a pure-stdlib Python unittest suite over
+      # Scripts/echo_renderer/ (versioned renderer install/verify/promote/repair).
+      # Runs in seconds without a simulator or SDK, so failures here are caught
+      # before the expensive Xcode build/test steps below even start.
+      - name: Renderer installer tests (fast, no Xcode)
+        run: make renderer-install-test
+
       # Pin the toolchain to Xcode 26.x so CI compiles against the same SDK the
       # project is developed and shipped with. The macos-26 runner defaults to
       # Xcode 26.x today, and this explicit selection keeps future image updates
