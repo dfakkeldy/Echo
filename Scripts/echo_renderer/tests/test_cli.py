@@ -12,7 +12,13 @@ from unittest import mock
 from echo_renderer.cli import build_parser, main
 from echo_renderer.identity import FileIdentity, ModelPolicy, RendererManifest, ResourceTreeIdentity
 from echo_renderer.lease import TEMPORARY_FAILURE
-from echo_renderer.store import InstallRequest, InstallResult, RendererIncompatibleError, VerifiedRenderer
+from echo_renderer.store import (
+    InstallRequest,
+    InstallResult,
+    RendererIncompatibleError,
+    RepairMismatchError,
+    VerifiedRenderer,
+)
 
 
 SOURCE_SHA = "ab" * 20
@@ -616,6 +622,38 @@ class RepairDispatchTests(CLITestCase):
                 ]
             )
         self.assertEqual(raised.exception.code, TEMPORARY_FAILURE)
+
+
+class RepairMismatchReportingTests(CLITestCase):
+    def test_repair_mismatch_emits_structured_hash_lines_on_stderr(self) -> None:
+        rebuilt_sha = "fe" * 32
+        FakeStore.repair_error = RepairMismatchError(
+            "renderer repair could not restore the requested identity",
+            requested_manifest_sha=MANIFEST_SHA,
+            rebuilt_manifest_sha=rebuilt_sha,
+        )
+
+        code, stdout, stderr = self.run_main(
+            [
+                "repair",
+                "--installer-worktree",
+                "/work/installer",
+                "--installer-sha",
+                INSTALLER_SHA,
+                "--source-worktree",
+                "/work/source",
+                "--source-sha",
+                SOURCE_SHA,
+                "--manifest-sha",
+                MANIFEST_SHA,
+            ]
+        )
+
+        self.assertEqual(code, 65)
+        self.assertEqual(stdout, "")
+        self.assertIn(f"requestedManifestSHA256={MANIFEST_SHA}\n", stderr)
+        self.assertIn(f"rebuiltManifestSHA256={rebuilt_sha}\n", stderr)
+        self.assertIn("could not restore the requested identity", stderr)
 
 
 class RendererRootCreationTests(CLITestCase):

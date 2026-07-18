@@ -11,7 +11,12 @@ from unittest import mock
 import echo_renderer.store as store_module
 from echo_renderer.identity import canonical_json_bytes
 from echo_renderer.lease import TEMPORARY_FAILURE, LeaseSet
-from echo_renderer.store import InstallRequest, InstallResult, RendererStore
+from echo_renderer.store import (
+    InstallRequest,
+    InstallResult,
+    RendererStore,
+    RepairMismatchError,
+)
 from echo_renderer.tests.test_store_install import GIT, MAKE, InstallRunner
 
 
@@ -399,6 +404,20 @@ class RepairMismatchTests(PromoteRepairFixture):
         # The old (now-quarantined) requested identity is exactly preserved.
         quarantines = self.quarantine_dirs(second_manifest_sha)
         self.assertEqual(len(quarantines), 1)
+
+    def test_repair_mismatch_raises_a_structured_error_carrying_both_hashes(self):
+        first = self.store.install(self.request())
+        manifest_sha = first.verified.manifest_sha
+        self.runner.executable_bytes = b"different fixture bytes for a mismatch\n"
+
+        with self.assertRaises(RepairMismatchError) as raised:
+            self.store.repair(self.request(), manifest_sha)
+
+        error = raised.exception
+        self.assertEqual(error.requested_manifest_sha, manifest_sha)
+        self.assertNotEqual(error.rebuilt_manifest_sha, manifest_sha)
+        # The attributes name the real hashes: the rebuilt one verifies.
+        self.store.verify(self.source_sha, error.rebuilt_manifest_sha)
 
     def test_repair_does_not_promote_a_mismatched_rebuild_even_when_requested(self):
         first = self.store.install(self.request(promote=True))

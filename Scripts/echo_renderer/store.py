@@ -90,6 +90,28 @@ class RendererIncompatibleError(ValueError):
     """
 
 
+class RepairMismatchError(ValueError):
+    """Raised when a repair rebuild produced a different manifest hash.
+
+    Carries the requested and rebuilt manifest hashes as attributes so the
+    CLI can emit them as structured ``key=value`` stderr lines in addition
+    to the human-readable message. Subclasses ``ValueError`` so existing
+    ``assertRaises(ValueError)`` call sites and the CLI's generic exit-65
+    mapping keep working unchanged.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        requested_manifest_sha: str,
+        rebuilt_manifest_sha: str,
+    ) -> None:
+        super().__init__(message)
+        self.requested_manifest_sha = requested_manifest_sha
+        self.rebuilt_manifest_sha = rebuilt_manifest_sha
+
+
 @dataclass(frozen=True)
 class RendererProbe:
     render_version: int
@@ -570,12 +592,14 @@ class RendererStore:
             lease.close()
 
         if result.verified.manifest_sha != manifest_sha:
-            raise ValueError(
+            raise RepairMismatchError(
                 "renderer repair could not restore the requested identity: "
                 f"requested manifest {manifest_sha} but the rebuild produced "
                 f"{result.verified.manifest_sha}; the new candidate is "
                 "published at its own hash, the selector is left unchanged, "
-                f"and the requested manifest {manifest_sha} is non-resumable"
+                f"and the requested manifest {manifest_sha} is non-resumable",
+                requested_manifest_sha=manifest_sha,
+                rebuilt_manifest_sha=result.verified.manifest_sha,
             )
 
         if request.promote:

@@ -31,6 +31,7 @@ from echo_renderer.store import (
     InstallRequest,
     RendererIncompatibleError,
     RendererStore,
+    RepairMismatchError,
     VerifiedRenderer,
 )
 
@@ -274,8 +275,10 @@ def main(
     ``SystemExit`` from ``echo_renderer.lease`` -- a ``BaseException``, not
     caught here, so it passes straight through uncaught. Everything else a
     dispatched handler raises is a ``ValueError``: ``RendererIncompatibleError``
-    (a narrow ``ValueError`` subclass) maps to 69, and any other
-    ``ValueError`` maps to 65.
+    (a narrow ``ValueError`` subclass) maps to 69, ``RepairMismatchError``
+    maps to 65 with machine-readable ``requestedManifestSHA256=`` /
+    ``rebuiltManifestSHA256=`` stderr lines ahead of the message, and any
+    other ``ValueError`` maps to 65.
     """
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -284,6 +287,17 @@ def main(
     except RendererIncompatibleError as error:
         print(str(error), file=sys.stderr)
         return _INCOMPATIBLE_EXIT_CODE
+    except RepairMismatchError as error:
+        # Machine-readable companions to the message, mirroring the stable
+        # key=value stdout convention, so a caller can pick up both hashes
+        # without parsing prose.
+        print(
+            f"requestedManifestSHA256={error.requested_manifest_sha}",
+            file=sys.stderr,
+        )
+        print(f"rebuiltManifestSHA256={error.rebuilt_manifest_sha}", file=sys.stderr)
+        print(str(error), file=sys.stderr)
+        return _VERIFICATION_EXIT_CODE
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return _VERIFICATION_EXIT_CODE
