@@ -534,9 +534,12 @@ struct DocumentImportFinalizerTests {
         #expect(!words.contains { $0.word == "ghost" })
     }
 
-    /// An all-foreign word-bearing sidecar must remain a true no-op: no anchors
-    /// ingested, no word rows written.
-    @Test func allForeignWordBearingSidecarIsANoOp() async throws {
+    /// A found-but-unresolved sidecar (all portable ids foreign) must NOT leave
+    /// read-along empty. With no prior anchors and a known duration it falls back
+    /// to first/last boundary anchors so `word_timing` is materialized via
+    /// interpolation, and records the degraded reason in the summary. (Before the
+    /// J-Space hardening this wrote nothing at all — the silent-degradation bug.)
+    @Test func allForeignWordBearingSidecarFallsBackToInterpolationFloor() async throws {
         let audiobookID = "book-1"
         let databaseService = try DatabaseService(inMemory: ())
         let blocks = [
@@ -544,10 +547,19 @@ struct DocumentImportFinalizerTests {
                 id: "epub-\(audiobookID)-s0-b0",
                 audiobookID: audiobookID,
                 sequenceIndex: 0,
-                text: "one two three")
+                text: "one two three"),
+            block(
+                id: "epub-\(audiobookID)-s0-b1",
+                audiobookID: audiobookID,
+                sequenceIndex: 1,
+                text: "four five six"),
         ]
         try insertAudiobook(audiobookID, databaseService: databaseService)
         try EPubBlockDAO(db: databaseService.writer).insertAll(blocks)
+        defer {
+            UserDefaults.standard.removeObject(
+                forKey: BookPreferencesService.sidecarSummaryKey(for: audiobookID))
+        }
 
         let fileURL = try makeDocumentURL()
         defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
@@ -567,10 +579,79 @@ struct DocumentImportFinalizerTests {
         )
 
         #expect(finalized)
+        // Interpolation floor materialized (was empty before the fix), and no
+        // foreign word leaked in.
+        let words = try WordTimingDAO(db: databaseService.writer).words(forAudiobook: audiobookID)
+        #expect(!words.isEmpty)
+        #expect(words.allSatisfy { $0.source == "interpolated" })
+        #expect(!words.contains { $0.word == "ghost" })
+        // First/last boundary anchors were created to span the interpolation.
+        let anchorIDs = Set(
+            try AlignmentAnchorDAO(db: databaseService.writer).anchors(for: audiobookID).map(\.id))
+        #expect(anchorIDs.contains("anchor-init-first-\(audiobookID)"))
+        #expect(anchorIDs.contains("anchor-init-last-\(audiobookID)"))
+        // The observability summary records why it degraded.
+        let summary = try #require(
+            BookPreferencesService.loadSidecarSummary(for: audiobookID))
+        #expect(summary.sidecarFound)
+        #expect(summary.status == .foundButUnresolved)
+        #expect(summary.blocksMatched == 0)
+        #expect(summary.readAlongStatusLine.hasPrefix("Paragraph-level"))
+    }
+
+    /// A prior auto-alignment (machine anchors) must survive an unresolved
+    /// sidecar reopen: the interpolation-floor fallback is anchor-aware and only
+    /// creates first/last boundaries when there is no existing alignment to
+    /// preserve, so good alignment is never clobbered by a crude pair.
+    @Test func unresolvedSidecarPreservesExistingMachineAnchors() async throws {
+        let audiobookID = "book-1"
+        let databaseService = try DatabaseService(inMemory: ())
+        let blocks = [
+            block(
+                id: "epub-\(audiobookID)-s0-b0", audiobookID: audiobookID, sequenceIndex: 0,
+                text: "one two"),
+            block(
+                id: "epub-\(audiobookID)-s0-b1", audiobookID: audiobookID, sequenceIndex: 1,
+                text: "three four"),
+        ]
+        try insertAudiobook(audiobookID, databaseService: databaseService)
+        try EPubBlockDAO(db: databaseService.writer).insertAll(blocks)
+        defer {
+            UserDefaults.standard.removeObject(
+                forKey: BookPreferencesService.sidecarSummaryKey(for: audiobookID))
+        }
+        // Seed a prior auto-alignment machine anchor.
+        try AlignmentAnchorDAO(db: databaseService.writer).insert(
+            anchor(
+                id: "auto-anchor", audiobookID: audiobookID, blockID: blocks[1].id,
+                source: .autoAlignment, audioTime: 12))
+
+        let fileURL = try makeDocumentURL()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        let sidecar = [
+            AlignmentSidecar.Anchor(
+                blockId: "s9-b9", timestamp: 5, confidence: 1,
+                words: [AlignmentSidecar.Anchor.Word(word: "ghost", start: 5.0, end: 5.5)])
+        ]
+        try JSONEncoder().encode(sidecar).write(to: AlignmentSidecar.url(forEPUB: fileURL))
+
+        let finalized = await DocumentImportFinalizer.finalize(
+            audiobookID: audiobookID,
+            blocks: blocks,
+            fileURL: fileURL,
+            duration: 40,
+            databaseService: databaseService
+        )
+
+        #expect(finalized)
+        let anchorIDs = Set(
+            try AlignmentAnchorDAO(db: databaseService.writer).anchors(for: audiobookID).map(\.id))
+        // The prior auto-align anchor survives; no crude first/last pair replaced it.
+        #expect(anchorIDs.contains("auto-anchor"))
+        #expect(!anchorIDs.contains("anchor-init-first-\(audiobookID)"))
+        // Read-along still materialized from the preserved alignment.
         #expect(
-            try AlignmentAnchorDAO(db: databaseService.writer).anchors(for: audiobookID).isEmpty)
-        #expect(
-            try WordTimingDAO(db: databaseService.writer).words(forAudiobook: audiobookID).isEmpty)
+            try WordTimingDAO(db: databaseService.writer).hasWordTimings(forAudiobook: audiobookID))
     }
 
     /// A word count that disagrees with the block's tokenized text means the
@@ -682,6 +763,10 @@ struct DocumentImportFinalizerTests {
         ]
         try insertAudiobook(audiobookID, databaseService: databaseService)
         try EPubBlockDAO(db: databaseService.writer).insertAll(blocks)
+        defer {
+            UserDefaults.standard.removeObject(
+                forKey: BookPreferencesService.sidecarSummaryKey(for: audiobookID))
+        }
 
         let fileURL = try makeDocumentURL()
         defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
@@ -696,8 +781,142 @@ struct DocumentImportFinalizerTests {
         )
 
         #expect(finalized)
+        // A malformed sidecar can't be decoded, but the import must still fall
+        // back to the interpolation floor rather than writing nothing.
+        let anchorIDs = Set(
+            try AlignmentAnchorDAO(db: databaseService.writer).anchors(for: audiobookID).map(\.id))
+        #expect(anchorIDs.contains("anchor-init-first-\(audiobookID)"))
+        #expect(anchorIDs.contains("anchor-init-last-\(audiobookID)"))
         #expect(
-            try AlignmentAnchorDAO(db: databaseService.writer).anchors(for: audiobookID).isEmpty)
+            try WordTimingDAO(db: databaseService.writer).hasWordTimings(forAudiobook: audiobookID))
+        let summary = try #require(
+            BookPreferencesService.loadSidecarSummary(for: audiobookID))
+        #expect(summary.status == .decodeError)
+    }
+
+    /// Fix 6: a resolving sidecar records an `applied` summary with the block /
+    /// word counts Book Settings surfaces.
+    @Test func resolvingSidecarWritesAppliedSummary() async throws {
+        let audiobookID = "book-1"
+        let databaseService = try DatabaseService(inMemory: ())
+        let blocks = [
+            block(
+                id: "epub-\(audiobookID)-s0-b0", audiobookID: audiobookID, sequenceIndex: 0,
+                text: "one two three")
+        ]
+        try insertAudiobook(audiobookID, databaseService: databaseService)
+        try EPubBlockDAO(db: databaseService.writer).insertAll(blocks)
+        defer {
+            UserDefaults.standard.removeObject(
+                forKey: BookPreferencesService.sidecarSummaryKey(for: audiobookID))
+        }
+
+        let fileURL = try makeDocumentURL()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        let sidecar = [
+            AlignmentSidecar.Anchor(
+                blockId: "s0-b0", timestamp: 0, confidence: 1,
+                words: [
+                    AlignmentSidecar.Anchor.Word(word: "one", start: 0.0, end: 0.4),
+                    AlignmentSidecar.Anchor.Word(word: "two", start: 0.4, end: 0.9),
+                    AlignmentSidecar.Anchor.Word(word: "three", start: 0.9, end: 1.5),
+                ])
+        ]
+        try JSONEncoder().encode(sidecar).write(to: AlignmentSidecar.url(forEPUB: fileURL))
+
+        let finalized = await DocumentImportFinalizer.finalize(
+            audiobookID: audiobookID,
+            blocks: blocks,
+            fileURL: fileURL,
+            duration: 40,
+            databaseService: databaseService
+        )
+
+        #expect(finalized)
+        let summary = try #require(
+            BookPreferencesService.loadSidecarSummary(for: audiobookID))
+        #expect(summary.status == .applied)
+        #expect(summary.sidecarFound)
+        #expect(summary.blocksMatched == 1)
+        #expect(summary.wordsWritten == 3)
+        #expect(summary.totalBlocks == 1)
+        #expect(summary.readAlongStatusLine == "Word-level (sidecar, 1/1 blocks)")
+    }
+
+    /// Fix 4: a sidecar that only appears AFTER first import gets its word
+    /// timings applied on a later open (not just its anchors).
+    @Test func backfillOnReopenAppliesSidecarWordTimings() async throws {
+        let audiobookID = "book-1"
+        let databaseService = try DatabaseService(inMemory: ())
+        let blocks = [
+            block(
+                id: "epub-\(audiobookID)-s0-b0", audiobookID: audiobookID, sequenceIndex: 0,
+                text: "one two")
+        ]
+        try insertAudiobook(audiobookID, databaseService: databaseService)
+        try EPubBlockDAO(db: databaseService.writer).insertAll(blocks)
+        defer {
+            UserDefaults.standard.removeObject(
+                forKey: BookPreferencesService.sidecarSummaryKey(for: audiobookID))
+        }
+
+        let fileURL = try makeDocumentURL()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        let sidecar = [
+            AlignmentSidecar.Anchor(
+                blockId: "s0-b0", timestamp: 0, confidence: 1,
+                words: [
+                    AlignmentSidecar.Anchor.Word(word: "one", start: 0.0, end: 0.4),
+                    AlignmentSidecar.Anchor.Word(word: "two", start: 0.4, end: 0.9),
+                ])
+        ]
+        try JSONEncoder().encode(sidecar).write(to: AlignmentSidecar.url(forEPUB: fileURL))
+
+        // Reopen path: blocks already exist, so this loads them itself and
+        // replays only the sidecar branch.
+        let applied =
+            await DocumentImportFinalizer
+            .finalizeExistingImportIfAlignmentSidecarPresent(
+                audiobookID: audiobookID,
+                fileURL: fileURL,
+                duration: nil,
+                databaseService: databaseService
+            )
+
+        #expect(applied)
+        let words = try WordTimingDAO(db: databaseService.writer)
+            .words(forAudiobook: audiobookID, blockID: blocks[0].id)
+        #expect(words.map(\.word) == ["one", "two"])
+        #expect(words.allSatisfy { $0.source == "sidecar" })
+    }
+
+    /// Fix 2: sidecar discovery keyed off an m4b URL resolves both an exact
+    /// `<m4b-base>.alignment.json` and any `*.alignment.json` sibling, so an
+    /// audiobook whose alignment file sits next to the audio still resolves.
+    @Test func alignmentSidecarURLResolvesM4bKeyedSidecar() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "m4b-sidecar-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let m4bURL = directory.appending(path: "MyBook.m4b")
+        try Data().write(to: m4bURL)
+
+        // Exact m4b-base match.
+        let exact = directory.appending(path: "MyBook.alignment.json")
+        try Data("[]".utf8).write(to: exact)
+        #expect(
+            DocumentImportFinalizer.alignmentSidecarURL(for: m4bURL)?.lastPathComponent
+                == "MyBook.alignment.json")
+
+        // Sibling fallback: a differently-named *.alignment.json still resolves.
+        try FileManager.default.removeItem(at: exact)
+        let sibling = directory.appending(path: "MyBook-audio.alignment.json")
+        try Data("[]".utf8).write(to: sibling)
+        #expect(
+            DocumentImportFinalizer.alignmentSidecarURL(for: m4bURL)?.lastPathComponent
+                == "MyBook-audio.alignment.json")
     }
 
     private func insertAudiobook(

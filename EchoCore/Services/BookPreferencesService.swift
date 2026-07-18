@@ -65,6 +65,40 @@ struct BookPreferencesService {
         return mode
     }
 
+    // MARK: - Sidecar / word-timing import summary
+
+    nonisolated static func sidecarSummaryKey(for audiobookID: String) -> String {
+        "book_sidecarSummary_\(audiobookID)"
+    }
+
+    /// Persists the alignment-sidecar import snapshot (Book Settings reads it to
+    /// show whether read-along is word-level). `nil` clears it. `nonisolated`
+    /// so `DocumentImportFinalizer` can write it from its off-main import task
+    /// without an actor hop; `store` is injectable for testing.
+    nonisolated static func saveSidecarSummary(
+        _ summary: SidecarImportSummary?, for audiobookID: String,
+        store: UserDefaults = .standard
+    ) {
+        let key = sidecarSummaryKey(for: audiobookID)
+        guard let summary, let data = try? JSONEncoder().encode(summary) else {
+            store.removeObject(forKey: key)
+            return
+        }
+        store.set(data, forKey: key)
+    }
+
+    /// Loads the persisted sidecar summary, or `nil` if the book was imported
+    /// before this feature (Book Settings then derives a best-effort line from
+    /// the live `word_timing` rows).
+    nonisolated static func loadSidecarSummary(
+        for audiobookID: String, store: UserDefaults = .standard
+    ) -> SidecarImportSummary? {
+        guard let data = store.data(forKey: sidecarSummaryKey(for: audiobookID)) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(SidecarImportSummary.self, from: data)
+    }
+
     // MARK: - Load
 
     static func loadOverrides(for audiobookID: String) -> (

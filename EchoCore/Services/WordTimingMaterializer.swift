@@ -248,6 +248,30 @@ enum WordTimingMaterializer {
     /// confidence as `synthesis` rows — above interpolation (0.5) and DTW (0.85).
     private static let sidecarConfidence: Double = 0.9
 
+    /// The outcome of an `applySidecarWords` pass, so callers can log which
+    /// blocks took sidecar timings and which fell back — partial application
+    /// is otherwise invisible (the J-Space QA "755 blocks, 0 rows" blind spot).
+    struct SidecarWordApplication: Equatable {
+        /// Blocks whose interpolated rows were overridden with sidecar timings.
+        var blocksApplied = 0
+        /// Total sidecar word rows written across `blocksApplied`.
+        var wordsApplied = 0
+        /// Per-block skips where the sidecar's word count disagreed with the
+        /// block's tokenized rows (array-order↔wordIndex would drift).
+        var mismatches: [Mismatch] = []
+        /// Blocks that carried sidecar words but had no materialized rows to
+        /// override (block unaligned / never made it into the timeline).
+        var blocksWithoutRows = 0
+
+        struct Mismatch: Equatable {
+            let blockID: String
+            /// Rows the block was materialized with (its tokenized-text count).
+            let blockRows: Int
+            /// Words the sidecar carried for the block.
+            let sidecarWords: Int
+        }
+    }
+
     /// Overrides already-materialized word times with the word-level timings an
     /// `alignment.json` sidecar carried for `blockID`s that resolved locally.
     /// Call AFTER the sidecar anchors were ingested and the timeline/word
@@ -257,7 +281,9 @@ enum WordTimingMaterializer {
     /// that block keeps its interpolated rows.
     ///
     /// Mirrors `refineWithSynthesis(...)`: additive, retimes matched rows only,
-    /// never adds or deletes rows. Returns the number of blocks overridden.
+    /// never adds or deletes rows. Returns a per-pass summary (blocks/words
+    /// applied plus the per-block mismatches) so the importer can log why any
+    /// block stayed interpolated instead of the count silently reading zero.
     ///
     /// Note: a later in-app machine re-alignment (auto-alignment / transcript
     /// DTW) rebuilds the book's word rows and supersedes sidecar words —
@@ -268,16 +294,24 @@ enum WordTimingMaterializer {
         audiobookID: String,
         sidecarWordsByBlock: [String: [AlignmentSidecar.Anchor.Word]],
         writer: DatabaseWriter
-    ) throws -> Int {
-        guard !sidecarWordsByBlock.isEmpty else { return 0 }
+    ) throws -> SidecarWordApplication {
+        var result = SidecarWordApplication()
+        guard !sidecarWordsByBlock.isEmpty else { return result }
         let dao = WordTimingDAO(db: writer)
         var updates: [WordTimingRecord] = []
-        var blocksOverridden = 0
         for (blockID, words) in sidecarWordsByBlock {
             // Rows arrive ordered by word_index — the same reading order as the
             // sidecar's words array (array position == wordIndex).
             let rows = try dao.words(forAudiobook: audiobookID, blockID: blockID)
-            guard rows.count == words.count, !rows.isEmpty else { continue }
+            guard !rows.isEmpty else {
+                result.blocksWithoutRows += 1
+                continue
+            }
+            guard rows.count == words.count else {
+                result.mismatches.append(
+                    .init(blockID: blockID, blockRows: rows.count, sidecarWords: words.count))
+                continue
+            }
             for (row, word) in zip(rows, words) {
                 var updated = row
                 updated.audioStartTime = word.start
@@ -286,9 +320,10 @@ enum WordTimingMaterializer {
                 updated.source = "sidecar"
                 updates.append(updated)
             }
-            blocksOverridden += 1
+            result.blocksApplied += 1
+            result.wordsApplied += words.count
         }
         try dao.update(updates)
-        return blocksOverridden
+        return result
     }
 }
