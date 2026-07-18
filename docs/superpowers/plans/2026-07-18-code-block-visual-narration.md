@@ -959,7 +959,7 @@ For each hit (expected: `TimelineItem.swift:114`, `ReaderTab+Alignment.swift:186
 Expected: PASS. Also run narration + alignment suites to catch regressions:
 
 ```bash
-make test-only FILTER=EchoTests/NarrationRenderPlanTests 2>/dev/null; ls EchoTests | grep -iE "narration|alignment" 
+make test-only FILTER=EchoTests/NarrationRenderPlanTests 2>/dev/null; ls EchoTests | grep -iE "narration|alignment"
 ```
 
 Run `make test-only FILTER=EchoTests/<Suite>` for each existing narration/alignment suite listed. Expected: PASS.
