@@ -215,7 +215,21 @@ nonisolated enum AlignmentSidecarVerifier {
             issues.append(.invalidAudioDuration(audioDuration))
         }
 
-        let readable = EstimatedAlignmentSidecar.readableBlocks(from: blocks)
+        // The fallback estimator deliberately excludes `.code`, but native
+        // narration emits cue-only anchors for code listings. Verification is
+        // therefore broader than estimation: accept visible spoken blocks and
+        // validate any code word timings against the spoken cue, never raw code.
+        let readable =
+            blocks
+            .filter { block in
+                let kind = EPubBlockRecord.Kind(rawValue: block.blockKind)
+                guard !block.isHidden, kind != .image,
+                    let text = block.text?.trimmingCharacters(in: .whitespacesAndNewlines),
+                    !text.isEmpty
+                else { return false }
+                return true
+            }
+            .sorted { $0.sequenceIndex < $1.sequenceIndex }
         let resolvableSuffixes = Set(
             readable.map { AlignmentSidecar.portableSuffix(of: $0.id) }
         )
@@ -225,7 +239,9 @@ nonisolated enum AlignmentSidecarVerifier {
             readable.map {
                 (
                     AlignmentSidecar.portableSuffix(of: $0.id),
-                    WordTokenizer.words(in: $0.text ?? "").count
+                    WordTokenizer.words(
+                        in: NarrationCodeBlockCue.spokenText(for: $0) ?? ($0.text ?? "")
+                    ).count
                 )
             },
             uniquingKeysWith: { first, _ in first }

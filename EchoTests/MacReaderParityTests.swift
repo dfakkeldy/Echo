@@ -36,4 +36,19 @@ struct MacReaderParityTests {
             src.contains("performAlignment("),
             "A performAlignment helper must apply the edit and reload the feed.")
     }
+
+    @Test func readerRendersCodeAsSelectableHorizontalCard() throws {
+        let src = try MacSource.read("Views/MacReaderFeedView.swift")
+
+        #expect(
+            src.contains("case EPubBlockRecord.Kind.code.rawValue:"),
+            "The macOS reader must route code blocks to a dedicated renderer.")
+        #expect(src.contains("ScrollView(.horizontal)"))
+        #expect(src.contains("design: .monospaced"))
+        #expect(src.contains(".textSelection(.enabled)"))
+        #expect(src.contains("block.codeLanguage"))
+        #expect(
+            src.contains("Button(\"Seek to code listing\", systemImage: \"play.fill\""),
+            "Selectable code should keep seeking available as a separate accessible control.")
+    }
 }

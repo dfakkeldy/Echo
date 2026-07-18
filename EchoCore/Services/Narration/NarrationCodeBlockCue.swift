@@ -3,9 +3,9 @@ import Foundation
 
 /// Spoken-audio policy for `.code` blocks: narration speaks a short cue (the
 /// import-time caption in `narrationText`, else a generic fallback) and never
-/// the code itself. QA compares against `narrationText ?? text`, so keeping
-/// the cue in `narrationText` keeps audio, storage, and QA consistent.
-enum NarrationCodeBlockCue {
+/// the code itself. The helper is shared by synthesis, QA, and sidecar
+/// verification so each surface applies the same cue/fallback policy.
+nonisolated enum NarrationCodeBlockCue {
     static let fallback = "Code listing."
 
     /// The exact string narration should synthesize for `block`, or nil when

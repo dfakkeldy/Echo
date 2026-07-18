@@ -30,10 +30,33 @@ import Testing
                 createdAt: nil, modifiedAt: nil))
     }
 
-    private func seedOpenIssue(_ db: DatabaseService, book: String, id: String) throws {
+    private func seedCode(_ db: DatabaseService, book: String, cue: String?) throws {
+        try db.writer.write { database in
+            try database.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES (?, ?, ?)",
+                arguments: [book, "Code Test", 60.0])
+        }
+        try EPubBlockDAO(db: db.writer).insert(
+            EPubBlockRecord(
+                id: "code1", audiobookID: book, spineHref: "s.html", spineIndex: 0,
+                blockIndex: 0, sequenceIndex: 0,
+                blockKind: EPubBlockRecord.Kind.code.rawValue,
+                text: "let rawSecret = neverSpeakThis", htmlContent: nil,
+                cardColor: nil, chapterThemeColor: nil, imagePath: nil, chapterIndex: 0,
+                isHidden: false, hiddenReason: nil, wordCount: 4, markers: nil,
+                textFormats: nil, narrationText: cue, codeLanguage: "swift",
+                createdAt: nil, modifiedAt: nil))
+    }
+
+    private func seedOpenIssue(
+        _ db: DatabaseService,
+        book: String,
+        id: String,
+        blockID: String = "blk1"
+    ) throws {
         try NarrationQualityIssueDAO(db: db.writer).insert([
             NarrationQualityIssueRecord(
-                id: id, audiobookID: book, sourceBlockID: "blk1",
+                id: id, audiobookID: book, sourceBlockID: blockID,
                 sourceWordStart: 0, sourceWordEnd: 0,
                 audioStartTime: 0, audioEndTime: 1,
                 expectedText: "quick", heardText: "",
@@ -42,6 +65,50 @@ import Testing
                 status: NarrationQAIssueStatus.open.rawValue,
                 createdAt: "t0", resolvedAt: nil)
         ])
+    }
+
+    private func assertCodeCueFallbackDrivesQA(cue: String?) async throws {
+        let db = try DatabaseService(inMemory: ())
+        try seedCode(db, book: "code-book", cue: cue)
+        try seedOpenIssue(db, book: "code-book", id: "stale-open", blockID: "code1")
+        let heard = [
+            TranscribedWord(text: "code", start: 0),
+            TranscribedWord(text: "listing", start: 0.4),
+        ]
+        let service = NarrationQAService(
+            db: db.writer, classifier: DeterministicDivergenceClassifier(),
+            transcribe: { _ in heard })
+
+        try await service.runQA(
+            audiobookID: "code-book",
+            chapters: [(0, URL(fileURLWithPath: "/tmp/code-cue.m4a"), ["code1"])])
+
+        let issues = try NarrationQualityIssueDAO(db: db.writer).issues(for: "code-book")
+        #expect(issues.isEmpty)
+    }
+
+    @Test func codeBlockWithoutCueQAUsesNarrationFallback() async throws {
+        try await assertCodeCueFallbackDrivesQA(cue: nil)
+    }
+
+    @Test func codeBlockWithBlankCueQAUsesNarrationFallback() async throws {
+        let db = try DatabaseService(inMemory: ())
+        try seedCode(db, book: "blank-code-book", cue: "   ")
+        let heard = [
+            TranscribedWord(text: "unexpected", start: 0),
+            TranscribedWord(text: "speech", start: 0.4),
+        ]
+        let service = NarrationQAService(
+            db: db.writer, classifier: DeterministicDivergenceClassifier(),
+            transcribe: { _ in heard })
+
+        try await service.runQA(
+            audiobookID: "blank-code-book",
+            chapters: [(0, URL(fileURLWithPath: "/tmp/blank-code-cue.m4a"), ["code1"])])
+
+        let issues = try NarrationQualityIssueDAO(db: db.writer).issues(for: "blank-code-book")
+        #expect(!issues.isEmpty)
+        #expect(issues.allSatisfy { $0.sourceBlockID == "code1" })
     }
 
     @Test func plantedErrorProducesIssueDeterministically() async throws {

@@ -119,7 +119,8 @@ private struct VisualListeningCodeView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.hidden)
-        .accessibilityHidden(true)
+        .accessibilityLabel(Text("Code listing"))
+        .accessibilityValue(Text(text))
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if let subtitleCue {
                 VisualListeningSubtitleView(cue: subtitleCue, appFont: appFont)

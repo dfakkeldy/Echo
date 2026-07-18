@@ -73,6 +73,40 @@ private final class EstimatedSidecarFixtureBundleLocator {}
         #expect(report.chapterCount == 2)
     }
 
+    @Test func verifyAcceptsCueOnlyCodeAnchorFromNativeNarration() throws {
+        var code = block(
+            spine: 0,
+            index: 1,
+            sequence: 1,
+            kind: .code,
+            words: 3,
+            text: "let value = 42"
+        )
+        code.narrationText = "Example value assignment."
+        code.codeLanguage = "swift"
+        let blocks = [
+            block(spine: 0, index: 0, sequence: 0, words: 1, text: "Intro"),
+            code,
+        ]
+        let chapters = [
+            EstimatedAlignmentSidecar.ChapterTiming(index: 0, start: 0, end: 10)
+        ]
+        let anchors = [
+            AlignmentSidecar.Anchor(blockId: "s0-b0", timestamp: 0, confidence: 1),
+            AlignmentSidecar.Anchor(blockId: "s0-b1", timestamp: 4, confidence: 1),
+        ]
+
+        let report = try AlignmentSidecarVerifier.verify(
+            anchors: anchors,
+            blocks: blocks,
+            chapterTimings: chapters,
+            audioDuration: 10
+        )
+
+        #expect(report.anchorCount == 2)
+        #expect(report.anchorsWithWords == 0)
+    }
+
     @Test func verifyReportsUnresolvedNonMonotonicOutOfRangeAndEmptyChapterIssues() {
         let blocks = [
             block(spine: 0, index: 0, sequence: 0, words: 1, text: "A"),

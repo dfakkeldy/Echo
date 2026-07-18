@@ -59,6 +59,8 @@ struct MacVisualListeningParityTests {
         #expect(codeView.contains(".font(.system(.callout, design: .monospaced))"))
         #expect(codeView.contains(".textSelection(.enabled)"))
         #expect(codeView.contains(".scrollIndicators(.hidden)"))
+        #expect(!codeView.contains(".accessibilityHidden(true)"))
+        #expect(codeView.contains(".accessibilityValue(Text(text))"))
         #expect(stage.contains("Current code listing"))
     }
 
@@ -72,6 +74,8 @@ struct MacVisualListeningParityTests {
         #expect(codeView.contains(".font(.system(.callout, design: .monospaced))"))
         #expect(codeView.contains(".textSelection(.enabled)"))
         #expect(codeView.contains(".scrollIndicators(.hidden)"))
+        #expect(!codeView.contains(".accessibilityHidden(true)"))
+        #expect(codeView.contains(".accessibilityValue(Text(text))"))
         #expect(stage.contains("Current code listing"))
     }
 
