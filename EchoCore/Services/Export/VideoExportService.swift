@@ -9,6 +9,9 @@ import os.log
 /// Whole-book slideshow video exporter: H.264/AAC MP4 with sparse frames from
 /// `SlideshowExportPlanner`, plus `.srt` and `.chapters.txt` sidecars.
 actor VideoExportService {
+    /// Semantic preflight failures plus the fallback for writer/reader states
+    /// that provide no underlying AVFoundation error. Because Swift throws are
+    /// untyped, callers must also handle underlying source, disk, and media errors.
     enum ExportError: Error {
         case noAudio
         case noAlignment
@@ -46,6 +49,8 @@ actor VideoExportService {
     /// AVFoundation documents feeding distinct writer inputs concurrently. These
     /// boxes are the only unchecked boundary: each input and the renderer/reader
     /// that feeds it is owned by exactly one child task until the group joins.
+    /// TODO(export-avfoundation-receivers): Remove all three unchecked bridges when
+    /// receiver-based writer APIs can replace them while preserving iOS 18/macOS 15.
     private nonisolated final class VideoPumpBox: @unchecked Sendable {
         let input: AVAssetWriterInput
         let adaptor: AVAssetWriterInputPixelBufferAdaptor
@@ -99,16 +104,11 @@ actor VideoExportService {
     ) async throws -> Output {
         try Task.checkCancellation()
 
-        let sourceItems: [ExportItem]
-        do {
-            let resolved = try await Self.resolveSourceItems(
-                audiobookID: audiobookID,
-                databaseWriter: databaseWriter,
-                cacheDirectory: cacheDirectory)
-            sourceItems = resolved.map(\.exportItem)
-        } catch {
-            throw ExportError.noAudio
-        }
+        let resolved = try await Self.resolveSourceItems(
+            audiobookID: audiobookID,
+            databaseWriter: databaseWriter,
+            cacheDirectory: cacheDirectory)
+        let sourceItems = resolved.map(\.exportItem)
         guard !sourceItems.isEmpty else { throw ExportError.noAudio }
 
         let timeline = try TimelineRowLoader.rows(
@@ -165,11 +165,7 @@ actor VideoExportService {
             let itemRange = item.timeRange ?? CMTimeRange(start: .zero, duration: fullDuration)
             guard itemRange.duration.isNumeric, itemRange.duration > .zero else { continue }
 
-            do {
-                try audioTrack.insertTimeRange(itemRange, of: sourceTrack, at: position)
-            } catch {
-                throw ExportError.writerFailed
-            }
+            try audioTrack.insertTimeRange(itemRange, of: sourceTrack, at: position)
             if item.emitsChapterMarker {
                 chapterMarks.append(
                     SlideshowChapterMark(startTime: position.seconds, title: item.title))
@@ -330,7 +326,18 @@ actor VideoExportService {
             audiobookID: audiobookID,
             databaseWriter: databaseWriter,
             cacheDirectory: cacheDirectory)
-        return try await source.items().map(ResolvedSourceItem.init)
+        return try await sourceItems(from: source).map(ResolvedSourceItem.init)
+    }
+
+    /// Maps only the resolver's explicit "no local source" condition. Cancellation
+    /// and all other underlying errors pass through unchanged.
+    @MainActor
+    static func sourceItems(from source: ExportSource) async throws -> [ExportItem] {
+        do {
+            return try await source.items()
+        } catch ImportedBookSource.SourceError.sourceUnavailable {
+            throw ExportError.noAudio
+        }
     }
 
     /// Groups consecutive items by source URL, then applies the exact chapter
@@ -581,10 +588,13 @@ actor VideoExportService {
     }
 
     private static func writerError(_ writer: AVAssetWriter) -> Error {
+        // `writerFailed` is intentionally a fallback only. Disk/codec errors
+        // supplied by AVFoundation remain available to callers.
         writer.error ?? ExportError.writerFailed
     }
 
     private static func readerError(_ reader: AVAssetReader) -> Error {
+        // Keep the underlying media error whenever AVFoundation provides one.
         reader.error ?? ExportError.writerFailed
     }
 }
