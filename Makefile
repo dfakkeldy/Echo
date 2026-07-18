@@ -104,31 +104,31 @@ renderer-install-test: ## Run the echo_renderer Python unit tests (store, lease,
 
 install-renderer: ## Build, stage, verify, and publish one approved renderer package
 	@PYTHONPATH=Scripts python3 -m echo_renderer.cli install \
-	  --installer-worktree $(CURDIR) \
-	  --installer-sha $(APPROVED_ECHO_INSTALLER_SHA) \
-	  --source-worktree $(ECHO_RENDERER_SOURCE) \
-	  --source-sha $(APPROVED_ECHO_PRONUNCIATION_SHA) \
-	  $(if $(ECHO_RENDERER_ROOT),--renderer-root $(ECHO_RENDERER_ROOT)) \
-	  $(if $(ECHO_BUILD_GATE),--build-gate $(ECHO_BUILD_GATE))
+	  --installer-worktree "$(CURDIR)" \
+	  --installer-sha "$(APPROVED_ECHO_INSTALLER_SHA)" \
+	  --source-worktree "$(ECHO_RENDERER_SOURCE)" \
+	  --source-sha "$(APPROVED_ECHO_PRONUNCIATION_SHA)" \
+	  $(if $(ECHO_RENDERER_ROOT),--renderer-root "$(ECHO_RENDERER_ROOT)") \
+	  $(if $(ECHO_BUILD_GATE),--build-gate "$(ECHO_BUILD_GATE)")
 
 verify-renderer: ## Strictly re-verify one published renderer package
 	@PYTHONPATH=Scripts python3 -m echo_renderer.cli verify \
-	  --source-sha $(APPROVED_ECHO_PRONUNCIATION_SHA) \
-	  --manifest-sha $(ECHO_RENDERER_MANIFEST_SHA) \
-	  $(if $(ECHO_RENDERER_ROOT),--renderer-root $(ECHO_RENDERER_ROOT))
+	  --source-sha "$(APPROVED_ECHO_PRONUNCIATION_SHA)" \
+	  --manifest-sha "$(ECHO_RENDERER_MANIFEST_SHA)" \
+	  $(if $(ECHO_RENDERER_ROOT),--renderer-root "$(ECHO_RENDERER_ROOT)")
 
 promote-renderer: ## Point the renderer selector at one verified package
 	@PYTHONPATH=Scripts python3 -m echo_renderer.cli promote \
-	  --source-sha $(APPROVED_ECHO_PRONUNCIATION_SHA) \
-	  --manifest-sha $(ECHO_RENDERER_MANIFEST_SHA) \
-	  $(if $(ECHO_RENDERER_ROOT),--renderer-root $(ECHO_RENDERER_ROOT))
+	  --source-sha "$(APPROVED_ECHO_PRONUNCIATION_SHA)" \
+	  --manifest-sha "$(ECHO_RENDERER_MANIFEST_SHA)" \
+	  $(if $(ECHO_RENDERER_ROOT),--renderer-root "$(ECHO_RENDERER_ROOT)")
 
 repair-renderer: ## Quarantine and rebuild one renderer package identity
 	@PYTHONPATH=Scripts python3 -m echo_renderer.cli repair \
-	  --installer-worktree $(CURDIR) \
-	  --installer-sha $(APPROVED_ECHO_INSTALLER_SHA) \
-	  --source-worktree $(ECHO_RENDERER_SOURCE) \
-	  --source-sha $(APPROVED_ECHO_PRONUNCIATION_SHA) \
-	  --manifest-sha $(ECHO_RENDERER_MANIFEST_SHA) \
-	  $(if $(ECHO_RENDERER_ROOT),--renderer-root $(ECHO_RENDERER_ROOT)) \
-	  $(if $(ECHO_BUILD_GATE),--build-gate $(ECHO_BUILD_GATE))
+	  --installer-worktree "$(CURDIR)" \
+	  --installer-sha "$(APPROVED_ECHO_INSTALLER_SHA)" \
+	  --source-worktree "$(ECHO_RENDERER_SOURCE)" \
+	  --source-sha "$(APPROVED_ECHO_PRONUNCIATION_SHA)" \
+	  --manifest-sha "$(ECHO_RENDERER_MANIFEST_SHA)" \
+	  $(if $(ECHO_RENDERER_ROOT),--renderer-root "$(ECHO_RENDERER_ROOT)") \
+	  $(if $(ECHO_BUILD_GATE),--build-gate "$(ECHO_BUILD_GATE)")
