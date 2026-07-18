@@ -41,7 +41,7 @@ struct VisualListeningViewModelTests {
         )
 
         #expect(viewModel.hasVisualListeningContent)
-        #expect(viewModel.snapshot.imageCue?.blockID == "book-1-image")
+        #expect(viewModel.snapshot.visualCue?.blockID == "book-1-image")
         #expect(viewModel.snapshot.subtitleCue?.text == "Book one subtitle.")
         #expect(viewModel.snapshot.subtitleCue?.activeWordIndex == 0)
     }
@@ -117,11 +117,11 @@ struct VisualListeningViewModelTests {
         await viewModel.reload()
 
         viewModel.update(time: 1, currentTrackSegmentKey: nil, currentTrackChapterIndices: nil)
-        #expect(viewModel.snapshot.imageCue?.blockID == "image-1")
+        #expect(viewModel.snapshot.visualCue?.blockID == "image-1")
         #expect(viewModel.snapshot.subtitleCue?.blockID == "text-1")
 
         viewModel.update(time: 12, currentTrackSegmentKey: nil, currentTrackChapterIndices: nil)
-        #expect(viewModel.snapshot.imageCue?.blockID == "image-2")
+        #expect(viewModel.snapshot.visualCue?.blockID == "image-2")
         #expect(viewModel.snapshot.subtitleCue?.blockID == "text-2")
     }
 
@@ -157,7 +157,7 @@ struct VisualListeningViewModelTests {
         await viewModel.reload()
         viewModel.update(time: 2, currentTrackSegmentKey: nil, currentTrackChapterIndices: [1])
 
-        #expect(viewModel.snapshot.imageCue?.blockID == "c1-image")
+        #expect(viewModel.snapshot.visualCue?.blockID == "c1-image")
         #expect(viewModel.snapshot.subtitleCue?.blockID == "c1-text")
     }
 
@@ -180,12 +180,12 @@ struct VisualListeningViewModelTests {
         await viewModel.reload()
         viewModel.update(time: 6, currentTrackSegmentKey: nil, currentTrackChapterIndices: nil)
 
-        #expect(viewModel.snapshot.imageCue == nil)
+        #expect(viewModel.snapshot.visualCue == nil)
 
         viewModel.syncPoint = .midpoint
 
-        #expect(viewModel.snapshot.imageCue?.blockID == "image")
-        #expect(viewModel.snapshot.imageCue?.displayStartTime == 5)
+        #expect(viewModel.snapshot.visualCue?.blockID == "image")
+        #expect(viewModel.snapshot.visualCue?.displayStartTime == 5)
         #expect(viewModel.snapshot.subtitleCue?.blockID == "text")
     }
 

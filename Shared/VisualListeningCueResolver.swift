@@ -11,11 +11,17 @@ enum VisualListeningImageCueSource: String, Codable, Sendable {
     case derivedFromNearbyText
 }
 
-struct VisualListeningImageCue: Equatable, Identifiable, Sendable {
+/// What the visual stage shows for a cue: a figure image or a code listing.
+enum VisualListeningVisualContent: Equatable, Sendable {
+    case image(path: String)
+    case code(text: String, language: String?)
+}
+
+struct VisualListeningVisualCue: Equatable, Identifiable, Sendable {
     var id: String { blockID }
 
     let blockID: String
-    let imagePath: String
+    let content: VisualListeningVisualContent
     let caption: String?
     let subtitleBlockID: String?
     let chapterIndex: Int?
@@ -24,6 +30,13 @@ struct VisualListeningImageCue: Equatable, Identifiable, Sendable {
     let displayEndTime: TimeInterval
     let syncPoint: VisualListeningSyncPoint
     let source: VisualListeningImageCueSource
+
+    /// Image path when the content is an image; nil for code. Kept so
+    /// image-loading call sites stay simple (`visualCue?.imagePath`).
+    var imagePath: String? {
+        if case .image(let path) = content { return path }
+        return nil
+    }
 }
 
 struct VisualListeningSubtitleCue: Equatable, Sendable {
@@ -37,12 +50,12 @@ struct VisualListeningSubtitleCue: Equatable, Sendable {
 }
 
 struct VisualListeningSnapshot: Equatable, Sendable {
-    var imageCue: VisualListeningImageCue?
+    var visualCue: VisualListeningVisualCue?
     var subtitleCue: VisualListeningSubtitleCue?
     var activeBlockID: String?
 
     static let empty = VisualListeningSnapshot(
-        imageCue: nil,
+        visualCue: nil,
         subtitleCue: nil,
         activeBlockID: nil
     )
@@ -71,7 +84,7 @@ nonisolated enum VisualListeningCueResolver {
             currentTrackSegmentKey: currentTrackSegmentKey,
             currentTrackChapterIndices: currentTrackChapterIndices
         )
-        let imageCue = activeImageCue(
+        let visualCue = activeVisualCue(
             blocks: orderedBlocks,
             blocksByID: blocksByID,
             timeline: timeline,
@@ -88,20 +101,20 @@ nonisolated enum VisualListeningCueResolver {
                 time: time
             )
             ?? subtitleCue(
-                blockID: imageCue?.subtitleBlockID,
+                blockID: visualCue?.subtitleBlockID,
                 blocksByID: blocksByID,
                 words: words,
                 time: time
             )
 
         return VisualListeningSnapshot(
-            imageCue: imageCue,
+            visualCue: visualCue,
             subtitleCue: subtitleCue,
             activeBlockID: activeBlockID
         )
     }
 
-    private static func activeImageCue(
+    private static func activeVisualCue(
         blocks: [EPubBlockRecord],
         blocksByID: [String: EPubBlockRecord],
         timeline: [ReaderActiveBlockResolver.TimelineRow],
@@ -109,8 +122,8 @@ nonisolated enum VisualListeningCueResolver {
         currentTrackSegmentKey: String?,
         currentTrackChapterIndices: Set<Int>?,
         syncPoint: VisualListeningSyncPoint
-    ) -> VisualListeningImageCue? {
-        imageCues(
+    ) -> VisualListeningVisualCue? {
+        visualCues(
             blocks: blocks,
             blocksByID: blocksByID,
             timeline: timeline,
@@ -127,14 +140,14 @@ nonisolated enum VisualListeningCueResolver {
         }
     }
 
-    static func imageCues(
+    private static func visualCues(
         blocks: [EPubBlockRecord],
         blocksByID: [String: EPubBlockRecord],
         timeline: [ReaderActiveBlockResolver.TimelineRow],
         currentTrackSegmentKey: String?,
         currentTrackChapterIndices: Set<Int>?,
         syncPoint: VisualListeningSyncPoint
-    ) -> [VisualListeningImageCue] {
+    ) -> [VisualListeningVisualCue] {
         let scopedRows = timeline.filter {
             rowIsInScope(
                 $0,
@@ -142,13 +155,16 @@ nonisolated enum VisualListeningCueResolver {
                 currentTrackChapterIndices: currentTrackChapterIndices
             )
         }
-        let imageBlocks = blocks.filter {
-            !$0.isHidden
-                && $0.blockKind == EPubBlockRecord.Kind.image.rawValue
-                && ($0.imagePath?.isEmpty == false)
+        let visualBlocks = blocks.filter { block in
+            guard !block.isHidden else { return false }
+            switch EPubBlockRecord.Kind(rawValue: block.blockKind) {
+            case .image: return block.imagePath?.isEmpty == false
+            case .code: return block.text?.isEmpty == false
+            default: return false
+            }
         }
 
-        return imageBlocks.compactMap { block in
+        return visualBlocks.compactMap { block in
             if let explicit = scopedRows.first(where: {
                 $0.blockID == block.id && $0.end > $0.start
             }) {
@@ -157,9 +173,8 @@ nonisolated enum VisualListeningCueResolver {
                     ? block.id
                     : referenceRow(for: block, rows: scopedRows, blocksByID: blocksByID)?.blockID
 
-                return makeImageCue(
+                return makeVisualCue(
                     block: block,
-                    imagePath: block.imagePath ?? "",
                     subtitleBlockID: subtitleBlockID,
                     displayStart: explicit.start,
                     displayEnd: explicit.end,
@@ -181,9 +196,8 @@ nonisolated enum VisualListeningCueResolver {
                 syncPoint: syncPoint
             )
             guard window.end > window.start else { return nil }
-            return makeImageCue(
+            return makeVisualCue(
                 block: block,
-                imagePath: block.imagePath ?? "",
                 subtitleBlockID: reference.blockID,
                 displayStart: window.start,
                 displayEnd: window.end,
@@ -194,7 +208,7 @@ nonisolated enum VisualListeningCueResolver {
     }
 
     private static func referenceRow(
-        for imageBlock: EPubBlockRecord,
+        for visualBlock: EPubBlockRecord,
         rows: [ReaderActiveBlockResolver.TimelineRow],
         blocksByID: [String: EPubBlockRecord]
     ) -> ReaderActiveBlockResolver.TimelineRow? {
@@ -202,9 +216,12 @@ nonisolated enum VisualListeningCueResolver {
             rows
             .filter { row in
                 guard row.end > row.start,
-                    row.chapterIndex == imageBlock.chapterIndex,
+                    row.chapterIndex == visualBlock.chapterIndex,
                     let block = blocksByID[row.blockID],
-                    block.blockKind != EPubBlockRecord.Kind.image.rawValue,
+                    {
+                        let kind = EPubBlockRecord.Kind(rawValue: block.blockKind)
+                        return kind != .image && kind != .code
+                    }(),
                     block.text?.isEmpty == false
                 else { return false }
                 return true
@@ -217,12 +234,12 @@ nonisolated enum VisualListeningCueResolver {
             }
 
         if let following = candidateRows.first(where: {
-            (blocksByID[$0.blockID]?.sequenceIndex ?? Int.max) >= imageBlock.sequenceIndex
+            (blocksByID[$0.blockID]?.sequenceIndex ?? Int.max) >= visualBlock.sequenceIndex
         }) {
             return following
         }
         return candidateRows.last(where: {
-            (blocksByID[$0.blockID]?.sequenceIndex ?? Int.min) < imageBlock.sequenceIndex
+            (blocksByID[$0.blockID]?.sequenceIndex ?? Int.min) < visualBlock.sequenceIndex
         })
     }
 
@@ -244,19 +261,32 @@ nonisolated enum VisualListeningCueResolver {
         }
     }
 
-    private static func makeImageCue(
+    private static func makeVisualCue(
         block: EPubBlockRecord,
-        imagePath: String,
         subtitleBlockID: String?,
         displayStart: TimeInterval,
         displayEnd: TimeInterval,
         syncPoint: VisualListeningSyncPoint,
         source: VisualListeningImageCueSource
-    ) -> VisualListeningImageCue {
-        VisualListeningImageCue(
+    ) -> VisualListeningVisualCue? {
+        let content: VisualListeningVisualContent
+        let caption: String?
+        switch EPubBlockRecord.Kind(rawValue: block.blockKind) {
+        case .image:
+            guard let path = block.imagePath, !path.isEmpty else { return nil }
+            content = .image(path: path)
+            caption = block.text
+        case .code:
+            guard let code = block.text, !code.isEmpty else { return nil }
+            content = .code(text: code, language: block.codeLanguage)
+            caption = block.narrationText
+        default:
+            return nil
+        }
+        return VisualListeningVisualCue(
             blockID: block.id,
-            imagePath: imagePath,
-            caption: block.text,
+            content: content,
+            caption: caption,
             subtitleBlockID: subtitleBlockID,
             chapterIndex: block.chapterIndex,
             sequenceIndex: block.sequenceIndex,
@@ -274,11 +304,23 @@ nonisolated enum VisualListeningCueResolver {
         time: TimeInterval
     ) -> VisualListeningSubtitleCue? {
         guard let blockID,
-            let block = blocksByID[blockID],
-            let text = block.text,
-            !text.isEmpty
+            let block = blocksByID[blockID]
         else { return nil }
 
+        let text: String
+        if EPubBlockRecord.Kind(rawValue: block.blockKind) == .code {
+            // Keep this shared-target fallback in sync with NarrationCodeBlockCue.fallback.
+            let fallback = "Code listing."
+            text =
+                block.narrationText?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .isEmpty == false
+                ? (block.narrationText ?? fallback)
+                : fallback
+        } else if let blockText = block.text, !blockText.isEmpty {
+            text = blockText
+        } else {
+            return nil
+        }
         let blockWords =
             words
             .filter { $0.blockID == blockID }

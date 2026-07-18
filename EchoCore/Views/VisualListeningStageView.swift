@@ -30,7 +30,7 @@ struct VisualListeningStageView: View {
             .accessibilityLabel(Text("Image timing"))
         }
         .onAppear(perform: loadImageIfNeeded)
-        .onChange(of: snapshot.imageCue?.imagePath) { _, _ in
+        .onChange(of: snapshot.visualCue?.imagePath) { _, _ in
             loadImageIfNeeded()
         }
         .accessibilityElement(children: .contain)
@@ -41,7 +41,9 @@ struct VisualListeningStageView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.primary.opacity(0.08))
 
-            if let image {
+            if case .code(let text, _) = snapshot.visualCue?.content {
+                VisualListeningCodeView(text: text)
+            } else if let image {
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
@@ -57,14 +59,19 @@ struct VisualListeningStageView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipShape(.rect(cornerRadius: 16))
         .shadow(color: .black.opacity(0.18), radius: 14, x: 0, y: 8)
-        .animation(.easeInOut(duration: 0.25), value: snapshot.imageCue?.id)
+        .animation(.easeInOut(duration: 0.25), value: snapshot.visualCue?.id)
         .accessibilityLabel(Text(accessibilityLabel))
     }
 
     private var accessibilityLabel: String {
-        if let caption = snapshot.imageCue?.caption, !caption.isEmpty {
-            return String(localized: "Current figure: \(caption)")
+        let isCode: Bool
+        if case .code = snapshot.visualCue?.content { isCode = true } else { isCode = false }
+        if let caption = snapshot.visualCue?.caption, !caption.isEmpty {
+            return isCode
+                ? String(localized: "Current code listing: \(caption)")
+                : String(localized: "Current figure: \(caption)")
         }
+        if isCode { return String(localized: "Current code listing") }
         if let subtitle = snapshot.subtitleCue?.text, !subtitle.isEmpty {
             return String(localized: "Current figure for subtitle: \(subtitle)")
         }
@@ -72,7 +79,7 @@ struct VisualListeningStageView: View {
     }
 
     private func loadImageIfNeeded() {
-        guard let imagePath = snapshot.imageCue?.imagePath else {
+        guard let imagePath = snapshot.visualCue?.imagePath else {
             image = nil
             loadedImagePath = nil
             return
@@ -86,6 +93,22 @@ struct VisualListeningStageView: View {
         guard let url = VisualListeningImageLocator.resolvedURL(forStoredPath: imagePath)
         else { return nil }
         return UIImage(contentsOfFile: url.path)
+    }
+}
+
+private struct VisualListeningCodeView: View {
+    let text: String
+
+    var body: some View {
+        ScrollView([.vertical, .horizontal]) {
+            Text(text)
+                .font(.system(.callout, design: .monospaced))
+                .textSelection(.enabled)
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .scrollIndicators(.hidden)
+        .accessibilityHidden(true)
     }
 }
 

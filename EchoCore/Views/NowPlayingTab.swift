@@ -146,7 +146,7 @@ struct NowPlayingTab: View {
     private var activeVisualListeningSnapshot: VisualListeningSnapshot? {
         guard visualListeningViewModel?.hasVisualListeningContent == true,
             let snapshot = visualListeningViewModel?.snapshot,
-            snapshot.imageCue != nil,
+            snapshot.visualCue != nil,
             snapshot.subtitleCue != nil
         else { return nil }
         return snapshot

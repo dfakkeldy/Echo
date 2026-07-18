@@ -93,16 +93,20 @@ final class VisualListeningViewModel {
         timeline: [ReaderActiveBlockResolver.TimelineRow]
     ) -> Bool {
         let blockByID = Dictionary(uniqueKeysWithValues: blocks.map { ($0.id, $0) })
-        let hasImage = blocks.contains { block in
-            block.blockKind == EPubBlockRecord.Kind.image.rawValue
-                && block.imagePath?.isEmpty == false
+        let hasVisual = blocks.contains { block in
+            switch EPubBlockRecord.Kind(rawValue: block.blockKind) {
+            case .image: return block.imagePath?.isEmpty == false
+            case .code: return block.text?.isEmpty == false
+            default: return false
+            }
         }
         let hasSubtitle = timeline.contains { row in
             guard let block = blockByID[row.blockID] else { return false }
-            guard block.blockKind != EPubBlockRecord.Kind.image.rawValue else { return false }
+            let kind = EPubBlockRecord.Kind(rawValue: block.blockKind)
+            guard kind != .image, kind != .code else { return false }
             return block.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         }
 
-        return hasImage && hasSubtitle
+        return hasVisual && hasSubtitle
     }
 }

@@ -34,7 +34,7 @@ struct MacVisualStageView: View {
             .frame(maxWidth: 320, alignment: .topLeading)
         }
         .onAppear(perform: loadImageIfNeeded)
-        .onChange(of: snapshot.imageCue?.imagePath) { _, _ in
+        .onChange(of: snapshot.visualCue?.imagePath) { _, _ in
             loadImageIfNeeded()
         }
         .accessibilityElement(children: .contain)
@@ -45,7 +45,9 @@ struct MacVisualStageView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color.primary.opacity(0.07))
 
-            if let image {
+            if case .code(let text, _) = snapshot.visualCue?.content {
+                VisualListeningCodeView(text: text)
+            } else if let image {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
@@ -60,14 +62,19 @@ struct MacVisualStageView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipShape(.rect(cornerRadius: 12))
-        .animation(.easeInOut(duration: 0.25), value: snapshot.imageCue?.id)
+        .animation(.easeInOut(duration: 0.25), value: snapshot.visualCue?.id)
         .accessibilityLabel(Text(accessibilityLabel))
     }
 
     private var accessibilityLabel: String {
-        if let caption = snapshot.imageCue?.caption, !caption.isEmpty {
-            return String(localized: "Current figure: \(caption)")
+        let isCode: Bool
+        if case .code = snapshot.visualCue?.content { isCode = true } else { isCode = false }
+        if let caption = snapshot.visualCue?.caption, !caption.isEmpty {
+            return isCode
+                ? String(localized: "Current code listing: \(caption)")
+                : String(localized: "Current figure: \(caption)")
         }
+        if isCode { return String(localized: "Current code listing") }
         if let subtitle = snapshot.subtitleCue?.text, !subtitle.isEmpty {
             return String(localized: "Current figure for subtitle: \(subtitle)")
         }
@@ -75,7 +82,7 @@ struct MacVisualStageView: View {
     }
 
     private func loadImageIfNeeded() {
-        guard let imagePath = snapshot.imageCue?.imagePath else {
+        guard let imagePath = snapshot.visualCue?.imagePath else {
             image = nil
             loadedImagePath = nil
             return
@@ -99,6 +106,22 @@ struct MacVisualStageView: View {
             .appendingPathComponent(imagePath)
         guard FileManager.default.fileExists(atPath: resolvedURL.path) else { return nil }
         return NSImage(contentsOf: resolvedURL)
+    }
+}
+
+private struct VisualListeningCodeView: View {
+    let text: String
+
+    var body: some View {
+        ScrollView([.vertical, .horizontal]) {
+            Text(text)
+                .font(.system(.callout, design: .monospaced))
+                .textSelection(.enabled)
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .scrollIndicators(.hidden)
+        .accessibilityHidden(true)
     }
 }
 
