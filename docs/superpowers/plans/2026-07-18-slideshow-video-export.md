@@ -653,7 +653,7 @@ nonisolated enum SRTFormatter {
 }
 ```
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `EchoTests/SRTFormatterTests.swift`:
 
@@ -706,7 +706,7 @@ struct SRTFormatterTests {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 ```bash
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && make build-tests
@@ -714,7 +714,7 @@ struct SRTFormatterTests {
 
 Expected: compile FAILURE — `SRTFormatter` not defined.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `Shared/SRTFormatter.swift`:
 
@@ -771,7 +771,7 @@ nonisolated enum SRTFormatter {
 
 Note: `String(format:)` is acceptable here — these are wire-format timestamps with locale-independent fixed layouts, not user-facing numerals, so `FormatStyle` (locale-aware) would be wrong.
 
-- [ ] **Step 4: Run focused tests until green**
+- [x] **Step 4: Run focused tests until green**
 
 ```bash
 make test-only FILTER=EchoTests/SRTFormatterTests
@@ -779,7 +779,7 @@ make test-only FILTER=EchoTests/SRTFormatterTests
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Shared/SRTFormatter.swift EchoTests/SRTFormatterTests.swift
