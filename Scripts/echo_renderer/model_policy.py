@@ -29,14 +29,24 @@ def read_model_policy(source_root: Path) -> ModelPolicy:
 
     revisions = _REVISION_PATTERN.findall(source)
     if len(revisions) != 1:
-        raise ValueError("model policy must contain exactly one revision literal")
+        raise ValueError(
+            f"{source_path}: expected exactly one "
+            f'`modelRevision = "<40-hex>"` assignment, found {len(revisions)}'
+        )
 
     expected_byte_literals = _EXPECTED_BYTES_PATTERN.findall(source)
     if len(expected_byte_literals) != 1:
-        raise ValueError("model policy must contain exactly one expected-byte literal")
+        raise ValueError(
+            f"{source_path}: expected exactly one "
+            f"`expectedModelBytes = <integer>` assignment, "
+            f"found {len(expected_byte_literals)}"
+        )
     expected_byte_count = int(expected_byte_literals[0].replace("_", ""), 10)
     if expected_byte_count <= 0:
-        raise ValueError("model expected-byte count must be positive")
+        raise ValueError(
+            f"{source_path}: `expectedModelBytes = <integer>` assignment "
+            "must be a positive integer"
+        )
 
     return ModelPolicy(
         revision=revisions[0],

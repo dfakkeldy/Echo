@@ -126,3 +126,49 @@ class ModelPolicyTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             read_model_policy(self.source_root)
+
+    def test_extraction_anchors_on_assignments_not_a_repeated_doc_comment_literal(self):
+        # Mirrors the real file's line-86 doc comment, which repeats
+        # `163_234_740` in prose immediately above the `modelRevision`
+        # assignment. A bare-value literal search for the byte count would
+        # find this synthetic fixture's comment AND its real assignment and
+        # incorrectly report two expected-byte matches.
+        self._write_source(
+            f"""
+            /// Immutable commit pin. Validated at pin time:
+            /// 163_234_740 B · sha256 deadbeef…cafef00d (onnx/model_fp16.onnx).
+            private nonisolated static let modelRevision = "{VALID_REVISION}"
+            nonisolated static let expectedModelBytes = 163_234_740
+            """
+        )
+
+        policy = read_model_policy(self.source_root)
+
+        self.assertEqual(
+            policy,
+            ModelPolicy(
+                revision=VALID_REVISION,
+                expected_byte_count=163_234_740,
+                delivery_mode="sharedEchoCache",
+                bytes_attested=False,
+            ),
+        )
+
+    def test_error_messages_name_the_source_file_and_assignment_pattern(self):
+        source_path = self.source_root / SOURCE_PATH
+
+        self._write_source("// no declarations here\n")
+        with self.assertRaises(ValueError) as revision_error:
+            read_model_policy(self.source_root)
+        revision_message = str(revision_error.exception)
+        self.assertIn(str(source_path), revision_message)
+        self.assertIn('modelRevision =', revision_message)
+
+        self._write_source(
+            f'private nonisolated static let modelRevision = "{VALID_REVISION}"\n'
+        )
+        with self.assertRaises(ValueError) as bytes_error:
+            read_model_policy(self.source_root)
+        bytes_message = str(bytes_error.exception)
+        self.assertIn(str(source_path), bytes_message)
+        self.assertIn('expectedModelBytes =', bytes_message)
