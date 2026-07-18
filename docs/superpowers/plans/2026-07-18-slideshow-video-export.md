@@ -98,7 +98,7 @@ nonisolated enum SlideshowExportPlanner {
 }
 ```
 
-- [ ] **Step 1: Make two resolver helpers internal**
+- [x] **Step 1: Make two resolver helpers internal**
 
 In `Shared/VisualListeningCueResolver.swift` change exactly two declarations (no body changes):
 
@@ -114,7 +114,7 @@ In `Shared/VisualListeningCueResolver.swift` change exactly two declarations (no
 
 The planner needs exact image display windows (for frame boundaries) and scope filtering (for SRT rows) without duplicating either policy.
 
-- [ ] **Step 2: Write failing planner tests**
+- [x] **Step 2: Write failing planner tests**
 
 Create `EchoTests/SlideshowExportPlannerTests.swift`. Reuse the fixture style of `VisualListeningCueResolverTests` (same `block`/`timeline` helpers, copied here because test files don't share helpers):
 
@@ -310,7 +310,7 @@ struct SlideshowExportPlannerTests {
 }
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 ```bash
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && make build-tests
@@ -318,7 +318,7 @@ struct SlideshowExportPlannerTests {
 
 Expected: compile FAILURE — `SlideshowExportPlanner` not defined. (A compile failure at this stage is the "failing test".)
 
-- [ ] **Step 4: Implement the planner**
+- [x] **Step 4: Implement the planner**
 
 Create `Shared/SlideshowExportPlanner.swift`:
 
@@ -608,7 +608,7 @@ nonisolated enum SlideshowExportPlanner {
 }
 ```
 
-- [ ] **Step 5: Run focused tests until green**
+- [x] **Step 5: Run focused tests until green**
 
 ```bash
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && make build-tests
@@ -621,7 +621,7 @@ Expected: all `SlideshowExportPlannerTests` PASS. Also run the resolver suite (v
 make test-only FILTER=EchoTests/VisualListeningCueResolverTests
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add Shared/VisualListeningCueResolver.swift Shared/SlideshowExportPlanner.swift EchoTests/SlideshowExportPlannerTests.swift
