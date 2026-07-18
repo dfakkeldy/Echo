@@ -70,6 +70,7 @@ class InstallRunner:
         }
         self.gate_should_fail = False
         self.make_should_fail = False
+        self.make_stderr = "make failed\n"
         self.gate_calls = 0
         self.make_calls = 0
         self.drop_staged_resource: str | None = None
@@ -112,7 +113,7 @@ class InstallRunner:
             self._record("make")
             if self.make_should_fail:
                 return subprocess.CompletedProcess(
-                    arguments, 1, stdout="", stderr="make failed\n"
+                    arguments, 1, stdout="", stderr=self.make_stderr
                 )
             self.materialize_build_output()
             return subprocess.CompletedProcess(arguments, 0, stdout="", stderr="")
@@ -481,6 +482,30 @@ class InstallationFailureCleanupTests(InstallFixture):
 
         self.assertEqual(self.published_source_roots(), [])
         self.assertEqual(self.staging_leftovers(), [])
+
+
+class BuildFailureDiagnosticsTests(InstallFixture):
+    def test_a_failed_make_build_surfaces_its_stderr_in_the_error(self):
+        self.runner.make_should_fail = True
+
+        with self.assertRaises(ValueError) as raised:
+            self.store.install(self.request())
+
+        message = str(raised.exception)
+        self.assertIn("renderer build failed", message)
+        self.assertIn("make failed", message)
+
+    def test_a_long_build_stderr_is_bounded_to_a_tail(self):
+        self.runner.make_should_fail = True
+        self.runner.make_stderr = ("x" * 10_000) + "compiler diagnostic at the end"
+
+        with self.assertRaises(ValueError) as raised:
+            self.store.install(self.request())
+
+        message = str(raised.exception)
+        self.assertIn("compiler diagnostic at the end", message)
+        self.assertIn("stderr tail", message)
+        self.assertLess(len(message), 3_000)
 
 
 class InstallationLeaseTests(InstallFixture):

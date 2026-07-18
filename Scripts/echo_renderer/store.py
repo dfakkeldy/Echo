@@ -43,6 +43,7 @@ _ECHO_CLI_MAKE_TARGET = "echo-cli"
 _BUILD_OUTPUT_RELATIVE = Path(".build") / "cli"
 _BUILD_PRODUCTS_RELATIVE = Path("Build") / "Products" / "Release"
 _STAGING_PREFIX = "echo-renderer-staging-"
+_STDERR_TAIL_CHARS = 2000
 _VERSION_PATTERN = re.compile(r"ONNX rv([0-9]+) \(Release\)\n?\Z")
 _ARCHITECTURE_PATTERN = re.compile(r"[A-Za-z0-9_]+\Z")
 _VERSION_NUMBER_PATTERN = re.compile(r"[0-9]+(?:\.[0-9]+){1,2}\Z")
@@ -773,7 +774,13 @@ def _run_build_command(runner: Callable, arguments: list[str], *, step: str) -> 
     except (OSError, subprocess.SubprocessError) as error:
         raise ValueError(f"cannot run {step}: {arguments[0]}") from error
     if completed.returncode != 0:
-        raise ValueError(f"{step} failed: {' '.join(arguments)}")
+        message = f"{step} failed: {' '.join(arguments)}"
+        stderr_text = completed.stderr if isinstance(completed.stderr, str) else ""
+        tail = stderr_text[-_STDERR_TAIL_CHARS:]
+        if tail:
+            marker = "…" if len(stderr_text) > len(tail) else ""
+            message = f"{message}; stderr tail: {marker}{tail}"
+        raise ValueError(message)
 
 
 def _copy_regular_file(source: Path, destination: Path, *, mode: int) -> Path:
