@@ -23,7 +23,7 @@ import Foundation
 /// This type is intentionally a tiny, pure, dependency-free helper living in
 /// `Shared/` so that **both** the iOS reader (`ReaderFeedViewModel`) and the
 /// macOS reader (`MacReaderFeedView`) call the exact same logic and cannot drift.
-enum ReaderActiveBlockResolver {
+nonisolated enum ReaderActiveBlockResolver {
 
     /// One timeline row: an audio `[start, end)` range mapped to an EPUB block,
     /// carrying the block's `chapterIndex` and optional `segmentKey` so

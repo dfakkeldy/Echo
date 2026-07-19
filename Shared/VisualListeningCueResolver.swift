@@ -48,7 +48,7 @@ struct VisualListeningSnapshot: Equatable, Sendable {
     )
 }
 
-enum VisualListeningCueResolver {
+nonisolated enum VisualListeningCueResolver {
     static func snapshot(
         blocks: [EPubBlockRecord],
         timeline: [ReaderActiveBlockResolver.TimelineRow],
@@ -80,17 +80,19 @@ enum VisualListeningCueResolver {
             currentTrackChapterIndices: currentTrackChapterIndices,
             syncPoint: syncPoint
         )
-        let subtitleCue = subtitleCue(
-            blockID: activeBlockID,
-            blocksByID: blocksByID,
-            words: words,
-            time: time
-        ) ?? subtitleCue(
-            blockID: imageCue?.subtitleBlockID,
-            blocksByID: blocksByID,
-            words: words,
-            time: time
-        )
+        let subtitleCue =
+            subtitleCue(
+                blockID: activeBlockID,
+                blocksByID: blocksByID,
+                words: words,
+                time: time
+            )
+            ?? subtitleCue(
+                blockID: imageCue?.subtitleBlockID,
+                blocksByID: blocksByID,
+                words: words,
+                time: time
+            )
 
         return VisualListeningSnapshot(
             imageCue: imageCue,
@@ -125,7 +127,7 @@ enum VisualListeningCueResolver {
         }
     }
 
-    private static func imageCues(
+    static func imageCues(
         blocks: [EPubBlockRecord],
         blocksByID: [String: EPubBlockRecord],
         timeline: [ReaderActiveBlockResolver.TimelineRow],
@@ -147,8 +149,11 @@ enum VisualListeningCueResolver {
         }
 
         return imageBlocks.compactMap { block in
-            if let explicit = scopedRows.first(where: { $0.blockID == block.id && $0.end > $0.start }) {
-                let subtitleBlockID = block.text?.isEmpty == false
+            if let explicit = scopedRows.first(where: {
+                $0.blockID == block.id && $0.end > $0.start
+            }) {
+                let subtitleBlockID =
+                    block.text?.isEmpty == false
                     ? block.id
                     : referenceRow(for: block, rows: scopedRows, blocksByID: blocksByID)?.blockID
 
@@ -193,7 +198,8 @@ enum VisualListeningCueResolver {
         rows: [ReaderActiveBlockResolver.TimelineRow],
         blocksByID: [String: EPubBlockRecord]
     ) -> ReaderActiveBlockResolver.TimelineRow? {
-        let candidateRows = rows
+        let candidateRows =
+            rows
             .filter { row in
                 guard row.end > row.start,
                     row.chapterIndex == imageBlock.chapterIndex,
@@ -273,7 +279,8 @@ enum VisualListeningCueResolver {
             !text.isEmpty
         else { return nil }
 
-        let blockWords = words
+        let blockWords =
+            words
             .filter { $0.blockID == blockID }
             .sorted { lhs, rhs in
                 if lhs.start == rhs.start {
@@ -295,7 +302,7 @@ enum VisualListeningCueResolver {
         )
     }
 
-    private static func rowIsInScope(
+    static func rowIsInScope(
         _ row: ReaderActiveBlockResolver.TimelineRow,
         currentTrackSegmentKey: String?,
         currentTrackChapterIndices: Set<Int>?
