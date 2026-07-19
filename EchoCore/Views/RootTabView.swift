@@ -481,6 +481,13 @@ struct RootTabView: View {
         .sheet(isPresented: $model.showPaywall) {
             PaywallView(context: model.paywallContext)
         }
+        .fullScreenCover(
+            item: Binding(
+                get: { model.fullscreenImage },
+                set: { model.fullscreenImage = $0 })
+        ) { item in
+            FullscreenImageViewer(image: item.image)
+        }
         .alert(
             "Folder Access Not Saved",
             isPresented: $model.showingBookmarkPersistenceWarning

@@ -17,7 +17,21 @@
                 FullBleedCoverBackground()
 
                 VStack(spacing: 0) {
-                    Spacer(minLength: 0)  // pushes content into the wash zone
+                    if let image = model.currentDisplayArtwork ?? model.thumbnailImage {
+                        ZoomableArtwork(
+                            image: image,
+                            accessibilityLabel: Text("Cover of \(model.currentTitle)")
+                        ) {
+                            Color.clear
+                                .contentShape(.rect)
+                                .containerRelativeFrame(.vertical) { height, _ in
+                                    height * FullBleedCoverBackground.fadeStartFraction
+                                        * FullBleedCoverBackground.coverHeightFraction
+                                }
+                        }
+                    } else {
+                        Spacer(minLength: 0)
+                    }
 
                     ExperimentalMetadataView(showBookSettings: showBookSettings)
                         .padding(.horizontal, NowPlayingLayout.horizontalPadding)

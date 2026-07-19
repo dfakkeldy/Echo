@@ -269,10 +269,14 @@ struct NowPlayingTab: View {
     private var artworkView: some View {
         Group {
             if let image = model.currentDisplayArtwork ?? model.thumbnailImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .accessibilityLabel(Text("Cover of \(model.currentTitle)"))
+                ZoomableArtwork(
+                    image: image,
+                    accessibilityLabel: Text("Cover of \(model.currentTitle)")
+                ) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                }
             } else {
                 ZStack {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
