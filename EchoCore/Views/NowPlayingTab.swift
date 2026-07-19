@@ -50,7 +50,9 @@ struct NowPlayingTab: View {
                         // Flexible top slack — balances the artwork block vertically.
                         Spacer(minLength: 0)
 
-                        if usesWideVisualListeningLayout,
+                        if settings.experimentalNowPlayingLayout {
+                            ExperimentalNowPlayingView(showBookSettings: showBookSettings)
+                        } else if usesWideVisualListeningLayout,
                             let snapshot = activeVisualListeningSnapshot
                         {
                             wideVisualListeningLayout(snapshot: snapshot)
@@ -72,7 +74,8 @@ struct NowPlayingTab: View {
                 Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                Color.clear.frame(height: model.bottomInset)
+                Color.clear.frame(
+                    height: settings.experimentalNowPlayingLayout ? 0 : model.bottomInset)
             }
             .environment(
                 \.font,

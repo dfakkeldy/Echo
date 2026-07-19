@@ -275,7 +275,7 @@ struct RootTabView: View {
 
             // The bottom deck is root-owned so Now Playing and Reader share the
             // exact same bottom edge during tab transitions.
-            if !model.isPlayingVoiceMemo {
+            if !model.isPlayingVoiceMemo && !usesExperimentalPlayerChrome {
                 VStack {
                     Spacer()
                     UnifiedBottomDock(
@@ -601,6 +601,15 @@ struct RootTabView: View {
 
     private var topChromeHidden: Bool {
         model.selectedTab == .read && model.readerChromeHidden
+    }
+
+    /// The experimental Now Playing layout draws its own floating controls, so the
+    /// shared bottom deck must stand down while that tab is frontmost. Reader and
+    /// Library keep the dock untouched.
+    private var usesExperimentalPlayerChrome: Bool {
+        settings.experimentalNowPlayingLayout
+            && model.selectedTab == .nowPlaying
+            && model.folderURL != nil
     }
 
     private var documentImportErrorPresented: Binding<Bool> {
