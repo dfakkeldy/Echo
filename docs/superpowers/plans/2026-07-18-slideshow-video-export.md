@@ -2023,7 +2023,7 @@ All must pass. Run SwiftLint if installed (`swiftlint --strict` from repo root).
 
 If a narrated or aligned book DB is available locally (see `~/Developer/echo-overnight` scratch), run `export-video --simple` against it and open the mp4 + srt in QuickTime/VLC. Record whether mp4 chapter atoms surfaced (spec's attempt-and-verify risk).
 
-- [ ] **Step 3: Rebase, push, open PR into nightly**
+- [x] **Step 3: Rebase, push, open PR into nightly**
 
 ```bash
 git fetch origin && git rebase origin/nightly
