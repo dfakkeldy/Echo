@@ -16,6 +16,7 @@ struct UnifiedBottomDock: View {
     var onHelp: () -> Void
     var onAddDocument: (() -> Void)?
     var onExport: (() -> Void)?
+    var onVideoExport: (() -> Void)?
     var onStudyNotesExport: (() -> Void)?
 
     /// Platform-agnostic separator color.
@@ -82,6 +83,7 @@ struct UnifiedBottomDock: View {
                 onHelp: onHelp,
                 onAddDocument: onAddDocument,
                 onExport: onExport,
+                onVideoExport: onVideoExport,
                 onStudyNotesExport: onStudyNotesExport,
                 onShowPlaybackOptions: onShowPlaybackOptions,
                 canCreateReaderCapture: model.readerCaptureAnchorBlockID != nil,
