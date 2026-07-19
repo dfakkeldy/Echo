@@ -985,14 +985,51 @@ Both sources expose the same chapter-ordered `[URL]` list consumed by the shared
 **Compose + transcode.** `AudioExportService` is the shared spine: it gaplessly composes the chapter URLs into an `AVMutableComposition`, transcodes once via `AVAssetExportSession` (AAC / `.m4b`), and hands the result to the metadata writer.
 
 **Slideshow video export.** `SlideshowExportPlanner` → `SlideshowFrameRenderer` →
-`VideoExportService` turns the same Visual Listening decisions into a 1920×1080
-H.264/AAC `.mp4` plus `.srt` and `.chapters.txt` sidecars. The service follows
-the `AudioExportService` spine by resolving the same ordered `ExportSource` audio
-and composing it gaplessly; the planner offsets every track-local visual and
-subtitle cue by the accumulated duration of the preceding tracks, keeping all
-three artifacts on one global timeline. `ChapterMarkerWriter` attempts MP4 chapter
-atoms and verifies them through AVFoundation; when either step fails, Echo keeps
-the video and the always-written `chapters.txt` fallback rather than failing the export.
+`VideoExportService` turns the same Visual Listening decisions into an H.264/AAC
+`.mp4` plus `.srt` and `.chapters.txt` sidecars, at one of two first-class
+presets — **Landscape 1920×1080** (the default for every new CLI/UI export) or
+**Portrait 1080×1920** (9:16, for full-screen phone viewing); UI format
+selection is not persisted. The service follows the `AudioExportService` spine
+by resolving the same ordered `ExportSource` audio and composing it gaplessly;
+the planner offsets every track-local visual and subtitle cue by the
+accumulated duration of the preceding tracks, keeping all three artifacts on
+one global timeline. `ChapterMarkerWriter` attempts MP4 chapter atoms and
+verifies them through AVFoundation; when either step fails, Echo keeps the
+video and the always-written `chapters.txt` fallback rather than failing the
+export. `.srt` and `.chapters.txt` are byte-identical for the same plan
+regardless of format, and audio, timing, cancellation, cleanup, publication,
+and filenames (no format suffix is appended) do not depend on format either.
+
+**Portrait format, dimension validation, and layout (July 2026).**
+`echo-cli export-video` accepts `--portrait` and an optional `--size WxH`
+(mutually exclusive). A custom size selects its layout profile by
+**orientation alone**, never by nearest-preset matching: `width >= height` →
+Legacy Landscape, `height > width` → Phone Portrait, and a square size
+resolves to Legacy Landscape deterministically. `SlideshowVideoDimensions`
+(shared, pure) is the validated-dimensions boundary every caller passes
+through before any DB or output work begins — positive, even (required by the
+H.264 path), min side ≥ 180px, max side ≤ 4096px, area ≤ 8,847,360px
+(overflow-safe arithmetic), aspect ≤ 4:1. The two fixed presets are
+compile-time-known-valid constants; custom sizes go through a throwing
+factory, so it is impossible to construct an invalid `SlideshowVideoDimensions`
+value. `VideoExportService` additionally runs a **live H.264 capability
+preflight**: it builds one `H264VideoSettings` value and calls AVFoundation's
+`AVAssetWriter.canApply(outputSettings:forMediaType:)` as the first work after
+entry cancellation — before source resolution, DB reads, audio assembly, or
+output creation — throwing `unsupportedVideoSettings(width:height:)` on
+rejection; the same settings value is later handed to the real writer, so
+preflight and encode can never validate different configurations.
+
+A pure `SlideshowFrameLayout`, calculated from validated dimensions plus a
+`SlideshowFrameLayoutProfile` (`.legacyLandscape` / `.phonePortrait`), owns all
+frame geometry and typography — figure/code, caption, and subtitle rectangles,
+plus font sizes and line limits; the renderer consumes it and no longer
+invents geometry inline. Legacy Landscape's formulas are algebraically
+unchanged from before Portrait shipped, locked by a pixel-parity test.
+`SlideshowFramePlan` now carries `VisualListeningVisualContent?` (image or
+code) instead of only an image path, so a code cue renders a static code card
+in the exported video instead of silently falling back to cover art; planner
+timing, SRT generation, chapter markers, and frame-merging are unaffected.
 
 **Writer seam (chapter markers + metadata).** A single in-place pass via the `swift-audio-marker` package (`AudioMarker` product, linked on **both iOS and macOS**) writes Nero `chpl` + QuickTime `chap` chapter atoms together with the book tags and cover art in one operation — no container rebuild, so chapters and metadata coexist. `ChapterMarkerWriter` maps the book onto the audiobook tags players expect (title/album = book title; artist/albumArtist = author, Audiobookshelf reads `aART`; genre `Audiobook`; `©cmt` = the narration version stamp) landing in the `ilst` atoms; album/albumArtist/genre default only when absent so a re-exported imported m4b keeps its real tags. `ExportMetadata` + `ExportMetadataResolver` supply title/author/cover.
 
