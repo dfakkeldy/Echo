@@ -2317,7 +2317,7 @@ git diff --check
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && make echo-cli
 ```
 
-- [ ] **Step 3: Commit, push, PR (stacked on PR 1)**
+- [x] **Step 3: Commit, push, PR (stacked on PR 1)**
 
 ```bash
 git add ARCHITECTURE.md CHANGELOG.md
@@ -2331,8 +2331,8 @@ Stacked on the pipeline PR. Adds the user-facing entry points for slideshow vide
 - ARCHITECTURE.md + CHANGELOG.md
 
 ## Test plan
-- [ ] `make test` (UI wiring suite)
-- [ ] macOS build
+- [x] `make test` (UI wiring suite)
+- [x] macOS build
 - [ ] Device QA: short-book export on iPhone (gates whether iOS default stays Karaoke — spec risk item)
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
@@ -2343,7 +2343,7 @@ gh pr checks --watch
 
 If PR 1 merges first, rebase this branch onto `origin/nightly` before the PR (`git fetch origin && git rebase origin/nightly && git push --force-with-lease`). Report hosted CI status (passing/failing/pending/blocked) for both PRs.
 
-- [ ] **Step 4: Post-merge reminders (report, don't act)**
+- [x] **Step 4: Post-merge reminders (report, don't act)**
 
 - Device QA note: whole-book Karaoke render time on iPhone decides the iOS default mode (spec Risk 1).
 - The `Welcome to Echo` manual EPUB and marketing docs mention export features — flag that the `echo-manual-epub` skill should re-run after this ships.
