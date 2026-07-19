@@ -27,9 +27,15 @@ struct PlayerMoreMenu: View {
     var onExport: (() -> Void)?
     var onVideoExport: (() -> Void)?
     var onStudyNotesExport: (() -> Void)?
+    /// Experimental player only: enter edit-button mode. `nil` outside the player.
+    var onEditLayout: (() -> Void)? = nil
 
     var body: some View {
         Menu {
+            if let onEditLayout {
+                Button("Edit Buttons…", systemImage: "slider.horizontal.3", action: onEditLayout)
+                Divider()
+            }
             // Playback context
             Button(action: onShowChapters) {
                 Label("Chapters", systemImage: "list.bullet.indent")
