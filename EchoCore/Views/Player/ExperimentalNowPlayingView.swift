@@ -14,17 +14,13 @@
 
         var body: some View {
             ZStack {
-                AdaptiveBackground()
+                FullBleedCoverBackground()
 
                 VStack(spacing: 0) {
-                    Spacer(minLength: 0)
-
-                    ExperimentalArtworkView()
-                        .frame(minHeight: 150, maxHeight: 360)
+                    Spacer(minLength: 0)  // pushes content into the wash zone
 
                     ExperimentalMetadataView(showBookSettings: showBookSettings)
                         .padding(.horizontal, NowPlayingLayout.horizontalPadding)
-                        .padding(.top, 16)
 
                     PlayerScrubberView()
                         .containerRelativeFrame(.horizontal) { width, _ in
@@ -33,7 +29,9 @@
                         .tint(model.resolvedThemeTint)
                         .padding(.vertical, 16)
 
+                    // Clearance for the control layer's bottom-arc buttons (Task 2).
                     Spacer(minLength: 0)
+                        .frame(maxHeight: 160)
                 }
             }
         }
