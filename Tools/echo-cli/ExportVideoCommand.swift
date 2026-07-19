@@ -23,12 +23,47 @@ struct ExportVideoCommand: AsyncParsableCommand {
     var cacheDir: String?
     @Flag(help: "Per-sentence frames instead of word karaoke (faster, smaller).")
     var simple = false
-    @Option(help: "Output size as WxH.")
-    var size: String = "1920x1080"
+    @Option(help: "Output size as WxH, e.g. 1920x1080. Defaults to landscape.")
+    var size: String?
+    @Flag(help: "Export a 1080x1920 phone-portrait video.")
+    var portrait = false
     @Option(help: "Optional clip range in seconds, as start-end (e.g. 60-120).")
     var range: String?
 
     @MainActor func run() async throws {
+        let dimensions: SlideshowVideoDimensions
+        do {
+            dimensions = try SlideshowVideoDimensionRequest.resolve(portrait: portrait, size: size)
+        } catch SlideshowVideoDimensionRequestError.conflictingOptions {
+            throw ValidationError(
+                "--portrait cannot be used with --size; choose one format option.")
+        } catch let error as SlideshowVideoDimensionError {
+            // `error.errorDescription` resolves via `String(localized:)` against
+            // EchoCore/Localizable.xcstrings, but the echo-cli target doesn't
+            // resolve that catalog at runtime -- it surfaces the raw key (e.g.
+            // "videoExportErrorOddDimensions") instead of the English text.
+            // Map each case to the approved spec string explicitly so the CLI
+            // always prints actionable copy regardless of catalog resolution.
+            let message: String
+            switch error {
+            case .malformedSize:
+                message = "--size must look like 1920x1080."
+            case .nonPositive:
+                message = "Video width and height must both be positive."
+            case .odd:
+                message = "Video width and height must both be even for H.264."
+            case .shortestSideTooSmall:
+                message = "Video's shortest side must be at least 180 pixels."
+            case .longestSideTooLarge:
+                message = "Video's longest side must be no more than 4096 pixels."
+            case .pixelAreaTooLarge:
+                message = "Video dimensions exceed the maximum 8,847,360-pixel area."
+            case .aspectRatioTooExtreme:
+                message = "Video aspect ratio must not exceed 4:1."
+            }
+            throw ValidationError(message)
+        }
+
         let database = try DatabaseService(databaseURL: URL(fileURLWithPath: db))
 
         let narrated = ExportSourceResolver.isNarrated(
@@ -37,16 +72,6 @@ struct ExportVideoCommand: AsyncParsableCommand {
             throw ValidationError("This book is narrated; pass --cache-dir <narration cache>.")
         }
 
-        let dimensionParts = size.split(separator: "x", omittingEmptySubsequences: false)
-        guard
-            dimensionParts.count == 2,
-            let width = Int(dimensionParts[0]),
-            let height = Int(dimensionParts[1]),
-            width > 0,
-            height > 0
-        else {
-            throw ValidationError("--size must look like 1920x1080")
-        }
         var clip: Range<TimeInterval>?
         if let range {
             let parts = range.split(separator: "-", omittingEmptySubsequences: false)
@@ -74,7 +99,7 @@ struct ExportVideoCommand: AsyncParsableCommand {
             cacheDirectory: URL(fileURLWithPath: cacheDir ?? "/nonexistent-cache"),
             outputDirectory: outDir,
             mode: simple ? .simple : .karaoke,
-            dimensions: try SlideshowVideoDimensions.validating(width: width, height: height),
+            dimensions: dimensions,
             range: clip,
             onProgress: { fraction in
                 let percent = (fraction * 100).formatted(
