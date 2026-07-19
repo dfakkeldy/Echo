@@ -21,11 +21,34 @@ nonisolated enum SlideshowExportMode: String, Sendable {
 nonisolated struct SlideshowFramePlan: Equatable, Sendable {
     let startTime: TimeInterval
     let duration: TimeInterval
-    let imagePath: String?
+    let visualContent: VisualListeningVisualContent?
     let caption: String?
     let subtitleText: String?
     let activeWordIndex: Int?
     let alreadyHeardWordCount: Int
+}
+
+/// `VisualListeningVisualContent` declares `Equatable` in
+/// `VisualListeningCueResolver.swift`, whose synthesized `==` inherits this
+/// module's default `@MainActor` isolation (`SWIFT_DEFAULT_ACTOR_ISOLATION =
+/// MainActor`). This planner — and `SlideshowFramePlan` above — are
+/// `nonisolated` (the export pipeline runs off-main), so they cannot call a
+/// MainActor-isolated `==`. Providing the witness here explicitly (equivalent
+/// to what would otherwise be synthesized) satisfies the existing
+/// `Equatable` conformance without touching the resolver file.
+extension VisualListeningVisualContent {
+    nonisolated static func == (
+        lhs: VisualListeningVisualContent, rhs: VisualListeningVisualContent
+    ) -> Bool {
+        switch (lhs, rhs) {
+        case (.image(let lhsPath), .image(let rhsPath)):
+            return lhsPath == rhsPath
+        case (.code(let lhsText, let lhsLanguage), .code(let rhsText, let rhsLanguage)):
+            return lhsText == rhsText && lhsLanguage == rhsLanguage
+        default:
+            return false
+        }
+    }
 }
 
 nonisolated struct SlideshowSRTCue: Equatable, Sendable {
@@ -118,7 +141,7 @@ nonisolated enum SlideshowExportPlanner {
                 let frame = SlideshowFramePlan(
                     startTime: offset + start,
                     duration: end - start,
-                    imagePath: snapshot.visualCue?.imagePath,
+                    visualContent: snapshot.visualCue?.content,
                     caption: snapshot.visualCue?.caption,
                     subtitleText: snapshot.subtitleCue?.text,
                     activeWordIndex: mode == .karaoke
@@ -197,7 +220,7 @@ nonisolated enum SlideshowExportPlanner {
         _ frame: SlideshowFramePlan, to frames: inout [SlideshowFramePlan]
     ) {
         if let last = frames.last,
-            last.imagePath == frame.imagePath,
+            last.visualContent == frame.visualContent,
             last.caption == frame.caption,
             last.subtitleText == frame.subtitleText,
             last.activeWordIndex == frame.activeWordIndex,
@@ -207,7 +230,7 @@ nonisolated enum SlideshowExportPlanner {
             frames[frames.count - 1] = SlideshowFramePlan(
                 startTime: last.startTime,
                 duration: last.duration + frame.duration,
-                imagePath: last.imagePath, caption: last.caption,
+                visualContent: last.visualContent, caption: last.caption,
                 subtitleText: last.subtitleText,
                 activeWordIndex: last.activeWordIndex,
                 alreadyHeardWordCount: last.alreadyHeardWordCount)
@@ -336,7 +359,7 @@ nonisolated enum SlideshowExportPlanner {
             guard end > start else { return nil }
             return SlideshowFramePlan(
                 startTime: start - range.lowerBound, duration: end - start,
-                imagePath: frame.imagePath, caption: frame.caption,
+                visualContent: frame.visualContent, caption: frame.caption,
                 subtitleText: frame.subtitleText,
                 activeWordIndex: frame.activeWordIndex,
                 alreadyHeardWordCount: frame.alreadyHeardWordCount)

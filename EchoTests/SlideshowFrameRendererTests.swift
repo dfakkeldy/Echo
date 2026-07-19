@@ -14,7 +14,8 @@ struct SlideshowFrameRendererTests {
         caption: String? = "A caption"
     ) -> SlideshowFramePlan {
         SlideshowFramePlan(
-            startTime: 0, duration: 1, imagePath: imagePath, caption: caption,
+            startTime: 0, duration: 1,
+            visualContent: imagePath.map { .image(path: $0) }, caption: caption,
             subtitleText: subtitle, activeWordIndex: activeWord,
             alreadyHeardWordCount: heard)
     }

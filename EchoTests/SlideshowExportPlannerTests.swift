@@ -10,7 +10,8 @@ struct SlideshowExportPlannerTests {
     private func block(
         _ id: String, sequence: Int, kind: EPubBlockRecord.Kind,
         text: String? = nil, imagePath: String? = nil,
-        narrationText: String? = nil, chapter: Int? = 0, hidden: Bool = false
+        narrationText: String? = nil, codeLanguage: String? = nil,
+        chapter: Int? = 0, hidden: Bool = false
     ) -> EPubBlockRecord {
         EPubBlockRecord(
             id: id, audiobookID: "book", spineHref: "spine", spineIndex: 0,
@@ -18,7 +19,8 @@ struct SlideshowExportPlannerTests {
             text: text, htmlContent: nil, cardColor: nil, chapterThemeColor: nil,
             imagePath: imagePath, chapterIndex: chapter, isHidden: hidden,
             hiddenReason: nil, isFrontMatter: false, wordCount: nil, markers: nil,
-            textFormats: nil, narrationText: narrationText, createdAt: nil, modifiedAt: nil)
+            textFormats: nil, narrationText: narrationText, codeLanguage: codeLanguage,
+            createdAt: nil, modifiedAt: nil)
     }
 
     private func timeline(
@@ -59,7 +61,9 @@ struct SlideshowExportPlannerTests {
         #expect(plan.totalDuration == 8)
         #expect(plan.frames.first?.startTime == 0)
         #expect(plan.frames.first?.subtitleText == "First sentence here.")
-        let figureFrame = plan.frames.first { $0.imagePath == "figures/one.jpg" }
+        let figureFrame = plan.frames.first {
+            $0.visualContent == .image(path: "figures/one.jpg")
+        }
         #expect(figureFrame?.startTime == 4)
         #expect(figureFrame?.subtitleText == "Second sentence follows.")
         // Frames tile [0, totalDuration) with no gaps or overlaps.
@@ -365,6 +369,87 @@ struct SlideshowExportPlannerTests {
         #expect(plan.srtCues.map(\.text) == ["Listing 1."])
         #expect(!plan.frames.contains { $0.subtitleText?.contains(rawCode) == true })
         #expect(!plan.srtCues.contains { $0.text.contains(rawCode) })
+        // The full visual payload (raw code, for later on-screen rendering) must
+        // still reach the frame plan even though it never reaches the SRT/subtitle.
+        #expect(plan.frames.map(\.visualContent) == [.code(text: rawCode, language: nil)])
+    }
+
+    @Test func codePayloadWithLanguageSurvivesPlanning() {
+        let blocks = [
+            block(
+                "code", sequence: 0, kind: .code, text: "let answer = 42",
+                narrationText: "Listing 1.", codeLanguage: "swift")
+        ]
+        let rows = [timeline(0, 4, blockID: "code")]
+        let plan = SlideshowExportPlanner.plan(
+            blocks: blocks, timeline: rows, words: [],
+            tracks: [
+                SlideshowTrackContext(
+                    title: "Ch 1", duration: 4, segmentKey: nil, chapterIndices: nil)
+            ],
+            mode: .simple, syncPoint: .begin)
+
+        #expect(
+            plan.frames.map(\.visualContent) == [
+                .code(text: "let answer = 42", language: "swift")
+            ])
+        #expect(plan.frames.map(\.subtitleText) == ["Listing 1."])
+        #expect(plan.srtCues.map(\.text) == ["Listing 1."])  // raw code NEVER enters SRT
+    }
+
+    @Test func imagePayloadSurvivesPlanningAndRangeClamping() {
+        let fx = chapterOneFixture
+        let plan = SlideshowExportPlanner.plan(
+            blocks: fx.blocks, timeline: fx.timeline, words: [],
+            tracks: [
+                SlideshowTrackContext(
+                    title: "Ch 1", duration: 8, segmentKey: nil, chapterIndices: nil)
+            ],
+            mode: .simple, syncPoint: .begin,
+            range: 4.0..<8.0)
+
+        // The figure's window (see simpleModeEmitsOneFramePerVisualChangeWithGlobalTimes)
+        // is [4, 8), so requesting exactly that range must still carry the full
+        // image payload through range clamping and rebasing.
+        #expect(
+            plan.frames.contains {
+                $0.visualContent == .image(path: "figures/one.jpg")
+            })
+    }
+
+    @Test func distinctCodePayloadsWithIdenticalNarrationDoNotMerge() {
+        let blocks = [
+            block(
+                "c1", sequence: 0, kind: .code, text: "let a = 1",
+                narrationText: "Listing.", codeLanguage: "swift"),
+            block(
+                "c2", sequence: 1, kind: .code, text: "let a = 2",
+                narrationText: "Listing.", codeLanguage: "swift"),
+        ]
+        let rows = [
+            timeline(0, 2, blockID: "c1"),
+            timeline(2, 4, blockID: "c2"),
+        ]
+        let plan = SlideshowExportPlanner.plan(
+            blocks: blocks, timeline: rows, words: [],
+            tracks: [
+                SlideshowTrackContext(
+                    title: "Ch 1", duration: 4, segmentKey: nil, chapterIndices: nil)
+            ],
+            mode: .simple, syncPoint: .begin)
+
+        // Both frames share caption/subtitleText/activeWordIndex/alreadyHeardWordCount
+        // and are contiguous, so only a visualContent-aware appendMerging keeps them
+        // distinct instead of collapsing to a single frame showing only the first code.
+        let codeFrames = plan.frames.filter {
+            if case .code = $0.visualContent { return true }
+            return false
+        }
+        #expect(
+            codeFrames.map(\.visualContent) == [
+                .code(text: "let a = 1", language: "swift"),
+                .code(text: "let a = 2", language: "swift"),
+            ])
     }
 
     // MARK: - Range

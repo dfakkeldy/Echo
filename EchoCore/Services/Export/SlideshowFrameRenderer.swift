@@ -41,12 +41,19 @@ nonisolated final class SlideshowFrameRenderer {
 
     func render(_ frame: SlideshowFramePlan) -> CGImage? {
         guard let context = makeContext() else { return nil }
-        let baseKey = BaseKey(imagePath: frame.imagePath, caption: frame.caption)
+        // CD-1 bridge: only `.image` content has a renderable path today; `.code`
+        // cues fall back to cover art exactly as they did when the plan only
+        // carried `imagePath` (nil for code). Code-card rendering is Task 5.
+        let imagePath: String? = {
+            if case .image(let path)? = frame.visualContent { return path }
+            return nil
+        }()
+        let baseKey = BaseKey(imagePath: imagePath, caption: frame.caption)
         let base: CGImage?
         if let cachedBase, cachedBase.key == baseKey {
             base = cachedBase.image
         } else {
-            base = renderBase(imagePath: frame.imagePath, caption: frame.caption)
+            base = renderBase(imagePath: imagePath, caption: frame.caption)
             if let base { cachedBase = (key: baseKey, image: base) }
         }
         if let base {
