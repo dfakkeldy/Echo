@@ -5958,6 +5958,132 @@
         }
       }
     },
+    "videoExportConfigurationExportButton" : {
+      "comment" : "Export button on the slideshow video export configuration screen that embeds the shared format picker.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export video"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Video exporteren"
+          }
+        }
+      }
+    },
+    "videoExportFormatExplanation" : {
+      "comment" : "Short explanation shown under the shared slideshow video format picker, describing why Portrait exists.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portrait is sized for full-screen phone viewing."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Staand is bedoeld om schermvullend op de telefoon te bekijken."
+          }
+        }
+      }
+    },
+    "videoExportFormatLabel" : {
+      "comment" : "Label for the shared Landscape/Portrait slideshow video format picker.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Format"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Formaat"
+          }
+        }
+      }
+    },
+    "videoExportFormatLandscape" : {
+      "comment" : "Segment label for the Landscape slideshow video export format.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Landscape"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Liggend"
+          }
+        }
+      }
+    },
+    "videoExportFormatLandscapeAccessibilityValue" : {
+      "comment" : "VoiceOver accessibility value for the Landscape slideshow video format segment, announcing identity plus exact resolution.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Landscape, 1920 by 1080"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Liggend, 1920 bij 1080"
+          }
+        }
+      }
+    },
+    "videoExportFormatPortrait" : {
+      "comment" : "Segment label for the Portrait slideshow video export format.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portrait"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Staand"
+          }
+        }
+      }
+    },
+    "videoExportFormatPortraitAccessibilityValue" : {
+      "comment" : "VoiceOver accessibility value for the Portrait slideshow video format segment, announcing identity plus exact resolution.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portrait, 1080 by 1920"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Staand, 1080 bij 1920"
+          }
+        }
+      }
+    },
     "videoExportMenuTitle" : {
       "comment" : "Menu item that opens slideshow video export.",
       "extractionState" : "manual",

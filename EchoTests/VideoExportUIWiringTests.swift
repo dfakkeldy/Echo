@@ -133,6 +133,20 @@ struct VideoExportUIWiringTests {
         let catalog = try stringCatalog()
         let expected: [String: (en: String, nl: String)] = [
             "videoExportComplete": ("Export complete", "Export voltooid"),
+            "videoExportConfigurationExportButton": ("Export video", "Video exporteren"),
+            "videoExportFormatExplanation": (
+                "Portrait is sized for full-screen phone viewing.",
+                "Staand is bedoeld om schermvullend op de telefoon te bekijken."
+            ),
+            "videoExportFormatLabel": ("Format", "Formaat"),
+            "videoExportFormatLandscape": ("Landscape", "Liggend"),
+            "videoExportFormatLandscapeAccessibilityValue": (
+                "Landscape, 1920 by 1080", "Liggend, 1920 bij 1080"
+            ),
+            "videoExportFormatPortrait": ("Portrait", "Staand"),
+            "videoExportFormatPortraitAccessibilityValue": (
+                "Portrait, 1080 by 1920", "Staand, 1080 bij 1920"
+            ),
             "videoExportErrorNoAlignment": (
                 "This book needs alignment or narration before video export.",
                 "Dit boek moet worden uitgelijnd of verteld voordat je de video kunt exporteren."
@@ -178,6 +192,45 @@ struct VideoExportUIWiringTests {
             let localizations = try #require(entry["localizations"] as? [String: Any])
             #expect(translation("nl", in: localizations) != nil)
         }
+    }
+
+    @Test func formatPickerBindsSharedFormatUsesLocalizedKeysAndCommunicatesOrientationByText()
+        throws
+    {
+        let text = try source("EchoCore/Views/SlideshowVideoFormatPicker.swift")
+
+        #expect(text.hasPrefix("// SPDX-License-Identifier: GPL-3.0-or-later\n"))
+        #expect(text.contains("#if os(iOS) || os(macOS)"))
+        #expect(text.contains("@Binding var selection: SlideshowVideoFormat"))
+        #expect(text.contains(".pickerStyle(.segmented)"))
+        #expect(text.contains("ForEach(SlideshowVideoFormat.allCases)"))
+
+        #expect(text.contains(".videoExportFormatLabel"))
+        #expect(text.contains(".videoExportFormatLandscape"))
+        #expect(text.contains(".videoExportFormatPortrait"))
+        #expect(text.contains(".videoExportFormatLandscapeAccessibilityValue"))
+        #expect(text.contains(".videoExportFormatPortraitAccessibilityValue"))
+        #expect(text.contains(".videoExportFormatExplanation"))
+
+        #expect(text.contains(".accessibilityLabel(Text(.videoExportFormatLabel))"))
+        #expect(text.contains(".accessibilityValue(Text(Self.accessibilityValue(for: selection)))"))
+        #expect(
+            text.contains(
+                "nonisolated static func accessibilityValue(for format: SlideshowVideoFormat) -> String"
+            ))
+
+        // Orientation is communicated by text and exact dimensions, never by
+        // color or an icon alone: the resolution is derived from the real
+        // dimensions and no SF Symbol or color-only cue stands in for it.
+        #expect(text.contains("dimensions.width"))
+        #expect(text.contains("dimensions.height"))
+        #expect(!text.contains("Image(systemName"))
+        #expect(!text.contains("systemImage:"))
+
+        // Semantic text styles only -- no fixed point sizes.
+        #expect(text.contains(".font(.subheadline)"))
+        #expect(text.contains(".font(.footnote)"))
+        #expect(!text.contains(".font(.system(size:"))
     }
 
     @Test func macAppPresentsVideoExportSheetAndAdjacentEnabledMenuCommand() throws {
