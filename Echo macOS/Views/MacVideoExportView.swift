@@ -107,8 +107,7 @@ struct MacVideoExportView: View {
         isExporting = true
 
         exportTask = Task {
-            let didStartAccessing = panelURL.startAccessingSecurityScopedResource()
-            let outputBaseName = panelURL.deletingPathExtension().lastPathComponent
+            var stagingDirectoryToRemove: URL?
             let (progressStream, progressContinuation) = AsyncStream.makeStream(
                 of: Double.self,
                 bufferingPolicy: .bufferingNewest(1))
@@ -119,28 +118,36 @@ struct MacVideoExportView: View {
             }
 
             defer {
+                panelURL.stopAccessingSecurityScopedResource()
                 progressContinuation.finish()
                 progressConsumer.cancel()
-                if didStartAccessing {
-                    panelURL.stopAccessingSecurityScopedResource()
+                if let stagingDirectory = stagingDirectoryToRemove {
+                    try? FileManager.default.removeItem(at: stagingDirectory)
                 }
                 exportTask = nil
             }
 
             do {
-                let result = try await VideoExportService().exportVideo(
+                let destination = try MacVideoExportDestination(panelURL: panelURL)
+                let stagingDirectory = try MacVideoExportPublisher.makeStagingDirectory()
+                stagingDirectoryToRemove = stagingDirectory
+                let stagedOutput = try await VideoExportService().exportVideo(
                     audiobookID: audiobookID,
-                    bookTitle: outputBaseName,
+                    bookTitle: bookTitle,
                     databaseWriter: databaseWriter,
                     cacheDirectory: NarrationCache.directory(),
-                    outputDirectory: panelURL.deletingLastPathComponent(),
+                    outputDirectory: stagingDirectory,
                     mode: mode,
                     onProgress: { value in
                         progressContinuation.yield(value)
                     })
                 progressContinuation.finish()
                 await progressConsumer.value
-                output = result
+                try Task.checkCancellation()
+                let publishedOutput = try MacVideoExportPublisher.publish(
+                    stagedOutput: stagedOutput,
+                    to: destination)
+                output = publishedOutput
                 isExporting = false
             } catch is CancellationError {
                 fraction = 0

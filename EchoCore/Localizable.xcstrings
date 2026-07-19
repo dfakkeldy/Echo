@@ -5706,6 +5706,24 @@
         }
       }
     },
+    "videoExportErrorEmptyFilename" : {
+      "comment" : "Error shown when the macOS video save panel returns a destination without a file name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a file name before exporting."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kies een bestandsnaam voordat je exporteert."
+          }
+        }
+      }
+    },
     "videoExportErrorNoAudio" : {
       "comment" : "Error shown when a slideshow video cannot be exported because the book has no local audio.",
       "extractionState" : "manual",
@@ -5720,6 +5738,42 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dit boek heeft geen lokale audio om te exporteren."
+          }
+        }
+      }
+    },
+    "videoExportErrorRelatedFileAccess" : {
+      "comment" : "Error shown when macOS cannot coordinate access to a slideshow video sidecar.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Echo couldn't access a related sidecar file."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Echo kon geen toegang krijgen tot een gerelateerd sidecarbestand."
+          }
+        }
+      }
+    },
+    "videoExportErrorRollbackFailed" : {
+      "comment" : "Error prefix shown when a failed macOS video export also cannot remove all partial outputs.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Echo couldn't clean up a partial video export."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Echo kon een gedeeltelijke video-export niet opruimen."
           }
         }
       }

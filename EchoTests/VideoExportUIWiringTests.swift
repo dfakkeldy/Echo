@@ -203,7 +203,7 @@ struct VideoExportUIWiringTests {
         #expect(occurrences(of: ".disabled(player.audiobookID == nil)", in: commands) == 2)
     }
 
-    @Test func macViewUsesPanelStemAndParentDirectoryWithoutDoubleMP4Extension() throws {
+    @Test func macViewPreservesPanelDestinationAndStagesRendererInsideContainer() throws {
         let text = try source("Echo macOS/Views/MacVideoExportView.swift")
         let export = try section(
             in: text,
@@ -213,10 +213,90 @@ struct VideoExportUIWiringTests {
         #expect(text.hasPrefix("// SPDX-License-Identifier: GPL-3.0-or-later\n"))
         #expect(text.contains("panel.allowedContentTypes = [.mpeg4Movie]"))
         #expect(text.contains("panel.nameFieldStringValue = \"\\(bookTitle).mp4\""))
-        #expect(export.contains("panelURL.deletingPathExtension().lastPathComponent"))
-        #expect(export.contains("outputDirectory: panelURL.deletingLastPathComponent()"))
-        #expect(export.contains("bookTitle: outputBaseName"))
-        #expect(!export.contains("bookTitle: panelURL.lastPathComponent"))
+        #expect(
+            export.contains("let destination = try MacVideoExportDestination(panelURL: panelURL)"))
+        #expect(export.contains("MacVideoExportPublisher.makeStagingDirectory()"))
+        #expect(export.contains("outputDirectory: stagingDirectory"))
+        #expect(!export.contains("outputDirectory: panelURL.deletingLastPathComponent()"))
+        #expect(export.contains("MacVideoExportPublisher.publish("))
+        #expect(export.contains("to: destination"))
+        #expect(export.contains("FileManager.default.removeItem(at: stagingDirectory)"))
+    }
+
+    @Test func macDestinationContractPreservesPunctuationAndRejectsEmptyStems() throws {
+        let text = try source("Echo macOS/Services/MacVideoExportPublisher.swift")
+        let destination = try section(
+            in: text,
+            startingAt: "struct MacVideoExportDestination",
+            endingAt: "final class MacVideoExportSidecarPresenter")
+
+        #expect(text.hasPrefix("// SPDX-License-Identifier: GPL-3.0-or-later\n"))
+        #expect(destination.contains("videoURL = panelURL"))
+        #expect(destination.contains("let baseURL = panelURL.deletingPathExtension()"))
+        #expect(destination.contains("guard !baseURL.lastPathComponent.isEmpty"))
+        #expect(destination.contains("srtURL = baseURL.appendingPathExtension(\"srt\")"))
+        #expect(
+            destination.contains(
+                "chaptersURL = baseURL.appendingPathExtension(\"chapters.txt\")"))
+        #expect(!destination.contains("SafeFileName"))
+        #expect(!destination.contains("replacingOccurrences"))
+    }
+
+    @Test func macPublisherCoordinatesRegisteredRelatedSidecarsAndRollsBack() throws {
+        let text = try source("Echo macOS/Services/MacVideoExportPublisher.swift")
+        let presenter = try section(
+            in: text,
+            startingAt: "final class MacVideoExportSidecarPresenter",
+            endingAt: "enum MacVideoExportPublisher")
+        let publisher = try section(
+            in: text,
+            startingAt: "enum MacVideoExportPublisher",
+            endingAt: "\n}",
+            fromEnd: true)
+
+        #expect(presenter.contains("NSFilePresenter"))
+        #expect(presenter.contains("let primaryPresentedItemURL: URL?"))
+        #expect(presenter.contains("let presentedItemURL: URL?"))
+        #expect(publisher.contains("NSFileCoordinator.addFilePresenter(presenter)"))
+        #expect(publisher.contains("NSFileCoordinator.removeFilePresenter(presenter)"))
+        #expect(
+            occurrences(of: "NSFileCoordinator.addFilePresenter(presenter)", in: publisher)
+                == occurrences(
+                    of: "NSFileCoordinator.removeFilePresenter(presenter)", in: publisher))
+        #expect(publisher.contains("NSFileCoordinator(filePresenter: presenter)"))
+        #expect(publisher.contains("coordinate(writingItemAt:"))
+        #expect(
+            publisher.contains(
+                "try rollback(destination: destination, presenters: presenters)"))
+        #expect(publisher.contains("destination.videoURL"))
+        #expect(publisher.contains("destination.srtURL"))
+        #expect(publisher.contains("destination.chaptersURL"))
+    }
+
+    @Test func macInfoPlistDeclaresRelatedSRTAndPlainTextTypes() throws {
+        let plist = try macInfoPlist()
+        let documentTypes = try #require(plist["CFBundleDocumentTypes"] as? [[String: Any]])
+        let relatedTypes = documentTypes.filter { $0["NSIsRelatedItemType"] as? Bool == true }
+
+        #expect(
+            relatedTypes.contains {
+                ($0["LSItemContentTypes"] as? [String])?.contains(
+                    "com.echo.audiobooks.srt") == true
+            })
+        #expect(
+            relatedTypes.contains {
+                ($0["LSItemContentTypes"] as? [String])?.contains("public.plain-text") == true
+            })
+
+        let importedTypes = try #require(
+            plist["UTImportedTypeDeclarations"] as? [[String: Any]])
+        let srtType = try #require(
+            importedTypes.first {
+                $0["UTTypeIdentifier"] as? String == "com.echo.audiobooks.srt"
+            })
+        #expect((srtType["UTTypeConformsTo"] as? [String])?.contains("public.plain-text") == true)
+        let tags = try #require(srtType["UTTypeTagSpecification"] as? [String: Any])
+        #expect((tags["public.filename-extension"] as? [String])?.contains("srt") == true)
     }
 
     @Test func macViewOffersKaraokeAndSimpleModesWithKaraokeDefault() throws {
@@ -253,7 +333,7 @@ struct VideoExportUIWiringTests {
         #expect(text.contains("ProgressView(value: fraction)"))
     }
 
-    @Test func macExportCancellationErrorsAndSecurityScopeHaveBalancedLifecycles() throws {
+    @Test func macExportCancellationErrorsAndPanelAccessHaveOneOwner() throws {
         let text = try source("Echo macOS/Views/MacVideoExportView.swift")
         let export = try section(
             in: text,
@@ -267,11 +347,11 @@ struct VideoExportUIWiringTests {
         #expect(text.contains("@State private var exportTask: Task<Void, Never>?"))
         #expect(text.contains("exportTask?.cancel()"))
         #expect(text.contains(".onDisappear { exportTask?.cancel() }"))
+        #expect(!export.contains("startAccessingSecurityScopedResource"))
+        #expect(occurrences(of: "panelURL.stopAccessingSecurityScopedResource()", in: export) == 1)
         #expect(
             export.contains(
-                "let didStartAccessing = panelURL.startAccessingSecurityScopedResource()"))
-        #expect(export.contains("if didStartAccessing"))
-        #expect(export.contains("panelURL.stopAccessingSecurityScopedResource()"))
+                "defer {\n                panelURL.stopAccessingSecurityScopedResource()"))
         #expect(export.contains("catch is CancellationError"))
         #expect(mapping.contains("case .noAudio:"))
         #expect(mapping.contains("String(localized: .videoExportErrorNoAudio)"))
@@ -287,6 +367,18 @@ struct VideoExportUIWiringTests {
         let catalog = try stringCatalog()
         let expected: [String: (en: String, nl: String)] = [
             "videoExportChooseDestination": ("Export…", "Exporteren…"),
+            "videoExportErrorEmptyFilename": (
+                "Choose a file name before exporting.",
+                "Kies een bestandsnaam voordat je exporteert."
+            ),
+            "videoExportErrorRelatedFileAccess": (
+                "Echo couldn't access a related sidecar file.",
+                "Echo kon geen toegang krijgen tot een gerelateerd sidecarbestand."
+            ),
+            "videoExportErrorRollbackFailed": (
+                "Echo couldn't clean up a partial video export.",
+                "Echo kon een gedeeltelijke video-export niet opruimen."
+            ),
             "videoExportModeKaraoke": ("Karaoke", "Karaoke"),
             "videoExportModeLabel": ("Mode", "Modus"),
             "videoExportModeSimple": ("Simple", "Eenvoudig"),
@@ -323,13 +415,19 @@ struct VideoExportUIWiringTests {
     private func section(
         in source: some StringProtocol,
         startingAt start: String,
-        endingAt end: String
+        endingAt end: String,
+        fromEnd: Bool = false
     ) throws -> Substring {
         let text = String(source)
         guard let startRange = text.range(of: start) else {
             throw SourceInspectionError.missingMarker(start)
         }
-        guard let endRange = text.range(of: end, range: startRange.upperBound..<text.endIndex)
+        let searchRange = startRange.upperBound..<text.endIndex
+        let endRange =
+            fromEnd
+            ? text.range(of: end, options: .backwards, range: searchRange)
+            : text.range(of: end, range: searchRange)
+        guard let endRange
         else {
             throw SourceInspectionError.missingMarker(end)
         }
@@ -346,6 +444,13 @@ struct VideoExportUIWiringTests {
         let data = try Data(contentsOf: catalogURL)
         let root = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         return try #require(root["strings"] as? [String: Any])
+    }
+
+    private func macInfoPlist() throws -> [String: Any] {
+        let data = try Data(
+            contentsOf: repositoryRoot.appendingPathComponent("Echo macOS/Info.plist"))
+        return try #require(
+            PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
     }
 
     private func translation(
