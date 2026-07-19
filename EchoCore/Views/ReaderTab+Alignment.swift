@@ -300,6 +300,13 @@
                         saveImageToCameraRoll(block: block)
                         return true
                     })
+                actions.append(
+                    UIAccessibilityCustomAction(name: String(localized: "View Full Screen")) {
+                        [weak model] _ in
+                        guard let model, let image = resolvedImage(for: block) else { return false }
+                        model.fullscreenImage = FullscreenImageItem(image: image)
+                        return true
+                    })
             }
 
             return actions
@@ -475,6 +482,15 @@
                         saveImageToCameraRoll(block: block)
                     }
                     actions.append(saveImageAction)
+
+                    let viewImageAction = UIAction(
+                        title: String(localized: "View Full Screen"),
+                        image: UIImage(systemName: "arrow.up.left.and.arrow.down.right")
+                    ) { [weak model] _ in
+                        guard let model, let image = resolvedImage(for: block) else { return }
+                        model.fullscreenImage = FullscreenImageItem(image: image)
+                    }
+                    actions.append(viewImageAction)
                 }
 
                 // Audit D1: long-press is the timestamp reveal for inactive cards.

@@ -1058,8 +1058,10 @@ struct ReaderTab: View {
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
-    func saveImageToCameraRoll(block: EPubBlockRecord) {
-        guard let imagePath = block.imagePath else { return }
+    /// Resolves a block's image from its recorded path, falling back to the
+    /// EPUBAssets store (same fallback saveImageToCameraRoll used).
+    func resolvedImage(for block: EPubBlockRecord) -> UIImage? {
+        guard let imagePath = block.imagePath else { return nil }
         var url = URL(fileURLWithPath: imagePath)
         if !FileManager.default.fileExists(atPath: url.path) {
             let filename = url.lastPathComponent
@@ -1068,9 +1070,12 @@ struct ReaderTab: View {
             url = appSupport.appendingPathComponent("EPUBAssets").appendingPathComponent(dirName)
                 .appendingPathComponent(filename)
         }
-        if let image = UIImage(contentsOfFile: url.path) {
-            UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
-        }
+        return UIImage(contentsOfFile: url.path)
+    }
+
+    func saveImageToCameraRoll(block: EPubBlockRecord) {
+        guard let image = resolvedImage(for: block) else { return }
+        Task { _ = await PhotoLibrarySaver().save(image) }
     }
 
     @ViewBuilder

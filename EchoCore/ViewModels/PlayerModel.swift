@@ -125,6 +125,11 @@ final class PlayerModel {
     var showingMissingBookWarning: Bool = false
     var showingABSBrowse: Bool = false
 
+    #if canImport(UIKit)
+        /// Image presented edge-to-edge by RootTabView's fullScreenCover.
+        var fullscreenImage: FullscreenImageItem? = nil
+    #endif
+
     /// The dynamic bottom clearance required for scrollable views to not be covered by the custom dock.
     var bottomInset: CGFloat {
         if selectedTab == .nowPlaying && folderURL != nil && hasPlaybackContent {

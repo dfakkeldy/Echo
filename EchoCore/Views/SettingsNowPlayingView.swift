@@ -64,6 +64,23 @@ struct SettingsNowPlayingView: View {
                     "When enabled, voice memos attached to bookmarks play automatically when the audiobook reaches that timestamp."
                 )
             }
+
+            #if os(iOS)
+                Section {
+                    Toggle("Experimental Player Layout", isOn: $settings.experimentalNowPlayingLayout)
+                    Button("Reset Button Layout", role: .destructive) {
+                        settings.experimentalPlayerLayoutData =
+                            ExperimentalPlayerLayout.defaultLayout.encoded()
+                    }
+                    .disabled(!settings.experimentalNowPlayingLayout)
+                } header: {
+                    Text("Experimental")
+                } footer: {
+                    Text(
+                        "A full-bleed cover layout with floating glass buttons you can rearrange. Turn off any time to return to the standard player."
+                    )
+                }
+            #endif
         }
         .navigationTitle("Now Playing")
     }
