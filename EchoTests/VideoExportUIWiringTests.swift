@@ -234,15 +234,15 @@ struct VideoExportUIWiringTests {
     }
 
     @Test func sharedVideoDestinationPreservesExactPunctuationAndSidecars() throws {
-        let panelURL = URL(fileURLWithPath: "/tmp/Wait, what! [final] #2.mp4")
+        let panelURL = URL(fileURLWithPath: "/tmp/100% ready? *final*.mp4")
 
         let destination = try VideoExportDestination(panelURL: panelURL)
 
         #expect(destination.videoURL == panelURL)
-        #expect(destination.srtURL == URL(fileURLWithPath: "/tmp/Wait, what! [final] #2.srt"))
+        #expect(destination.srtURL == URL(fileURLWithPath: "/tmp/100% ready? *final*.srt"))
         #expect(
             destination.chaptersURL
-                == URL(fileURLWithPath: "/tmp/Wait, what! [final] #2.chapters.txt"))
+                == URL(fileURLWithPath: "/tmp/100% ready? *final*.chapters.txt"))
     }
 
     @Test func sharedVideoDestinationRejectsWhitespaceAndExtensionOnlyNames() {
@@ -294,7 +294,7 @@ struct VideoExportUIWiringTests {
             startingAt: "nonisolated enum MacVideoExportPublisher",
             endingAt: "private nonisolated enum MacVideoExportPublishingError")
 
-        #expect(publisher.contains("let snapshots = try snapshotBundle("))
+        #expect(publisher.contains("snapshots = try snapshotBundle("))
         #expect(publisher.contains("makeBackupDirectory()"))
         #expect(publisher.contains("coordinate(readingItemAt:"))
         #expect(publisher.contains("if snapshot.existed"))
@@ -304,6 +304,68 @@ struct VideoExportUIWiringTests {
         #expect(publisher.contains("try removeItemIfPresent(at: destinationURL)"))
         #expect(publisher.contains("FileManager.default.removeItem(at: backupDirectory)"))
         #expect(!publisher.contains("FileManager.default.copyItem"))
+    }
+
+    @Test func macPublisherSkipsCoordinatedReadsForAbsentRelatedSidecars() throws {
+        let text = try source("Echo macOS/Services/MacVideoExportPublisher.swift")
+        let relatedSnapshot = try section(
+            in: text,
+            startingAt: "private static func snapshotRelatedItem",
+            endingAt: "private static func coordinateCopy")
+        let publisher = try section(
+            in: text,
+            startingAt: "nonisolated enum MacVideoExportPublisher",
+            endingAt: "private nonisolated enum MacVideoExportPublishingError")
+
+        let existenceCheck = try #require(relatedSnapshot.range(of: "fileExists("))
+        let absentReturn = try #require(relatedSnapshot.range(of: "guard existed else"))
+        let coordinatedRead = try #require(relatedSnapshot.range(of: "coordinateRead("))
+        #expect(existenceCheck.lowerBound < absentReturn.lowerBound)
+        #expect(absentReturn.lowerBound < coordinatedRead.lowerBound)
+        #expect(relatedSnapshot.contains("existed: false"))
+        #expect(relatedSnapshot.contains("backupURL: backupURL"))
+        #expect(publisher.contains("options: .forReplacing"))
+    }
+
+    @Test func macPublisherPreservesRecoveryBackupsAndTracksOnlyActualMutation() throws {
+        let text = try source("Echo macOS/Services/MacVideoExportPublisher.swift")
+        let publish = try section(
+            in: text,
+            startingAt: "static func publish(",
+            endingAt: "private static func makeBackupDirectory")
+        let replace = try section(
+            in: text,
+            startingAt: "private static func replaceItem",
+            endingAt: "private static func removeItemIfPresent")
+        let restore = try section(
+            in: text,
+            startingAt: "private static func restore(",
+            endingAt: "private static func replaceItem")
+        let publishingError = try section(
+            in: text,
+            startingAt: "private nonisolated enum MacVideoExportPublishingError",
+            endingAt: "\n}",
+            fromEnd: true)
+
+        #expect(
+            !publish.contains("defer { try? FileManager.default.removeItem(at: backupDirectory) }"))
+        #expect(publish.contains("cleanupBackupDirectory(backupDirectory)"))
+        #expect(publish.contains("backupDirectory: backupDirectory"))
+        #expect(publishingError.contains("backupDirectory: URL"))
+        #expect(publishingError.contains("backupDirectory.path(percentEncoded: false)"))
+
+        #expect(
+            publish.contains(
+                "onMutationBegan: { mutationTracker.items.insert(.movie) }"))
+        #expect(
+            !publish.contains(
+                "try Task.checkCancellation()\n            mutationTracker.items.insert(.movie)"))
+        #expect(replace.contains("onMutationBegan"))
+        let cancellation = try #require(replace.range(of: "Task.checkCancellation()"))
+        let mutation = try #require(replace.range(of: "onMutationBegan()"))
+        #expect(cancellation.lowerBound < mutation.lowerBound)
+        #expect(restore.contains("checkingCancellation: false"))
+        #expect(!restore.contains("onMutationBegan"))
     }
 
     @Test func macPublicationRunsOffMainAndCopiesInCancellableChunks() throws {

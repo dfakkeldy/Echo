@@ -47,7 +47,6 @@ nonisolated enum MacVideoExportPublisher {
         to destination: VideoExportDestination
     ) throws -> VideoExportService.Output {
         let backupDirectory = try makeBackupDirectory()
-        defer { try? FileManager.default.removeItem(at: backupDirectory) }
 
         let presenters = [
             MacVideoExportSidecarPresenter(
@@ -64,16 +63,23 @@ nonisolated enum MacVideoExportPublisher {
             }
         }
 
-        let snapshots = try snapshotBundle(
-            destination: destination,
-            backupDirectory: backupDirectory,
-            presenters: presenters)
+        let snapshots: [PublicationSnapshot]
+        do {
+            snapshots = try snapshotBundle(
+                destination: destination,
+                backupDirectory: backupDirectory,
+                presenters: presenters)
+        } catch {
+            cleanupBackupDirectory(backupDirectory)
+            throw error
+        }
         let mutationTracker = MutationTracker()
 
         do {
-            try Task.checkCancellation()
-            mutationTracker.items.insert(.movie)
-            try replaceItem(at: destination.videoURL, with: stagedOutput.videoURL)
+            try replaceItem(
+                at: destination.videoURL,
+                with: stagedOutput.videoURL,
+                onMutationBegan: { mutationTracker.items.insert(.movie) })
             try Task.checkCancellation()
             try coordinateCopy(
                 from: stagedOutput.srtURL,
@@ -97,19 +103,27 @@ nonisolated enum MacVideoExportPublisher {
             } catch let rollbackError {
                 throw MacVideoExportPublishingError.rollbackFailed(
                     publicationError: publicationError,
-                    rollbackError: rollbackError)
+                    rollbackError: rollbackError,
+                    backupDirectory: backupDirectory)
             }
+            cleanupBackupDirectory(backupDirectory)
             throw publicationError
         }
 
-        return VideoExportService.Output(
+        let publishedOutput = VideoExportService.Output(
             videoURL: destination.videoURL,
             srtURL: destination.srtURL,
             chaptersURL: destination.chaptersURL)
+        cleanupBackupDirectory(backupDirectory)
+        return publishedOutput
     }
 
     private static func makeBackupDirectory() throws -> URL {
         try makeTemporaryDirectory(prefix: "video-export-backup")
+    }
+
+    private static func cleanupBackupDirectory(_ backupDirectory: URL) {
+        try? FileManager.default.removeItem(at: backupDirectory)
     }
 
     private static func makeTemporaryDirectory(prefix: String) throws -> URL {
@@ -162,7 +176,17 @@ nonisolated enum MacVideoExportPublisher {
         backupURL: URL,
         presenter: MacVideoExportSidecarPresenter
     ) throws -> PublicationSnapshot {
-        try coordinateRead(at: finalURL, presenter: presenter) { coordinatedURL in
+        let existed = FileManager.default.fileExists(
+            atPath: finalURL.path(percentEncoded: false))
+        guard existed else {
+            return PublicationSnapshot(
+                item: item,
+                finalURL: finalURL,
+                existed: false,
+                backupURL: backupURL)
+        }
+
+        return try coordinateRead(at: finalURL, presenter: presenter) { coordinatedURL in
             try snapshotItem(item, at: coordinatedURL, backupURL: backupURL)
         }
     }
@@ -176,8 +200,10 @@ nonisolated enum MacVideoExportPublisher {
     ) throws {
         try coordinateWrite(at: destinationURL, options: .forReplacing, presenter: presenter) {
             coordinatedURL in
-            mutationTracker.items.insert(item)
-            try replaceItem(at: coordinatedURL, with: sourceURL)
+            try replaceItem(
+                at: coordinatedURL,
+                with: sourceURL,
+                onMutationBegan: { mutationTracker.items.insert(item) })
         }
     }
 
@@ -239,29 +265,45 @@ nonisolated enum MacVideoExportPublisher {
     private static func replaceItem(
         at destinationURL: URL,
         with sourceURL: URL,
-        checkingCancellation: Bool = true
+        checkingCancellation: Bool = true,
+        onMutationBegan: @escaping () -> Void = {}
     ) throws {
         if checkingCancellation {
             try Task.checkCancellation()
         }
-        try removeItemIfPresent(at: destinationURL)
+
+        var mutationBegan = false
+        let beginMutationIfNeeded = {
+            guard !mutationBegan else { return }
+            mutationBegan = true
+            onMutationBegan()
+        }
+
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: destinationURL.path(percentEncoded: false)) {
+            beginMutationIfNeeded()
+            try fileManager.removeItem(at: destinationURL)
+        }
         if checkingCancellation {
             try Task.checkCancellation()
         }
         try chunkedCopy(
             from: sourceURL,
             to: destinationURL,
-            checkingCancellation: checkingCancellation)
+            checkingCancellation: checkingCancellation,
+            onMutationBegan: beginMutationIfNeeded)
     }
 
     private static func chunkedCopy(
         from sourceURL: URL,
         to destinationURL: URL,
-        checkingCancellation: Bool = true
+        checkingCancellation: Bool = true,
+        onMutationBegan: () -> Void = {}
     ) throws {
         if checkingCancellation {
             try Task.checkCancellation()
         }
+        onMutationBegan()
         guard
             FileManager.default.createFile(
                 atPath: destinationURL.path(percentEncoded: false), contents: nil)
@@ -341,16 +383,20 @@ nonisolated enum MacVideoExportPublisher {
 
 private nonisolated enum MacVideoExportPublishingError: LocalizedError {
     case coordinationDidNotRun(URL)
-    case rollbackFailed(publicationError: Error, rollbackError: Error)
+    case rollbackFailed(
+        publicationError: Error,
+        rollbackError: Error,
+        backupDirectory: URL)
 
     var errorDescription: String? {
         switch self {
         case .coordinationDidNotRun:
             String(localized: .videoExportErrorRelatedFileAccess)
-        case .rollbackFailed(let publicationError, let rollbackError):
+        case .rollbackFailed(let publicationError, let rollbackError, let backupDirectory):
             String(localized: .videoExportErrorRollbackFailed) + " "
                 + publicationError.localizedDescription + " "
-                + rollbackError.localizedDescription
+                + rollbackError.localizedDescription + " "
+                + backupDirectory.path(percentEncoded: false)
         }
     }
 }
