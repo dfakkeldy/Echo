@@ -2261,7 +2261,7 @@ git commit -m "feat(ios): video export entry with progress and share"
 **Interfaces:**
 - Consumes: `VideoExportService.exportVideo(...)`, `player.audiobookID`, `player.dbService?.writer`, `player.currentTitle` (same values `MacAudioExportView` receives).
 
-- [ ] **Step 1: Build `MacVideoExportView`**
+- [x] **Step 1: Build `MacVideoExportView`**
 
 Model directly on `Echo macOS/Views/MacAudioExportView.swift` (read it first — reuse its `NSSavePanel` sequencing comment/pattern, which exists to avoid presenting sheets from inside the panel callback). Differences from the audio view:
 
@@ -2270,11 +2270,11 @@ Model directly on `Echo macOS/Views/MacAudioExportView.swift` (read it first —
 - A `Picker("Mode", selection: $mode)` with `.karaoke` / `.simple` (`SlideshowExportMode`), default `.karaoke`.
 - Progress bar bound to the `onProgress` callback; "Reveal in Finder" (`NSWorkspace.shared.activateFileViewerSelecting`) on success.
 
-- [ ] **Step 2: Wire into the app**
+- [x] **Step 2: Wire into the app**
 
 In `Echo macOS/Echo_macOSApp.swift`, next to the existing `showAudioExport` sheet (~line 106): add `@State private var showVideoExport = false`, an identical `.sheet(isPresented: $showVideoExport)` presenting `MacVideoExportView(audiobookID:bookTitle:databaseWriter:)` under the same `player.audiobookID`/`player.dbService?.writer` guard, and a menu item next to wherever `showAudioExport` is toggled (search `showAudioExport = true` in the same file — likely the File/Export command group): `Button("Export Video…") { showVideoExport = true }` with the same enabled-state condition.
 
-- [ ] **Step 3: Build macOS**
+- [x] **Step 3: Build macOS**
 
 ```bash
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && xcodebuild build -project Echo.xcodeproj -scheme "Echo macOS" -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO -jobs 5
@@ -2282,7 +2282,7 @@ In `Echo macOS/Echo_macOSApp.swift`, next to the existing `showAudioExport` shee
 
 Expected: BUILD SUCCEEDED.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add "Echo macOS/Views/MacVideoExportView.swift" "Echo macOS/Echo_macOSApp.swift"
