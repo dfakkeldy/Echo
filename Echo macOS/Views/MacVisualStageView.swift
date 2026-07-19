@@ -20,14 +20,14 @@ struct MacVisualStageView: View {
                     MacVisualSubtitleView(cue: subtitleCue, appFont: appFont)
                 }
 
-                Picker("Image timing", selection: $syncPoint) {
+                Picker("Visual timing", selection: $syncPoint) {
                     Text("Begin").tag(VisualListeningSyncPoint.begin)
                     Text("Middle").tag(VisualListeningSyncPoint.midpoint)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .frame(width: 180)
-                .accessibilityLabel(Text("Image timing"))
+                .accessibilityLabel(Text("Visual timing"))
 
                 Spacer(minLength: 0)
             }

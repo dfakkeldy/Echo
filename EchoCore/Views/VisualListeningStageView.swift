@@ -21,13 +21,13 @@ struct VisualListeningStageView: View {
                     }
                 }
 
-            Picker("Image timing", selection: $syncPoint) {
+            Picker("Visual timing", selection: $syncPoint) {
                 Text("Begin").tag(VisualListeningSyncPoint.begin)
                 Text("Middle").tag(VisualListeningSyncPoint.midpoint)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .accessibilityLabel(Text("Image timing"))
+            .accessibilityLabel(Text("Visual timing"))
         }
         .onAppear(perform: loadImageIfNeeded)
         .onChange(of: snapshot.visualCue?.imagePath) { _, _ in

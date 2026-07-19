@@ -76,6 +76,20 @@ struct EPUBCodeBlockParsingTests {
         #expect(parsed.first { $0.kind == .code }?.narrationCue == "Listing 1-1. Hello")
     }
 
+    @Test func figcaptionStructuralMarkupPreservesWordBoundaries() {
+        let parsed = blocks("""
+            <html><body><figure>
+            <pre>let value = 42</pre>
+            <figcaption>Listing 1<br/>Assigning <strong>a</strong><div>variable</div></figcaption>
+            </figure></body></html>
+            """)
+
+        #expect(
+            parsed.first { $0.kind == .code }?.narrationCue
+                == "Listing 1 Assigning a variable"
+        )
+    }
+
     @Test func nestedFigureCaptionsStayWithTheirOwnCodeBlocks() {
         let parsed = blocks("""
             <html><body>
@@ -112,6 +126,8 @@ struct EPUBCodeBlockParsingTests {
         #expect(XHTMLBlockDelegate.codeLanguage(fromClassAttribute: "language-Swift") == "swift")
         #expect(XHTMLBlockDelegate.codeLanguage(fromClassAttribute: "highlight lang-rb") == "rb")
         #expect(XHTMLBlockDelegate.codeLanguage(fromClassAttribute: "brush:python") == "python")
+        #expect(XHTMLBlockDelegate.codeLanguage(fromClassAttribute: "brush:python;") == "python")
+        #expect(XHTMLBlockDelegate.codeLanguage(fromClassAttribute: "brush: python;") == "python")
         #expect(XHTMLBlockDelegate.codeLanguage(fromClassAttribute: "pretty") == nil)
         #expect(XHTMLBlockDelegate.codeLanguage(fromClassAttribute: nil) == nil)
     }

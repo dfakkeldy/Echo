@@ -42,7 +42,9 @@ struct MacVisualListeningParityTests {
         let stage = try MacSource.read("Views/MacVisualStageView.swift")
 
         #expect(stage.contains("Image(nsImage: image)"))
-        #expect(stage.contains("Picker(\"Image timing\""))
+        #expect(stage.contains("Picker(\"Visual timing\""))
+        #expect(stage.contains(".accessibilityLabel(Text(\"Visual timing\"))"))
+        #expect(!stage.contains("\"Image timing\""))
         #expect(stage.contains("Subtitle:"))
         #expect(stage.contains("Current figure"))
         #expect(stage.contains("WordTokenizer.wordRanges"))

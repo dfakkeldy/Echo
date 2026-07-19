@@ -110,6 +110,7 @@ enum NarrationSegmentPlanner {
     }
 
     private static func estimatedSeconds(for block: EPubBlockRecord) -> Double {
-        max(1.0, Double((block.text ?? "").count) / charsPerSecond)
+        let spokenText = NarrationCodeBlockCue.spokenText(for: block) ?? block.text ?? ""
+        return max(1.0, Double(spokenText.count) / charsPerSecond)
     }
 }

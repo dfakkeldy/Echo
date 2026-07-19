@@ -176,8 +176,8 @@ struct NowPlayingLayoutTests {
             "The iPad layout should place the visual stage beside compact playback controls."
         )
         #expect(
-            stageSource.contains("Picker(\"Image timing\""),
-            "The image sync-point choice should be available from the slideshow surface."
+            stageSource.contains("Picker(\"Visual timing\""),
+            "The visual sync-point choice should be available from the slideshow surface."
         )
         #expect(
             stageSource.contains("Current figure"),
@@ -235,7 +235,7 @@ struct NowPlayingLayoutTests {
                 + "snapshot.subtitleCue != nil onGeometryChange(for: Bool.self) "
                 + "usesWideVisualListeningLayout wideVisualListeningLayout(snapshot:"
         } else if fileName == "VisualListeningStageView.swift" {
-            return "Picker(\"Image timing\" Current figure Subtitle:"
+            return "Picker(\"Visual timing\" Current figure Subtitle:"
         } else if fileName == "Components/AdaptiveBackground.swift" {
             return "LinearGradient coverTheme"
         } else if fileName == "PlayerScrubberView.swift" {

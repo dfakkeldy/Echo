@@ -18,6 +18,7 @@ final class CodeCardCell: UICollectionViewCell {
         textView.scrollsToTop = false
         textView.alwaysBounceVertical = false
         textView.backgroundColor = .clear
+        textView.textColor = .label
         textView.font = UIFont.monospacedSystemFont(
             ofSize: UIFont.preferredFont(forTextStyle: .callout).pointSize,
             weight: .regular

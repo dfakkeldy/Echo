@@ -89,7 +89,10 @@ private func tokenizeMarkdown(_ content: String) -> [TextUnit] {
         fenceLanguage = nil
     }
 
-    for rawLine in content.components(separatedBy: .newlines) {
+    let logicalContent = content
+        .replacing("\r\n", with: "\n")
+        .replacing("\r", with: "\n")
+    for rawLine in logicalContent.components(separatedBy: .newlines) {
         let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
 
         if let activeFence = fence {

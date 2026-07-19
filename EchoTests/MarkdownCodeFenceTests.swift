@@ -112,4 +112,27 @@ struct MarkdownCodeFenceTests {
         #expect(code?.text == "before\n    ```\nafter")
         #expect(code?.codeLanguage == "text")
     }
+
+    @Test func windowsAndClassicMacLineEndingsProduceTheSameLogicalCodeLines() {
+        let expectedCode = "let value = 42\nprint(value)"
+
+        for newline in ["\r\n", "\r"] {
+            let markdown = [
+                "```swift",
+                "let value = 42",
+                "print(value)",
+                "```",
+                "",
+                "Tail prose.",
+            ].joined(separator: newline)
+            let parsed = parse(markdown)
+            let code = parsed.blocks.first {
+                EPubBlockRecord.Kind(rawValue: $0.blockKind) == .code
+            }
+
+            #expect(code?.text == expectedCode)
+            #expect(code?.codeLanguage == "swift")
+            #expect(parsed.blocks.contains { $0.text == "Tail prose." })
+        }
+    }
 }

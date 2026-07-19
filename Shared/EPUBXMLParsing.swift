@@ -555,6 +555,11 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         }
         guard skipDepth == 0 else { return }
 
+        if isInFigcaption {
+            insertSoftWordBreakInFigcaptionIfStructural(elementName)
+            return
+        }
+
         if elementName == "head" {
             isInsideHead = true
             return
@@ -708,6 +713,12 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         currentCharOffset += appendCollapsed(" ", to: &currentText)
     }
 
+    private func insertSoftWordBreakInFigcaptionIfStructural(_ elementName: String) {
+        guard elementName == "br" || !inlineTags.contains(elementName) else { return }
+        let figureIndex = figureStack.count - 1
+        appendCollapsed(" ", to: &figureStack[figureIndex].captionText)
+    }
+
     /// Records an element `id` for fragment-target resolution.
     private func captureAnchorID(_ id: String?) {
         guard let id, !id.isEmpty else { return }
@@ -754,6 +765,11 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             return
         }
         guard skipDepth == 0 else { return }
+
+        if isInFigcaption {
+            insertSoftWordBreakInFigcaptionIfStructural(elementName)
+            return
+        }
 
         if isInPre {
             if elementName == "pre" {
@@ -938,12 +954,24 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
     /// "language-python" / "lang-rb" / "brush:swift" → "python"/"rb"/"swift".
     static func codeLanguage(fromClassAttribute classAttr: String?) -> String? {
         guard let classAttr else { return nil }
-        for cls in classAttr.split(separator: " ") {
-            let lower = cls.lowercased()
-            for prefix in ["language-", "lang-", "brush:"] where lower.hasPrefix(prefix) {
-                let value = String(lower.dropFirst(prefix.count))
-                    .trimmingCharacters(in: .whitespaces)
-                if !value.isEmpty { return value }
+        let classes = classAttr.lowercased().split(whereSeparator: { $0.isWhitespace })
+
+        func languageValue(_ rawValue: Substring) -> String? {
+            let value = String(rawValue).trimmingCharacters(
+                in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: ";"))
+            )
+            return value.isEmpty ? nil : value
+        }
+
+        for (index, cls) in classes.enumerated() {
+            for prefix in ["language-", "lang-"] where cls.hasPrefix(prefix) {
+                if let value = languageValue(cls.dropFirst(prefix.count)) { return value }
+            }
+            if cls.hasPrefix("brush:") {
+                if let value = languageValue(cls.dropFirst("brush:".count)) { return value }
+                if index + 1 < classes.count, let value = languageValue(classes[index + 1]) {
+                    return value
+                }
             }
         }
         return nil
