@@ -47,14 +47,23 @@ struct VideoExportUIWiringTests {
         let text = try source("EchoCore/Views/VideoExportProgressView.swift")
         let export = try section(
             in: text,
-            startingAt: "private func runExport() async",
+            startingAt: "private func runExport(",
             endingAt: "#endif")
 
-        #expect(text.contains(".task { await runExport() }"))
-        #expect(text.contains("Text(isExporting ? .cancel : .done)"))
+        // The export is a structured `.task(id:)` keyed by the captured
+        // request, never an auto-starting `.task {}` or a detached task, so
+        // dismissing the sheet cooperatively cancels `VideoExportService`.
+        #expect(text.contains(".task(id: request?.id)"))
+        #expect(text.contains("guard let request else { return }"))
+        #expect(text.contains("await runExport(request)"))
+        #expect(!text.contains(".task { await runExport"))
+        #expect(!text.contains("@State private var isExporting"))
         #expect(!text.contains("@State private var exportTask"))
+        #expect(!text.contains("Task.detached"))
+        #expect(text.contains("Text(isResult ? .done : .cancel)"))
         #expect(export.contains("try await VideoExportService().exportVideo("))
         #expect(export.contains("mode: .karaoke"))
+        #expect(export.contains("dimensions: request.dimensions"))
         #expect(export.contains("catch is CancellationError"))
 
         let share = try section(
@@ -66,11 +75,63 @@ struct VideoExportUIWiringTests {
         #expect(share.contains("output.chaptersURL"))
     }
 
+    @Test func iOSVideoExportStartsInConfigurationDefaultingToLandscapeWithFormatOnly() throws {
+        let text = try source("EchoCore/Views/VideoExportProgressView.swift")
+
+        // Three explicit phases; the sheet starts in configuration and never
+        // auto-starts an export on appearance.
+        #expect(text.contains("private enum VideoExportPhase"))
+        #expect(text.contains("case configuration"))
+        #expect(text.contains("case exporting(VideoExportRequest)"))
+        #expect(text.contains("case result"))
+        #expect(text.contains("@State private var phase: VideoExportPhase = .configuration"))
+        #expect(!text.contains("@State private var isExporting = true"))
+        #expect(!text.contains("isExporting = true"))
+
+        // Every new sheet defaults to Landscape.
+        #expect(
+            text.contains("@State private var selectedFormat: SlideshowVideoFormat = .landscape"))
+
+        // Configuration content lives in a ScrollView (Dynamic Type / small
+        // screen safety) and exposes ONLY the shared format picker -- iPhone v1
+        // uses Karaoke implicitly and never surfaces a Karaoke/Simple control.
+        #expect(text.contains("ScrollView"))
+        #expect(text.contains("SlideshowVideoFormatPicker(selection: $selectedFormat)"))
+        #expect(!text.contains("SlideshowExportMode"))
+        #expect(!text.contains(".videoExportModeLabel"))
+        #expect(!text.contains(".videoExportModeSimple"))
+        #expect(!text.contains(".videoExportModeKaraoke"))
+    }
+
+    @Test func iOSVideoExportCapturesImmutableRequestAndDisablesDuplicateStarts() throws {
+        let text = try source("EchoCore/Views/VideoExportProgressView.swift")
+
+        // The captured request is an immutable, identifiable value carrying a
+        // fresh UUID and the validated dimensions -- structured-concurrency safe.
+        #expect(text.contains("private struct VideoExportRequest: Identifiable, Equatable"))
+        #expect(text.contains("let id = UUID()"))
+        #expect(text.contains("let dimensions: SlideshowVideoDimensions"))
+        #expect(text.contains("@State private var request: VideoExportRequest?"))
+
+        // The Export button captures exactly one request from the selected
+        // format, flips into the exporting phase immediately, and cannot start a
+        // second request while one is already captured.
+        let configuration = try section(
+            in: text,
+            startingAt: "private var configuration",
+            endingAt: "private var exporting")
+        #expect(configuration.contains(".videoExportConfigurationExportButton"))
+        #expect(configuration.contains("VideoExportRequest("))
+        #expect(configuration.contains("dimensions: selectedFormat.dimensions"))
+        #expect(configuration.contains("phase = .exporting("))
+        #expect(configuration.contains(".disabled(request != nil)"))
+    }
+
     @Test func exportOwnsBackgroundAndTemporaryDirectoryLifecycles() throws {
         let text = try source("EchoCore/Views/VideoExportProgressView.swift")
         let export = try section(
             in: text,
-            startingAt: "private func runExport() async",
+            startingAt: "private func runExport(",
             endingAt: "private func exportErrorText")
         let backgroundTask = try section(
             in: text,
@@ -95,7 +156,7 @@ struct VideoExportUIWiringTests {
         let text = try source("EchoCore/Views/VideoExportProgressView.swift")
         let export = try section(
             in: text,
-            startingAt: "private func runExport() async",
+            startingAt: "private func runExport(",
             endingAt: "private func exportErrorText")
         let callback = try section(
             in: export,
@@ -125,6 +186,15 @@ struct VideoExportUIWiringTests {
         #expect(mapping.contains("case .writerFailed:"))
         #expect(mapping.contains("String(localized: .videoExportErrorWriterFailed)"))
         #expect(mapping.contains("return error.localizedDescription"))
+
+        // The live-encoder rejection is exhaustively mapped and interpolates the
+        // requested width and height through a `FormatStyle`, never C-style
+        // `String(format:)`, so the copy stays localized and grouping-safe.
+        #expect(mapping.contains("case .unsupportedVideoSettings(let width, let height):"))
+        #expect(mapping.contains(".videoExportErrorUnsupportedVideoSettings"))
+        #expect(mapping.contains("width.formatted(.number.grouping(.never))"))
+        #expect(mapping.contains("height.formatted(.number.grouping(.never))"))
+        #expect(!mapping.contains("String(format:"))
     }
 
     @Test func newVideoExportCopyUsesManualEnglishAndDutchSymbolKeys() throws {
