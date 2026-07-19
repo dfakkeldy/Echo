@@ -304,6 +304,27 @@ struct RootTabView: View {
                 }
                 .ignoresSafeArea(.container, edges: .bottom)
             }
+
+            if usesExperimentalPlayerChrome && !model.isPlayingVoiceMemo {
+                ExperimentalControlLayer(
+                    onShowChapters: { showingChapterPicker = true },
+                    onShowBookmarks: { model.selectedTab = .read },
+                    onShowPlaybackOptions: { showingPlaybackOptions = true },
+                    onStats: { showingStats = true },
+                    onFidget: { showingFidget = true },
+                    onSettings: { showingSettings = true },
+                    onHelp: { model.showingHelp = true },
+                    onAddDocument: (model.folderURL != nil
+                        && !model.narrationPlaybackState.isRunning)
+                        ? { model.showingDocumentImporter = true } : nil,
+                    onExport: (model.folderURL != nil
+                        && !model.narrationPlaybackState.isRunning)
+                        ? { showingExport = true } : nil,
+                    onStudyNotesExport: (model.folderURL != nil
+                        && !model.narrationPlaybackState.isRunning)
+                        ? { showingStudyNotesExport = true } : nil
+                )
+            }
         }
         .overlay(alignment: .bottom) {
             checkpointOverlay
