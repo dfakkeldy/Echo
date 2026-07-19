@@ -234,8 +234,12 @@ actor VideoExportService {
             }
             return CGImageSourceCreateImageAtIndex(source, 0, nil)
         }
+        // CD-7 bridge: the renderer now takes validated dimensions. Task 6 owns
+        // the real dimensions plumbing + H.264 preflight; this keeps the existing
+        // width/height contract compiling in the meantime.
         let renderer = SlideshowFrameRenderer(
-            width: width, height: height, coverArt: coverArt)
+            dimensions: try SlideshowVideoDimensions.validating(width: width, height: height),
+            coverArt: coverArt)
 
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
