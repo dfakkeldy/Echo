@@ -180,6 +180,139 @@ struct VideoExportUIWiringTests {
         }
     }
 
+    @Test func macAppPresentsVideoExportSheetAndAdjacentEnabledMenuCommand() throws {
+        let app = try source("Echo macOS/Echo_macOSApp.swift")
+        let sheet = try section(
+            in: app,
+            startingAt: ".sheet(isPresented: $showVideoExport)",
+            endingAt: "        }\n        .defaultLaunchBehavior")
+        let commands = try section(
+            in: app,
+            startingAt: "Button(\"Export Audiobook (.m4b)…\")",
+            endingAt: "            }\n\n            CommandGroup(replacing: .textEditing)")
+
+        #expect(app.contains("@State private var showVideoExport = false"))
+        #expect(sheet.contains("player.audiobookID"))
+        #expect(sheet.contains("player.dbService?.writer"))
+        #expect(sheet.contains("MacVideoExportView("))
+        #expect(sheet.contains("audiobookID: id"))
+        #expect(sheet.contains("bookTitle: player.currentTitle"))
+        #expect(sheet.contains("databaseWriter: db"))
+        #expect(commands.contains("Button(.videoExportMenuTitle)"))
+        #expect(commands.contains("showVideoExport = true"))
+        #expect(occurrences(of: ".disabled(player.audiobookID == nil)", in: commands) == 2)
+    }
+
+    @Test func macViewUsesPanelStemAndParentDirectoryWithoutDoubleMP4Extension() throws {
+        let text = try source("Echo macOS/Views/MacVideoExportView.swift")
+        let export = try section(
+            in: text,
+            startingAt: "private func startExport(to panelURL: URL)",
+            endingAt: "private func exportErrorText")
+
+        #expect(text.hasPrefix("// SPDX-License-Identifier: GPL-3.0-or-later\n"))
+        #expect(text.contains("panel.allowedContentTypes = [.mpeg4Movie]"))
+        #expect(text.contains("panel.nameFieldStringValue = \"\\(bookTitle).mp4\""))
+        #expect(export.contains("panelURL.deletingPathExtension().lastPathComponent"))
+        #expect(export.contains("outputDirectory: panelURL.deletingLastPathComponent()"))
+        #expect(export.contains("bookTitle: outputBaseName"))
+        #expect(!export.contains("bookTitle: panelURL.lastPathComponent"))
+    }
+
+    @Test func macViewOffersKaraokeAndSimpleModesWithKaraokeDefault() throws {
+        let text = try source("Echo macOS/Views/MacVideoExportView.swift")
+
+        #expect(text.contains("@State private var mode: SlideshowExportMode = .karaoke"))
+        #expect(
+            text.contains(
+                "Picker(String(localized: .videoExportModeLabel), selection: $mode)"))
+        #expect(text.contains("Text(.videoExportModeKaraoke).tag(SlideshowExportMode.karaoke)"))
+        #expect(text.contains("Text(.videoExportModeSimple).tag(SlideshowExportMode.simple)"))
+        #expect(text.contains("mode: mode"))
+    }
+
+    @Test func macProgressDeliveryIsBoundedWithOneOwnedConsumer() throws {
+        let text = try source("Echo macOS/Views/MacVideoExportView.swift")
+        let export = try section(
+            in: text,
+            startingAt: "private func startExport(to panelURL: URL)",
+            endingAt: "private func exportErrorText")
+        let callback = try section(
+            in: export,
+            startingAt: "onProgress: { value in",
+            endingAt: "})")
+
+        #expect(export.contains("bufferingPolicy: .bufferingNewest(1)"))
+        #expect(occurrences(of: "let progressConsumer = Task", in: export) == 1)
+        #expect(export.contains("for await value in progressStream"))
+        #expect(export.contains("fraction = min(max(value, 0), 1)"))
+        #expect(export.contains("progressContinuation.finish()"))
+        #expect(export.contains("progressConsumer.cancel()"))
+        #expect(callback.contains("progressContinuation.yield(value)"))
+        #expect(!callback.contains("Task {"))
+        #expect(text.contains("ProgressView(value: fraction)"))
+    }
+
+    @Test func macExportCancellationErrorsAndSecurityScopeHaveBalancedLifecycles() throws {
+        let text = try source("Echo macOS/Views/MacVideoExportView.swift")
+        let export = try section(
+            in: text,
+            startingAt: "private func startExport(to panelURL: URL)",
+            endingAt: "private func exportErrorText")
+        let mapping = try section(
+            in: text,
+            startingAt: "private func exportErrorText",
+            endingAt: "\n    }\n}")
+
+        #expect(text.contains("@State private var exportTask: Task<Void, Never>?"))
+        #expect(text.contains("exportTask?.cancel()"))
+        #expect(text.contains(".onDisappear { exportTask?.cancel() }"))
+        #expect(
+            export.contains(
+                "let didStartAccessing = panelURL.startAccessingSecurityScopedResource()"))
+        #expect(export.contains("if didStartAccessing"))
+        #expect(export.contains("panelURL.stopAccessingSecurityScopedResource()"))
+        #expect(export.contains("catch is CancellationError"))
+        #expect(mapping.contains("case .noAudio:"))
+        #expect(mapping.contains("String(localized: .videoExportErrorNoAudio)"))
+        #expect(mapping.contains("case .noAlignment:"))
+        #expect(mapping.contains("String(localized: .videoExportErrorNoAlignment)"))
+        #expect(mapping.contains("case .writerFailed:"))
+        #expect(mapping.contains("String(localized: .videoExportErrorWriterFailed)"))
+        #expect(mapping.contains("return error.localizedDescription"))
+    }
+
+    @Test func macSuccessRevealsTheFinalMovieAndUsesLocalizedCopy() throws {
+        let text = try source("Echo macOS/Views/MacVideoExportView.swift")
+        let catalog = try stringCatalog()
+        let expected: [String: (en: String, nl: String)] = [
+            "videoExportChooseDestination": ("Export…", "Exporteren…"),
+            "videoExportModeKaraoke": ("Karaoke", "Karaoke"),
+            "videoExportModeLabel": ("Mode", "Modus"),
+            "videoExportModeSimple": ("Simple", "Eenvoudig"),
+            "videoExportRevealInFinder": ("Reveal in Finder", "Toon in Finder"),
+            "videoExportSavePanelTitle": (
+                "Export slideshow video as .mp4", "Diavoorstellingsvideo exporteren als .mp4"
+            ),
+        ]
+
+        #expect(text.contains("NSWorkspace.shared.activateFileViewerSelecting([output.videoURL])"))
+        #expect(text.contains("Button(.videoExportRevealInFinder)"))
+        #expect(text.contains("Button(.videoExportChooseDestination)"))
+        #expect(text.contains("panel.title = String(localized: .videoExportSavePanelTitle)"))
+        #expect(text.contains("Text(.videoExportProgressTitle)"))
+        #expect(text.contains("Label(.videoExportComplete"))
+        #expect(text.contains("Text(.videoExportProgressMessage)"))
+
+        for (key, translations) in expected {
+            let entry = try #require(catalog[key] as? [String: Any])
+            #expect(entry["extractionState"] as? String == "manual")
+            let localizations = try #require(entry["localizations"] as? [String: Any])
+            #expect(translation("en", in: localizations) == translations.en)
+            #expect(translation("nl", in: localizations) == translations.nl)
+        }
+    }
+
     private func source(_ relativePath: String) throws -> String {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
