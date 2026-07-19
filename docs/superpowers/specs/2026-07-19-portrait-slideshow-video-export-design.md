@@ -2,7 +2,7 @@
 # Portrait Slideshow Video Export — Design
 
 **Date:** 2026-07-19
-**Status:** Approved in brainstorming on 2026-07-19; awaiting written-spec review
+**Status:** Approved on 2026-07-19; implementation not started
 **Base:** `origin/nightly` at `5d473246`
 **Depends on:** slideshow video export pipeline and CLI (PR #460), code-block visual narration (PR #461), and iOS/macOS video export interfaces (PR #462)
 **Extends:** `docs/superpowers/specs/2026-07-18-slideshow-video-export-design.md`
