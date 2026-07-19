@@ -85,7 +85,9 @@ final class NarrationQAService {
                 .compactMap {
                     id in
                     guard
-                        let text = blocksByID[id]?.narrationText ?? blocksByID[id]?.text,
+                        let block = blocksByID[id],
+                        let text = NarrationCodeBlockCue.spokenText(for: block)
+                            ?? block.narrationText ?? block.text,
                         !text.isEmpty
                     else { return nil }
                     return (id, TextNormalizer.normalize(text))

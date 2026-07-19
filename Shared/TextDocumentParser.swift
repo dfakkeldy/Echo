@@ -7,6 +7,7 @@ enum TextParseError: Error { case unreadable(URL) }
 private enum TextUnit {
     case heading(level: Int, text: String)
     case paragraph(String)
+    case code(text: String, language: String?)
 }
 
 /// Decides the chapter break level for a document's heading depths.
@@ -55,10 +56,17 @@ func parseMarkdown(audiobookID: String, content: String, sourceURL: URL) -> EPUB
 
 // MARK: - Markdown tokenizer
 
+private struct MarkdownFence {
+    let delimiter: Character
+    let length: Int
+}
+
 private func tokenizeMarkdown(_ content: String) -> [TextUnit] {
     var units: [TextUnit] = []
     var paragraphLines: [String] = []
-    var inFence = false
+    var fence: MarkdownFence?
+    var fenceLines: [String] = []
+    var fenceLanguage: String?
 
     func flushParagraph() {
         let joined = paragraphLines.joined(separator: " ")
@@ -67,19 +75,42 @@ private func tokenizeMarkdown(_ content: String) -> [TextUnit] {
         paragraphLines.removeAll()
     }
 
-    for rawLine in content.components(separatedBy: .newlines) {
+    func flushFence() {
+        let isBlank: (String) -> Bool = {
+            $0.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        let trimmed = Array(
+            fenceLines.drop(while: isBlank).reversed().drop(while: isBlank).reversed())
+        let code = trimmed.joined(separator: "\n")
+        if !code.isEmpty {
+            units.append(.code(text: code, language: fenceLanguage))
+        }
+        fenceLines.removeAll()
+        fenceLanguage = nil
+    }
+
+    let logicalContent = content
+        .replacing("\r\n", with: "\n")
+        .replacing("\r", with: "\n")
+    for rawLine in logicalContent.components(separatedBy: .newlines) {
         let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
 
-        if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
-            if inFence {
-                inFence = false
-            } else {
-                flushParagraph()
-                inFence = true
+        if let activeFence = fence {
+            if isMarkdownFenceClosing(rawLine, opener: activeFence) {
+                fence = nil
+                flushFence()
+                continue
             }
+            fenceLines.append(rawLine)
             continue
         }
-        if inFence { continue }
+
+        if let opening = markdownFenceOpening(rawLine) {
+            flushParagraph()
+            fence = opening.fence
+            fenceLanguage = opening.language
+            continue
+        }
         if trimmed.isEmpty {
             flushParagraph()
             continue
@@ -112,7 +143,50 @@ private func tokenizeMarkdown(_ content: String) -> [TextUnit] {
         paragraphLines.append(trimmed)
     }
     flushParagraph()
+    if fence != nil { flushFence() }
     return units
+}
+
+private func markdownFenceOpening(_ line: String) -> (
+    fence: MarkdownFence, language: String?
+)? {
+    guard let run = markdownFenceRun(in: line), run.length >= 3 else { return nil }
+    let info = run.remainder.trimmingCharacters(in: .whitespaces).lowercased()
+    let language = info.split(separator: " ").first.map(String.init)
+    return (MarkdownFence(delimiter: run.delimiter, length: run.length), language)
+}
+
+private func isMarkdownFenceClosing(_ line: String, opener: MarkdownFence) -> Bool {
+    guard let run = markdownFenceRun(in: line),
+        run.delimiter == opener.delimiter,
+        run.length >= opener.length
+    else { return false }
+    return run.remainder.trimmingCharacters(in: .whitespaces).isEmpty
+}
+
+private func markdownFenceRun(in line: String) -> (
+    delimiter: Character, length: Int, remainder: String
+)? {
+    guard let candidate = markdownFenceCandidate(in: line) else { return nil }
+    let characters = Array(candidate)
+    guard let delimiter = characters.first, delimiter == "`" || delimiter == "~" else {
+        return nil
+    }
+    let length = characters.prefix { $0 == delimiter }.count
+    return (delimiter, length, String(characters.dropFirst(length)))
+}
+
+/// CommonMark permits up to three leading spaces before a fence. Four or more
+/// spaces make the line indented code content, even when it looks like a closer.
+private func markdownFenceCandidate(in line: String) -> Substring? {
+    var index = line.startIndex
+    var leadingSpaces = 0
+    while index < line.endIndex, line[index] == " " {
+        leadingSpaces += 1
+        guard leadingSpaces <= 3 else { return nil }
+        index = line.index(after: index)
+    }
+    return line[index...]
 }
 
 private func isMarkdownThematicBreak(_ line: String) -> Bool {
@@ -179,7 +253,8 @@ private func buildParse(
     @discardableResult
     func emit(
         kind: EPubBlockRecord.Kind, plain: String, formats: [TextFormat],
-        isFrontMatter: Bool, headingLevel: Int?
+        isFrontMatter: Bool, headingLevel: Int?,
+        narrationText: String? = nil, codeLanguage: String? = nil
     ) -> String? {
         if spineIndexesUsed.last != spineIndex { spineIndexesUsed.append(spineIndex) }
         let anchorID = (kind == .heading) ? "b\(spineIndex)-\(blockIndex)" : nil
@@ -210,6 +285,8 @@ private func buildParse(
                 wordCount: wordCount,
                 markers: EPubBlockRecord.encodeMarkers(markers),
                 textFormats: EPubBlockRecord.encodeFormats(formats),
+                narrationText: narrationText,
+                codeLanguage: codeLanguage,
                 createdAt: createdAt,
                 modifiedAt: nil))
 
@@ -217,7 +294,9 @@ private func buildParse(
             TextBlockDescriptor(
                 kind: kind, text: plain, imagePath: nil, htmlContent: nil,
                 markers: markers, textFormats: formats,
-                anchorIDs: anchorID.map { [$0] } ?? []))
+                anchorIDs: anchorID.map { [$0] } ?? [],
+                narrationCue: narrationText,
+                codeLanguage: codeLanguage))
 
         blockIndex += 1
         sequenceIndex += 1
@@ -272,6 +351,13 @@ private func buildParse(
             emit(
                 kind: .paragraph, plain: plain, formats: formats,
                 isFrontMatter: front, headingLevel: nil)
+        case .code(let text, let language):
+            let front = (chapterLevel != nil) && !seenChapterHeading
+            if front { emittedFrontMatter = true }
+            emit(
+                kind: .code, plain: text, formats: [],
+                isFrontMatter: front, headingLevel: nil,
+                narrationText: "Code listing.", codeLanguage: language)
         }
     }
 

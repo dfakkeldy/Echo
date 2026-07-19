@@ -83,7 +83,7 @@ private extension StudyDeckSource {
         switch EPubBlockRecord.Kind(rawValue: kind) {
         case .heading, .paragraph, .sentence:
             return true
-        case .image, nil:
+        case .image, .code, nil:
             return false
         }
     }

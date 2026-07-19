@@ -10,7 +10,8 @@ import Testing
         chapter: Int,
         seq: Int,
         kind: String = "paragraph",
-        text: String? = nil
+        text: String? = nil,
+        narrationText: String? = nil
     ) -> EPubBlockRecord {
         EPubBlockRecord(
             id: id, audiobookID: "b1", spineHref: "c.xhtml",
@@ -20,6 +21,7 @@ import Testing
             imagePath: nil, chapterIndex: chapter,
             isHidden: false, hiddenReason: nil, isFrontMatter: false,
             wordCount: nil, markers: nil, textFormats: nil,
+            narrationText: narrationText,
             createdAt: nil, modifiedAt: nil)
     }
 
@@ -88,6 +90,25 @@ import Testing
         let segments = NarrationSegmentPlanner.plan([chapter])
 
         #expect(segments.map(\.chapterTitle) == ["ch. 1: Opening"])
+    }
+
+    @Test func codeListingDurationUsesItsSpokenCueInsteadOfRawSource() {
+        let blocks = [
+            block(
+                "code", chars: 0, chapter: 1, seq: 0, kind: "code",
+                text: String(repeating: "let value = answer + 42\n", count: 100),
+                narrationText: "Code listing."
+            ),
+            block("prose", chars: 150, chapter: 1, seq: 1),
+        ]
+        let chapter = NarrationChapterPlanner.PlannedChapter(
+            index: 1, displayNumber: 2, blocks: blocks)
+
+        let segments = NarrationSegmentPlanner.segments(
+            for: chapter, isFirstChapterOfBook: false)
+
+        #expect(segments.count == 1)
+        #expect(segments[0].blocks.map(\.id) == ["code", "prose"])
     }
 
     @Test func resumeStartsAtFirstSegmentOfResumeChapter() {

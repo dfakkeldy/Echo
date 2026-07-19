@@ -113,7 +113,7 @@ struct ExportBlocksCommand: AsyncParsableCommand {
 
         let counts = document.kindCounts
         print(
-            "EXPORTED \(document.blocks.count) blocks (\(counts.paragraphs)p/\(counts.headings)h/\(counts.sentences)s/\(counts.images)i) -> \(outputURL.path)"
+            "EXPORTED \(document.blocks.count) blocks (\(counts.paragraphs)p/\(counts.headings)h/\(counts.sentences)s/\(counts.images)i/\(counts.code) code) -> \(outputURL.path)"
         )
     }
 }

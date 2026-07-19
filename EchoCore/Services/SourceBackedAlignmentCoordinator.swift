@@ -18,8 +18,8 @@ enum SourceBackedAlignmentCoordinator {
         audiobookID: String, dbService: DatabaseService
     ) throws -> [TokenDTW.EPubToken] {
         let blocks = try EPubBlockDAO(db: dbService.writer).visibleBlocks(for: audiobookID)
-        return blocks.compactMap { block in
-            guard let text = block.text, !text.isEmpty else { return nil }
+        return CommercialAudioAlignmentSource.blocks(from: blocks).compactMap { block in
+            guard let text = block.text else { return nil }
             return TokenDTW.EPubToken(text: text, blockID: block.id)
         }
     }

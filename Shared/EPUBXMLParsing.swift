@@ -65,7 +65,7 @@ struct OPFParseResult: Sendable {
     let guideReferences: [GuideReference]
 }
 
-/// A parsed block from XHTML content — a paragraph, heading, or image.
+/// A parsed block from XHTML content — a paragraph, heading, image, or code.
 struct TextBlockDescriptor: Sendable {
     let kind: EPubBlockRecord.Kind
     var text: String?
@@ -78,11 +78,16 @@ struct TextBlockDescriptor: Sendable {
     /// Element `id` attributes seen within (or immediately wrapping) this
     /// block, in document order — used to resolve TOC fragment targets.
     let anchorIDs: [String]
+    /// Spoken cue for `.code` blocks (figcaption or "Code listing."). Nil otherwise.
+    var narrationCue: String?
+    /// Language hint for `.code` blocks. Nil otherwise.
+    let codeLanguage: String?
 
     init(
         kind: EPubBlockRecord.Kind, text: String?, imagePath: String?, htmlContent: String?,
         markers: [SyncMarker] = [], textFormats: [TextFormat] = [],
-        rawClasses: [String] = [], rawTags: String = "", anchorIDs: [String] = []
+        rawClasses: [String] = [], rawTags: String = "", anchorIDs: [String] = [],
+        narrationCue: String? = nil, codeLanguage: String? = nil
     ) {
         self.kind = kind
         self.text = text
@@ -93,6 +98,8 @@ struct TextBlockDescriptor: Sendable {
         self.rawClasses = rawClasses
         self.rawTags = rawTags
         self.anchorIDs = anchorIDs
+        self.narrationCue = narrationCue
+        self.codeLanguage = codeLanguage
     }
 }
 
@@ -466,10 +473,10 @@ final class TOCParserDelegate: NSObject, XMLParserDelegate {
 // MARK: - XHTML Block Parser
 
 /// Parses XHTML content into `TextBlockDescriptor` values, stripping markup and
-/// preserving block structure (paragraphs, headings, images).
+/// preserving block structure (paragraphs, headings, images, code blocks).
 ///
 /// This parser:
-/// - Skips `script`, `style`, `head`, `figcaption` content.
+/// - Skips `script`, `style`, and non-title `head` content.
 /// - Splits text on paragraph-level tags (`p`, `div`, `h1`–`h6`, `blockquote`, `li`, `section`).
 /// - Captures heading content and inline HTML for rich display.
 /// - Extracts image blocks from `<img src="...">` elements.
@@ -489,6 +496,18 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
     private var currentBlockTags: String = ""
     private var blockquoteDepth = 0
     private var currentBlockHasBlockquote = false
+    // MARK: - Code block (<pre>) capture
+    private var isInPre = false
+    private var currentCodeText = ""
+    private var currentCodeLanguage: String?
+    // MARK: - Figure / figcaption (code-listing captions)
+    private struct FigureContext {
+        var captionText = ""
+        var codeBlockIndices: [Int] = []
+    }
+
+    private var figureStack: [FigureContext] = []
+    private var isInFigcaption = false
     private let skipTags: Set<String> = ["script", "style", "figcaption"]
     private let blockTags: Set<String> = [
         "p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "li", "section",
@@ -526,11 +545,20 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         qualifiedName: String?,
         attributes attributeDict: [String: String] = [:]
     ) {
+        if elementName == "figcaption", !figureStack.isEmpty, skipDepth == 0 {
+            isInFigcaption = true
+            return
+        }
         if skipTags.contains(elementName) {
             skipDepth += 1
             return
         }
         guard skipDepth == 0 else { return }
+
+        if isInFigcaption {
+            insertSoftWordBreakInFigcaptionIfStructural(elementName)
+            return
+        }
 
         if elementName == "head" {
             isInsideHead = true
@@ -538,6 +566,27 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         }
         if elementName == "title" {
             isInsideTitle = true
+            return
+        }
+
+        if isInPre {
+            // Inside <pre>, nested markup contributes characters only — no soft
+            // word breaks, no block flushes. <br/> is a real line break; a nested
+            // <code class="language-…"> may carry the language hint.
+            if elementName == "br" { currentCodeText += "\n" }
+            if elementName == "code", currentCodeLanguage == nil {
+                currentCodeLanguage = Self.codeLanguage(
+                    fromClassAttribute: attributeDict["class"])
+            }
+            return
+        }
+        if elementName == "figure" { figureStack.append(FigureContext()) }
+        if elementName == "pre" {
+            flushBlock()
+            captureAnchorID(attributeDict["id"])
+            isInPre = true
+            currentCodeText = ""
+            currentCodeLanguage = Self.codeLanguage(fromClassAttribute: attributeDict["class"])
             return
         }
 
@@ -630,6 +679,16 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         }
         if isInsideHead { return }  // ignore all other text in head
 
+        if isInFigcaption {
+            let figureIndex = figureStack.count - 1
+            appendCollapsed(string, to: &figureStack[figureIndex].captionText)
+            return
+        }
+        if isInPre {
+            currentCodeText += string  // raw — indentation and newlines are content
+            return
+        }
+
         if isInHeading { appendCollapsed(string, to: &currentHeading) }
         currentCharOffset += appendCollapsed(string, to: &currentText)
         if isInBlock || inlineDepth > 0 {
@@ -652,6 +711,12 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         guard !isInsideHead else { return }
         if isInHeading { appendCollapsed(" ", to: &currentHeading) }
         currentCharOffset += appendCollapsed(" ", to: &currentText)
+    }
+
+    private func insertSoftWordBreakInFigcaptionIfStructural(_ elementName: String) {
+        guard elementName == "br" || !inlineTags.contains(elementName) else { return }
+        let figureIndex = figureStack.count - 1
+        appendCollapsed(" ", to: &figureStack[figureIndex].captionText)
     }
 
     /// Records an element `id` for fragment-target resolution.
@@ -691,11 +756,33 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         namespaceURI: String?,
         qualifiedName: String?
     ) {
+        if elementName == "figcaption", isInFigcaption {
+            isInFigcaption = false
+            return
+        }
         if skipTags.contains(elementName) {
             skipDepth = max(0, skipDepth - 1)
             return
         }
         guard skipDepth == 0 else { return }
+
+        if isInFigcaption {
+            insertSoftWordBreakInFigcaptionIfStructural(elementName)
+            return
+        }
+
+        if isInPre {
+            if elementName == "pre" {
+                isInPre = false
+                emitCodeBlock()
+            }
+            return  // ignore inner closes (span/code) while in pre
+        }
+        if elementName == "figure" {
+            attachFigcaptionToPendingCodeBlocks()
+            // fall through: figure was always transparent; keep the soft word
+            // break below by NOT returning here.
+        }
 
         if elementName == "head" {
             isInsideHead = false
@@ -819,6 +906,75 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
                 anchorIDs: pendingAnchorIDs
             ))
         pendingAnchorIDs = []
+    }
+
+    /// Emits the accumulated <pre> content as a `.code` descriptor. Leading and
+    /// trailing blank lines are dropped; internal indentation is preserved.
+    private func emitCodeBlock() {
+        let lines = currentCodeText.components(separatedBy: "\n")
+        let isBlank: (String) -> Bool = {
+            $0.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        let trimmed = Array(
+            lines.drop(while: isBlank).reversed().drop(while: isBlank).reversed())
+        let code = trimmed.joined(separator: "\n")
+        currentCodeText = ""
+        let language = currentCodeLanguage
+        currentCodeLanguage = nil
+        guard !code.isEmpty else { return }
+        textBlocks.append(
+            TextBlockDescriptor(
+                kind: .code,
+                text: code,
+                imagePath: nil,
+                htmlContent: nil,
+                rawTags: "pre",
+                anchorIDs: pendingAnchorIDs,
+                narrationCue: "Code listing.",
+                codeLanguage: language
+            ))
+        pendingAnchorIDs = []
+        if !figureStack.isEmpty {
+            figureStack[figureStack.count - 1].codeBlockIndices.append(textBlocks.count - 1)
+        }
+    }
+
+    /// At </figure>, a captured <figcaption> becomes the spoken cue for the
+    /// figure's code blocks (handles caption-before-pre and caption-after-pre).
+    private func attachFigcaptionToPendingCodeBlocks() {
+        guard let figure = figureStack.popLast() else { return }
+        let caption = figure.captionText.trimmingCharacters(in: .whitespaces)
+        if !caption.isEmpty {
+            for index in figure.codeBlockIndices {
+                textBlocks[index].narrationCue = caption
+            }
+        }
+    }
+
+    /// "language-python" / "lang-rb" / "brush:swift" → "python"/"rb"/"swift".
+    static func codeLanguage(fromClassAttribute classAttr: String?) -> String? {
+        guard let classAttr else { return nil }
+        let classes = classAttr.lowercased().split(whereSeparator: { $0.isWhitespace })
+
+        func languageValue(_ rawValue: Substring) -> String? {
+            let value = String(rawValue).trimmingCharacters(
+                in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: ";"))
+            )
+            return value.isEmpty ? nil : value
+        }
+
+        for (index, cls) in classes.enumerated() {
+            for prefix in ["language-", "lang-"] where cls.hasPrefix(prefix) {
+                if let value = languageValue(cls.dropFirst(prefix.count)) { return value }
+            }
+            if cls.hasPrefix("brush:") {
+                if let value = languageValue(cls.dropFirst("brush:".count)) { return value }
+                if index + 1 < classes.count, let value = languageValue(classes[index + 1]) {
+                    return value
+                }
+            }
+        }
+        return nil
     }
 }
 

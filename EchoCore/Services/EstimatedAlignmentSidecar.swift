@@ -74,8 +74,10 @@ nonisolated enum EstimatedAlignmentSidecar {
     static func readableBlocks(from blocks: [EPubBlockRecord]) -> [EPubBlockRecord] {
         blocks
             .filter { block in
+                let kind = EPubBlockRecord.Kind(rawValue: block.blockKind)
                 guard !block.isHidden,
-                    EPubBlockRecord.Kind(rawValue: block.blockKind) != .image,
+                    kind != .image,
+                    kind != .code,
                     let text = block.text?.trimmingCharacters(in: .whitespacesAndNewlines),
                     !text.isEmpty
                 else { return false }
@@ -101,7 +103,8 @@ nonisolated enum EstimatedAlignmentSidecar {
                 AlignmentSidecar.Anchor(
                     blockId: AlignmentSidecar.portableSuffix(of: block.id),
                     timestamp: cursor,
-                    confidence: confidence
+                    confidence: confidence,
+                    sourceBlockIdentity: AlignmentSidecar.sourceIdentity(for: block)
                 )
             )
             cursor += duration * (Double(max(1, weight)) / Double(totalWeight))
@@ -140,6 +143,8 @@ nonisolated enum AlignmentSidecarVerifier {
         case emptySidecar
         case noChapterTimings
         case invalidAudioDuration(TimeInterval)
+        case legacyCodeRequiresSourceIdentity
+        case sourceIdentityInvalid(blockID: String)
         case unresolvedBlockID(String)
         case timestampDecreased(blockID: String, timestamp: TimeInterval)
         case timestampOutOfRange(blockID: String, timestamp: TimeInterval)
@@ -158,6 +163,10 @@ nonisolated enum AlignmentSidecarVerifier {
                 return "audio has no usable chapter timings"
             case .invalidAudioDuration(let duration):
                 return "audio duration is invalid: \(duration)"
+            case .legacyCodeRequiresSourceIdentity:
+                return "legacy sidecar has no source identity for a code-bearing source"
+            case .sourceIdentityInvalid(let blockID):
+                return "sidecar source identity is missing, mismatched, or unresolved: \(blockID)"
             case .unresolvedBlockID(let blockID):
                 return "sidecar block id does not resolve: \(blockID)"
             case .timestampDecreased(let blockID, let timestamp):
@@ -213,7 +222,31 @@ nonisolated enum AlignmentSidecarVerifier {
             issues.append(.invalidAudioDuration(audioDuration))
         }
 
-        let readable = EstimatedAlignmentSidecar.readableBlocks(from: blocks)
+        switch AlignmentSidecar.sourceValidation(for: anchors, blocks: blocks) {
+        case .current:
+            break
+        case .legacyCodeRequiresIdentity:
+            issues.append(.legacyCodeRequiresSourceIdentity)
+        case .identityMissing(let blockID), .identityMismatch(let blockID),
+            .identityUnresolved(let blockID):
+            issues.append(.sourceIdentityInvalid(blockID: blockID))
+        }
+
+        // The fallback estimator deliberately excludes `.code`, but native
+        // narration emits cue-only anchors for code listings. Verification is
+        // therefore broader than estimation: accept visible spoken blocks and
+        // validate any code word timings against the spoken cue, never raw code.
+        let readable =
+            blocks
+            .filter { block in
+                let kind = EPubBlockRecord.Kind(rawValue: block.blockKind)
+                guard !block.isHidden, kind != .image,
+                    let text = block.text?.trimmingCharacters(in: .whitespacesAndNewlines),
+                    !text.isEmpty
+                else { return false }
+                return true
+            }
+            .sorted { $0.sequenceIndex < $1.sequenceIndex }
         let resolvableSuffixes = Set(
             readable.map { AlignmentSidecar.portableSuffix(of: $0.id) }
         )
@@ -223,7 +256,9 @@ nonisolated enum AlignmentSidecarVerifier {
             readable.map {
                 (
                     AlignmentSidecar.portableSuffix(of: $0.id),
-                    WordTokenizer.words(in: $0.text ?? "").count
+                    WordTokenizer.words(
+                        in: NarratedBlockText.text(for: $0) ?? ""
+                    ).count
                 )
             },
             uniquingKeysWith: { first, _ in first }
@@ -293,7 +328,8 @@ nonisolated enum AlignmentSidecarVerifier {
     /// non-inverted `[start, end)` ranges, monotonic non-decreasing starts, the
     /// first word starting at/after the anchor timestamp (small epsilon), and —
     /// when the anchor resolves to a source block — a word count equal to the
-    /// block's whitespace-tokenized text so `array position == wordIndex` holds.
+    /// ordinary block's whitespace-tokenized text or a `.code` block's resolved
+    /// cue/fallback tokens so `array position == wordIndex` holds.
     private static func wordIssues(
         for anchor: AlignmentSidecar.Anchor,
         words: [AlignmentSidecar.Anchor.Word],

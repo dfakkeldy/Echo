@@ -95,6 +95,7 @@ import Testing
         #expect(decoded[0].blockId == "s0-b1")
         #expect(decoded[0].timestamp == 75)
         #expect(decoded[0].words == nil)
+        #expect(decoded[0].sourceBlockIdentity == nil)
     }
 
     /// Forward compatibility: an old Echo build's decoder (which knows nothing
@@ -138,6 +139,88 @@ import Testing
         #expect(try AlignmentSidecar.decode(data).first?.words == nil)
     }
 
+    @Test func sourceIdentityIsDevicePortableAndContentSensitive() {
+        let mac = sourceBlock(audiobookID: "file:///Users/dan/Book/", text: "Same text")
+        let phone = sourceBlock(audiobookID: "file:///var/mobile/Book/", text: "Same text")
+        let revised = sourceBlock(audiobookID: "file:///var/mobile/Book/", text: "Revised text")
+
+        #expect(
+            AlignmentSidecar.sourceIdentity(for: mac) == AlignmentSidecar.sourceIdentity(for: phone)
+        )
+        #expect(
+            AlignmentSidecar.sourceIdentity(for: mac)
+                != AlignmentSidecar.sourceIdentity(for: revised))
+    }
+
+    @Test func sourceIdentityGoldenDigestFreezesCanonicalEncoding() {
+        let block = sourceBlock(audiobookID: "golden", text: "Canonical source")
+
+        #expect(
+            AlignmentSidecar.sourceIdentity(for: block)
+                == "155e723d158fb286eb3440c9012c014cffd10130cce6613e07342916246d95d1"
+        )
+    }
+
+    @Test func sourceIdentityIgnoresImportAndNarrationDerivedFields() {
+        let parsed = sourceBlock(audiobookID: "book", text: "A promoted section title")
+        var imported = parsed
+        imported.blockKind = EPubBlockRecord.Kind.heading.rawValue
+        imported.chapterIndex = 4
+        imported.narrationText = "An FM-refined section title."
+
+        #expect(
+            AlignmentSidecar.sourceIdentity(for: parsed)
+                == AlignmentSidecar.sourceIdentity(for: imported))
+    }
+
+    @Test func sourceIdentityIgnoresReconstructedHTMLAttributeOrder() {
+        var firstParse = sourceBlock(audiobookID: "book", text: "Canonical source")
+        firstParse.htmlContent = "<span class=\"term\" id=\"anchor\">Canonical source</span>"
+        var secondParse = firstParse
+        secondParse.htmlContent = "<span id=\"anchor\" class=\"term\">Canonical source</span>"
+
+        #expect(
+            AlignmentSidecar.sourceIdentity(for: firstParse)
+                == AlignmentSidecar.sourceIdentity(for: secondParse)
+        )
+    }
+
+    @Test func mixedModernSidecarRejectsResolvableAnchorWithoutIdentity() {
+        let first = sourceBlock(audiobookID: "book", text: "First")
+        var second = sourceBlock(audiobookID: "book", text: "Second")
+        second.id = "epub-book-s2-b2"
+        second.blockIndex = 2
+        let anchors = [
+            AlignmentSidecar.Anchor(
+                blockId: "s2-b1",
+                timestamp: 0,
+                confidence: 1,
+                sourceBlockIdentity: AlignmentSidecar.sourceIdentity(for: first)
+            ),
+            AlignmentSidecar.Anchor(
+                blockId: "s2-b2",
+                timestamp: 1,
+                confidence: 1
+            ),
+        ]
+
+        #expect(
+            AlignmentSidecar.sourceValidation(for: anchors, blocks: [first, second])
+                == .identityMissing(blockID: "s2-b2")
+        )
+    }
+
+    @Test func recordEncodeWithSourceBlocksAttachesIdentity() throws {
+        let block = sourceBlock(audiobookID: "ab", text: "Current source")
+        let data = try AlignmentSidecar.encode(
+            [anchor(blockID: block.id, time: 12.5)],
+            sourceBlocks: [block]
+        )
+
+        let decoded = try AlignmentSidecar.decode(data)
+        #expect(decoded.first?.sourceBlockIdentity == AlignmentSidecar.sourceIdentity(for: block))
+    }
+
     @Test func sidecarURLIsEpubSibling() {
         let epub = URL(fileURLWithPath: "/x/Books/My Book.epub")
         #expect(
@@ -156,5 +239,20 @@ import Testing
         try Data("[]".utf8).write(to: sidecar)
 
         #expect(DocumentImportFinalizer.alignmentSidecarURL(for: epub) == sidecar)
+    }
+
+    private func sourceBlock(audiobookID: String, text: String) -> EPubBlockRecord {
+        EPubBlockRecord(
+            id: "epub-\(audiobookID)-s2-b1",
+            audiobookID: audiobookID,
+            spineHref: "chapter.xhtml",
+            spineIndex: 2,
+            blockIndex: 1,
+            sequenceIndex: 0,
+            blockKind: EPubBlockRecord.Kind.paragraph.rawValue,
+            text: text,
+            chapterIndex: 0,
+            isHidden: false
+        )
     }
 }

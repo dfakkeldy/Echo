@@ -10,6 +10,26 @@ import Testing
 /// macOS-clean `AlignmentService`.
 struct MacReaderParityTests {
 
+    @Test func macCommercialAudioAlignmentUsesCodeFilteringSourcePolicy() throws {
+        let src = try MacSource.read("Services/MacAlignmentService.swift")
+        #expect(
+            src.contains("CommercialAudioAlignmentSource.blocks(from: parsed.blocks)"),
+            "The macOS DTW entry point must use the shared source-block filter before tokenizing.")
+        #expect(
+            src.contains("sourceBlocks: parsed.blocks"),
+            "The macOS DTW sidecar writer must bind anchors to the parsed source identity.")
+    }
+
+    @Test func narrationSidecarWritersAttachSourceIdentity() throws {
+        let batch = try MacSource.read("Services/MacBatchProcessingService.swift")
+        #expect(batch.contains("sourceBlockIdentity: AlignmentSidecar.sourceIdentity(for: block)"))
+
+        let headless = try projectSource(
+            "EchoCore/Services/Narration/HeadlessNarrationRunner.swift"
+        )
+        #expect(headless.contains("AlignmentSidecar.attachingSourceIdentities("))
+    }
+
     @Test func readerHasAlignmentContextMenu() throws {
         let src = try MacSource.read("Views/MacReaderFeedView.swift")
         #expect(
@@ -35,5 +55,81 @@ struct MacReaderParityTests {
         #expect(
             src.contains("performAlignment("),
             "A performAlignment helper must apply the edit and reload the feed.")
+    }
+
+    @Test func readerRendersCodeAsSelectableHorizontalCard() throws {
+        let src = try MacSource.read("Views/MacReaderFeedView.swift")
+
+        #expect(
+            src.contains("case EPubBlockRecord.Kind.code.rawValue:"),
+            "The macOS reader must route code blocks to a dedicated renderer.")
+        #expect(src.contains("ScrollView(.horizontal)"))
+        #expect(src.contains("design: .monospaced"))
+        #expect(src.contains(".textSelection(.enabled)"))
+        #expect(src.contains("block.codeLanguage"))
+        #expect(
+            src.contains("Button(\"Seek to code listing\", systemImage: \"play.fill\""),
+            "Selectable code should keep seeking available as a separate accessible control.")
+    }
+
+    @Test func readerEqualityInvalidatesStableIDKindTextAndLanguageChanges() throws {
+        let src = try MacSource.read("Views/MacReaderFeedView.swift")
+        #expect(
+            src.contains("lhs.block == rhs.block"),
+            "MacBlockCardView equality must compare the full block, not only its stable ID.")
+
+        let original = readerBlock()
+        var changedKind = original
+        changedKind.blockKind = EPubBlockRecord.Kind.code.rawValue
+        var changedText = original
+        changedText.text = "let value = 42"
+        var changedLanguage = original
+        changedLanguage.codeLanguage = "swift"
+
+        #expect(changedKind.id == original.id)
+        #expect(changedText.id == original.id)
+        #expect(changedLanguage.id == original.id)
+        #expect(changedKind != original)
+        #expect(changedText != original)
+        #expect(changedLanguage != original)
+    }
+
+    private func readerBlock() -> EPubBlockRecord {
+        EPubBlockRecord(
+            id: "stable-block-id",
+            audiobookID: "book",
+            spineHref: "chapter.xhtml",
+            spineIndex: 0,
+            blockIndex: 0,
+            sequenceIndex: 0,
+            blockKind: EPubBlockRecord.Kind.paragraph.rawValue,
+            text: "Flattened prose.",
+            htmlContent: nil,
+            cardColor: nil,
+            chapterThemeColor: nil,
+            imagePath: nil,
+            chapterIndex: 0,
+            isHidden: false,
+            hiddenReason: nil,
+            isFrontMatter: false,
+            wordCount: 2,
+            markers: nil,
+            textFormats: nil,
+            narrationText: nil,
+            codeLanguage: nil,
+            createdAt: nil,
+            modifiedAt: nil)
+    }
+
+    private func projectSource(_ relativePath: String) throws -> String {
+        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        while directory.path != "/" {
+            let candidate = directory.deletingLastPathComponent().appending(path: relativePath)
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return try String(contentsOf: candidate, encoding: .utf8)
+            }
+            directory.deleteLastPathComponent()
+        }
+        throw CocoaError(.fileNoSuchFile)
     }
 }

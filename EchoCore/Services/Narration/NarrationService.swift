@@ -257,6 +257,12 @@ final class NarrationService {
         var renderedTexts: [String] = []
         renderedTexts.reserveCapacity(spoken.count)
         for block in spoken {
+            if let cueText = NarrationCodeBlockCue.spokenText(for: block) {
+                // Code bypasses normalization and pronunciation overrides at
+                // render time, so its cache identity must use that exact cue.
+                renderedTexts.append(cueText)
+                continue
+            }
             let normalized = TextNormalizer.normalize(block.text ?? "")
             renderedTexts.append(
                 Self.renderedText(
@@ -837,6 +843,16 @@ final class NarrationService {
             guard block.text?.isEmpty == false, !block.isHidden else {
                 prepared.append(
                     NarrationPreparedBlock(block: block, pronunciationDecisionSeeds: []))
+                continue
+            }
+
+            // Code blocks speak their short cue, never the code — skip
+            // TextNormalizer/FM/occurrence overrides entirely.
+            if let cueText = NarrationCodeBlockCue.spokenText(for: block) {
+                var preparedBlock = block
+                preparedBlock.text = cueText
+                prepared.append(
+                    NarrationPreparedBlock(block: preparedBlock, pronunciationDecisionSeeds: []))
                 continue
             }
 

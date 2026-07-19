@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import CryptoKit
 import Foundation
 
 /// The on-disk `alignment.json` sidecar contract — the cross-platform handoff
@@ -18,6 +19,13 @@ import Foundation
 // it would be inferred `@MainActor`, which the `nonisolated` `EPUBSourceAnchorResolver`
 // (and other off-actor callers) cannot reach.
 nonisolated enum AlignmentSidecar {
+    enum SourceValidation: Equatable, Sendable {
+        case current
+        case legacyCodeRequiresIdentity
+        case identityMissing(blockID: String)
+        case identityMismatch(blockID: String)
+        case identityUnresolved(blockID: String)
+    }
 
     /// One persisted anchor. `blockId` is the portable `s<i>-b<j>` suffix.
     /// `confidence` is unused on ingest and **optional**, so a leaner or
@@ -42,6 +50,9 @@ nonisolated enum AlignmentSidecar {
         /// Echo-generated narration from synthesis-time timings; no per-word
         /// confidence in v1.
         let words: [Word]?
+        /// SHA-256 identity of the exact source block used by the producer.
+        /// Optional so legacy sidecars continue to decode.
+        let sourceBlockIdentity: String?
 
         /// One rendered word mapped to its absolute audio `[start, end)`.
         struct Word: Codable, Equatable {
@@ -52,12 +63,14 @@ nonisolated enum AlignmentSidecar {
 
         init(
             blockId: String, timestamp: TimeInterval, confidence: Double?,
-            words: [Word]? = nil
+            words: [Word]? = nil,
+            sourceBlockIdentity: String? = nil
         ) {
             self.blockId = blockId
             self.timestamp = timestamp
             self.confidence = confidence
             self.words = words
+            self.sourceBlockIdentity = sourceBlockIdentity
         }
     }
 
@@ -83,6 +96,85 @@ nonisolated enum AlignmentSidecar {
         "epub-\(audiobookID)-\(portableSuffix(of: portable))"
     }
 
+    /// Device-independent identity for the canonical parsed source behind a
+    /// portable block suffix. Import-derived kind/chapter changes, mutable prose
+    /// `narrationText`, and reconstructed presentation HTML are deliberately
+    /// excluded. Code cue/language are source-derived and remain part of a code
+    /// block's identity.
+    /// Length-prefixing prevents field-boundary collisions without depending
+    /// on device-local paths.
+    static func sourceIdentity(for block: EPubBlockRecord) -> String {
+        let isCode = block.blockKind == EPubBlockRecord.Kind.code.rawValue
+        let fields = [
+            "echo.alignment.source.v1",
+            portableSuffix(of: block.id),
+            block.spineHref,
+            isCode ? "code" : "text",
+            block.text ?? "",
+            isCode ? block.narrationText ?? "" : "",
+            isCode ? block.codeLanguage ?? "" : "",
+        ]
+        let payload = fields.map { "\($0.utf8.count):\($0)" }.joined()
+        return SHA256.hash(data: Data(payload.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    /// Shared importer/CLI policy for deciding whether portable suffixes still
+    /// target the exact parsed source. Modern identity-bearing sidecars fail
+    /// closed: every anchor must resolve, carry an identity, and match. Legacy
+    /// sidecars retain permissive partial resolution only for code-free sources.
+    static func sourceValidation(
+        for anchors: [Anchor],
+        blocks: [EPubBlockRecord]
+    ) -> SourceValidation {
+        let blockBySuffix = Dictionary(
+            blocks.map { (portableSuffix(of: $0.id), $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        guard anchors.contains(where: { $0.sourceBlockIdentity != nil }) else {
+            return blocks.contains {
+                $0.blockKind == EPubBlockRecord.Kind.code.rawValue
+            } ? .legacyCodeRequiresIdentity : .current
+        }
+
+        for anchor in anchors {
+            let suffix = portableSuffix(of: anchor.blockId)
+            guard let block = blockBySuffix[suffix] else {
+                return .identityUnresolved(blockID: anchor.blockId)
+            }
+            guard let identity = anchor.sourceBlockIdentity else {
+                return .identityMissing(blockID: anchor.blockId)
+            }
+            guard identity == sourceIdentity(for: block) else {
+                return .identityMismatch(blockID: anchor.blockId)
+            }
+        }
+        return .current
+    }
+
+    static func attachingSourceIdentities(
+        to anchors: [Anchor],
+        blocks: [EPubBlockRecord]
+    ) -> [Anchor] {
+        let blockBySuffix = Dictionary(
+            blocks.map { (portableSuffix(of: $0.id), $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return anchors.map { anchor in
+            guard let block = blockBySuffix[portableSuffix(of: anchor.blockId)] else {
+                return anchor
+            }
+            return Anchor(
+                blockId: portableSuffix(of: anchor.blockId),
+                timestamp: anchor.timestamp,
+                confidence: anchor.confidence,
+                words: anchor.words,
+                sourceBlockIdentity: sourceIdentity(for: block)
+            )
+        }
+    }
+
     /// Serialize anchors to the portable sidecar form (suffix-only block ids).
     /// Anchors-only — the Mac batch aligner's DTW alignment has no per-word
     /// timing to export, so this overload never writes a `words` key.
@@ -93,6 +185,20 @@ nonisolated enum AlignmentSidecar {
                     blockId: portableSuffix(of: $0.epubBlockID),
                     timestamp: $0.audioTime, confidence: 1.0)
             })
+    }
+
+    static func encode(
+        _ anchors: [AlignmentAnchorRecord],
+        sourceBlocks: [EPubBlockRecord]
+    ) throws -> Data {
+        let portable = anchors.map {
+            Anchor(
+                blockId: portableSuffix(of: $0.epubBlockID),
+                timestamp: $0.audioTime,
+                confidence: 1.0
+            )
+        }
+        return try encode(attachingSourceIdentities(to: portable, blocks: sourceBlocks))
     }
 
     /// Serialize already-portable anchors — the overload for callers that attach
@@ -113,6 +219,17 @@ nonisolated enum AlignmentSidecar {
     static func write(_ anchors: [AlignmentAnchorRecord], forEPUB epubURL: URL) throws -> URL {
         let dest = url(forEPUB: epubURL)
         try encode(anchors).write(to: dest, options: .atomic)
+        return dest
+    }
+
+    @discardableResult
+    static func write(
+        _ anchors: [AlignmentAnchorRecord],
+        sourceBlocks: [EPubBlockRecord],
+        forEPUB epubURL: URL
+    ) throws -> URL {
+        let dest = url(forEPUB: epubURL)
+        try encode(anchors, sourceBlocks: sourceBlocks).write(to: dest, options: .atomic)
         return dest
     }
 }

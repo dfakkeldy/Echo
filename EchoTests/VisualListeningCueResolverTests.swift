@@ -23,10 +23,10 @@ struct VisualListeningCueResolverTests {
             syncPoint: .begin
         )
 
-        #expect(snapshot.imageCue?.blockID == "figure")
-        #expect(snapshot.imageCue?.imagePath == "figures/one.jpg")
-        #expect(snapshot.imageCue?.sequenceIndex == 3)
-        #expect(snapshot.imageCue?.source == .derivedFromNearbyText)
+        #expect(snapshot.visualCue?.blockID == "figure")
+        #expect(snapshot.visualCue?.imagePath == "figures/one.jpg")
+        #expect(snapshot.visualCue?.sequenceIndex == 3)
+        #expect(snapshot.visualCue?.source == .derivedFromNearbyText)
     }
 
     @Test func timestampedImageUsesItsOwnRuntime() {
@@ -47,11 +47,11 @@ struct VisualListeningCueResolverTests {
             syncPoint: .midpoint
         )
 
-        #expect(snapshot.imageCue?.blockID == "figure")
-        #expect(snapshot.imageCue?.displayStartTime == 30)
-        #expect(snapshot.imageCue?.displayEndTime == 40)
-        #expect(snapshot.imageCue?.source == .explicitTimeline)
-        #expect(snapshot.imageCue?.subtitleBlockID == "text")
+        #expect(snapshot.visualCue?.blockID == "figure")
+        #expect(snapshot.visualCue?.displayStartTime == 30)
+        #expect(snapshot.visualCue?.displayEndTime == 40)
+        #expect(snapshot.visualCue?.source == .explicitTimeline)
+        #expect(snapshot.visualCue?.subtitleBlockID == "text")
         #expect(snapshot.subtitleCue?.blockID == "text")
         #expect(snapshot.subtitleCue?.text == "This text has its own timing.")
     }
@@ -85,8 +85,8 @@ struct VisualListeningCueResolverTests {
             syncPoint: .begin
         )
 
-        #expect(chapterZero.imageCue?.blockID == "c0-image")
-        #expect(chapterOne.imageCue?.blockID == "c1-image")
+        #expect(chapterZero.visualCue?.blockID == "c0-image")
+        #expect(chapterOne.visualCue?.blockID == "c1-image")
     }
 
     @Test func beginAndMidpointDerivedTimingUseDifferentWindows() {
@@ -115,10 +115,10 @@ struct VisualListeningCueResolverTests {
             syncPoint: .midpoint
         )
 
-        #expect(begin.imageCue?.displayStartTime == 10)
-        #expect(begin.imageCue?.displayEndTime == 20)
-        #expect(midpoint.imageCue?.displayStartTime == 5)
-        #expect(midpoint.imageCue?.displayEndTime == 25)
+        #expect(begin.visualCue?.displayStartTime == 10)
+        #expect(begin.visualCue?.displayEndTime == 20)
+        #expect(midpoint.visualCue?.displayStartTime == 5)
+        #expect(midpoint.visualCue?.displayEndTime == 25)
     }
 
     @Test func midpointDerivedImageKeepsSubtitleBeforeReferenceTextStarts() {
@@ -136,8 +136,8 @@ struct VisualListeningCueResolverTests {
             syncPoint: .midpoint
         )
 
-        #expect(snapshot.imageCue?.blockID == "figure")
-        #expect(snapshot.imageCue?.subtitleBlockID == "text")
+        #expect(snapshot.visualCue?.blockID == "figure")
+        #expect(snapshot.visualCue?.subtitleBlockID == "text")
         #expect(snapshot.subtitleCue?.blockID == "text")
         #expect(snapshot.subtitleCue?.text == "The captioned section.")
     }

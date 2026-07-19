@@ -316,6 +316,242 @@ struct DocumentImportFinalizerTests {
         #expect(second.map(\.audioStartTime) == [20.0, 20.5])
     }
 
+    @Test func identityBearingCodeCueWordsImportAsSidecarRows() async throws {
+        let audiobookID = "code-book"
+        let databaseService = try DatabaseService(inMemory: ())
+        let code = block(
+            id: "epub-\(audiobookID)-s0-b0",
+            audiobookID: audiobookID,
+            sequenceIndex: 0,
+            text: "let value = answer + 42",
+            kind: .code,
+            narrationText: "Example value assignment."
+        )
+        let blocks = [code]
+        try insertAudiobook(audiobookID, databaseService: databaseService)
+        try EPubBlockDAO(db: databaseService.writer).insertAll(blocks)
+
+        let fileURL = try makeDocumentURL()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        let sidecar = [
+            AlignmentSidecar.Anchor(
+                blockId: "s0-b0",
+                timestamp: 1,
+                confidence: 1,
+                words: [
+                    .init(word: "Example", start: 1, end: 1.3),
+                    .init(word: "value", start: 1.3, end: 1.6),
+                    .init(word: "assignment", start: 1.6, end: 2),
+                ],
+                sourceBlockIdentity: AlignmentSidecar.sourceIdentity(for: code)
+            )
+        ]
+        try AlignmentSidecar.encode(sidecar).write(to: AlignmentSidecar.url(forEPUB: fileURL))
+
+        let finalized = await DocumentImportFinalizer.finalize(
+            audiobookID: audiobookID,
+            blocks: blocks,
+            fileURL: fileURL,
+            duration: 10,
+            databaseService: databaseService
+        )
+
+        #expect(finalized)
+        let rows = try WordTimingDAO(db: databaseService.writer)
+            .words(forAudiobook: audiobookID, blockID: code.id)
+        #expect(rows.map(\.word) == ["Example", "value", "assignment."])
+        #expect(rows.allSatisfy { $0.source == "sidecar" })
+    }
+
+    @Test func mismatchedSourceIdentityPreservesExistingMachineAlignment() async throws {
+        let audiobookID = "identity-book"
+        let databaseService = try DatabaseService(inMemory: ())
+        let blocks = [
+            block(
+                id: "epub-\(audiobookID)-s0-b0",
+                audiobookID: audiobookID,
+                sequenceIndex: 0,
+                text: "Current source paragraph"
+            )
+        ]
+        try insertAudiobook(audiobookID, databaseService: databaseService)
+        try EPubBlockDAO(db: databaseService.writer).insertAll(blocks)
+        try AlignmentAnchorDAO(db: databaseService.writer).insert(
+            anchor(
+                id: "existing-machine",
+                audiobookID: audiobookID,
+                blockID: blocks[0].id,
+                source: .autoAlignment,
+                audioTime: 7
+            )
+        )
+        defer {
+            UserDefaults.standard.removeObject(
+                forKey: BookPreferencesService.sidecarSummaryKey(for: audiobookID)
+            )
+        }
+
+        let fileURL = try makeDocumentURL()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        let sidecar = [
+            AlignmentSidecar.Anchor(
+                blockId: "s0-b0",
+                timestamp: 40,
+                confidence: 1,
+                sourceBlockIdentity: "identity-from-a-different-source"
+            )
+        ]
+        try AlignmentSidecar.encode(sidecar).write(to: AlignmentSidecar.url(forEPUB: fileURL))
+
+        #expect(
+            await DocumentImportFinalizer.finalize(
+                audiobookID: audiobookID,
+                blocks: blocks,
+                fileURL: fileURL,
+                duration: 100,
+                databaseService: databaseService
+            )
+        )
+        let anchors = try AlignmentAnchorDAO(db: databaseService.writer).anchors(for: audiobookID)
+        #expect(anchors.map(\.id) == ["existing-machine"])
+        let summary = try #require(BookPreferencesService.loadSidecarSummary(for: audiobookID))
+        #expect(summary.status == .staleSource)
+        #expect(summary.readAlongStatusLine.contains("stale"))
+    }
+
+    @Test func unresolvedIdentityBearingAnchorRejectsEntireSidecar() async throws {
+        let audiobookID = "partial-identity-book"
+        let databaseService = try DatabaseService(inMemory: ())
+        let blocks = [
+            block(
+                id: "epub-\(audiobookID)-s0-b0",
+                audiobookID: audiobookID,
+                sequenceIndex: 0,
+                text: "Current source paragraph"
+            ),
+            block(
+                id: "epub-\(audiobookID)-s0-b1",
+                audiobookID: audiobookID,
+                sequenceIndex: 1,
+                text: "Existing aligned paragraph"
+            ),
+        ]
+        try insertAudiobook(audiobookID, databaseService: databaseService)
+        try EPubBlockDAO(db: databaseService.writer).insertAll(blocks)
+        try AlignmentAnchorDAO(db: databaseService.writer).insert(
+            anchor(
+                id: "existing-machine",
+                audiobookID: audiobookID,
+                blockID: blocks[1].id,
+                source: .autoAlignment,
+                audioTime: 7
+            )
+        )
+        defer {
+            UserDefaults.standard.removeObject(
+                forKey: BookPreferencesService.sidecarSummaryKey(for: audiobookID)
+            )
+        }
+
+        let fileURL = try makeDocumentURL()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        let sidecar = [
+            AlignmentSidecar.Anchor(
+                blockId: "s0-b0",
+                timestamp: 10,
+                confidence: 1,
+                sourceBlockIdentity: AlignmentSidecar.sourceIdentity(for: blocks[0])
+            ),
+            AlignmentSidecar.Anchor(
+                blockId: "s9-b9",
+                timestamp: 20,
+                confidence: 1,
+                sourceBlockIdentity: "foreign-source-identity"
+            ),
+        ]
+        try AlignmentSidecar.encode(sidecar).write(to: AlignmentSidecar.url(forEPUB: fileURL))
+
+        #expect(
+            await DocumentImportFinalizer.finalize(
+                audiobookID: audiobookID,
+                blocks: blocks,
+                fileURL: fileURL,
+                duration: 100,
+                databaseService: databaseService
+            )
+        )
+        let anchors = try AlignmentAnchorDAO(db: databaseService.writer).anchors(for: audiobookID)
+        #expect(anchors.map(\.id) == ["existing-machine"])
+        let summary = try #require(BookPreferencesService.loadSidecarSummary(for: audiobookID))
+        #expect(summary.status == .staleSource)
+    }
+
+    @Test func legacySidecarIsRejectedWhenCodeCanShiftPortableSuffixes() async throws {
+        let audiobookID = "legacy-code-book"
+        let databaseService = try DatabaseService(inMemory: ())
+        let blocks = [
+            block(
+                id: "epub-\(audiobookID)-s0-b0",
+                audiobookID: audiobookID,
+                sequenceIndex: 0,
+                text: "Before listing"
+            ),
+            block(
+                id: "epub-\(audiobookID)-s0-b1",
+                audiobookID: audiobookID,
+                sequenceIndex: 1,
+                text: "let shifted = true",
+                kind: .code,
+                narrationText: "Code listing."
+            ),
+            block(
+                id: "epub-\(audiobookID)-s0-b2",
+                audiobookID: audiobookID,
+                sequenceIndex: 2,
+                text: "After listing"
+            ),
+        ]
+        try insertAudiobook(audiobookID, databaseService: databaseService)
+        try EPubBlockDAO(db: databaseService.writer).insertAll(blocks)
+        try AlignmentAnchorDAO(db: databaseService.writer).insert(
+            anchor(
+                id: "existing-machine",
+                audiobookID: audiobookID,
+                blockID: blocks[2].id,
+                source: .autoAlignment,
+                audioTime: 60
+            )
+        )
+        defer {
+            UserDefaults.standard.removeObject(
+                forKey: BookPreferencesService.sidecarSummaryKey(for: audiobookID)
+            )
+        }
+
+        let fileURL = try makeDocumentURL()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        try Data(
+            """
+            [{"blockId":"s0-b1","confidence":1,"timestamp":20}]
+            """.utf8
+        ).write(to: AlignmentSidecar.url(forEPUB: fileURL))
+
+        #expect(
+            await DocumentImportFinalizer.finalize(
+                audiobookID: audiobookID,
+                blocks: blocks,
+                fileURL: fileURL,
+                duration: 100,
+                databaseService: databaseService
+            )
+        )
+        let anchors = try AlignmentAnchorDAO(db: databaseService.writer).anchors(for: audiobookID)
+        #expect(anchors.map(\.id) == ["existing-machine"])
+        #expect(!anchors.contains { $0.epubBlockID == blocks[1].id })
+        let summary = try #require(BookPreferencesService.loadSidecarSummary(for: audiobookID))
+        #expect(summary.status == .staleSource)
+    }
+
     /// Re-running finalize with an unchanged word-bearing sidecar (the
     /// every-app-launch refresh path) must re-apply sidecar words after the
     /// timeline/word rebuild, not leave the rebuilt interpolated rows behind.
@@ -935,20 +1171,24 @@ struct DocumentImportFinalizerTests {
         id: String,
         audiobookID: String,
         sequenceIndex: Int,
-        text: String? = nil
+        text: String? = nil,
+        kind: EPubBlockRecord.Kind = .paragraph,
+        narrationText: String? = nil
     ) -> EPubBlockRecord {
-        EPubBlockRecord(
+        var block = EPubBlockRecord(
             id: id,
             audiobookID: audiobookID,
             spineHref: "chapter.xhtml",
             spineIndex: 0,
             blockIndex: sequenceIndex,
             sequenceIndex: sequenceIndex,
-            blockKind: "paragraph",
+            blockKind: kind.rawValue,
             text: text ?? "Block \(sequenceIndex)",
             chapterIndex: 0,
             isHidden: false
         )
+        block.narrationText = narrationText
+        return block
     }
 
     private func anchor(

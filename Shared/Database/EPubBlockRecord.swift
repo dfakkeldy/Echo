@@ -3,7 +3,7 @@ import Foundation
 import GRDB
 import os.log
 
-/// A parsed EPUB block — heading, paragraph, sentence, or image — extracted
+/// A parsed EPUB block — heading, paragraph, sentence, image, or code — extracted
 /// from XHTML spine items and stored in structural reading order.
 struct EPubBlockRecord: Identifiable, Equatable, Hashable, Sendable, Codable, FetchableRecord,
     MutablePersistableRecord
@@ -31,6 +31,9 @@ struct EPubBlockRecord: Identifiable, Equatable, Hashable, Sendable, Codable, Fe
     var textFormats: String?  // JSON-encoded [TextFormat]
     /// FM-normalized text for TTS rendering. Null → use original `text`.
     var narrationText: String?
+    /// Language hint for `.code` blocks ("python", "swift", …), sniffed from
+    /// markup at import. Nil for non-code blocks or unhinted listings.
+    var codeLanguage: String?
     var createdAt: String?
     var modifiedAt: String?
 
@@ -57,6 +60,7 @@ struct EPubBlockRecord: Identifiable, Equatable, Hashable, Sendable, Codable, Fe
         case markers
         case textFormats = "text_formats"
         case narrationText = "narration_text"
+        case codeLanguage = "code_language"
         case createdAt = "created_at"
         case modifiedAt = "modified_at"
     }
@@ -90,6 +94,7 @@ extension EPubBlockRecord {
         case paragraph
         case sentence
         case image
+        case code
     }
 
     /// Encode markers to JSON for database storage.

@@ -308,6 +308,37 @@ final class AutoAlignmentService {
 
     // MARK: - Content Alignment
 
+    nonisolated static func assignMissingChapterIndicesForCommercialAudio(
+        blocks: [EPubBlockRecord],
+        chapters: [Chapter]
+    ) -> [EPubBlockRecord] {
+        guard let lastChapter = chapters.last else { return blocks }
+
+        var repaired = blocks
+        let totalWordCount = repaired.reduce(0) {
+            $0 + CommercialAudioAlignmentSource.wordWeight(for: $1)
+        }
+        guard totalWordCount > 0 else { return repaired }
+
+        var currentWordCount = 0
+        for index in repaired.indices {
+            if repaired[index].chapterIndex == nil {
+                let estimatedFraction = Double(currentWordCount) / Double(totalWordCount)
+                let estimatedTime = estimatedFraction * lastChapter.endSeconds
+                if let matched = chapters.first(where: { chapter in
+                    estimatedTime >= chapter.startSeconds
+                        && estimatedTime < chapter.endSeconds
+                }) {
+                    repaired[index].chapterIndex = matched.index
+                }
+            }
+            currentWordCount += CommercialAudioAlignmentSource.wordWeight(
+                for: repaired[index]
+            )
+        }
+        return repaired
+    }
+
     /// - Returns: per-block strong DTW token matches, for word-timing refinement.
     private func runDTWPipeline(
         chapters: [Chapter],
@@ -329,31 +360,12 @@ final class AutoAlignmentService {
 
         var workingBlocks = blocks.sorted { $0.sequenceIndex < $1.sequenceIndex }
         if workingBlocks.contains(where: { $0.chapterIndex == nil }),
-            let lastChapter = chapters.last
+            !chapters.isEmpty
         {
-            let duration = lastChapter.endSeconds
-            let totalWordCount = workingBlocks.reduce(0) {
-                $0 + ($1.wordCount ?? max(1, $1.text?.split(separator: " ").count ?? 1))
-            }
-            var currentWordCount = 0
-
-            for i in 0..<workingBlocks.count {
-                let blockWordCount =
-                    workingBlocks[i].wordCount
-                    ?? max(1, workingBlocks[i].text?.split(separator: " ").count ?? 1)
-
-                if workingBlocks[i].chapterIndex == nil {
-                    let estimatedFraction =
-                        totalWordCount > 0 ? Double(currentWordCount) / Double(totalWordCount) : 0
-                    let estimatedTime = estimatedFraction * duration
-                    if let matched = chapters.first(where: { ch in
-                        estimatedTime >= ch.startSeconds && estimatedTime < ch.endSeconds
-                    }) {
-                        workingBlocks[i].chapterIndex = matched.index
-                    }
-                }
-                currentWordCount += blockWordCount
-            }
+            workingBlocks = Self.assignMissingChapterIndicesForCommercialAudio(
+                blocks: workingBlocks,
+                chapters: chapters
+            )
         }
 
         let blocksByChapter = Dictionary(grouping: workingBlocks, by: { $0.chapterIndex })
@@ -453,6 +465,7 @@ final class AutoAlignmentService {
                         AutoAlignmentWorker.AlignmentBlock(
                             id: $0.id,
                             text: $0.text,
+                            blockKind: $0.blockKind,
                             isHidden: $0.isHidden
                         )
                     },

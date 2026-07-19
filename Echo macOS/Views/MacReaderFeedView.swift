@@ -443,12 +443,16 @@ private struct MacBlockCardView: View, Equatable {
     // highlighted word index, so a moving karaoke highlight updates only the
     // active card.
     nonisolated static func == (lhs: MacBlockCardView, rhs: MacBlockCardView) -> Bool {
-        lhs.block.id == rhs.block.id && lhs.appFont == rhs.appFont && lhs.isActive == rhs.isActive
+        lhs.block == rhs.block && lhs.appFont == rhs.appFont && lhs.isActive == rhs.isActive
             && lhs.activeWordIndex == rhs.activeWordIndex
     }
 
     var body: some View {
-        if let onTap {
+        if block.blockKind == EPubBlockRecord.Kind.code.rawValue {
+            // Keep the code text outside a Button so macOS text selection works.
+            // Seeking remains available as an explicit control in `codeCard`.
+            cardContent
+        } else if let onTap {
             Button(action: onTap) {
                 cardContent
             }
@@ -498,6 +502,8 @@ private struct MacBlockCardView: View, Equatable {
             headingCard
         case EPubBlockRecord.Kind.image.rawValue:
             imageCard
+        case EPubBlockRecord.Kind.code.rawValue:
+            codeCard
         default:
             paragraphCard
         }
@@ -522,6 +528,38 @@ private struct MacBlockCardView: View, Equatable {
             .foregroundStyle(resolvedColor ?? Color.primary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .lineSpacing(4)
+    }
+
+    // MARK: Code Card
+
+    private var codeCard: some View {
+        VStack(alignment: .leading) {
+            HStack {
+                if let language = block.codeLanguage?.trimmingCharacters(
+                    in: .whitespacesAndNewlines), !language.isEmpty
+                {
+                    Text(language.uppercased())
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if let onTap {
+                    Button("Seek to code listing", systemImage: "play.fill", action: onTap)
+                        .labelStyle(.iconOnly)
+                }
+            }
+
+            ScrollView(.horizontal) {
+                Text(block.text ?? "")
+                    .font(.system(.body, design: .monospaced))
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollIndicators(.hidden)
+            .accessibilityLabel(Text("Code listing"))
+            .accessibilityValue(Text(block.text ?? ""))
+        }
     }
 
     // MARK: Image Card

@@ -109,6 +109,79 @@ struct ReaderFeedAccessibilityTests {
         #expect(accessibilityHeadingFont > largeHeadingFont)
     }
 
+    @MainActor
+    @Test func codeCardPreservesNativeAccessibleTextSelection() throws {
+        let code = "let greeting = \"Hello\"\nprint(greeting)"
+        let cell = CodeCardCell(frame: CGRect(x: 0, y: 0, width: 320, height: 180))
+        cell.configure(with: Self.block(kind: .code, text: code), tint: .systemBlue)
+        let seekAction = UIAccessibilityCustomAction(
+            name: "Seek to Code Listing"
+        ) { _ in
+            true
+        }
+
+        cell.configureAccessibility(
+            label: "Code listing",
+            hint: "Use Actions to seek or align this listing.",
+            actions: [seekAction]
+        )
+
+        let textView = try #require(Self.mainTextView(in: cell))
+        #expect(!cell.isAccessibilityElement)
+        #expect(textView.isAccessibilityElement)
+        #expect(textView.isSelectable)
+        #expect(textView.accessibilityLabel == "Code listing")
+        #expect(textView.accessibilityValue == code)
+        #expect(textView.accessibilityCustomActions?.map(\.name) == ["Seek to Code Listing"])
+        #expect(!textView.scrollsToTop)
+    }
+
+    @MainActor
+    @Test func codeCardUsesAdaptivePrimaryTextColorInDarkMode() throws {
+        let cell = CodeCardCell(frame: CGRect(x: 0, y: 0, width: 320, height: 180))
+        cell.configure(
+            with: Self.block(kind: .code, text: "let answer = 42"),
+            tint: .systemBlue
+        )
+
+        let textView = try #require(Self.mainTextView(in: cell))
+        let darkTraits = UITraitCollection(userInterfaceStyle: .dark)
+        let actual = try #require(textView.textColor).resolvedColor(with: darkTraits)
+        let expected = UIColor.label.resolvedColor(with: darkTraits)
+        #expect(actual.isEqual(expected))
+
+        let source = try Self.source("EchoCore/Views/Cells/CodeCardCell.swift")
+        #expect(source.contains("textView.textColor = .label"))
+    }
+
+    @MainActor
+    @Test func codeCardEndsActiveTextSelectionBeforeReuse() throws {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 320, height: 240))
+        let viewController = UIViewController()
+        let cell = CodeCardCell(frame: window.bounds)
+        window.rootViewController = viewController
+        window.makeKeyAndVisible()
+        viewController.view.addSubview(cell)
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+
+        cell.configure(
+            with: Self.block(kind: .code, text: "let value = 42"),
+            tint: .systemBlue
+        )
+        let textView = try #require(Self.mainTextView(in: cell))
+        #expect(textView.becomeFirstResponder())
+        #expect(textView.isFirstResponder)
+
+        cell.prepareForReuse()
+
+        #expect(!textView.isFirstResponder)
+        #expect(textView.text.isEmpty)
+        #expect(textView.selectedRange == NSRange(location: 0, length: 0))
+    }
+
     private static let textCellVerticalPadding: CGFloat = 28
 
     private struct TextCellMeasurement {

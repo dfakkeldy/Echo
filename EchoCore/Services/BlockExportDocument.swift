@@ -68,20 +68,22 @@ nonisolated struct BlockExportDocument: Encodable {
     }
 
     /// Per-kind block counts for the CLI summary line.
-    var kindCounts: (paragraphs: Int, headings: Int, sentences: Int, images: Int) {
+    var kindCounts: (paragraphs: Int, headings: Int, sentences: Int, images: Int, code: Int) {
         var paragraphs = 0
         var headings = 0
         var sentences = 0
         var images = 0
+        var code = 0
         for block in blocks {
             switch EPubBlockRecord.Kind(rawValue: block.kind) {
             case .paragraph: paragraphs += 1
             case .heading: headings += 1
             case .sentence: sentences += 1
             case .image: images += 1
+            case .code: code += 1
             case nil: break
             }
         }
-        return (paragraphs, headings, sentences, images)
+        return (paragraphs, headings, sentences, images, code)
     }
 }

@@ -26,6 +26,7 @@ private final class EstimatedSidecarFixtureBundleLocator {}
         #expect(anchors.map(\.blockId) == ["s0-b0", "s0-b1", "s1-b0"])
         #expect(anchors.map(\.timestamp) == [0, 10, 40])
         #expect(anchors.allSatisfy { $0.confidence == 0.5 })
+        #expect(anchors.allSatisfy { $0.sourceBlockIdentity != nil })
     }
 
     @Test func buildSkipsHiddenImageAndEmptyTextBlocks() throws {
@@ -71,6 +72,170 @@ private final class EstimatedSidecarFixtureBundleLocator {}
 
         #expect(report.anchorCount == 2)
         #expect(report.chapterCount == 2)
+    }
+
+    @Test func verifyRejectsMismatchedSourceIdentity() {
+        let source = block(spine: 0, index: 0, sequence: 0, words: 1, text: "Current")
+        let anchors = [
+            AlignmentSidecar.Anchor(
+                blockId: "s0-b0",
+                timestamp: 0,
+                confidence: 1,
+                sourceBlockIdentity: "identity-from-a-different-source"
+            )
+        ]
+
+        #expect(throws: AlignmentSidecarVerifier.VerificationError.self) {
+            _ = try AlignmentSidecarVerifier.verify(
+                anchors: anchors,
+                blocks: [source],
+                chapterTimings: [.init(index: 0, start: 0, end: 10)],
+                audioDuration: 10
+            )
+        }
+    }
+
+    @Test func verifyRejectsLegacySidecarForCodeBearingSource() {
+        let code = block(
+            spine: 0,
+            index: 0,
+            sequence: 0,
+            kind: .code,
+            words: 3,
+            text: "let value = 42"
+        )
+
+        #expect(throws: AlignmentSidecarVerifier.VerificationError.self) {
+            _ = try AlignmentSidecarVerifier.verify(
+                anchors: [
+                    AlignmentSidecar.Anchor(
+                        blockId: "s0-b0", timestamp: 0, confidence: 1)
+                ],
+                blocks: [code],
+                chapterTimings: [.init(index: 0, start: 0, end: 10)],
+                audioDuration: 10
+            )
+        }
+    }
+
+    @Test func verifyAcceptsCueOnlyCodeAnchorFromNativeNarration() throws {
+        var code = block(
+            spine: 0,
+            index: 1,
+            sequence: 1,
+            kind: .code,
+            words: 3,
+            text: "let value = 42"
+        )
+        code.narrationText = "Example value assignment."
+        code.codeLanguage = "swift"
+        let blocks = [
+            block(spine: 0, index: 0, sequence: 0, words: 1, text: "Intro"),
+            code,
+        ]
+        let chapters = [
+            EstimatedAlignmentSidecar.ChapterTiming(index: 0, start: 0, end: 10)
+        ]
+        let anchors = [
+            AlignmentSidecar.Anchor(
+                blockId: "s0-b0",
+                timestamp: 0,
+                confidence: 1,
+                sourceBlockIdentity: AlignmentSidecar.sourceIdentity(for: blocks[0])
+            ),
+            AlignmentSidecar.Anchor(
+                blockId: "s0-b1",
+                timestamp: 4,
+                confidence: 1,
+                sourceBlockIdentity: AlignmentSidecar.sourceIdentity(for: code)
+            ),
+        ]
+
+        let report = try AlignmentSidecarVerifier.verify(
+            anchors: anchors,
+            blocks: blocks,
+            chapterTimings: chapters,
+            audioDuration: 10
+        )
+
+        #expect(report.anchorCount == 2)
+        #expect(report.anchorsWithWords == 0)
+    }
+
+    @Test func verifyAcceptsCodeWordsMatchingCueTokenCountInsteadOfRawCode() throws {
+        var code = block(
+            spine: 0,
+            index: 0,
+            sequence: 0,
+            kind: .code,
+            words: 6,
+            text: "let value = answer + 42"
+        )
+        code.narrationText = "Example value assignment."
+        let anchors = [
+            AlignmentSidecar.Anchor(
+                blockId: "s0-b0",
+                timestamp: 1,
+                confidence: 1,
+                words: [
+                    AlignmentSidecar.Anchor.Word(word: "Example", start: 1, end: 1.2),
+                    AlignmentSidecar.Anchor.Word(word: "value", start: 1.2, end: 1.4),
+                    AlignmentSidecar.Anchor.Word(word: "assignment", start: 1.4, end: 1.8),
+                ],
+                sourceBlockIdentity: AlignmentSidecar.sourceIdentity(for: code)
+            )
+        ]
+
+        let report = try AlignmentSidecarVerifier.verify(
+            anchors: anchors,
+            blocks: [code],
+            chapterTimings: [.init(index: 0, start: 0, end: 10)],
+            audioDuration: 10)
+
+        #expect(report.anchorsWithWords == 1)
+    }
+
+    @Test func verifyRejectsCodeWordsMatchingRawCodeInsteadOfCueTokenCount() {
+        var code = block(
+            spine: 0,
+            index: 0,
+            sequence: 0,
+            kind: .code,
+            words: 6,
+            text: "let value = answer + 42"
+        )
+        code.narrationText = "Example value assignment."
+        let anchors = [
+            AlignmentSidecar.Anchor(
+                blockId: "s0-b0",
+                timestamp: 1,
+                confidence: 1,
+                words: [
+                    AlignmentSidecar.Anchor.Word(word: "let", start: 1, end: 1.1),
+                    AlignmentSidecar.Anchor.Word(word: "value", start: 1.1, end: 1.2),
+                    AlignmentSidecar.Anchor.Word(word: "=", start: 1.2, end: 1.3),
+                    AlignmentSidecar.Anchor.Word(word: "answer", start: 1.3, end: 1.4),
+                    AlignmentSidecar.Anchor.Word(word: "+", start: 1.4, end: 1.5),
+                    AlignmentSidecar.Anchor.Word(word: "42", start: 1.5, end: 1.6),
+                ],
+                sourceBlockIdentity: AlignmentSidecar.sourceIdentity(for: code)
+            )
+        ]
+
+        do {
+            _ = try AlignmentSidecarVerifier.verify(
+                anchors: anchors,
+                blocks: [code],
+                chapterTimings: [.init(index: 0, start: 0, end: 10)],
+                audioDuration: 10)
+            Issue.record("Expected raw-code word count verification to fail.")
+        } catch let error as AlignmentSidecarVerifier.VerificationError {
+            #expect(
+                error.issues.contains(
+                    .wordCountMismatch(blockID: "s0-b0", words: 6, expected: 3)))
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
     }
 
     @Test func verifyReportsUnresolvedNonMonotonicOutOfRangeAndEmptyChapterIssues() {
