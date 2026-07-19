@@ -214,7 +214,7 @@ struct VideoExportUIWiringTests {
         #expect(text.contains("panel.allowedContentTypes = [.mpeg4Movie]"))
         #expect(text.contains("panel.nameFieldStringValue = \"\\(bookTitle).mp4\""))
         #expect(
-            export.contains("let destination = try MacVideoExportDestination(panelURL: panelURL)"))
+            export.contains("let destination = try VideoExportDestination(panelURL: panelURL)"))
         #expect(export.contains("MacVideoExportPublisher.makeStagingDirectory()"))
         #expect(export.contains("outputDirectory: stagingDirectory"))
         #expect(!export.contains("outputDirectory: panelURL.deletingLastPathComponent()"))
@@ -224,22 +224,38 @@ struct VideoExportUIWiringTests {
     }
 
     @Test func macDestinationContractPreservesPunctuationAndRejectsEmptyStems() throws {
-        let text = try source("Echo macOS/Services/MacVideoExportPublisher.swift")
-        let destination = try section(
-            in: text,
-            startingAt: "struct MacVideoExportDestination",
-            endingAt: "final class MacVideoExportSidecarPresenter")
+        let text = try source("EchoCore/Services/Export/VideoExportDestination.swift")
 
         #expect(text.hasPrefix("// SPDX-License-Identifier: GPL-3.0-or-later\n"))
-        #expect(destination.contains("videoURL = panelURL"))
-        #expect(destination.contains("let baseURL = panelURL.deletingPathExtension()"))
-        #expect(destination.contains("guard !baseURL.lastPathComponent.isEmpty"))
-        #expect(destination.contains("srtURL = baseURL.appendingPathExtension(\"srt\")"))
+        #expect(text.contains("nonisolated struct VideoExportDestination"))
+        #expect(text.contains("Equatable, Sendable"))
+        #expect(!text.contains("SafeFileName"))
+        #expect(!text.contains("replacingOccurrences"))
+    }
+
+    @Test func sharedVideoDestinationPreservesExactPunctuationAndSidecars() throws {
+        let panelURL = URL(fileURLWithPath: "/tmp/Wait, what! [final] #2.mp4")
+
+        let destination = try VideoExportDestination(panelURL: panelURL)
+
+        #expect(destination.videoURL == panelURL)
+        #expect(destination.srtURL == URL(fileURLWithPath: "/tmp/Wait, what! [final] #2.srt"))
         #expect(
-            destination.contains(
-                "chaptersURL = baseURL.appendingPathExtension(\"chapters.txt\")"))
-        #expect(!destination.contains("SafeFileName"))
-        #expect(!destination.contains("replacingOccurrences"))
+            destination.chaptersURL
+                == URL(fileURLWithPath: "/tmp/Wait, what! [final] #2.chapters.txt"))
+    }
+
+    @Test func sharedVideoDestinationRejectsWhitespaceAndExtensionOnlyNames() {
+        for fileName in ["   ", " .mp4", ".mp4"] {
+            let panelURL = URL(fileURLWithPath: "/tmp").appending(path: fileName)
+            #expect(throws: VideoExportDestinationError.emptyFileName) {
+                try VideoExportDestination(panelURL: panelURL)
+            }
+        }
+
+        #expect(
+            VideoExportDestinationError.emptyFileName.localizedDescription
+                == String(localized: "videoExportErrorEmptyFilename"))
     }
 
     @Test func macPublisherCoordinatesRegisteredRelatedSidecarsAndRollsBack() throws {
@@ -265,12 +281,50 @@ struct VideoExportUIWiringTests {
                     of: "NSFileCoordinator.removeFilePresenter(presenter)", in: publisher))
         #expect(publisher.contains("NSFileCoordinator(filePresenter: presenter)"))
         #expect(publisher.contains("coordinate(writingItemAt:"))
-        #expect(
-            publisher.contains(
-                "try rollback(destination: destination, presenters: presenters)"))
+        #expect(publisher.contains("try restoreBundle("))
         #expect(publisher.contains("destination.videoURL"))
         #expect(publisher.contains("destination.srtURL"))
         #expect(publisher.contains("destination.chaptersURL"))
+    }
+
+    @Test func macPublisherSnapshotsAndRestoresPreexistingBundleItems() throws {
+        let text = try source("Echo macOS/Services/MacVideoExportPublisher.swift")
+        let publisher = try section(
+            in: text,
+            startingAt: "nonisolated enum MacVideoExportPublisher",
+            endingAt: "private nonisolated enum MacVideoExportPublishingError")
+
+        #expect(publisher.contains("let snapshots = try snapshotBundle("))
+        #expect(publisher.contains("makeBackupDirectory()"))
+        #expect(publisher.contains("coordinate(readingItemAt:"))
+        #expect(publisher.contains("if snapshot.existed"))
+        #expect(publisher.contains("snapshot.backupURL"))
+        #expect(publisher.contains("guard modifiedItems.contains(snapshot.item) else { continue }"))
+        #expect(publisher.contains("try restoreBundle("))
+        #expect(publisher.contains("try removeItemIfPresent(at: destinationURL)"))
+        #expect(publisher.contains("FileManager.default.removeItem(at: backupDirectory)"))
+        #expect(!publisher.contains("FileManager.default.copyItem"))
+    }
+
+    @Test func macPublicationRunsOffMainAndCopiesInCancellableChunks() throws {
+        let view = try source("Echo macOS/Views/MacVideoExportView.swift")
+        let publisher = try source("Echo macOS/Services/MacVideoExportPublisher.swift")
+        let copy = try section(
+            in: publisher,
+            startingAt: "private static func chunkedCopy",
+            endingAt: "private static func")
+
+        #expect(publisher.contains("nonisolated enum MacVideoExportPublisher"))
+        #expect(
+            publisher.contains("private nonisolated final class MacVideoExportSidecarPresenter"))
+        #expect(view.contains("let publicationWorker = Task.detached(priority: .userInitiated)"))
+        #expect(view.contains("try await withTaskCancellationHandler"))
+        #expect(view.contains("publicationWorker.cancel()"))
+        #expect(copy.contains("FileHandle(forReadingFrom:"))
+        #expect(copy.contains("FileHandle(forWritingTo:"))
+        #expect(copy.contains("Task.checkCancellation()"))
+        #expect(copy.contains("read(upToCount:"))
+        #expect(!publisher.contains("FileManager.default.copyItem"))
     }
 
     @Test func macInfoPlistDeclaresRelatedSRTAndPlainTextTypes() throws {

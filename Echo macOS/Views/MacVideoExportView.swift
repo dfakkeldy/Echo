@@ -128,7 +128,7 @@ struct MacVideoExportView: View {
             }
 
             do {
-                let destination = try MacVideoExportDestination(panelURL: panelURL)
+                let destination = try VideoExportDestination(panelURL: panelURL)
                 let stagingDirectory = try MacVideoExportPublisher.makeStagingDirectory()
                 stagingDirectoryToRemove = stagingDirectory
                 let stagedOutput = try await VideoExportService().exportVideo(
@@ -144,9 +144,16 @@ struct MacVideoExportView: View {
                 progressContinuation.finish()
                 await progressConsumer.value
                 try Task.checkCancellation()
-                let publishedOutput = try MacVideoExportPublisher.publish(
-                    stagedOutput: stagedOutput,
-                    to: destination)
+                let publicationWorker = Task.detached(priority: .userInitiated) {
+                    try MacVideoExportPublisher.publish(
+                        stagedOutput: stagedOutput,
+                        to: destination)
+                }
+                let publishedOutput = try await withTaskCancellationHandler {
+                    try await publicationWorker.value
+                } onCancel: {
+                    publicationWorker.cancel()
+                }
                 output = publishedOutput
                 isExporting = false
             } catch is CancellationError {
