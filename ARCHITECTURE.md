@@ -32,6 +32,7 @@ Localizable.xcstrings
 Models/AggregatedChapter.swift
 Models/Chapter.swift
 Models/EchoPlaylistManifest.swift
+Models/ExperimentalPlayerLayout.swift
 Models/FeedItemInjector.swift
 Models/FeedbackCategory.swift
 Models/FeedbackEntry.swift
@@ -41,6 +42,7 @@ Models/M4BBook.swift
 Models/NavigationDestinations.swift
 Models/Note.swift
 Models/PlayerDeepLink.swift
+Models/PlayerZoneResolver.swift
 Models/ReaderCardItem.swift
 Models/ReaderFeedDisplayBuilder+Filter.swift
 Models/ReaderFeedDisplayBuilder.swift
@@ -254,6 +256,7 @@ Services/PlaybackProgressPresenter.swift
 Services/PlaybackSessionRecorder.swift
 Services/PlayerLoadingCoordinator.swift
 Services/PlayerTimelinePersistenceService.swift
+Services/PhotoLibrarySaver.swift
 Services/PlaylistManager.swift
 Services/PlaylistManifestService.swift
 Services/ReviewNotificationService.swift
@@ -342,6 +345,7 @@ Views/Components/AlbumArtHeroView.swift
 Views/Components/BookProgressTrack.swift
 Views/Components/CircularProgressPlayButton.swift
 Views/Components/FlashcardCreationSheet.swift
+Views/Components/FullscreenImageViewer.swift
 Views/Components/Haptic.swift
 Views/Components/InlineStepperRow.swift
 Views/Components/MarqueeText.swift
@@ -350,6 +354,7 @@ Views/Components/SleepTimerPill.swift
 Views/Components/UnifiedBottomDock.swift
 Views/Components/UnifiedTopHeader.swift
 Views/Components/WordCloudView.swift
+Views/Components/ZoomableArtwork.swift
 Views/DashboardShelf.swift
 Views/DictionaryLookupPresenter.swift
 Views/EPUBHeadingPickerSheet.swift
@@ -386,6 +391,10 @@ Views/NoteEditorView.swift
 Views/NoteFeedCell.swift
 Views/NowPlayingLayout.swift
 Views/NowPlayingTab.swift
+Views/Player/ExperimentalControlLayer.swift
+Views/Player/ExperimentalNowPlayingView.swift
+Views/Player/FullBleedCoverBackground.swift
+Views/Player/GlassControlButton.swift
 Views/PDFDocumentView.swift
 Views/PDFReadAlongController.swift
 Views/PDFReadingSurface.swift
@@ -1344,6 +1353,8 @@ The iOS player supports two layout variants, selected via **Settings > Controls 
 | **Compact** | Slider between time labels (horizontal row) | Reduced-size (60pt play/pause, 50pt others) | Minimalist, one-handed use |
 
 The layout style is persisted in `SettingsManager.playerLayoutStyle` (UserDefaults key `playerLayoutStyle`) and drives conditional rendering in `PlayerScrubberView` and `TransportControlsView`.
+
+**Experimental Now Playing layout** (iOS, July 2026) is an opt-in alternate player behind `SettingsManager.experimentalNowPlayingLayout` (UserDefaults key `experimentalNowPlayingLayout`, phone-only, default off). When on, `NowPlayingTab` renders `ExperimentalNowPlayingView` (full-bleed cover via `FullBleedCoverBackground` dissolving into the cover-derived `AdaptiveBackground` wash) and `RootTabView` stands the shared `UnifiedBottomDock` down in favour of `ExperimentalControlLayer`, which hosts individual round Liquid Glass buttons (`GlassControlButton` — iOS 26 `.glassEffect(.regular.interactive())` with an `.ultraThinMaterial`+stroke fallback for iOS 18–25). Each button wraps an existing `WatchAction`; placement is one of seven fixed `PlayerSnapZone` anchors plus a bounded fine-tune offset, resolved to screen coordinates by the pure `PlayerZoneResolver`. The arrangement is a small Codable `ExperimentalPlayerLayout` persisted as JSON `Data` in `SettingsManager.experimentalPlayerLayoutData` (UserDefaults key `experimentalPlayerLayoutData`; decode failures fall back to the curated default set). Long-press any button (or `⋯ → Edit Buttons…`) to unlock edit mode: drag buttons between snap zones with intra-zone nudge, add/remove via a sheet and a `-` badge, and Done/lock to return to clean playback. Lock state is transient (always opens locked); a Settings ▸ Now Playing ▸ "Reset Button Layout" restores the default set. Reader and other tabs keep the normal dock. macOS/watchOS players are untouched (the new view files are `#if canImport(UIKit)`; the layout model/resolver are platform-neutral).
 
 Each transport button now supports a **dual-action model**: a tap executes the primary action (configured via `PhonePlayerSettingsView` under "Tap Actions"), while a long-press (>0.5s) executes a secondary action (configured under "Long Press"). The `TransportButton` component uses a custom `PrimitiveButtonStyle` (`TransportPrimitiveButtonStyle`) to layer both gestures onto a single control without the gesture conflicts that arise from stacking `.onTapGesture` + `.onLongPressGesture` on a standard SwiftUI `Button`. Both action sets are persisted in `SettingsManager.phonePage` and `SettingsManager.phoneLongPressPage`, and saved/loaded in `PhonePreset` data models. The `.previousTrack` / `.nextTrack` / `.loopMode` actions were retired from the *selectable* `PhonePlayerSettingsView` palettes (chapter navigation now lives in the metadata chevron bar; loop in `PlaybackOptionsSheet`). This is **passive** — every `WatchAction` enum case and its render/dispatch arm remain, so saved layouts and the watch/CarPlay wire protocol keep decoding — and the fresh-install default `Defaults.phonePage` is now `[.skipBackward, .empty, .playPause, .empty, .skipForward]`.
 
