@@ -2071,7 +2071,7 @@ git checkout -b claude/slideshow-video-export-ui
 **Interfaces:**
 - Consumes: `VideoExportService.exportVideo(...)` (Task 6), `PlayerModel.narrationCacheDirectory()` (existing — same value `ExportProgressView` receives), `model.folderURL?.absoluteString` as `audiobookID` (established convention).
 
-- [ ] **Step 1: Write the failing source-inspection tests**
+- [x] **Step 1: Write the failing source-inspection tests**
 
 Create `EchoTests/VideoExportUIWiringTests.swift` following the pattern in `NowPlayingLayoutTests` (read that file first for the source-loading helper it uses, and reuse its approach):
 
@@ -2109,7 +2109,7 @@ struct VideoExportUIWiringTests {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 ```bash
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && make build-tests
@@ -2118,7 +2118,7 @@ make test-only FILTER=EchoTests/VideoExportUIWiringTests
 
 Expected: FAIL (file missing / strings absent).
 
-- [ ] **Step 3: Build `VideoExportProgressView`**
+- [x] **Step 3: Build `VideoExportProgressView`**
 
 Model directly on `EchoCore/Views/ExportProgressView.swift` (read it first; keep the same structural skeleton, state names, and error presentation so the two export sheets stay siblings). Shape:
 
@@ -2203,7 +2203,7 @@ struct VideoExportProgressView: View {
 
 Adjust to match `ExportProgressView`'s actual conventions where they differ (error copy, `UIBackgroundTask` extension if it takes one, section styling). If `ExportProgressView` requests background-task time, mirror that here — a long render must survive a brief screen lock.
 
-- [ ] **Step 4: Add the dock action and sheet**
+- [x] **Step 4: Add the dock action and sheet**
 
 In `EchoCore/Views/UnifiedBottomDock.swift`: add a parameter `onVideoExport: (() -> Void)? = nil` alongside the existing `onExport`, and render its menu row immediately after the existing Export row, matching its style exactly (same Button/Label idiom the dock already uses), e.g. `Button("Export Video", systemImage: "film", action: onVideoExport)` guarded on non-nil like `onExport` is.
 
@@ -2233,7 +2233,7 @@ In `EchoCore/Views/RootTabView.swift`:
         }
 ```
 
-- [ ] **Step 5: Run tests + build**
+- [x] **Step 5: Run tests + build**
 
 ```bash
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && make build-tests
@@ -2243,7 +2243,7 @@ make test-only FILTER=EchoTests/NowPlayingLayoutTests
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add EchoCore/Views/VideoExportProgressView.swift EchoCore/Views/UnifiedBottomDock.swift EchoCore/Views/RootTabView.swift EchoTests/VideoExportUIWiringTests.swift
@@ -2261,7 +2261,7 @@ git commit -m "feat(ios): video export entry with progress and share"
 **Interfaces:**
 - Consumes: `VideoExportService.exportVideo(...)`, `player.audiobookID`, `player.dbService?.writer`, `player.currentTitle` (same values `MacAudioExportView` receives).
 
-- [ ] **Step 1: Build `MacVideoExportView`**
+- [x] **Step 1: Build `MacVideoExportView`**
 
 Model directly on `Echo macOS/Views/MacAudioExportView.swift` (read it first — reuse its `NSSavePanel` sequencing comment/pattern, which exists to avoid presenting sheets from inside the panel callback). Differences from the audio view:
 
@@ -2270,11 +2270,11 @@ Model directly on `Echo macOS/Views/MacAudioExportView.swift` (read it first —
 - A `Picker("Mode", selection: $mode)` with `.karaoke` / `.simple` (`SlideshowExportMode`), default `.karaoke`.
 - Progress bar bound to the `onProgress` callback; "Reveal in Finder" (`NSWorkspace.shared.activateFileViewerSelecting`) on success.
 
-- [ ] **Step 2: Wire into the app**
+- [x] **Step 2: Wire into the app**
 
 In `Echo macOS/Echo_macOSApp.swift`, next to the existing `showAudioExport` sheet (~line 106): add `@State private var showVideoExport = false`, an identical `.sheet(isPresented: $showVideoExport)` presenting `MacVideoExportView(audiobookID:bookTitle:databaseWriter:)` under the same `player.audiobookID`/`player.dbService?.writer` guard, and a menu item next to wherever `showAudioExport` is toggled (search `showAudioExport = true` in the same file — likely the File/Export command group): `Button("Export Video…") { showVideoExport = true }` with the same enabled-state condition.
 
-- [ ] **Step 3: Build macOS**
+- [x] **Step 3: Build macOS**
 
 ```bash
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && xcodebuild build -project Echo.xcodeproj -scheme "Echo macOS" -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO -jobs 5
@@ -2282,7 +2282,7 @@ In `Echo macOS/Echo_macOSApp.swift`, next to the existing `showAudioExport` shee
 
 Expected: BUILD SUCCEEDED.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add "Echo macOS/Views/MacVideoExportView.swift" "Echo macOS/Echo_macOSApp.swift"
@@ -2297,7 +2297,7 @@ git commit -m "feat(macos): video export entry with save panel"
 - Modify: `ARCHITECTURE.md` (Export section: add the video pipeline beside the m4b spine)
 - Modify: `CHANGELOG.md` (new entry)
 
-- [ ] **Step 1: Document**
+- [x] **Step 1: Document**
 
 `CHANGELOG.md` entry (match the file's existing style):
 
@@ -2307,7 +2307,7 @@ git commit -m "feat(macos): video export entry with save panel"
 
 `ARCHITECTURE.md`: in the export/Release-adjacent section describing `AudioExportService`, add a short sibling paragraph naming `SlideshowExportPlanner` → `SlideshowFrameRenderer` → `VideoExportService`, the global-timeline offset rule, and the chapter-atom attempt-and-verify policy. Keep it under ~15 lines, matching surrounding density.
 
-- [ ] **Step 2: Full verification (same gate list as Task 8 Step 1)**
+- [x] **Step 2: Full verification (same gate list as Task 8 Step 1)**
 
 ```bash
 git diff --check
@@ -2317,7 +2317,7 @@ git diff --check
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && make echo-cli
 ```
 
-- [ ] **Step 3: Commit, push, PR (stacked on PR 1)**
+- [x] **Step 3: Commit, push, PR (stacked on PR 1)**
 
 ```bash
 git add ARCHITECTURE.md CHANGELOG.md
@@ -2331,8 +2331,8 @@ Stacked on the pipeline PR. Adds the user-facing entry points for slideshow vide
 - ARCHITECTURE.md + CHANGELOG.md
 
 ## Test plan
-- [ ] `make test` (UI wiring suite)
-- [ ] macOS build
+- [x] `make test` (UI wiring suite)
+- [x] macOS build
 - [ ] Device QA: short-book export on iPhone (gates whether iOS default stays Karaoke — spec risk item)
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
@@ -2343,7 +2343,7 @@ gh pr checks --watch
 
 If PR 1 merges first, rebase this branch onto `origin/nightly` before the PR (`git fetch origin && git rebase origin/nightly && git push --force-with-lease`). Report hosted CI status (passing/failing/pending/blocked) for both PRs.
 
-- [ ] **Step 4: Post-merge reminders (report, don't act)**
+- [x] **Step 4: Post-merge reminders (report, don't act)**
 
 - Device QA note: whole-book Karaoke render time on iPhone decides the iOS default mode (spec Risk 1).
 - The `Welcome to Echo` manual EPUB and marketing docs mention export features — flag that the `echo-manual-epub` skill should re-run after this ships.

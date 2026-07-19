@@ -15,6 +15,7 @@ struct BottomToolbarView: View {
     var onHelp: () -> Void
     var onAddDocument: (() -> Void)?
     var onExport: (() -> Void)?
+    var onVideoExport: (() -> Void)?
     var onStudyNotesExport: (() -> Void)?
     var onShowPlaybackOptions: () -> Void
     var canCreateReaderCapture: Bool = false
@@ -33,6 +34,7 @@ struct BottomToolbarView: View {
                 onHelp: onHelp,
                 onAddDocument: onAddDocument,
                 onExport: onExport,
+                onVideoExport: onVideoExport,
                 onStudyNotesExport: onStudyNotesExport
             )
             Spacer()

@@ -975,6 +975,16 @@ Both sources expose the same chapter-ordered `[URL]` list consumed by the shared
 
 **Compose + transcode.** `AudioExportService` is the shared spine: it gaplessly composes the chapter URLs into an `AVMutableComposition`, transcodes once via `AVAssetExportSession` (AAC / `.m4b`), and hands the result to the metadata writer.
 
+**Slideshow video export.** `SlideshowExportPlanner` → `SlideshowFrameRenderer` →
+`VideoExportService` turns the same Visual Listening decisions into a 1920×1080
+H.264/AAC `.mp4` plus `.srt` and `.chapters.txt` sidecars. The service follows
+the `AudioExportService` spine by resolving the same ordered `ExportSource` audio
+and composing it gaplessly; the planner offsets every track-local visual and
+subtitle cue by the accumulated duration of the preceding tracks, keeping all
+three artifacts on one global timeline. `ChapterMarkerWriter` attempts MP4 chapter
+atoms and verifies them through AVFoundation; when either step fails, Echo keeps
+the video and the always-written `chapters.txt` fallback rather than failing the export.
+
 **Writer seam (chapter markers + metadata).** A single in-place pass via the `swift-audio-marker` package (`AudioMarker` product, linked on **both iOS and macOS**) writes Nero `chpl` + QuickTime `chap` chapter atoms together with the book tags and cover art in one operation — no container rebuild, so chapters and metadata coexist. `ChapterMarkerWriter` maps the book onto the audiobook tags players expect (title/album = book title; artist/albumArtist = author, Audiobookshelf reads `aART`; genre `Audiobook`; `©cmt` = the narration version stamp) landing in the `ilst` atoms; album/albumArtist/genre default only when absent so a re-exported imported m4b keeps its real tags. `ExportMetadata` + `ExportMetadataResolver` supply title/author/cover.
 
 > **Forked `swift-audio-marker` (Echo pins `dfakkeldy/swift-audio-marker` by immutable revision, tag 0.1.3).** Upstream 0.1.1 wrote the `ilst` tags without the iTunes `mdir` handler, so ffmpeg/AVFoundation/iTunes/Audiobookshelf ignored *every* tag and the cover art (`covr` lives inside `ilst`), and wrote a chapter text track AVFoundation couldn't read (missing `gmhd.text` / `edts/elst` / `ftab` `stsd`). The fork fixes all of it at the source (upstream PR [atelier-socle/swift-audio-marker#2](https://github.com/atelier-socle/swift-audio-marker/pull/2)) and additionally fails loudly on >4 GB chapter offsets and clamps over-long chapter titles. Output is verified readable across ffprobe/Audiobookshelf, AVFoundation/Apple Books, exiftool, and AtomicParsley.

@@ -137,6 +137,7 @@ struct RootTabView: View {
     /// Unified ".m4b export" sheet, presented from the global More menu. The
     /// resolver auto-detects narrated-vs-imported, so one action covers both.
     @State private var showingExport = false
+    @State private var showingVideoExport = false
     @State private var showingStudyNotesExport = false
     @State private var editingIdentifiableUUID: IdentifiableUUID?
     @State private var documentImportPhase: DocumentImportPhase = .idle
@@ -292,6 +293,9 @@ struct RootTabView: View {
                         onExport: (model.folderURL != nil
                             && !model.narrationPlaybackState.isRunning)
                             ? { showingExport = true } : nil,
+                        onVideoExport: (model.folderURL != nil
+                            && !model.narrationPlaybackState.isRunning)
+                            ? { showingVideoExport = true } : nil,
                         onStudyNotesExport: (model.folderURL != nil
                             && !model.narrationPlaybackState.isRunning)
                             ? { showingStudyNotesExport = true } : nil
@@ -411,6 +415,17 @@ struct RootTabView: View {
                 let writer = model.databaseService?.writer
             {
                 ExportProgressView(
+                    audiobookID: id,
+                    bookTitle: model.currentTitle,
+                    cacheDirectory: PlayerModel.narrationCacheDirectory(),
+                    databaseWriter: writer)
+            }
+        }
+        .sheet(isPresented: $showingVideoExport) {
+            if let id = model.folderURL?.absoluteString,
+                let writer = model.databaseService?.writer
+            {
+                VideoExportProgressView(
                     audiobookID: id,
                     bookTitle: model.currentTitle,
                     cacheDirectory: PlayerModel.narrationCacheDirectory(),

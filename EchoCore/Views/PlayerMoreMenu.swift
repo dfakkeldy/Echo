@@ -25,6 +25,7 @@ struct PlayerMoreMenu: View {
     /// `nil` when no book is loaded or narration is rendering (item hidden).
     var onAddDocument: (() -> Void)?
     var onExport: (() -> Void)?
+    var onVideoExport: (() -> Void)?
     var onStudyNotesExport: (() -> Void)?
 
     var body: some View {
@@ -55,6 +56,11 @@ struct PlayerMoreMenu: View {
             if let onExport {
                 Button(action: onExport) {
                     Label("Export Audiobook (.m4b)…", systemImage: "square.and.arrow.up")
+                }
+            }
+            if let onVideoExport {
+                Button(action: onVideoExport) {
+                    Label(.videoExportMenuTitle, systemImage: "film")
                 }
             }
             if let onStudyNotesExport {
