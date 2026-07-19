@@ -5,15 +5,24 @@ import Testing
 @testable import Echo
 
 struct AutoAlignmentWorkerTests {
-    private func block(_ id: String, _ text: String) -> AutoAlignmentWorker.AlignmentBlock {
-        AutoAlignmentWorker.AlignmentBlock(id: id, text: text, isHidden: false)
+    private func block(
+        _ id: String,
+        _ text: String,
+        kind: EPubBlockRecord.Kind = .paragraph
+    ) -> AutoAlignmentWorker.AlignmentBlock {
+        AutoAlignmentWorker.AlignmentBlock(
+            id: id,
+            text: text,
+            blockKind: kind.rawValue,
+            isHidden: false)
     }
 
     private func word(_ text: String, _ time: TimeInterval) -> TranscribedWord {
         TranscribedWord(text: text, start: time)
     }
 
-    private func epubTokens(_ blocks: [AutoAlignmentWorker.AlignmentBlock]) -> [TokenDTW.EPubToken] {
+    private func epubTokens(_ blocks: [AutoAlignmentWorker.AlignmentBlock]) -> [TokenDTW.EPubToken]
+    {
         blocks.flatMap { block in
             TokenDTW.normalize(block.text ?? "").map {
                 TokenDTW.EPubToken(text: $0, blockID: block.id)
@@ -106,6 +115,38 @@ struct AutoAlignmentWorkerTests {
         #expect(output.wordMatchesByBlock.keys.contains("b-late"))
     }
 
+    @Test func workerExcludesCodeFromDTWTokenAndMatchOutput() async throws {
+        let blocks = [
+            block("code", "sentinel syntax tokens", kind: .code),
+            block("prose", "spoken prose remains"),
+        ]
+        let words = [
+            word("sentinel", 1.0), word("syntax", 1.4), word("tokens", 1.8),
+            word("spoken", 3.0), word("prose", 3.4), word("remains", 3.8),
+        ]
+
+        let output = try await AutoAlignmentWorker.alignChapter(
+            AutoAlignmentWorker.Input(
+                words: words,
+                alignmentBlocks: blocks,
+                anchoredBlockIDs: [],
+                windowStart: 0,
+                windowEnd: 10,
+                lastGlobalAnchorTime: 0,
+                minAnchorRunLength: 1
+            )
+        )
+
+        #expect(output.epubTokenCount == TokenDTW.normalize("spoken prose remains").count)
+        #expect(!output.wordMatchesByBlock.keys.contains("code"))
+        #expect(!output.selectedCandidates.contains { $0.blockID == "code" })
+    }
+
+    @Test func autoAlignmentServiceCarriesBlockKindIntoWorkerInput() throws {
+        let source = try projectSource("EchoCore/Services/AutoAlignmentService.swift")
+        #expect(source.contains("blockKind: $0.blockKind"))
+    }
+
     @Test func cancellableDTWStopsDuringLargeLeafAlignment() async throws {
         let tokenCount = 4_000
         let epub = (0..<tokenCount).map {
@@ -129,5 +170,17 @@ struct AutoAlignmentWorkerTests {
         await #expect(throws: CancellationError.self) {
             try await task.value
         }
+    }
+
+    private func projectSource(_ relativePath: String) throws -> String {
+        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        while directory.path != "/" {
+            let candidate = directory.deletingLastPathComponent().appending(path: relativePath)
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return try String(contentsOf: candidate, encoding: .utf8)
+            }
+            directory.deleteLastPathComponent()
+        }
+        throw CocoaError(.fileNoSuchFile)
     }
 }

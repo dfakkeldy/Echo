@@ -34,6 +34,9 @@ nonisolated struct SidecarImportSummary: Codable, Equatable, Sendable {
         case notDownloaded
         /// The sidecar file was present but could not be decoded.
         case decodeError
+        /// The sidecar targets a different parsed source revision, or lacks
+        /// identity on a source where code blocks can shift legacy suffixes.
+        case staleSource
         /// No sidecar (or iCloud placeholder) was found next to the book.
         case noSidecar
     }
@@ -64,6 +67,8 @@ nonisolated struct SidecarImportSummary: Codable, Equatable, Sendable {
             return "Paragraph-level — alignment file not downloaded from iCloud"
         case .decodeError:
             return "Paragraph-level — alignment file unreadable"
+        case .staleSource:
+            return "Paragraph-level — alignment file is stale for this source"
         case .noSidecar:
             return "Paragraph-level (no word timings)"
         }

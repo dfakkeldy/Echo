@@ -43,8 +43,9 @@ final class MacAlignmentService {
         defer { if let cleanupDir { try? FileManager.default.removeItem(at: cleanupDir) } }
 
         let parsed = try parseEPUBBlocks(audiobookID: audiobookID, epubURL: epubDir)
-        let epubTokens: [TokenDTW.EPubToken] = parsed.blocks.compactMap { block in
-            guard let text = block.text, !text.isEmpty else { return nil }
+        let alignmentBlocks = CommercialAudioAlignmentSource.blocks(from: parsed.blocks)
+        let epubTokens: [TokenDTW.EPubToken] = alignmentBlocks.compactMap { block in
+            guard let text = block.text else { return nil }
             return TokenDTW.EPubToken(text: text, blockID: block.id)
         }
         guard !epubTokens.isEmpty else { throw AlignmentError.noTextBlocks }
@@ -125,7 +126,11 @@ final class MacAlignmentService {
         // content-stable `s<i>-b<j>` suffix and re-prefixed on the importing
         // device. Best-effort: a sidecar write must not fail the alignment.
         do {
-            let sidecarURL = try AlignmentSidecar.write(records, forEPUB: epubURL)
+            let sidecarURL = try AlignmentSidecar.write(
+                records,
+                sourceBlocks: parsed.blocks,
+                forEPUB: epubURL
+            )
             logger.info("Wrote alignment sidecar: \(sidecarURL.lastPathComponent)")
         } catch {
             logger.error("Failed to write alignment sidecar: \(error.localizedDescription)")

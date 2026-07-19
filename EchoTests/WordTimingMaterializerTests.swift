@@ -82,6 +82,39 @@ struct WordTimingMaterializerTests {
         #expect(words.last!.audioEndTime <= 1.01)
     }
 
+    @Test func codeBlockMaterializesNarratedCueInsteadOfRawListing() throws {
+        let db = try DatabaseService(inMemory: ())
+        try db.write { database in
+            try database.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('bk','Book',10.0)"
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO epub_block
+                      (id, audiobook_id, spine_href, spine_index, block_index,
+                       sequence_index, block_kind, text, narration_text, code_language,
+                       is_hidden)
+                    VALUES ('code','bk','c.xhtml',0,0,0,'code',
+                            'let value = answer + 42','Example value assignment.','swift',0)
+                    """
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO timeline_item
+                      (id, audiobook_id, item_type, title, audio_start_time, audio_end_time,
+                       granularity_level, is_enabled, epub_block_id)
+                    VALUES ('t-code','bk','textSegment','',1.0,4.0,1,1,'code')
+                    """
+            )
+        }
+
+        try WordTimingMaterializer.materialize(audiobookID: "bk", writer: db.writer)
+
+        let words = try WordTimingDAO(db: db.writer)
+            .words(forAudiobook: "bk", blockID: "code")
+        #expect(words.map(\.word) == ["Example", "value", "assignment."])
+    }
+
     @Test func reRunClearsPriorRows() throws {
         let db = try DatabaseService(inMemory: ())
         try db.write { db in

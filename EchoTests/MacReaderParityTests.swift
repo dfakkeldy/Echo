@@ -10,6 +10,26 @@ import Testing
 /// macOS-clean `AlignmentService`.
 struct MacReaderParityTests {
 
+    @Test func macCommercialAudioAlignmentUsesCodeFilteringSourcePolicy() throws {
+        let src = try MacSource.read("Services/MacAlignmentService.swift")
+        #expect(
+            src.contains("CommercialAudioAlignmentSource.blocks(from: parsed.blocks)"),
+            "The macOS DTW entry point must use the shared source-block filter before tokenizing.")
+        #expect(
+            src.contains("sourceBlocks: parsed.blocks"),
+            "The macOS DTW sidecar writer must bind anchors to the parsed source identity.")
+    }
+
+    @Test func narrationSidecarWritersAttachSourceIdentity() throws {
+        let batch = try MacSource.read("Services/MacBatchProcessingService.swift")
+        #expect(batch.contains("sourceBlockIdentity: AlignmentSidecar.sourceIdentity(for: block)"))
+
+        let headless = try projectSource(
+            "EchoCore/Services/Narration/HeadlessNarrationRunner.swift"
+        )
+        #expect(headless.contains("AlignmentSidecar.attachingSourceIdentities("))
+    }
+
     @Test func readerHasAlignmentContextMenu() throws {
         let src = try MacSource.read("Views/MacReaderFeedView.swift")
         #expect(
@@ -99,5 +119,17 @@ struct MacReaderParityTests {
             codeLanguage: nil,
             createdAt: nil,
             modifiedAt: nil)
+    }
+
+    private func projectSource(_ relativePath: String) throws -> String {
+        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        while directory.path != "/" {
+            let candidate = directory.deletingLastPathComponent().appending(path: relativePath)
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return try String(contentsOf: candidate, encoding: .utf8)
+            }
+            directory.deleteLastPathComponent()
+        }
+        throw CocoaError(.fileNoSuchFile)
     }
 }

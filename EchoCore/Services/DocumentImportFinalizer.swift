@@ -73,78 +73,85 @@ enum DocumentImportFinalizer {
             do {
                 let data = try Data(contentsOf: alignmentSidecarURL)
                 let exports = try AlignmentSidecar.decode(data)
-                // Sidecar block ids are the portable `s<i>-b<j>` suffix. Re-prefix
-                // each with THIS device's audiobookID and drop any whose block isn't
-                // present locally (stale/foreign sidecar) so we never insert orphan
-                // anchors. Resolve FIRST so an all-foreign sidecar leaves existing
-                // anchors intact and falls back to interpolation.
-                let localBlockIDs = Set(blocks.map(\.id))
-                let createdAt = AlignmentService.isoFormatter.string(from: Date())
-                let resolved: [AlignmentAnchorRecord] = exports.compactMap { export in
-                    let blockID = AlignmentSidecar.localBlockID(
-                        export.blockId, audiobookID: audiobookID)
-                    guard localBlockIDs.contains(blockID) else { return nil }
-                    return AlignmentAnchorRecord(
-                        id: UUID().uuidString,
-                        audiobookID: audiobookID,
-                        epubBlockID: blockID,
-                        audioTime: export.timestamp,
-                        audioEndTime: nil,
-                        anchorKind: AlignmentAnchorRecord.AnchorKind.point.rawValue,
-                        source: AlignmentAnchorRecord.Source.autoAlignment.rawValue,
-                        note: "Mac App DTW alignment",
-                        createdAt: createdAt,
-                        modifiedAt: nil
-                    )
-                }
-                if resolved.isEmpty {
-                    // A sidecar was found but no portable id resolved to a local
-                    // block (block-id schemes diverged — e.g. the reader parsed
-                    // the EPUB into different blocks than the sidecar's author).
-                    // Do NOT stop here: fall through to the fallback below so the
-                    // book still gets an interpolation floor and `word_timing` is
-                    // never left empty. Existing anchors are left intact.
-                    summary.status = .foundButUnresolved
+                if AlignmentSidecar.sourceValidation(for: exports, blocks: blocks) != .current {
+                    summary.status = .staleSource
                     logger.info(
-                        "alignment.json: 0 of \(exports.count) anchors resolved to local blocks (portable s<i>-b<j> ids diverge from this import) — falling back to interpolation; existing anchors preserved"
+                        "alignment.json targets a different source revision, or is a legacy sidecar whose suffixes are unsafe after code-block parsing — falling back to interpolation; existing anchors preserved"
                     )
                 } else {
-                    do {
-                        if try machineAnchorsMatch(
-                            resolved,
+                    // Sidecar block ids are the portable `s<i>-b<j>` suffix. Re-prefix
+                    // each with THIS device's audiobookID and drop any whose block isn't
+                    // present locally (stale/foreign sidecar) so we never insert orphan
+                    // anchors. Resolve FIRST so an all-foreign sidecar leaves existing
+                    // anchors intact and falls back to interpolation.
+                    let localBlockIDs = Set(blocks.map(\.id))
+                    let createdAt = AlignmentService.isoFormatter.string(from: Date())
+                    let resolved: [AlignmentAnchorRecord] = exports.compactMap { export in
+                        let blockID = AlignmentSidecar.localBlockID(
+                            export.blockId, audiobookID: audiobookID)
+                        guard localBlockIDs.contains(blockID) else { return nil }
+                        return AlignmentAnchorRecord(
+                            id: UUID().uuidString,
                             audiobookID: audiobookID,
-                            writer: databaseService.writer
-                        ) {
-                            logger.debug(
-                                "alignment.json sidecar already ingested for \(audiobookID); refreshing timeline and word timings without rewriting anchors"
-                            )
-                            try alignmentService.recalculateTimeline()
-                        } else {
-                            logger.info(
-                                "Found alignment.json sidecar with \(exports.count) anchors.")
-                            try replaceMachineAnchors(
-                                with: resolved,
-                                audiobookID: audiobookID,
-                                writer: databaseService.writer,
-                                alignmentService: alignmentService
-                            )
-                            logger.info(
-                                "Ingested \(resolved.count)/\(exports.count) anchors from alignment.json (\(exports.count - resolved.count) dropped: block not present locally; user anchors preserved)"
-                            )
-                        }
-                        // Stash for the single word-application pass below —
-                        // on BOTH paths above: the refresh recalc also rebuilds
-                        // (re-interpolates) word rows, so an unchanged sidecar
-                        // must re-apply its words on every finalize.
-                        didRecalculateTimeline = true
-                        ingestedSidecar = (exports, localBlockIDs)
-                        appliedSidecarAnchors = true
-                        summary.status = .applied
-                    } catch {
-                        logger.error(
-                            "Failed to persist alignment.json anchors: \(error.localizedDescription)"
+                            epubBlockID: blockID,
+                            audioTime: export.timestamp,
+                            audioEndTime: nil,
+                            anchorKind: AlignmentAnchorRecord.AnchorKind.point.rawValue,
+                            source: AlignmentAnchorRecord.Source.autoAlignment.rawValue,
+                            note: "Mac App DTW alignment",
+                            createdAt: createdAt,
+                            modifiedAt: nil
                         )
-                        return false
+                    }
+                    if resolved.isEmpty {
+                        // A sidecar was found but no portable id resolved to a local
+                        // block (block-id schemes diverged — e.g. the reader parsed
+                        // the EPUB into different blocks than the sidecar's author).
+                        // Do NOT stop here: fall through to the fallback below so the
+                        // book still gets an interpolation floor and `word_timing` is
+                        // never left empty. Existing anchors are left intact.
+                        summary.status = .foundButUnresolved
+                        logger.info(
+                            "alignment.json: 0 of \(exports.count) anchors resolved to local blocks (portable s<i>-b<j> ids diverge from this import) — falling back to interpolation; existing anchors preserved"
+                        )
+                    } else {
+                        do {
+                            if try machineAnchorsMatch(
+                                resolved,
+                                audiobookID: audiobookID,
+                                writer: databaseService.writer
+                            ) {
+                                logger.debug(
+                                    "alignment.json sidecar already ingested for \(audiobookID); refreshing timeline and word timings without rewriting anchors"
+                                )
+                                try alignmentService.recalculateTimeline()
+                            } else {
+                                logger.info(
+                                    "Found alignment.json sidecar with \(exports.count) anchors.")
+                                try replaceMachineAnchors(
+                                    with: resolved,
+                                    audiobookID: audiobookID,
+                                    writer: databaseService.writer,
+                                    alignmentService: alignmentService
+                                )
+                                logger.info(
+                                    "Ingested \(resolved.count)/\(exports.count) anchors from alignment.json (\(exports.count - resolved.count) dropped: block not present locally; user anchors preserved)"
+                                )
+                            }
+                            // Stash for the single word-application pass below —
+                            // on BOTH paths above: the refresh recalc also rebuilds
+                            // (re-interpolates) word rows, so an unchanged sidecar
+                            // must re-apply its words on every finalize.
+                            didRecalculateTimeline = true
+                            ingestedSidecar = (exports, localBlockIDs)
+                            appliedSidecarAnchors = true
+                            summary.status = .applied
+                        } catch {
+                            logger.error(
+                                "Failed to persist alignment.json anchors: \(error.localizedDescription)"
+                            )
+                            return false
+                        }
                     }
                 }
             } catch {

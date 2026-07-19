@@ -120,7 +120,11 @@ struct EPUBImportService {
 
         // 7. Assign Chapter Index based on cumulative word-count fraction.
         if let duration = bookDuration, !chapters.isEmpty, !allBlocks.isEmpty {
-            let totalWords = Double(allBlocks.reduce(0) { $0 + ($1.wordCount ?? 1) })
+            let totalWords = Double(
+                allBlocks.reduce(0) {
+                    $0 + CommercialAudioAlignmentSource.wordWeight(for: $1)
+                }
+            )
             if totalWords > 0 {
                 var cumulativeWords = 0
                 var hasSeenFirstHeading = false
@@ -128,7 +132,9 @@ struct EPUBImportService {
                     if allBlocks[i].blockKind == EPubBlockRecord.Kind.heading.rawValue {
                         hasSeenFirstHeading = true
                     }
-                    cumulativeWords += allBlocks[i].wordCount ?? 1
+                    cumulativeWords += CommercialAudioAlignmentSource.wordWeight(
+                        for: allBlocks[i]
+                    )
                     let estimatedFraction = Double(cumulativeWords) / totalWords
                     let estimatedTime = estimatedFraction * duration
                     if let matchedChapter = chapters.first(where: { ch in
@@ -144,14 +150,24 @@ struct EPUBImportService {
                     }
                 }
             } else {
-                let totalBlocks = Double(allBlocks.count)
-                for i in 0..<allBlocks.count {
-                    let estimatedFraction = Double(allBlocks[i].sequenceIndex) / totalBlocks
-                    let estimatedTime = estimatedFraction * duration
-                    if let matchedChapter = chapters.first(where: { ch in
-                        estimatedTime >= ch.startSeconds && estimatedTime < ch.endSeconds
-                    }) {
-                        allBlocks[i].chapterIndex = matchedChapter.index
+                let nonCodeBlockCount = allBlocks.reduce(0) { count, block in
+                    count + (block.blockKind == EPubBlockRecord.Kind.code.rawValue ? 0 : 1)
+                }
+                if nonCodeBlockCount > 0 {
+                    var nonCodePosition = 0
+                    for i in allBlocks.indices {
+                        let estimatedFraction =
+                            Double(nonCodePosition) / Double(nonCodeBlockCount)
+                        let estimatedTime = estimatedFraction * duration
+                        if let matchedChapter = chapters.first(where: { chapter in
+                            estimatedTime >= chapter.startSeconds
+                                && estimatedTime < chapter.endSeconds
+                        }) {
+                            allBlocks[i].chapterIndex = matchedChapter.index
+                        }
+                        if allBlocks[i].blockKind != EPubBlockRecord.Kind.code.rawValue {
+                            nonCodePosition += 1
+                        }
                     }
                 }
             }

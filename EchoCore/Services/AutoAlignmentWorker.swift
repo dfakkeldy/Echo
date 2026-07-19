@@ -8,6 +8,7 @@ nonisolated enum AutoAlignmentWorker {
     struct AlignmentBlock: Sendable, Equatable {
         let id: String
         let text: String?
+        let blockKind: String
         let isHidden: Bool
     }
 
@@ -52,7 +53,14 @@ nonisolated enum AutoAlignmentWorker {
         try Task.checkCancellation()
         var epubTokens: [TokenDTW.EPubToken] = []
         for block in input.alignmentBlocks {
-            guard let text = block.text, !block.isHidden else { continue }
+            guard
+                CommercialAudioAlignmentSource.isEligible(
+                    blockKind: block.blockKind,
+                    text: block.text,
+                    isHidden: block.isHidden
+                ),
+                let text = block.text
+            else { continue }
             epubTokens += TokenDTW.normalize(text).map {
                 TokenDTW.EPubToken(text: $0, blockID: block.id)
             }

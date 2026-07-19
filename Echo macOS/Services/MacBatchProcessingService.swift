@@ -401,6 +401,9 @@ final class MacBatchProcessingService {
                     let chapterOfBlock: [String: Int] = chapters.reduce(into: [:]) { acc, ch in
                         for b in ch.blocks { acc[b.id] = ch.index }
                     }
+                    let blockByID = Dictionary(
+                        uniqueKeysWithValues: chapters.flatMap(\.blocks).map { ($0.id, $0) }
+                    )
                     let tracks =
                         ((try? TrackDAO(db: dbService.writer).tracks(for: audiobookID)) ?? [])
                         .sorted { $0.sortOrder < $1.sortOrder }
@@ -415,11 +418,17 @@ final class MacBatchProcessingService {
                         ?? [])
                         .filter { $0.source == AlignmentAnchorRecord.Source.synthesized.rawValue }
                         .compactMap { a in
-                            guard let ci = chapterOfBlock[a.epubBlockID], let off = offset[ci]
+                            guard
+                                let ci = chapterOfBlock[a.epubBlockID],
+                                let off = offset[ci],
+                                let block = blockByID[a.epubBlockID]
                             else { return nil }
                             return AlignmentSidecar.Anchor(
                                 blockId: AlignmentSidecar.portableSuffix(of: a.epubBlockID),
-                                timestamp: a.audioTime + off, confidence: 1.0)
+                                timestamp: a.audioTime + off,
+                                confidence: 1.0,
+                                sourceBlockIdentity: AlignmentSidecar.sourceIdentity(for: block)
+                            )
                         }
                     if !sidecar.isEmpty {
                         let scURL = AlignmentSidecar.url(forEPUB: epubURL)

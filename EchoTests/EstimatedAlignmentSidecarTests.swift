@@ -26,6 +26,7 @@ private final class EstimatedSidecarFixtureBundleLocator {}
         #expect(anchors.map(\.blockId) == ["s0-b0", "s0-b1", "s1-b0"])
         #expect(anchors.map(\.timestamp) == [0, 10, 40])
         #expect(anchors.allSatisfy { $0.confidence == 0.5 })
+        #expect(anchors.allSatisfy { $0.sourceBlockIdentity != nil })
     }
 
     @Test func buildSkipsHiddenImageAndEmptyTextBlocks() throws {
@@ -73,6 +74,50 @@ private final class EstimatedSidecarFixtureBundleLocator {}
         #expect(report.chapterCount == 2)
     }
 
+    @Test func verifyRejectsMismatchedSourceIdentity() {
+        let source = block(spine: 0, index: 0, sequence: 0, words: 1, text: "Current")
+        let anchors = [
+            AlignmentSidecar.Anchor(
+                blockId: "s0-b0",
+                timestamp: 0,
+                confidence: 1,
+                sourceBlockIdentity: "identity-from-a-different-source"
+            )
+        ]
+
+        #expect(throws: AlignmentSidecarVerifier.VerificationError.self) {
+            _ = try AlignmentSidecarVerifier.verify(
+                anchors: anchors,
+                blocks: [source],
+                chapterTimings: [.init(index: 0, start: 0, end: 10)],
+                audioDuration: 10
+            )
+        }
+    }
+
+    @Test func verifyRejectsLegacySidecarForCodeBearingSource() {
+        let code = block(
+            spine: 0,
+            index: 0,
+            sequence: 0,
+            kind: .code,
+            words: 3,
+            text: "let value = 42"
+        )
+
+        #expect(throws: AlignmentSidecarVerifier.VerificationError.self) {
+            _ = try AlignmentSidecarVerifier.verify(
+                anchors: [
+                    AlignmentSidecar.Anchor(
+                        blockId: "s0-b0", timestamp: 0, confidence: 1)
+                ],
+                blocks: [code],
+                chapterTimings: [.init(index: 0, start: 0, end: 10)],
+                audioDuration: 10
+            )
+        }
+    }
+
     @Test func verifyAcceptsCueOnlyCodeAnchorFromNativeNarration() throws {
         var code = block(
             spine: 0,
@@ -92,8 +137,18 @@ private final class EstimatedSidecarFixtureBundleLocator {}
             EstimatedAlignmentSidecar.ChapterTiming(index: 0, start: 0, end: 10)
         ]
         let anchors = [
-            AlignmentSidecar.Anchor(blockId: "s0-b0", timestamp: 0, confidence: 1),
-            AlignmentSidecar.Anchor(blockId: "s0-b1", timestamp: 4, confidence: 1),
+            AlignmentSidecar.Anchor(
+                blockId: "s0-b0",
+                timestamp: 0,
+                confidence: 1,
+                sourceBlockIdentity: AlignmentSidecar.sourceIdentity(for: blocks[0])
+            ),
+            AlignmentSidecar.Anchor(
+                blockId: "s0-b1",
+                timestamp: 4,
+                confidence: 1,
+                sourceBlockIdentity: AlignmentSidecar.sourceIdentity(for: code)
+            ),
         ]
 
         let report = try AlignmentSidecarVerifier.verify(
@@ -126,7 +181,9 @@ private final class EstimatedSidecarFixtureBundleLocator {}
                     AlignmentSidecar.Anchor.Word(word: "Example", start: 1, end: 1.2),
                     AlignmentSidecar.Anchor.Word(word: "value", start: 1.2, end: 1.4),
                     AlignmentSidecar.Anchor.Word(word: "assignment", start: 1.4, end: 1.8),
-                ])
+                ],
+                sourceBlockIdentity: AlignmentSidecar.sourceIdentity(for: code)
+            )
         ]
 
         let report = try AlignmentSidecarVerifier.verify(
@@ -160,7 +217,9 @@ private final class EstimatedSidecarFixtureBundleLocator {}
                     AlignmentSidecar.Anchor.Word(word: "answer", start: 1.3, end: 1.4),
                     AlignmentSidecar.Anchor.Word(word: "+", start: 1.4, end: 1.5),
                     AlignmentSidecar.Anchor.Word(word: "42", start: 1.5, end: 1.6),
-                ])
+                ],
+                sourceBlockIdentity: AlignmentSidecar.sourceIdentity(for: code)
+            )
         ]
 
         do {

@@ -94,6 +94,8 @@ enum WordTimingMaterializer {
             var sql = """
                 SELECT ti.epub_block_id AS id,
                        eb.text AS text,
+                       eb.block_kind AS block_kind,
+                       eb.narration_text AS narration_text,
                        ti.audio_start_time AS start,
                        ti.audio_end_time AS end
                 FROM timeline_item ti
@@ -109,9 +111,18 @@ enum WordTimingMaterializer {
                 args += blockIDs
             }
             sql += " ORDER BY ti.audio_start_time"
-            return try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args)).map { row in
-                Block(
-                    id: row["id"], text: row["text"],
+            return try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args)).compactMap {
+                row in
+                guard
+                    let text = NarratedBlockText.text(
+                        blockKind: row["block_kind"],
+                        sourceText: row["text"],
+                        narrationText: row["narration_text"]
+                    ),
+                    !text.isEmpty
+                else { return nil }
+                return Block(
+                    id: row["id"], text: text,
                     start: row["start"], end: row["end"])
             }
         }

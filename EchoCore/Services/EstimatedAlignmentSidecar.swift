@@ -103,7 +103,8 @@ nonisolated enum EstimatedAlignmentSidecar {
                 AlignmentSidecar.Anchor(
                     blockId: AlignmentSidecar.portableSuffix(of: block.id),
                     timestamp: cursor,
-                    confidence: confidence
+                    confidence: confidence,
+                    sourceBlockIdentity: AlignmentSidecar.sourceIdentity(for: block)
                 )
             )
             cursor += duration * (Double(max(1, weight)) / Double(totalWeight))
@@ -142,6 +143,8 @@ nonisolated enum AlignmentSidecarVerifier {
         case emptySidecar
         case noChapterTimings
         case invalidAudioDuration(TimeInterval)
+        case legacyCodeRequiresSourceIdentity
+        case sourceIdentityInvalid(blockID: String)
         case unresolvedBlockID(String)
         case timestampDecreased(blockID: String, timestamp: TimeInterval)
         case timestampOutOfRange(blockID: String, timestamp: TimeInterval)
@@ -160,6 +163,10 @@ nonisolated enum AlignmentSidecarVerifier {
                 return "audio has no usable chapter timings"
             case .invalidAudioDuration(let duration):
                 return "audio duration is invalid: \(duration)"
+            case .legacyCodeRequiresSourceIdentity:
+                return "legacy sidecar has no source identity for a code-bearing source"
+            case .sourceIdentityInvalid(let blockID):
+                return "sidecar source identity is missing, mismatched, or unresolved: \(blockID)"
             case .unresolvedBlockID(let blockID):
                 return "sidecar block id does not resolve: \(blockID)"
             case .timestampDecreased(let blockID, let timestamp):
@@ -215,6 +222,16 @@ nonisolated enum AlignmentSidecarVerifier {
             issues.append(.invalidAudioDuration(audioDuration))
         }
 
+        switch AlignmentSidecar.sourceValidation(for: anchors, blocks: blocks) {
+        case .current:
+            break
+        case .legacyCodeRequiresIdentity:
+            issues.append(.legacyCodeRequiresSourceIdentity)
+        case .identityMissing(let blockID), .identityMismatch(let blockID),
+            .identityUnresolved(let blockID):
+            issues.append(.sourceIdentityInvalid(blockID: blockID))
+        }
+
         // The fallback estimator deliberately excludes `.code`, but native
         // narration emits cue-only anchors for code listings. Verification is
         // therefore broader than estimation: accept visible spoken blocks and
@@ -240,7 +257,7 @@ nonisolated enum AlignmentSidecarVerifier {
                 (
                     AlignmentSidecar.portableSuffix(of: $0.id),
                     WordTokenizer.words(
-                        in: NarrationCodeBlockCue.spokenText(for: $0) ?? ($0.text ?? "")
+                        in: NarratedBlockText.text(for: $0) ?? ""
                     ).count
                 )
             },

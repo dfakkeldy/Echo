@@ -14,8 +14,8 @@ import Testing
         try db.write { db in
             try db.execute(
                 sql: "INSERT INTO audiobook (id, title, duration) VALUES ('bk','Book',100)")
-            // Two visible blocks + one hidden + one empty-text → only the two
-            // visible non-empty blocks become tokens.
+            // Two visible prose blocks + one code + one hidden + one empty-text
+            // → only the two visible non-code blocks become DTW source tokens.
             try db.execute(
                 sql: """
                     INSERT INTO epub_block
@@ -23,8 +23,9 @@ import Testing
                        sequence_index, block_kind, text, is_hidden)
                     VALUES ('b0','bk','c.xhtml',0,0,0,'paragraph','hello world', 0),
                            ('b1','bk','c.xhtml',0,1,1,'paragraph','goodbye now', 0),
-                           ('bh','bk','c.xhtml',0,2,2,'paragraph','hidden text', 1),
-                           ('be','bk','c.xhtml',0,3,3,'paragraph','', 0)
+                           ('bc','bk','c.xhtml',0,2,2,'code','sentinel syntax', 0),
+                           ('bh','bk','c.xhtml',0,3,3,'paragraph','hidden text', 1),
+                           ('be','bk','c.xhtml',0,4,4,'paragraph','', 0)
                     """)
         }
         let seg0 = encodeWords([
@@ -48,7 +49,7 @@ import Testing
         }
     }
 
-    @Test func epubTokensSkipHiddenAndEmpty() throws {
+    @Test func epubTokensSkipCodeHiddenAndEmpty() throws {
         let db = try DatabaseService(inMemory: ())
         try seed(db)
         let tokens = try SourceBackedAlignmentCoordinator.epubTokens(

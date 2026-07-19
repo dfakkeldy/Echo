@@ -367,14 +367,16 @@ struct NarrationRunResult {
             let chapterIndex = indexedCapture.chapterIndex
             let capture = indexedCapture.capture
             if capture.identity != nil, let evidence = capture.pronunciationEvidence {
-                decisions.append(contentsOf: evidence.decisions.map {
-                    $0.attachingBookTiming(
-                        chapterIndex: chapterIndex,
-                        chapterOffset: offset)
-                })
-                diagnostics.append(contentsOf: evidence.diagnostics.map {
-                    $0.attachingChapter(chapterIndex)
-                })
+                decisions.append(
+                    contentsOf: evidence.decisions.map {
+                        $0.attachingBookTiming(
+                            chapterIndex: chapterIndex,
+                            chapterOffset: offset)
+                    })
+                diagnostics.append(
+                    contentsOf: evidence.diagnostics.map {
+                        $0.attachingChapter(chapterIndex)
+                    })
             } else {
                 legacyChapterIndexes.append(chapterIndex)
             }
@@ -423,7 +425,9 @@ struct NarrationRunResult {
             throw NarrationRunError.captureIdentity(
                 "expected chapter \(expected.chapterIndex), marker chapter \(chapterIndex)")
         }
-        guard expected.audioFileName == URL(fileURLWithPath: expected.audioFileName).lastPathComponent,
+        guard
+            expected.audioFileName
+                == URL(fileURLWithPath: expected.audioFileName).lastPathComponent,
             !expected.audioFileName.isEmpty
         else {
             throw NarrationRunError.captureIdentity(
@@ -583,7 +587,8 @@ struct NarrationRunResult {
         chapterIndex: Int?
     ) throws {
         guard capture.duration.isFinite, capture.duration >= 0 else {
-            throw NarrationRunError.captureIdentity("capture duration is not finite and nonnegative")
+            throw NarrationRunError.captureIdentity(
+                "capture duration is not finite and nonnegative")
         }
         if capture.identity != nil, capture.pronunciationEvidence == nil {
             throw NarrationRunError.captureIdentity(
@@ -597,7 +602,7 @@ struct NarrationRunResult {
                 anchor.time.isFinite,
                 anchor.time >= 0,
                 anchor.time <= capture.duration,
-                (anchorIndex == 0 || anchor.time >= previousAnchorTime)
+                anchorIndex == 0 || anchor.time >= previousAnchorTime
             else {
                 throw NarrationRunError.captureIdentity(
                     "capture anchors are invalid or out of order")
@@ -749,8 +754,9 @@ struct NarrationRunResult {
 
     /// Builds one chapter's capture entries, attaching each anchor's block's
     /// synthesis word rows when — and only when — the row count matches the
-    /// block's whitespace-tokenized text (`WordTokenizer`). A mismatch means the
-    /// rendered tokenization diverged from the source text (normalization/G2P),
+    /// block's whitespace-tokenized narrated text (`NarratedBlockText` plus
+    /// `WordTokenizer`). A mismatch means the rendered tokenization diverged
+    /// from the prose source or code cue (normalization/G2P),
     /// so `array order == wordIndex` could not hold for consumers; that block's
     /// anchor is captured word-less and read-along falls back to interpolation.
     private static func captureEntries(
@@ -760,7 +766,7 @@ struct NarrationRunResult {
     ) -> [ChapterCapture.Entry] {
         let tokenCountByBlockID = Dictionary(
             uniqueKeysWithValues: blocks.map {
-                ($0.id, WordTokenizer.words(in: $0.text ?? "").count)
+                ($0.id, WordTokenizer.words(in: NarratedBlockText.text(for: $0) ?? "").count)
             })
         let rowsByBlockID = Dictionary(grouping: wordRows, by: \.epubBlockID)
         var usedBlockIDs: Set<String> = []
@@ -998,11 +1004,12 @@ struct NarrationRunResult {
         blocks: [EPubBlockRecord],
         fileManager: FileManager = .default
     ) -> Data? {
-        override ?? coverData(
-            epubArchiveURL: epubArchiveURL,
-            expandedEPUBDir: expandedEPUBDir,
-            blocks: blocks,
-            fileManager: fileManager)
+        override
+            ?? coverData(
+                epubArchiveURL: epubArchiveURL,
+                expandedEPUBDir: expandedEPUBDir,
+                blocks: blocks,
+                fileManager: fileManager)
     }
 
     // MARK: run
@@ -1023,7 +1030,8 @@ struct NarrationRunResult {
         _ config: NarrationRunConfig,
         tts: TTSEngine? = nil,
         ttsFactory: (@MainActor () -> TTSEngine)? = nil,
-        reviewGenerator: @escaping @MainActor (PronunciationReviewRequest) async throws ->
+        reviewGenerator:
+            @escaping @MainActor (PronunciationReviewRequest) async throws ->
             PronunciationReviewOutcome = { request in
                 try await PronunciationReviewArtifactGenerator.generate(request)
             },
@@ -1111,7 +1119,8 @@ struct NarrationRunResult {
                         includeLeadOutPad: true,
                         overrides: overrides,
                         occurrenceOverrides: occurrenceOverrides,
-                        normalizationMode: normalizationMode))
+                        normalizationMode: normalizationMode)
+                )
             })
         let captureSetID = Self.captureSetID(
             sourceFingerprint: sourceFingerprint,
@@ -1142,7 +1151,8 @@ struct NarrationRunResult {
                         normalizationMode: normalizationMode,
                         chapterIndex: chapterIndex,
                         chapterContentSignature: signature,
-                        audioFileName: audioFileName))
+                        audioFileName: audioFileName)
+                )
             })
 
         // Every marker is validated before crash cleanup or pending selection.
@@ -1426,10 +1436,15 @@ struct NarrationRunResult {
             let assembled = Self.assembleSidecarAnchors(
                 captures: captures, includeWordTimings: config.includeWordTimings)
             totalDuration = assembled.totalDuration
+            let identifiedAnchors = AlignmentSidecar.attachingSourceIdentities(
+                to: assembled.anchors,
+                blocks: blocks
+            )
             try fm.createDirectory(
                 at: sidecarURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true)
-            try AlignmentSidecar.encode(assembled.anchors).write(to: sidecarURL, options: .atomic)
+            try AlignmentSidecar.encode(identifiedAnchors)
+                .write(to: sidecarURL, options: .atomic)
             progress(
                 .wroteSidecar(
                     anchors: assembled.anchors.count,
@@ -1583,14 +1598,15 @@ struct NarrationRunResult {
             Self.update(&hasher, framed: "source-kind=expanded-epub")
             let resourceKeys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey]
             var traversalError: Error?
-            guard let enumerator = FileManager.default.enumerator(
-                at: root,
-                includingPropertiesForKeys: Array(resourceKeys),
-                options: [.skipsPackageDescendants],
-                errorHandler: { _, error in
-                    traversalError = error
-                    return false
-                })
+            guard
+                let enumerator = FileManager.default.enumerator(
+                    at: root,
+                    includingPropertiesForKeys: Array(resourceKeys),
+                    options: [.skipsPackageDescendants],
+                    errorHandler: { _, error in
+                        traversalError = error
+                        return false
+                    })
             else {
                 throw NarrationRunError.captureIdentity(
                     "could not enumerate expanded EPUB source")
@@ -1608,7 +1624,8 @@ struct NarrationRunResult {
             Self.update(&hasher, framed: "file-count=\(files.count)")
             for file in files {
                 let path = file.standardizedFileURL.path
-                var relativePath = path.hasPrefix(rootPath)
+                var relativePath =
+                    path.hasPrefix(rootPath)
                     ? String(path.dropFirst(rootPath.count))
                     : file.lastPathComponent
                 if relativePath.hasPrefix("/") { relativePath.removeFirst() }
