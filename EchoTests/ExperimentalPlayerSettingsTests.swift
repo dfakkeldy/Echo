@@ -23,4 +23,24 @@ struct ExperimentalPlayerSettingsTests {
         let reloaded = SettingsManager(defaults: defaults, appGroupDefaults: defaults)
         #expect(reloaded.experimentalNowPlayingLayout == true)
     }
+
+    @Test func layoutDataDefaultsToDefaultLayoutAndPersists() throws {
+        let suiteName = "test-exp-layout-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        SettingsManager.registerDefaults(defaults: defaults, appGroupDefaults: defaults)
+        let settings = SettingsManager(defaults: defaults, appGroupDefaults: defaults)
+
+        #expect(
+            ExperimentalPlayerLayout.decode(settings.experimentalPlayerLayoutData)
+            == ExperimentalPlayerLayout.defaultLayout)
+
+        var layout = ExperimentalPlayerLayout.defaultLayout
+        layout.buttons[0].zone = .upperLeading
+        settings.experimentalPlayerLayoutData = layout.encoded()
+
+        let reloaded = SettingsManager(defaults: defaults, appGroupDefaults: defaults)
+        #expect(ExperimentalPlayerLayout.decode(reloaded.experimentalPlayerLayoutData) == layout)
+    }
 }

@@ -58,6 +58,7 @@ final class SettingsManager {
         static let seekForwardDuration = 30
         static let playerLayoutStyle = "default"
         static let experimentalNowPlayingLayout = false
+        static let experimentalPlayerLayoutData = Data()
         static let readerFontSize: Double = 17.0
         static let readerLineSpacing: Double = 1.4
         static let readerCardTint: String = "#F5F0E8"
@@ -137,6 +138,7 @@ final class SettingsManager {
         static let phonePresets = "phonePresets"
         static let playerLayoutStyle = "playerLayoutStyle"
         static let experimentalNowPlayingLayout = "experimentalNowPlayingLayout"
+        static let experimentalPlayerLayoutData = "experimentalPlayerLayoutData"
         static let narrationVoiceID = "narrationVoiceID"
         static let readerFontSize = "readerFontSize"
         static let readerLineSpacing = "readerLineSpacing"
@@ -185,6 +187,9 @@ final class SettingsManager {
     }
     var experimentalNowPlayingLayout: Bool {
         didSet { defaults.set(experimentalNowPlayingLayout, forKey: Keys.experimentalNowPlayingLayout) }
+    }
+    var experimentalPlayerLayoutData: Data {
+        didSet { defaults.set(experimentalPlayerLayoutData, forKey: Keys.experimentalPlayerLayoutData) }
     }
     var narrationVoiceID: String {
         didSet { defaults.set(narrationVoiceID, forKey: Keys.narrationVoiceID) }
@@ -617,6 +622,7 @@ final class SettingsManager {
         playerLayoutStyle =
             defaults.string(forKey: Keys.playerLayoutStyle) ?? Defaults.playerLayoutStyle
         experimentalNowPlayingLayout = defaults.bool(forKey: Keys.experimentalNowPlayingLayout)
+        experimentalPlayerLayoutData = defaults.data(forKey: Keys.experimentalPlayerLayoutData) ?? Data()
         narrationVoiceID =
             defaults.string(forKey: Keys.narrationVoiceID) ?? ""
         isRewindEnabled = defaults.bool(forKey: Keys.isRewindEnabled)
@@ -836,6 +842,7 @@ final class SettingsManager {
             Keys.seekForwardDuration: Defaults.seekForwardDuration,
             Keys.playerLayoutStyle: Defaults.playerLayoutStyle,
             Keys.experimentalNowPlayingLayout: Defaults.experimentalNowPlayingLayout,
+            Keys.experimentalPlayerLayoutData: ExperimentalPlayerLayout.defaultLayout.encoded(),
             Keys.readerFontSize: Defaults.readerFontSize,
             Keys.readerLineSpacing: Defaults.readerLineSpacing,
             Keys.readerCardTint: Defaults.readerCardTint,
