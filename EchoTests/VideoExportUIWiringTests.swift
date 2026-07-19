@@ -330,7 +330,7 @@ struct VideoExportUIWiringTests {
         let text = try source("Echo macOS/Views/MacVideoExportView.swift")
         let export = try section(
             in: text,
-            startingAt: "private func startExport(to panelURL: URL)",
+            startingAt: "private func startExport(to panelURL: URL, configuration:",
             endingAt: "private func exportErrorText")
 
         #expect(text.hasPrefix("// SPDX-License-Identifier: GPL-3.0-or-later\n"))
@@ -547,14 +547,111 @@ struct VideoExportUIWiringTests {
                 "Picker(String(localized: .videoExportModeLabel), selection: $mode)"))
         #expect(text.contains("Text(.videoExportModeKaraoke).tag(SlideshowExportMode.karaoke)"))
         #expect(text.contains("Text(.videoExportModeSimple).tag(SlideshowExportMode.simple)"))
-        #expect(text.contains("mode: mode"))
+
+        // The export path reads the mode through the immutable configuration
+        // captured before the save panel opens, never the mutable `mode`
+        // @State directly, so a picker change while the panel sheet is open
+        // cannot race the export. (The capture site itself,
+        // `MacVideoExportConfiguration(mode: mode, ...)`, legitimately reads
+        // the current @State exactly once -- that invariant belongs to
+        // `macViewCapturesImmutableConfigurationBeforeSavePanelBegins`.)
+        #expect(text.contains("mode: configuration.mode"))
+    }
+
+    @Test func macViewDefaultsToLandscapeFormatAlongsideModePicker() throws {
+        let text = try source("Echo macOS/Views/MacVideoExportView.swift")
+
+        // Every new sheet defaults to Landscape, matching the shared iOS
+        // default -- and macOS keeps BOTH the Karaoke/Simple mode picker and
+        // the new Landscape/Portrait format picker, unlike iPhone v1 which is
+        // Karaoke-only.
+        #expect(
+            text.contains(
+                "@State private var selectedFormat: SlideshowVideoFormat = .landscape"))
+        #expect(text.contains("SlideshowVideoFormatPicker(selection: $selectedFormat)"))
+        #expect(text.contains("@State private var mode: SlideshowExportMode = .karaoke"))
+    }
+
+    @Test func macViewDisablesBothPickersWhileExporting() throws {
+        let text = try source("Echo macOS/Views/MacVideoExportView.swift")
+
+        // Both controls are interactive before export and frozen during it.
+        let modePicker = try section(
+            in: text,
+            startingAt: "Picker(String(localized: .videoExportModeLabel), selection: $mode)",
+            endingAt: "SlideshowVideoFormatPicker(selection: $selectedFormat)")
+        #expect(modePicker.contains(".disabled(isExporting)"))
+
+        let formatPickerOnward = try section(
+            in: text,
+            startingAt: "SlideshowVideoFormatPicker(selection: $selectedFormat)",
+            endingAt: "if isExporting {")
+        #expect(formatPickerOnward.contains(".disabled(isExporting)"))
+    }
+
+    @Test func macViewCapturesImmutableConfigurationBeforeSavePanelBegins() throws {
+        let text = try source("Echo macOS/Views/MacVideoExportView.swift")
+
+        #expect(text.contains("private struct MacVideoExportConfiguration: Sendable {"))
+        #expect(text.contains("let mode: SlideshowExportMode"))
+        #expect(text.contains("let dimensions: SlideshowVideoDimensions"))
+
+        let presentSavePanel = try section(
+            in: text,
+            startingAt: "private func presentSavePanel()",
+            endingAt: "private func startExport(to panelURL: URL, configuration:")
+
+        // The configuration is captured as the FIRST statement in
+        // `presentSavePanel()` -- strictly before `NSSavePanel()` is even
+        // constructed, let alone shown via `panel.begin` -- so a picker
+        // change while the panel is open can never leak into the export.
+        #expect(
+            presentSavePanel.contains(
+                "let configuration = MacVideoExportConfiguration("))
+        #expect(presentSavePanel.contains("mode: mode, dimensions: selectedFormat.dimensions)"))
+        let captureRange = try #require(
+            presentSavePanel.range(of: "let configuration = MacVideoExportConfiguration("))
+        let panelInitRange = try #require(presentSavePanel.range(of: "NSSavePanel()"))
+        let beginRange = try #require(presentSavePanel.range(of: "panel.begin"))
+        #expect(captureRange.lowerBound < panelInitRange.lowerBound)
+        #expect(captureRange.lowerBound < beginRange.lowerBound)
+
+        #expect(
+            presentSavePanel.contains("startExport(to: panelURL, configuration: configuration)"))
+    }
+
+    @Test func macExportTaskReadsOnlyCapturedConfigurationNeverMutableState() throws {
+        let text = try source("Echo macOS/Views/MacVideoExportView.swift")
+        let export = try section(
+            in: text,
+            startingAt: "private func startExport(to panelURL: URL, configuration:",
+            endingAt: "private func exportErrorText")
+
+        #expect(export.contains("mode: configuration.mode"))
+        #expect(export.contains("dimensions: configuration.dimensions"))
+        #expect(!export.contains("dimensions: .landscape"))
+        #expect(!export.contains("selectedFormat.dimensions"))
+        #expect(!export.contains("mode: mode"))
+    }
+
+    @Test func macViewUsesFlexibleFrameInsteadOfFixedHeightSoBothPickersFitAtLargerTypeSizes()
+        throws
+    {
+        let text = try source("Echo macOS/Views/MacVideoExportView.swift")
+
+        // A fixed 460x300 frame predates the format picker and would clip
+        // the second control at larger Dynamic Type sizes -- a minimum-size
+        // frame lets the window grow to fit both pickers and the
+        // result/error content.
+        #expect(!text.contains(".frame(width: 460, height: 300)"))
+        #expect(text.contains(".frame(minWidth: 460, minHeight: 320)"))
     }
 
     @Test func macProgressDeliveryIsBoundedWithOneOwnedConsumer() throws {
         let text = try source("Echo macOS/Views/MacVideoExportView.swift")
         let export = try section(
             in: text,
-            startingAt: "private func startExport(to panelURL: URL)",
+            startingAt: "private func startExport(to panelURL: URL, configuration:",
             endingAt: "private func exportErrorText")
         let callback = try section(
             in: export,
@@ -576,7 +673,7 @@ struct VideoExportUIWiringTests {
         let text = try source("Echo macOS/Views/MacVideoExportView.swift")
         let export = try section(
             in: text,
-            startingAt: "private func startExport(to panelURL: URL)",
+            startingAt: "private func startExport(to panelURL: URL, configuration:",
             endingAt: "private func exportErrorText")
         let mapping = try section(
             in: text,
