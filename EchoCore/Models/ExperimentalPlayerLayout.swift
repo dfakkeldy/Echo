@@ -44,4 +44,39 @@ struct ExperimentalPlayerLayout: Codable, Equatable {
     func encoded() -> Data {
         (try? JSONEncoder().encode(self)) ?? Data()
     }
+
+    /// Actions eligible for a new button: not already configured, and not the
+    /// placeholder cases (`empty`) or phone-non-actions (`pomodoro` renders as a
+    /// blank slot in the classic transport bar — see TransportControlsView).
+    var availableActions: [WatchAction] {
+        let used = Set(buttons.map(\.action))
+        return WatchAction.allCases.filter {
+            !used.contains($0) && $0 != .empty && $0 != .pomodoro
+        }
+    }
+
+    func adding(_ action: WatchAction) -> ExperimentalPlayerLayout {
+        guard !buttons.contains(where: { $0.action == action }) else { return self }
+        let occupied = Set(buttons.map(\.zone))
+        let zone = PlayerSnapZone.allCases.first { !occupied.contains($0) } ?? .lowerCenter
+        var copy = self
+        copy.buttons.append(ExperimentalPlayerButton(action: action, zone: zone))
+        return copy
+    }
+
+    func removing(_ action: WatchAction) -> ExperimentalPlayerLayout {
+        var copy = self
+        copy.buttons.removeAll { $0.action == action }
+        return copy
+    }
+
+    func moving(
+        _ action: WatchAction, to zone: PlayerSnapZone, offset: CGSize
+    ) -> ExperimentalPlayerLayout {
+        var copy = self
+        guard let index = copy.buttons.firstIndex(where: { $0.action == action }) else { return self }
+        copy.buttons[index].zone = zone
+        copy.buttons[index].offset = offset
+        return copy
+    }
 }

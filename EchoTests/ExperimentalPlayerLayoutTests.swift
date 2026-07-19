@@ -28,4 +28,35 @@ struct ExperimentalPlayerLayoutTests {
     @Test func emptyDataFallsBackToDefault() {
         #expect(ExperimentalPlayerLayout.decode(Data()) == ExperimentalPlayerLayout.defaultLayout)
     }
+
+    @Test func addingAppendsToFirstFreeZoneAndIgnoresDuplicates() {
+        let layout = ExperimentalPlayerLayout.defaultLayout  // occupies lowerL/C/T, midL, midT
+        let added = layout.adding(.sleepTimer)
+        #expect(added.buttons.count == 6)
+        #expect(added.buttons.last?.action == .sleepTimer)
+        #expect(added.buttons.last?.zone == .upperLeading)  // first free zone in allCases order
+        #expect(added.adding(.sleepTimer) == added)  // no duplicates
+    }
+
+    @Test func removingDeletesOnlyThatAction() {
+        let removed = ExperimentalPlayerLayout.defaultLayout.removing(.bookmark)
+        #expect(removed.buttons.count == 4)
+        #expect(!removed.buttons.contains { $0.action == .bookmark })
+    }
+
+    @Test func movingUpdatesZoneAndOffset() {
+        let moved = ExperimentalPlayerLayout.defaultLayout.moving(
+            .playPause, to: .upperLeading, offset: CGSize(width: 10, height: -5))
+        let play = moved.buttons.first { $0.action == .playPause }
+        #expect(play?.zone == .upperLeading)
+        #expect(play?.offset == CGSize(width: 10, height: -5))
+    }
+
+    @Test func availableActionsExcludesConfiguredAndNonButtons() {
+        let available = ExperimentalPlayerLayout.defaultLayout.availableActions
+        #expect(!available.contains(.playPause))
+        #expect(!available.contains(.empty))
+        #expect(!available.contains(.pomodoro))
+        #expect(available.contains(.sleepTimer))
+    }
 }
