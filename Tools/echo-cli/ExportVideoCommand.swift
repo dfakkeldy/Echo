@@ -74,8 +74,7 @@ struct ExportVideoCommand: AsyncParsableCommand {
             cacheDirectory: URL(fileURLWithPath: cacheDir ?? "/nonexistent-cache"),
             outputDirectory: outDir,
             mode: simple ? .simple : .karaoke,
-            width: width,
-            height: height,
+            dimensions: try SlideshowVideoDimensions.validating(width: width, height: height),
             range: clip,
             onProgress: { fraction in
                 let percent = (fraction * 100).formatted(

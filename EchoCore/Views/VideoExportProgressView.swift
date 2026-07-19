@@ -97,6 +97,7 @@
                     cacheDirectory: cacheDirectory,
                     outputDirectory: outputDirectory,
                     mode: .karaoke,
+                    dimensions: .landscape,
                     onProgress: { value in
                         progressContinuation.yield(value)
                     })
@@ -125,6 +126,12 @@
                 return String(localized: .videoExportErrorNoAlignment)
             case .writerFailed:
                 return String(localized: .videoExportErrorWriterFailed)
+            case .unsupportedVideoSettings(let width, let height):
+                let size =
+                    "\(width.formatted(.number.grouping(.never)))"
+                    + " × \(height.formatted(.number.grouping(.never)))"
+                return
+                    "\(String(localized: .videoExportErrorUnsupportedVideoSettings)) (\(size))"
             }
         }
     }

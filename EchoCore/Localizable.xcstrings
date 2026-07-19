@@ -5922,6 +5922,24 @@
         }
       }
     },
+    "videoExportErrorUnsupportedVideoSettings" : {
+      "comment" : "Error shown when the live H.264 encoder rejects the requested slideshow video size. The exact width and height are appended in code via a FormatStyle, so this value has no placeholders.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This video size isn't supported by the encoder."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dit videoformaat wordt niet ondersteund door de encoder."
+          }
+        }
+      }
+    },
     "videoExportErrorWriterFailed" : {
       "comment" : "Error shown when the slideshow video writer fails without an underlying error.",
       "extractionState" : "manual",

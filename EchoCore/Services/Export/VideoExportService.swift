@@ -6,6 +6,42 @@ import GRDB
 import ImageIO
 import os.log
 
+/// The immutable, product-valid H.264 settings for one export. Holds only the
+/// two `Int` dimensions, so it is trivially `Sendable`; its `[String: Any]`
+/// `outputSettings` dictionary is materialized on demand and only ever inside
+/// the actor (preflight) or on the actor's `writeMovie` path, so the non-Sendable
+/// dictionary never crosses the `@Sendable` capability boundary below.
+nonisolated struct H264VideoSettings: Equatable, Sendable {
+    let width: Int
+    let height: Int
+
+    var outputSettings: [String: Any] {
+        [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height,
+        ]
+    }
+}
+
+/// A pluggable "can the live encoder accept these settings?" seam. `.live`
+/// asks AVFoundation via `AVAssetWriter.canApply(outputSettings:forMediaType:)`;
+/// tests inject a deterministic closure. Only the `Sendable` `H264VideoSettings`
+/// value crosses the closure — the `[String: Any]` is built inside it.
+nonisolated struct H264VideoSettingsCapability: Sendable {
+    let supports: @Sendable (H264VideoSettings) throws -> Bool
+    static let live: Self = .init { settings in
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "echo-video-preflight-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
+        return writer.canApply(
+            outputSettings: settings.outputSettings,
+            forMediaType: .video
+        )
+    }
+}
+
 /// Whole-book slideshow video exporter: H.264/AAC MP4 with sparse frames from
 /// `SlideshowExportPlanner`, plus `.srt` and `.chapters.txt` sidecars.
 actor VideoExportService {
@@ -16,6 +52,10 @@ actor VideoExportService {
         case noAudio
         case noAlignment
         case writerFailed
+        /// The requested (product-valid) dimensions produce H.264 settings the
+        /// live encoder rejected. Raised by the entry preflight, before any
+        /// source/database/output work, so nothing on disk is created.
+        case unsupportedVideoSettings(width: Int, height: Int)
     }
 
     struct Output: Sendable {
@@ -89,6 +129,14 @@ actor VideoExportService {
 
     private let logger = Logger(category: "VideoExport")
 
+    /// The H.264 capability preflight seam. Defaults to the live AVFoundation
+    /// query; tests inject a deterministic closure.
+    private let h264Capability: H264VideoSettingsCapability
+
+    init(h264Capability: H264VideoSettingsCapability = .live) {
+        self.h264Capability = h264Capability
+    }
+
     func exportVideo(
         audiobookID: String,
         bookTitle: String,
@@ -97,12 +145,23 @@ actor VideoExportService {
         outputDirectory: URL,
         mode: SlideshowExportMode = .karaoke,
         syncPoint: VisualListeningSyncPoint = .midpoint,
-        width: Int = 1920,
-        height: Int = 1080,
+        dimensions: SlideshowVideoDimensions = .landscape,
         range: Range<TimeInterval>? = nil,
         onProgress: @escaping @Sendable (Double) -> Void = { _ in }
     ) async throws -> Output {
         try Task.checkCancellation()
+
+        // Live H.264 preflight FIRST — before any source resolution, database
+        // read, audio assembly, or output-directory/named-output creation — so a
+        // rejected configuration fails cleanly with nothing written to disk. The
+        // same value is handed to `writeMovie`, so preflight and encode cannot
+        // diverge.
+        let videoSettings = H264VideoSettings(
+            width: dimensions.width, height: dimensions.height)
+        guard try h264Capability.supports(videoSettings) else {
+            throw ExportError.unsupportedVideoSettings(
+                width: dimensions.width, height: dimensions.height)
+        }
 
         let resolved = try await Self.resolveSourceItems(
             audiobookID: audiobookID,
@@ -234,11 +293,8 @@ actor VideoExportService {
             }
             return CGImageSourceCreateImageAtIndex(source, 0, nil)
         }
-        // CD-7 bridge: the renderer now takes validated dimensions. Task 6 owns
-        // the real dimensions plumbing + H.264 preflight; this keeps the existing
-        // width/height contract compiling in the meantime.
         let renderer = SlideshowFrameRenderer(
-            dimensions: try SlideshowVideoDimensions.validating(width: width, height: height),
+            dimensions: dimensions,
             coverArt: coverArt)
 
         let fileManager = FileManager.default
@@ -264,8 +320,7 @@ actor VideoExportService {
             renderer: renderer,
             audioComposition: composition,
             to: rawVideoURL,
-            width: width,
-            height: height,
+            videoSettings: videoSettings,
             onProgress: onProgress)
         try Task.checkCancellation()
 
@@ -552,20 +607,20 @@ actor VideoExportService {
         renderer: SlideshowFrameRenderer,
         audioComposition: AVComposition,
         to outputURL: URL,
-        width: Int,
-        height: Int,
+        videoSettings: H264VideoSettings,
         onProgress: @escaping @Sendable (Double) -> Void
     ) async throws {
-        guard width > 0, height > 0 else { throw ExportError.writerFailed }
+        // The preflighted settings ARE the encode settings — build the writer
+        // input from `videoSettings.outputSettings`, and take the pixel-buffer /
+        // renderer dimensions from the same value, so validation and encode are
+        // guaranteed identical.
+        let width = videoSettings.width
+        let height = videoSettings.height
 
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
         let videoInput = AVAssetWriterInput(
             mediaType: .video,
-            outputSettings: [
-                AVVideoCodecKey: AVVideoCodecType.h264,
-                AVVideoWidthKey: width,
-                AVVideoHeightKey: height,
-            ])
+            outputSettings: videoSettings.outputSettings)
         videoInput.expectsMediaDataInRealTime = false
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(
             assetWriterInput: videoInput,

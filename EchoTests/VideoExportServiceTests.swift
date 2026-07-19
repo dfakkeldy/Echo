@@ -361,8 +361,7 @@ struct VideoExportServiceTests {
                     outputDirectory: workDirectory,
                     mode: .simple,
                     syncPoint: .begin,
-                    width: 320,
-                    height: 180)
+                    dimensions: try SlideshowVideoDimensions.validating(width: 320, height: 180))
                 Issue.record("Expected noAlignment")
             } catch VideoExportService.ExportError.noAlignment {
                 // Expected after disabled source-time rows are projected away.
@@ -390,8 +389,7 @@ struct VideoExportServiceTests {
                 outputDirectory: workDirectory,
                 mode: .simple,
                 syncPoint: .begin,
-                width: 320,
-                height: 180,
+                dimensions: try SlideshowVideoDimensions.validating(width: 320, height: 180),
                 range: 1..<3)
 
             let asset = AVURLAsset(url: output.videoURL)
@@ -498,8 +496,7 @@ struct VideoExportServiceTests {
                 outputDirectory: workDirectory,
                 mode: .simple,
                 syncPoint: .begin,
-                width: 320,
-                height: 180)
+                dimensions: try SlideshowVideoDimensions.validating(width: 320, height: 180))
 
             let asset = AVURLAsset(url: output.videoURL)
             #expect(abs(try await asset.load(.duration).seconds - 4) < 0.1)
@@ -533,8 +530,7 @@ struct VideoExportServiceTests {
                 outputDirectory: workDirectory,
                 mode: .simple,
                 syncPoint: .begin,
-                width: 320,
-                height: 180,
+                dimensions: try SlideshowVideoDimensions.validating(width: 320, height: 180),
                 range: 1..<3)
             let rangedAsset = AVURLAsset(url: rangedOutput.videoURL)
             #expect(abs(try await rangedAsset.load(.duration).seconds - 2) < 0.1)
@@ -564,8 +560,7 @@ struct VideoExportServiceTests {
                 outputDirectory: workDirectory,
                 mode: .simple,
                 syncPoint: .begin,
-                width: 320,
-                height: 180,
+                dimensions: try SlideshowVideoDimensions.validating(width: 320, height: 180),
                 onProgress: { value in
                     progress.withLock { $0.append(value) }
                 })
@@ -596,8 +591,7 @@ struct VideoExportServiceTests {
                     outputDirectory: workDirectory,
                     mode: .simple,
                     syncPoint: .begin,
-                    width: 320,
-                    height: 180,
+                    dimensions: try SlideshowVideoDimensions.validating(width: 320, height: 180),
                     onProgress: { value in
                         progress.withLock { $0.append(value) }
                         if value < 1 {
@@ -643,8 +637,7 @@ struct VideoExportServiceTests {
                 outputDirectory: workDirectory,
                 mode: .simple,
                 syncPoint: .begin,
-                width: 320,
-                height: 180)
+                dimensions: try SlideshowVideoDimensions.validating(width: 320, height: 180))
 
             let asset = AVURLAsset(url: output.videoURL)
             #expect(abs(try await asset.load(.duration).seconds - 2) < 0.1)
@@ -714,8 +707,7 @@ struct VideoExportServiceTests {
                 outputDirectory: workDirectory,
                 mode: .simple,
                 syncPoint: .begin,
-                width: 320,
-                height: 180)
+                dimensions: try SlideshowVideoDimensions.validating(width: 320, height: 180))
 
             #expect(FileManager.default.fileExists(atPath: output.videoURL.path))
             let asset = AVURLAsset(url: output.videoURL)
@@ -786,6 +778,180 @@ struct VideoExportServiceTests {
                 // deterministic fallback contract.
                 #expect(chapters == "00:00:00 Chapter 1\n")
             }
+        }
+
+        // MARK: - H.264 preflight + format-independent outputs
+
+        @Test func negativeH264PreflightFailsBeforeAnySourceOrOutputWork() async throws {
+            let workDirectory = try Self.makeWorkDirectory()
+            defer { try? FileManager.default.removeItem(at: workDirectory) }
+            // A named subdirectory we deliberately never create: its absence
+            // afterward proves the preflight ran before any source/db/output work.
+            let outputDirectory = workDirectory.appendingPathComponent(
+                "never-created-output", isDirectory: true)
+
+            let received = Mutex<[H264VideoSettings]>([])
+            let service = VideoExportService(
+                h264Capability: H264VideoSettingsCapability(supports: { settings in
+                    received.withLock { $0.append(settings) }
+                    return false
+                }))
+            let database = try DatabaseService(inMemory: ())
+
+            do {
+                _ = try await service.exportVideo(
+                    audiobookID: "book-that-does-not-exist",
+                    bookTitle: "Nonexistent",
+                    databaseWriter: database.writer,
+                    cacheDirectory: workDirectory,
+                    outputDirectory: outputDirectory,
+                    dimensions: .portrait)
+                Issue.record("Expected unsupportedVideoSettings")
+            } catch VideoExportService.ExportError.unsupportedVideoSettings(
+                let width, let height)
+            {
+                #expect(width == 1080)
+                #expect(height == 1920)
+            }
+
+            // The capability was queried with exactly the portrait settings...
+            #expect(
+                received.withLock { $0 } == [H264VideoSettings(width: 1080, height: 1920)])
+            // ...and nothing was resolved, read, or written: the output
+            // directory was never created.
+            #expect(!FileManager.default.fileExists(atPath: outputDirectory.path))
+        }
+
+        @Test func exportsPortrait1080x1920WithUnchangedFilenameStem() async throws {
+            let workDirectory = try Self.makeWorkDirectory()
+            defer { try? FileManager.default.removeItem(at: workDirectory) }
+            let fixture = try await Self.makeAlignedFixture(
+                in: workDirectory, bookID: "video-portrait", title: "Portrait Book",
+                seconds: 3)
+
+            let output = try await VideoExportService().exportVideo(
+                audiobookID: fixture.bookID,
+                bookTitle: fixture.title,
+                databaseWriter: fixture.database.writer,
+                cacheDirectory: workDirectory,
+                outputDirectory: workDirectory,
+                mode: .simple,
+                syncPoint: .begin,
+                dimensions: .portrait)
+
+            // The format adds no filename suffix.
+            let safeTitle = SafeFileName.sanitizeForFilename(fixture.title)
+            #expect(output.videoURL.lastPathComponent == "\(safeTitle).mp4")
+
+            let asset = AVURLAsset(url: output.videoURL)
+            #expect(abs(try await asset.load(.duration).seconds - 3) < 0.5)
+
+            let videoTrack = try #require(
+                try await asset.loadTracks(withMediaType: .video).first)
+            let audioTrack = try #require(
+                try await asset.loadTracks(withMediaType: .audio).first)
+            let size = try await videoTrack.load(.naturalSize)
+            #expect(abs(size.width) == 1080)
+            #expect(abs(size.height) == 1920)
+            let videoFormats = try await videoTrack.load(.formatDescriptions)
+            #expect(
+                videoFormats.contains {
+                    CMFormatDescriptionGetMediaSubType($0) == kCMVideoCodecType_H264
+                })
+            let audioFormats = try await audioTrack.load(.formatDescriptions)
+            #expect(
+                audioFormats.contains {
+                    CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee.mFormatID
+                        == kAudioFormatMPEG4AAC
+                })
+        }
+
+        @Test func landscapeAndPortraitShareByteIdenticalSidecars() async throws {
+            let workDirectory = try Self.makeWorkDirectory()
+            defer { try? FileManager.default.removeItem(at: workDirectory) }
+            let fixture = try await Self.makeAlignedFixture(
+                in: workDirectory, bookID: "video-paired", title: "Paired Book", seconds: 3)
+
+            let landscapeDir = workDirectory.appendingPathComponent(
+                "landscape", isDirectory: true)
+            let portraitDir = workDirectory.appendingPathComponent(
+                "portrait", isDirectory: true)
+
+            let landscape = try await VideoExportService().exportVideo(
+                audiobookID: fixture.bookID,
+                bookTitle: fixture.title,
+                databaseWriter: fixture.database.writer,
+                cacheDirectory: workDirectory,
+                outputDirectory: landscapeDir,
+                mode: .simple,
+                syncPoint: .begin,
+                dimensions: .landscape)
+            let portrait = try await VideoExportService().exportVideo(
+                audiobookID: fixture.bookID,
+                bookTitle: fixture.title,
+                databaseWriter: fixture.database.writer,
+                cacheDirectory: workDirectory,
+                outputDirectory: portraitDir,
+                mode: .simple,
+                syncPoint: .begin,
+                dimensions: .portrait)
+
+            // Sidecars are format-independent: byte-identical SRT + chapters.
+            #expect(
+                try Data(contentsOf: landscape.srtURL)
+                    == Data(contentsOf: portrait.srtURL))
+            #expect(
+                try Data(contentsOf: landscape.chaptersURL)
+                    == Data(contentsOf: portrait.chaptersURL))
+
+            // Different natural sizes confirm the two files really are different
+            // formats produced from the same fixture and plan.
+            #expect(
+                try await Self.naturalVideoSize(url: landscape.videoURL)
+                    == CGSize(width: 1920, height: 1080))
+            #expect(
+                try await Self.naturalVideoSize(url: portrait.videoURL)
+                    == CGSize(width: 1080, height: 1920))
+
+            // Chapter atoms are format-independent when stamping succeeds; the
+            // deterministic sidecar fallback (empty groups) remains accepted.
+            let landscapeChapters = try await Self.chapterGroups(url: landscape.videoURL)
+            let portraitChapters = try await Self.chapterGroups(url: portrait.videoURL)
+            if !landscapeChapters.isEmpty && !portraitChapters.isEmpty {
+                #expect(landscapeChapters.count == portraitChapters.count)
+                for (landscapeMark, portraitMark) in zip(
+                    landscapeChapters, portraitChapters)
+                {
+                    #expect(abs(landscapeMark.start - portraitMark.start) < 0.01)
+                    #expect(landscapeMark.title == portraitMark.title)
+                }
+            }
+        }
+
+        private static func naturalVideoSize(url: URL) async throws -> CGSize {
+            let asset = AVURLAsset(url: url)
+            let track = try #require(
+                try await asset.loadTracks(withMediaType: .video).first)
+            let size = try await track.load(.naturalSize)
+            return CGSize(width: abs(size.width), height: abs(size.height))
+        }
+
+        private static func chapterGroups(url: URL) async throws
+            -> [(start: Double, title: String)]
+        {
+            let asset = AVURLAsset(url: url)
+            let locales = try await asset.load(.availableChapterLocales)
+            let preferredLanguages = locales.isEmpty ? ["en"] : locales.map(\.identifier)
+            let groups = try await asset.loadChapterMetadataGroups(
+                bestMatchingPreferredLanguages: preferredLanguages)
+            var result: [(start: Double, title: String)] = []
+            for group in groups {
+                let titleItems = AVMetadataItem.metadataItems(
+                    from: group.items, filteredByIdentifier: .commonIdentifierTitle)
+                let title = try await titleItems.first?.load(.stringValue) ?? ""
+                result.append((start: group.timeRange.start.seconds, title: title))
+            }
+            return result
         }
 
         private struct Fixture {
