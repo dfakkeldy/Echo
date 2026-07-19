@@ -31,7 +31,7 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Echo records short voice memos so you can attach narrated notes to your audiobook bookmarks.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Echo allows you to save EPUB images directly to your photo library.</string>
+	<string>Echo saves book covers and images you choose to your photo library.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Echo lets you dictate short text notes for audiobook bookmarks.</string>
 	<key>UIAppFonts</key>

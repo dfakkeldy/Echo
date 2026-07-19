@@ -12,6 +12,8 @@
         @State private var steadyZoom: CGFloat = 1
         @State private var pan: CGSize = .zero
         @State private var steadyPan: CGSize = .zero
+        @State private var saveOutcome: PhotoLibrarySaver.SaveOutcome?
+        private let saver = PhotoLibrarySaver()
 
         var body: some View {
             ZStack(alignment: .topTrailing) {
@@ -34,11 +36,17 @@
                     .accessibilityLabel(Text("Full screen image"))
                     .accessibilityAddTraits(.isImage)
 
-                Button("Close", systemImage: "xmark.circle.fill") { dismiss() }
-                    .labelStyle(.iconOnly)
-                    .font(.title)
-                    .foregroundStyle(.white.opacity(0.85))
-                    .padding()
+                HStack(spacing: 4) {
+                    Button("Save to Photos", systemImage: "square.and.arrow.down") { saveToPhotos() }
+                        .labelStyle(.iconOnly)
+                        .font(.title)
+                        .foregroundStyle(.white.opacity(0.85))
+                    Button("Close", systemImage: "xmark.circle.fill") { dismiss() }
+                        .labelStyle(.iconOnly)
+                        .font(.title)
+                        .foregroundStyle(.white.opacity(0.85))
+                }
+                .padding()
             }
             .gesture(
                 // Swipe down while un-zoomed dismisses.
@@ -47,6 +55,32 @@
                 }
             )
             .statusBarHidden()
+            .alert(
+                "Photos Access Needed",
+                isPresented: Binding(
+                    get: { saveOutcome == .denied },
+                    set: { if !$0 { saveOutcome = nil } })
+            ) {
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Allow Echo to add images to your photo library in Settings.")
+            }
+            .sensoryFeedback(.success, trigger: saveOutcome == .saved)
+        }
+
+        private func saveToPhotos() {
+            Task {
+                saveOutcome = await saver.save(image)
+                if saveOutcome == .saved || saveOutcome == .failed {
+                    try? await Task.sleep(for: .seconds(2))
+                    saveOutcome = nil
+                }
+            }
         }
 
         private var zoomAndPanGesture: some Gesture {

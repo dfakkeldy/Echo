@@ -1075,7 +1075,7 @@ struct ReaderTab: View {
 
     func saveImageToCameraRoll(block: EPubBlockRecord) {
         guard let image = resolvedImage(for: block) else { return }
-        UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)  // replaced in Task 5
+        Task { _ = await PhotoLibrarySaver().save(image) }
     }
 
     @ViewBuilder
