@@ -2297,7 +2297,7 @@ git commit -m "feat(macos): video export entry with save panel"
 - Modify: `ARCHITECTURE.md` (Export section: add the video pipeline beside the m4b spine)
 - Modify: `CHANGELOG.md` (new entry)
 
-- [ ] **Step 1: Document**
+- [x] **Step 1: Document**
 
 `CHANGELOG.md` entry (match the file's existing style):
 
@@ -2307,7 +2307,7 @@ git commit -m "feat(macos): video export entry with save panel"
 
 `ARCHITECTURE.md`: in the export/Release-adjacent section describing `AudioExportService`, add a short sibling paragraph naming `SlideshowExportPlanner` → `SlideshowFrameRenderer` → `VideoExportService`, the global-timeline offset rule, and the chapter-atom attempt-and-verify policy. Keep it under ~15 lines, matching surrounding density.
 
-- [ ] **Step 2: Full verification (same gate list as Task 8 Step 1)**
+- [x] **Step 2: Full verification (same gate list as Task 8 Step 1)**
 
 ```bash
 git diff --check
