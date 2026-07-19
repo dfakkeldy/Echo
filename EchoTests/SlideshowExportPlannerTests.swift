@@ -10,7 +10,7 @@ struct SlideshowExportPlannerTests {
     private func block(
         _ id: String, sequence: Int, kind: EPubBlockRecord.Kind,
         text: String? = nil, imagePath: String? = nil,
-        chapter: Int? = 0, hidden: Bool = false
+        narrationText: String? = nil, chapter: Int? = 0, hidden: Bool = false
     ) -> EPubBlockRecord {
         EPubBlockRecord(
             id: id, audiobookID: "book", spineHref: "spine", spineIndex: 0,
@@ -18,7 +18,7 @@ struct SlideshowExportPlannerTests {
             text: text, htmlContent: nil, cardColor: nil, chapterThemeColor: nil,
             imagePath: imagePath, chapterIndex: chapter, isHidden: hidden,
             hiddenReason: nil, isFrontMatter: false, wordCount: nil, markers: nil,
-            textFormats: nil, narrationText: nil, createdAt: nil, modifiedAt: nil)
+            textFormats: nil, narrationText: narrationText, createdAt: nil, modifiedAt: nil)
     }
 
     private func timeline(
@@ -343,6 +343,28 @@ struct SlideshowExportPlannerTests {
             mode: .simple, syncPoint: .begin)
 
         #expect(plan.srtCues.isEmpty)
+    }
+
+    @Test func codeFramesAndSRTCuesUseNarrationCueNeverRawSyntax() {
+        let rawCode = "let secretSyntax = true"
+        let blocks = [
+            block(
+                "code", sequence: 0, kind: .code, text: rawCode,
+                narrationText: "Listing 1.")
+        ]
+        let rows = [timeline(0, 4, blockID: "code")]
+        let plan = SlideshowExportPlanner.plan(
+            blocks: blocks, timeline: rows, words: [],
+            tracks: [
+                SlideshowTrackContext(
+                    title: "Ch 1", duration: 4, segmentKey: nil, chapterIndices: nil)
+            ],
+            mode: .simple, syncPoint: .begin)
+
+        #expect(plan.frames.map(\.subtitleText) == ["Listing 1."])
+        #expect(plan.srtCues.map(\.text) == ["Listing 1."])
+        #expect(!plan.frames.contains { $0.subtitleText?.contains(rawCode) == true })
+        #expect(!plan.srtCues.contains { $0.text.contains(rawCode) })
     }
 
     // MARK: - Range

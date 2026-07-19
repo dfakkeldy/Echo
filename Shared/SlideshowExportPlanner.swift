@@ -118,8 +118,8 @@ nonisolated enum SlideshowExportPlanner {
                 let frame = SlideshowFramePlan(
                     startTime: offset + start,
                     duration: end - start,
-                    imagePath: snapshot.imageCue?.imagePath,
-                    caption: snapshot.imageCue?.caption,
+                    imagePath: snapshot.visualCue?.imagePath,
+                    caption: snapshot.visualCue?.caption,
                     subtitleText: snapshot.subtitleCue?.text,
                     activeWordIndex: mode == .karaoke
                         ? snapshot.subtitleCue?.activeWordIndex : nil,
@@ -132,7 +132,9 @@ nonisolated enum SlideshowExportPlanner {
                 scopedRows
                 .filter { row in
                     row.end > row.start
-                        && (blocksByID[row.blockID]?.text?.isEmpty == false)
+                        && blocksByID[row.blockID]
+                            .flatMap { VisualListeningCueResolver.subtitleText(for: $0) }?.isEmpty
+                            == false
                 }
                 .sorted { $0.start < $1.start }
             for row in textRows {
@@ -170,7 +172,7 @@ nonisolated enum SlideshowExportPlanner {
             times.insert(row.start)
             times.insert(row.end)
         }
-        let cues = VisualListeningCueResolver.imageCues(
+        let cues = VisualListeningCueResolver.visualCues(
             blocks: orderedBlocks, blocksByID: blocksByID, timeline: timeline,
             currentTrackSegmentKey: track.segmentKey,
             currentTrackChapterIndices: track.chapterIndices,
@@ -227,7 +229,8 @@ nonisolated enum SlideshowExportPlanner {
         words: [ReaderActiveBlockResolver.WordRow],
         offset: TimeInterval
     ) -> [SlideshowSRTCue] {
-        guard let text = blocksByID[row.blockID]?.text,
+        guard let block = blocksByID[row.blockID],
+            let text = VisualListeningCueResolver.subtitleText(for: block),
             !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { return [] }
         let tokenRanges = WordTokenizer.wordRanges(in: text)

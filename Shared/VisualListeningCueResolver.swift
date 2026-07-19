@@ -33,7 +33,7 @@ struct VisualListeningVisualCue: Equatable, Identifiable, Sendable {
 
     /// Image path when the content is an image; nil for code. Kept so
     /// image-loading call sites stay simple (`visualCue?.imagePath`).
-    var imagePath: String? {
+    nonisolated var imagePath: String? {
         if case .image(let path) = content { return path }
         return nil
     }
@@ -140,7 +140,7 @@ nonisolated enum VisualListeningCueResolver {
         }
     }
 
-    private static func visualCues(
+    static func visualCues(
         blocks: [EPubBlockRecord],
         blocksByID: [String: EPubBlockRecord],
         timeline: [ReaderActiveBlockResolver.TimelineRow],
@@ -307,20 +307,7 @@ nonisolated enum VisualListeningCueResolver {
             let block = blocksByID[blockID]
         else { return nil }
 
-        let text: String
-        if EPubBlockRecord.Kind(rawValue: block.blockKind) == .code {
-            // Keep this shared-target fallback in sync with NarrationCodeBlockCue.fallback.
-            let fallback = "Code listing."
-            text =
-                block.narrationText?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    .isEmpty == false
-                ? (block.narrationText ?? fallback)
-                : fallback
-        } else if let blockText = block.text, !blockText.isEmpty {
-            text = blockText
-        } else {
-            return nil
-        }
+        guard let text = subtitleText(for: block) else { return nil }
         let blockWords =
             words
             .filter { $0.blockID == blockID }
@@ -342,6 +329,21 @@ nonisolated enum VisualListeningCueResolver {
             activeWordIndex: activeWordIndex,
             alreadyHeardWordCount: alreadyHeardWordCount
         )
+    }
+
+    /// Text that may safely appear in subtitle surfaces. Code blocks expose
+    /// their short narration cue, never the raw listing stored in `text`.
+    static func subtitleText(for block: EPubBlockRecord) -> String? {
+        if EPubBlockRecord.Kind(rawValue: block.blockKind) == .code {
+            // Keep this shared-target fallback in sync with NarrationCodeBlockCue.fallback.
+            let fallback = "Code listing."
+            return block.narrationText?.trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty == false
+                ? (block.narrationText ?? fallback)
+                : fallback
+        }
+        guard let text = block.text, !text.isEmpty else { return nil }
+        return text
     }
 
     static func rowIsInScope(
