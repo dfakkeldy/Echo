@@ -40,7 +40,7 @@ struct VideoExportUIWiringTests {
             startingAt: "if let onVideoExport",
             endingAt: "if let onStudyNotesExport")
         #expect(menuRow.contains("Button(action: onVideoExport)"))
-        #expect(menuRow.contains("Label(\"Export Video…\", systemImage: \"film\")"))
+        #expect(menuRow.contains("Label(.videoExportMenuTitle, systemImage: \"film\")"))
     }
 
     @Test func progressViewUsesStructuredCancellationAndSharesEveryOutput() throws {
@@ -51,7 +51,7 @@ struct VideoExportUIWiringTests {
             endingAt: "#endif")
 
         #expect(text.contains(".task { await runExport() }"))
-        #expect(text.contains("Button(isExporting ? \"Cancel\" : \"Done\") { dismiss() }"))
+        #expect(text.contains("Text(isExporting ? .cancel : .done)"))
         #expect(!text.contains("@State private var exportTask"))
         #expect(export.contains("try await VideoExportService().exportVideo("))
         #expect(export.contains("mode: .karaoke"))
@@ -66,6 +66,120 @@ struct VideoExportUIWiringTests {
         #expect(share.contains("output.chaptersURL"))
     }
 
+    @Test func exportOwnsBackgroundAndTemporaryDirectoryLifecycles() throws {
+        let text = try source("EchoCore/Views/VideoExportProgressView.swift")
+        let export = try section(
+            in: text,
+            startingAt: "private func runExport() async",
+            endingAt: "private func exportErrorText")
+        let backgroundTask = try section(
+            in: text,
+            startingAt: "@MainActor\n    private final class VideoExportBackgroundTask",
+            endingAt: "#endif")
+
+        #expect(export.contains("let backgroundTask = VideoExportBackgroundTask()"))
+        #expect(export.contains("backgroundTask.begin()"))
+        #expect(export.contains("backgroundTask.end()"))
+        #expect(export.contains("shouldPreserveOutput"))
+        #expect(export.contains("FileManager.default.removeItem(at: outputDirectory)"))
+
+        #expect(backgroundTask.contains("@MainActor"))
+        #expect(backgroundTask.contains("UIApplication.shared.beginBackgroundTask"))
+        #expect(backgroundTask.contains("expirationHandler"))
+        #expect(backgroundTask.contains("self?.end()"))
+        #expect(backgroundTask.contains("UIApplication.shared.endBackgroundTask(activeIdentifier)"))
+        #expect(backgroundTask.contains("identifier = .invalid"))
+    }
+
+    @Test func progressDeliveryIsBoundedAndHasOneOwnedConsumer() throws {
+        let text = try source("EchoCore/Views/VideoExportProgressView.swift")
+        let export = try section(
+            in: text,
+            startingAt: "private func runExport() async",
+            endingAt: "private func exportErrorText")
+        let callback = try section(
+            in: export,
+            startingAt: "onProgress: { value in",
+            endingAt: "})")
+
+        #expect(export.contains("bufferingPolicy: .bufferingNewest(1)"))
+        #expect(occurrences(of: "let progressConsumer = Task", in: export) == 1)
+        #expect(export.contains("for await value in progressStream"))
+        #expect(export.contains("progressContinuation.finish()"))
+        #expect(export.contains("progressConsumer.cancel()"))
+        #expect(callback.contains("progressContinuation.yield(value)"))
+        #expect(!callback.contains("Task {"))
+    }
+
+    @Test func exportErrorsHaveExplicitLocalizedCopyAndPreserveUnderlyingDescriptions() throws {
+        let text = try source("EchoCore/Views/VideoExportProgressView.swift")
+        let mapping = try section(
+            in: text,
+            startingAt: "private func exportErrorText",
+            endingAt: "@MainActor\n    private final class VideoExportBackgroundTask")
+
+        #expect(mapping.contains("case .noAudio:"))
+        #expect(mapping.contains("String(localized: .videoExportErrorNoAudio)"))
+        #expect(mapping.contains("case .noAlignment:"))
+        #expect(mapping.contains("String(localized: .videoExportErrorNoAlignment)"))
+        #expect(mapping.contains("case .writerFailed:"))
+        #expect(mapping.contains("String(localized: .videoExportErrorWriterFailed)"))
+        #expect(mapping.contains("return error.localizedDescription"))
+    }
+
+    @Test func newVideoExportCopyUsesManualEnglishAndDutchSymbolKeys() throws {
+        let progressView = try source("EchoCore/Views/VideoExportProgressView.swift")
+        let menu = try source("EchoCore/Views/PlayerMoreMenu.swift")
+        let catalog = try stringCatalog()
+        let expected: [String: (en: String, nl: String)] = [
+            "videoExportComplete": ("Export complete", "Export voltooid"),
+            "videoExportErrorNoAlignment": (
+                "This book needs alignment or narration before video export.",
+                "Dit boek moet worden uitgelijnd of verteld voordat je de video kunt exporteren."
+            ),
+            "videoExportErrorNoAudio": (
+                "This book has no local audio to export.",
+                "Dit boek heeft geen lokale audio om te exporteren."
+            ),
+            "videoExportErrorWriterFailed": (
+                "Echo couldn't finish writing the video.",
+                "Echo kon het schrijven van de video niet voltooien."
+            ),
+            "videoExportMenuTitle": ("Export Video…", "Video exporteren…"),
+            "videoExportProgressMessage": (
+                "Rendering the slideshow — this can take a while for long books.",
+                "De diavoorstelling wordt gerenderd — dit kan even duren bij lange boeken."
+            ),
+            "videoExportProgressTitle": (
+                "Exporting slideshow video…", "Diavoorstellingsvideo exporteren…"
+            ),
+            "videoExportShareBundle": ("Share video bundle", "Videobundel delen"),
+            "videoExportTitle": ("Export Video", "Video exporteren"),
+        ]
+
+        #expect(progressView.contains(".videoExportProgressTitle"))
+        #expect(progressView.contains(".videoExportProgressMessage"))
+        #expect(progressView.contains(".videoExportComplete"))
+        #expect(progressView.contains(".videoExportShareBundle"))
+        #expect(progressView.contains(".videoExportTitle"))
+        #expect(menu.contains(".videoExportMenuTitle"))
+
+        for (key, translations) in expected {
+            let entry = try #require(catalog[key] as? [String: Any])
+            #expect(entry["extractionState"] as? String == "manual")
+            let localizations = try #require(entry["localizations"] as? [String: Any])
+            #expect(translation("en", in: localizations) == translations.en)
+            #expect(translation("nl", in: localizations) == translations.nl)
+        }
+
+        for key in ["Cancel", "Done"] {
+            let entry = try #require(catalog[key] as? [String: Any])
+            #expect(entry["extractionState"] as? String == "manual")
+            let localizations = try #require(entry["localizations"] as? [String: Any])
+            #expect(translation("nl", in: localizations) != nil)
+        }
+    }
+
     private func source(_ relativePath: String) throws -> String {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -74,18 +188,45 @@ struct VideoExportUIWiringTests {
     }
 
     private func section(
-        in source: String,
+        in source: some StringProtocol,
         startingAt start: String,
         endingAt end: String
     ) throws -> Substring {
-        guard let startRange = source.range(of: start) else {
+        let text = String(source)
+        guard let startRange = text.range(of: start) else {
             throw SourceInspectionError.missingMarker(start)
         }
-        guard let endRange = source.range(of: end, range: startRange.upperBound..<source.endIndex)
+        guard let endRange = text.range(of: end, range: startRange.upperBound..<text.endIndex)
         else {
             throw SourceInspectionError.missingMarker(end)
         }
-        return source[startRange.lowerBound..<endRange.lowerBound]
+        return text[startRange.lowerBound..<endRange.lowerBound]
+    }
+
+    private func occurrences(of needle: String, in source: some StringProtocol) -> Int {
+        String(source).components(separatedBy: needle).count - 1
+    }
+
+    private func stringCatalog() throws -> [String: Any] {
+        let catalogURL = repositoryRoot.appendingPathComponent(
+            "EchoCore/Localizable.xcstrings")
+        let data = try Data(contentsOf: catalogURL)
+        let root = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return try #require(root["strings"] as? [String: Any])
+    }
+
+    private func translation(
+        _ language: String,
+        in localizations: [String: Any]
+    ) -> String? {
+        let localization = localizations[language] as? [String: Any]
+        let stringUnit = localization?["stringUnit"] as? [String: Any]
+        return stringUnit?["value"] as? String
+    }
+
+    private var repositoryRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
     }
 
     private enum SourceInspectionError: Error {

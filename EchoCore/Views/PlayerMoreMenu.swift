@@ -60,7 +60,7 @@ struct PlayerMoreMenu: View {
             }
             if let onVideoExport {
                 Button(action: onVideoExport) {
-                    Label("Export Video…", systemImage: "film")
+                    Label(.videoExportMenuTitle, systemImage: "film")
                 }
             }
             if let onStudyNotesExport {

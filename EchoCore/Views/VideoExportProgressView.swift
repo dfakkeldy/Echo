@@ -2,6 +2,7 @@
 #if os(iOS)
     import GRDB
     import SwiftUI
+    import UIKit
 
     /// Exports the loaded book's Visual Listening slideshow as an MP4, SRT, and
     /// chapter-list bundle. The view owns the structured export task, so dismissing
@@ -24,21 +25,21 @@
                 VStack(spacing: 20) {
                     if isExporting {
                         ProgressView(value: fraction) {
-                            Text("Exporting slideshow video…")
+                            Text(.videoExportProgressTitle)
                         }
                         .accessibilityValue(
                             Text(fraction, format: .percent.precision(.fractionLength(0))))
 
-                        Text("Rendering the slideshow — this can take a while for long books.")
+                        Text(.videoExportProgressMessage)
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     } else if let output {
-                        Label("Export complete", systemImage: "checkmark.circle.fill")
+                        Label(.videoExportComplete, systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.green)
                         ShareLink(
                             items: [output.videoURL, output.srtURL, output.chaptersURL]
                         ) {
-                            Label("Share video bundle", systemImage: "square.and.arrow.up")
+                            Label(.videoExportShareBundle, systemImage: "square.and.arrow.up")
                         }
                     } else if let errorText {
                         Label(errorText, systemImage: "xmark.circle.fill")
@@ -47,10 +48,14 @@
                     }
                 }
                 .padding()
-                .navigationTitle("Export Video")
+                .navigationTitle(Text(.videoExportTitle))
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button(isExporting ? "Cancel" : "Done") { dismiss() }
+                        Button {
+                            dismiss()
+                        } label: {
+                            Text(isExporting ? .cancel : .done)
+                        }
                     }
                 }
                 .task { await runExport() }
@@ -61,6 +66,27 @@
             let outputDirectory = FileManager.default.temporaryDirectory
                 .appendingPathComponent(
                     "video-export-\(UUID().uuidString)", isDirectory: true)
+            let (progressStream, progressContinuation) = AsyncStream.makeStream(
+                of: Double.self,
+                bufferingPolicy: .bufferingNewest(1))
+            let progressConsumer = Task {
+                for await value in progressStream {
+                    fraction = value
+                }
+            }
+            let backgroundTask = VideoExportBackgroundTask()
+            var shouldPreserveOutput = false
+
+            backgroundTask.begin()
+            defer {
+                progressContinuation.finish()
+                progressConsumer.cancel()
+                backgroundTask.end()
+                if !shouldPreserveOutput {
+                    try? FileManager.default.removeItem(at: outputDirectory)
+                }
+            }
+
             do {
                 try FileManager.default.createDirectory(
                     at: outputDirectory, withIntermediateDirectories: true)
@@ -72,18 +98,55 @@
                     outputDirectory: outputDirectory,
                     mode: .karaoke,
                     onProgress: { value in
-                        Task { @MainActor in
-                            fraction = value
-                        }
+                        progressContinuation.yield(value)
                     })
+                progressContinuation.finish()
+                await progressConsumer.value
                 output = result
+                shouldPreserveOutput = true
                 isExporting = false
             } catch is CancellationError {
                 // SwiftUI cancels the structured `.task` when the sheet is dismissed.
             } catch {
-                errorText = error.localizedDescription
+                errorText = exportErrorText(for: error)
                 isExporting = false
             }
+        }
+
+        private func exportErrorText(for error: Error) -> String {
+            guard let exportError = error as? VideoExportService.ExportError else {
+                return error.localizedDescription
+            }
+
+            switch exportError {
+            case .noAudio:
+                return String(localized: .videoExportErrorNoAudio)
+            case .noAlignment:
+                return String(localized: .videoExportErrorNoAlignment)
+            case .writerFailed:
+                return String(localized: .videoExportErrorWriterFailed)
+            }
+        }
+    }
+
+    @MainActor
+    private final class VideoExportBackgroundTask {
+        private var identifier: UIBackgroundTaskIdentifier = .invalid
+
+        func begin() {
+            guard identifier == .invalid else { return }
+            identifier = UIApplication.shared.beginBackgroundTask(
+                withName: "Echo slideshow video export",
+                expirationHandler: { [weak self] in
+                    self?.end()
+                })
+        }
+
+        func end() {
+            guard identifier != .invalid else { return }
+            let activeIdentifier = identifier
+            identifier = .invalid
+            UIApplication.shared.endBackgroundTask(activeIdentifier)
         }
     }
 #endif
