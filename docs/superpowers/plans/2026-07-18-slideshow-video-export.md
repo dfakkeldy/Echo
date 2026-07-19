@@ -2071,7 +2071,7 @@ git checkout -b claude/slideshow-video-export-ui
 **Interfaces:**
 - Consumes: `VideoExportService.exportVideo(...)` (Task 6), `PlayerModel.narrationCacheDirectory()` (existing — same value `ExportProgressView` receives), `model.folderURL?.absoluteString` as `audiobookID` (established convention).
 
-- [ ] **Step 1: Write the failing source-inspection tests**
+- [x] **Step 1: Write the failing source-inspection tests**
 
 Create `EchoTests/VideoExportUIWiringTests.swift` following the pattern in `NowPlayingLayoutTests` (read that file first for the source-loading helper it uses, and reuse its approach):
 
@@ -2109,7 +2109,7 @@ struct VideoExportUIWiringTests {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 ```bash
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && make build-tests
@@ -2118,7 +2118,7 @@ make test-only FILTER=EchoTests/VideoExportUIWiringTests
 
 Expected: FAIL (file missing / strings absent).
 
-- [ ] **Step 3: Build `VideoExportProgressView`**
+- [x] **Step 3: Build `VideoExportProgressView`**
 
 Model directly on `EchoCore/Views/ExportProgressView.swift` (read it first; keep the same structural skeleton, state names, and error presentation so the two export sheets stay siblings). Shape:
 
@@ -2203,7 +2203,7 @@ struct VideoExportProgressView: View {
 
 Adjust to match `ExportProgressView`'s actual conventions where they differ (error copy, `UIBackgroundTask` extension if it takes one, section styling). If `ExportProgressView` requests background-task time, mirror that here — a long render must survive a brief screen lock.
 
-- [ ] **Step 4: Add the dock action and sheet**
+- [x] **Step 4: Add the dock action and sheet**
 
 In `EchoCore/Views/UnifiedBottomDock.swift`: add a parameter `onVideoExport: (() -> Void)? = nil` alongside the existing `onExport`, and render its menu row immediately after the existing Export row, matching its style exactly (same Button/Label idiom the dock already uses), e.g. `Button("Export Video", systemImage: "film", action: onVideoExport)` guarded on non-nil like `onExport` is.
 
@@ -2233,7 +2233,7 @@ In `EchoCore/Views/RootTabView.swift`:
         }
 ```
 
-- [ ] **Step 5: Run tests + build**
+- [x] **Step 5: Run tests + build**
 
 ```bash
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && make build-tests
@@ -2243,7 +2243,7 @@ make test-only FILTER=EchoTests/NowPlayingLayoutTests
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add EchoCore/Views/VideoExportProgressView.swift EchoCore/Views/UnifiedBottomDock.swift EchoCore/Views/RootTabView.swift EchoTests/VideoExportUIWiringTests.swift
