@@ -5706,6 +5706,42 @@
         }
       }
     },
+    "videoExportErrorAspectRatioTooExtreme" : {
+      "comment" : "Error shown when a slideshow video's requested dimensions exceed a 4:1 aspect ratio.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Video aspect ratio must not exceed 4:1."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Videobeeldverhouding mag niet groter zijn dan 4:1."
+          }
+        }
+      }
+    },
+    "videoExportErrorConflictingFormatOptions" : {
+      "comment" : "Error shown when a slideshow video export request combines --portrait with an explicit --size.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--portrait cannot be used with --size; choose one format option."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--portrait kan niet worden gecombineerd met --size; kies één formaatoptie."
+          }
+        }
+      }
+    },
     "videoExportErrorEmptyFilename" : {
       "comment" : "Error shown when the macOS video save panel returns a destination without a file name.",
       "extractionState" : "manual",
@@ -5724,6 +5760,42 @@
         }
       }
     },
+    "videoExportErrorLongestSideTooLarge" : {
+      "comment" : "Error shown when a slideshow video's requested longest side exceeds 4096 pixels.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Video's longest side must be no more than 4096 pixels."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "De langste zijde van de video mag niet groter zijn dan 4096 pixels."
+          }
+        }
+      }
+    },
+    "videoExportErrorMalformedSize" : {
+      "comment" : "Error shown when a slideshow video export --size argument is not in WxH form.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--size must look like 1920x1080."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--size moet eruitzien als 1920x1080."
+          }
+        }
+      }
+    },
     "videoExportErrorNoAudio" : {
       "comment" : "Error shown when a slideshow video cannot be exported because the book has no local audio.",
       "extractionState" : "manual",
@@ -5738,6 +5810,60 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dit boek heeft geen lokale audio om te exporteren."
+          }
+        }
+      }
+    },
+    "videoExportErrorNonPositiveDimensions" : {
+      "comment" : "Error shown when a slideshow video's requested width or height is not a positive number.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Video width and height must both be positive."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Videobreedte en -hoogte moeten beide positief zijn."
+          }
+        }
+      }
+    },
+    "videoExportErrorOddDimensions" : {
+      "comment" : "Error shown when a slideshow video's requested width or height is not even, which the H.264 encoder path requires.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Video width and height must both be even for H.264."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Videobreedte en -hoogte moeten beide even zijn voor H.264."
+          }
+        }
+      }
+    },
+    "videoExportErrorPixelAreaTooLarge" : {
+      "comment" : "Error shown when a slideshow video's requested pixel area exceeds the maximum of 4096x2160.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Video dimensions exceed the maximum 8,847,360-pixel area."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Videoafmetingen overschrijden het maximum van 8.847.360 pixels."
           }
         }
       }
@@ -5778,6 +5904,42 @@
         }
       }
     },
+    "videoExportErrorShortestSideTooSmall" : {
+      "comment" : "Error shown when a slideshow video's requested shortest side is below 180 pixels.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Video's shortest side must be at least 180 pixels."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "De kortste zijde van de video moet minstens 180 pixels zijn."
+          }
+        }
+      }
+    },
+    "videoExportErrorUnsupportedVideoSettings" : {
+      "comment" : "Error shown when the live H.264 encoder rejects the requested slideshow video size. The exact width and height are appended in code via a FormatStyle, so this value has no placeholders.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This video size isn't supported by the encoder."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dit videoformaat wordt niet ondersteund door de encoder."
+          }
+        }
+      }
+    },
     "videoExportErrorWriterFailed" : {
       "comment" : "Error shown when the slideshow video writer fails without an underlying error.",
       "extractionState" : "manual",
@@ -5792,6 +5954,132 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Echo kon het schrijven van de video niet voltooien."
+          }
+        }
+      }
+    },
+    "videoExportConfigurationExportButton" : {
+      "comment" : "Export button on the slideshow video export configuration screen that embeds the shared format picker.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export video"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Video exporteren"
+          }
+        }
+      }
+    },
+    "videoExportFormatExplanation" : {
+      "comment" : "Short explanation shown under the shared slideshow video format picker, describing why Portrait exists.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portrait is sized for full-screen phone viewing."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Staand is bedoeld om schermvullend op de telefoon te bekijken."
+          }
+        }
+      }
+    },
+    "videoExportFormatLabel" : {
+      "comment" : "Label for the shared Landscape/Portrait slideshow video format picker.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Format"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Formaat"
+          }
+        }
+      }
+    },
+    "videoExportFormatLandscape" : {
+      "comment" : "Segment label for the Landscape slideshow video export format.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Landscape"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Liggend"
+          }
+        }
+      }
+    },
+    "videoExportFormatLandscapeAccessibilityValue" : {
+      "comment" : "VoiceOver accessibility value for the Landscape slideshow video format segment, announcing identity plus exact resolution.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Landscape, 1920 by 1080"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Liggend, 1920 bij 1080"
+          }
+        }
+      }
+    },
+    "videoExportFormatPortrait" : {
+      "comment" : "Segment label for the Portrait slideshow video export format.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portrait"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Staand"
+          }
+        }
+      }
+    },
+    "videoExportFormatPortraitAccessibilityValue" : {
+      "comment" : "VoiceOver accessibility value for the Portrait slideshow video format segment, announcing identity plus exact resolution.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portrait, 1080 by 1920"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Staand, 1080 bij 1920"
           }
         }
       }

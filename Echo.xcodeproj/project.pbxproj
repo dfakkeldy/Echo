@@ -265,6 +265,7 @@
 				Views/SettingsAppearanceView.swift,
 				Views/SettingsView.swift,
 				Views/SleepTimerCardView.swift,
+				Views/SlideshowVideoFormatPicker.swift,
 				Views/SmartRewindSettingsView.swift,
 				Views/SoundscapePickerView.swift,
 				Views/SpeedCardView.swift,

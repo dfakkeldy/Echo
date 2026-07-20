@@ -19,6 +19,17 @@ struct MacVideoExportView: View {
     @State private var errorText: String?
     @State private var exportTask: Task<Void, Never>?
     @State private var mode: SlideshowExportMode = .karaoke
+    @State private var selectedFormat: SlideshowVideoFormat = .landscape
+
+    /// An immutable snapshot of the mode/format @State, captured at the start
+    /// of `presentSavePanel()` before `NSSavePanel` is even constructed. The
+    /// panel completion and the export `Task` read only this value -- never
+    /// the mutable `mode`/`selectedFormat` @State -- so changing a picker
+    /// while the save panel sheet is open can never race the export.
+    private struct MacVideoExportConfiguration: Sendable {
+        let mode: SlideshowExportMode
+        let dimensions: SlideshowVideoDimensions
+    }
 
     var body: some View {
         VStack(spacing: 16) {
@@ -31,6 +42,13 @@ struct MacVideoExportView: View {
             }
             .pickerStyle(.segmented)
             .disabled(isExporting)
+
+            // macOS keeps BOTH the Karaoke/Simple mode picker above and this
+            // Landscape/Portrait format picker -- unlike iPhone v1, which is
+            // Karaoke-only. Both default values are visible before the save
+            // panel and both freeze while an export is active.
+            SlideshowVideoFormatPicker(selection: $selectedFormat)
+                .disabled(isExporting)
 
             if isExporting {
                 ProgressView(value: fraction) {
@@ -79,15 +97,21 @@ struct MacVideoExportView: View {
             }
         }
         .padding()
-        .frame(width: 460, height: 300)
+        .frame(minWidth: 460, minHeight: 320)
         .onDisappear { exportTask?.cancel() }
     }
 
-    /// The render mode is settled BEFORE the save panel is presented, and the
-    /// panel callback only begins export work. This preserves the sibling audio
-    /// export's sequencing rule: never present a SwiftUI sheet from inside the
-    /// `NSSavePanel` callback.
+    /// The mode + format configuration is settled BEFORE the save panel is
+    /// presented -- captured as the very first statement, before `NSSavePanel`
+    /// is constructed or shown -- and the panel callback only begins export
+    /// work. This preserves the sibling audio export's sequencing rule: never
+    /// present a SwiftUI sheet from inside the `NSSavePanel` callback, and it
+    /// additionally prevents a race where the user changes a picker while the
+    /// save panel is open.
     private func presentSavePanel() {
+        let configuration = MacVideoExportConfiguration(
+            mode: mode, dimensions: selectedFormat.dimensions)
+
         errorText = nil
         output = nil
         let panel = NSSavePanel()
@@ -96,11 +120,11 @@ struct MacVideoExportView: View {
         panel.nameFieldStringValue = "\(bookTitle).mp4"
         panel.begin { response in
             guard response == .OK, let panelURL = panel.url else { return }
-            startExport(to: panelURL)
+            startExport(to: panelURL, configuration: configuration)
         }
     }
 
-    private func startExport(to panelURL: URL) {
+    private func startExport(to panelURL: URL, configuration: MacVideoExportConfiguration) {
         fraction = 0
         output = nil
         errorText = nil
@@ -137,7 +161,8 @@ struct MacVideoExportView: View {
                     databaseWriter: databaseWriter,
                     cacheDirectory: NarrationCache.directory(),
                     outputDirectory: stagingDirectory,
-                    mode: mode,
+                    mode: configuration.mode,
+                    dimensions: configuration.dimensions,
                     onProgress: { value in
                         progressContinuation.yield(value)
                     })
@@ -178,6 +203,11 @@ struct MacVideoExportView: View {
             return String(localized: .videoExportErrorNoAlignment)
         case .writerFailed:
             return String(localized: .videoExportErrorWriterFailed)
+        case .unsupportedVideoSettings(let width, let height):
+            let size =
+                "\(width.formatted(.number.grouping(.never)))"
+                + " × \(height.formatted(.number.grouping(.never)))"
+            return "\(String(localized: .videoExportErrorUnsupportedVideoSettings)) (\(size))"
         }
     }
 }
