@@ -45,7 +45,9 @@ extension VisualListeningVisualContent {
             return lhsPath == rhsPath
         case (.code(let lhsText, let lhsLanguage), .code(let rhsText, let rhsLanguage)):
             return lhsText == rhsText && lhsLanguage == rhsLanguage
-        default:
+        // Exhaustive (no `default:`) so a future third case fails to compile
+        // here rather than silently comparing equal instances as unequal.
+        case (.image, _), (.code, _):
             return false
         }
     }
