@@ -117,6 +117,19 @@ import Testing
         #expect(try !KokoroPhonemeVocab().validatedIDs(forPhonemes: result.phonemes).isEmpty)
     }
 
+    @Test func pictouUsesNovaScotiaLongOPronunciation() throws {
+        let text = PronunciationOverrides.withBuiltInDefaults([:]).apply(
+            to: "Pictou County follows Pictou's notice.")
+
+        #expect(text.contains("[Pictou](/pˈɪktO/) County"))
+        #expect(text.contains("[Pictou](/pˈɪktO/)'s notice"))
+
+        let result = KokoroG2P().result(for: text)
+        #expect(result.fallbackHits.isEmpty)
+        #expect(result.phonemes.contains("pˈɪktO"))
+        #expect(try !KokoroPhonemeVocab().validatedIDs(forPhonemes: result.phonemes).isEmpty)
+    }
+
     @Test func reportedPastTensePronunciationUsesKnownStemInsteadOfFallback() {
         let prepared = PronunciationOverrides.withBuiltInDefaults([:]).apply(to: "verified")
         let result = KokoroG2P().result(for: "verified")

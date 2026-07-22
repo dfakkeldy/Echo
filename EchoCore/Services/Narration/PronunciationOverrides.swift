@@ -185,6 +185,7 @@ struct PronunciationOverrides: Equatable, Sendable {
         "lifecycle": "lˈIfsˌIkəl",
         "validator": "vˈælɪdˌAɾəɹ",
         "validators": "vˈælɪdˌAɾəɹz",
+        "Pictou": "pˈɪktO",
         "super": "sˈuːpɚ",
         "supercomputer": "sˌuːpɚkəmpjˈuɾəɹ",
         "supercomputers": "sˌuːpɚkəmpjˈuɾəɹz",
