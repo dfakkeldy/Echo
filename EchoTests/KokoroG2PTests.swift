@@ -110,6 +110,25 @@ import Testing
                 == token)
     }
 
+    @Test func resultPreservesPossessiveApostropheInExactSpokenSurface() {
+        let text = "Tier 3's territory"
+        let result = KokoroG2P().result(for: text, displayText: text)
+
+        #expect(result.pronunciationEvidenceValidation == .matched)
+        #expect(!result.phonemes.isEmpty)
+    }
+
+    @Test func pluralInitialismIsSpelledWithoutFallback() throws {
+        let text = "PRs"
+        let result = KokoroG2P().result(for: text, displayText: text)
+        let evidence = try #require(result.tokenEvidence.first)
+
+        #expect(result.pronunciationEvidenceValidation == .matched)
+        #expect(result.fallbackHits.isEmpty)
+        #expect(evidence.text == text)
+        #expect(evidence.selectedPhonemes.contains("ˈɑɹz"))
+    }
+
     @Test func bleEndingUsesOpenSchwaInFinalPhonemesAndTokenEvidence() throws {
         let text = "possible comfortable reliable."
         let result = KokoroG2P().result(for: text, displayText: text)

@@ -222,26 +222,41 @@ final public class EnglishG2P {
     
   private func tokenize(preprocessedText: PreprocessTuple) -> [MToken] {
     var mutableTokens: [MToken] = []
+
+    func appendSurface(_ range: Range<String.Index>, tag: NLTag?) {
+      guard !range.isEmpty else { return }
+      let surface = String(preprocessedText.text[range])
+      if surface.allSatisfy(\.isWhitespace), let lastToken = mutableTokens.last {
+        lastToken.whitespace += surface
+      } else {
+        mutableTokens.append(
+          MToken(text: surface, tokenRange: range, tag: tag, whitespace: "")
+        )
+      }
+    }
     
     // Tokenize and perform part-of-speech tagging
     tagger.string = preprocessedText.text
     tagger.setLanguage(.english, range: preprocessedText.text.startIndex..<preprocessedText.text.endIndex)
     let options: NLTagger.Options = []
+    var cursor = preprocessedText.text.startIndex
     tagger.enumerateTags(
       in: preprocessedText.text.startIndex..<preprocessedText.text.endIndex,
       unit: .word,
       scheme: .nameTypeOrLexicalClass,
       options: options) { tag, tokenRange in
-      if let tag = tag {
-        let word = String(preprocessedText.text[tokenRange])
-        if tag == .whitespace, let lastToken = mutableTokens.last {
-          lastToken.whitespace = word
-        } else {
-          mutableTokens.append(MToken(text: word, tokenRange: tokenRange, tag: tag, whitespace: ""))
-        }
+      if cursor < tokenRange.lowerBound {
+        appendSurface(cursor..<tokenRange.lowerBound, tag: nil)
       }
+
+      appendSurface(tokenRange, tag: tag)
+      cursor = max(cursor, tokenRange.upperBound)
         
       return true
+    }
+
+    if cursor < preprocessedText.text.endIndex {
+      appendSurface(cursor..<preprocessedText.text.endIndex, tag: nil)
     }
                             
     // Simplistic alignment by index to add stress and pre-phonemization features to tokens
@@ -345,10 +360,24 @@ final public class EnglishG2P {
     let nsString = word as NSString
     let range = NSRange(location: 0, length: nsString.length)
     let matches = EnglishG2P.subtokenizeRegex.matches(in: word, options: [], range: range)
-    
-    return matches.map { match in
-      nsString.substring(with: match.range)
+
+    var parts: [String] = []
+    var cursor = 0
+    for match in matches {
+      if cursor < match.range.location {
+        parts.append(
+          nsString.substring(with: NSRange(location: cursor, length: match.range.location - cursor))
+        )
+      }
+      parts.append(nsString.substring(with: match.range))
+      cursor = NSMaxRange(match.range)
     }
+    if cursor < nsString.length {
+      parts.append(
+        nsString.substring(with: NSRange(location: cursor, length: nsString.length - cursor))
+      )
+    }
+    return parts
   }
 
   private func canCarryPendingCurrency(_ text: String) -> Bool {

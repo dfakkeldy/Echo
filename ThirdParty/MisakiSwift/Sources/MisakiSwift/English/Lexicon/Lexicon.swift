@@ -410,7 +410,10 @@ final class Lexicon {
   }
   
   private func stem_s(_ word: String, tag: NLTag?, stress: Double?, ctx: TokenContext?) -> (phoneme: String?, rating: Int?) {
-    guard word.count >= 3, word.hasSuffix("s") else { return (nil, nil) }
+    let isInitialismPlural = word.count == 2
+      && word.first?.isUppercase == true
+      && word.last == "s"
+    guard (word.count >= 3 || isInitialismPlural), word.hasSuffix("s") else { return (nil, nil) }
     var stem: String?
     
     if !word.hasSuffix("ss"), isKnown(String(word.dropLast())) {

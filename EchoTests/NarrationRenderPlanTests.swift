@@ -91,6 +91,30 @@ import Testing
         #expect(decision.sourceContext == "from the earlier exchange remained available.")
     }
 
+    @Test func normalizedDashAndHTMLCommentPreserveAuditEvidence() throws {
+        let text =
+            "Is it ready? — The filesystem lives here; agents live here. "
+            + "<!-- G088 --> Re-check the startable system."
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "reported-seams", text: text, index: 0)],
+            overrides: PronunciationOverrides.withBuiltInDefaults([:]))
+        let plannedBlock = try #require(plan.blocks.first)
+        let decisions = Dictionary(
+            uniqueKeysWithValues: plannedBlock.pronunciationDecisions.map {
+                ($0.normalizedWord, $0)
+            })
+
+        #expect(plan.pronunciationAuditDiagnostics.isEmpty)
+        #expect(decisions["filesystem"]?.source == .builtInOverride)
+        #expect(decisions["startable"]?.source == .builtInOverride)
+        #expect(decisions["re"]?.source == .builtInOverride)
+        #expect(decisions["live"]?.source == .contextualHomograph)
+        #expect(decisions["lives"]?.source == .contextualHomograph)
+        #expect(
+            plannedBlock.synthesisChunks.reduce(0) { $0 + $1.wordCount }
+                == WordTokenizer.words(in: TextNormalizer.normalize(text)).count)
+    }
+
     @Test func lifecycleOverrideKeepsCompleteEvidenceBesideClaudeMarkdownToken() throws {
         let text =
             "Different backgrounds create different gaps. An experienced backend architect may "
