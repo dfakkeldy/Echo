@@ -286,7 +286,7 @@ struct VideoExportUIWiringTests {
         #expect(text.contains(".accessibilityValue(Text(Self.accessibilityValue(for: selection)))"))
         #expect(
             text.contains(
-                "nonisolated static func accessibilityValue(for format: SlideshowVideoFormat) -> String"
+                "static func accessibilityValue(for format: SlideshowVideoFormat) -> String"
             ))
 
         // Orientation is communicated by text and exact dimensions, never by

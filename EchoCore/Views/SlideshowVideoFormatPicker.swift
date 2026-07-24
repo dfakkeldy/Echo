@@ -51,11 +51,18 @@
             }
         }
 
-        /// Pure mapping from format identity to its localized accessibility
-        /// value -- identity plus exact resolution, e.g. "Portrait, 1080 by
-        /// 1920" -- so VoiceOver announces orientation from text alone,
-        /// never from color or an icon.
-        nonisolated static func accessibilityValue(for format: SlideshowVideoFormat) -> String {
+        /// Maps a format identity to its localized accessibility value --
+        /// identity plus exact resolution, e.g. "Portrait, 1080 by 1920" -- so
+        /// VoiceOver announces orientation from text alone, never from color
+        /// or an icon.
+        ///
+        /// Main-actor-isolated (inherited from `View`): it reads the string
+        /// catalog's generated localization symbols, which are main-actor
+        /// isolated under the target's default-MainActor setting. Its only
+        /// caller is the view body, already on the main actor, so this adds no
+        /// hop. It was previously `nonisolated`, which could not compile once
+        /// the generated symbols became main-actor isolated.
+        static func accessibilityValue(for format: SlideshowVideoFormat) -> String {
             switch format {
             case .landscape:
                 String(localized: .videoExportFormatLandscapeAccessibilityValue)
