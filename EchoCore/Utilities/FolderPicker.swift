@@ -4,16 +4,37 @@ import UIKit
 import UniformTypeIdentifiers
 
 struct FolderPicker: UIViewControllerRepresentable {
+    enum SelectionMode {
+        case book
+        case folder
+
+        var contentTypes: [UTType] {
+            switch self {
+            case .book:
+                FolderPicker.bookOpeningContentTypes
+            case .folder:
+                [.folder]
+            }
+        }
+    }
+
+    var selectionMode: SelectionMode = .book
     let onPickFolder: (URL) -> Void
 
-    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+    private static var bookOpeningContentTypes: [UTType] {
         let m4bType = UTType(filenameExtension: "m4b") ?? .audio
         let epubType = UTType(filenameExtension: "epub")
         let markdownType = UTType(filenameExtension: "md")
-        let types: [UTType] =
-            [.folder, m4bType, .audio, .plainText]
+        return
+            [.folder, m4bType, .audio, .plainText, .pdf]
             + [epubType, markdownType].compactMap { $0 }
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: false)
+    }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(
+            forOpeningContentTypes: selectionMode.contentTypes,
+            asCopy: false
+        )
         picker.delegate = context.coordinator
         picker.allowsMultipleSelection = false
         return picker

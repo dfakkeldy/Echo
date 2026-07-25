@@ -55,6 +55,8 @@ enum DeckImportError: LocalizedError {
     case emptyCardText(cardIndex: Int)
     case invalidTimeRange(cardIndex: Int)
     case conflictingImageFields(cardIndex: Int)
+    case bundledImagesRequireFolder(cardIndex: Int)
+    case deckFolderManifestCount(Int)
 
     var errorDescription: String? {
         switch self {
@@ -72,6 +74,10 @@ enum DeckImportError: LocalizedError {
             "Card \(index + 1): startTime must be less than endTime and both must be non-negative unless sourceAnchor resolves to an EPUB block."
         case .conflictingImageFields(let index):
             "Card \(index + 1): imageAnchor and imageFile are mutually exclusive; set at most one."
+        case .bundledImagesRequireFolder(let index):
+            "Card \(index + 1): decks with bundled image files must be imported by selecting their folder."
+        case .deckFolderManifestCount(let count):
+            "A deck folder must contain exactly one .echo-deck.json manifest; found \(count)."
         }
     }
 }

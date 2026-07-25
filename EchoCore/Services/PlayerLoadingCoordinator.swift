@@ -37,6 +37,7 @@ final class PlayerLoadingCoordinator {
     private var chapterIngestionTask: Task<Void, Never>?
     private var postLoadTask: Task<Void, Never>?
     private var transcriptLoadingTask: Task<Void, Never>?
+    private var documentImportGeneration = 0
 
     /// Value providers for properties owned by PlayerModel.
     @ObservationIgnored var databaseServiceProvider: (() -> DatabaseService?)?
@@ -89,6 +90,10 @@ final class PlayerLoadingCoordinator {
         postLoadTask = nil
         transcriptLoadingTask?.cancel()
         transcriptLoadingTask = nil
+        documentImportTask?.cancel()
+        documentImportTask = nil
+        documentImportGeneration &+= 1
+        let currentDocumentImportGeneration = documentImportGeneration
         clearBookAggregationState(state)
 
         // Start security-scoped access for the entire folder loading flow.
@@ -110,6 +115,7 @@ final class PlayerLoadingCoordinator {
         // Keep the filesystem container separate from persistent book identity.
         // A directly selected M4B is one book, while companion discovery still
         // needs its parent directory.
+        var previousSourceDocumentURL: URL?
         if isDir {
             state.folderURL = url
             state.bookIdentityURL = url
@@ -120,9 +126,15 @@ final class PlayerLoadingCoordinator {
             securityScope?.stopParent()
         } else {
             let parentDir = url.deletingLastPathComponent()
+            previousSourceDocumentURL = BookPreferencesService.sourceDocumentURL(
+                for: parentDir.absoluteString)
             state.folderURL = parentDir
             state.bookIdentityURL = url.pathExtension.lowercased() == "m4b" ? url : parentDir
             state.sourceDocumentURL = PlaylistManager.isDocumentFile(url) ? url : nil
+            if state.sourceDocumentURL != nil {
+                BookPreferencesService.saveSourceDocumentURL(
+                    url, for: parentDir.absoluteString)
+            }
         }
         let canonicalBookURL = state.activeBookURL ?? url
 
@@ -195,6 +207,8 @@ final class PlayerLoadingCoordinator {
         if state.tracks.isEmpty {
             importDocumentForAudiolessBook(
                 pickedURL: url, isDirectory: isDir, folderURL: state.folderURL ?? url,
+                previousSourceDocumentURL: previousSourceDocumentURL,
+                generation: currentDocumentImportGeneration,
                 state: state, db: db)
         }
     }
@@ -209,6 +223,7 @@ final class PlayerLoadingCoordinator {
         clearBookAggregationState(state)
         state.durationSeconds = nil
         state.thumbnailImage = nil
+        artworkCoordinator?.invalidateCache()
         state.transcription = []
         state.enhancedTranscription = []
     }
@@ -240,7 +255,13 @@ final class PlayerLoadingCoordinator {
     /// parent scan would be denied. `audiobookID` stays the normalised folder so
     /// the reader and narration (which key off `folderURL`) find the blocks.
     private func importDocumentForAudiolessBook(
-        pickedURL: URL, isDirectory: Bool, folderURL: URL, state: PlaybackState, db: DatabaseService
+        pickedURL: URL,
+        isDirectory: Bool,
+        folderURL: URL,
+        previousSourceDocumentURL: URL?,
+        generation: Int,
+        state: PlaybackState,
+        db: DatabaseService
     ) {
         let audiobookID = folderURL.absoluteString
         let ext = pickedURL.pathExtension.lowercased()
@@ -251,7 +272,18 @@ final class PlayerLoadingCoordinator {
             if let artworkURL = self.epubArtworkURL(
                 pickedURL: pickedURL, isDirectory: isDirectory, folderURL: folderURL)
             {
-                await self.loadEPUBCoverArtwork(from: artworkURL)
+                let image = await ArtworkCache.epubCoverImage(for: artworkURL)
+                guard
+                    self.isCurrentDocumentImport(
+                        generation: generation,
+                        pickedURL: pickedURL,
+                        isDirectory: isDirectory,
+                        folderURL: folderURL,
+                        state: state)
+                else { return }
+                if let image {
+                    self.artworkCoordinator?.applyBaseArtwork(image)
+                }
             }
 
             let didImport: Bool
@@ -269,6 +301,14 @@ final class PlayerLoadingCoordinator {
             } else {
                 let didImportEPUB = await EPUBAutoImportScanner.scanAndImportIfNeeded(
                     folderURL: folderURL, databaseService: db, chapters: [], duration: nil)
+                guard
+                    self.isCurrentDocumentImport(
+                        generation: generation,
+                        pickedURL: pickedURL,
+                        isDirectory: isDirectory,
+                        folderURL: folderURL,
+                        state: state)
+                else { return }
                 if didImportEPUB {
                     didImport = true
                 } else {
@@ -276,6 +316,14 @@ final class PlayerLoadingCoordinator {
                         folderURL: folderURL, databaseService: db, chapters: [], duration: nil)
                 }
             }
+            guard
+                self.isCurrentDocumentImport(
+                    generation: generation,
+                    pickedURL: pickedURL,
+                    isDirectory: isDirectory,
+                    folderURL: folderURL,
+                    state: state)
+            else { return }
             // Title the book only when it genuinely has a document — import
             // succeeded, or blocks already exist from a prior open. Otherwise
             // leave restoreTrackPosition's "no audio files found" placeholder so a
@@ -283,22 +331,109 @@ final class PlayerLoadingCoordinator {
             let hasDocument =
                 didImport || (self.timelinePersistence?.hasEPUB(for: audiobookID) ?? false)
             if hasDocument {
-                state.currentTitle = Self.audiolessDocumentDisplayTitle(
-                    folderURL: folderURL, audiobookID: audiobookID, db: db)
+                let resolvedTitle = Self.audiolessDocumentDisplayTitle(
+                    sourceURL: pickedURL,
+                    previousSourceDocumentURL: previousSourceDocumentURL,
+                    audiobookID: audiobookID,
+                    db: db)
+                state.currentTitle = resolvedTitle
+                Self.persistStandalonePDFTitleIfPlaceholder(
+                    resolvedTitle,
+                    sourceURL: pickedURL,
+                    previousSourceDocumentURL: previousSourceDocumentURL,
+                    audiobookID: audiobookID,
+                    db: db)
             }
             state.documentIngestionTrigger += 1
         }
     }
 
-    static func audiolessDocumentDisplayTitle(
+    private func isCurrentDocumentImport(
+        generation: Int,
+        pickedURL: URL,
+        isDirectory: Bool,
         folderURL: URL,
+        state: PlaybackState
+    ) -> Bool {
+        !Task.isCancelled
+            && Self.documentImportMatchesActiveBook(
+                generation: generation,
+                currentGeneration: documentImportGeneration,
+                pickedURL: pickedURL,
+                isDirectory: isDirectory,
+                folderURL: folderURL,
+                currentFolderURL: state.folderURL,
+                currentSourceDocumentURL: state.sourceDocumentURL)
+    }
+
+    static func documentImportMatchesActiveBook(
+        generation: Int,
+        currentGeneration: Int,
+        pickedURL: URL,
+        isDirectory: Bool,
+        folderURL: URL,
+        currentFolderURL: URL?,
+        currentSourceDocumentURL: URL?
+    ) -> Bool {
+        guard generation == currentGeneration,
+            currentFolderURL?.standardizedFileURL == folderURL.standardizedFileURL
+        else { return false }
+        if isDirectory { return currentSourceDocumentURL == nil }
+        return currentSourceDocumentURL?.standardizedFileURL == pickedURL.standardizedFileURL
+    }
+
+    static func audiolessDocumentDisplayTitle(
+        sourceURL: URL,
+        previousSourceDocumentURL: URL? = nil,
         audiobookID: String,
         db: DatabaseService
     ) -> String {
         let persistedTitle = (try? AudiobookDAO(db: db.writer).get(audiobookID)?.title)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let persistedTitle, !persistedTitle.isEmpty { return persistedTitle }
-        return folderURL.deletingPathExtension().lastPathComponent
+        if let persistedTitle, !persistedTitle.isEmpty {
+            let parentPlaceholder =
+                sourceURL.deletingLastPathComponent().deletingPathExtension().lastPathComponent
+            let previousDocumentPlaceholder =
+                previousSourceDocumentURL?.deletingPathExtension().lastPathComponent
+            if !PlaylistManager.isDocumentFile(sourceURL)
+                || (
+                    persistedTitle.localizedStandardCompare(parentPlaceholder) != .orderedSame
+                        && previousDocumentPlaceholder.map {
+                            persistedTitle.localizedStandardCompare($0) != .orderedSame
+                        } ?? true
+                )
+            {
+                return persistedTitle
+            }
+        }
+        return sourceURL.deletingPathExtension().lastPathComponent
+    }
+
+    static func persistStandalonePDFTitleIfPlaceholder(
+        _ resolvedTitle: String,
+        sourceURL: URL,
+        previousSourceDocumentURL: URL? = nil,
+        audiobookID: String,
+        db: DatabaseService
+    ) {
+        guard sourceURL.pathExtension.localizedCaseInsensitiveCompare("pdf") == .orderedSame,
+            let existing = try? AudiobookDAO(db: db.writer).get(audiobookID)
+        else { return }
+        var record = existing
+        let parentPlaceholder =
+            sourceURL.deletingLastPathComponent().deletingPathExtension().lastPathComponent
+        let previousDocumentPlaceholder =
+            previousSourceDocumentURL?.deletingPathExtension().lastPathComponent
+        let replacesKnownFallback =
+            record.title.localizedStandardCompare(parentPlaceholder) == .orderedSame
+            || previousDocumentPlaceholder.map {
+                record.title.localizedStandardCompare($0) == .orderedSame
+            } == true
+        guard replacesKnownFallback else {
+            return
+        }
+        record.title = resolvedTitle
+        try? AudiobookDAO(db: db.writer).save(record)
     }
 
     private func epubArtworkURL(pickedURL: URL, isDirectory: Bool, folderURL: URL) -> URL? {
@@ -313,12 +448,6 @@ final class PlayerLoadingCoordinator {
                 options: .skipsHiddenFiles
             )) ?? []
         return urls.first { $0.pathExtension.lowercased() == "epub" }
-    }
-
-    @MainActor
-    private func loadEPUBCoverArtwork(from epubURL: URL) async {
-        guard let image = await ArtworkCache.epubCoverImage(for: epubURL) else { return }
-        artworkCoordinator?.applyBaseArtwork(image)
     }
 
     // MARK: - loadFolder helpers

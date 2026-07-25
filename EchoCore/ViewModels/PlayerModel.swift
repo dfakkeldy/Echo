@@ -520,7 +520,8 @@ final class PlayerModel {
         return timelinePersistence.hasEPUB(for: bookIdentityURL?.absoluteString)
     }
 
-    @ObservationIgnored private var cachedHasPDF: (trigger: Int, bookURL: URL?, value: Bool)?
+    @ObservationIgnored private var cachedHasPDF:
+        (trigger: Int, bookURL: URL?, sourceDocumentURL: URL?, value: Bool)?
 
     /// Whether a PDF file is present in the current audiobook folder. The
     /// directory scan is cached against `documentIngestionTrigger`, so it runs
@@ -528,14 +529,20 @@ final class PlayerModel {
     var hasPDF: Bool {
         let trigger = state.documentIngestionTrigger  // register observation dependency
         let bookURL = bookIdentityURL
+        let sourceDocumentURL = state.sourceDocumentURL
         if let cached = cachedHasPDF,
             cached.trigger == trigger,
-            cached.bookURL == bookURL
+            cached.bookURL == bookURL,
+            cached.sourceDocumentURL == sourceDocumentURL
         {
             return cached.value
         }
         let value: Bool
-        if let folderURL,
+        if let sourceDocumentURL,
+            sourceDocumentURL.pathExtension.localizedCaseInsensitiveCompare("pdf") == .orderedSame
+        {
+            value = true
+        } else if let folderURL,
             let contents = try? FileManager.default.contentsOfDirectory(
                 at: folderURL,
                 includingPropertiesForKeys: [.isRegularFileKey],
@@ -556,7 +563,7 @@ final class PlayerModel {
         } else {
             value = false
         }
-        cachedHasPDF = (trigger, bookURL, value)
+        cachedHasPDF = (trigger, bookURL, sourceDocumentURL, value)
         return value
     }
 
@@ -1310,7 +1317,9 @@ final class PlayerModel {
             securityScope.stopLibraryRoot()
         }
         persistence.saveLastLibraryBook(id: target.url.absoluteString)
-        loadFolder(target.url, autoplay: false, persistBookmark: false)
+        let openingURL =
+            BookPreferencesService.reopenDocumentURL(for: target.url) ?? target.url
+        loadFolder(openingURL, autoplay: false, persistBookmark: false)
         selectedTab = .nowPlaying
     }
 

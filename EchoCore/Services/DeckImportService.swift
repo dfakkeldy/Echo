@@ -2,9 +2,30 @@
 import Foundation
 import GRDB
 
+struct DeckImportFileAccess {
+    var startAccess: (URL) -> Bool
+    var stopAccess: (URL) -> Void
+    var readData: (URL) throws -> Data
+    var isDirectory: (URL) -> Bool = {
+        (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+    }
+    var directoryContents: (URL) throws -> [URL] = {
+        try FileManager.default.contentsOfDirectory(
+            at: $0,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: .skipsHiddenFiles)
+    }
+
+    static let live = DeckImportFileAccess(
+        startAccess: { $0.startAccessingSecurityScopedResource() },
+        stopAccess: { $0.stopAccessingSecurityScopedResource() },
+        readData: { try Data(contentsOf: $0) })
+}
+
 /// Parses, validates, and inserts flashcard decks from JSON import files.
 struct DeckImportService {
 
+    var fileAccess: DeckImportFileAccess = .live
     let validTriggerTimings = Set(FlashcardTriggerTiming.allCases.map(\.rawValue))
 
     /// Imports a deck from a JSON file URL, resolves EPUB source anchors, and
@@ -14,9 +35,35 @@ struct DeckImportService {
     ///   - db: A GRDB DatabaseWriter for FlashcardDAO.
     /// - Returns: An `ImportDeckResult` with counts and any anchor warnings.
     func importDeckVNext(from url: URL, db writer: DatabaseWriter) throws -> ImportDeckResult {
+        let didStartSecurityScope = fileAccess.startAccess(url)
+        defer {
+            if didStartSecurityScope {
+                fileAccess.stopAccess(url)
+            }
+        }
+        let selectedDirectory = fileAccess.isDirectory(url)
+
+        let manifestURL: URL
+        if selectedDirectory {
+            let candidates: [URL]
+            do {
+                candidates = try fileAccess.directoryContents(url).filter {
+                    $0.lastPathComponent.lowercased().hasSuffix(".echo-deck.json")
+                }
+            } catch {
+                throw DeckImportError.fileReadFailed(error)
+            }
+            guard candidates.count == 1, let candidate = candidates.first else {
+                throw DeckImportError.deckFolderManifestCount(candidates.count)
+            }
+            manifestURL = candidate
+        } else {
+            manifestURL = url
+        }
+
         let data: Data
         do {
-            data = try Data(contentsOf: url)
+            data = try fileAccess.readData(manifestURL)
         } catch {
             throw DeckImportError.fileReadFailed(error)
         }
@@ -48,6 +95,9 @@ struct DeckImportService {
 
             if !(card.imageAnchor?.isEmpty ?? true) && !(card.imageFile?.isEmpty ?? true) {
                 throw DeckImportError.conflictingImageFields(cardIndex: index)
+            }
+            if !selectedDirectory, !(card.imageFile?.isEmpty ?? true) {
+                throw DeckImportError.bundledImagesRequireFolder(cardIndex: index)
             }
         }
 
@@ -123,7 +173,7 @@ struct DeckImportService {
         // text, timings, and source anchors are applied instead of skipped.
         try replaceExistingCards(in: writer, deckID: deckID)
 
-        let bundleDir = url.deletingLastPathComponent()
+        let bundleDir = selectedDirectory ? url : manifestURL.deletingLastPathComponent()
         let dao = FlashcardDAO(db: writer)
         for (index, card) in deck.cards.enumerated() {
             let flashcard = Flashcard(
@@ -282,17 +332,14 @@ struct DeckImportService {
         let root = bundleDir.standardizedFileURL
         // Stay inside the bundle dir: reject path-traversal escapes.
         guard source.path == root.path || source.path.hasPrefix(root.path + "/") else { return nil }
-        guard FileManager.default.fileExists(atPath: source.path) else { return nil }
         let destRoot = URL.applicationSupportDirectory
             .appending(path: "DeckMedia", directoryHint: .isDirectory)
             .appending(path: deckID, directoryHint: .isDirectory)
         do {
+            let imageData = try fileAccess.readData(source)
             try FileManager.default.createDirectory(at: destRoot, withIntermediateDirectories: true)
             let dest = destRoot.appendingPathComponent(source.lastPathComponent)
-            if FileManager.default.fileExists(atPath: dest.path) {
-                try FileManager.default.removeItem(at: dest)
-            }
-            try FileManager.default.copyItem(at: source, to: dest)
+            try imageData.write(to: dest, options: .atomic)
             return dest.path
         } catch {
             return nil  // non-fatal

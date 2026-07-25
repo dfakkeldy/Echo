@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Testing
+import UniformTypeIdentifiers
 
 @testable import Echo
 
@@ -26,7 +27,6 @@ struct Wedge3ClarityOnRampTests {
     @Test func readerEmptyStateIsAnActionableOnRamp() throws {
         let source = try Self.viewSource(named: "ReaderEmptyState.swift")
         let root = try Self.viewSource(named: "RootTabView.swift")
-        let folderPicker = try Self.utilitySource(named: "FolderPicker.swift")
 
         #expect(
             source.contains(
@@ -40,7 +40,14 @@ struct Wedge3ClarityOnRampTests {
         #expect(root.contains("hasLoadedBook: model.folderURL != nil"))
         #expect(root.contains("model.showingDocumentImporter = true"))
         #expect(root.contains("showingFolderPicker = true"))
-        #expect(!folderPicker.contains(".pdf"))
+    }
+
+    @Test func libraryPickerCanOpenStandalonePDF() {
+        #expect(FolderPicker.SelectionMode.book.contentTypes.contains(.pdf))
+    }
+
+    @Test func libraryRootPickerAcceptsFoldersOnly() {
+        #expect(FolderPicker.SelectionMode.folder.contentTypes == [.folder])
     }
 
     @Test func studyReviewLaunchFailureIsVisible() throws {
@@ -107,10 +114,6 @@ struct Wedge3ClarityOnRampTests {
 
     private static func viewSource(named fileName: String) throws -> String {
         try Self.source(directoryName: "EchoCore/Views", fileName: fileName)
-    }
-
-    private static func utilitySource(named fileName: String) throws -> String {
-        try Self.source(directoryName: "EchoCore/Utilities", fileName: fileName)
     }
 
     private static func source(directoryName: String, fileName: String) throws -> String {

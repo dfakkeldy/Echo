@@ -2,6 +2,7 @@
 import Foundation
 import GRDB
 import Testing
+import UIKit
 
 @testable import Echo
 
@@ -158,6 +159,46 @@ struct PlayerModelTests {
         try Data().write(to: folder.appendingPathComponent("book-a.pdf"))
         model.state.documentIngestionTrigger += 1
         #expect(model.hasPDF)
+    }
+
+    @Test("A directly selected PDF does not require parent-folder access")
+    func directPDFUsesSelectedFileForAvailabilityAndPageMode() async throws {
+        let inaccessibleParent = URL(fileURLWithPath: "/provider/no-parent-grant")
+        let selectedPDF = inaccessibleParent.appendingPathComponent("selected.pdf")
+        let model = PlayerModel()
+        model.folderURL = inaccessibleParent
+        model.state.bookIdentityURL = inaccessibleParent
+        model.state.sourceDocumentURL = selectedPDF
+
+        #expect(model.hasPDF)
+        let resolved = try await PDFDocumentView.preferredPDFURL(
+            in: inaccessibleParent,
+            sourceDocumentURL: selectedPDF,
+            bookURL: inaccessibleParent,
+            bookTitle: "Selected")
+        #expect(resolved == selectedPDF)
+    }
+
+    @Test("Opening an audio-less document clears prior book artwork")
+    func audiolessDocumentClearsPriorArtwork() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: folder)
+            BookPreferencesService.saveSourceDocumentURL(nil, for: folder.absoluteString)
+        }
+        let pdf = folder.appendingPathComponent("study.pdf")
+        try Data("%PDF-1.4".utf8).write(to: pdf)
+
+        let model = PlayerModel()
+        model.state.thumbnailImage = UIImage()
+        model.state.currentDisplayArtwork = UIImage()
+
+        model.loadFolder(pdf, autoplay: false, persistBookmark: false)
+
+        #expect(model.state.thumbnailImage == nil)
+        #expect(model.state.currentDisplayArtwork == nil)
     }
 
     @Test("Opening one M4B replaces stale folder aggregation and uses file book identity")

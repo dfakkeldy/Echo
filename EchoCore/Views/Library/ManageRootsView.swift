@@ -99,7 +99,7 @@ struct ManageRootsView: View {
                 Text("Remove \(root.displayName) from your Library?")
             }
             .sheet(isPresented: $showingRelocatePicker) {
-                FolderPicker { url in
+                FolderPicker(selectionMode: .folder) { url in
                     showingRelocatePicker = false
                     guard let relocatingRootID else { return }
                     Task { await vm.relocate(rootID: relocatingRootID, to: url) }

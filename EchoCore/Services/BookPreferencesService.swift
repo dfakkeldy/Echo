@@ -39,6 +39,62 @@ struct BookPreferencesService {
         "book_readerPDFViewMode_\(audiobookID)"
     }
 
+    static func sourceDocumentBookmarkKey(for audiobookID: String) -> String {
+        "book_sourceDocumentBookmark_\(audiobookID)"
+    }
+
+    /// Remembers the exact standalone document selected for a parent-keyed
+    /// audio-less book. The database identity intentionally remains the parent
+    /// URL so existing notes and timeline rows are preserved.
+    static func saveSourceDocumentURL(
+        _ url: URL?,
+        for audiobookID: String,
+        store: UserDefaults = .standard,
+        makeBookmark: (URL) -> Data? = { LibraryAccess.makeBookmark(for: $0) }
+    ) {
+        let key = sourceDocumentBookmarkKey(for: audiobookID)
+        guard let url else {
+            store.removeObject(forKey: key)
+            return
+        }
+        // A transient provider/bookmark failure must not destroy the last
+        // working grant. Explicit nil is the only clearing operation.
+        guard let bookmark = makeBookmark(url) else { return }
+        store.set(bookmark, forKey: key)
+    }
+
+    static func sourceDocumentURL(
+        for audiobookID: String,
+        store: UserDefaults = .standard,
+        resolveBookmark: (Data) -> (url: URL, isStale: Bool)? = {
+            LibraryAccess.resolveURL(from: $0)
+        }
+    ) -> URL? {
+        guard let bookmark = store.data(forKey: sourceDocumentBookmarkKey(for: audiobookID))
+        else { return nil }
+        guard let resolved = resolveBookmark(bookmark) else { return nil }
+        if resolved.isStale {
+            saveSourceDocumentURL(resolved.url, for: audiobookID, store: store)
+        }
+        return resolved.url
+    }
+
+    /// Returns a remembered document only when it is still a supported document
+    /// in the requested container. This prevents stale preferences from routing
+    /// one shelf record into another folder.
+    static func reopenDocumentURL(
+        for containerURL: URL, store: UserDefaults = .standard
+    ) -> URL? {
+        guard
+            let documentURL = sourceDocumentURL(
+                for: containerURL.absoluteString, store: store),
+            PlaylistManager.isDocumentFile(documentURL),
+            documentURL.deletingLastPathComponent().standardizedFileURL
+                == containerURL.standardizedFileURL
+        else { return nil }
+        return documentURL
+    }
+
     /// Persists the page⇄reflow choice for a PDF book. `nil` clears it (revert
     /// to the default). `store` is injectable for testing; production passes
     /// `.standard`.
