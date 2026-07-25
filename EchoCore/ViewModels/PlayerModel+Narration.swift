@@ -52,8 +52,10 @@
 
             // Show the book + a preparing status on Now Playing / lock screen while
             // the first chapter renders, instead of the audio-less placeholder.
-            if let title = folderURL?.deletingPathExtension().lastPathComponent {
-                state.currentTitle = title
+            if state.currentTitle.isEmpty,
+                let identityURL = bookIdentityURL ?? state.sourceDocumentURL ?? folderURL
+            {
+                state.currentTitle = identityURL.deletingPathExtension().lastPathComponent
             }
             state.currentSubtitle = String(localized: "Preparing narration…")
             progressPresenter.updateNowPlayingInfo(isPaused: true)

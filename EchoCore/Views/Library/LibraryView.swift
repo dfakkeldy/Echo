@@ -65,7 +65,7 @@
                 ManageRootsView(db: vm.database, showUnavailable: showUnavailable)
             }
             .sheet(isPresented: $showingRecoveryFolderPicker) {
-                FolderPicker { url in
+                FolderPicker(selectionMode: .folder) { url in
                     showingRecoveryFolderPicker = false
                     Task { await vm.relocatePendingRecoveryBook(to: url) }
                 }

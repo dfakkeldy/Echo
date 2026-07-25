@@ -163,7 +163,7 @@ struct SettingsView: View {
         )
         .fileImporter(
             isPresented: $showingDeckImporter,
-            allowedContentTypes: [.json],
+            allowedContentTypes: [.folder, .json],
             allowsMultipleSelection: false,
             onCompletion: handleImportResult
         )

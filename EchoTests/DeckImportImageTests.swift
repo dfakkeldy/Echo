@@ -80,8 +80,7 @@ struct DeckImportImageTests {
         try writeDeckBundle(
             dir, json: json, images: ["card-0.png": Data([0x89, 0x50, 0x4E, 0x47])])
         let service = DeckImportService()
-        _ = try service.importDeckVNext(
-            from: dir.appendingPathComponent("deck.echo-deck.json"), db: db.writer)
+        _ = try service.importDeckVNext(from: dir, db: db.writer)
         let media = try db.writer.read { d in
             try String.fetchOne(d, sql: "SELECT media_json FROM flashcard LIMIT 1")
         }
@@ -92,6 +91,28 @@ struct DeckImportImageTests {
                 at: URL(fileURLWithPath: path).deletingLastPathComponent())
         }
         #expect(FileManager.default.fileExists(atPath: path))
+    }
+
+    @Test func imageFileManifestRequiresFolderSelection() throws {
+        let db = try DatabaseService(inMemory: ())
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let json = """
+            {"deckName":"D","targetMediaID":"book","cards":[
+              {"frontText":"Q","backText":"A","startTime":0,"endTime":1,
+               "triggerTiming":"manualOnly","imageFile":"images/card-0.png"}]}
+            """
+        try writeDeckBundle(
+            dir, json: json, images: ["card-0.png": Data([0x89, 0x50, 0x4E, 0x47])])
+
+        let thrown = try #require(throws: DeckImportError.self) {
+            _ = try DeckImportService().importDeckVNext(
+                from: dir.appendingPathComponent("deck.echo-deck.json"), db: db.writer)
+        }
+        guard case .bundledImagesRequireFolder(cardIndex: 0) = thrown else {
+            Issue.record("Expected bundledImagesRequireFolder(cardIndex: 0), got \(thrown)")
+            return
+        }
     }
 
     @Test func bothImageFieldsSetThrows() throws {
@@ -141,8 +162,7 @@ struct DeckImportImageTests {
             """
         try writeDeckBundle(dir, json: json, images: [:])
         let service = DeckImportService()
-        let result = try service.importDeckVNext(
-            from: dir.appendingPathComponent("deck.echo-deck.json"), db: db.writer)
+        let result = try service.importDeckVNext(from: dir, db: db.writer)
         #expect(result.importedCount == 1)  // card still imports (non-fatal)
         let media = try db.writer.read { d in
             try String.fetchOne(d, sql: "SELECT media_json FROM flashcard LIMIT 1")

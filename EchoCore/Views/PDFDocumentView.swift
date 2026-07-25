@@ -350,6 +350,7 @@ struct PDFDocumentView: View {
             let currentTitle = model.currentTitle
             let pdfURL = try await Self.preferredPDFURL(
                 in: folderURL,
+                sourceDocumentURL: model.state.sourceDocumentURL,
                 bookURL: bookURL,
                 bookTitle: currentTitle)
             try Task.checkCancellation()
@@ -467,10 +468,16 @@ struct PDFDocumentView: View {
     @concurrent
     static func preferredPDFURL(
         in folderURL: URL,
+        sourceDocumentURL: URL? = nil,
         bookURL: URL,
         bookTitle: String?
     ) async throws -> URL? {
         try Task.checkCancellation()
+        if let sourceDocumentURL,
+            sourceDocumentURL.pathExtension.localizedCaseInsensitiveCompare("pdf") == .orderedSame
+        {
+            return sourceDocumentURL
+        }
         let files = try FileManager.default.contentsOfDirectory(
             at: folderURL,
             includingPropertiesForKeys: nil,

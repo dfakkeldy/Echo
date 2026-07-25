@@ -15,6 +15,116 @@ struct DeckImportServiceTests {
         return url
     }
 
+    @Test func importKeepsSecurityScopeActiveThroughFileRead() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        let url = URL(fileURLWithPath: "/provider/secured-deck.echo-deck.json")
+        var scopeIsActive = false
+        var didStopScope = false
+        let data = Data(
+            """
+            {
+              "deckName": "Scoped Deck",
+              "targetMediaID": "scoped-book",
+              "cards": [
+                {"frontText": "Q", "backText": "A", "startTime": 0, "endTime": 5, "triggerTiming": "manualOnly"}
+              ]
+            }
+            """.utf8)
+        let fileAccess = DeckImportFileAccess(
+            startAccess: { receivedURL in
+                #expect(receivedURL == url)
+                scopeIsActive = true
+                return true
+            },
+            stopAccess: { receivedURL in
+                #expect(receivedURL == url)
+                #expect(scopeIsActive)
+                scopeIsActive = false
+                didStopScope = true
+            },
+            readData: { receivedURL in
+                #expect(receivedURL == url)
+                #expect(scopeIsActive)
+                return data
+            })
+
+        let result = try DeckImportService(fileAccess: fileAccess)
+            .importDeckVNext(from: url, db: writer)
+
+        #expect(result.importedCount == 1)
+        #expect(!scopeIsActive)
+        #expect(didStopScope)
+    }
+
+    @Test func folderImportScopesClassificationManifestAndBundledImageRead() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        let folder = URL(fileURLWithPath: "/provider/scoped-deck", isDirectory: true)
+        let manifest = folder.appendingPathComponent("study.echo-deck.json")
+        let image = folder.appendingPathComponent("images/card.png")
+        var scopeIsActive = false
+        var callbacks: [String] = []
+        let manifestData = Data(
+            """
+            {
+              "deckName": "Scoped Folder Deck",
+              "targetMediaID": "scoped-folder-book",
+              "cards": [
+                {"frontText": "Q", "backText": "A", "startTime": 0, "endTime": 5,
+                 "triggerTiming": "manualOnly", "imageFile": "images/card.png"}
+              ]
+            }
+            """.utf8)
+        let fileAccess = DeckImportFileAccess(
+            startAccess: { receivedURL in
+                #expect(receivedURL == folder)
+                scopeIsActive = true
+                callbacks.append("start")
+                return true
+            },
+            stopAccess: { receivedURL in
+                #expect(receivedURL == folder)
+                #expect(scopeIsActive)
+                callbacks.append("stop")
+                scopeIsActive = false
+            },
+            readData: { receivedURL in
+                #expect(scopeIsActive)
+                if receivedURL == manifest {
+                    callbacks.append("manifest")
+                    return manifestData
+                }
+                #expect(receivedURL == image)
+                callbacks.append("image")
+                return Data([0x89, 0x50, 0x4E, 0x47])
+            },
+            isDirectory: { receivedURL in
+                #expect(receivedURL == folder)
+                #expect(scopeIsActive)
+                callbacks.append("classify")
+                return true
+            },
+            directoryContents: { receivedURL in
+                #expect(receivedURL == folder)
+                #expect(scopeIsActive)
+                callbacks.append("enumerate")
+                return [manifest]
+            })
+
+        let result = try DeckImportService(fileAccess: fileAccess)
+            .importDeckVNext(from: folder, db: writer)
+
+        #expect(result.importedCount == 1)
+        #expect(callbacks == ["start", "classify", "enumerate", "manifest", "image", "stop"])
+        #expect(!scopeIsActive)
+        let mediaPath = try writer.read { db in
+            try String.fetchOne(db, sql: "SELECT media_json FROM flashcard LIMIT 1")
+        }.flatMap { StudyCardMedia.imagePath(fromMediaJSON: $0) }
+        if let mediaPath {
+            try? FileManager.default.removeItem(
+                at: URL(fileURLWithPath: mediaPath).deletingLastPathComponent())
+        }
+    }
+
     /// §5.4: importing a deck whose `targetMediaID` names a book not yet on this
     /// device must succeed by creating a placeholder `audiobook` row, rather than
     /// aborting on the `flashcard.audiobook_id` NOT NULL foreign key.

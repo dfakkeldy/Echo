@@ -37,9 +37,161 @@ private final class AudiolessFixtureLocator {}
                 remoteItemID: folder.lastPathComponent))
 
         let title = PlayerLoadingCoordinator.audiolessDocumentDisplayTitle(
-            folderURL: folder, audiobookID: audiobookID, db: db)
+            sourceURL: folder, audiobookID: audiobookID, db: db)
 
         #expect(title == expectedTitle)
+    }
+
+    @Test func standalonePDFUsesFilenameAsDisplayTitle() throws {
+        let db = try DatabaseService(inMemory: ())
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Imported Books", isDirectory: true)
+        let pdf = parent.appendingPathComponent("Echo Overnight PDF Narration Probe.pdf")
+        try AudiobookDAO(db: db.writer).save(
+            AudiobookRecord(
+                id: parent.absoluteString,
+                title: parent.lastPathComponent,
+                author: "",
+                duration: 0,
+                fileCount: 0,
+                addedAt: "2026-07-25T00:00:00Z"))
+
+        let title = PlayerLoadingCoordinator.audiolessDocumentDisplayTitle(
+            sourceURL: pdf, audiobookID: parent.absoluteString, db: db)
+
+        #expect(title == "Echo Overnight PDF Narration Probe")
+    }
+
+    @Test func directEPUBPreservesPersistedMetadataTitle() throws {
+        let db = try DatabaseService(inMemory: ())
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Imported Books", isDirectory: true)
+        let epub = parent.appendingPathComponent("opaque-export-name.epub")
+        let expectedTitle = "A Meaningful OPF Title"
+        try AudiobookDAO(db: db.writer).save(
+            AudiobookRecord(
+                id: parent.absoluteString,
+                title: expectedTitle,
+                author: "Fixture Author",
+                duration: 0,
+                fileCount: 0,
+                addedAt: "2026-07-25T00:00:00Z"))
+
+        let title = PlayerLoadingCoordinator.audiolessDocumentDisplayTitle(
+            sourceURL: epub, audiobookID: parent.absoluteString, db: db)
+
+        #expect(title == expectedTitle)
+    }
+
+    @Test func standalonePDFPersistsFilenameOnlyOverParentPlaceholder() throws {
+        let db = try DatabaseService(inMemory: ())
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Imported Books", isDirectory: true)
+        let pdf = parent.appendingPathComponent("Useful PDF Title.pdf")
+        let dao = AudiobookDAO(db: db.writer)
+        try dao.save(
+            AudiobookRecord(
+                id: parent.absoluteString,
+                title: parent.lastPathComponent,
+                author: "",
+                duration: 0,
+                fileCount: 0,
+                addedAt: "2026-07-25T00:00:00Z"))
+
+        PlayerLoadingCoordinator.persistStandalonePDFTitleIfPlaceholder(
+            "Useful PDF Title",
+            sourceURL: pdf,
+            audiobookID: parent.absoluteString,
+            db: db)
+
+        #expect(try dao.get(parent.absoluteString)?.title == "Useful PDF Title")
+
+        var enriched = try #require(try dao.get(parent.absoluteString))
+        enriched.title = "Curated Library Title"
+        try dao.save(enriched)
+        PlayerLoadingCoordinator.persistStandalonePDFTitleIfPlaceholder(
+            "Useful PDF Title",
+            sourceURL: pdf,
+            audiobookID: parent.absoluteString,
+            db: db)
+        #expect(try dao.get(parent.absoluteString)?.title == "Curated Library Title")
+    }
+
+    @Test func reselectedPDFReplacesOnlyThePreviousFilenameFallback() throws {
+        let db = try DatabaseService(inMemory: ())
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Imported Books", isDirectory: true)
+        let previousPDF = parent.appendingPathComponent("Old Filename.pdf")
+        let currentPDF = parent.appendingPathComponent("Renamed Study Guide.pdf")
+        let dao = AudiobookDAO(db: db.writer)
+        try dao.save(
+            AudiobookRecord(
+                id: parent.absoluteString,
+                title: "Old Filename",
+                author: "",
+                duration: 0,
+                fileCount: 0,
+                addedAt: "2026-07-25T00:00:00Z"))
+
+        let title = PlayerLoadingCoordinator.audiolessDocumentDisplayTitle(
+            sourceURL: currentPDF,
+            previousSourceDocumentURL: previousPDF,
+            audiobookID: parent.absoluteString,
+            db: db)
+        PlayerLoadingCoordinator.persistStandalonePDFTitleIfPlaceholder(
+            title,
+            sourceURL: currentPDF,
+            previousSourceDocumentURL: previousPDF,
+            audiobookID: parent.absoluteString,
+            db: db)
+
+        #expect(title == "Renamed Study Guide")
+        #expect(try dao.get(parent.absoluteString)?.title == "Renamed Study Guide")
+
+        var curated = try #require(try dao.get(parent.absoluteString))
+        curated.title = "Curated PDF Metadata"
+        try dao.save(curated)
+        let nextPDF = parent.appendingPathComponent("Another Export Name.pdf")
+        let preserved = PlayerLoadingCoordinator.audiolessDocumentDisplayTitle(
+            sourceURL: nextPDF,
+            previousSourceDocumentURL: currentPDF,
+            audiobookID: parent.absoluteString,
+            db: db)
+        #expect(preserved == "Curated PDF Metadata")
+    }
+
+    @Test func supersededDocumentImportCannotMatchTheNewActivePDF() {
+        let folder = URL(fileURLWithPath: "/provider/books", isDirectory: true)
+        let oldEPUB = folder.appendingPathComponent("old.epub")
+        let newPDF = folder.appendingPathComponent("new.pdf")
+
+        #expect(
+            !PlayerLoadingCoordinator.documentImportMatchesActiveBook(
+                generation: 1,
+                currentGeneration: 2,
+                pickedURL: oldEPUB,
+                isDirectory: false,
+                folderURL: folder,
+                currentFolderURL: folder,
+                currentSourceDocumentURL: newPDF))
+        #expect(
+            !PlayerLoadingCoordinator.documentImportMatchesActiveBook(
+                generation: 2,
+                currentGeneration: 2,
+                pickedURL: oldEPUB,
+                isDirectory: false,
+                folderURL: folder,
+                currentFolderURL: folder,
+                currentSourceDocumentURL: newPDF))
+        #expect(
+            PlayerLoadingCoordinator.documentImportMatchesActiveBook(
+                generation: 2,
+                currentGeneration: 2,
+                pickedURL: newPDF,
+                isDirectory: false,
+                folderURL: folder,
+                currentFolderURL: folder,
+                currentSourceDocumentURL: newPDF))
     }
 
     @Test func epubOnlyFolderImportsAsAudioLessBookWithChapterZeroBlocks() async throws {
