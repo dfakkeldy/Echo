@@ -1,114 +1,60 @@
-# Agent guide for Swift and SwiftUI
+# Agent guide for Echo
 
-This repository contains an Xcode project written with Swift and SwiftUI. Please follow the guidelines below so that the development experience is built on modern, safe API usage.
+Echo is a Swift and SwiftUI audiobook study player with iOS, macOS, watchOS,
+widget, command-line, and Python transcript-tooling surfaces.
 
+## Project boundaries
 
-## Role
+- Preserve the current deployment floors: iOS 18, macOS 15, and watchOS 11.
+- Use the repository's Swift 6 concurrency settings and existing observation
+  architecture. App targets use default Main Actor isolation; keep expensive
+  media, database, and transcript work off the UI actor.
+- Prefer concrete constructor or closure injection. Add a protocol only when a
+  real second implementation or a wired test double needs it.
+- Do not introduce a third-party dependency without user authorization.
+- Keep secrets, private book content, transcripts, and generated study material
+  out of commits and public artifacts.
+- Preserve localization and accessibility behavior when changing user-facing
+  UI. Add or update tests for changed core behavior.
 
-You are a **Senior iOS Engineer**, specializing in SwiftUI, SwiftData, and related frameworks. Your code must always adhere to Apple's Human Interface Guidelines and App Review guidelines.
+## Working in the codebase
 
+- Read `ARCHITECTURE.md` when the task changes architecture, release mechanics,
+  or the headless CLI. Read only the other documents relevant to the task.
+- Follow established patterns in the touched subsystem. Prefer current APIs
+  available at the deployment target, but do not turn a focused change into
+  nearby modernization.
+- Keep SwiftUI views focused on presentation and lightweight interaction. Put
+  reusable media, persistence, alignment, and transcript behavior in testable
+  concrete types.
+- Use structured concurrency and propagate cancellation where work is
+  cancellable. Avoid blocking cooperative threads.
+- Use parameterized database operations and production-safe logging.
+- Update documentation when the change makes existing documentation inaccurate;
+  documentation work is not an automatic side task.
 
-## Core instructions
+## Verification
 
-- Default to using subagents for all non-trivial tasks when the active tooling supports them. At the start of each task, decide whether to delegate exploration, implementation, review, or verification to one or more focused subagents.
-- For implementation work, prefer a fresh subagent per independent task or feature slice, followed by a focused review subagent for that slice. Keep each subagent prompt self-contained, with clear file ownership and constraints.
-- Use parallel subagents only when work is independent and write scopes do not overlap. Build concurrency is governed by the global memory-pressure RAM gate (`~/.claude/bin/xcode-build-gate.sh`); let it decide rather than serializing by hand, and never enable uncapped parallel testing or `-jobs`.
-- Skip subagents only for truly trivial requests, tasks where no subagent tooling is available, or work that cannot be split without creating coordination risk. If skipping them for a substantive task, briefly state why.
-- Target iOS 18.0 or later, macOS 15.0 or later, watchOS 11.0 or later.
-- Swift 6.0 or later, using modern Swift concurrency. Always choose async/await APIs over closure-based variants whenever they exist.
-- SwiftUI backed up by `@Observable` classes for shared data.
-- Do not introduce third-party frameworks without asking first.
-- Avoid UIKit unless requested.
+- Run the narrowest relevant tests first. The primary unit-test gate is
+  `make test`; edit/test loops can use `make build-tests` followed by
+  `make test-only FILTER=EchoTests/<Suite>`.
+- Build `echo-cli` with `make echo-cli`; the Make target carries required release
+  and compiler settings.
+- UI tests are intentionally excluded from the Echo scheme's test action.
+- Scale verification to the change. Instruction-only or documentation-only
+  edits do not require an Xcode build.
 
+## Repository workflow
 
-## Swift instructions
-
-- `@Observable` classes must be marked `@MainActor` unless the project has Main Actor default actor isolation. Flag any `@Observable` class missing this annotation.
-- All shared data should use `@Observable` classes with `@State` (for ownership) and `@Bindable` / `@Environment` (for passing).
-- Strongly prefer not to use `ObservableObject`, `@Published`, `@StateObject`, `@ObservedObject`, or `@EnvironmentObject` unless they are unavoidable, or if they exist in legacy/integration contexts when changing architecture would be complicated.
-- Assume strict Swift concurrency rules are being applied.
-- Prefer Swift-native alternatives to Foundation methods where they exist, such as using `replacing("hello", with: "world")` with strings rather than `replacingOccurrences(of: "hello", with: "world")`.
-- Prefer modern Foundation API, for example `URL.documentsDirectory` to find the app’s documents directory, and `appending(path:)` to append strings to a URL.
-- Never use C-style number formatting such as `Text(String(format: "%.2f", abs(myNumber)))`; always use `Text(abs(change), format: .number.precision(.fractionLength(2)))` instead.
-- Prefer static member lookup to struct instances where possible, such as `.circle` rather than `Circle()`, and `.borderedProminent` rather than `BorderedProminentButtonStyle()`.
-- Never use old-style Grand Central Dispatch concurrency such as `DispatchQueue.main.async()`. If behavior like this is needed, always use modern Swift concurrency.
-- Filtering text based on user-input must be done using `localizedStandardContains()` as opposed to `contains()`.
-- Avoid force unwraps and force `try` unless it is unrecoverable.
-- Never use legacy `Formatter` subclasses such as `DateFormatter`, `NumberFormatter`, or `MeasurementFormatter`. Always use the modern `FormatStyle` API instead. For example, to format a date, use `myDate.formatted(date: .abbreviated, time: .shortened)`. To parse a date from a string, use `Date(inputString, strategy: .iso8601)`. For numbers, use `myNumber.formatted(.number)` or custom format styles.
-
-## SwiftUI instructions
-
-- Always use `foregroundStyle()` instead of `foregroundColor()`.
-- Always use `clipShape(.rect(cornerRadius:))` instead of `cornerRadius()`.
-- Always use the `Tab` API instead of `tabItem()`.
-- Never use `ObservableObject`; always prefer `@Observable` classes instead.
-- Never use the `onChange()` modifier in its 1-parameter variant; either use the variant that accepts two parameters or accepts none.
-- Never use `onTapGesture()` unless you specifically need to know a tap’s location or the number of taps. All other usages should use `Button`.
-- Never use `Task.sleep(nanoseconds:)`; always use `Task.sleep(for:)` instead.
-- Never use `UIScreen.main.bounds` to read the size of the available space.
-- Do not break views up using computed properties; place them into new `View` structs instead.
-- Do not force specific font sizes; prefer using Dynamic Type instead.
-- Use the `navigationDestination(for:)` modifier to specify navigation, and always use `NavigationStack` instead of the old `NavigationView`.
-- If using an image for a button label, always specify text alongside like this: `Button("Tap me", systemImage: "plus", action: myButtonAction)`.
-- When rendering SwiftUI views, always prefer using `ImageRenderer` to `UIGraphicsImageRenderer`.
-- Don’t apply the `fontWeight()` modifier unless there is good reason. If you want to make some text bold, always use `bold()` instead of `fontWeight(.bold)`.
-- Do not use `GeometryReader` if a newer alternative would work as well, such as `containerRelativeFrame()` or `visualEffect()`.
-- When making a `ForEach` out of an `enumerated` sequence, do not convert it to an array first. So, prefer `ForEach(x.enumerated(), id: \.element.id)` instead of `ForEach(Array(x.enumerated()), id: \.element.id)`.
-- When hiding scroll view indicators, use the `.scrollIndicators(.hidden)` modifier rather than using `showsIndicators: false` in the scroll view initializer.
-- Use the newest ScrollView APIs for item scrolling and positioning (e.g. `ScrollPosition` and `defaultScrollAnchor`); avoid older scrollView APIs like ScrollViewReader.
-- Place view logic into view models or similar, so it can be tested.
-- Avoid `AnyView` unless it is absolutely required.
-- Avoid specifying hard-coded values for padding and stack spacing unless requested.
-- Avoid using UIKit colors in SwiftUI code.
-
-
-## SwiftData instructions
-
-If SwiftData is configured to use CloudKit:
-
-- Never use `@Attribute(.unique)`.
-- Model properties must always either have default values or be marked as optional.
-- All relationships must be marked optional.
-
-
-## Project structure
-
-- Use a consistent project structure, with folder layout determined by app features.
-- Follow strict naming conventions for types, properties, methods, and SwiftData models.
-- Break different types up into different Swift files rather than placing multiple structs, classes, or enums into a single file.
-- Write unit tests for core application logic.
-- Only write UI tests if unit tests are not possible.
-- Add code comments and documentation comments as needed.
-- If the project requires secrets such as API keys, never include them in the repository.
-- If the project uses Localizable.xcstrings, prefer to add user-facing strings using symbol keys (e.g. helloWorld) in the string catalog with `extractionState` set to "manual", accessing them via generated symbols such as  `Text(.helloWorld)`. Offer to translate new keys into all languages supported by the project.
-
-
-## PR instructions
-
-- **Start every Echo repo task with branch hygiene.** Run `git status --short --branch`, `git fetch origin nightly`, and confirm the work is on a named branch whose history includes `origin/nightly`. If the worktree is detached, create a named feature branch from that commit before editing or committing. If a fresh worktree was cut from `main`, rebase/reset it onto `origin/nightly` before edits; if there are already local commits or dirty user changes, stop and explain the safe options instead of rewriting history.
-- **Work in a worktree based on `nightly`, not `main`.** The worktree tooling may cut the branch from `main` (the default branch); rebase/reset it onto `origin/nightly` before any edits, while the branch has no commits of its own. Base check: `git merge-base --is-ancestor origin/nightly HEAD || (git fetch origin nightly && git reset --hard origin/nightly)`.
-- **Open PRs against `nightly`, not `main`.** Echo uses a promotion ladder (`feature/* → nightly → weekly → main`); `main` is the stable App Store branch reached only by promotion. Targeting `main` bypasses the ladder. See `ARCHITECTURE.md ▸ Release Engineering — Promotion Ladder`.
-- **Commit at sensible checkpoints as you work**, not only when asked — keep commits coherent and Conventional-Commits-formatted. Never push directly to the protected branches (`main`/`weekly`/`nightly`); they change only through PRs.
-- **Auto-push and open a ready PR when the task is complete (default ON)**, unless the user explicitly asks to keep the work local or the change is only exploratory scratch. First rebase the branch onto the latest `nightly` (`git fetch origin && git rebase origin/nightly`; `--force-with-lease` if the branch was already pushed), then push and open the PR into `nightly` (`gh pr create --base nightly …`) without stopping to flag it — report the PR link afterward. If the rebase hits conflicts that cannot be resolved cleanly, stop and explain instead of forcing it. Do not default to draft PRs; a draft PR is appropriate only when the user asks for one or explicitly agrees after you name the reason.
-- **Promotions are their own PRs** (`nightly → weekly`, then `weekly → main`), normally the maintainer's job — only open one if asked. **Hotfixes** branch from `main`, PR back into `main`, then merge `main` down into `weekly` and `nightly` so the fix survives the next promotion.
-- **Follow hosted CI after opening or updating a PR.** Check the `Build gate + tests` result with `gh pr checks` or the relevant Actions run. If CI fails, inspect the failing job logs before reading PR prose, fix the concrete blocker, push, and re-check. Final status should state whether hosted CI is passing, failing, pending, or blocked.
-- If installed, make sure SwiftLint returns no warnings or errors before committing.
-
-
-## Xcode MCP
-
-If the Xcode MCP is configured, prefer its tools over generic alternatives when working on this project:
-
-- `DocumentationSearch` — verify API availability and correct usage before writing code
-- `BuildProject` — build the project after making changes to confirm compilation succeeds
-- `GetBuildLog` — inspect build errors and warnings
-- `RenderPreview` — visually verify SwiftUI views using Xcode Previews
-- `XcodeListNavigatorIssues` — check for issues visible in the Xcode Issue Navigator
-- `ExecuteSnippet` — test a code snippet in the context of a source file
-- `XcodeRead`, `XcodeWrite`, `XcodeUpdate` — prefer these over generic file tools when working with Xcode project files
-
----
-
-## Attribution
-
-This agent guide is adapted from [Paul Hudson's AGENTS.md template](https://github.com/twostraws/AGENTS.md), customized for Echo's architecture, Swift 6.2 conventions, and project-specific tooling.
+- Echo uses `feature/* -> nightly -> weekly -> main`.
+- Normal feature work branches from and opens a PR to `nightly`. Promotion PRs
+  move `nightly` to `weekly`, then `weekly` to `main`; open one only when asked.
+- Hotfixes branch from and PR to `main`, then flow back to `weekly` and `nightly`.
+- Never push directly to `main`, `weekly`, or `nightly`.
+- Before editing, inspect the branch, upstream, and working tree. Preserve
+  unrelated changes and do not rewrite user-owned history.
+- Use coherent Conventional Commits. Publish only when the task type and user
+  request call for it; do not auto-rebase or force-push as a standing rule.
+- After opening or updating a PR, report hosted CI as passing, failing, pending,
+  or blocked. CI, merge, deployment, installation, and device acceptance are
+  separate states.
