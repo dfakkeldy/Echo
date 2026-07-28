@@ -7,6 +7,52 @@ import Foundation
 /// narration finishes fast.
 enum TestEPUBFixture {
 
+    /// Extend the two-chapter fixture with cover, empty, and image-only spine
+    /// items. Only the original two chapters are narratable.
+    static func twoNarratableChaptersWithNonNarratableSpineItems(in dir: URL) throws -> URL {
+        let epubDir = try twoChapters(in: dir)
+        let oebps = epubDir.appendingPathComponent("OEBPS", isDirectory: true)
+        let opfURL = oebps.appendingPathComponent("content.opf")
+        var opf = try String(contentsOf: opfURL, encoding: .utf8)
+        opf = opf.replacingOccurrences(
+            of: "<item id=\"chap01\"",
+            with: """
+            <item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/>
+            <item id="empty" href="empty.xhtml" media-type="application/xhtml+xml"/>
+            <item id="image-only" href="image-only.xhtml" media-type="application/xhtml+xml"/>
+            <item id="chap01"
+            """)
+        opf = opf.replacingOccurrences(
+            of: """
+            <itemref idref="chap01"/>
+            <itemref idref="chap02"/>
+            """,
+            with: """
+            <itemref idref="cover"/>
+            <itemref idref="chap01"/>
+            <itemref idref="empty"/>
+            <itemref idref="chap02"/>
+            <itemref idref="image-only"/>
+            """)
+        try opf.data(using: .utf8)!.write(to: opfURL)
+
+        for (name, body) in [
+            ("cover.xhtml", "<body><img src=\"cover.png\" alt=\"\"/></body>"),
+            ("empty.xhtml", "<body><section></section></body>"),
+            ("image-only.xhtml", "<body><figure><img src=\"diagram.png\" alt=\"\"/></figure></body>"),
+        ] {
+            try """
+            <?xml version="1.0" encoding="utf-8"?>
+            <!DOCTYPE html>
+            <html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+            <head><meta charset="utf-8"/><title>Non-narratable</title></head>
+            \(body)</html>
+            """.data(using: .utf8)!
+            .write(to: oebps.appendingPathComponent(name))
+        }
+        return epubDir
+    }
+
     /// Write a minimal two-chapter expanded EPUB under `dir` and return its URL.
     ///
     /// Layout mirrors the structure under `/tmp/gh-epub` (a known-good Echo-authored

@@ -72,6 +72,32 @@ import ZIPFoundation
         }
     }
 
+    private actor VoiceRecorder {
+        private(set) var voices: [VoiceID] = []
+
+        func append(_ voice: VoiceID) {
+            voices.append(voice)
+        }
+    }
+
+    private final class VoiceRecordingEngine: TTSEngine {
+        let recorder: VoiceRecorder
+
+        init(recorder: VoiceRecorder) {
+            self.recorder = recorder
+        }
+
+        func prepare() async throws {}
+
+        func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
+            await recorder.append(voice)
+            return TTSChunk(
+                samples: [Float](repeating: 0.1, count: 4_800),
+                sampleRate: 24_000,
+                duration: 0.2)
+        }
+    }
+
     /// Engine that emits one ChunkWordTiming per whitespace word (0.2s each) so
     /// the run persists known-true `source == "synthesis"` word rows — the rows
     /// the sidecar word export carries. Mirrors
@@ -244,6 +270,135 @@ import ZIPFoundation
         #expect(!invoked)
         #expect(!FileManager.default.fileExists(atPath: audit.path))
         #expect(!FileManager.default.fileExists(atPath: reel.path))
+    }
+
+    @Test func chapterVoiceListSelectsTheVoiceUsedForEachChapter() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let epub = try TestEPUBFixture.twoChapters(in: tmp)
+        let recorder = VoiceRecorder()
+        var config = NarrationRunConfig(
+            epubURL: epub,
+            outM4BURL: tmp.appendingPathComponent("mixed.m4b"),
+            sidecarURL: tmp.appendingPathComponent("mixed.alignment.json"),
+            workDir: tmp.appendingPathComponent("mixed-work"),
+            voice: VoiceID("af_heart"),
+            title: "Mixed",
+            author: "Tester",
+            maxNewChaptersPerRun: nil)
+        config.chapterVoicesByDisplayNumber = [1: VoiceID("af_bella"), 2: VoiceID("bf_emma")]
+        var capturedReviewRequest: PronunciationReviewRequest?
+
+        let result = try await HeadlessNarrationRunner().run(
+            config,
+            tts: VoiceRecordingEngine(recorder: recorder),
+            reviewGenerator: { request in
+                capturedReviewRequest = request
+                return .auditOnly(auditURL: request.auditURL)
+            })
+
+        #expect(result.complete)
+        let voices = await recorder.voices
+        let reviewRequest = try #require(capturedReviewRequest)
+        #expect(voices.contains(VoiceID("af_bella")))
+        #expect(voices.contains(VoiceID("bf_emma")))
+        #expect(voices.first == VoiceID("af_bella"))
+        #expect(voices.last == VoiceID("bf_emma"))
+        #expect(reviewRequest.voice == VoiceID("mixed"))
+        #expect(Set(reviewRequest.chapterVoices.values) == Set(voices))
+    }
+
+    @Test func chapterVoiceListIgnoresNonNarratableSpineItems() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let epub = try TestEPUBFixture.twoNarratableChaptersWithNonNarratableSpineItems(in: tmp)
+        let recorder = VoiceRecorder()
+        var config = NarrationRunConfig(
+            epubURL: epub,
+            outM4BURL: tmp.appendingPathComponent("planned-only.m4b"),
+            sidecarURL: nil,
+            workDir: tmp.appendingPathComponent("planned-only-work"),
+            voice: VoiceID("af_heart"),
+            title: "Planned only",
+            author: "Tester",
+            maxNewChaptersPerRun: nil)
+        config.chapterVoicesByDisplayNumber = [1: VoiceID("af_bella"), 2: VoiceID("bf_emma")]
+        config.generatePronunciationReview = false
+
+        let result = try await HeadlessNarrationRunner().run(
+            config,
+            tts: VoiceRecordingEngine(recorder: recorder))
+
+        #expect(result.complete)
+        #expect(Set(await recorder.voices) == Set([VoiceID("af_bella"), VoiceID("bf_emma")]))
+    }
+
+    @Test func changingChapterVoiceListRejectsExistingCaptures() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let epub = try TestEPUBFixture.twoChapters(in: tmp)
+        var config = NarrationRunConfig(
+            epubURL: epub,
+            outM4BURL: tmp.appendingPathComponent("resume.m4b"),
+            sidecarURL: nil,
+            workDir: tmp.appendingPathComponent("resume-work"),
+            voice: VoiceID("af_heart"),
+            title: "Resume",
+            author: "Tester",
+            maxNewChaptersPerRun: 1)
+        config.chapterVoicesByDisplayNumber = [1: VoiceID("af_bella"), 2: VoiceID("bf_emma")]
+        config.generatePronunciationReview = false
+
+        let first = try await HeadlessNarrationRunner().run(config, tts: StubEngine())
+        #expect(first.complete == false)
+
+        config.chapterVoicesByDisplayNumber = [1: VoiceID("af_bella"), 2: VoiceID("bm_fable")]
+        do {
+            _ = try await HeadlessNarrationRunner().run(config, tts: StubEngine())
+            Issue.record("Expected changed chapter voices to invalidate the existing capture.")
+        } catch {
+            #expect(error.localizedDescription.contains("capture identity mismatch"))
+        }
+    }
+
+    @Test func invalidChapterVoiceDoesNotClearFreshRunArtifacts() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let epub = try TestEPUBFixture.twoChapters(in: tmp)
+        let work = tmp.appendingPathComponent("invalid-work", isDirectory: true)
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        let existingCapture = work.appendingPathComponent(".anchors-ch0.json")
+        let existingAudio = work.appendingPathComponent("existing-ch0.m4a")
+        try Data("capture".utf8).write(to: existingCapture)
+        try Data("audio".utf8).write(to: existingAudio)
+        var config = NarrationRunConfig(
+            epubURL: epub,
+            outM4BURL: tmp.appendingPathComponent("invalid.m4b"),
+            sidecarURL: nil,
+            workDir: work,
+            voice: VoiceID("af_heart"),
+            title: "Invalid",
+            author: "Tester",
+            maxNewChaptersPerRun: nil)
+        config.chapterVoicesByDisplayNumber = [99: VoiceID("bf_emma")]
+        config.clearExistingCapturesBeforeRun = true
+
+        do {
+            _ = try await HeadlessNarrationRunner().run(config, tts: StubEngine())
+            Issue.record("Expected an unknown narrated chapter to be rejected.")
+        } catch {
+            #expect(error.localizedDescription.contains("chapter 99 is not narratable"))
+        }
+        #expect(FileManager.default.fileExists(atPath: existingCapture.path))
+        #expect(FileManager.default.fileExists(atPath: existingAudio.path))
     }
 
     @Test func completedRunReportsInjectedAuditOnlyOutcomeAndSnapshotsWatchWords() async throws {

@@ -279,11 +279,14 @@ nonisolated enum PronunciationAuditCoverage: String, Codable, Equatable, Sendabl
 /// completed narration render. File references deliberately contain names only:
 /// the manifest can move with its sibling audiobook without leaking a local path.
 nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
-    static let currentSchemaVersion = 2
+    static let currentSchemaVersion = 3
 
     let schemaVersion: Int
     let renderVersion: Int
     let voice: String
+    /// Complete raw EPUB chapter-index to voice mapping for mixed-voice runs.
+    /// Empty only for legacy/internal callers that do not supply chapter provenance.
+    let chapterVoices: [String: String]
     let coverage: PronunciationAuditCoverage
     let legacyChapterIndexes: [Int]
     let audiobookFileName: String
@@ -299,6 +302,7 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
     static func make(
         renderVersion: Int,
         voice: VoiceID,
+        chapterVoices: [Int: VoiceID] = [:],
         captureCoverage: PronunciationAuditCoverage,
         legacyChapterIndexes: [Int],
         audiobookURL: URL,
@@ -334,6 +338,10 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
             schemaVersion: currentSchemaVersion,
             renderVersion: renderVersion,
             voice: voice.rawValue,
+            chapterVoices: Dictionary(
+                uniqueKeysWithValues: chapterVoices.map {
+                    (String($0.key), $0.value.rawValue)
+                }),
             coverage: effectiveCoverage,
             legacyChapterIndexes: normalizedLegacyChapterIndexes,
             audiobookFileName: audiobookURL.lastPathComponent,
@@ -389,6 +397,30 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
         guard schemaVersion == Self.currentSchemaVersion else {
             throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
                 "unsupported pronunciation-audit schema \(schemaVersion)")
+        }
+        for (chapterIndex, chapterVoice) in chapterVoices {
+            guard let parsedIndex = Int(chapterIndex),
+                parsedIndex >= 0,
+                String(parsedIndex) == chapterIndex
+            else {
+                throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                    "pronunciation audit contains an invalid chapter voice key")
+            }
+            guard VoiceCatalog.voice(for: VoiceID(chapterVoice)) != nil else {
+                throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                    "pronunciation audit contains an unknown chapter voice")
+            }
+        }
+        let distinctChapterVoices = Set(chapterVoices.values)
+        guard voice != "mixed" || distinctChapterVoices.count > 1 else {
+            throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                "mixed pronunciation audit requires more than one chapter voice")
+        }
+        guard voice == "mixed" || distinctChapterVoices.isEmpty
+            || distinctChapterVoices == Set([voice])
+        else {
+            throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                "uniform pronunciation audit disagrees with chapter voices")
         }
         guard PronunciationArtifactIntegrity.isLowercaseSHA256(audiobookSHA256) else {
             throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
