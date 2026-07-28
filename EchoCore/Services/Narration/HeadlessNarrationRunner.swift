@@ -20,6 +20,9 @@ struct NarrationRunConfig {
     var workDir: URL
     /// Voice to synthesize with.
     var voice: VoiceID
+    /// Optional overrides keyed by the 1-based narrated chapter number shown in
+    /// the outline and final M4B. Chapters without an override use `voice`.
+    var chapterVoicesByDisplayNumber: [Int: VoiceID] = [:]
     /// Book title embedded in the .m4b metadata.
     var title: String
     /// Author embedded in the .m4b metadata.
@@ -141,6 +144,7 @@ struct NarrationRunResult {
         case noSourceImported(String)
         case noBlocksImported(String)
         case captureIdentity(String)
+        case chapterVoice(String)
         case runLease(String)
 
         var errorDescription: String? {
@@ -155,6 +159,8 @@ struct NarrationRunResult {
                 return "No readable text blocks were produced for \(name)."
             case .captureIdentity(let detail):
                 return "Narration capture identity mismatch: \(detail)"
+            case .chapterVoice(let detail):
+                return "Invalid chapter voice assignment: \(detail)"
             case .runLease(let detail):
                 return "Narration run lease unavailable: \(detail)"
             }
@@ -409,6 +415,57 @@ struct NarrationRunResult {
                 "normalization=\(normalizationMode)",
                 "chapter-count=\(orderedChapterSignatures.count)",
             ] + orderedChapterSignatures)
+    }
+
+    static func captureSetID(
+        sourceFingerprint: String,
+        orderedChapterVoices: [String],
+        renderVersion: Int,
+        rendererIdentity: String,
+        normalizationMode: String,
+        orderedChapterSignatures: [String]
+    ) -> String {
+        sha256Hex(
+            framed: [
+                "capture-schema=\(chapterCaptureSchemaVersion)",
+                "source=\(sourceFingerprint)",
+                "voice-plan-count=\(orderedChapterVoices.count)",
+            ] + orderedChapterVoices + [
+                "render-version=\(renderVersion)",
+                "renderer=\(rendererIdentity)",
+                "normalization=\(normalizationMode)",
+                "chapter-count=\(orderedChapterSignatures.count)",
+            ] + orderedChapterSignatures)
+    }
+
+    static func resolvedChapterVoices(
+        defaultVoice: VoiceID,
+        overridesByDisplayNumber: [Int: VoiceID],
+        plannedChapters: [NarrationChapterPlanner.PlannedChapter]
+    ) throws -> [Int: VoiceID] {
+        var chapterIndexByDisplayNumber: [Int: Int] = [:]
+        for chapter in plannedChapters {
+            guard chapterIndexByDisplayNumber[chapter.displayNumber] == nil else {
+                throw NarrationRunError.chapterVoice(
+                    "chapter \(chapter.displayNumber) is ambiguous")
+            }
+            chapterIndexByDisplayNumber[chapter.displayNumber] = chapter.index
+        }
+        let unknown = overridesByDisplayNumber.keys.filter {
+            chapterIndexByDisplayNumber[$0] == nil
+        }.sorted()
+        guard unknown.isEmpty else {
+            throw NarrationRunError.chapterVoice(
+                "chapter \(unknown.map(String.init).joined(separator: ", ")) is not narratable")
+        }
+        var resolved = Dictionary(
+            uniqueKeysWithValues: plannedChapters.map { ($0.index, defaultVoice) })
+        for (displayNumber, voice) in overridesByDisplayNumber {
+            if let chapterIndex = chapterIndexByDisplayNumber[displayNumber] {
+                resolved[chapterIndex] = voice
+            }
+        }
+        return resolved
     }
 
     /// Validates a capture before it can affect cleanup, resume, export, or
@@ -1047,24 +1104,6 @@ struct NarrationRunResult {
 
         // Ensure work directory exists.
         try fm.createDirectory(at: config.workDir, withIntermediateDirectories: true)
-        if config.clearExistingCapturesBeforeRun {
-            for url in try fm.contentsOfDirectory(
-                at: config.workDir,
-                includingPropertiesForKeys: nil)
-            where url.lastPathComponent.hasPrefix(".anchors-ch") || url.pathExtension == "m4a" {
-                try fm.removeItem(at: url)
-            }
-            let outputStem = config.outM4BURL.deletingPathExtension()
-            let priorFinalArtifacts = [
-                config.outM4BURL,
-                config.sidecarURL,
-                outputStem.appendingPathExtension("pronunciation-audit.json"),
-                outputStem.appendingPathExtension("pronunciation-reel.m4b"),
-            ].compactMap { $0 }
-            for url in priorFinalArtifacts {
-                try PronunciationReviewArtifactGenerator.removeIfPresent(url)
-            }
-        }
 
         // 1. Import source (EPUB/PDF) → blocks with chapter indices.
         progress(.importing)
@@ -1090,13 +1129,35 @@ struct NarrationRunResult {
                 "source changed while it was being imported")
         }
 
-        let byChapter = Dictionary(
-            grouping: blocks.filter { $0.chapterIndex != nil },
-            by: { $0.chapterIndex! })
         let plannedChapters = NarrationChapterPlanner.plan(from: blocks)
         let plannedByChapterIndex = Dictionary(
             uniqueKeysWithValues: plannedChapters.map { ($0.index, $0) })
-        let chapterIndices = byChapter.keys.sorted()
+        let chapterIndices = plannedChapters.map(\.index)
+        let voiceByChapterIndex = try Self.resolvedChapterVoices(
+            defaultVoice: config.voice,
+            overridesByDisplayNumber: config.chapterVoicesByDisplayNumber,
+            plannedChapters: plannedChapters)
+
+        // Validate the full chapter-voice plan before a fresh run removes any
+        // resumable captures or accepted final artifacts.
+        if config.clearExistingCapturesBeforeRun {
+            for url in try fm.contentsOfDirectory(
+                at: config.workDir,
+                includingPropertiesForKeys: nil)
+            where url.lastPathComponent.hasPrefix(".anchors-ch") || url.pathExtension == "m4a" {
+                try fm.removeItem(at: url)
+            }
+            let outputStem = config.outM4BURL.deletingPathExtension()
+            let priorFinalArtifacts = [
+                config.outM4BURL,
+                config.sidecarURL,
+                outputStem.appendingPathExtension("pronunciation-audit.json"),
+                outputStem.appendingPathExtension("pronunciation-reel.m4b"),
+            ].compactMap { $0 }
+            for url in priorFinalArtifacts {
+                try PronunciationReviewArtifactGenerator.removeIfPresent(url)
+            }
+        }
 
         // Freeze every input that controls pronunciation and cache naming once.
         // Expected capture identities and all workers then consume the same
@@ -1109,9 +1170,7 @@ struct NarrationRunResult {
         let sourceFingerprint = sourceFingerprintBeforeImport
         let chapterContentSignatures = Dictionary(
             uniqueKeysWithValues: chapterIndices.map { chapterIndex in
-                let chapterBlocks = byChapter[chapterIndex]!.sorted {
-                    $0.sequenceIndex < $1.sequenceIndex
-                }
+                let chapterBlocks = plannedByChapterIndex[chapterIndex]!.blocks
                 return (
                     chapterIndex,
                     NarrationService.contentSignature(
@@ -1122,22 +1181,39 @@ struct NarrationRunResult {
                         normalizationMode: normalizationMode)
                 )
             })
-        let captureSetID = Self.captureSetID(
-            sourceFingerprint: sourceFingerprint,
-            voice: config.voice,
-            renderVersion: NarrationFileNaming.renderVersion,
-            rendererIdentity: NarrationFileNaming.rendererIdentity,
-            normalizationMode: normalizationMode,
-            orderedChapterSignatures: chapterIndices.map {
-                "\($0):\(chapterContentSignatures[$0]!)"
-            })
+        let orderedVoices = chapterIndices.map { chapterIndex in
+            "\(chapterIndex):\((voiceByChapterIndex[chapterIndex] ?? config.voice).rawValue)"
+        }
+        let uniqueVoices = Set(voiceByChapterIndex.values)
+        let uniformVoice = uniqueVoices.count == 1 ? uniqueVoices.first : nil
+        let captureSetID =
+            uniformVoice != nil
+            ? Self.captureSetID(
+                sourceFingerprint: sourceFingerprint,
+                voice: uniformVoice ?? config.voice,
+                renderVersion: NarrationFileNaming.renderVersion,
+                rendererIdentity: NarrationFileNaming.rendererIdentity,
+                normalizationMode: normalizationMode,
+                orderedChapterSignatures: chapterIndices.map {
+                    "\($0):\(chapterContentSignatures[$0]!)"
+                })
+            : Self.captureSetID(
+                sourceFingerprint: sourceFingerprint,
+                orderedChapterVoices: orderedVoices,
+                renderVersion: NarrationFileNaming.renderVersion,
+                rendererIdentity: NarrationFileNaming.rendererIdentity,
+                normalizationMode: normalizationMode,
+                orderedChapterSignatures: chapterIndices.map {
+                    "\($0):\(chapterContentSignatures[$0]!)"
+                })
         let expectedCaptureByChapterIndex = Dictionary(
             uniqueKeysWithValues: chapterIndices.map { chapterIndex in
                 let signature = chapterContentSignatures[chapterIndex]!
+                let chapterVoice = voiceByChapterIndex[chapterIndex] ?? config.voice
                 let audioFileName = NarrationFileNaming.chapterFileName(
                     audiobookID: audiobookID,
                     chapterIndex: chapterIndex,
-                    voice: config.voice,
+                    voice: chapterVoice,
                     contentSignature: signature)
                 return (
                     chapterIndex,
@@ -1145,7 +1221,7 @@ struct NarrationRunResult {
                         schemaVersion: Self.chapterCaptureSchemaVersion,
                         captureSetID: captureSetID,
                         sourceFingerprint: sourceFingerprint,
-                        voice: config.voice,
+                        voice: chapterVoice,
                         renderVersion: NarrationFileNaming.renderVersion,
                         rendererIdentity: NarrationFileNaming.rendererIdentity,
                         normalizationMode: normalizationMode,
@@ -1237,8 +1313,9 @@ struct NarrationRunResult {
                 let displayNumber =
                     plannedByChapterIndex[idx]?.displayNumber
                     ?? ((chapterIndices.firstIndex(of: idx) ?? 0) + 1)
-                let chapterBlocks = byChapter[idx]!.sorted { $0.sequenceIndex < $1.sequenceIndex }
+                let chapterBlocks = plannedByChapterIndex[idx]!.blocks
                 let chapterTitle = plannedByChapterIndex[idx]?.title
+                let chapterVoice = voiceByChapterIndex[idx] ?? config.voice
                 guard let expectedCapture = expectedCaptureByChapterIndex[idx] else {
                     throw NarrationRunError.captureIdentity(
                         "chapter \(idx) has no expected capture identity")
@@ -1246,7 +1323,7 @@ struct NarrationRunResult {
 
                 let rendered = try await svc.renderChapter(
                     chapterIndex: idx, chapterNumber: displayNumber,
-                    blocks: chapterBlocks, voice: config.voice, chapterTitle: chapterTitle
+                    blocks: chapterBlocks, voice: chapterVoice, chapterTitle: chapterTitle
                 ) { _, blockFraction in
                     cursor.inflight[worker] = blockFraction
                     emitChapterProgress()
@@ -1464,7 +1541,8 @@ struct NarrationRunResult {
                         auditURL: auditURL,
                         reelURL: reelURL,
                         renderVersion: NarrationFileNaming.renderVersion,
-                        voice: config.voice,
+                        voice: uniformVoice ?? VoiceID("mixed"),
+                        chapterVoices: voiceByChapterIndex,
                         captureCoverage: pronunciationEvidence.coverage,
                         legacyChapterIndexes: pronunciationEvidence.legacyChapterIndexes,
                         decisions: pronunciationEvidence.decisions,

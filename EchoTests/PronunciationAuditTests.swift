@@ -60,7 +60,7 @@ import Testing
             decisions: [first, second],
             diagnostics: [])
 
-        #expect(manifest.schemaVersion == 2)
+        #expect(manifest.schemaVersion == 3)
         #expect(manifest.renderVersion == 11)
         #expect(manifest.voice == "af_heart")
         #expect(manifest.coverage == .complete)
@@ -75,6 +75,58 @@ import Testing
         #expect(manifest.decisions[0].bookRelativeAudioRange == .init(start: 1, end: 1.4))
         #expect(manifest.decisions[0].kokoroTokenIDs == [11, 22, 33])
         #expect(manifest.diagnostics.isEmpty)
+    }
+
+    @Test func mixedVoiceManifestPreservesCompleteChapterProvenance() throws {
+        let manifest = PronunciationAuditManifest.make(
+            renderVersion: 15,
+            voice: VoiceID("mixed"),
+            chapterVoices: [0: VoiceID("af_heart"), 4: VoiceID("bf_emma")],
+            captureCoverage: .complete,
+            legacyChapterIndexes: [],
+            audiobookURL: URL(fileURLWithPath: "/tmp/voice-sampler.m4b"),
+            reelURL: nil,
+            audiobookSHA256: String(repeating: "a", count: 64),
+            listeningReelSHA256: nil,
+            watchWords: [],
+            decisions: [],
+            diagnostics: [])
+
+        #expect(manifest.voice == "mixed")
+        #expect(manifest.chapterVoices == ["0": "af_heart", "4": "bf_emma"])
+        #expect(throws: Never.self) { _ = try manifest.encoded() }
+    }
+
+    @Test func manifestRejectsMalformedChapterVoiceProvenance() throws {
+        let valid = PronunciationAuditManifest.make(
+            renderVersion: 15,
+            voice: VoiceID("mixed"),
+            chapterVoices: [0: VoiceID("af_heart"), 4: VoiceID("bf_emma")],
+            captureCoverage: .complete,
+            legacyChapterIndexes: [],
+            audiobookURL: URL(fileURLWithPath: "/tmp/voice-sampler.m4b"),
+            reelURL: nil,
+            audiobookSHA256: String(repeating: "a", count: 64),
+            listeningReelSHA256: nil,
+            watchWords: [],
+            decisions: [],
+            diagnostics: [])
+        let validObject = try #require(
+            JSONSerialization.jsonObject(with: valid.encoded()) as? [String: Any])
+
+        for malformedVoices in [
+            ["-1": "af_heart", "4": "bf_emma"],
+            ["01": "af_heart", "4": "bf_emma"],
+            ["chapter-one": "af_heart", "4": "bf_emma"],
+            ["0": "not_a_voice", "4": "bf_emma"],
+        ] {
+            var object = validObject
+            object["chapterVoices"] = malformedVoices
+            let decoded = try JSONDecoder().decode(
+                PronunciationAuditManifest.self,
+                from: JSONSerialization.data(withJSONObject: object))
+            #expect(throws: (any Error).self) { _ = try decoded.encoded() }
+        }
     }
 
     @Test func manifestCountsDecisionsOutsideConfiguredWatchVocabulary() {

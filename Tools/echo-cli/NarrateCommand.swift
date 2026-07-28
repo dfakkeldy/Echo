@@ -24,6 +24,11 @@ struct NarrateCommand: AsyncParsableCommand {
     @Option(help: "Output .m4b path.") var out: String
     @Option(help: "Sidecar .alignment.json path (optional).") var sidecar: String?
     @Option(help: "Kokoro voice id.") var voice: String = "af_heart"
+    @Option(
+        name: .customLong("chapter-voice"),
+        help:
+            "Override one 1-based narrated chapter, as N=voice_id. Repeat for additional chapters.")
+    var chapterVoice: [String] = []
     @Option(help: "Book title (m4b metadata).") var title: String
     @Option(help: "Book author (m4b metadata).") var author: String
     @Option(help: "Square artwork image to embed instead of the EPUB/PDF cover.")
@@ -54,6 +59,7 @@ struct NarrateCommand: AsyncParsableCommand {
         let coverArtData = try cover.map {
             try NarrationCoverOverride.load(from: URL(fileURLWithPath: $0))
         }
+        let chapterVoiceAssignments = try ChapterVoiceAssignments(arguments: chapterVoice)
         let work =
             workDir.map { URL(fileURLWithPath: $0, isDirectory: true) }
             ?? outURL.deletingLastPathComponent()
@@ -93,6 +99,7 @@ struct NarrateCommand: AsyncParsableCommand {
             sidecarURL: sidecar.map { URL(fileURLWithPath: $0) },
             workDir: work,
             voice: VoiceID(voice),
+            chapterVoicesByDisplayNumber: chapterVoiceAssignments.byDisplayNumber,
             title: title,
             author: author,
             coverArtData: coverArtData,

@@ -21,6 +21,32 @@ import Testing
         }
     }
 
+    private actor VoiceRecorder {
+        private(set) var voices: Set<VoiceID> = []
+
+        func record(_ voice: VoiceID) {
+            voices.insert(voice)
+        }
+    }
+
+    private final class VoiceRecordingEngine: TTSEngine {
+        let recorder: VoiceRecorder
+
+        init(recorder: VoiceRecorder) {
+            self.recorder = recorder
+        }
+
+        func prepare() async throws {}
+
+        func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
+            await recorder.record(voice)
+            return TTSChunk(
+                samples: [Float](repeating: 0.1, count: 4_800),
+                sampleRate: 24_000,
+                duration: 0.2)
+        }
+    }
+
     private func makeConfig(
         epub: URL, tmp: URL, stem: String, jobs: Int, maxChapters: Int? = nil
     ) -> NarrationRunConfig {
@@ -147,5 +173,37 @@ import Testing
         #expect(
             HeadlessNarrationRunner.prepareFraction(.compilingModels(done: 1, total: 1)) == 1.0)
         #expect(HeadlessNarrationRunner.prepareFraction(.ready) == 1.0)
+    }
+
+    @Test func parallelWorkersPreserveMixedChapterVoices() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let epub = try TestEPUBFixture.chapters(4, in: tmp)
+        var config = makeConfig(epub: epub, tmp: tmp, stem: "mixed", jobs: 3)
+        config.chapterVoicesByDisplayNumber = [
+            1: VoiceID("af_heart"),
+            2: VoiceID("am_michael"),
+            3: VoiceID("bf_emma"),
+            4: VoiceID("bm_fable"),
+        ]
+        config.generatePronunciationReview = false
+        let recorder = VoiceRecorder()
+
+        let result = try await HeadlessNarrationRunner().run(
+            config,
+            ttsFactory: { VoiceRecordingEngine(recorder: recorder) })
+
+        #expect(result.complete)
+        #expect(
+            await recorder.voices
+                == Set([
+                    VoiceID("af_heart"),
+                    VoiceID("am_michael"),
+                    VoiceID("bf_emma"),
+                    VoiceID("bm_fable"),
+                ]))
     }
 }

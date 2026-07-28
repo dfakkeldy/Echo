@@ -66,6 +66,7 @@ _REQUIRED_NARRATE_CAPABILITIES = (
     "--cover",
     "--sidecar",
     "--voice",
+    "--chapter-voice",
     "--db",
     "--work-dir",
     "--jobs",

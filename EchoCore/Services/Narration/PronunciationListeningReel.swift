@@ -71,11 +71,38 @@ nonisolated struct PronunciationReviewRequest: Equatable, Sendable {
     let reelURL: URL
     let renderVersion: Int
     let voice: VoiceID
+    let chapterVoices: [Int: VoiceID]
     let captureCoverage: PronunciationAuditCoverage
     let legacyChapterIndexes: [Int]
     let decisions: [PronunciationAuditDecision]
     let diagnostics: [PronunciationAuditDiagnostic]
     let watchWords: [String]
+
+    init(
+        audiobookURL: URL,
+        auditURL: URL,
+        reelURL: URL,
+        renderVersion: Int,
+        voice: VoiceID,
+        chapterVoices: [Int: VoiceID] = [:],
+        captureCoverage: PronunciationAuditCoverage,
+        legacyChapterIndexes: [Int],
+        decisions: [PronunciationAuditDecision],
+        diagnostics: [PronunciationAuditDiagnostic],
+        watchWords: [String]
+    ) {
+        self.audiobookURL = audiobookURL
+        self.auditURL = auditURL
+        self.reelURL = reelURL
+        self.renderVersion = renderVersion
+        self.voice = voice
+        self.chapterVoices = chapterVoices
+        self.captureCoverage = captureCoverage
+        self.legacyChapterIndexes = legacyChapterIndexes
+        self.decisions = decisions
+        self.diagnostics = diagnostics
+        self.watchWords = watchWords
+    }
 }
 
 /// Pure conversion from timed audit decisions to slices of the final audiobook.
@@ -259,6 +286,7 @@ nonisolated enum PronunciationListeningReel {
         PronunciationAuditManifest.make(
             renderVersion: request.renderVersion,
             voice: request.voice,
+            chapterVoices: request.chapterVoices,
             captureCoverage: request.captureCoverage,
             legacyChapterIndexes: request.legacyChapterIndexes,
             audiobookURL: request.audiobookURL,
