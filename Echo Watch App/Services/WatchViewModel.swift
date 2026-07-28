@@ -1230,6 +1230,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     }
 
     func appWillEnterForeground() {
+        updatePlaybackTimer()
         guard pomodoroActive else { return }
 
         if let lastTick = lastPomodoroTick {

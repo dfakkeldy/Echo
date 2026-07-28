@@ -101,6 +101,31 @@ struct Echo_Watch_AppTests {
         #expect(viewModel.progressFraction == 0.5)
     }
 
+    @MainActor
+    @Test func foregroundResumeRestartsProgressFromPersistedPlayingState() async throws {
+        let (defaults, suiteName) = try Self.testDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "isPlaying")
+        defaults.set(120.0, forKey: "currentTime")
+        defaults.set(0.5, forKey: "progressFraction")
+        defaults.set(240.0, forKey: "chapterDuration")
+        defaults.set(1_200.0, forKey: "totalBookDuration")
+
+        let viewModel = WatchViewModel(defaults: defaults)
+        defer {
+            viewModel.isPlaying = false
+            viewModel.appWillEnterForeground()
+        }
+        let initialTime = viewModel.currentTime
+        let initialProgress = viewModel.progressFraction
+
+        viewModel.appWillEnterForeground()
+        try await Task.sleep(for: .milliseconds(650))
+
+        #expect(viewModel.currentTime > initialTime)
+        #expect(viewModel.progressFraction > initialProgress)
+    }
+
     @Test func snapshotRecencyRejectsOlderEqualAndLegacyFullState() {
         var policy = WatchStateRecencyPolicy()
 
