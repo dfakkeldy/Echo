@@ -27,7 +27,8 @@ enum EPUBImportCoordinator {
             switch self {
             case .sourceUnavailable(let url, let underlying):
                 if let underlying {
-                    return "Could not read \(url.lastPathComponent): \(underlying.localizedDescription)"
+                    return
+                        "Could not read \(url.lastPathComponent): \(underlying.localizedDescription)"
                 }
                 return "Could not read \(url.lastPathComponent)."
             case .targetUnavailable(let url, let underlying):
@@ -38,12 +39,15 @@ enum EPUBImportCoordinator {
             case .folderCleanupFailed(_, let underlying):
                 return "Could not prepare the book folder: \(underlying.localizedDescription)"
             case .copyFailed(let source, _, let underlying):
-                return "Could not copy \(source.lastPathComponent): \(underlying.localizedDescription)"
+                return
+                    "Could not copy \(source.lastPathComponent): \(underlying.localizedDescription)"
             case .databaseCleanupFailed(_, let underlying):
-                return "Could not clear the previous document import: \(underlying.localizedDescription)"
+                return
+                    "Could not clear the previous document import: \(underlying.localizedDescription)"
             case .scannerFailed(let url, let underlying):
                 if let underlying {
-                    return "Echo copied \(url.lastPathComponent), but could not read its EPUB contents: \(underlying.localizedDescription)"
+                    return
+                        "Echo copied \(url.lastPathComponent), but could not read its EPUB contents: \(underlying.localizedDescription)"
                 }
                 return "Echo copied \(url.lastPathComponent), but could not read its EPUB contents."
             }
@@ -60,7 +64,10 @@ enum EPUBImportCoordinator {
         databaseService: DatabaseService,
         chapters: [Chapter],
         duration: TimeInterval?,
-        audiobookID explicitAudiobookID: String? = nil
+        audiobookID explicitAudiobookID: String? = nil,
+        networkPolicy: DocumentImportNetworkPolicy = .standard,
+        networkRequestObserver:
+            (@Sendable (DocumentImportNetworkRequest) -> Void)? = nil
     ) async throws -> ImportResult {
         let didStartSource = sourceURL.startAccessingSecurityScopedResource()
         defer { if didStartSource { sourceURL.stopAccessingSecurityScopedResource() } }
@@ -71,11 +78,14 @@ enum EPUBImportCoordinator {
         try validateReadableSource(sourceURL)
 
         var isDir: ObjCBool = false
-        let targetFolder = FileManager.default.fileExists(atPath: folderURL.path, isDirectory: &isDir) && isDir.boolValue
+        let targetFolder =
+            FileManager.default.fileExists(atPath: folderURL.path, isDirectory: &isDir)
+                && isDir.boolValue
             ? folderURL
             : folderURL.deletingLastPathComponent()
 
-        let didStartTarget = targetFolder != folderURL ? targetFolder.startAccessingSecurityScopedResource() : false
+        let didStartTarget =
+            targetFolder != folderURL ? targetFolder.startAccessingSecurityScopedResource() : false
         defer { if didStartTarget { targetFolder.stopAccessingSecurityScopedResource() } }
 
         try validateTargetFolder(targetFolder)
@@ -103,7 +113,9 @@ enum EPUBImportCoordinator {
             chapters: chapters,
             duration: duration,
             force: true,
-            finalizerFileURL: destinationURL
+            finalizerFileURL: destinationURL,
+            networkPolicy: networkPolicy,
+            networkRequestObserver: networkRequestObserver
         )
         switch importOutcome {
         case .imported, .alreadyImported:
@@ -163,7 +175,8 @@ enum EPUBImportCoordinator {
     private static func stagingURL(in targetFolder: URL, basedOn sourceURL: URL) -> URL {
         let base = sourceURL.deletingPathExtension().lastPathComponent
         let ext = sourceURL.pathExtension
-        return targetFolder
+        return
+            targetFolder
             .appendingPathComponent("\(base).echo-import-\(UUID().uuidString)")
             .appendingPathExtension(ext)
     }
@@ -172,7 +185,9 @@ enum EPUBImportCoordinator {
         var copyError: Error?
         let coordinator = NSFileCoordinator()
         var coordinatorError: NSError?
-        coordinator.coordinate(readingItemAt: sourceURL, options: .withoutChanges, error: &coordinatorError) { url in
+        coordinator.coordinate(
+            readingItemAt: sourceURL, options: .withoutChanges, error: &coordinatorError
+        ) { url in
             do {
                 try FileManager.default.copyItem(at: url, to: destinationURL)
             } catch {
@@ -204,7 +219,9 @@ enum EPUBImportCoordinator {
                 sourceKind: "EPUB"
             )
         } catch {
-            logger.error("EPUB import succeeded, but stale companion cleanup failed: \(error.localizedDescription)")
+            logger.error(
+                "EPUB import succeeded, but stale companion cleanup failed: \(error.localizedDescription)"
+            )
         }
 
         guard shouldMoveStagedFile else { return importURL }
@@ -236,7 +253,8 @@ enum EPUBImportCoordinator {
                 }
             }
         } catch {
-            logger.error("Failed to prepare folder for \(sourceKind) import: \(error.localizedDescription)")
+            logger.error(
+                "Failed to prepare folder for \(sourceKind) import: \(error.localizedDescription)")
             throw ImportError.folderCleanupFailed(targetFolder, underlying: error)
         }
     }

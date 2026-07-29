@@ -12,6 +12,8 @@
         let onAddFolder: () -> Void
         let onConnectServer: () -> Void
         private let anthologyService: AnthologyService
+        private let anthologyBuildService: AnthologyBuildService
+        private let openBook: (LibraryOpenTarget) -> Void
 
         init(
             db: DatabaseService,
@@ -34,6 +36,11 @@
                 initialValue: AnthologyListViewModel(service: anthologyService)
             )
             self.anthologyService = anthologyService
+            self.anthologyBuildService = AnthologyBuildService(
+                workshopRoot: articleFileStore.root,
+                anthologyService: anthologyService,
+                databaseService: db)
+            self.openBook = openBook
             self.onAddFolder = onAddFolder
             self.onConnectServer = onConnectServer
         }
@@ -115,7 +122,7 @@
             .task(id: mode) {
                 switch mode {
                 case .books:
-                    return
+                    vm.reload()
                 case .inbox:
                     await articleInboxViewModel.reload()
                 case .anthologies:
@@ -214,6 +221,8 @@
             AnthologyListView(
                 viewModel: anthologyListViewModel,
                 service: anthologyService,
+                buildService: anthologyBuildService,
+                openBook: openBook,
                 cleanupContext: articleInboxViewModel.cleanupContext)
         }
     }

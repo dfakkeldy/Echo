@@ -5,6 +5,8 @@
     struct AnthologyListView: View {
         let viewModel: AnthologyListViewModel
         let service: AnthologyService
+        let buildService: AnthologyBuildService
+        let openBook: (LibraryOpenTarget) -> Void
         let cleanupContext: ArticleCleanupContext?
 
         var body: some View {
@@ -23,6 +25,8 @@
                             AnthologyDetailView(
                                 anthologyID: anthology.id,
                                 service: service,
+                                buildService: buildService,
+                                openBook: openBook,
                                 cleanupContext: cleanupContext)
                         } label: {
                             VStack(alignment: .leading, spacing: 4) {
