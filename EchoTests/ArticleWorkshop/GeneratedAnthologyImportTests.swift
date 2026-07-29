@@ -216,11 +216,14 @@ struct GeneratedAnthologyImportTests {
             let removed = try EPubBlockRecord.fetchOne(database, key: removedID)
             let removedDerived = try Self.derivedCount(database, blockID: removedID)
             let note = try NoteRecord.fetchOne(database, key: "note-removed")
+            let bookmark = try BookmarkRecord.fetchOne(
+                database, key: "bookmark-generated")
             let other = try EPubBlockRecord.fetchOne(
                 database, key: "epub-other-book-s21-b1005")
             #expect(removed == nil)
             #expect(removedDerived == 0)
             #expect(note != nil)
+            #expect(bookmark != nil)
             #expect(other != nil)
         }
     }
@@ -539,6 +542,24 @@ struct GeneratedAnthologyImportTests {
             modifiedAt: "2026-07-28T00:00:00Z",
             epubBlockID: removedID)
         try note.insert(database)
+        var bookmark = BookmarkRecord(
+            id: "bookmark-generated",
+            audiobookID: audiobookID,
+            trackID: nil,
+            title: "Keep this bookmark",
+            mediaTimestamp: 1,
+            note: nil,
+            voiceMemoPath: nil,
+            imagePath: nil,
+            isEnabled: true,
+            playlistPosition: nil,
+            pdfViewStateJSON: nil,
+            latitude: nil,
+            longitude: nil,
+            placeName: nil,
+            createdAt: "2026-07-28T00:00:00Z",
+            modifiedAt: "2026-07-28T00:00:00Z")
+        try bookmark.insert(database)
     }
 
     nonisolated private static func seedDerivedRows(

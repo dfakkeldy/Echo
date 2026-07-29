@@ -645,7 +645,12 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             captureEchoAttributes(attributeDict)
             isInPre = true
             currentCodeText = ""
-            currentCodeLanguage = Self.codeLanguage(fromClassAttribute: attributeDict["class"])
+            let classLanguage = Self.codeLanguage(
+                fromClassAttribute: attributeDict["class"])
+            currentCodeLanguage =
+                captureEchoMetadata
+                ? attributeDict["data-code-language"] ?? classLanguage
+                : classLanguage
             return
         }
 

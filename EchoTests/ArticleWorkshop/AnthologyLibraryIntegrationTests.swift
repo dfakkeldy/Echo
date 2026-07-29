@@ -121,6 +121,29 @@ struct AnthologyLibraryIntegrationTests {
 
 @MainActor
 @Suite(.serialized)
+struct AnthologyGeneratedCodeLanguageIntegrationTests {
+    @Test func generatedCodeLanguageRoundTripsThroughBuilderPreflightAndImport() async throws {
+        let fixture = try AnthologyLibraryIntegrationFixture()
+        defer { fixture.removeFiles() }
+
+        let receipt = try await fixture.service(
+            manifest: fixture.manifestWithCodeBlock()
+        ).build(anthologyID: fixture.anthologyID.uuidString)
+
+        #expect(receipt.audiobookID == fixture.audiobookID)
+        let codeBlock = try #require(
+            try fixture.importedBlocks().first {
+                $0.id == "epub-\(fixture.audiobookID)-s0-b1002"
+            })
+        #expect(codeBlock.blockKind == EPubBlockRecord.Kind.code.rawValue)
+        #expect(codeBlock.text == "let answer = 42")
+        #expect(codeBlock.codeLanguage == "swift")
+        #expect(codeBlock.narrationText == "Code listing.")
+    }
+}
+
+@MainActor
+@Suite(.serialized)
 struct AnthologyLibraryRollbackIntegrationTests {
     @Test func rollbackSnapshotCaptureLimitFailsBeforeMutationWithoutRecoveryError() async throws {
         let fixture = try AnthologyLibraryIntegrationFixture()
@@ -394,6 +417,49 @@ private struct AnthologyLibraryIntegrationFixture {
             coverPath: manifest.coverPath,
             modifiedAt: manifest.modifiedAt.addingTimeInterval(1),
             chapters: [replacementChapter])
+    }
+
+    func manifestWithCodeBlock() -> AnthologyBuildManifest {
+        let prior = manifest.chapters[0]
+        let blocks =
+            prior.blocks + [
+                ArticleBlock(
+                    id: "coordinator-code",
+                    stableOrdinal: 2,
+                    kind: .code,
+                    text: "let answer = 42",
+                    sourceURL: nil,
+                    imageCandidateURL: nil,
+                    caption: nil,
+                    codeLanguage: "swift")
+            ]
+        let chapter = AnthologyChapterManifest(
+            entryID: prior.entryID,
+            captureID: prior.captureID,
+            articleRevisionID: prior.articleRevisionID,
+            stableSlot: prior.stableSlot,
+            order: prior.order,
+            title: prior.title,
+            author: prior.author,
+            siteName: prior.siteName,
+            sourceURL: prior.sourceURL,
+            capturedAt: prior.capturedAt,
+            voiceID: prior.voiceID,
+            blocks: blocks,
+            readableContentSHA256: ArticleWorkshopDigest.readableContent(
+                blocks: blocks))
+        return AnthologyBuildManifest(
+            schemaVersion: manifest.schemaVersion,
+            anthologyID: manifest.anthologyID,
+            revision: manifest.revision,
+            epubIdentifier: manifest.epubIdentifier,
+            title: manifest.title,
+            subtitle: manifest.subtitle,
+            creator: manifest.creator,
+            language: manifest.language,
+            coverPath: manifest.coverPath,
+            modifiedAt: manifest.modifiedAt,
+            chapters: [chapter])
     }
 
     func importedBlockCount() throws -> Int {

@@ -74,6 +74,18 @@ Task 12 now distinguishes generated import attempt from commit:
   was incorrectly reported as `library_recovery_failed`. Explicit committed
   state fixed it. The paired restore-validation test proves that a genuinely
   failed exact snapshot recovery still reports `library_recovery_failed`.
+- Exact-SHA specification and adversarial review of `deb22537` found one
+  confirmed defect: generated code blocks wrote `data-code-language`, but the
+  trusted parser read only CSS language classes and rejected a valid generated
+  EPUB with a non-nil language. A real builder-to-preflight-to-import integration
+  test failed with `buildFailed` before the production change, then passed after
+  trusted parsing began consuming `data-code-language`.
+- The code-language attribute remains capability-gated. Generic parsing ignores
+  a forged `data-code-language` attribute, while the trusted in-memory identity
+  still validates the exact expected language.
+- Reconcile coverage now seeds and asserts a real audiobook bookmark as well as
+  the block-linked note, making preservation of both user-owned record types
+  explicit.
 
 ## Verification
 
@@ -83,6 +95,8 @@ Task 12 now distinguishes generated import attempt from commit:
   cases after parameter expansion.
 - Generic parser parity: 3/3 passed.
 - Generic importer: 6/6 passed.
+- Generic code parser: 12/12 passed, including the forged Echo-only language
+  attribute regression.
 - Task 11 builder: 6/6 passed.
 - Task 11 preflight: 5 declared tests passed, with 24 executable cases including
   the 20-case hostile archive matrix.
@@ -90,34 +104,41 @@ Task 12 now distinguishes generated import attempt from commit:
   failure/mismatch expansion.
 - Real generated library integration: 2/2 passed, including exact 7-to-6-to-7
   prior-edition restoration and zero observed network requests.
+- Real generated code-language integration: 1/1 passed through the production
+  builder, preflight, trusted import, and reconcile path; all 8 generated EPUB
+  blocks imported and `swift` plus `Code listing.` round-tripped.
 - Snapshot capture/restore classification integration: 2/2 passed.
-- Final combined affected matrix: 140 declared tests in 20 suites passed with
+- Final post-review combined affected matrix: 134 declared tests in 21 suites
+  passed with
   zero failures. Parameterized failure/hostile matrices expanded beyond that
   declared count. It included migration, generated reconcile, generic
   parser/import, coordinator/scanner/finalizer, TOC/front matter/code/text/XML
   structure, assets, archive path safety, DAO, Task 11, and Task 12 coverage.
-- After formatting, the final focused matrix reran 43 declared tests in 7 suites
-  (66 cases after parameter expansion) covering V38, generated reconcile,
-  generic parser/import, Task 12 service, and both real integration suites; all
-  passed.
+- After formatting, the final focused matrix ran 47 declared tests in 7 suites
+  covering V38, generated reconcile, Task 12 service, code parsing, both prior
+  real integration suites, and the new code-language integration; all passed.
+- The actual generic parser/import suites then reran 9/9 in 2 suites.
 - Strict Swift format lint on every changed Swift file: passed.
 - `git diff --check`: passed.
 - Changed-production privacy scan found no networking API, literal endpoint,
   CloudKit, `UserDefaults`, credential/token/secret, or developer-machine path.
 - Protected narration, project, and architecture file diff: empty.
 
-One simulator attempt was killed before the new rollback classification suite
-established its test connection while another task was concurrently using
-simulator resources. It is recorded as unavailable, not passing or failing. The
-immediate executable retry passed 2/2, and the later combined matrix also passed
-both cases.
+One earlier simulator attempt was killed before the new rollback classification
+suite established its test connection while another task was concurrently using
+simulator resources. During the review fix, two attempts on that same default
+simulator were also killed before test discovery. They are recorded as
+unavailable, not passing or failing. A separate local simulator then produced
+the honest code-language RED, the exact GREEN rerun, and all final matrices.
 
 ## Review
 
 Implementer self-review is complete. It confirmed and fixed the two error
 classification defects described above and found no remaining confirmed defect.
-Separate read-only specification and adversarial implementation reviews are
-requested against the immutable Task 13 commit after this report is committed.
+The first immutable specification and adversarial reviews both failed
+`deb22537` on the same code-language defect and found no other confirmed defect.
+The confirmed finding is fixed and both exact-SHA re-reviews are requested after
+the review-fix commit is frozen.
 
 ## Proof status
 
