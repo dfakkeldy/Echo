@@ -407,9 +407,30 @@ LICENSE SHA-256:      bd4ce8e44170a5f9f481310ca85c51de3c4f851a65e679b40e603b143b
 - [ ] Preserve the upstream license notice in `ThirdParty/CMUdict/LICENSE`. Do not add `wordfreq` to production inputs.
 - [ ] Add a CMUdict section to `THIRD_PARTY_NOTICES.md` containing its project name, upstream URL, pinned commit, copyright notice, disclaimer, and the complete redistribution terms from the pinned license.
 
-### 2.2 Write failing generator tests
+### 2.2 Write failing generator and semantic-identity tests
 
-- [ ] Cover ARPAbet stress conversion, alternate-pronunciation suffix normalization, stable candidate IDs, exact gold/silver exclusion, ambiguity suppression, Kokoro-vocabulary rejection, deterministic sorted output, optional coarse frequency bands, and pinned-input hash failure.
+- [ ] Cover ARPAbet stress conversion, alternate-pronunciation suffix
+  normalization, stable candidate IDs, exact gold/silver exclusion, ambiguity
+  suppression, Kokoro-vocabulary rejection, deterministic sorted output,
+  optional coarse frequency bands, and pinned-input hash failure.
+- [ ] Require every manifest field from design Section 6.1: schema and semantic
+  pack version, all source snapshot identities, generator version,
+  entry/candidate counts, normalized-data SHA-256, Kokoro vocabulary version,
+  dialect, licenses, required acknowledgments, and RFC 3339 UTC audit generation
+  timestamp.
+- [ ] Test the exact semantic-identity rules:
+  - identical normalized content, source snapshots, generator behavior, and
+    phoneme vocabulary produce the same `packVersion` even with different
+    generation timestamps;
+  - changing normalized content, any source snapshot identity, any generator
+    behavior version, or the Kokoro vocabulary identity changes `packVersion`;
+  - changing only `generationTimestamp`, counts/report presentation, license
+    display text, or acknowledgment display text does not change
+    `packVersion`;
+  - entry and candidate counts and `normalizedDataSHA256` must match the
+    canonical entries object;
+  - reordering JSON object keys or source-input order cannot change the
+    identity because source snapshots are sorted by `sourceID`.
 
 ```python
 def test_ambiguous_cmudict_word_is_not_automatic(self):
@@ -475,22 +496,99 @@ candidate_id = "cmudict." + word + "." + hashlib.sha256(
 ```
 
 - [ ] Accept an optional reviewed JSON map from normalized word to one of `veryCommon`, `common`, `uncommon`, `rare`, or `unknown`. Default to `unknown`; never use the band to select among IPA candidates.
-- [ ] Encode with `ensure_ascii=False`, `sort_keys=True`, compact separators, and a final newline. Derive `packVersion` as `sha256:<digest>` from the canonical entries payload, not from build time.
+- [ ] Canonicalize JSON for hashing with UTF-8, `ensure_ascii=False`,
+  `sort_keys=True`, compact separators, source snapshots sorted by `sourceID`,
+  and no trailing newline in hashed bytes. The written file adds one final
+  newline.
+- [ ] Hash the canonical entries object into
+  `normalizedDataSHA256 = "sha256:<digest>"`. Hash the canonical normalized
+  phoneme-vocabulary content into
+  `kokoroVocabularyVersion = "sha256:<digest>"`.
+- [ ] Treat CMUdict, `us_gold.json`, and `us_silver.json` as source snapshot
+  inputs. Record each stable `sourceID`, exact `snapshotID`, and SHA-256; the
+  gold/silver hashes matter because exclusion behavior depends on them even if
+  the final supplemental entries remain unchanged.
+- [ ] Define this exact generator behavior object. Any behavior change must bump
+  the corresponding value and therefore `packVersion`:
 
-The generated top-level shape must be built exactly this way; the digest and
-counts come from the actual canonical inputs:
+```python
+generator_behavior = {
+    "generatorVersion": "echo-pronunciation-pack-generator-v1",
+    "normalizationPolicyVersion": "english-key-normalization-v1",
+    "arpabetMappingVersion": "cmudict-arpabet-to-kokoro-v1",
+    "sourcePrecedencePolicyVersion": "gold-silver-exclusion-v1",
+    "automaticSelectionPolicyVersion": "single-compatible-candidate-v1",
+}
+
+sources = [
+    {
+        "sourceID": "cmudict",
+        "snapshotID": "cmudict@74790861f652b15e4ac49015a90074ad62a27690",
+        "role": "supplemental-candidates",
+        "sha256": "sha256:81917843c7f44ce2b094ac63873c2c7a4cf802040792c455ba3ca406891c3d22",
+    },
+    {
+        "sourceID": "echo-us-gold",
+        "snapshotID": gold_snapshot_id,
+        "role": "exclusion-input",
+        "sha256": gold_sha256,
+    },
+    {
+        "sourceID": "echo-us-silver",
+        "snapshotID": silver_snapshot_id,
+        "role": "exclusion-input",
+        "sha256": silver_sha256,
+    },
+]
+```
+
+- [ ] Build this semantic-identity payload from actual canonical inputs:
+
+```python
+semantic_identity_payload = {
+    "identitySchemaVersion": 1,
+    "normalizedDataSHA256": normalized_data_sha256,
+    "sourceSnapshots": sorted([
+        {
+            "sourceID": source["sourceID"],
+            "snapshotID": source["snapshotID"],
+            "sha256": source["sha256"],
+        }
+        for source in sources
+    ], key=lambda item: item["sourceID"]),
+    "generatorBehavior": generator_behavior,
+    "kokoroVocabularyVersion": kokoro_vocabulary_version,
+    "dialect": "en-US",
+}
+pack_version = "sha256:" + hashlib.sha256(
+    canonical_json_bytes(semantic_identity_payload)
+).hexdigest()
+```
+
+The generated top-level shape must contain every field exactly as follows;
+digests, counts, snapshots, and timestamp come from actual inputs:
 
 ```python
 output = {
     "schemaVersion": 1,
-    "packVersion": derive_pack_version(entries),
+    "packVersion": pack_version,
+    "generatorVersion": generator_behavior["generatorVersion"],
+    "entryCount": len(entries),
+    "candidateCount": sum(len(candidates) for candidates in entries.values()),
+    "normalizedDataSHA256": normalized_data_sha256,
+    "kokoroVocabularyVersion": kokoro_vocabulary_version,
     "dialect": "en-US",
-    "sources": [{
-        "sourceID": "cmudict@74790861f652b15e4ac49015a90074ad62a27690",
-        "license": "BSD-style",
+    "sources": sources,
+    "licenses": [{
+        "sourceID": "cmudict",
+        "licenseID": "CMUdict-BSD-style",
         "licensePath": "ThirdParty/CMUdict/LICENSE",
-        "sha256": "81917843c7f44ce2b094ac63873c2c7a4cf802040792c455ba3ca406891c3d22",
     }],
+    "requiredAcknowledgments": [
+        "CMUdict notice bundled from THIRD_PARTY_NOTICES.md",
+    ],
+    "generationTimestamp": generation_timestamp_rfc3339_utc,
+    "semanticIdentityPayload": semantic_identity_payload,
     "entries": entries,
     "report": {
         "existingGold": existing_gold_count,
@@ -501,6 +599,13 @@ output = {
     },
 }
 ```
+
+- [ ] `generationTimestamp` is audit-only and excluded from
+  `semanticIdentityPayload`. When rebuilding over an existing output with the
+  same `packVersion`, preserve its valid timestamp so regeneration stays
+  byte-stable. When semantic identity changes or no output exists, write the
+  current UTC time at whole-second RFC 3339 precision. Tests may inject
+  different timestamps and must prove the resulting `packVersion` is unchanged.
 
 ### 2.4 Generate and wire the pack resource
 
@@ -572,7 +677,21 @@ git commit -m "feat: add reproducible pronunciation pack"
 
 ### 3.1 Write failing pack-loader and schema-compatibility tests
 
-- [ ] Cover successful bundled loading through `NarrationResources`, exactly-one automatic lookup, ambiguous suppression, invalid schema rejection, duplicate candidate ID rejection, and empty fallback behavior.
+- [ ] Cover successful bundled loading through `NarrationResources`,
+  exactly-one automatic lookup, ambiguous suppression, invalid schema
+  rejection, duplicate candidate ID rejection, and empty fallback behavior.
+- [ ] Reject a missing or malformed generator version, entry/candidate count,
+  normalized-data SHA-256, Kokoro vocabulary version, source snapshot identity,
+  license/required acknowledgment, semantic-identity payload, or audit
+  generation timestamp.
+- [ ] Recompute the canonical entries hash and semantic identity at load time.
+  Reject stale `packVersion`, mismatched counts, unsorted/duplicate source IDs,
+  a source projection that differs from `semanticIdentityPayload`, or a
+  generator/vocabulary/content/source mutation without the corresponding new
+  `packVersion`.
+- [ ] Prove two otherwise identical manifests with different valid
+  `generationTimestamp` values load with the same `packVersion` and production
+  policy signature.
 - [ ] Add a checked-in schema-v3 JSON fixture inside the test source and require it to decode with `.incompleteEvidence`.
 
 ```swift
@@ -611,6 +730,19 @@ Expected: new tests fail before implementation.
 
 ```swift
 nonisolated struct EnglishPronunciationPack: Equatable, Sendable {
+    struct SourceSnapshot: Codable, Equatable, Sendable {
+        let sourceID: String
+        let snapshotID: String
+        let role: String
+        let sha256: String
+    }
+
+    struct LicenseRecord: Codable, Equatable, Sendable {
+        let sourceID: String
+        let licenseID: String
+        let licensePath: String
+    }
+
     struct Candidate: Codable, Equatable, Sendable {
         let candidateID: String
         let ipa: String
@@ -627,7 +759,16 @@ nonisolated struct EnglishPronunciationPack: Equatable, Sendable {
 
     let schemaVersion: Int
     let packVersion: String
+    let generatorVersion: String
+    let entryCount: Int
+    let candidateCount: Int
+    let normalizedDataSHA256: String
+    let kokoroVocabularyVersion: String
     let dialect: String
+    let sources: [SourceSnapshot]
+    let licenses: [LicenseRecord]
+    let requiredAcknowledgments: [String]
+    let generationTimestamp: String
     private let entries: [String: [Candidate]]
 
     init(data: Data) throws
@@ -637,7 +778,21 @@ nonisolated struct EnglishPronunciationPack: Equatable, Sendable {
 }
 ```
 
-- [ ] Require schema `1`, dialect `en-US`, a lowercase normalized key, unique candidate IDs, non-empty IPA, and a `sha256:` pack version.
+- [ ] Decode with strict Codable DTOs and explicit required fields; do not make
+  identity-bearing fields optional or use `try?` fallbacks. Require schema `1`,
+  dialect `en-US`, a lowercase normalized key, unique candidate IDs, non-empty
+  IPA, and a `sha256:` pack version.
+- [ ] Require `generatorVersion`, exact entry/candidate counts, a canonical
+  entries hash equal to `normalizedDataSHA256`, a `sha256:` Kokoro vocabulary
+  version, unique sorted source records with snapshot IDs and hashes, license
+  records and required acknowledgments for the external CMUdict source, and a
+  whole-second RFC 3339 UTC `generationTimestamp`.
+- [ ] Project sources to `sourceID`/`snapshotID`/`sha256`, reconstruct the exact
+  Section 6.1 semantic-identity payload, require it to equal the stored
+  `semanticIdentityPayload`, and recompute `packVersion`. Require the top-level
+  generator version, normalized-data hash, Kokoro vocabulary version, and
+  dialect to equal their payload counterparts. The timestamp, counts, licenses,
+  acknowledgments, and report remain outside that hash.
 - [ ] `automaticCandidate` returns a candidate only when exactly one candidate is marked automatic.
 - [ ] `bundledOrEmpty()` uses `NarrationResources.url(forResource:withExtension:)`; if the pack is absent or invalid, return a deterministic empty pack with version `unavailable-v1` so existing narration remains usable. Log only the error category, never source text.
 
@@ -664,6 +819,18 @@ let derivationRuleID: String?
 - [ ] Implement `init(from:)` so a schema-v3 manifest with `.complete` becomes `.incompleteEvidence`. Preserve `.incompleteLegacyCapture` as the stronger limitation.
 - [ ] Continue writing only schema v4. Reject schemas below 3 or above 4.
 - [ ] Add validation that supplemental decisions have `candidateID` and `candidatePackVersion`, and derived decisions additionally have `derivationBase` and `derivationRuleID`.
+- [ ] Preserve supplemental provenance exactly: `candidateID` remains the
+  source-derived CMUdict candidate ID and `candidatePackVersion` remains the
+  loaded semantic `packVersion`; supplemental decisions do not acquire
+  morphology base/rule fields.
+- [ ] Require every `.derivedMorphology` decision to have nonempty
+  `candidateID`, `candidatePackVersion`, `derivationBase`, and
+  `derivationRuleID`; reject incomplete combinations rather than reconstructing
+  them from current policy.
+- [ ] Add seed → materialized audit, `attachingRenderTiming`,
+  `attachingBookTiming`, and schema-v4 JSON round-trip tests proving all four
+  derived fields survive unchanged. Keep the schema-v3 compatibility behavior
+  unchanged.
 
 ### 3.4 Verify
 
@@ -710,30 +877,57 @@ git commit -m "feat: load pronunciation pack with audit provenance"
 
 - [ ] Prove exact candidates rewrite whole words, explicit links are preserved, override precedence wins, capitalization and punctuation are preserved, contextual-family words are excluded, proper nouns are excluded, and ambiguous candidates abstain.
 - [ ] Prove morphology accepts only one validated base, supports exact-base `-able`, silent-e `-able`, and exact-base `-ible`, and rejects multiple/no bases, exception words, explicit lexicon words, and proper nouns.
+- [ ] Prove every derivation emits deterministic nonempty `candidateID` and
+  `candidatePackVersion` as well as `derivationBase` and `derivationRuleID`.
+  Add fixed-vector tests showing identical inputs reproduce both IDs, while a
+  changed rule, exception-set identity, base/derived IPA, semantic pack version,
+  or Kokoro vocabulary version changes the applicable identity.
+- [ ] Preserve exact supplemental behavior: pack hits keep the pack candidate's
+  existing `candidateID`, use `pack.packVersion` as
+  `candidatePackVersion`, and leave derivation base/rule nil.
 
 ```swift
 @Test func exactSupplementalCandidateCreatesAuditableLink() {
+    let supplementalPack = pack(entry: "foobar", ipa: "fˈubɑɹ")
     let result = UniversalPronunciationResolver.rewrite(
         to: "A foobar appeared.",
         blockID: "b1",
-        pack: pack(entry: "foobar", ipa: "fˈubɑɹ"),
+        pack: supplementalPack,
         basePronunciation: { _ in nil })
 
     #expect(result.text == "A [foobar](/fˈubɑɹ/) appeared.")
     #expect(result.decisionSeeds.single?.source == .supplementalLexicon)
     #expect(result.decisionSeeds.single?.candidateID == "cmudict.foobar.fixture")
+    #expect(result.decisionSeeds.single?.candidatePackVersion
+        == supplementalPack.packVersion)
+    #expect(result.decisionSeeds.single?.derivationBase == nil)
+    #expect(result.decisionSeeds.single?.derivationRuleID == nil)
 }
 
 @Test func morphologyRequiresExactlyOneValidatedBase() {
+    let pack = EnglishPronunciationPack.emptyForTesting(
+        packVersion: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        kokoroVocabularyVersion: "sha256:1111111111111111111111111111111111111111111111111111111111111111")
     let result = UniversalPronunciationResolver.rewrite(
         to: "The widget is startable.",
         blockID: "b1",
-        pack: .empty,
+        pack: pack,
         basePronunciation: { word in
             word == "start" ? "stˈɑɹt" : nil
         })
 
     #expect(result.text == "The widget is [startable](/stˈɑɹtəbəl/).")
+    let policyVersion =
+        UniversalPronunciationResolver.morphologyCandidatePackVersion(for: pack)
+    #expect(result.decisionSeeds.single?.candidatePackVersion == policyVersion)
+    #expect(result.decisionSeeds.single?.candidateID ==
+        UniversalPronunciationResolver.derivedCandidateID(
+            normalizedWord: "startable",
+            derivationBase: "start",
+            derivationRuleID: "morphology.able.exact-base.v1",
+            baseIPA: "stˈɑɹt",
+            derivedIPA: "stˈɑɹtəbəl",
+            candidatePackVersion: policyVersion))
     #expect(result.decisionSeeds.single?.derivationBase == "start")
     #expect(result.decisionSeeds.single?.derivationRuleID
         == "morphology.able.exact-base.v1")
@@ -787,9 +981,27 @@ func validatedBaseIPA(for normalizedWord: String) -> String? {
 ```swift
 nonisolated enum UniversalPronunciationResolver {
     static let morphologyVersion = "morphology-v1"
+    static let morphologyIdentitySchemaVersion = 1
+    static let suffixIPA = "əbəl"
+    static let minimumBaseLength = 3
+    static let properNamePolicyVersion = "proper-name-risk-v1"
+    static let baseEvidencePolicyVersion = "kokoro-nonfallback-rating3-v1"
     static let contextualExclusions: Set<String> = [
         "content", "read", "live", "lives", "record", "records",
     ]
+
+    static func morphologyCandidatePackVersion(
+        for pack: EnglishPronunciationPack
+    ) -> String
+
+    static func derivedCandidateID(
+        normalizedWord: String,
+        derivationBase: String,
+        derivationRuleID: String,
+        baseIPA: String,
+        derivedIPA: String,
+        candidatePackVersion: String
+    ) -> String
 
     static func rewrite(
         to text: String,
@@ -799,6 +1011,40 @@ nonisolated enum UniversalPronunciationResolver {
     ) -> PronunciationRewriteResult
 }
 ```
+
+- [ ] Build the morphology policy payload with canonical UTF-8 JSON using
+  recursively sorted object keys, compact separators, unescaped Unicode, rule
+  IDs sorted lexicographically, and the reviewed exception strings as a sorted
+  JSON array:
+
+```json
+{
+  "identitySchemaVersion": 1,
+  "morphologyVersion": "morphology-v1",
+  "ruleIDs": [
+    "morphology.able.exact-base.v1",
+    "morphology.able.silent-e.v1",
+    "morphology.ible.exact-base.v1"
+  ],
+  "suffixIPA": "əbəl",
+  "minimumBaseLength": 3,
+  "properNamePolicyVersion": "proper-name-risk-v1",
+  "baseEvidencePolicyVersion": "kokoro-nonfallback-rating3-v1",
+  "exceptionSetSHA256": "sha256:<canonical-sorted-exception-set-digest>",
+  "pronunciationPackVersion": "<pack.packVersion>",
+  "kokoroVocabularyVersion": "<pack.kokoroVocabularyVersion>"
+}
+```
+
+- [ ] Return `candidatePackVersion` as
+  `morphology-v1:sha256:<64-lowercase-hex-policy-payload-digest>`.
+  The audit-only pack generation timestamp is absent from the policy payload.
+- [ ] Return `candidateID` as
+  `morphology.<normalizedWord>.<first-12-hex>`. Hash the exact UTF-8 sequence
+  `candidatePackVersion + NUL + normalizedWord + NUL + derivationBase + NUL +
+  derivationRuleID + NUL + baseIPA + NUL + derivedIPA`; use the first 12
+  lowercase hex characters. Validate the normalized word and all input fields
+  before hashing.
 
 - [ ] Reuse the repository's existing word-range and Misaki-link parsing conventions. Never rewrite inside `[word](/ipa/)`.
 - [ ] Treat a capitalized token away from sentence start, all-capital tokens longer than one character, and apostrophe possessives as proper-name risk; abstain.
@@ -822,7 +1068,11 @@ word ending "ible" → remove "ible"
 - [ ] Require a base length of at least three letters. Do not implement `y`/`i`, doubled-consonant, prefix-stripping, or compound heuristics in v1.
 - [ ] Maintain a reviewed exception set containing at minimum the contextual exclusions. Before deriving, call `basePronunciation` on the whole word and abstain when gold/silver already knows it; also abstain when the supplemental pack contains any explicit candidate for the whole word.
 - [ ] Append `əbəl` to the validated base IPA. Let the existing `PronunciationPlanner` perform final Kokoro-vocabulary validation.
-- [ ] Emit one seed with source `.supplementalLexicon` for pack hits and `.derivedMorphology` for derivations. Include the stable candidate/pack fields for pack hits and base/rule fields for derivations.
+- [ ] Emit one seed with source `.supplementalLexicon` for pack hits and
+  `.derivedMorphology` for derivations. Pack hits retain their exact existing
+  pack candidate ID and `pack.packVersion`. Derivations include the
+  deterministic morphology `candidateID`, morphology
+  `candidatePackVersion`, base, and rule; all four are mandatory.
 
 ### 4.4 Integrate at the correct precedence seam
 
@@ -855,7 +1105,8 @@ extension EnglishPronunciationPack {
     var productionPolicySignature: String {
         [
             packVersion,
-            UniversalPronunciationResolver.morphologyVersion,
+            UniversalPronunciationResolver
+                .morphologyCandidatePackVersion(for: self),
             "content-default-v1",
         ].joined(separator: "|")
     }
@@ -865,7 +1116,15 @@ extension EnglishPronunciationPack {
 - [ ] Add a required `pronunciationPolicySignature` argument to `NarrationFileNaming.contentSignature(spokenBlocks:renderedTexts:includeLeadOutPad:normalizationMode:pronunciationPolicySignature:)` and include it in the hash input.
 - [ ] Update every call site to use the run's snapshotted pack signature.
 - [ ] Increment `NarrationFileNaming.renderVersion` from `15` to `16` because the production pronunciation front end changes.
-- [ ] Add a test proving two pack versions change the content signature.
+- [ ] Add tests proving that changed normalized entries, source snapshot,
+  generator behavior, Kokoro vocabulary, morphology rule/exception, or
+  base-evidence policy changes the content signature even when rendered text is
+  otherwise identical. Prove a changed audit-only `generationTimestamp` does
+  not change `packVersion`, morphology policy identity, or content signature.
+- [ ] Add a frozen retry-slice test proving `candidateID`,
+  `candidatePackVersion`, `derivationBase`, and `derivationRuleID` copy
+  byte-for-byte with the selected IPA and cannot be recalculated from the
+  current resolver.
 - [ ] Do not include contextual shadow evidence, FM availability, model identifier, or model output in the signature.
 
 ### 4.6 Verify
@@ -1670,8 +1929,31 @@ git commit -m "feat: record contextual pronunciation shadow evidence"
   accepted. Corpus-dependent qualification and final Phase 0–2 acceptance
   remain pending.
 - [ ] For each named regression row, require discovery to produce the expected family/candidate set and the deterministic analyzer to match its declared expectation or explicit abstention.
-- [ ] For every automatic morphology row, require the final planned IPA and audit provenance. For every negative row, require no `.derivedMorphology` decision.
-- [ ] Prove the pack manifest's source ID, license path, hash, and candidate IPA all match the committed lock and Kokoro vocabulary.
+- [ ] For every automatic morphology row, require the final planned IPA and all
+  four frozen provenance values: deterministic `candidateID`, morphology
+  `candidatePackVersion`, `derivationBase`, and `derivationRuleID`. Prove they
+  survive seed-to-audit materialization, render/book timing attachment, retry
+  slicing/copy, and schema-v4 JSON round-trip unchanged. For every negative row,
+  require no `.derivedMorphology` decision.
+- [ ] Prove supplemental rows preserve their source-derived `candidateID` and
+  semantic pack `candidatePackVersion` exactly and never acquire morphology
+  base/rule fields.
+- [ ] Prove the pack manifest contains and validates schema/semantic pack
+  versions, every CMUdict/gold/silver source snapshot identity, generator
+  version, exact entry/candidate counts, normalized-data SHA-256, Kokoro
+  vocabulary version, dialect, licenses/required acknowledgments, and the
+  audit-only RFC 3339 UTC generation timestamp.
+- [ ] Independently rebuild the canonical semantic-identity payload and
+  `packVersion`. Assert identical semantic inputs keep the same identity across
+  timestamp changes, while a normalized-content, source, generator-behavior, or
+  phoneme-vocabulary identity change changes `packVersion` and production cache
+  signature. Assert timestamp-only changes never affect semantic, morphology,
+  plan, or cache identity.
+- [ ] Independently rebuild the exact morphology policy payload and verify its
+  `candidatePackVersion` and candidate-ID fixed vectors. Prove a rule,
+  exception-set, base-evidence, semantic-pack, Kokoro-vocabulary, base/derived
+  IPA, or normalized-word identity change updates the applicable derived
+  identity and cache signature.
 - [ ] Prove unavailable-model execution produces the same production plan as a build with contextual preflight omitted.
 - [ ] Scan encoded v4 audit JSON for forbidden keys and values:
 
@@ -1971,14 +2253,17 @@ editor.
 ### 10.5 Update architecture documentation
 
 - [ ] Add a concise `ARCHITECTURE.md` section covering:
-  - the versioned bundled pack and source precedence;
-  - exact-entry and morphology provenance;
+  - the complete versioned bundled-pack manifest, canonical semantic identity,
+    timestamp exclusion, and source precedence;
+  - exact supplemental candidate/pack provenance and deterministic derived
+    candidate/policy-pack/base/rule provenance;
   - the `content` noun fallback;
   - four Phase 2 shadow families;
   - on-device/private bounded context;
   - model output as audit-only independent evidence;
   - v4 audit compatibility and incomplete-evidence behavior;
-  - production cache identity including pack/morphology but excluding shadow evidence;
+  - production cache identity including semantic pack and morphology-policy
+    identities but excluding audit timestamps and shadow evidence;
   - Phase 3's separate approval requirement.
 - [ ] State that the app still deploys to iOS 18/macOS 15 and Foundation Models are gated at iOS 26/macOS 26 with deterministic behavior on older/ineligible devices.
 - [ ] Document the development-only audio-judge boundary: public/synthetic
@@ -2059,6 +2344,11 @@ and leaves corpus-dependent/final Phase 0–2 acceptance pending.
   record `WAITING_FOR_HUMAN_LABELS`, exact missing counts, and pending
   corpus-dependent/final Phase 0–2 acceptance while keeping independent local
   results separate.
+- [ ] In “Pack reproducibility and attribution,” record all required manifest
+  fields, the recomputed canonical semantic payload/hash, source/generator/vocab
+  identity checks, entry/candidate counts, normalized-data hash, licenses and
+  acknowledgments, and the audit-only timestamp. State explicitly that the
+  timestamp did not affect semantic or cache identity.
 - [ ] In “Development audio-judge API evaluation,” record the corpus identity
   and hashes, requested/returned model IDs, request/clip counts, per-request
   usage, estimated cost and pricing source/check date, structured results,
@@ -2098,6 +2388,16 @@ git commit -m "docs: qualify pronunciation phases zero through two"
   dependency. The single exception is Task 10's explicitly bounded
   development-only OpenAI audio call.
 - [ ] All production-affecting inputs enter cache identity; all shadow-only inputs stay out.
+- [ ] The pack manifest contains every Section 6.1 field. `packVersion` is the
+  hash of the exact canonical normalized-content/source-snapshot/generator-
+  behavior/Kokoro-vocabulary payload; identity changes for each of those inputs
+  and not for the audit-only generation timestamp.
+- [ ] Task 3 strictly decodes and recomputes manifest counts, normalized-data
+  hash, semantic payload, and `packVersion` without optional/`try?` fallback.
+- [ ] Every `.derivedMorphology` seed and decision carries deterministic
+  `candidateID`, morphology-policy `candidatePackVersion`, `derivationBase`,
+  and `derivationRuleID`; all four survive materialization, timing, retry copy,
+  and JSON round-trip. Supplemental candidate/pack behavior is unchanged.
 - [ ] Old schema-v3 audits decode without being mistaken for complete current evidence.
 - [ ] Every contextual shadow occurrence receives one validated v4 envelope, including unavailable/failure outcomes.
 - [ ] Cancellation cannot produce a finalized partial plan.

@@ -231,6 +231,41 @@ identities, generator behavior, and phoneme vocabulary. Rebuilding identical
 inputs must produce the same semantic identity even if the wall-clock timestamp
 differs.
 
+The first implementation makes that identity exact. It canonicalizes JSON as
+UTF-8 with recursively sorted object keys, compact separators, unescaped
+Unicode, source snapshots sorted by `sourceID`, and no trailing newline in the
+hashed bytes. The semantic-identity payload is:
+
+```json
+{
+  "identitySchemaVersion": 1,
+  "normalizedDataSHA256": "sha256:<canonical-entries-digest>",
+  "sourceSnapshots": [
+    {"sourceID": "<stable-id>", "snapshotID": "<stable-snapshot>", "sha256": "sha256:<digest>"}
+  ],
+  "generatorBehavior": {
+    "generatorVersion": "echo-pronunciation-pack-generator-v1",
+    "normalizationPolicyVersion": "english-key-normalization-v1",
+    "arpabetMappingVersion": "cmudict-arpabet-to-kokoro-v1",
+    "sourcePrecedencePolicyVersion": "gold-silver-exclusion-v1",
+    "automaticSelectionPolicyVersion": "single-compatible-candidate-v1"
+  },
+  "kokoroVocabularyVersion": "sha256:<canonical-phoneme-vocabulary-digest>",
+  "dialect": "en-US"
+}
+```
+
+`packVersion` is exactly `sha256:` plus the SHA-256 of those canonical payload
+bytes. `normalizedDataSHA256` is the SHA-256 of the canonical `entries` object;
+the Kokoro vocabulary version is the SHA-256 of the canonical normalized
+phoneme-vocabulary content. Source snapshots include the pinned CMUdict input
+and the exact gold and silver exclusion inputs. A normalized-content, source
+snapshot, generator-behavior, or phoneme-vocabulary identity change therefore
+changes `packVersion`, even if the final entries happen to be byte-identical.
+The audit-only RFC 3339 UTC `generationTimestamp`, counts, licenses,
+acknowledgments, and reports are outside this semantic payload and cannot
+affect `packVersion`.
+
 The first implementation wraps and validates Echo's existing gold and silver
 resources rather than replacing them wholesale. A new source can supplement
 them only after provenance, conversion, and conflict checks pass. In Phases
@@ -343,8 +378,39 @@ abstains when multiple bases or transformations are plausible.
 
 Explicit whole-word entries always outrank derived candidates. Known
 irregularities and false segmentations become exceptions. A derived result
-retains its base entry, transformation rule, and candidate-pack version in the
-audit evidence.
+retains its deterministic candidate ID, candidate-pack/policy version, base
+entry, and transformation rule in the audit evidence.
+
+The morphology policy identity is canonical JSON using the same encoding rules:
+
+```json
+{
+  "identitySchemaVersion": 1,
+  "morphologyVersion": "morphology-v1",
+  "ruleIDs": [
+    "morphology.able.exact-base.v1",
+    "morphology.able.silent-e.v1",
+    "morphology.ible.exact-base.v1"
+  ],
+  "suffixIPA": "əbəl",
+  "minimumBaseLength": 3,
+  "properNamePolicyVersion": "proper-name-risk-v1",
+  "baseEvidencePolicyVersion": "kokoro-nonfallback-rating3-v1",
+  "exceptionSetSHA256": "sha256:<canonical-sorted-exception-set-digest>",
+  "pronunciationPackVersion": "sha256:<semantic-pack-digest>",
+  "kokoroVocabularyVersion": "sha256:<canonical-phoneme-vocabulary-digest>"
+}
+```
+
+Rule IDs and exception strings are sorted before canonical encoding.
+`candidatePackVersion` for every derived result is
+`morphology-v1:sha256:<policy-payload-digest>`. Its `candidateID` is
+`morphology.<normalized-word>.<first-12-hex>`, where the suffix is the first 12
+hex characters of SHA-256 over the UTF-8 sequence
+`candidatePackVersion + NUL + normalizedWord + NUL + derivationBase + NUL +
+derivationRuleID + NUL + baseIPA + NUL + derivedIPA`. Supplemental candidates
+keep their existing source-derived candidate ID and semantic pronunciation-pack
+version unchanged.
 
 Later morphology families—inflections, prefixes, and additional compounds—use
 the same gate and require their own corpus. The existing closed-compound
@@ -637,6 +703,12 @@ Every accepted contextual or derived decision freezes:
 - runtime evidence when consulted;
 - human choice when present.
 
+Every `.derivedMorphology` seed and audit decision must carry all four
+provenance fields: `candidateID`, `candidatePackVersion`, `derivationBase`, and
+`derivationRuleID`. None may be reconstructed from a later policy version.
+Seed-to-audit materialization, render timing, book timing, retry slicing/copy,
+and JSON encode/decode preserve them byte-for-byte.
+
 The plan/cache signature changes when any pronunciation-affecting input changes,
 including:
 
@@ -649,6 +721,13 @@ including:
 - acceptance policy;
 - selected candidate;
 - model runtime when its result affected acceptance.
+
+The lexicon `packVersion` and derived `candidatePackVersion` are
+pronunciation-affecting cache inputs. A normalized-content, source,
+generator-behavior, Kokoro-vocabulary, morphology rule/exception, or base-policy
+identity change invalidates the applicable cache signature. The audit-only
+pack generation timestamp never affects pack, morphology-policy, plan, or cache
+identity.
 
 Shadow-only model output does not change synthesis cache identity because it
 does not affect selected pronunciation. It is stored only in the local
@@ -1253,6 +1332,8 @@ data require a deliberate redistribution design.
 | A semantic clip ID or long clip leaks information into a paid request | Require MP3/WAV at most 15.0 seconds, exact public-domain/synthetic provenance, and a canonical random UUIDv4 `clipID` generated independently of content or metadata. |
 | A provisional paid result is counted as qualification | Route it only to `provisional_evidence`/`provisional_review` and exclude it from accuracy, human labels/listening, qualification, and graduation. |
 | Fix proposals bypass the two-attempt cap | Make the outside-repository ledger authoritative; only `record-attempt` with reviewed implementation receipts increments the 0–2 counter, and force `morning_review` after the second failed rerender. |
+| Pack identity omits a source, generator, or vocabulary change | Hash the canonical normalized content, all source snapshots, explicit generator behavior, and canonical Kokoro vocabulary into `packVersion`; exclude only audit metadata such as generation time. |
+| A derived audit loses the policy identity needed to reproduce it | Require deterministic candidate and morphology-policy pack IDs plus base/rule on every derived seed/decision, and preserve all four through timing, retry, and JSON round-trip. |
 | First implementation grows into a model platform | Keep packs bundled, use no adapter/download service, and stop at shadow mode. |
 
 ---
@@ -1265,10 +1346,14 @@ only.
 It may add:
 
 - a concrete pack manifest and generator;
+- the canonical semantic pack-identity payload and complete Section 6.1
+  manifest metadata;
 - deterministic source pinning and attribution receipts;
 - validated CMUdict import behind existing source precedence;
 - development-time frequency prioritization;
 - `-able`/`-ible` morphology and exception data;
+- deterministic morphology candidate and policy-pack identities frozen through
+  plan, audit, timing, retry, and cache paths;
 - the `content` default correction;
 - corpus fixtures and evaluation reports;
 - the version-4 contextual evidence envelope for every evaluated shadow
@@ -1307,11 +1392,27 @@ approved.
 The first implementation program is complete when:
 
 - pack generation is reproducible from pinned inputs;
+- the manifest records schema/semantic versions, every source snapshot,
+  generator version, entry/candidate counts, normalized-data hash, Kokoro
+  vocabulary version, dialect, licenses/acknowledgments, and audit-only
+  generation timestamp;
+- the canonical semantic identity changes for normalized-content, source,
+  generator-behavior, or phoneme-vocabulary changes and remains stable for
+  timestamp-only changes;
 - every shipped source has a provenance and attribution receipt;
 - all shipped IPA validates against the production Kokoro vocabulary;
 - current gold/silver behavior changes only through reviewed fixtures;
 - `content` noun/adjective positive and negative cases pass;
 - `-able`/`-ible` positives, exceptions, false bases, and controls pass;
+- every derived morphology seed/decision contains deterministic
+  `candidateID`, `candidatePackVersion`, `derivationBase`, and
+  `derivationRuleID`, with byte-identical propagation through materialization,
+  timing, retry copy, and JSON round-trip;
+- supplemental decisions preserve their existing source candidate ID and
+  semantic pack version exactly;
+- pack and morphology policy identities invalidate production cache signatures
+  for every pronunciation-affecting source/generator/vocabulary/rule/exception
+  change, while the audit generation timestamp does not;
 - fallback rate and corpus coverage are reported by frequency band when a
   legally approved frequency source is available;
 - the four initial contextual families run in shadow mode on eligible devices;
