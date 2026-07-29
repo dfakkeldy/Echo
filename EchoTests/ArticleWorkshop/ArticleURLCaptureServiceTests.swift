@@ -220,6 +220,40 @@ private enum ExtractorTestError: Swift.Error {
         _ = try await service.capture(url: URL(string: "https://example.test/article")!)
     }
 
+    @Test func passwordFormWithAuthActionClassifiesAuthenticationRequired() async throws {
+        ArticleURLProtocol.install { _ in
+            .response(status: 200, mimeType: "text/html", data: Data("<main><form action='/auth'><input type='password'><input type='submit' value='Continue'></form></main>".utf8))
+        }
+        defer { ArticleURLProtocol.reset() }
+        let service = ArticleURLCaptureService(sessionConfiguration: articleURLProtocolConfiguration(), extractor: fixtureExtractor)
+
+        await #expect(throws: ArticleURLCaptureService.Error.authenticationRequired(message: "Open this page in Safari to capture the signed-in version.")) {
+            _ = try await service.capture(url: URL(string: "https://example.test/article")!)
+        }
+    }
+
+    @Test func loginDemoClassWithoutSemanticControlRemainsCapturable() async throws {
+        ArticleURLProtocol.install { _ in
+            .response(status: 200, mimeType: "text/html", data: Data("<main><form class='login-demo'><label>Password strength</label><input type='password' class='login-demo'><input type='submit' value='Update password' class='login-demo'></form></main>".utf8))
+        }
+        defer { ArticleURLProtocol.reset() }
+        let service = ArticleURLCaptureService(sessionConfiguration: articleURLProtocolConfiguration(), extractor: fixtureExtractor)
+
+        _ = try await service.capture(url: URL(string: "https://example.test/article")!)
+    }
+
+    @Test func nestedLoginButtonClassifiesAuthenticationRequired() async throws {
+        ArticleURLProtocol.install { _ in
+            .response(status: 200, mimeType: "text/html", data: Data("<main><form><input type='password'><button><span>Log in</span></button></form></main>".utf8))
+        }
+        defer { ArticleURLProtocol.reset() }
+        let service = ArticleURLCaptureService(sessionConfiguration: articleURLProtocolConfiguration(), extractor: fixtureExtractor)
+
+        await #expect(throws: ArticleURLCaptureService.Error.authenticationRequired(message: "Open this page in Safari to capture the signed-in version.")) {
+            _ = try await service.capture(url: URL(string: "https://example.test/article")!)
+        }
+    }
+
     @Test func passwordUpdateSubmitWithoutLoginSemanticsRemainsCapturable() async throws {
         ArticleURLProtocol.install { _ in
             .response(status: 200, mimeType: "text/html", data: Data("<main><form><label>Choose a password</label><input type='password'><input type='submit' value='Update password'></form><p>Password-security article.</p></main>".utf8))

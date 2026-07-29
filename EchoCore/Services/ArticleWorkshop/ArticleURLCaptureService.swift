@@ -97,25 +97,95 @@ struct ArticleURLCaptureService {
 
     private static func requiresAuthentication(html: String, finalURL: URL) -> Bool {
         let pathComponents = finalURL.path.lowercased().split(separator: "/")
-        if pathComponents.contains(where: { ["login", "signin", "sign-in", "auth"].contains(String($0)) }) {
+        if pathComponents.contains(where: { authenticationPathComponents.contains(String($0)) }) {
             return true
         }
         let lowercased = html.lowercased()
         let passwordInput = #"<input\b[^>]*\btype\s*=\s*[\"']?password\b"#
-        let loginSignal = #"(sign\s*in|log\s*in|login|authenticate)"#
-        let actionElement = #"(?is)<(?:form|input|button|label|h[1-6])\b[^>]*(?:>[^<]*</(?:button|label|h[1-6])>)?"#
         let forms = lowercased.matches(of: try! Regex(#"(?s)<form\b[^>]*>.*?</form>"#))
         if forms.contains(where: { form in
             let markup = String(lowercased[form.range])
             return markup.contains("password")
                 && markup.contains(regex: passwordInput)
-                && markup.matches(of: try! Regex(actionElement)).contains { element in
-                    String(markup[element.range]).contains(regex: loginSignal)
-                }
+                && (formActionContainsAuthenticationPath(markup)
+                    || controlAttributesContainLoginSignal(markup)
+                    || visibleElementsContainLoginSignal(markup))
         }) { return true }
         // Some sites place the heading immediately outside an otherwise standard form.
         return lowercased.contains(regex: passwordInput)
-            && lowercased.contains(regex: #"<h[1-6]\b[^>]*>\s*(sign\s*in|log\s*in|login)\b"#)
+            && headingElementsContainLoginSignal(lowercased)
+    }
+
+    private static let authenticationPathComponents: Set<String> = [
+        "login", "signin", "sign-in", "auth", "authenticate", "authentication"
+    ]
+
+    private static func formActionContainsAuthenticationPath(_ markup: String) -> Bool {
+        guard let openingForm = markup.firstMatch(of: try! Regex(#"<form\b[^>]*>"#)) else {
+            return false
+        }
+        return attributeValues(named: "action", in: String(markup[openingForm.range])).contains { action in
+            let path = URLComponents(string: action)?.path ?? action
+            return path.lowercased().split(separator: "/").contains {
+                authenticationPathComponents.contains(String($0))
+            }
+        }
+    }
+
+    private static func controlAttributesContainLoginSignal(_ markup: String) -> Bool {
+        let controls = markup.matches(of: try! Regex(#"<(?:input|button)\b[^>]*>"#))
+        return controls.contains { control in
+            let tag = String(markup[control.range])
+            return ["value", "aria-label", "title", "name", "id"].contains { attribute in
+                attributeValues(named: attribute, in: tag).contains(where: containsLoginSignal)
+            }
+        }
+    }
+
+    private static func visibleElementsContainLoginSignal(_ markup: String) -> Bool {
+        elementsContainLoginSignal(markup, matching: #"(?is)<(?:button|label|h[1-6])\b[^>]*>.*?</(?:button|label|h[1-6])>"#)
+    }
+
+    private static func headingElementsContainLoginSignal(_ markup: String) -> Bool {
+        markup.matches(of: try! Regex(#"(?is)<h[1-6]\b[^>]*>.*?</h[1-6]>"#)).contains { element in
+            normalizedVisibleText(String(markup[element.range])).contains(regex: #"^(?:sign\s*in|log\s*in|login)\b"#)
+        }
+    }
+
+    private static func elementsContainLoginSignal(_ markup: String, matching pattern: String) -> Bool {
+        markup.matches(of: try! Regex(pattern)).contains { element in
+            containsLoginSignal(normalizedVisibleText(String(markup[element.range])))
+        }
+    }
+
+    private static func normalizedVisibleText(_ markup: String) -> String {
+        markup
+            .replacingOccurrences(of: #"<[^>]*>"#, with: " ", options: .regularExpression)
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+    }
+
+    private static func containsLoginSignal(_ value: String) -> Bool {
+        value.contains(regex: #"\b(?:sign\s*in|log\s*in|login|auth|authenticate|authentication)\b"#)
+    }
+
+    private static func attributeValues(named name: String, in markup: String) -> [String] {
+        let pattern = #"(?<![A-Za-z0-9_-])"# + NSRegularExpression.escapedPattern(for: name)
+            + #"\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s>]+))"#
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let wholeRange = NSRange(markup.startIndex..<markup.endIndex, in: markup)
+        var values: [String] = []
+        for match in expression.matches(in: markup, range: wholeRange) {
+            for index in 1..<match.numberOfRanges {
+                let range = match.range(at: index)
+                guard range.location != NSNotFound,
+                      let stringRange = Range(range, in: markup)
+                else { continue }
+                values.append(String(markup[stringRange]))
+                break
+            }
+        }
+        return values
     }
 }
 
