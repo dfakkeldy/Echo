@@ -42,6 +42,11 @@ REQUIRED_NAMED_SHAPES = {
     "punctuation-adjacency",
     "quotation-dialogue",
 }
+DEFINITIVE_NAMED_REGRESSION_CASES = {
+    "named-content-capitalization",
+    "named-content-dialogue",
+    "named-content-long-distance",
+}
 
 ALLOWED_PROVENANCE = {"public-domain", "permissive", "synthetic"}
 HUMAN_EVIDENCE_FIELDS = {
@@ -942,6 +947,110 @@ def validate_fixture_directory(fixtures: Path | str) -> dict[str, Any]:
     }
 
 
+def build_report(fixtures: Path | str, pack: Path | str) -> dict[str, Any]:
+    fixture_directory = Path(fixtures)
+    summary = validate_fixture_directory(fixture_directory)
+    contextual_records = summary["contextualRecords"]
+    named_rows = validate_named_regressions(
+        _load_jsonl(fixture_directory / "named_regressions_v1.jsonl")
+    )
+    morphology_rows = validate_morphology(
+        _load_jsonl(fixture_directory / "morphology_v1.jsonl")
+    )
+    trusted_path = fixture_directory / "trusted_label_receipts_v1.jsonl"
+    trusted_receipts = _load_jsonl(trusted_path) if trusted_path.is_file() else []
+    qualification = qualification_status(
+        contextual_records,
+        trusted_receipts=trusted_receipts,
+    )
+
+    pack_value = _load_json(Path(pack))
+    if not isinstance(pack_value, dict) or not isinstance(
+        pack_value.get("report"), dict
+    ):
+        raise ValueError("pronunciation pack report is invalid")
+    pack_report = pack_value["report"]
+    pack_count_keys = {
+        "imported",
+        "ambiguous",
+        "incompatible",
+        "existingGold",
+        "existingSilver",
+    }
+    if set(pack_report) != pack_count_keys or any(
+        not isinstance(pack_report[key], int)
+        or isinstance(pack_report[key], bool)
+        or pack_report[key] < 0
+        for key in pack_count_keys
+    ):
+        raise ValueError("pronunciation pack counts are invalid")
+
+    by_family = Counter(record["familyID"] for record in contextual_records)
+    by_provenance = Counter(record["provenance"] for record in contextual_records)
+    morphology_counts = Counter(
+        row["expectedRuleID"] if row["automatic"] else "negative"
+        for row in morphology_rows
+    )
+    named_case_ids = {row["caseID"] for row in named_rows}
+    if not DEFINITIVE_NAMED_REGRESSION_CASES.issubset(named_case_ids):
+        raise ValueError("definitive named regression fixtures are incomplete")
+    deterministic_counts = Counter(
+        "abstained"
+        if row["expectedOutcome"] == "review"
+        else (
+            "resolved"
+            if row["caseID"] in DEFINITIVE_NAMED_REGRESSION_CASES
+            else "advisory"
+        )
+        for row in named_rows
+    )
+
+    receipts_by_id = {
+        receipt.receipt_id: receipt
+        for receipt in validate_trusted_receipts(trusted_receipts)
+    }
+    qualifying_adjudicated = sum(
+        1
+        for record in contextual_records
+        if record["labelStatus"] == "human-labelled"
+        and record.get("adjudicated") is not None
+        and record.get("labelEvidenceID") in receipts_by_id
+    )
+    qualifying_count = sum(qualification.family_counts.values())
+
+    return {
+        "schemaVersion": 1,
+        "packCounts": {key: pack_report[key] for key in sorted(pack_count_keys)},
+        "corpusCounts": {
+            "total": len(contextual_records),
+            "byFamily": {key: by_family[key] for key in sorted(by_family)},
+            "bySense": qualification.sense_counts,
+            "byProvenance": {
+                key: by_provenance[key] for key in sorted(by_provenance)
+            },
+            "byMorphologyRule": {
+                key: morphology_counts[key] for key in sorted(morphology_counts)
+            },
+        },
+        "deterministicCounts": {
+            key: deterministic_counts[key]
+            for key in ("resolved", "advisory", "abstained")
+        },
+        "evidenceCounts": {
+            "provisionalCandidates": sum(
+                record["labelStatus"] == "provisional"
+                for record in contextual_records
+            ),
+            "qualifyingHumanLabelled": qualifying_count,
+            "adjudicated": qualifying_adjudicated,
+        },
+        "corpusQualificationStatus": qualification.status,
+        "missingFamilyCounts": qualification.missing_family_counts,
+        "missingSenseCounts": qualification.missing_sense_counts,
+        "frequencyBandReport": "unavailable-no-approved-source",
+    }
+
+
 def _print_json(summary: dict[str, Any]) -> None:
     print(json.dumps(summary, sort_keys=True, separators=(",", ":")))
 
@@ -954,9 +1063,15 @@ def main(argv: list[str] | None = None) -> int:
     qualification_parser = subparsers.add_parser("qualification-status")
     qualification_parser.add_argument("--fixtures", type=Path, required=True)
     qualification_parser.add_argument("--trusted-receipts", type=Path)
+    report_parser = subparsers.add_parser("report")
+    report_parser.add_argument("--fixtures", type=Path, required=True)
+    report_parser.add_argument("--pack", type=Path, required=True)
     arguments = parser.parse_args(argv)
 
     try:
+        if arguments.command == "report":
+            _print_json(build_report(arguments.fixtures, arguments.pack))
+            return 0
         summary = validate_fixture_directory(arguments.fixtures)
         contextual_records = summary.pop("contextualRecords")
         if arguments.command == "validate-contract":

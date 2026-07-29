@@ -830,6 +830,47 @@ Block-level read-along (the active paragraph) is refined to **word level** so th
 
 For study EPUBs that have **no audiobook**, Echo can generate spoken audio on-device and produce the same sentence-synced, study-ready aligned book. This is **additive** — the WhisperKit alignment pipeline above is untouched and still runs whenever a real audiobook exists. The synthesis path is the *inverse* of alignment: because the audio is generated from the EPUB text, every timestamp is known at synthesis time, so the transcribe-and-DTW recovery step is unnecessary — anchors are written directly.
 
+#### Pronunciation pack, contextual shadowing, and qualification
+
+English narration uses a versioned bundled pronunciation pack. Its strict
+manifest freezes the canonical normalized-entry digest, CMUdict/gold/silver
+source snapshots, generator and normalization behavior, ARPAbet conversion,
+source precedence, automatic-selection and candidate-validation policies,
+Kokoro vocabulary identity, dialect, counts, licenses, and acknowledgments.
+`packVersion` is the SHA-256 identity of those semantic inputs; the RFC 3339
+generation timestamp is audit-only and excluded. Gold and silver remain
+authoritative exclusion inputs, so the CMUdict supplement cannot displace an
+existing Echo entry. A supplemental decision freezes the source-derived
+`candidateID` and semantic `candidatePackVersion`. A morphology decision
+instead freezes its derived candidate ID, morphology-policy pack identity,
+base, and rule.
+
+The context-free fallback for `content` is the material/subject-matter noun.
+The satisfied adjective remains a first-class contextual candidate.
+`content`, `read`, `live`/`lives`, and `record` are Phase 2 shadow families:
+bounded context is evaluated locally on eligible devices, but model output is
+independent audit evidence and cannot change production narration. Echo still
+deploys to iOS 18 and macOS 15; Foundation Models execution is availability-
+gated to iOS 26/macOS 26, with deterministic behavior on older or ineligible
+systems.
+
+Pronunciation audit schema v4 carries a categorized contextual envelope for
+each evaluated occurrence and preserves schema-v3 decoding. A missing current
+envelope yields incomplete evidence rather than fabricated proof. The
+production cache identity includes the semantic pronunciation pack and
+morphology-policy identities, but excludes audit timestamps and shadow
+evidence because neither affects rendered audio. Phase 3 model-controlled
+narration requires a separate approval and is not authorized by Phase 2.
+
+The development-only audio judge accepts direct MP3/WAV files only from short
+public-domain or synthetic clips; private or copyrighted book material and
+metadata never leave the machine. It evaluates files directly with speakers
+muted, enforces strict structured-result validation plus 200-request/USD 10
+caps, and records `WAITING_FOR_USER` when no API credential exists. Its
+machine verdicts have no production authority and cannot edit pronunciation
+data. Independent human-labelled qualification data and bounded human
+listening remain mandatory and separate.
+
 > **Phased rollout.** This documents **Plan 1 — the engine core**: schema, seams, state, text normalization, and the per-chapter render orchestration, all unit-tested behind a mock engine. The real on-device model (Kokoro CoreML/ANE) + grapheme-to-phoneme (MisakiSwift, Apache-licensed, no GPL espeak-ng), the one-time model download, the read-first "Listen" UI + voice picker, render-ahead scheduling, and `.m4b`/per-chapter export land in later plans. **No audible output ships yet.** Design spec: `docs/superpowers/specs/2026-06-13-epub-ai-narration-design.md`.
 
 > **Update (June 2026 — engine real + upstream chunking).** The real engine has since shipped: Kokoro-82M runs on-device via **FluidAudio (CoreML/ANE)** behind the `TTSEngine` seam, narration plays through the main playback pipeline (iPhone + CarPlay), and the rendered cache is **lossless ALAC** in `.m4a`. **Upstream input chunking (required):** FluidAudio does no internal chunking and caps IPA input at ~510 phonemes ("chunk longer prompts upstream"). A whole 400+ char block drove the palettized vocoder's BNNS fallback into a dynamic tensor shape that **traps** (uncatchable `EXC_BREAKPOINT` in `libBNNS`), so `NarrationService.renderChapter` splits each EPUB block into ~200-char sentence sub-chunks (`NarrationTextChunker`, pure/testable) and synthesizes each separately before concatenation — keeping inference shapes bounded and yielding finer audio, while still writing **one `.synthesized` anchor per original block** (spanning the summed sub-chunk durations) so the data model below is unchanged.

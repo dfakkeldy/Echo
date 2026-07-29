@@ -1,4 +1,4 @@
-.PHONY: help docs architecture whats-new devlog-update devlog-pr-body doc-automation-test pronunciation-corpus-test pronunciation-corpus-qualification pronunciation-pack pronunciation-pack-test test build-tests test-only hooks-test echo-cli renderer-install-test install-renderer verify-renderer promote-renderer repair-renderer
+.PHONY: help docs architecture whats-new devlog-update devlog-pr-body doc-automation-test pronunciation-corpus-test pronunciation-corpus-qualification pronunciation-program-report pronunciation-pack pronunciation-pack-test pronunciation-audio-judge-test test build-tests test-only hooks-test echo-cli renderer-install-test install-renderer verify-renderer promote-renderer repair-renderer
 
 help: ## List available targets
 	@echo "Echo: Audiobook Study Player — available targets:"
@@ -47,6 +47,11 @@ pronunciation-corpus-qualification: ## Report independent-label corpus qualifica
 	python3 Tools/Pronunciation/pronunciation_corpus.py qualification-status \
 		--fixtures EchoTests/Fixtures/Pronunciation
 
+pronunciation-program-report: ## Emit deterministic pronunciation program metrics
+	@python3 Tools/Pronunciation/pronunciation_corpus.py report \
+		--fixtures EchoTests/Fixtures/Pronunciation \
+		--pack EchoCore/Services/Narration/PronunciationResources/us_pronunciation_pack.json
+
 pronunciation-pack: ## Regenerate the pinned supplemental pronunciation pack
 	python3 Tools/Pronunciation/build_pronunciation_pack.py build \
 		--lock Tools/Pronunciation/cmudict.lock.json \
@@ -63,6 +68,9 @@ pronunciation-pack-test: ## Test and deterministically verify the pronunciation 
 		--silver EchoCore/Services/Narration/MisakiResources/us_silver.json \
 		--vocab EchoCore/Services/Narration/_kokoro_vocab.json \
 		--expected EchoCore/Services/Narration/PronunciationResources/us_pronunciation_pack.json
+
+pronunciation-audio-judge-test: ## Test the development-only public/synthetic audio judge
+	python3 -m unittest discover -s Tools/Pronunciation/tests -p 'test_audio_judge.py'
 
 SIM_DEST = platform=iOS Simulator,name=iPhone 17
 

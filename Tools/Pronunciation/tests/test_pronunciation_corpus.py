@@ -11,6 +11,7 @@ from Tools.Pronunciation.pronunciation_corpus import (
     CONTEXTUAL_FAMILIES,
     REQUIRED_NAMED_SHAPES,
     ContextualCase,
+    build_report,
     qualification_status,
     validate_contract,
     validate_distribution_works,
@@ -23,6 +24,14 @@ from Tools.Pronunciation.pronunciation_corpus import (
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = REPOSITORY_ROOT / "EchoTests" / "Fixtures" / "Pronunciation"
 SCRIPT = REPOSITORY_ROOT / "Tools" / "Pronunciation" / "pronunciation_corpus.py"
+PACK = (
+    REPOSITORY_ROOT
+    / "EchoCore"
+    / "Services"
+    / "Narration"
+    / "PronunciationResources"
+    / "us_pronunciation_pack.json"
+)
 
 
 def contextual_case(**overrides):
@@ -819,6 +828,88 @@ class PronunciationCorpusTests(unittest.TestCase):
             "WAITING_FOR_HUMAN_LABELS",
             json.loads(first_qualification)["status"],
         )
+
+    def test_program_report_separates_provisional_and_qualifying_counts(self):
+        report = build_report(FIXTURES, PACK)
+
+        self.assertEqual(
+            {
+                "imported": 76125,
+                "ambiguous": 3982,
+                "incompatible": 0,
+                "existingGold": 36966,
+                "existingSilver": 12021,
+            },
+            report["packCounts"],
+        )
+        self.assertEqual(
+            {"content": 3, "live": 3, "read": 3, "record": 3},
+            report["corpusCounts"]["byFamily"],
+        )
+        self.assertEqual(
+            {"synthetic": 12},
+            report["corpusCounts"]["byProvenance"],
+        )
+        self.assertEqual(12, report["evidenceCounts"]["provisionalCandidates"])
+        self.assertEqual(0, report["evidenceCounts"]["qualifyingHumanLabelled"])
+        self.assertEqual(0, report["evidenceCounts"]["adjudicated"])
+        self.assertEqual(
+            {"resolved": 3, "advisory": 21, "abstained": 12},
+            report["deterministicCounts"],
+        )
+        self.assertEqual(
+            {
+                "morphology.able.exact-base.v1": 2,
+                "morphology.able.silent-e.v1": 1,
+                "morphology.ible.exact-base.v1": 2,
+                "negative": 9,
+            },
+            report["corpusCounts"]["byMorphologyRule"],
+        )
+        self.assertEqual(
+            "WAITING_FOR_HUMAN_LABELS",
+            report["corpusQualificationStatus"],
+        )
+        self.assertEqual(
+            {"content": 200, "live": 200, "read": 200, "record": 200},
+            report["missingFamilyCounts"],
+        )
+        self.assertEqual(
+            "unavailable-no-approved-source",
+            report["frequencyBandReport"],
+        )
+
+    def test_program_report_cli_is_byte_identical_across_runs(self):
+        command = [
+            sys.executable,
+            str(SCRIPT),
+            "report",
+            "--fixtures",
+            str(FIXTURES),
+            "--pack",
+            str(PACK),
+        ]
+
+        first = subprocess.run(
+            command, check=True, capture_output=True, text=True
+        ).stdout
+        second = subprocess.run(
+            command, check=True, capture_output=True, text=True
+        ).stdout
+
+        self.assertEqual(first, second)
+        self.assertEqual(build_report(FIXTURES, PACK), json.loads(first))
+
+    def test_make_program_report_stdout_is_one_json_value(self):
+        completed = subprocess.run(
+            ["make", "pronunciation-program-report"],
+            cwd=REPOSITORY_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(build_report(FIXTURES, PACK), json.loads(completed.stdout))
 
 
 if __name__ == "__main__":
