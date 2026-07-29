@@ -1,4 +1,5 @@
 import dataclasses
+import hashlib
 import json
 import shutil
 import subprocess
@@ -85,6 +86,23 @@ def test_only_trusted_receipt(case, **overrides):
     }
     receipt.update(overrides)
     return receipt
+
+
+def test_only_authority_digest(cases, receipts):
+    """Build a test-only binding digest; it is not real authority evidence."""
+    payload = {
+        "schemaVersion": 1,
+        "authorizationPurpose": "pronunciation-human-evidence-qualification",
+        "contextualCases": cases,
+        "trustedReceipts": receipts,
+    }
+    canonical = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
 
 
 def complete_test_only_qualification_matrix():
@@ -426,11 +444,31 @@ class PronunciationCorpusTests(unittest.TestCase):
         self.assertEqual(0, result.sense_counts["content.material"])
         self.assertEqual(200, result.missing_family_counts["content"])
 
+    def test_qualification_rejects_receipts_without_a_separate_authority_binding(self):
+        case = test_only_human_case("manufactured", "content.material")
+        receipt = test_only_trusted_receipt(case)
+
+        with self.assertRaisesRegex(ValueError, "authority"):
+            qualification_status([case], trusted_receipts=[receipt])
+        with self.assertRaisesRegex(ValueError, "authority"):
+            qualification_status(
+                [case],
+                trusted_receipts=[receipt],
+                trusted_authority_digest="0" * 64,
+            )
+
     def test_qualification_counts_an_exact_explicit_trust_binding_once(self):
         case = test_only_human_case("explicitly-trusted", "content.material")
         receipt = test_only_trusted_receipt(case)
 
-        result = qualification_status([case], trusted_receipts=[receipt])
+        result = qualification_status(
+            [case],
+            trusted_receipts=[receipt],
+            trusted_authority_digest=test_only_authority_digest(
+                [case],
+                [receipt],
+            ),
+        )
 
         self.assertEqual(1, result.family_counts["content"])
         self.assertEqual(1, result.sense_counts["content.material"])
@@ -453,11 +491,22 @@ class PronunciationCorpusTests(unittest.TestCase):
             ValueError,
             "qualification_status requires raw contextual records",
         ):
-            qualification_status([parsed_case], trusted_receipts=[receipt])
+            qualification_status(
+                [parsed_case],
+                trusted_receipts=[receipt],
+                trusted_authority_digest=test_only_authority_digest(
+                    [raw_case],
+                    [receipt],
+                ),
+            )
 
         result = qualification_status(
             [raw_case],
             trusted_receipts=[receipt],
+            trusted_authority_digest=test_only_authority_digest(
+                [raw_case],
+                [receipt],
+            ),
         )
         self.assertEqual(1, result.family_counts["content"])
         self.assertEqual(1, result.sense_counts["content.material"])
@@ -485,7 +534,14 @@ class PronunciationCorpusTests(unittest.TestCase):
         for receipts, message in probes:
             with self.subTest(message=message):
                 with self.assertRaisesRegex(ValueError, message):
-                    qualification_status([case], trusted_receipts=receipts)
+                    qualification_status(
+                        [case],
+                        trusted_receipts=receipts,
+                        trusted_authority_digest=test_only_authority_digest(
+                            [case],
+                            receipts,
+                        ),
+                    )
 
     def test_qualification_rejects_one_receipt_claimed_by_multiple_cases(self):
         first = test_only_human_case("receipt-owner", "content.material")
@@ -499,6 +555,10 @@ class PronunciationCorpusTests(unittest.TestCase):
             qualification_status(
                 [first, second],
                 trusted_receipts=[test_only_trusted_receipt(first)],
+                trusted_authority_digest=test_only_authority_digest(
+                    [first, second],
+                    [test_only_trusted_receipt(first)],
+                ),
             )
 
     def test_qualification_rejects_receipt_binding_mismatch(self):
@@ -510,7 +570,14 @@ class PronunciationCorpusTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "does not exactly match case"):
-            qualification_status([case], trusted_receipts=[receipt])
+            qualification_status(
+                [case],
+                trusted_receipts=[receipt],
+                trusted_authority_digest=test_only_authority_digest(
+                    [case],
+                    [receipt],
+                ),
+            )
 
     def test_qualification_reports_unbalanced_senses_even_when_family_total_is_met(self):
         cases = [
@@ -523,7 +590,11 @@ class PronunciationCorpusTests(unittest.TestCase):
         )
         receipts = [test_only_trusted_receipt(case) for case in cases]
 
-        result = qualification_status(cases, trusted_receipts=receipts)
+        result = qualification_status(
+            cases,
+            trusted_receipts=receipts,
+            trusted_authority_digest=test_only_authority_digest(cases, receipts),
+        )
 
         self.assertNotIn("content", result.missing_family_counts)
         self.assertEqual(25, result.missing_sense_counts["content.satisfied"])
@@ -537,12 +608,12 @@ class PronunciationCorpusTests(unittest.TestCase):
             test_only_human_case("correct-lives-noun", "lives.noun"),
             test_only_human_case("correct-lives-verb", "lives.verb"),
         ]
+        receipts = [test_only_trusted_receipt(case) for case in cases]
 
         result = qualification_status(
             cases,
-            trusted_receipts=[
-                test_only_trusted_receipt(case) for case in cases
-            ],
+            trusted_receipts=receipts,
+            trusted_authority_digest=test_only_authority_digest(cases, receipts),
         )
 
         self.assertEqual(4, result.family_counts["live"])
@@ -554,7 +625,11 @@ class PronunciationCorpusTests(unittest.TestCase):
     def test_complete_test_only_trust_matrix_reaches_qualified(self):
         cases, receipts = complete_test_only_qualification_matrix()
 
-        result = qualification_status(cases, trusted_receipts=receipts)
+        result = qualification_status(
+            cases,
+            trusted_receipts=receipts,
+            trusted_authority_digest=test_only_authority_digest(cases, receipts),
+        )
 
         self.assertEqual("QUALIFIED", result.status)
         self.assertEqual({}, result.missing_family_counts)
@@ -736,11 +811,24 @@ class PronunciationCorpusTests(unittest.TestCase):
             )
             receipt_path = temporary_root / "test-only-trusted-receipts.jsonl"
             receipt_path.write_text(
-                json.dumps(test_only_trusted_receipt(case), sort_keys=True) + "\n",
+                json.dumps(
+                    (receipt := test_only_trusted_receipt(case)),
+                    sort_keys=True,
+                )
+                + "\n",
                 encoding="utf-8",
             )
+            authority_path = temporary_root / "human-evidence-authority.json"
+            contextual_records = [
+                json.loads(line)
+                for line in (
+                    fixture_directory
+                    / "contextual_family_candidates_v1.jsonl"
+                ).read_text(encoding="utf-8").splitlines()
+                if line
+            ] + [case]
 
-            completed = subprocess.run(
+            missing_authority = subprocess.run(
                 [
                     sys.executable,
                     str(SCRIPT),
@@ -750,15 +838,74 @@ class PronunciationCorpusTests(unittest.TestCase):
                     "--trusted-receipts",
                     str(receipt_path),
                 ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            authority_path.write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "authorityKind": "user-controlled-out-of-repository",
+                        "authorizationPurpose":
+                            "pronunciation-human-evidence-qualification",
+                        "evidenceBundleSHA256": test_only_authority_digest(
+                            contextual_records,
+                            [receipt],
+                        ),
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "qualification-status",
+                    "--fixtures",
+                    str(fixture_directory),
+                    "--trusted-receipts",
+                    str(receipt_path),
+                    "--human-evidence-authority",
+                    str(authority_path),
+                ],
                 check=True,
                 capture_output=True,
                 text=True,
             )
 
+            authority_target = temporary_root / "authority-target.json"
+            authority_path.replace(authority_target)
+            authority_path.symlink_to(authority_target)
+            symlinked_authority = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "qualification-status",
+                    "--fixtures",
+                    str(fixture_directory),
+                    "--trusted-receipts",
+                    str(receipt_path),
+                    "--human-evidence-authority",
+                    str(authority_path),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertNotEqual(0, missing_authority.returncode)
+        self.assertIn("human evidence authority", missing_authority.stderr)
+        self.assertNotIn("Traceback", missing_authority.stderr)
         summary = json.loads(completed.stdout)
         self.assertEqual("WAITING_FOR_HUMAN_LABELS", summary["status"])
         self.assertEqual(1, summary["familyCounts"]["content"])
         self.assertEqual(1, summary["senseCounts"]["content.material"])
+        self.assertNotEqual(0, symlinked_authority.returncode)
+        self.assertIn("cannot be a symlink", symlinked_authority.stderr)
+        self.assertNotIn("Traceback", symlinked_authority.stderr)
 
     def test_cli_rejects_ambiguous_json_and_invalid_utf8_without_traceback(self):
         probes = [

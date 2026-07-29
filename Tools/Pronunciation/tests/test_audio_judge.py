@@ -13,6 +13,7 @@ import wave
 from pathlib import Path
 from unittest import mock
 
+from Tools.Pronunciation import audio_judge
 from Tools.Pronunciation.audio_judge import (
     CLIP_ID_PATTERN,
     MAXIMUM_ESTIMATED_COST_USD,
@@ -132,6 +133,29 @@ class ManifestAdmissionTests(unittest.TestCase):
                     "corpusIdentity": "sha256:" + "c" * 64,
                     "clips": rows,
                 }
+            ),
+            encoding="utf-8",
+        )
+        self.provenance_authority_path = (
+            self.directory / "provenance-authority.json"
+        )
+        self.provenance_authority_path.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "authorizationPurpose":
+                        "openai-pronunciation-audio-evaluation",
+                    "clips": [
+                        {
+                            "clipID": row.get("clipID"),
+                            "audioSHA256": row.get("audioSHA256"),
+                            "durationSeconds": row.get("durationSeconds"),
+                            "provenance": row.get("provenance"),
+                        }
+                        for row in rows
+                    ],
+                },
+                sort_keys=True,
             ),
             encoding="utf-8",
         )
@@ -255,6 +279,46 @@ class ManifestAdmissionTests(unittest.TestCase):
                 )
             )
 
+    def test_manifest_provenance_requires_a_separate_exact_external_authority(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        row = self.manifest_row(clip_id, path, 0.25)
+        manifest = self.write_manifest([row])
+        authority = self.provenance_authority_path
+        valid_authority = json.loads(authority.read_text(encoding="utf-8"))
+
+        authority.unlink()
+        with self.assertRaisesRegex(ManifestError, "provenance authority"):
+            admit_manifest(manifest)
+
+        for field, value in (
+            ("audioSHA256", "0" * 64),
+            ("durationSeconds", 0.5),
+            ("provenance", "public-domain"),
+        ):
+            with self.subTest(field=field):
+                changed = json.loads(json.dumps(valid_authority))
+                changed["clips"][0][field] = value
+                authority.write_text(
+                    json.dumps(changed, sort_keys=True),
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(
+                    ManifestError,
+                    "provenance authority",
+                ):
+                    admit_manifest(manifest)
+
+        authority_target = self.directory / "authority-target.json"
+        authority_target.write_text(
+            json.dumps(valid_authority, sort_keys=True),
+            encoding="utf-8",
+        )
+        authority.unlink(missing_ok=True)
+        authority.symlink_to(authority_target)
+        with self.assertRaisesRegex(ManifestError, "provenance authority"):
+            admit_manifest(manifest)
+
 
 class ResponseValidationTests(unittest.TestCase):
     def setUp(self):
@@ -373,6 +437,22 @@ class EvaluationGateTests(ManifestAdmissionTests):
         self.assertEqual("gpt-audio-1.5", body["model"])
         self.assertEqual(["text"], body["modalities"])
         self.assertEqual(180, body["max_completion_tokens"])
+        prompt = body["messages"][0]["content"][0]["text"]
+        for value in ("pass", "fail", "uncertain"):
+            self.assertIn(value, prompt)
+        for value in (
+            "correct",
+            "wrong_word",
+            "wrong_sense",
+            "stress",
+            "vowel",
+            "consonant",
+            "timing",
+            "artifact",
+            "inaudible",
+            "other",
+        ):
+            self.assertIn(value, prompt)
         audio_item = body["messages"][0]["content"][1]
         self.assertEqual("input_audio", audio_item["type"])
         self.assertEqual("wav", audio_item["input_audio"]["format"])
@@ -456,6 +536,103 @@ class EvaluationGateTests(ManifestAdmissionTests):
             (output_root / "durable" / "receipt.json").read_bytes(),
         )
         self.assertEqual(1, receipt["requestCount"])
+
+    def test_initial_and_retry_reservations_fsync_the_directory_before_transport(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest([self.manifest_row(clip_id, path, 0.25)])
+        output_root = self.directory / "runs"
+        events = []
+        transport_count = 0
+        real_directory_fsync = audio_judge._fsync_directory
+
+        def tracked_directory_fsync(directory):
+            reservations = directory / "request-reservations.jsonl"
+            if reservations.is_file():
+                events.append(
+                    "directory-fsync-"
+                    + str(len(reservations.read_text(encoding="utf-8").splitlines()))
+                )
+            return real_directory_fsync(directory)
+
+        def transport(_body, _key):
+            nonlocal transport_count
+            transport_count += 1
+            events.append(f"transport-{transport_count}")
+            if transport_count == 1:
+                raise TransientTransportError()
+            return {
+                "model": "gpt-audio-1.5",
+                "content": json.dumps(
+                    {
+                        "clipID": clip_id,
+                        "verdict": "pass",
+                        "confidence": 0.9,
+                        "category": "correct",
+                    }
+                ),
+                "usage": {},
+            }
+
+        with mock.patch.object(
+            audio_judge,
+            "_fsync_directory",
+            side_effect=tracked_directory_fsync,
+        ):
+            run_evaluation(
+                manifest_path=manifest,
+                run_id="reservation-directory-fsync",
+                dry_run=False,
+                output_root=output_root,
+                environment={"OPENAI_API_KEY": "test-only-key"},
+                transport=transport,
+            )
+
+        self.assertEqual(
+            [
+                "directory-fsync-1",
+                "transport-1",
+                "directory-fsync-2",
+                "transport-2",
+            ],
+            events,
+        )
+
+    def test_run_root_rejects_repository_and_symlink_paths_before_mutation(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest([self.manifest_row(clip_id, path, 0.25)])
+        original_mkdir = Path.mkdir
+
+        def reject_repository_mkdir(candidate, *args, **kwargs):
+            if candidate == REPOSITORY_ROOT or candidate.is_relative_to(
+                REPOSITORY_ROOT
+            ):
+                raise AssertionError("repository mutation attempted")
+            return original_mkdir(candidate, *args, **kwargs)
+
+        with mock.patch.object(Path, "mkdir", new=reject_repository_mkdir):
+            with self.assertRaisesRegex(ManifestError, "outside the repository"):
+                run_evaluation(
+                    manifest_path=manifest,
+                    run_id="forbidden-repository-root",
+                    dry_run=True,
+                    output_root=REPOSITORY_ROOT,
+                    environment={},
+                )
+
+        actual_root = self.directory / "actual-runs"
+        actual_root.mkdir()
+        linked_root = self.directory / "linked-runs"
+        linked_root.symlink_to(actual_root, target_is_directory=True)
+        with self.assertRaisesRegex(ManifestError, "symlink"):
+            run_evaluation(
+                manifest_path=manifest,
+                run_id="linked-root",
+                dry_run=True,
+                output_root=linked_root,
+                environment={},
+            )
 
     def test_preexisting_run_artifact_fails_closed_before_transport(self):
         clip_id = generate_clip_id()
@@ -813,6 +990,42 @@ class EvaluationGateTests(ManifestAdmissionTests):
         self.assertEqual("RUNNING", durable["status"])
         self.assertEqual(1, durable["requestCount"])
 
+    def test_retry_rejects_a_symlinked_reservation_file_without_touching_target(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest([self.manifest_row(clip_id, path, 0.25)])
+        output_root = self.directory / "runs"
+        sentinel = self.directory / "reservation-sentinel"
+        sentinel.write_text("unchanged\n", encoding="utf-8")
+        transport_count = 0
+
+        def replace_reservation_with_symlink(_body, _key):
+            nonlocal transport_count
+            transport_count += 1
+            if transport_count == 1:
+                reservation = (
+                    output_root
+                    / "reservation-symlink"
+                    / "request-reservations.jsonl"
+                )
+                reservation.unlink()
+                reservation.symlink_to(sentinel)
+                raise TransientTransportError()
+            raise AssertionError("retry transport must not run")
+
+        with self.assertRaisesRegex(ManifestError, "reservation"):
+            run_evaluation(
+                manifest_path=manifest,
+                run_id="reservation-symlink",
+                dry_run=False,
+                output_root=output_root,
+                environment={"OPENAI_API_KEY": "test-only-key"},
+                transport=replace_reservation_with_symlink,
+            )
+
+        self.assertEqual(1, transport_count)
+        self.assertEqual("unchanged\n", sentinel.read_text(encoding="utf-8"))
+
     def test_routes_refusal_transport_failure_and_redacts_exception_details(self):
         clip_id = generate_clip_id()
         path = self.write_wav(clip_id)
@@ -974,8 +1187,15 @@ class EvaluationGateTests(ManifestAdmissionTests):
         )
 
         self.assertEqual([], receipt["returnedModelIDs"])
+        self.assertEqual("needs_review", receipt["apiEvaluationStatus"])
+        self.assertEqual(
+            ["malformed_output"],
+            receipt["morningQueue"][0]["reasons"],
+        )
         result = receipt["results"][0]
         self.assertIsNone(result["returnedModelID"])
+        self.assertIsNone(result["verdict"])
+        self.assertEqual("not_validated", result["validationOutcome"])
         self.assertEqual(
             {
                 "prompt_tokens_details": {"audio_tokens": 4},
@@ -987,6 +1207,39 @@ class EvaluationGateTests(ManifestAdmissionTests):
             result["usage"],
         )
         self.assertNotIn("private-marker", json.dumps(receipt))
+
+    def test_missing_returned_model_cannot_produce_a_pass(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest([self.manifest_row(clip_id, path, 0.25)])
+        response = {
+            "content": json.dumps(
+                {
+                    "clipID": clip_id,
+                    "verdict": "pass",
+                    "confidence": 0.95,
+                    "category": "correct",
+                }
+            ),
+            "usage": {},
+        }
+
+        receipt = run_evaluation(
+            manifest_path=manifest,
+            run_id="missing-returned-model",
+            dry_run=False,
+            output_root=self.directory / "runs",
+            environment={"OPENAI_API_KEY": "test-only-key"},
+            transport=mock.Mock(return_value=response),
+        )
+
+        self.assertEqual([], receipt["returnedModelIDs"])
+        self.assertEqual("needs_review", receipt["apiEvaluationStatus"])
+        self.assertEqual(
+            ["malformed_output"],
+            receipt["morningQueue"][0]["reasons"],
+        )
+        self.assertIsNone(receipt["results"][0]["verdict"])
 
 
 class AttemptLedgerTests(ManifestAdmissionTests):
@@ -1079,6 +1332,78 @@ class AttemptLedgerTests(ManifestAdmissionTests):
                 implementation_review_receipt="8" * 64,
                 output_root=output_root,
             )
+
+    def test_record_workflow_requires_a_judge_owned_claim_before_creating_artifacts(self):
+        output_root = self.directory / "runs"
+        run_directory = output_root / "unclaimed"
+        run_directory.mkdir(parents=True)
+        clip_id = generate_clip_id()
+        before = list(run_directory.iterdir())
+
+        with self.assertRaisesRegex(LedgerError, "run claim"):
+            record_attempt(
+                run_id="unclaimed",
+                clip_id=clip_id,
+                source_commit="d" * 40,
+                red_test_receipt="1" * 64,
+                green_test_receipt="2" * 64,
+                negative_guard_receipt="3" * 64,
+                implementation_review_receipt="4" * 64,
+                output_root=output_root,
+            )
+        with self.assertRaisesRegex(LedgerError, "run claim"):
+            record_rerender(
+                run_id="unclaimed",
+                clip_id=clip_id,
+                render_content_sha256="5" * 64,
+                audio_retest_receipt="6" * 64,
+                family_regression_receipt="7" * 64,
+                outcome="pass",
+                output_root=output_root,
+            )
+
+        self.assertEqual(before, list(run_directory.iterdir()))
+
+    def test_record_workflow_rejects_repository_output_root_before_mkdir(self):
+        clip_id = generate_clip_id()
+        original_mkdir = Path.mkdir
+
+        def reject_repository_mkdir(candidate, *args, **kwargs):
+            if candidate == REPOSITORY_ROOT or candidate.is_relative_to(
+                REPOSITORY_ROOT
+            ):
+                raise AssertionError("repository mutation attempted")
+            return original_mkdir(candidate, *args, **kwargs)
+
+        with mock.patch.object(Path, "mkdir", new=reject_repository_mkdir):
+            with self.assertRaisesRegex(LedgerError, "outside the repository"):
+                record_attempt(
+                    run_id="forbidden-record-root",
+                    clip_id=clip_id,
+                    source_commit="d" * 40,
+                    red_test_receipt="1" * 64,
+                    green_test_receipt="2" * 64,
+                    negative_guard_receipt="3" * 64,
+                    implementation_review_receipt="4" * 64,
+                    output_root=REPOSITORY_ROOT,
+                )
+
+    def test_record_workflow_rejects_symlinked_lock_without_touching_target(self):
+        clip_id, output_root = self.failing_run(run_id="symlinked-lock")
+        lock_path = output_root / "symlinked-lock" / ".attempt-ledger.lock"
+        lock_path.unlink()
+        sentinel = self.directory / "lock-sentinel"
+        sentinel.write_text("unchanged\n", encoding="utf-8")
+        lock_path.symlink_to(sentinel)
+
+        with self.assertRaisesRegex(LedgerError, "lock"):
+            read_attempt_state(
+                run_id="symlinked-lock",
+                clip_id=clip_id,
+                output_root=output_root,
+            )
+
+        self.assertEqual("unchanged\n", sentinel.read_text(encoding="utf-8"))
 
     def test_second_failed_rerender_forces_morning_review_and_blocks_a_third_attempt(self):
         clip_id, output_root = self.failing_run()
@@ -1194,6 +1519,16 @@ class AttemptLedgerTests(ManifestAdmissionTests):
         output_root = self.directory / "runs"
         run_directory = output_root / "invalid-ledger"
         run_directory.mkdir(parents=True)
+        (run_directory / "run-claim.json").write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "runID": "invalid-ledger",
+                    "state": "claimed",
+                }
+            ),
+            encoding="utf-8",
+        )
         clip_id = generate_clip_id()
         invalid_events = [
             {
@@ -1346,6 +1681,8 @@ class AttemptLedgerTests(ManifestAdmissionTests):
                 "evaluate",
                 "--manifest",
                 str(manifest),
+                "--provenance-authority",
+                str(self.provenance_authority_path),
                 "--run-id",
                 "cli-waiting",
                 "--output-root",
@@ -1374,6 +1711,8 @@ class AttemptLedgerTests(ManifestAdmissionTests):
                 "evaluate",
                 "--manifest",
                 str(manifest),
+                "--provenance-authority",
+                str(self.provenance_authority_path),
                 "--run-id",
                 "cli-waiting",
                 "--output-root",

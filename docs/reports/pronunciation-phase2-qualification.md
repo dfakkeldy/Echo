@@ -13,8 +13,8 @@ separately.
 
 - Branch: `codex/global-pronunciation-context-design`, based on
   `origin/nightly`.
-- Last committed implementation before this receipt:
-  `273cc88d444074e9f8e289da4337abd4a48dbbc4`.
+- Last committed implementation before this correction:
+  `de922b7ea4f1928c5a78e0ce3819a99522a78dd8`.
 - The source state qualified by this report is that commit plus the Task 10
   commit that contains this receipt. The final Task 10 identity is therefore
   the commit containing this file; no circular placeholder hash is embedded
@@ -28,13 +28,13 @@ The following independent local gates passed on 2026-07-29:
 
 | Gate | Result |
 | --- | --- |
-| Pronunciation corpus tests | 44 passed |
+| Pronunciation corpus tests | 45 passed |
 | Pronunciation pack tests and regeneration check | 38 passed; generated pack matched the committed pack |
-| Development audio-judge tests | 38 passed without an API request |
+| Development audio-judge tests | 48 passed without an API request |
 | Task 10 Swift acceptance suite | 6 passed |
 | Echo test-products build | Passed |
-| Complete Echo unit-test gate | Passed |
-| Release `echo-cli` build | Passed |
+| Complete Echo unit-test gate | Passed before this test/tool/documentation-only correction; not rerun because production/shared Swift did not change |
+| Release `echo-cli` build | Passed before this test/tool/documentation-only correction; not rerun because production/shared Swift did not change |
 | Deterministic program report | Two runs were byte-identical; SHA-256 `12e0ad90053c066ccea016d489cc6bf5b191d44c1734b107740fc4012f24cc22` |
 
 A local test or build is not hosted CI, device execution, rendered-audio
@@ -91,8 +91,8 @@ and exact candidate vectors for `startable`
 (`morphology.deductible.f0169beb0e5d`). Acceptance tests separately mutate the
 rule set, exception set, base-evidence policy, semantic pack, Kokoro vocabulary,
 normalized word, derivation base/rule, and base/derived IPA. Each applicable
-identity changes, and every production-affecting policy mutation changes the
-reconstructed cache signature.
+identity changes through the actual render plan, and every production-affecting
+policy mutation changes `NarrationFileNaming`'s cache signature.
 
 ## Corpus contract, human-label status, and deterministic metrics
 
@@ -127,6 +127,16 @@ Corpus-dependent qualification and final Phase 0–2 acceptance remain pending.
 No agent-generated, model-generated, provisional, or source-order label is
 represented as human evidence.
 
+Any future trusted human receipt must be paired at evaluation time with an
+absolute, regular, non-symlink authority file outside the repository. That
+authority binds the canonical SHA-256 of the exact contextual corpus plus the
+exact trusted-receipt set and is required before those receipts can contribute
+to qualification. It is an explicit operator-controlled integrity root, not
+cryptographic proof of who listened or how a label was obtained; the receipt
+schema, source-verifiability rules, and human adjudication requirement remain
+independent gates. No trusted receipts or human-evidence authority were present
+for this report.
+
 ## Development audio-judge API evaluation
 
 Status: **`WAITING_FOR_USER`**. No usable OpenAI API credential was available,
@@ -140,6 +150,8 @@ excerpt, and not a production Echo pronunciation render.
   `sha256:70d359f4d696e5afb2219cc3efcaf21a58b0c03093bb494f1d3e27efe5a1c7fa`
 - Manifest content SHA-256:
   `c3777da6145aef904aa33ddae1f7c9cd4a7865068782b57ddd4085de8f551b76`
+- External provenance-authority SHA-256:
+  `1a2953b33b444e40331e8f31dffd7ab43cf0cb020289597dbd62e995c80cc729`
 - Audio content and render identity:
   `sha256:be50f5a6c63045f14eb158c94377b2ed153f848bc21b4364727bbc83179c4e61`
 - Source commit:
@@ -150,16 +162,18 @@ excerpt, and not a production Echo pronunciation render.
 - API requests: 0
 - Transport attempts: 0
 - Per-request usage: none
-- Conservative estimated cost: USD 1.029561
+- Conservative estimated cost: USD 1.030021
 - Structured results: none
 - Validation outcome: the dry run admitted the clip and completed with no HTTP
   request; the credential-free run emitted `WAITING_FOR_USER`
 - Retry outcome: no retry was eligible or attempted
 - Morning queue count: 0
+- Dry-run ID: `public-synthetic-v1-authority-v3-dry`
+- Credential-free run ID: `public-synthetic-v1-authority-v3-waiting`
 - Dry-run receipt SHA-256:
-  `87d4ea680bbddde1fd3280c3f945ad9260d864036197fcf931057eb2bda7330d`
+  `5c15a35787d2d6598b3ba3c50e062af012c3f086b6b04a1f525d198317055b94`
 - Credential-free receipt SHA-256:
-  `6ca48b76ef74b71cb2aa322cc83121d413a0abe61b648b6ef9512b1d11939b1a`
+  `76d16ffe7eac03add142db012ab341b60b6bfc4f2879be8192dbc648b2d59211`
 
 Pricing was rechecked on 2026-07-29 and stored as
 `gpt-audio-1.5-pricing-2026-07-29`: USD 2.50 per million text-input tokens,
@@ -177,6 +191,14 @@ supplies no token estimates. Each real transport attempt, including a retry,
 must durably reserve its request number and conservative cost before sending.
 Run IDs are atomically claimed and cannot be reused or overwrite an earlier
 run.
+
+Admission also requires a separate absolute, regular, non-symlink provenance
+authority file outside the repository. It binds every admitted clip's opaque
+ID, measured audio hash, duration, and `public-domain`/`synthetic` provenance;
+the receipt records the authority hash. This is an operator-controlled
+integrity root that prevents the manifest from authorizing itself. It is not
+cryptographic proof that the operator's provenance assertion is historically
+true, so licensing/provenance review remains a separate responsibility.
 
 No raw text/audio, title, author, local path, user/book identifier, metadata,
 API key, or request header is present in the receipts or this report. The

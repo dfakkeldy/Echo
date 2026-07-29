@@ -12,6 +12,7 @@ import math
 import os
 import re
 import shutil
+import stat
 import subprocess
 import urllib.error
 import urllib.request
@@ -38,6 +39,19 @@ ALLOWED_EXPECTATIONS = {"pronunciation_acceptability"}
 MEDIA_TYPES = {
     "audio/mpeg": ("mp3", ".mp3"),
     "audio/wav": ("wav", ".wav"),
+}
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+PROVENANCE_AUTHORITY_PURPOSE = "openai-pronunciation-audio-evaluation"
+PROVENANCE_AUTHORITY_FIELDS = {
+    "schemaVersion",
+    "authorizationPurpose",
+    "clips",
+}
+PROVENANCE_AUTHORITY_CLIP_FIELDS = {
+    "clipID",
+    "audioSHA256",
+    "durationSeconds",
+    "provenance",
 }
 MEDIA_PROBE_CONTRACT = {
     "mp3": {
@@ -221,6 +235,71 @@ def _load_strict_json(path: Path) -> Any:
         raise ManifestError("manifest is not readable strict JSON") from error
 
 
+def _external_regular_file(path: Path, *, name: str) -> Path:
+    if not path.is_absolute():
+        raise ManifestError(f"{name} must be an absolute external file")
+    if path.is_symlink():
+        raise ManifestError(f"{name} cannot be a symlink")
+    try:
+        metadata = path.lstat()
+        resolved = path.resolve(strict=True)
+    except OSError as error:
+        raise ManifestError(f"{name} is unavailable") from error
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ManifestError(f"{name} must be a regular file")
+    if resolved == REPOSITORY_ROOT or resolved.is_relative_to(REPOSITORY_ROOT):
+        raise ManifestError(f"{name} must be outside the repository")
+    return resolved
+
+
+def _load_provenance_authority(
+    authority_path: Path,
+) -> tuple[dict[str, dict[str, Any]], str]:
+    path = _external_regular_file(authority_path, name="provenance authority")
+    try:
+        raw_bytes = path.read_bytes()
+        value = json.loads(
+            raw_bytes.decode("utf-8"),
+            object_pairs_hook=_strict_object,
+            parse_constant=lambda _value: (_ for _ in ()).throw(
+                ManifestError("provenance authority is invalid")),
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError, ManifestError) as error:
+        raise ManifestError("provenance authority is invalid") from error
+    if not isinstance(value, dict) or set(value) != PROVENANCE_AUTHORITY_FIELDS:
+        raise ManifestError("provenance authority fields are invalid")
+    if (
+        value["schemaVersion"] != 1
+        or value["authorizationPurpose"] != PROVENANCE_AUTHORITY_PURPOSE
+        or not isinstance(value["clips"], list)
+        or not value["clips"]
+    ):
+        raise ManifestError("provenance authority is invalid")
+    bindings: dict[str, dict[str, Any]] = {}
+    for row in value["clips"]:
+        if (
+            not isinstance(row, dict)
+            or set(row) != PROVENANCE_AUTHORITY_CLIP_FIELDS
+            or not validate_clip_id(row.get("clipID"))
+            or row["clipID"] in bindings
+            or row.get("provenance") not in ALLOWED_PROVENANCE
+            or not isinstance(row.get("audioSHA256"), str)
+            or SHA256_PATTERN.fullmatch(row["audioSHA256"]) is None
+        ):
+            raise ManifestError("provenance authority clip binding is invalid")
+        duration = row.get("durationSeconds")
+        if (
+            not isinstance(duration, (int, float))
+            or isinstance(duration, bool)
+            or not math.isfinite(duration)
+            or duration <= 0
+            or duration > MAXIMUM_CLIP_DURATION_SECONDS
+        ):
+            raise ManifestError("provenance authority clip binding is invalid")
+        bindings[row["clipID"]] = row
+    return bindings, hashlib.sha256(raw_bytes).hexdigest()
+
+
 def _require_exact_fields(value: Any, fields: set[str], name: str) -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) != fields:
         raise ManifestError(f"{name} fields do not match the contract")
@@ -378,9 +457,17 @@ def _admit_clip(
     )
 
 
-def admit_manifest(manifest_path: str | Path) -> list[AdmittedClip]:
-    """Validate and admit only measured short public-domain/synthetic clips."""
+def _admit_manifest_with_authority(
+    manifest_path: str | Path,
+    provenance_authority_path: str | Path | None,
+) -> tuple[list[AdmittedClip], str]:
     path = Path(manifest_path)
+    authority_path = (
+        Path(provenance_authority_path)
+        if provenance_authority_path is not None
+        else path.parent / "provenance-authority.json"
+    )
+    authority, authority_sha256 = _load_provenance_authority(authority_path)
     manifest = _require_exact_fields(
         _load_strict_json(path),
         MANIFEST_FIELDS,
@@ -398,7 +485,7 @@ def admit_manifest(manifest_path: str | Path) -> list[AdmittedClip]:
     if not isinstance(rows, list) or not rows:
         raise ManifestError("manifest clips must be a non-empty array")
     seen_clip_ids: set[str] = set()
-    return [
+    clips = [
         _admit_clip(
             row,
             manifest_directory=path.parent,
@@ -406,6 +493,31 @@ def admit_manifest(manifest_path: str | Path) -> list[AdmittedClip]:
         )
         for row in rows
     ]
+    if set(authority) != {clip.clip_id for clip in clips}:
+        raise ManifestError("provenance authority does not match admitted clips")
+    for clip in clips:
+        binding = authority[clip.clip_id]
+        if (
+            binding["audioSHA256"] != clip.audio_sha256
+            or binding["provenance"] != clip.provenance
+            or abs(float(binding["durationSeconds"]) - clip.duration_seconds)
+            > _DURATION_TOLERANCE_SECONDS
+        ):
+            raise ManifestError("provenance authority does not match admitted clip")
+    return clips, authority_sha256
+
+
+def admit_manifest(
+    manifest_path: str | Path,
+    *,
+    provenance_authority_path: str | Path | None = None,
+) -> list[AdmittedClip]:
+    """Admit clips only when a separate external authority binds provenance."""
+    clips, _ = _admit_manifest_with_authority(
+        manifest_path,
+        provenance_authority_path,
+    )
+    return clips
 
 
 def encode_audio(clip: AdmittedClip) -> dict[str, str]:
@@ -527,7 +639,9 @@ def build_request_body(clip: AdmittedClip) -> dict[str, Any]:
         "Judge only the pronunciation in this short public-domain or synthetic "
         "audio clip under the closed pronunciation-acceptability contract. "
         "Return exactly one JSON object with clipID, verdict, confidence, and "
-        "category. "
+        "category. verdict must be exactly one of: pass, fail, uncertain. "
+        "category must be exactly one of: correct, wrong_word, wrong_sense, "
+        "stress, vowel, consonant, timing, artifact, inaudible, other. "
         f"The clipID must be {clip.clip_id}. Do not include markdown or prose."
     )
     return {
@@ -641,12 +755,23 @@ def _validated_returned_model_id(value: Any) -> str | None:
 
 def _atomic_write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(
-        json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(path)
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    serialized = (
+        json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
+    ).encode("utf-8")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(temporary, flags, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as output:
+            output.write(serialized)
+            output.flush()
+            os.fsync(output.fileno())
+        temporary.replace(path)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def _exclusive_write_json(path: Path, value: Any) -> None:
@@ -682,8 +807,17 @@ def _fsync_directory(path: Path) -> None:
 
 def _claim_run(run_id: str, output_root: str | Path | None) -> Path:
     """Atomically claim a never-reusable run directory."""
-    root = Path(output_root or DEFAULT_OUTPUT_ROOT)
+    root = _validated_run_root(
+        output_root,
+        error_type=ManifestError,
+        require_exists=False,
+    )
     root.mkdir(parents=True, exist_ok=True)
+    root = _validated_run_root(
+        root,
+        error_type=ManifestError,
+        require_exists=True,
+    )
     run_directory = root / run_id
     try:
         run_directory.mkdir(mode=0o700)
@@ -731,23 +865,92 @@ def _reserve_request(
         },
     }
     path = run_directory / "request-reservations.jsonl"
-    with path.open("a", encoding="utf-8") as output:
-        output.write(json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n")
-        output.flush()
-        os.fsync(output.fileno())
+    flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags, 0o600)
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            os.close(descriptor)
+            raise OSError("reservation is not a regular file")
+        with os.fdopen(descriptor, "a", encoding="utf-8") as output:
+            output.write(
+                json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n"
+            )
+            output.flush()
+            os.fsync(output.fileno())
+    except OSError as error:
+        raise ManifestError("request reservation is invalid") from error
+    _fsync_directory(run_directory)
+
+
+def _validated_run_root(
+    output_root: str | Path | None,
+    *,
+    error_type: type[ManifestError] | type[LedgerError],
+    require_exists: bool,
+) -> Path:
+    root = Path(output_root or DEFAULT_OUTPUT_ROOT)
+    if not root.is_absolute():
+        raise error_type("run root must be an absolute path")
+    if root.is_symlink():
+        raise error_type("run root cannot be a symlink")
+    try:
+        resolved = root.resolve(strict=require_exists)
+    except OSError as error:
+        raise error_type("run root is unavailable") from error
+    if resolved == REPOSITORY_ROOT or resolved.is_relative_to(REPOSITORY_ROOT):
+        raise error_type("run root must be outside the repository")
+    if require_exists and (not root.exists() or not root.is_dir()):
+        raise error_type("run root is unavailable")
+    if root.exists() and not root.is_dir():
+        raise error_type("run root must be a directory")
+    return resolved
 
 
 def _run_directory(run_id: str, output_root: str | Path | None) -> Path:
     if RUN_ID_PATTERN.fullmatch(run_id) is None:
         raise LedgerError("run identifier is invalid")
-    return Path(output_root or DEFAULT_OUTPUT_ROOT) / run_id
+    root = _validated_run_root(
+        output_root,
+        error_type=LedgerError,
+        require_exists=True,
+    )
+    run_directory = root / run_id
+    if (
+        not run_directory.is_dir()
+        or run_directory.is_symlink()
+    ):
+        raise LedgerError("judge-owned run claim is unavailable")
+    claim_path = run_directory / "run-claim.json"
+    if claim_path.is_symlink():
+        raise LedgerError("judge-owned run claim is invalid")
+    try:
+        claim_metadata = claim_path.lstat()
+        claim = _load_strict_json(claim_path)
+    except (OSError, ManifestError) as error:
+        raise LedgerError("judge-owned run claim is invalid") from error
+    if (
+        not stat.S_ISREG(claim_metadata.st_mode)
+        or claim != {
+            "schemaVersion": 1,
+            "runID": run_id,
+            "state": "claimed",
+        }
+    ):
+        raise LedgerError("judge-owned run claim is invalid")
+    return run_directory
 
 
 def _load_ledger_events(ledger_path: Path) -> list[dict[str, Any]]:
     if not ledger_path.exists():
         return []
+    if ledger_path.is_symlink():
+        raise LedgerError("attempt ledger is invalid")
     events: list[dict[str, Any]] = []
     try:
+        if not stat.S_ISREG(ledger_path.lstat().st_mode):
+            raise LedgerError("attempt ledger is invalid")
         for line in ledger_path.read_text(encoding="utf-8").splitlines():
             decoded = json.loads(line, object_pairs_hook=_strict_object)
             if not isinstance(decoded, dict):
@@ -925,10 +1128,22 @@ def _append_ledger_event_locked(
     event: dict[str, Any],
 ) -> dict[str, Any]:
     ledger_path = run_directory / "attempt-ledger.jsonl"
-    with ledger_path.open("a", encoding="utf-8") as ledger:
-        ledger.write(json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n")
-        ledger.flush()
-        os.fsync(ledger.fileno())
+    flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(ledger_path, flags, 0o600)
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            os.close(descriptor)
+            raise OSError("ledger is not a regular file")
+        with os.fdopen(descriptor, "a", encoding="utf-8") as ledger:
+            ledger.write(
+                json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n"
+            )
+            ledger.flush()
+            os.fsync(ledger.fileno())
+    except OSError as error:
+        raise LedgerError("attempt ledger is invalid") from error
     events.append(event)
     states = _derive_attempt_states(events)
     _write_attempt_snapshot(run_directory, states)
@@ -939,9 +1154,18 @@ def _with_ledger_lock(
     run_directory: Path,
     operation: Callable[[list[dict[str, Any]]], Any],
 ) -> Any:
-    run_directory.mkdir(parents=True, exist_ok=True)
     lock_path = run_directory / ".attempt-ledger.lock"
-    with lock_path.open("a+", encoding="utf-8") as lock:
+    flags = os.O_RDWR | os.O_CREAT
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(lock_path, flags, 0o600)
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            os.close(descriptor)
+            raise OSError("lock is not a regular file")
+    except OSError as error:
+        raise LedgerError("attempt ledger lock is invalid") from error
+    with os.fdopen(descriptor, "a+", encoding="utf-8") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         try:
             events = _load_ledger_events(run_directory / "attempt-ledger.jsonl")
@@ -1089,6 +1313,8 @@ def _append_repeated_failure_to_morning_queue(
     clip_id: str,
 ) -> None:
     queue_path = run_directory / "morning-queue.json"
+    if queue_path.is_symlink():
+        raise LedgerError("morning queue is invalid")
     try:
         queue = json.loads(queue_path.read_text(encoding="utf-8")) if queue_path.exists() else []
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
@@ -1183,6 +1409,7 @@ def _result_proof_boundaries(label_status: str) -> dict[str, Any]:
 def run_evaluation(
     *,
     manifest_path: str | Path,
+    provenance_authority_path: str | Path | None = None,
     run_id: str,
     dry_run: bool,
     output_root: str | Path | None = None,
@@ -1193,7 +1420,10 @@ def run_evaluation(
     if RUN_ID_PATTERN.fullmatch(run_id) is None:
         raise ManifestError("run identifier is invalid")
     manifest_file = Path(manifest_path)
-    clips = admit_manifest(manifest_file)
+    clips, provenance_authority_sha256 = _admit_manifest_with_authority(
+        manifest_file,
+        provenance_authority_path,
+    )
     manifest = _load_strict_json(manifest_file)
     manifest_hash = hashlib.sha256(manifest_file.read_bytes()).hexdigest()
     baseline_estimates = [
@@ -1225,6 +1455,7 @@ def run_evaluation(
         "pricing": PRICING_CONFIG,
         "corpusIdentity": manifest["corpusIdentity"],
         "manifestContentSHA256": manifest_hash,
+        "provenanceAuthoritySHA256": provenance_authority_sha256,
         "results": [],
         "morningQueue": [],
         "proofBoundaries": {
@@ -1313,13 +1544,15 @@ def run_evaluation(
         validation_outcome = "not_validated"
         if failure is None and response is not None:
             returned_model = _validated_returned_model_id(response.get("model"))
-            if returned_model is not None:
-                receipt["returnedModelIDs"].append(returned_model)
-            if response.get("refusal"):
-                failure = "model_refusal"
-            elif not isinstance(response.get("content"), str):
+            if returned_model is None:
                 failure = "malformed_output"
             else:
+                receipt["returnedModelIDs"].append(returned_model)
+            if failure is None and response.get("refusal"):
+                failure = "model_refusal"
+            elif failure is None and not isinstance(response.get("content"), str):
+                failure = "malformed_output"
+            elif failure is None:
                 try:
                     verdict = parse_verdict(
                         response["content"],
@@ -1406,6 +1639,7 @@ def _build_argument_parser() -> argparse.ArgumentParser:
 
     evaluate = subparsers.add_parser("evaluate")
     evaluate.add_argument("--manifest", required=True, type=Path)
+    evaluate.add_argument("--provenance-authority", required=True, type=Path)
     evaluate.add_argument("--run-id", required=True)
     evaluate.add_argument("--dry-run", action="store_true")
     evaluate.add_argument("--output-root", type=Path)
@@ -1438,6 +1672,7 @@ def main(arguments: list[str] | None = None) -> int:
         if options.command == "evaluate":
             result = run_evaluation(
                 manifest_path=options.manifest,
+                provenance_authority_path=options.provenance_authority,
                 run_id=options.run_id,
                 dry_run=options.dry_run,
                 output_root=options.output_root,

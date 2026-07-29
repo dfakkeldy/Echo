@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
+import stat
 import unicodedata
 from collections import Counter
 from dataclasses import asdict, dataclass
@@ -64,6 +66,17 @@ PRONUNCIATION_OVERRIDE_SIGNAL_CHARACTERS = frozenset(
 )
 MINIMUM_FAMILY_CASES = 200
 MINIMUM_SENSE_CASES = 50
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+HUMAN_EVIDENCE_AUTHORITY_PURPOSE = (
+    "pronunciation-human-evidence-qualification"
+)
+HUMAN_EVIDENCE_AUTHORITY_FIELDS = {
+    "schemaVersion",
+    "authorityKind",
+    "authorizationPurpose",
+    "evidenceBundleSHA256",
+}
 
 CONTEXTUAL_REQUIRED_FIELDS = {
     "caseID",
@@ -463,6 +476,25 @@ def _trusted_receipt_to_record(
     }
 
 
+def _qualification_authority_digest(
+    contextual_records: list[dict[str, Any]],
+    trusted_receipt_records: list[dict[str, Any]],
+) -> str:
+    payload = {
+        "schemaVersion": 1,
+        "authorizationPurpose": HUMAN_EVIDENCE_AUTHORITY_PURPOSE,
+        "contextualCases": contextual_records,
+        "trustedReceipts": trusted_receipt_records,
+    }
+    canonical = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
 def validate_trusted_receipts(
     raw_receipts: Iterable[dict[str, Any] | TrustedLabelReceipt],
 ) -> list[TrustedLabelReceipt]:
@@ -531,6 +563,7 @@ def qualification_status(
     trusted_receipts: Iterable[
         dict[str, Any] | TrustedLabelReceipt
     ] | None = None,
+    trusted_authority_digest: str | None = None,
 ) -> QualificationResult:
     raw_records = list(raw_cases)
     if any(isinstance(record, ContextualCase) for record in raw_records):
@@ -538,8 +571,32 @@ def qualification_status(
             "qualification_status requires raw contextual records so "
             "sourceURL and license metadata remain lossless"
         )
+    raw_receipt_values = list(trusted_receipts or [])
+    raw_receipt_records = [
+        _trusted_receipt_to_record(value)
+        if isinstance(value, TrustedLabelReceipt)
+        else value
+        for value in raw_receipt_values
+    ]
     cases = validate_contract(raw_records)
-    receipts = validate_trusted_receipts(trusted_receipts or [])
+    receipts = validate_trusted_receipts(raw_receipt_values)
+    if receipts:
+        expected_authority_digest = _qualification_authority_digest(
+            raw_records,
+            raw_receipt_records,
+        )
+        if (
+            not isinstance(trusted_authority_digest, str)
+            or SHA256_PATTERN.fullmatch(trusted_authority_digest) is None
+            or trusted_authority_digest != expected_authority_digest
+        ):
+            raise ValueError(
+                "trusted receipts require an exact human evidence authority binding"
+            )
+    elif trusted_authority_digest is not None:
+        raise ValueError(
+            "human evidence authority cannot bind an empty trusted receipt set"
+        )
     receipts_by_id = {receipt.receipt_id: receipt for receipt in receipts}
     receipt_claims: dict[str, str] = {}
     family_counts = Counter({family: 0 for family in CONTEXTUAL_FAMILIES})
@@ -907,6 +964,44 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _external_regular_file(path: Path, *, name: str) -> Path:
+    if not path.is_absolute():
+        raise ValueError(f"{name} must be an absolute external file")
+    if path.is_symlink():
+        raise ValueError(f"{name} cannot be a symlink")
+    try:
+        metadata = path.lstat()
+        resolved = path.resolve(strict=True)
+    except OSError as error:
+        raise ValueError(f"{name} is unavailable") from error
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ValueError(f"{name} must be a regular file")
+    if resolved == REPOSITORY_ROOT or resolved.is_relative_to(REPOSITORY_ROOT):
+        raise ValueError(f"{name} must be outside the repository")
+    return resolved
+
+
+def _load_human_evidence_authority(path: Path) -> str:
+    authority_path = _external_regular_file(
+        path,
+        name="human evidence authority",
+    )
+    authority = _load_json(authority_path)
+    if (
+        not isinstance(authority, dict)
+        or set(authority) != HUMAN_EVIDENCE_AUTHORITY_FIELDS
+        or authority.get("schemaVersion") != 1
+        or authority.get("authorityKind")
+        != "user-controlled-out-of-repository"
+        or authority.get("authorizationPurpose")
+        != HUMAN_EVIDENCE_AUTHORITY_PURPOSE
+        or not isinstance(authority.get("evidenceBundleSHA256"), str)
+        or SHA256_PATTERN.fullmatch(authority["evidenceBundleSHA256"]) is None
+    ):
+        raise ValueError("human evidence authority is invalid")
+    return authority["evidenceBundleSHA256"]
+
+
 def _validate_candidate_research(path: Path) -> int:
     research = _load_json(path)
     if not isinstance(research, dict):
@@ -1094,6 +1189,7 @@ def main(argv: list[str] | None = None) -> int:
     qualification_parser = subparsers.add_parser("qualification-status")
     qualification_parser.add_argument("--fixtures", type=Path, required=True)
     qualification_parser.add_argument("--trusted-receipts", type=Path)
+    qualification_parser.add_argument("--human-evidence-authority", type=Path)
     report_parser = subparsers.add_parser("report")
     report_parser.add_argument("--fixtures", type=Path, required=True)
     report_parser.add_argument("--pack", type=Path, required=True)
@@ -1108,15 +1204,34 @@ def main(argv: list[str] | None = None) -> int:
         if arguments.command == "validate-contract":
             _print_json(summary)
         else:
-            trusted_receipts = (
-                _load_jsonl(arguments.trusted_receipts)
-                if arguments.trusted_receipts is not None
-                else []
-            )
+            if (
+                arguments.trusted_receipts is None
+                and arguments.human_evidence_authority is not None
+            ):
+                raise ValueError(
+                    "human evidence authority requires trusted receipts"
+                )
+            if arguments.trusted_receipts is not None:
+                if arguments.human_evidence_authority is None:
+                    raise ValueError(
+                        "trusted receipts require a human evidence authority"
+                    )
+                receipt_path = _external_regular_file(
+                    arguments.trusted_receipts,
+                    name="trusted receipts",
+                )
+                trusted_receipts = _load_jsonl(receipt_path)
+                authority_digest = _load_human_evidence_authority(
+                    arguments.human_evidence_authority
+                )
+            else:
+                trusted_receipts = []
+                authority_digest = None
             _print_json(
                 qualification_status(
                     contextual_records,
                     trusted_receipts=trusted_receipts,
+                    trusted_authority_digest=authority_digest,
                 ).as_summary()
             )
     except ValueError as error:

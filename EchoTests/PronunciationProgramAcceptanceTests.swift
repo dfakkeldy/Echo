@@ -39,6 +39,28 @@ import Testing
         let automatic: Bool
     }
 
+    private struct IndependentMorphologyPolicy: Encodable {
+        let identitySchemaVersion: Int
+        let morphologyVersion: String
+        let ruleIDs: [String]
+        let suffixIPA: String
+        let minimumBaseLength: Int
+        let properNamePolicyVersion: String
+        let baseEvidencePolicyVersion: String
+        let exceptionSetSHA256: String
+        let pronunciationPackVersion: String
+        let kokoroVocabularyVersion: String
+    }
+
+    private struct MorphologyCandidateProbe {
+        let word: String
+        let base: String
+        let ruleID: String
+        let baseIPA: String
+        let derivedIPA: String
+        let candidatePackVersion: String
+    }
+
     private struct CanonicalCandidate: Codable {
         let candidateID: String
         let ipa: String
@@ -428,9 +450,113 @@ import Testing
             #expect(copied.bookRelativeAudioRange?.start == 11)
         }
 
+        let canonicalEncoder = JSONEncoder()
+        canonicalEncoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        func sha256(_ data: Data) -> String {
+            SHA256.hash(data: data)
+                .map { String(format: "%02x", $0) }
+                .joined()
+        }
+        let frozenRules = [
+            "morphology.able.exact-base.v1",
+            "morphology.able.silent-e.v1",
+            "morphology.ible.exact-base.v1",
+        ]
+        let frozenExceptions: Set<String> = [
+            "comfortable", "content", "livable", "live", "lives", "read",
+            "readable", "record", "recordable", "records", "responsible",
+        ]
+        func independentMorphologyPolicy(
+            semanticPackVersion: String = semanticPackVersion,
+            vocabularyVersion: String = vocabularyVersion,
+            ruleIDs: [String] = frozenRules,
+            exceptionWords: Set<String> = frozenExceptions,
+            baseEvidencePolicyVersion: String =
+                "kokoro-nonfallback-rating3-v1"
+        ) throws -> String {
+            let exceptionData = try canonicalEncoder.encode(
+                Array(exceptionWords).sorted())
+            let payload = IndependentMorphologyPolicy(
+                identitySchemaVersion: 1,
+                morphologyVersion: "morphology-v1",
+                ruleIDs: ruleIDs.sorted(),
+                suffixIPA: "əbəl",
+                minimumBaseLength: 3,
+                properNamePolicyVersion: "proper-name-risk-v7",
+                baseEvidencePolicyVersion: baseEvidencePolicyVersion,
+                exceptionSetSHA256: "sha256:\(sha256(exceptionData))",
+                pronunciationPackVersion: semanticPackVersion,
+                kokoroVocabularyVersion: vocabularyVersion)
+            return "morphology-v1:sha256:"
+                + sha256(try canonicalEncoder.encode(payload))
+        }
+        func independentCandidateID(
+            _ input: MorphologyCandidateProbe
+        ) -> String {
+            let fields = [
+                input.candidatePackVersion, input.word, input.base,
+                input.ruleID, input.baseIPA, input.derivedIPA,
+            ]
+            let digest = sha256(
+                Data(fields.joined(separator: "\0").utf8))
+            return "morphology.\(input.word).\(digest.prefix(12))"
+        }
+        func actualCacheSignature(
+            _ input: MorphologyCandidateProbe
+        ) -> String {
+            let rendered = "[\(input.word)](/\(input.derivedIPA)/)"
+            return NarrationFileNaming.contentSignature(
+                spokenBlocks: [
+                    block(id: "morphology-cache", text: input.word)
+                ],
+                renderedTexts: [rendered],
+                includeLeadOutPad: false,
+                pronunciationPolicySignature: [
+                    semanticPackVersion,
+                    input.candidatePackVersion,
+                    EnglishPronunciationPack.contentDefaultPolicyVersion,
+                ].joined(separator: "|"))
+        }
+        func plannedDecision(
+            _ input: MorphologyCandidateProbe
+        ) throws -> PronunciationAuditDecision {
+            let candidateID = independentCandidateID(input)
+            let rendered = "[\(input.word)](/\(input.derivedIPA)/)"
+            let seed = PronunciationDecisionSeed(
+                blockID: "morphology-plan",
+                wordStart: 0,
+                wordEnd: 0,
+                normalizedWord: input.word,
+                sourceWord: input.word,
+                sourceContext: input.word,
+                selectedIPA: input.derivedIPA,
+                source: .derivedMorphology,
+                ruleID: input.ruleID,
+                rationale: "Synthetic acceptance identity probe.",
+                candidateID: candidateID,
+                candidatePackVersion: input.candidatePackVersion,
+                derivationBase: input.base,
+                derivationRuleID: input.ruleID)
+            let plan = try NarrationRenderPlanner.make(
+                preparedBlocks: [
+                    NarrationPreparedBlock(
+                        block: block(
+                            id: "morphology-plan",
+                            text: rendered),
+                        pronunciationDecisionSeeds: [seed])
+                ],
+                overrides: PronunciationOverrides(entries: [:]),
+                pronunciationPack: pack)
+            return try #require(
+                plan.blocks.first?.pronunciationDecisions.first)
+        }
+
         let baselinePolicy =
             UniversalPronunciationResolver.morphologyCandidatePackVersion(
                 for: pack)
+        let independentlyRebuiltBaseline =
+            try independentMorphologyPolicy()
+        #expect(independentlyRebuiltBaseline == frozenMorphologyPackVersion)
         #expect(baselinePolicy == frozenMorphologyPackVersion)
         let changedRule =
             UniversalPronunciationResolver.morphologyCandidatePackVersion(
@@ -464,6 +590,31 @@ import Testing
         let changedVocabularyIdentity =
             UniversalPronunciationResolver.morphologyCandidatePackVersion(
                 for: changedVocabularyPack)
+        let independentlyChangedRule = try independentMorphologyPolicy(
+            ruleIDs: [
+                "morphology.able.exact-base.v2",
+                "morphology.able.silent-e.v1",
+                "morphology.ible.exact-base.v1",
+            ])
+        let independentlyChangedException =
+            try independentMorphologyPolicy(
+                exceptionWords: frozenExceptions.union(["changeable"]))
+        let independentlyChangedBaseEvidence =
+            try independentMorphologyPolicy(
+                baseEvidencePolicyVersion: "kokoro-nonfallback-rating4-v2")
+        let independentlyChangedSemantic =
+            try independentMorphologyPolicy(
+                semanticPackVersion:
+                    "sha256:" + String(repeating: "2", count: 64))
+        let independentlyChangedVocabulary =
+            try independentMorphologyPolicy(
+                vocabularyVersion:
+                    "sha256:" + String(repeating: "3", count: 64))
+        #expect(changedRule == independentlyChangedRule)
+        #expect(changedException == independentlyChangedException)
+        #expect(changedBaseEvidence == independentlyChangedBaseEvidence)
+        #expect(changedSemanticIdentity == independentlyChangedSemantic)
+        #expect(changedVocabularyIdentity == independentlyChangedVocabulary)
         let policyIdentities = [
             baselinePolicy,
             changedRule,
@@ -474,82 +625,154 @@ import Testing
         ]
         #expect(Set(policyIdentities).count == policyIdentities.count)
 
-        func cacheSignature(
-            semanticPack: EnglishPronunciationPack,
+        func policyCacheSignature(
+            semanticPackVersion: String,
             morphologyPolicy: String
         ) -> String {
-            [
-                semanticPack.packVersion,
-                morphologyPolicy,
-                EnglishPronunciationPack.contentDefaultPolicyVersion,
-            ].joined(separator: "|")
+            NarrationFileNaming.contentSignature(
+                spokenBlocks: [
+                    block(
+                        id: "morphology-policy-cache",
+                        text: "Synthetic morphology cache probe.")
+                ],
+                renderedTexts: ["Synthetic morphology cache probe."],
+                includeLeadOutPad: false,
+                pronunciationPolicySignature: [
+                    semanticPackVersion,
+                    morphologyPolicy,
+                    EnglishPronunciationPack.contentDefaultPolicyVersion,
+                ].joined(separator: "|"))
         }
-        let cacheSignatures = [
-            cacheSignature(
-                semanticPack: pack,
+        let policyCacheSignatures = [
+            policyCacheSignature(
+                semanticPackVersion: semanticPackVersion,
                 morphologyPolicy: baselinePolicy),
-            cacheSignature(
-                semanticPack: pack,
+            policyCacheSignature(
+                semanticPackVersion: semanticPackVersion,
                 morphologyPolicy: changedRule),
-            cacheSignature(
-                semanticPack: pack,
+            policyCacheSignature(
+                semanticPackVersion: semanticPackVersion,
                 morphologyPolicy: changedException),
-            cacheSignature(
-                semanticPack: pack,
+            policyCacheSignature(
+                semanticPackVersion: semanticPackVersion,
                 morphologyPolicy: changedBaseEvidence),
-            cacheSignature(
-                semanticPack: changedSemanticPack,
+            policyCacheSignature(
+                semanticPackVersion: changedSemanticPack.packVersion,
                 morphologyPolicy: changedSemanticIdentity),
-            cacheSignature(
-                semanticPack: changedVocabularyPack,
+            policyCacheSignature(
+                semanticPackVersion: changedVocabularyPack.packVersion,
                 morphologyPolicy: changedVocabularyIdentity),
         ]
-        #expect(Set(cacheSignatures).count == cacheSignatures.count)
         #expect(
-            cacheSignatures[0]
-                == pack.productionPolicySignature)
+            Set(policyCacheSignatures).count
+                == policyCacheSignatures.count)
 
-        let candidateInputs = [
-            (
-                "startable", "start", "morphology.able.exact-base.v1",
-                "stˈɑɹt", "stˈɑɹtəbəl", baselinePolicy
+        let candidateInputs: [MorphologyCandidateProbe] = [
+            MorphologyCandidateProbe(
+                word: "startable",
+                base: "start",
+                ruleID: "morphology.able.exact-base.v1",
+                baseIPA: "stˈɑɹt",
+                derivedIPA: "stˈɑɹtəbəl",
+                candidatePackVersion: baselinePolicy
             ),
-            (
-                "testable", "start", "morphology.able.exact-base.v1",
-                "stˈɑɹt", "stˈɑɹtəbəl", baselinePolicy
+            MorphologyCandidateProbe(
+                word: "testable",
+                base: "start",
+                ruleID: "morphology.able.exact-base.v1",
+                baseIPA: "stˈɑɹt",
+                derivedIPA: "stˈɑɹtəbəl",
+                candidatePackVersion: baselinePolicy
             ),
-            (
-                "startable", "test", "morphology.able.exact-base.v1",
-                "stˈɑɹt", "stˈɑɹtəbəl", baselinePolicy
+            MorphologyCandidateProbe(
+                word: "startable",
+                base: "test",
+                ruleID: "morphology.able.exact-base.v1",
+                baseIPA: "stˈɑɹt",
+                derivedIPA: "stˈɑɹtəbəl",
+                candidatePackVersion: baselinePolicy
             ),
-            (
-                "startable", "start", "morphology.able.silent-e.v1",
-                "stˈɑɹt", "stˈɑɹtəbəl", baselinePolicy
+            MorphologyCandidateProbe(
+                word: "startable",
+                base: "start",
+                ruleID: "morphology.able.silent-e.v1",
+                baseIPA: "stˈɑɹt",
+                derivedIPA: "stˈɑɹtəbəl",
+                candidatePackVersion: changedRule
             ),
-            (
-                "startable", "start", "morphology.able.exact-base.v1",
-                "stˈɑɹd", "stˈɑɹtəbəl", baselinePolicy
+            MorphologyCandidateProbe(
+                word: "startable",
+                base: "start",
+                ruleID: "morphology.able.exact-base.v1",
+                baseIPA: "stˈɑɹd",
+                derivedIPA: "stˈɑɹtəbəl",
+                candidatePackVersion: baselinePolicy
             ),
-            (
-                "startable", "start", "morphology.able.exact-base.v1",
-                "stˈɑɹt", "stˈɑɹtIbəl", baselinePolicy
+            MorphologyCandidateProbe(
+                word: "startable",
+                base: "start",
+                ruleID: "morphology.able.exact-base.v1",
+                baseIPA: "stˈɑɹt",
+                derivedIPA: "stˈɑɹtɪbəl",
+                candidatePackVersion: baselinePolicy
             ),
-            (
-                "startable", "start", "morphology.able.exact-base.v1",
-                "stˈɑɹt", "stˈɑɹtəbəl", changedSemanticIdentity
+            MorphologyCandidateProbe(
+                word: "startable",
+                base: "start",
+                ruleID: "morphology.able.exact-base.v1",
+                baseIPA: "stˈɑɹt",
+                derivedIPA: "stˈɑɹtəbəl",
+                candidatePackVersion: changedSemanticIdentity
             ),
         ]
-        let candidateIDs = candidateInputs.map {
+        let independentCandidateIDs =
+            candidateInputs.map(independentCandidateID)
+        let productionCandidateIDs = candidateInputs.map {
             UniversalPronunciationResolver.derivedCandidateID(
-                normalizedWord: $0.0,
-                derivationBase: $0.1,
-                derivationRuleID: $0.2,
-                baseIPA: $0.3,
-                derivedIPA: $0.4,
-                candidatePackVersion: $0.5)
+                normalizedWord: $0.word,
+                derivationBase: $0.base,
+                derivationRuleID: $0.ruleID,
+                baseIPA: $0.baseIPA,
+                derivedIPA: $0.derivedIPA,
+                candidatePackVersion: $0.candidatePackVersion)
         }
-        #expect(candidateIDs[0] == "morphology.startable.14f4cfb4f8f1")
-        #expect(Set(candidateIDs).count == candidateIDs.count)
+        #expect(
+            independentCandidateIDs
+                == productionCandidateIDs)
+        #expect(
+            productionCandidateIDs[0]
+                == "morphology.startable.14f4cfb4f8f1")
+        #expect(
+            Set(productionCandidateIDs).count
+                == productionCandidateIDs.count)
+
+        let plannedDecisions = try candidateInputs.map(plannedDecision)
+        for index in candidateInputs.indices {
+            #expect(
+                plannedDecisions[index].candidateID
+                    == productionCandidateIDs[index])
+            #expect(
+                plannedDecisions[index].candidatePackVersion
+                    == candidateInputs[index].candidatePackVersion)
+            #expect(
+                plannedDecisions[index].derivationBase
+                    == candidateInputs[index].base)
+            #expect(
+                plannedDecisions[index].derivationRuleID
+                    == candidateInputs[index].ruleID)
+            #expect(
+                plannedDecisions[index].selectedIPA
+                    == candidateInputs[index].derivedIPA)
+        }
+
+        let candidateCacheSignatures =
+            candidateInputs.map(actualCacheSignature)
+        #expect(candidateCacheSignatures[1] != candidateCacheSignatures[0])
+        #expect(candidateCacheSignatures[2] == candidateCacheSignatures[0])
+        #expect(candidateCacheSignatures[3] != candidateCacheSignatures[0])
+        #expect(candidateCacheSignatures[4] == candidateCacheSignatures[0])
+        #expect(candidateCacheSignatures[5] != candidateCacheSignatures[0])
+        #expect(candidateCacheSignatures[6] != candidateCacheSignatures[0])
     }
 
     @Test func bundledPackHasClosedShapeAttributionAndIndependentIdentity() throws {

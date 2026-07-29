@@ -876,6 +876,17 @@ verdicts have no production authority and cannot edit pronunciation data.
 Independent human-labelled qualification data and bounded human listening
 remain mandatory and separate.
 
+The judge does not let its input manifest authorize its own provenance. Each
+run requires a separate absolute, regular, non-symlink authority file outside
+the repository that binds the exact opaque clip ID, measured audio hash,
+duration, and `public-domain`/`synthetic` assertion; the receipt records that
+authority's hash. Likewise, future trusted human-label receipts contribute to
+qualification only when paired with a separate out-of-repository authority
+binding the canonical exact corpus-and-receipt bundle digest. These are
+operator-controlled integrity roots, not cryptographic proof of authorship,
+listening, or historical provenance, so licensing/source verification and
+human adjudication remain independent proof gates.
+
 > **Phased rollout.** This documents **Plan 1 — the engine core**: schema, seams, state, text normalization, and the per-chapter render orchestration, all unit-tested behind a mock engine. The real on-device model (Kokoro CoreML/ANE) + grapheme-to-phoneme (MisakiSwift, Apache-licensed, no GPL espeak-ng), the one-time model download, the read-first "Listen" UI + voice picker, render-ahead scheduling, and `.m4b`/per-chapter export land in later plans. **No audible output ships yet.** Design spec: `docs/superpowers/specs/2026-06-13-epub-ai-narration-design.md`.
 
 > **Update (June 2026 — engine real + upstream chunking).** The real engine has since shipped: Kokoro-82M runs on-device via **FluidAudio (CoreML/ANE)** behind the `TTSEngine` seam, narration plays through the main playback pipeline (iPhone + CarPlay), and the rendered cache is **lossless ALAC** in `.m4a`. **Upstream input chunking (required):** FluidAudio does no internal chunking and caps IPA input at ~510 phonemes ("chunk longer prompts upstream"). A whole 400+ char block drove the palettized vocoder's BNNS fallback into a dynamic tensor shape that **traps** (uncatchable `EXC_BREAKPOINT` in `libBNNS`), so `NarrationService.renderChapter` splits each EPUB block into ~200-char sentence sub-chunks (`NarrationTextChunker`, pure/testable) and synthesizes each separately before concatenation — keeping inference shapes bounded and yielding finer audio, while still writing **one `.synthesized` anchor per original block** (spanning the summed sub-chunk durations) so the data model below is unchanged.
