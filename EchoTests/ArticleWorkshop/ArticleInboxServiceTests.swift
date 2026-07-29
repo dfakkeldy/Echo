@@ -93,6 +93,32 @@ import Testing
         #expect(try fixture.captureDAO.captures().count == 2)
     }
 
+    @Test func matchingStoredSourceURLIsDuplicateEvidence() throws {
+        let fixture = try Fixture()
+        defer { fixture.removeFiles() }
+        let sharedSourceURL = "https://example.com/read-this"
+        try fixture.captureDAO.saveCapture(
+            fixture.capture(
+                id: "00000000-0000-0000-0000-000000000001",
+                sourceURL: sharedSourceURL,
+                canonicalURL: nil,
+                digest: "first-content"
+            ))
+        try fixture.captureDAO.saveCapture(
+            fixture.capture(
+                id: "00000000-0000-0000-0000-000000000002",
+                sourceURL: sharedSourceURL,
+                canonicalURL: "https://canonical.example/different",
+                digest: "second-content"
+            ))
+
+        let items = try fixture.service.inboxItems()
+
+        #expect(items.map(\.isPossibleDuplicate) == [true, true])
+        #expect(items.map(\.keepBothAvailable) == [true, true])
+        #expect(try fixture.captureDAO.captures().count == 2)
+    }
+
     @Test func multiSelectionCreatesAnAnthologySeedWithoutEditing() throws {
         let fixture = try Fixture()
         defer { fixture.removeFiles() }
@@ -257,6 +283,7 @@ private final class Fixture {
 
     func capture(
         id: String,
+        sourceURL: String? = nil,
         capturedAt: String = "2026-07-28T12:01:00Z",
         state: String = "ready",
         canonicalURL: String? = nil,
@@ -265,7 +292,7 @@ private final class Fixture {
     ) -> ArticleCaptureRecord {
         ArticleCaptureRecord(
             id: id,
-            sourceURL: "https://example.com/articles/\(id)",
+            sourceURL: sourceURL ?? "https://example.com/articles/\(id)",
             canonicalURL: canonicalURL,
             title: "Article \(id.suffix(4))",
             author: "Example Author",

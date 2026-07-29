@@ -219,7 +219,8 @@ nonisolated struct ArticleInboxService: Sendable {
                 record.canonicalURL.flatMap { canonicalURL in
                     candidate.canonicalURL == canonicalURL ? true : nil
                 } ?? false
-            return sameCanonicalURL
+            return candidate.sourceURL == record.sourceURL
+                || sameCanonicalURL
                 || (record.contentSHA256.isEmpty == false
                     && candidate.contentSHA256 == record.contentSHA256)
         }
