@@ -877,11 +877,13 @@ Independent human-labelled qualification data and bounded human listening
 remain mandatory and separate.
 
 The judge does not let its input manifest authorize its own provenance. Each
-run requires a separate absolute, regular, non-symlink authority file outside
-the repository that binds the exact opaque clip ID, measured audio hash,
-duration, and `public-domain`/`synthetic` assertion; the receipt records that
-authority's hash. Likewise, future trusted human-label receipts contribute to
-qualification only when paired with a separate out-of-repository authority
+run requires a separate absolute, single-link regular, non-symlink authority
+file outside the repository that binds the exact opaque clip ID, measured
+audio hash, duration, and `public-domain`/`synthetic` assertion; the receipt
+records that authority's hash. Judge-owned claims and mutable run artifacts
+must also be single-link files, preventing an append or state write through an
+external hardlink. Likewise, future trusted human-label receipts contribute
+to qualification only when paired with a separate out-of-repository authority
 binding the canonical exact corpus-and-receipt bundle digest. These are
 operator-controlled integrity roots, not cryptographic proof of authorship,
 listening, or historical provenance, so licensing/source verification and

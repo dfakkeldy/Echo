@@ -30,7 +30,7 @@ The following independent local gates passed on 2026-07-29:
 | --- | --- |
 | Pronunciation corpus tests | 45 passed |
 | Pronunciation pack tests and regeneration check | 38 passed; generated pack matched the committed pack |
-| Development audio-judge tests | 48 passed without an API request |
+| Development audio-judge tests | 54 passed without an API request |
 | Task 10 Swift acceptance suite | 6 passed |
 | Echo test-products build | Passed |
 | Complete Echo unit-test gate | Passed before this test/tool/documentation-only correction; not rerun because production/shared Swift did not change |
@@ -192,13 +192,16 @@ must durably reserve its request number and conservative cost before sending.
 Run IDs are atomically claimed and cannot be reused or overwrite an earlier
 run.
 
-Admission also requires a separate absolute, regular, non-symlink provenance
-authority file outside the repository. It binds every admitted clip's opaque
-ID, measured audio hash, duration, and `public-domain`/`synthetic` provenance;
-the receipt records the authority hash. This is an operator-controlled
-integrity root that prevents the manifest from authorizing itself. It is not
-cryptographic proof that the operator's provenance assertion is historically
-true, so licensing/provenance review remains a separate responsibility.
+Admission also requires a separate absolute, single-link regular, non-symlink
+provenance authority file outside the repository. It binds every admitted
+clip's opaque ID, measured audio hash, duration, and
+`public-domain`/`synthetic` provenance; the receipt records the authority hash.
+Judge-owned claims and mutable run artifacts must also be single-link files,
+preventing append/state writes through an external hardlink. This is an
+operator-controlled integrity root that prevents the manifest from authorizing
+itself. It is not cryptographic proof that the operator's provenance assertion
+is historically true, so licensing/provenance review remains a separate
+responsibility.
 
 No raw text/audio, title, author, local path, user/book identifier, metadata,
 API key, or request header is present in the receipts or this report. The

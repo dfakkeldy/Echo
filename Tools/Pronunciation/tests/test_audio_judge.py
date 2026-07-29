@@ -319,6 +319,13 @@ class ManifestAdmissionTests(unittest.TestCase):
         with self.assertRaisesRegex(ManifestError, "provenance authority"):
             admit_manifest(manifest)
 
+        authority.unlink()
+        authority_before = authority_target.read_bytes()
+        os.link(authority_target, authority)
+        with self.assertRaisesRegex(ManifestError, "provenance authority"):
+            admit_manifest(manifest)
+        self.assertEqual(authority_before, authority_target.read_bytes())
+
 
 class ResponseValidationTests(unittest.TestCase):
     def setUp(self):
@@ -1026,6 +1033,126 @@ class EvaluationGateTests(ManifestAdmissionTests):
         self.assertEqual(1, transport_count)
         self.assertEqual("unchanged\n", sentinel.read_text(encoding="utf-8"))
 
+    def test_retry_rejects_a_hardlinked_reservation_file_without_touching_target(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest([self.manifest_row(clip_id, path, 0.25)])
+        output_root = self.directory / "runs"
+        sentinel = self.directory / "reservation-hardlink-sentinel"
+        sentinel.write_bytes(b"external sentinel must remain exact\n")
+        sentinel_before = sentinel.read_bytes()
+        transport_count = 0
+
+        def replace_reservation_with_hardlink(_body, _key):
+            nonlocal transport_count
+            transport_count += 1
+            if transport_count == 1:
+                reservation = (
+                    output_root
+                    / "reservation-hardlink"
+                    / "request-reservations.jsonl"
+                )
+                reservation.unlink()
+                os.link(sentinel, reservation)
+                raise TransientTransportError()
+            raise AssertionError("retry transport must not run")
+
+        with self.assertRaisesRegex(ManifestError, "reservation"):
+            run_evaluation(
+                manifest_path=manifest,
+                run_id="reservation-hardlink",
+                dry_run=False,
+                output_root=output_root,
+                environment={"OPENAI_API_KEY": "test-only-key"},
+                transport=replace_reservation_with_hardlink,
+            )
+
+        self.assertEqual(1, transport_count)
+        self.assertEqual(sentinel_before, sentinel.read_bytes())
+
+    def test_evaluation_rejects_a_hardlinked_receipt_without_touching_target(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest([self.manifest_row(clip_id, path, 0.25)])
+        output_root = self.directory / "runs"
+        sentinel = self.directory / "receipt-hardlink-sentinel"
+        sentinel.write_bytes(b"external receipt sentinel must remain exact\n")
+        sentinel_before = sentinel.read_bytes()
+
+        def replace_receipt_with_hardlink(_body, _key):
+            receipt = output_root / "receipt-hardlink" / "receipt.json"
+            receipt.unlink()
+            os.link(sentinel, receipt)
+            return {
+                "model": "gpt-audio-1.5",
+                "content": json.dumps(
+                    {
+                        "clipID": clip_id,
+                        "verdict": "pass",
+                        "confidence": 0.95,
+                        "category": "correct",
+                    }
+                ),
+                "usage": {},
+            }
+
+        with self.assertRaisesRegex(ManifestError, "run artifact"):
+            run_evaluation(
+                manifest_path=manifest,
+                run_id="receipt-hardlink",
+                dry_run=False,
+                output_root=output_root,
+                environment={"OPENAI_API_KEY": "test-only-key"},
+                transport=replace_receipt_with_hardlink,
+            )
+
+        self.assertEqual(sentinel_before, sentinel.read_bytes())
+
+    def test_atomic_temp_rejects_a_hardlink_created_after_exclusive_open(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest([self.manifest_row(clip_id, path, 0.25)])
+        output_root = self.directory / "runs"
+        sentinel = self.directory / "temporary-hardlink-sentinel"
+        fixed_hex = "f" * 32
+        real_open = os.open
+        linked = False
+
+        def hardlink_temporary_after_open(candidate, flags, mode=0o777):
+            nonlocal linked
+            descriptor = real_open(candidate, flags, mode)
+            if (
+                not linked
+                and Path(candidate).name
+                == f".receipt.json.{fixed_hex}.tmp"
+            ):
+                os.link(candidate, sentinel)
+                linked = True
+            return descriptor
+
+        with (
+            mock.patch.object(
+                audio_judge.uuid,
+                "uuid4",
+                return_value=mock.Mock(hex=fixed_hex),
+            ),
+            mock.patch.object(
+                audio_judge.os,
+                "open",
+                side_effect=hardlink_temporary_after_open,
+            ),
+            self.assertRaisesRegex(ManifestError, "temporary run artifact"),
+        ):
+            run_evaluation(
+                manifest_path=manifest,
+                run_id="temporary-hardlink",
+                dry_run=True,
+                output_root=output_root,
+            )
+
+        self.assertTrue(linked)
+        self.assertEqual(b"", sentinel.read_bytes())
+
     def test_routes_refusal_transport_failure_and_redacts_exception_details(self):
         clip_id = generate_clip_id()
         path = self.write_wav(clip_id)
@@ -1404,6 +1531,87 @@ class AttemptLedgerTests(ManifestAdmissionTests):
             )
 
         self.assertEqual("unchanged\n", sentinel.read_text(encoding="utf-8"))
+
+    def test_record_workflow_rejects_hardlinked_mutable_state_before_mutation(self):
+        for artifact_name in (
+            ".attempt-ledger.lock",
+            "attempt-state.json",
+            "morning-queue.json",
+        ):
+            with self.subTest(artifact=artifact_name):
+                run_id = (
+                    "hardlink-"
+                    + artifact_name.strip(".").replace(".", "-")
+                )
+                clip_id, output_root = self.failing_run(run_id=run_id)
+                run_directory = output_root / run_id
+                artifact = run_directory / artifact_name
+                artifact.unlink()
+                sentinel = self.directory / f"{run_id}-sentinel"
+                sentinel.write_bytes(b"external mutable sentinel stays exact\n")
+                sentinel_before = sentinel.read_bytes()
+                os.link(sentinel, artifact)
+                ledger_before = (
+                    run_directory / "attempt-ledger.jsonl"
+                ).read_bytes()
+
+                with self.assertRaisesRegex(LedgerError, "hardlink"):
+                    record_attempt(
+                        run_id=run_id,
+                        clip_id=clip_id,
+                        source_commit="d" * 40,
+                        red_test_receipt="1" * 64,
+                        green_test_receipt="2" * 64,
+                        negative_guard_receipt="3" * 64,
+                        implementation_review_receipt="4" * 64,
+                        output_root=output_root,
+                    )
+
+                self.assertEqual(sentinel_before, sentinel.read_bytes())
+                self.assertEqual(
+                    ledger_before,
+                    (run_directory / "attempt-ledger.jsonl").read_bytes(),
+                )
+
+    def test_proposal_rejects_a_hardlinked_ledger_before_external_mutation(self):
+        clip_id, output_root = self.failing_run(run_id="hardlink-ledger")
+        run_directory = output_root / "hardlink-ledger"
+        ledger = run_directory / "attempt-ledger.jsonl"
+        ledger.unlink()
+        sentinel = self.directory / "ledger-hardlink-sentinel"
+        sentinel.write_bytes(b"")
+        sentinel_before = sentinel.read_bytes()
+        os.link(sentinel, ledger)
+
+        with self.assertRaisesRegex(LedgerError, "hardlink"):
+            audio_judge._emit_proposal(
+                run_id="hardlink-ledger",
+                clip_id=generate_clip_id(),
+                category="wrong_sense",
+                output_root=output_root,
+            )
+
+        self.assertEqual(sentinel_before, sentinel.read_bytes())
+
+    def test_record_workflow_rejects_a_hardlinked_run_claim(self):
+        clip_id, output_root = self.failing_run(run_id="hardlink-claim")
+        run_directory = output_root / "hardlink-claim"
+        claim = run_directory / "run-claim.json"
+        claim_bytes = claim.read_bytes()
+        claim.unlink()
+        sentinel = self.directory / "claim-hardlink-sentinel"
+        sentinel.write_bytes(claim_bytes)
+        sentinel_before = sentinel.read_bytes()
+        os.link(sentinel, claim)
+
+        with self.assertRaisesRegex(LedgerError, "hardlink"):
+            read_attempt_state(
+                run_id="hardlink-claim",
+                clip_id=clip_id,
+                output_root=output_root,
+            )
+
+        self.assertEqual(sentinel_before, sentinel.read_bytes())
 
     def test_second_failed_rerender_forces_morning_review_and_blocks_a_third_attempt(self):
         clip_id, output_root = self.failing_run()

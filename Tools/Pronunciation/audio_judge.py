@@ -247,9 +247,77 @@ def _external_regular_file(path: Path, *, name: str) -> Path:
         raise ManifestError(f"{name} is unavailable") from error
     if not stat.S_ISREG(metadata.st_mode):
         raise ManifestError(f"{name} must be a regular file")
+    if metadata.st_nlink != 1:
+        raise ManifestError(f"{name} cannot be a hardlink")
     if resolved == REPOSITORY_ROOT or resolved.is_relative_to(REPOSITORY_ROOT):
         raise ManifestError(f"{name} must be outside the repository")
     return resolved
+
+
+def _require_unique_regular_descriptor(
+    descriptor: int,
+    *,
+    error_type: type[ManifestError] | type[LedgerError],
+    name: str,
+) -> None:
+    try:
+        metadata = os.fstat(descriptor)
+    except OSError as error:
+        raise error_type(f"{name} is invalid") from error
+    if not stat.S_ISREG(metadata.st_mode):
+        raise error_type(f"{name} is not a regular file")
+    if metadata.st_nlink != 1:
+        raise error_type(f"{name} cannot be a hardlink")
+
+
+def _validate_existing_mutable_file(
+    path: Path,
+    *,
+    error_type: type[ManifestError] | type[LedgerError],
+    name: str,
+) -> None:
+    if path.is_symlink():
+        raise error_type(f"{name} cannot be a symlink")
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        raise error_type(f"{name} is invalid") from error
+    if not stat.S_ISREG(metadata.st_mode):
+        raise error_type(f"{name} is not a regular file")
+    if metadata.st_nlink != 1:
+        raise error_type(f"{name} cannot be a hardlink")
+
+
+def _read_unique_regular_bytes(
+    path: Path,
+    *,
+    error_type: type[ManifestError] | type[LedgerError],
+    name: str,
+) -> bytes:
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+        with os.fdopen(descriptor, "rb") as source:
+            _require_unique_regular_descriptor(
+                source.fileno(),
+                error_type=error_type,
+                name=name,
+            )
+            value = source.read()
+            _require_unique_regular_descriptor(
+                source.fileno(),
+                error_type=error_type,
+                name=name,
+            )
+            return value
+    except error_type:
+        raise
+    except OSError as error:
+        raise error_type(f"{name} is invalid") from error
 
 
 def _load_provenance_authority(
@@ -257,7 +325,11 @@ def _load_provenance_authority(
 ) -> tuple[dict[str, dict[str, Any]], str]:
     path = _external_regular_file(authority_path, name="provenance authority")
     try:
-        raw_bytes = path.read_bytes()
+        raw_bytes = _read_unique_regular_bytes(
+            path,
+            error_type=ManifestError,
+            name="provenance authority",
+        )
         value = json.loads(
             raw_bytes.decode("utf-8"),
             object_pairs_hook=_strict_object,
@@ -753,7 +825,18 @@ def _validated_returned_model_id(value: Any) -> str | None:
     return None
 
 
-def _atomic_write_json(path: Path, value: Any) -> None:
+def _atomic_write_json(
+    path: Path,
+    value: Any,
+    *,
+    error_type: type[ManifestError] | type[LedgerError] = ManifestError,
+    artifact_name: str = "run artifact",
+) -> None:
+    _validate_existing_mutable_file(
+        path,
+        error_type=error_type,
+        name=artifact_name,
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     serialized = (
@@ -765,9 +848,24 @@ def _atomic_write_json(path: Path, value: Any) -> None:
     descriptor = os.open(temporary, flags, 0o600)
     try:
         with os.fdopen(descriptor, "wb") as output:
+            _require_unique_regular_descriptor(
+                output.fileno(),
+                error_type=error_type,
+                name="temporary run artifact",
+            )
             output.write(serialized)
             output.flush()
             os.fsync(output.fileno())
+            _require_unique_regular_descriptor(
+                output.fileno(),
+                error_type=error_type,
+                name="temporary run artifact",
+            )
+        _validate_existing_mutable_file(
+            path,
+            error_type=error_type,
+            name=artifact_name,
+        )
         temporary.replace(path)
     except Exception:
         temporary.unlink(missing_ok=True)
@@ -789,9 +887,19 @@ def _exclusive_write_json(path: Path, value: Any) -> None:
         raise ManifestError("run identifier is already claimed") from error
     try:
         with os.fdopen(descriptor, "wb") as output:
+            _require_unique_regular_descriptor(
+                output.fileno(),
+                error_type=ManifestError,
+                name="run claim",
+            )
             output.write(serialized)
             output.flush()
             os.fsync(output.fileno())
+            _require_unique_regular_descriptor(
+                output.fileno(),
+                error_type=ManifestError,
+                name="run claim",
+            )
     except Exception:
         path.unlink(missing_ok=True)
         raise
@@ -870,15 +978,24 @@ def _reserve_request(
         flags |= os.O_NOFOLLOW
     try:
         descriptor = os.open(path, flags, 0o600)
-        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-            os.close(descriptor)
-            raise OSError("reservation is not a regular file")
         with os.fdopen(descriptor, "a", encoding="utf-8") as output:
+            _require_unique_regular_descriptor(
+                output.fileno(),
+                error_type=ManifestError,
+                name="request reservation",
+            )
             output.write(
                 json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n"
             )
             output.flush()
             os.fsync(output.fileno())
+            _require_unique_regular_descriptor(
+                output.fileno(),
+                error_type=ManifestError,
+                name="request reservation",
+            )
+    except ManifestError:
+        raise
     except OSError as error:
         raise ManifestError("request reservation is invalid") from error
     _fsync_directory(run_directory)
@@ -923,16 +1040,21 @@ def _run_directory(run_id: str, output_root: str | Path | None) -> Path:
     ):
         raise LedgerError("judge-owned run claim is unavailable")
     claim_path = run_directory / "run-claim.json"
-    if claim_path.is_symlink():
-        raise LedgerError("judge-owned run claim is invalid")
     try:
-        claim_metadata = claim_path.lstat()
-        claim = _load_strict_json(claim_path)
-    except (OSError, ManifestError) as error:
+        claim = json.loads(
+            _read_unique_regular_bytes(
+                claim_path,
+                error_type=LedgerError,
+                name="judge-owned run claim",
+            ).decode("utf-8"),
+            object_pairs_hook=_strict_object,
+            parse_constant=lambda _value: (_ for _ in ()).throw(
+                LedgerError("judge-owned run claim is invalid")),
+        )
+    except (UnicodeError, json.JSONDecodeError, ManifestError) as error:
         raise LedgerError("judge-owned run claim is invalid") from error
     if (
-        not stat.S_ISREG(claim_metadata.st_mode)
-        or claim != {
+        claim != {
             "schemaVersion": 1,
             "runID": run_id,
             "state": "claimed",
@@ -945,13 +1067,14 @@ def _run_directory(run_id: str, output_root: str | Path | None) -> Path:
 def _load_ledger_events(ledger_path: Path) -> list[dict[str, Any]]:
     if not ledger_path.exists():
         return []
-    if ledger_path.is_symlink():
-        raise LedgerError("attempt ledger is invalid")
     events: list[dict[str, Any]] = []
     try:
-        if not stat.S_ISREG(ledger_path.lstat().st_mode):
-            raise LedgerError("attempt ledger is invalid")
-        for line in ledger_path.read_text(encoding="utf-8").splitlines():
+        raw_ledger = _read_unique_regular_bytes(
+            ledger_path,
+            error_type=LedgerError,
+            name="attempt ledger",
+        ).decode("utf-8")
+        for line in raw_ledger.splitlines():
             decoded = json.loads(line, object_pairs_hook=_strict_object)
             if not isinstance(decoded, dict):
                 raise LedgerError("attempt ledger event is invalid")
@@ -1119,6 +1242,8 @@ def _write_attempt_snapshot(
             "schemaVersion": 1,
             "clips": {key: states[key] for key in sorted(states)},
         },
+        error_type=LedgerError,
+        artifact_name="attempt state",
     )
 
 
@@ -1133,15 +1258,24 @@ def _append_ledger_event_locked(
         flags |= os.O_NOFOLLOW
     try:
         descriptor = os.open(ledger_path, flags, 0o600)
-        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-            os.close(descriptor)
-            raise OSError("ledger is not a regular file")
         with os.fdopen(descriptor, "a", encoding="utf-8") as ledger:
+            _require_unique_regular_descriptor(
+                ledger.fileno(),
+                error_type=LedgerError,
+                name="attempt ledger",
+            )
             ledger.write(
                 json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n"
             )
             ledger.flush()
             os.fsync(ledger.fileno())
+            _require_unique_regular_descriptor(
+                ledger.fileno(),
+                error_type=LedgerError,
+                name="attempt ledger",
+            )
+    except LedgerError:
+        raise
     except OSError as error:
         raise LedgerError("attempt ledger is invalid") from error
     events.append(event)
@@ -1155,14 +1289,29 @@ def _with_ledger_lock(
     operation: Callable[[list[dict[str, Any]]], Any],
 ) -> Any:
     lock_path = run_directory / ".attempt-ledger.lock"
+    for artifact_path, artifact_name in (
+        (lock_path, "attempt ledger lock"),
+        (run_directory / "attempt-ledger.jsonl", "attempt ledger"),
+        (run_directory / "attempt-state.json", "attempt state"),
+        (run_directory / "morning-queue.json", "morning queue"),
+    ):
+        _validate_existing_mutable_file(
+            artifact_path,
+            error_type=LedgerError,
+            name=artifact_name,
+        )
     flags = os.O_RDWR | os.O_CREAT
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
     try:
         descriptor = os.open(lock_path, flags, 0o600)
-        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-            os.close(descriptor)
-            raise OSError("lock is not a regular file")
+        _require_unique_regular_descriptor(
+            descriptor,
+            error_type=LedgerError,
+            name="attempt ledger lock",
+        )
+    except LedgerError:
+        raise
     except OSError as error:
         raise LedgerError("attempt ledger lock is invalid") from error
     with os.fdopen(descriptor, "a+", encoding="utf-8") as lock:
@@ -1313,8 +1462,11 @@ def _append_repeated_failure_to_morning_queue(
     clip_id: str,
 ) -> None:
     queue_path = run_directory / "morning-queue.json"
-    if queue_path.is_symlink():
-        raise LedgerError("morning queue is invalid")
+    _validate_existing_mutable_file(
+        queue_path,
+        error_type=LedgerError,
+        name="morning queue",
+    )
     try:
         queue = json.loads(queue_path.read_text(encoding="utf-8")) if queue_path.exists() else []
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
@@ -1328,7 +1480,12 @@ def _append_repeated_failure_to_morning_queue(
             "reasons": ["repeated_regression_failure"],
         }
     )
-    _atomic_write_json(queue_path, queue)
+    _atomic_write_json(
+        queue_path,
+        queue,
+        error_type=LedgerError,
+        artifact_name="morning queue",
+    )
 
 
 def record_rerender(
