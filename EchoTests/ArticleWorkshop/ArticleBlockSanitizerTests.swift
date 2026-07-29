@@ -36,7 +36,7 @@ import Testing
         let snapshot = try ArticleBlockSanitizer().sanitize(envelope: fixtureEnvelope(named: "malicious"))
         let encoded = String(decoding: try JSONEncoder.articleWorkshop.encode(snapshot), as: UTF8.self).lowercased()
 
-        #expect(snapshot.blocks.compactMap(\.text).joined(separator: " ") == "Safe paragraph bad link. local link unknown link Visible article text.")
+        #expect(snapshot.blocks.compactMap(\.text).joined(separator: " ").contains("Safe paragraph bad link. local link unknown link Visible article text. Entity probe"))
         #expect(snapshot.blocks.allSatisfy { $0.imageCandidateURL == nil })
         #expect(!encoded.contains("<script"))
         #expect(!encoded.contains("<form"))
@@ -47,6 +47,8 @@ import Testing
         #expect(!encoded.contains("data:image"))
         #expect(!encoded.contains("window.pwned"))
         #expect(!encoded.contains("/etc/passwd"))
+        #expect(!encoded.contains("xxe"))
+        #expect(!encoded.contains("root:"))
     }
 
     @Test func rejectsJavaScriptFileAndUnknownSchemes() throws {
@@ -77,6 +79,56 @@ import Testing
         #expect(blockSnapshot.blocks.count == ArticleWorkshopLimits.maxBlocks)
         #expect(blockSnapshot.warnings.contains(.blockLimitReached))
         #expect(blockSnapshot.contentState == .reviewSuggested)
+    }
+
+    @Test func skipsQualifiedAndUnlistedActiveSubtreesInsideAllowedParagraphs() throws {
+        let envelope = fixtureEnvelope(contentXHTML: """
+            <article xmlns="http://www.w3.org/1999/xhtml" xmlns:evil="urn:evil">
+              <p>Before <evil:script>namespace payload</evil:script><audio>audio payload</audio><video>video payload</video><canvas>canvas payload</canvas> after.</p>
+            </article>
+            """)
+
+        let snapshot = try ArticleBlockSanitizer().sanitize(envelope: envelope)
+        let encoded = String(decoding: try JSONEncoder.articleWorkshop.encode(snapshot), as: UTF8.self)
+
+        #expect(snapshot.blocks.compactMap(\.text) == ["Before after."])
+        #expect(!encoded.contains("payload"))
+    }
+
+    @Test func rejectedImagesDoNotConsumeCandidatesOrBlockLaterSafeContent() throws {
+        let rejectedImages = String(repeating: "<img src=\"file:///etc/passwd\"/>", count: ArticleWorkshopLimits.maxImages + 1)
+        let envelope = fixtureEnvelope(contentXHTML: """
+            <article>
+              <p>Before rejected images.</p>\(rejectedImages)
+              <p>After rejected images.</p><img src="/safe.png"/>
+            </article>
+            """)
+
+        let snapshot = try ArticleBlockSanitizer().sanitize(envelope: envelope)
+
+        #expect(snapshot.blocks.compactMap(\.text) == ["Before rejected images.", "After rejected images."])
+        #expect(snapshot.blocks.filter { $0.kind == .image }.count == 1)
+        #expect(snapshot.blocks.last?.imageCandidateURL == URL(string: "https://example.test/safe.png"))
+        #expect(!snapshot.warnings.contains(.imageCandidateLimitReached))
+    }
+
+    @Test func boundsDOMElementCountDuringStreamingParse() throws {
+        let spans = String(repeating: "<span>ignored wrapper</span>", count: ArticleWorkshopLimits.maxDOMElements + 1)
+        let envelope = fixtureEnvelope(contentXHTML: "<article><p>Intro.</p>\(spans)</article>")
+
+        let snapshot = try ArticleBlockSanitizer().sanitize(envelope: envelope)
+
+        #expect(snapshot.blocks.compactMap(\.text) == ["Intro."])
+        #expect(snapshot.warnings.contains(.elementLimitReached))
+        #expect(snapshot.contentState == .reviewSuggested)
+    }
+
+    @Test func captionOnlyContentIsReadableAndReady() throws {
+        let snapshot = try ArticleBlockSanitizer().sanitize(envelope: fixtureEnvelope(named: "caption-only"))
+
+        #expect(snapshot.blocks.map(\.kind) == [.paragraph])
+        #expect(snapshot.blocks.map(\.text) == ["Caption-only readable content."])
+        #expect(snapshot.contentState == .ready)
     }
 
     @Test func malformedXHTMLBecomesReviewSuggestedWithoutExecutingAnything() throws {

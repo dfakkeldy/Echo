@@ -25,6 +25,7 @@ nonisolated struct ArticleBlockSanitizer {
             captureID: envelope.captureID,
             sourceURL: normalizedHTTPURL(envelope.payload.sourceURL, relativeTo: nil))
         let parser = XMLParser(data: xhtmlData)
+        parser.shouldProcessNamespaces = true
         parser.shouldResolveExternalEntities = false
         parser.delegate = delegate
         let parsed = parser.parse()
@@ -35,13 +36,15 @@ nonisolated struct ArticleBlockSanitizer {
         }
         let blocks = delegate.blocks
         var warnings = delegate.warnings
-        let hasReadableText = blocks.contains { block in
-            guard let text = block.text?.trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
-            return !text.isEmpty
+        let hasReadableContent = blocks.contains { block in
+            [block.text, block.caption].contains { value in
+                guard let value else { return false }
+                return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
         }
-        if !hasReadableText { append(.noUsableText, to: &warnings) }
+        if !hasReadableContent { append(.noUsableText, to: &warnings) }
         let contentState: ArticleContentState
-        if !hasReadableText {
+        if !hasReadableContent {
             contentState = .captureFailed
         } else if warnings.isEmpty {
             contentState = .ready
@@ -104,10 +107,17 @@ private nonisolated final class ArticleXHTMLSanitizerDelegate: NSObject, XMLPars
     private(set) var warnings: [ArticleSanitizationWarning] = []
     private(set) var stoppedForLimit = false
 
-    private static let skippedElements: Set<String> = [
-        "script", "style", "form", "iframe", "frame", "frameset", "object", "embed", "svg", "math",
-        "template", "noscript", "head", "input", "button", "select", "textarea", "option",
+    private static let structuralElements: [String: ArticleBlockKind] = [
+        "h1": .heading, "h2": .heading, "h3": .heading, "h4": .heading, "h5": .heading, "h6": .heading,
+        "p": .paragraph, "li": .listItem, "blockquote": .quote, "pre": .code,
     ]
+    private static let leafElements: Set<String> = ["img", "hr"]
+    private static let transparentElements: Set<String> = [
+        "article", "body", "html", "main", "section", "div", "header", "footer", "aside", "nav",
+        "ul", "ol", "figure", "figcaption", "a", "span", "strong", "b", "em", "i", "u", "small",
+        "sub", "sup", "br", "code",
+    ]
+    private static let xhtmlNamespace = "http://www.w3.org/1999/xhtml"
 
     init(captureID: UUID, sourceURL: URL?) {
         self.captureID = captureID
@@ -128,12 +138,15 @@ private nonisolated final class ArticleXHTMLSanitizerDelegate: NSObject, XMLPars
             return
         }
 
-        let name = elementName.lowercased()
-        if Self.skippedElements.contains(name) {
+        let name = localName(elementName)
+        if skipDepth > 0 {
             skipDepth += 1
             return
         }
-        guard skipDepth == 0 else { return }
+        guard isAllowedElement(name, namespaceURI: namespaceURI) else {
+            skipDepth = 1
+            return
+        }
 
         if name == "figure" {
             figureContexts.append(FigureContext())
@@ -148,13 +161,19 @@ private nonisolated final class ArticleXHTMLSanitizerDelegate: NSObject, XMLPars
 
         if name == "img" {
             flushActiveBlock(parser)
+            guard let source = attributeDict["src"] else { return }
+            guard let candidate = normalizedHTTPURL(source, relativeTo: sourceURL) else {
+                addWarning(.rejectedURLScheme)
+                return
+            }
             guard imageCount < ArticleWorkshopLimits.maxImages else {
                 stop(parser, warning: .imageCandidateLimitReached)
                 return
             }
-            imageCount += 1
-            let candidate = normalizedHTTPURL(attributeDict["src"], relativeTo: sourceURL)
-            if attributeDict["src"] != nil, candidate == nil { addWarning(.rejectedURLScheme) }
+            guard blocks.count < ArticleWorkshopLimits.maxBlocks else {
+                stop(parser, warning: .blockLimitReached)
+                return
+            }
             appendBlock(
                 kind: .image,
                 text: nil,
@@ -163,6 +182,7 @@ private nonisolated final class ArticleXHTMLSanitizerDelegate: NSObject, XMLPars
                 caption: nil,
                 codeLanguage: nil,
                 parser: parser)
+            imageCount += 1
             if !figureContexts.isEmpty { figureContexts[figureContexts.count - 1].imageBlockIndex = blocks.count - 1 }
             return
         }
@@ -179,7 +199,7 @@ private nonisolated final class ArticleXHTMLSanitizerDelegate: NSObject, XMLPars
             return
         }
 
-        if let kind = blockKind(for: name) {
+        if let kind = Self.structuralElements[name] {
             flushActiveBlock(parser)
             activeBlock = ActiveBlock(
                 elementName: name,
@@ -218,20 +238,30 @@ private nonisolated final class ArticleXHTMLSanitizerDelegate: NSObject, XMLPars
         namespaceURI: String?,
         qualifiedName: String?
     ) {
-        let name = elementName.lowercased()
-        if Self.skippedElements.contains(name) {
-            skipDepth = max(0, skipDepth - 1)
+        let name = localName(elementName)
+        if skipDepth > 0 {
+            skipDepth -= 1
             return
         }
-        guard skipDepth == 0, !stoppedForLimit else { return }
+        guard !stoppedForLimit, isAllowedElement(name, namespaceURI: namespaceURI) else { return }
 
         if name == "figcaption", isInCaption {
             isInCaption = false
             return
         }
-        if name == "figure", let figure = figureContexts.popLast(), let imageIndex = figure.imageBlockIndex {
-            let caption = normalizedText(figure.caption)
-            if let caption { blocks[imageIndex] = blocks[imageIndex].withCaption(caption) }
+        if name == "figure", let figure = figureContexts.popLast(), let caption = normalizedText(figure.caption) {
+            if let imageIndex = figure.imageBlockIndex {
+                blocks[imageIndex] = blocks[imageIndex].withCaption(caption)
+            } else {
+                appendBlock(
+                    kind: .paragraph,
+                    text: caption,
+                    sourceURL: nil,
+                    imageCandidateURL: nil,
+                    caption: nil,
+                    codeLanguage: nil,
+                    parser: parser)
+            }
             return
         }
         if activeBlock?.elementName == name {
@@ -243,8 +273,19 @@ private nonisolated final class ArticleXHTMLSanitizerDelegate: NSObject, XMLPars
         guard !stoppedForLimit else { return }
         flushActiveBlock(nil)
         while let figure = figureContexts.popLast() {
-            guard let imageIndex = figure.imageBlockIndex, let caption = normalizedText(figure.caption) else { continue }
-            blocks[imageIndex] = blocks[imageIndex].withCaption(caption)
+            guard let caption = normalizedText(figure.caption) else { continue }
+            if let imageIndex = figure.imageBlockIndex {
+                blocks[imageIndex] = blocks[imageIndex].withCaption(caption)
+            } else {
+                appendBlock(
+                    kind: .paragraph,
+                    text: caption,
+                    sourceURL: nil,
+                    imageCandidateURL: nil,
+                    caption: nil,
+                    codeLanguage: nil,
+                    parser: nil)
+            }
         }
     }
 
@@ -299,15 +340,15 @@ private nonisolated final class ArticleXHTMLSanitizerDelegate: NSObject, XMLPars
         parser.abortParsing()
     }
 
-    private func blockKind(for elementName: String) -> ArticleBlockKind? {
-        switch elementName {
-        case "h1", "h2", "h3", "h4", "h5", "h6": .heading
-        case "p": .paragraph
-        case "li": .listItem
-        case "blockquote": .quote
-        case "pre": .code
-        default: nil
-        }
+    private func isAllowedElement(_ name: String, namespaceURI: String?) -> Bool {
+        guard namespaceURI == nil || namespaceURI?.isEmpty == true || namespaceURI == Self.xhtmlNamespace else { return false }
+        return Self.structuralElements[name] != nil
+            || Self.leafElements.contains(name)
+            || Self.transparentElements.contains(name)
+    }
+
+    private func localName(_ elementName: String) -> String {
+        elementName.split(separator: ":").last.map(String.init)?.lowercased() ?? elementName.lowercased()
     }
 
     private func languageHint(_ classes: String?) -> String? {
