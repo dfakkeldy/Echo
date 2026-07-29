@@ -74,6 +74,7 @@ enum NarrationRenderPlanner {
     static func make(
         blocks: [EPubBlockRecord],
         overrides: PronunciationOverrides,
+        pronunciationPack: EnglishPronunciationPack = .empty,
         maxChars: Int = 350,
         maxPhonemes: Int = 420
     ) throws -> NarrationRenderPlan {
@@ -88,6 +89,7 @@ enum NarrationRenderPlanner {
                     pronunciationDecisionSeeds: [])
             },
             overrides: overrides,
+            pronunciationPack: pronunciationPack,
             maxChars: maxChars,
             maxPhonemes: maxPhonemes)
     }
@@ -95,6 +97,7 @@ enum NarrationRenderPlanner {
     static func make(
         preparedBlocks: [NarrationPreparedBlock],
         overrides: PronunciationOverrides,
+        pronunciationPack: EnglishPronunciationPack = .empty,
         maxChars: Int = 350,
         maxPhonemes: Int = 420
     ) throws -> NarrationRenderPlan {
@@ -137,12 +140,18 @@ enum NarrationRenderPlanner {
                 decisionSeeds = []
             } else {
                 let overrideResult = overrides.rewrite(to: normalized, blockID: block.id)
-                let homographResult = HomographPronunciationResolver.rewrite(
+                let universalResult = UniversalPronunciationResolver.rewrite(
                     to: overrideResult.text,
+                    blockID: block.id,
+                    pack: pronunciationPack,
+                    basePronunciation: pronunciationPlanner.validatedBaseIPA(for:))
+                let homographResult = HomographPronunciationResolver.rewrite(
+                    to: universalResult.text,
                     blockID: block.id)
                 decisionSeeds = uniqueDecisionSeeds(
                     preparedBlock.pronunciationDecisionSeeds
                         + overrideResult.decisionSeeds
+                        + universalResult.decisionSeeds
                         + homographResult.decisionSeeds)
                 resolved = homographResult.text
             }

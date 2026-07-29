@@ -429,6 +429,50 @@ import Testing
         #expect(deterministicURL.lastPathComponent != fmURL.lastPathComponent)
     }
 
+    @Test func serviceUsesOneInjectedPackForPlanAndCacheIdentity() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["A foobar appeared."])
+        let pack = EnglishPronunciationPack.emptyForTesting(
+            packVersion:
+                "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            kokoroVocabularyVersion:
+                "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            automaticEntries: [
+                "foobar": ("cmudict.foobar.fixture", "fˈubɑɹ")
+            ])
+        let service = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: MockTTSEngine(),
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            pronunciationPack: pack,
+            fmEnabled: { false })
+
+        let plan = try await service.renderPlan(
+            for: blocks,
+            overrides: PronunciationOverrides(entries: [:]),
+            occurrenceOverrides: .empty,
+            fmEnabled: false)
+        let cacheURL = await service.chapterCacheURL(
+            chapterIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+        let expectedSignature = NarrationService.contentSignature(
+            for: blocks,
+            includeLeadOutPad: true,
+            overrides: PronunciationOverrides(entries: [:]),
+            occurrenceOverrides: .empty,
+            normalizationMode: "deterministic",
+            pronunciationPack: pack)
+
+        #expect(
+            plan.blocks.first?.synthesisChunks.first?.g2pInputText
+                == "A [foobar](/fˈubɑɹ/) appeared.")
+        #expect(cacheURL.lastPathComponent.contains("-h\(expectedSignature)-"))
+    }
+
     @Test func renderFailureRemovesInProgressPartialAndLeavesNoFinalAudioFile() async throws {
         let db = try DatabaseService(inMemory: ())
         let blocks = try seed(db, ["Kaboom"])
@@ -948,7 +992,8 @@ import Testing
             spokenBlocks: blocks,
             renderedTexts: [renderedText],
             includeLeadOutPad: true,
-            normalizationMode: "deterministic")
+            normalizationMode: "deterministic",
+            pronunciationPolicySignature: EnglishPronunciationPack.empty.productionPolicySignature)
         let expectedName = NarrationFileNaming.chapterFileName(
             audiobookID: "b1",
             chapterIndex: 0,
@@ -1110,6 +1155,63 @@ import Testing
         #expect(
             acceptedChildren.flatMap(\.pronunciationFallbackHits)
                 == parent.pronunciationFallbackHits)
+    }
+
+    @Test func qualityRetryPreservesFrozenDerivedCandidateProvenanceByteForByte() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let text =
+            "The process is startable. Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu."
+        let blocks = try seed(db, [text])
+        let pack = EnglishPronunciationPack.emptyForTesting(
+            packVersion:
+                "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            kokoroVocabularyVersion:
+                "sha256:1111111111111111111111111111111111111111111111111111111111111111")
+        let service = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: MockTTSEngine(secondsPerChar: 0.1),
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            pronunciationPack: pack,
+            fmEnabled: { false })
+        let plan = try await service.renderPlan(
+            for: blocks,
+            overrides: PronunciationOverrides(entries: [:]),
+            occurrenceOverrides: .empty,
+            fmEnabled: false)
+        let parent = try #require(plan.blocks.first?.synthesisChunks.first)
+        let expected = try #require(
+            plan.blocks.first?.pronunciationDecisions.first {
+                $0.normalizedWord == "startable"
+            })
+        let children = parent.frozenRetrySlices(
+            maxPhonemes: max(20, min(80, parent.phonemes.count / 2)))
+        try #require(children.count > 1)
+        let engine = try #require(service.tts as? MockTTSEngine)
+        engine.silentOnText = parent.g2pInputText
+
+        let rendered = try await service.renderSegmentFile(
+            chapterIndex: 0,
+            chapterDisplayNumber: 1,
+            segmentIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("am_michael"))
+        let actual = try #require(
+            rendered.pronunciationDecisions.first {
+                $0.normalizedWord == "startable"
+            })
+
+        #expect(engine.plannedCalls.count > 1)
+        #expect(actual.selectedIPA == expected.selectedIPA)
+        #expect(actual.candidateID == expected.candidateID)
+        #expect(actual.candidatePackVersion == expected.candidatePackVersion)
+        #expect(actual.derivationBase == expected.derivationBase)
+        #expect(actual.derivationRuleID == expected.derivationRuleID)
+        #expect(actual.candidateID?.hasPrefix("morphology.startable.") == true)
+        #expect(actual.derivationBase == "start")
+        #expect(actual.derivationRuleID == "morphology.able.exact-base.v1")
     }
 
     @Test func laterRejectedRetryChildRollsBackEarlierAcceptedSiblingsAtomically() async throws {

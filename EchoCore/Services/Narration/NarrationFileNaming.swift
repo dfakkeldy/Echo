@@ -41,7 +41,9 @@ nonisolated enum NarrationFileNaming {
     /// lexical component pronunciations instead of the whole-token OOV guess.
     /// v15 = periods inside dotted identifiers stay within one authored word,
     /// keeping synthesis chunks and pronunciation evidence on the same indices.
-    static let renderVersion = 15
+    /// v16 = validated supplemental whole-word and bounded morphology
+    /// pronunciations join the production front end.
+    static let renderVersion = 16
     /// Stable renderer-family identity persisted beside headless captures. The
     /// cache render version tracks byte-affecting revisions within this family;
     /// this value prevents a different engine/G2P stack from inheriting them.
@@ -80,12 +82,14 @@ nonisolated enum NarrationFileNaming {
         spokenBlocks: [EPubBlockRecord],
         renderedTexts: [String],
         includeLeadOutPad: Bool,
-        normalizationMode: String = "deterministic"
+        normalizationMode: String = "deterministic",
+        pronunciationPolicySignature: String
     ) -> String {
         var components: [String] = [
             "renderVersion=\(renderVersion)",
             "leadOut=\(includeLeadOutPad ? 1 : 0)",
             "normalizationMode=\(normalizationMode)",
+            "pronunciationPolicySignature=\(pronunciationPolicySignature)",
             "blockCount=\(spokenBlocks.count)",
             "textCount=\(renderedTexts.count)",
         ]

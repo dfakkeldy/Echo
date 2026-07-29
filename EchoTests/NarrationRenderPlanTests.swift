@@ -756,4 +756,65 @@ import Testing
         #expect(!g2pInputText.contains { $0.contains("[lives](/lˈɪvz/)") })
         #expect(!g2pInputText.contains { $0.contains("[record](/ɹəkˈɔɹd/)") })
     }
+
+    @Test func universalResolutionRunsAfterOverridesAndBeforeContextualHomographs() throws {
+        let pack = EnglishPronunciationPack.emptyForTesting(
+            packVersion:
+                "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            kokoroVocabularyVersion:
+                "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            automaticEntries: [
+                "foobar": ("cmudict.foobar.fixture", "fˈubɑɹ"),
+                "record": ("cmudict.record.fixture", "wrong"),
+            ])
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [
+                block(
+                    id: "universal",
+                    text: "Please record foobar and startable.",
+                    index: 0)
+            ],
+            overrides: PronunciationOverrides(entries: [:]),
+            pronunciationPack: pack)
+
+        let planned = try #require(plan.blocks.first)
+        let resolved = planned.synthesisChunks.map(\.g2pInputText).joined(separator: " ")
+        let decisions = Dictionary(
+            uniqueKeysWithValues: planned.pronunciationDecisions.map {
+                ($0.normalizedWord, $0)
+            })
+
+        #expect(resolved.contains("[record](/ɹəkˈɔɹd/)"))
+        #expect(resolved.contains("[foobar](/fˈubɑɹ/)"))
+        #expect(resolved.contains("[startable](/stˈɑɹtəbəl/)"))
+        #expect(decisions["record"]?.source == .contextualHomograph)
+        #expect(decisions["foobar"]?.source == .supplementalLexicon)
+        #expect(decisions["startable"]?.source == .derivedMorphology)
+    }
+
+    @Test func overrideWinsUniversalCandidateAndFirstSeedForSpanStaysFrozen() throws {
+        let pack = EnglishPronunciationPack.emptyForTesting(
+            packVersion:
+                "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            kokoroVocabularyVersion:
+                "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            automaticEntries: [
+                "foobar": ("cmudict.foobar.fixture", "fˈubɑɹ")
+            ])
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "override", text: "A foobar appeared.", index: 0)],
+            overrides: PronunciationOverrides(
+                entries: ["foobar": "fˈoʊbɑɹ"],
+                source: .globalOverride),
+            pronunciationPack: pack)
+
+        let planned = try #require(plan.blocks.first)
+        let decision = try #require(planned.pronunciationDecisions.first)
+        #expect(planned.pronunciationDecisions.count == 1)
+        #expect(decision.source == .globalOverride)
+        #expect(decision.selectedIPA == "fˈoʊbɑɹ")
+        #expect(
+            planned.synthesisChunks.first?.g2pInputText
+                == "A [foobar](/fˈoʊbɑɹ/) appeared.")
+    }
 }

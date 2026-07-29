@@ -25,7 +25,8 @@ final class NarrationQAReviewModel {
 
         #if os(iOS) || os(macOS)
             typealias NarrationServiceFactory =
-                @MainActor (_ db: DatabaseWriter, _ audiobookID: String) -> NarrationService
+                @MainActor (_ db: DatabaseWriter, _ audiobookID: String) async
+                -> NarrationService
 
             var narrationServiceFactory: NarrationServiceFactory
         #endif
@@ -78,8 +79,9 @@ final class NarrationQAReviewModel {
         #if os(iOS) || os(macOS)
             private static func liveNarrationService(
                 db: DatabaseWriter, audiobookID: String
-            ) -> NarrationService {
-                NarrationService(
+            ) async -> NarrationService {
+                let pronunciationPack = await EnglishPronunciationPack.bundledOrEmpty()
+                return NarrationService(
                     db: db, audiobookID: audiobookID,
                     tts: NarrationEngineFactory.make(),
                     audioWriter: AVFoundationAudioWriter(),
@@ -91,7 +93,8 @@ final class NarrationQAReviewModel {
                     pronunciationOccurrenceOverrides: { [audiobookID] in
                         PronunciationOverrideStore.shared.occurrenceOverrides(
                             forBookID: audiobookID)
-                    })
+                    },
+                    pronunciationPack: pronunciationPack)
             }
         #endif
     }
@@ -215,9 +218,9 @@ final class NarrationQAReviewModel {
             }
         }
 
-        private func narrationService() -> NarrationService {
+        private func narrationService() async -> NarrationService {
             if let cachedNarrationService { return cachedNarrationService }
-            let service = dependencies.narrationServiceFactory(db, audiobookID)
+            let service = await dependencies.narrationServiceFactory(db, audiobookID)
             cachedNarrationService = service
             return service
         }
@@ -226,7 +229,7 @@ final class NarrationQAReviewModel {
             voice: VoiceID
         ) async throws -> [(chapterIndex: Int, fileURL: URL, spokenBlockIDs: [String])] {
             let blocksByChapter = try EPubBlockDAO(db: db).blocksByChapter(for: audiobookID)
-            let narration = narrationService()
+            let narration = await narrationService()
             var fileURLsByChapter: [Int: URL] = [:]
             for chapterIndex in blocksByChapter.keys {
                 fileURLsByChapter[chapterIndex] = await narration.chapterCacheURL(
@@ -255,7 +258,7 @@ final class NarrationQAReviewModel {
             let qa = NarrationQAService(
                 db: db,
                 classifier: makeConfiguredClassifier())
-            let narration = narrationService()
+            let narration = await narrationService()
 
             let repair = PronunciationRepairService(
                 store: PronunciationOverrideStore.shared,

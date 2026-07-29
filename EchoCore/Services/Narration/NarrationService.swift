@@ -92,6 +92,8 @@ final class NarrationService {
     /// Supplies source-position pronunciation overrides accepted from narration QA.
     /// Read at render time for the same reason as the word dictionary above.
     private let pronunciationOccurrenceOverrides: () -> PronunciationOccurrenceOverrides
+    /// Immutable pronunciation source snapshot shared by planning and cache identity.
+    private let pronunciationPack: EnglishPronunciationPack
 
     init(
         db: DatabaseWriter, audiobookID: String, tts: TTSEngine,
@@ -102,6 +104,7 @@ final class NarrationService {
         pronunciationOccurrenceOverrides: @escaping () -> PronunciationOccurrenceOverrides = {
             .empty
         },
+        pronunciationPack: EnglishPronunciationPack = .empty,
         fmEnabled: @escaping () -> Bool = {
             UserDefaults.standard.string(forKey: "narrationQAClassifier") ?? "auto" == "auto"
         }
@@ -114,6 +117,7 @@ final class NarrationService {
         self.state = state
         self.pronunciationOverrides = pronunciationOverrides
         self.pronunciationOccurrenceOverrides = pronunciationOccurrenceOverrides
+        self.pronunciationPack = pronunciationPack
         self.fmEnabledProvider = fmEnabled
     }
 
@@ -181,7 +185,8 @@ final class NarrationService {
             voice: voice,
             overrides: pronunciationOverrides(),
             occurrenceOverrides: pronunciationOccurrenceOverrides(),
-            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled))
+            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled),
+            pronunciationPack: pronunciationPack)
     }
 
     func segmentCacheURL(
@@ -197,7 +202,8 @@ final class NarrationService {
             voice: voice,
             overrides: pronunciationOverrides(),
             occurrenceOverrides: pronunciationOccurrenceOverrides(),
-            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled))
+            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled),
+            pronunciationPack: pronunciationPack)
     }
 
     private func chapterCacheURL(
@@ -206,14 +212,16 @@ final class NarrationService {
         voice: VoiceID,
         overrides: PronunciationOverrides,
         occurrenceOverrides: PronunciationOccurrenceOverrides,
-        normalizationMode: String
+        normalizationMode: String,
+        pronunciationPack: EnglishPronunciationPack
     ) -> URL {
         let signature = Self.contentSignature(
             for: blocks,
             includeLeadOutPad: true,
             overrides: overrides,
             occurrenceOverrides: occurrenceOverrides,
-            normalizationMode: normalizationMode)
+            normalizationMode: normalizationMode,
+            pronunciationPack: pronunciationPack)
         return cacheDirectory.appendingPathComponent(
             NarrationFileNaming.chapterFileName(
                 audiobookID: audiobookID,
@@ -229,14 +237,16 @@ final class NarrationService {
         voice: VoiceID,
         overrides: PronunciationOverrides,
         occurrenceOverrides: PronunciationOccurrenceOverrides,
-        normalizationMode: String
+        normalizationMode: String,
+        pronunciationPack: EnglishPronunciationPack
     ) -> URL {
         let signature = Self.contentSignature(
             for: blocks,
             includeLeadOutPad: false,
             overrides: overrides,
             occurrenceOverrides: occurrenceOverrides,
-            normalizationMode: normalizationMode)
+            normalizationMode: normalizationMode,
+            pronunciationPack: pronunciationPack)
         return cacheDirectory.appendingPathComponent(
             NarrationFileNaming.segmentFileName(
                 audiobookID: audiobookID,
@@ -251,7 +261,8 @@ final class NarrationService {
         includeLeadOutPad: Bool,
         overrides: PronunciationOverrides,
         occurrenceOverrides: PronunciationOccurrenceOverrides,
-        normalizationMode: String
+        normalizationMode: String,
+        pronunciationPack: EnglishPronunciationPack
     ) -> String {
         let spoken = blocks.filter { $0.text?.isEmpty == false }
         var renderedTexts: [String] = []
@@ -275,7 +286,8 @@ final class NarrationService {
             spokenBlocks: spoken,
             renderedTexts: renderedTexts,
             includeLeadOutPad: includeLeadOutPad,
-            normalizationMode: normalizationMode)
+            normalizationMode: normalizationMode,
+            pronunciationPolicySignature: pronunciationPack.productionPolicySignature)
     }
 
     private static func renderedText(
@@ -331,7 +343,8 @@ final class NarrationService {
             voice: voice,
             overrides: overrides,
             occurrenceOverrides: occurrenceOverrides,
-            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled))
+            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled),
+            pronunciationPack: pronunciationPack)
         let rendered = try await renderNarrationFile(
             chapterIndex: chapterIndex,
             chapterDisplayNumber: displayNumber,
@@ -440,7 +453,8 @@ final class NarrationService {
             voice: voice,
             overrides: overrides,
             occurrenceOverrides: occurrenceOverrides,
-            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled))
+            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled),
+            pronunciationPack: pronunciationPack)
         return try await renderNarrationFile(
             chapterIndex: chapterIndex,
             chapterDisplayNumber: chapterDisplayNumber,
@@ -828,7 +842,8 @@ final class NarrationService {
             fmEnabled: fmEnabled)
         return try NarrationRenderPlanner.make(
             preparedBlocks: preparedBlocks,
-            overrides: overrides)
+            overrides: overrides,
+            pronunciationPack: pronunciationPack)
     }
 
     private func prepareBlocksForRenderPlan(

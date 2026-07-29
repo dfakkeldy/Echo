@@ -29,6 +29,19 @@ import Testing
         }
     }
 
+    private actor PackLoadCounter {
+        private(set) var count = 0
+
+        func load() -> EnglishPronunciationPack {
+            count += 1
+            return .emptyForTesting(
+                packVersion:
+                    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                kokoroVocabularyVersion:
+                    "sha256:1111111111111111111111111111111111111111111111111111111111111111")
+        }
+    }
+
     private final class VoiceRecordingEngine: TTSEngine {
         let recorder: VoiceRecorder
 
@@ -205,5 +218,24 @@ import Testing
                     VoiceID("bf_emma"),
                     VoiceID("bm_fable"),
                 ]))
+    }
+
+    @Test func parallelRunSnapshotsPronunciationPackExactlyOnce() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let epub = try TestEPUBFixture.chapters(4, in: tmp)
+        let config = makeConfig(epub: epub, tmp: tmp, stem: "pack-snapshot", jobs: 3)
+        let counter = PackLoadCounter()
+
+        let result = try await HeadlessNarrationRunner().run(
+            config,
+            ttsFactory: { StubEngine() },
+            pronunciationPackLoader: { await counter.load() })
+
+        #expect(result.complete)
+        #expect(await counter.count == 1)
     }
 }

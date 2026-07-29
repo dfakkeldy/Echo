@@ -51,6 +51,22 @@ nonisolated final class PronunciationPlanner {
         g2p.phonemeCount(for: text)
     }
 
+    func validatedBaseIPA(for normalizedWord: String) -> String? {
+        let result = g2p.result(for: normalizedWord)
+        guard case .matched = result.pronunciationEvidenceValidation,
+            result.tokenEvidence.count == 1,
+            let evidence = result.tokenEvidence.first,
+            !evidence.usedFallback,
+            let rating = evidence.rating,
+            rating >= 3,
+            PronunciationAuditContext.normalizedWord(evidence.text) == normalizedWord,
+            !evidence.selectedPhonemes.isEmpty
+        else {
+            return nil
+        }
+        return evidence.selectedPhonemes
+    }
+
     /// Kokoro vocabulary IDs for an already-selected IPA value, excluding the
     /// synthetic boundary tokens required around a complete synthesis request.
     func phonemeIDs(forIPA ipa: String) throws -> [Int32] {

@@ -67,6 +67,30 @@ nonisolated struct EnglishPronunciationPack: Equatable, Sendable {
             case validationStatus
         }
 
+        init(
+            candidateID: String,
+            ipa: String,
+            lexicalClass: String?,
+            senseLabel: String?,
+            sourceID: String,
+            sourceTier: String,
+            kind: String,
+            automaticWithoutContext: Bool,
+            frequencyBand: FrequencyBand,
+            validationStatus: CandidateValidationStatus
+        ) {
+            self.candidateID = candidateID
+            self.ipa = ipa
+            self.lexicalClass = lexicalClass
+            self.senseLabel = senseLabel
+            self.sourceID = sourceID
+            self.sourceTier = sourceTier
+            self.kind = kind
+            self.automaticWithoutContext = automaticWithoutContext
+            self.frequencyBand = frequencyBand
+            self.validationStatus = validationStatus
+        }
+
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             guard container.contains(.lexicalClass),
@@ -242,6 +266,89 @@ nonisolated struct EnglishPronunciationPack: Equatable, Sendable {
         return candidate
     }
 
+    /// True when the supplemental source has any explicit whole-word record,
+    /// including an inert ambiguous entry. Morphology must abstain rather than
+    /// infer around a source candidate it is not authorized to choose.
+    func hasExplicitCandidate(for normalizedWord: String) -> Bool {
+        guard Self.isNormalizedWord(normalizedWord) else { return false }
+        return entries[normalizedWord]?.isEmpty == false
+    }
+
+    /// Controlled semantic fixture construction for pure resolver/cache tests.
+    /// Production loading always goes through the fully validating `init(data:)`.
+    static func emptyForTesting(
+        packVersion: String,
+        kokoroVocabularyVersion: String,
+        generationTimestamp: String = "1970-01-01T00:00:00Z",
+        automaticEntries: [String: (candidateID: String, ipa: String)] = [:],
+        ambiguousWords: Set<String> = []
+    ) -> EnglishPronunciationPack {
+        var fixtureEntries: [String: [Candidate]] = [:]
+        for (word, value) in automaticEntries {
+            fixtureEntries[word] = [
+                Candidate(
+                    candidateID: value.candidateID,
+                    ipa: value.ipa,
+                    lexicalClass: nil,
+                    senseLabel: nil,
+                    sourceID: "fixture",
+                    sourceTier: "supplemental",
+                    kind: "explicit",
+                    automaticWithoutContext: true,
+                    frequencyBand: .unknown,
+                    validationStatus: .validatedAutomatic)
+            ]
+        }
+        for word in ambiguousWords {
+            fixtureEntries[word] = [
+                Candidate(
+                    candidateID: "fixture.\(word).a",
+                    ipa: "a",
+                    lexicalClass: nil,
+                    senseLabel: nil,
+                    sourceID: "fixture",
+                    sourceTier: "supplemental",
+                    kind: "explicit",
+                    automaticWithoutContext: false,
+                    frequencyBand: .unknown,
+                    validationStatus: .reportOnlyMissingSenseLabel),
+                Candidate(
+                    candidateID: "fixture.\(word).b",
+                    ipa: "b",
+                    lexicalClass: nil,
+                    senseLabel: nil,
+                    sourceID: "fixture",
+                    sourceTier: "supplemental",
+                    kind: "explicit",
+                    automaticWithoutContext: false,
+                    frequencyBand: .unknown,
+                    validationStatus: .reportOnlyMissingSenseLabel),
+            ]
+        }
+        let count = fixtureEntries.values.reduce(0) { $0 + $1.count }
+        return EnglishPronunciationPack(
+            schemaVersion: 1,
+            packVersion: packVersion,
+            generatorVersion: "fixture-v1",
+            entryCount: fixtureEntries.count,
+            candidateCount: count,
+            normalizedDataSHA256: "sha256:" + String(repeating: "0", count: 64),
+            kokoroVocabularyVersion: kokoroVocabularyVersion,
+            generatorBehavior: GeneratorBehavior(
+                generatorVersion: "fixture-v1",
+                normalizationPolicyVersion: "fixture-v1",
+                arpabetMappingVersion: "fixture-v1",
+                sourcePrecedencePolicyVersion: "fixture-v1",
+                automaticSelectionPolicyVersion: "fixture-v1",
+                candidateValidationPolicyVersion: "fixture-v1"),
+            dialect: "en-US",
+            sources: [],
+            licenses: [],
+            requiredAcknowledgments: [],
+            generationTimestamp: generationTimestamp,
+            entries: fixtureEntries)
+    }
+
     private init(
         schemaVersion: Int,
         packVersion: String,
@@ -272,6 +379,16 @@ nonisolated struct EnglishPronunciationPack: Equatable, Sendable {
         self.requiredAcknowledgments = requiredAcknowledgments
         self.generationTimestamp = generationTimestamp
         self.entries = entries
+    }
+}
+
+extension EnglishPronunciationPack {
+    var productionPolicySignature: String {
+        [
+            packVersion,
+            UniversalPronunciationResolver.morphologyCandidatePackVersion(for: self),
+            "content-default-v1",
+        ].joined(separator: "|")
     }
 }
 

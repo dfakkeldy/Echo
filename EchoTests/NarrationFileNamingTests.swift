@@ -6,17 +6,17 @@ import Testing
 
 @Suite struct NarrationFileNamingTests {
     @Test func renderVersionRegeneratesCachesForPronunciationFrontEndRefresh() {
-        // v15 preserves dotted identifiers as one authored word during chunking,
-        // so v14 audio and its pronunciation evidence must not be reused.
-        #expect(NarrationFileNaming.renderVersion == 15)
+        // v16 applies the semantic supplemental pack and morphology policy, so
+        // v15 audio and its pronunciation evidence must not be reused.
+        #expect(NarrationFileNaming.renderVersion == 16)
         let current = NarrationFileNaming.chapterFileName(
             audiobookID: "book",
             chapterIndex: 0,
             voice: VoiceID("af_heart"),
             contentSignature: "0123456789abcdef")
-        let previous = current.replacing("-v15.m4a", with: "-v14.m4a")
+        let previous = current.replacing("-v16.m4a", with: "-v15.m4a")
 
-        #expect(current.hasSuffix("-v15.m4a"))
+        #expect(current.hasSuffix("-v16.m4a"))
         #expect(
             NarrationFileNaming.isCurrentChapterCacheFileName(
                 current,
@@ -60,24 +60,29 @@ import Testing
         let plain = NarrationFileNaming.contentSignature(
             spokenBlocks: [spokenBlock],
             renderedTexts: ["Kubernetes ships."],
-            includeLeadOutPad: false)
+            includeLeadOutPad: false,
+            pronunciationPolicySignature: EnglishPronunciationPack.empty.productionPolicySignature)
         let overridden = NarrationFileNaming.contentSignature(
             spokenBlocks: [spokenBlock],
             renderedTexts: ["[Kubernetes](/ku:bərnetis/) ships."],
-            includeLeadOutPad: false)
+            includeLeadOutPad: false,
+            pronunciationPolicySignature: EnglishPronunciationPack.empty.productionPolicySignature)
         let differentBlock = NarrationFileNaming.contentSignature(
             spokenBlocks: [block(id: "b1", text: "Kubernetes ships.")],
             renderedTexts: ["Kubernetes ships."],
-            includeLeadOutPad: false)
+            includeLeadOutPad: false,
+            pronunciationPolicySignature: EnglishPronunciationPack.empty.productionPolicySignature)
         let padded = NarrationFileNaming.contentSignature(
             spokenBlocks: [spokenBlock],
             renderedTexts: ["Kubernetes ships."],
-            includeLeadOutPad: true)
+            includeLeadOutPad: true,
+            pronunciationPolicySignature: EnglishPronunciationPack.empty.productionPolicySignature)
         let fmMode = NarrationFileNaming.contentSignature(
             spokenBlocks: [spokenBlock],
             renderedTexts: ["Kubernetes ships."],
             includeLeadOutPad: false,
-            normalizationMode: "fm-auto-v\(FMNormalizer.signatureVersion)")
+            normalizationMode: "fm-auto-v\(FMNormalizer.signatureVersion)",
+            pronunciationPolicySignature: EnglishPronunciationPack.empty.productionPolicySignature)
 
         #expect(plain.count == 16)
         #expect(plain != overridden)
@@ -92,13 +97,102 @@ import Testing
         let paragraphSignature = NarrationFileNaming.contentSignature(
             spokenBlocks: [paragraph],
             renderedTexts: ["Chapter title"],
-            includeLeadOutPad: false)
+            includeLeadOutPad: false,
+            pronunciationPolicySignature: EnglishPronunciationPack.empty.productionPolicySignature)
         let headingSignature = NarrationFileNaming.contentSignature(
             spokenBlocks: [heading],
             renderedTexts: ["Chapter title"],
-            includeLeadOutPad: false)
+            includeLeadOutPad: false,
+            pronunciationPolicySignature: EnglishPronunciationPack.empty.productionPolicySignature)
 
         #expect(paragraphSignature != headingSignature)
+    }
+
+    @Test func contentSignatureIncludesSnapshottedPronunciationPolicy() {
+        let block = block(id: "b0", text: "No rewritten text here.")
+        let baseline = NarrationFileNaming.contentSignature(
+            spokenBlocks: [block],
+            renderedTexts: ["No rewritten text here."],
+            includeLeadOutPad: false,
+            pronunciationPolicySignature: "pack-a|morphology-a|content-default-v1")
+        let changedNormalizedEntries = NarrationFileNaming.contentSignature(
+            spokenBlocks: [block],
+            renderedTexts: ["No rewritten text here."],
+            includeLeadOutPad: false,
+            pronunciationPolicySignature: "pack-normalized-b|morphology-b|content-default-v1")
+        let changedSourceSnapshot = NarrationFileNaming.contentSignature(
+            spokenBlocks: [block],
+            renderedTexts: ["No rewritten text here."],
+            includeLeadOutPad: false,
+            pronunciationPolicySignature: "pack-source-b|morphology-c|content-default-v1")
+        let changedGeneratorBehavior = NarrationFileNaming.contentSignature(
+            spokenBlocks: [block],
+            renderedTexts: ["No rewritten text here."],
+            includeLeadOutPad: false,
+            pronunciationPolicySignature: "pack-generator-b|morphology-d|content-default-v1")
+        let changedVocabulary = NarrationFileNaming.contentSignature(
+            spokenBlocks: [block],
+            renderedTexts: ["No rewritten text here."],
+            includeLeadOutPad: false,
+            pronunciationPolicySignature: "pack-a|morphology-vocabulary-b|content-default-v1")
+        let changedMorphologyRule = NarrationFileNaming.contentSignature(
+            spokenBlocks: [block],
+            renderedTexts: ["No rewritten text here."],
+            includeLeadOutPad: false,
+            pronunciationPolicySignature: "pack-a|morphology-rule-b|content-default-v1")
+        let changedExceptionSet = NarrationFileNaming.contentSignature(
+            spokenBlocks: [block],
+            renderedTexts: ["No rewritten text here."],
+            includeLeadOutPad: false,
+            pronunciationPolicySignature: "pack-a|morphology-exception-b|content-default-v1")
+        let changedBaseEvidence = NarrationFileNaming.contentSignature(
+            spokenBlocks: [block],
+            renderedTexts: ["No rewritten text here."],
+            includeLeadOutPad: false,
+            pronunciationPolicySignature: "pack-a|morphology-base-policy-b|content-default-v1")
+
+        #expect(
+            Set([
+                baseline,
+                changedNormalizedEntries,
+                changedSourceSnapshot,
+                changedGeneratorBehavior,
+                changedVocabulary,
+                changedMorphologyRule,
+                changedExceptionSet,
+                changedBaseEvidence,
+            ]).count == 8)
+    }
+
+    @Test func auditOnlyPackTimestampCannotChangeProductionPolicyOrContentSignature() {
+        let first = EnglishPronunciationPack.emptyForTesting(
+            packVersion:
+                "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            kokoroVocabularyVersion:
+                "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            generationTimestamp: "2026-07-29T00:00:00Z")
+        let second = EnglishPronunciationPack.emptyForTesting(
+            packVersion: first.packVersion,
+            kokoroVocabularyVersion: first.kokoroVocabularyVersion,
+            generationTimestamp: "2026-07-30T00:00:00Z")
+        let block = block(id: "b0", text: "Stable text.")
+
+        #expect(first.packVersion == second.packVersion)
+        #expect(
+            UniversalPronunciationResolver.morphologyCandidatePackVersion(for: first)
+                == UniversalPronunciationResolver.morphologyCandidatePackVersion(for: second))
+        #expect(first.productionPolicySignature == second.productionPolicySignature)
+        #expect(
+            NarrationFileNaming.contentSignature(
+                spokenBlocks: [block],
+                renderedTexts: ["Stable text."],
+                includeLeadOutPad: false,
+                pronunciationPolicySignature: first.productionPolicySignature)
+                == NarrationFileNaming.contentSignature(
+                    spokenBlocks: [block],
+                    renderedTexts: ["Stable text."],
+                    includeLeadOutPad: false,
+                    pronunciationPolicySignature: second.productionPolicySignature))
     }
 
     @Test func contentSignedFileNamesStillRoundTripLocations() {
