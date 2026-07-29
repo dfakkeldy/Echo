@@ -1096,7 +1096,7 @@ nonisolated enum UniversalPronunciationResolver {
     static let morphologyIdentitySchemaVersion = 1
     static let suffixIPA = "əbəl"
     static let minimumBaseLength = 3
-    static let properNamePolicyVersion = "proper-name-risk-v1"
+    static let properNamePolicyVersion = "proper-name-risk-v2"
     static let baseEvidencePolicyVersion = "kokoro-nonfallback-rating3-v1"
     static let contextualExclusions: Set<String> = [
         "content", "read", "live", "lives", "record", "records",
@@ -1140,7 +1140,7 @@ nonisolated enum UniversalPronunciationResolver {
   ],
   "suffixIPA": "əbəl",
   "minimumBaseLength": 3,
-  "properNamePolicyVersion": "proper-name-risk-v1",
+  "properNamePolicyVersion": "proper-name-risk-v2",
   "baseEvidencePolicyVersion": "kokoro-nonfallback-rating3-v1",
   "exceptionSetSHA256": "sha256:<canonical-sorted-exception-set-digest>",
   "pronunciationPackVersion": "<pack.packVersion>",

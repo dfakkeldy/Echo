@@ -62,6 +62,12 @@ import Testing
             fallbackHits: [])
     }
 
+    @Test func englishKeyNormalizationCanonicalizesInternalCurlyApostrophe() {
+        #expect(PronunciationAuditContext.normalizedWord("aujourd'hui") == "aujourd'hui")
+        #expect(PronunciationAuditContext.normalizedWord("aujourd’hui") == "aujourd'hui")
+        #expect(PronunciationAuditContext.normalizedWord("Aujourd’hui") == "aujourd'hui")
+    }
+
     @Test func manifestPreservesStableEvidenceAndCountsEveryWatchedWord() {
         let second = decision(word: "filesystem", ruleID: "override.builtin.filesystem", chapterIndex: 2)
         let first = decision(word: "verified", ruleID: "g2p.lexicon.verified", chapterIndex: 0)

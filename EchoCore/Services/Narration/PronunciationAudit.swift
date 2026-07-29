@@ -728,6 +728,7 @@ nonisolated enum PronunciationAuditContext {
                 String(word)
                     .trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
                     .lowercased()
+                    .replacingOccurrences(of: "’", with: "'")
             }
             .filter { !$0.isEmpty }
             .joined(separator: " ")

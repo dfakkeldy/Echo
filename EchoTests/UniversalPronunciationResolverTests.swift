@@ -95,14 +95,49 @@ import Testing
             "hui": ("cmudict.hui.fixture", "hˈui"),
         ])
 
+        let unsupportedConnectedTokens = [
+            "ad_hoc",
+            "ad\u{203F}hoc",
+            "ad2hoc",
+            "ad\u{00AD}hoc",
+            "ad\u{200D}hoc",
+            "ad\u{2010}hoc",
+            "ad‑hoc",
+            "ad\u{FF0D}hoc",
+            "ad·hoc",
+            "ad\u{0301}-hoc",
+            "ad_-hoc",
+            "ad''hoc",
+            "aujourd''hui",
+        ]
+        for sourceToken in unsupportedConnectedTokens {
+            let source = "An \(sourceToken) example."
+            let result = UniversalPronunciationResolver.rewrite(
+                to: source,
+                blockID: "b1",
+                pack: supplementalPack,
+                basePronunciation: { _ in nil })
+
+            #expect(result.text == source)
+            #expect(result.decisionSeeds.isEmpty)
+        }
+    }
+
+    @Test func ordinaryBoundaryPunctuationAndExistingLinksRemainSeparate() {
+        let supplementalPack = pack(automaticEntries: [
+            "foobar": ("cmudict.foobar.fixture", "fˈubɑɹ")
+        ])
         let result = UniversalPronunciationResolver.rewrite(
-            to: "An ad‑hoc aujourd''hui example.",
+            to: "“foobar,” (foobar); foobar! [foobar](/custom/)",
             blockID: "b1",
             pack: supplementalPack,
             basePronunciation: { _ in nil })
 
-        #expect(result.text == "An ad‑hoc aujourd''hui example.")
-        #expect(result.decisionSeeds.isEmpty)
+        #expect(
+            result.text
+                == "“[foobar](/fˈubɑɹ/),” ([foobar](/fˈubɑɹ/)); [foobar](/fˈubɑɹ/)! [foobar](/custom/)")
+        #expect(result.decisionSeeds.map(\.sourceWord) == ["foobar", "foobar", "foobar"])
+        #expect(result.decisionSeeds.map(\.wordStart) == [0, 1, 2])
     }
 
     @Test func bundledAutomaticHyphenCandidateIsReachableAsOneExactToken() async throws {
@@ -188,6 +223,41 @@ import Testing
             #expect(result.text == text)
             #expect(result.decisionSeeds.isEmpty)
         }
+    }
+
+    @Test func abbreviationsAndInitialsDoNotProveSentenceStart() {
+        let supplementalPack = pack(automaticEntries: [
+            "foobar": ("cmudict.foobar.fixture", "fˈubɑɹ")
+        ])
+        let ambiguousPeriodCases = [
+            "Dr. Foobar arrived.",
+            "Mr. Foobar arrived.",
+            "Mrs. Foobar arrived.",
+            "Ms. Foobar arrived.",
+            "Prof. Foobar arrived.",
+            "No. Foobar arrived.",
+            "A. Foobar arrived.",
+            "U.S. Foobar arrived.",
+            "e.g. Foobar arrived.",
+            "Version 3.14 Foobar arrived.",
+        ]
+        for text in ambiguousPeriodCases {
+            let result = UniversalPronunciationResolver.rewrite(
+                to: text,
+                blockID: "b1",
+                pack: supplementalPack,
+                basePronunciation: { _ in nil })
+            #expect(result.text == text)
+            #expect(result.decisionSeeds.isEmpty)
+        }
+
+        let trueBoundary = UniversalPronunciationResolver.rewrite(
+            to: "Done. Foobar arrived.",
+            blockID: "b1",
+            pack: supplementalPack,
+            basePronunciation: { _ in nil })
+        #expect(trueBoundary.text == "Done. [Foobar](/fˈubɑɹ/) arrived.")
+        #expect(trueBoundary.decisionSeeds.map(\.normalizedWord) == ["foobar"])
     }
 
     @Test func ordinaryWordsPerformNoMorphologyG2PLookups() {
@@ -338,8 +408,8 @@ import Testing
 
         #expect(
             policyVersion
-                == "morphology-v1:sha256:41089299eab04d8047f35f67e52c88e5275797f48a5c45db2497157a3d33169b")
-        #expect(candidateID == "morphology.startable.1ed5c734016f")
+                == "morphology-v1:sha256:38b63bf95d7533a6f49c546a50ceb5f8f90340c98dfc148e557766359fd9da28")
+        #expect(candidateID == "morphology.startable.404dccd33d7a")
         #expect(
             UniversalPronunciationResolver.morphologyCandidatePackVersion(for: fixturePack)
                 == policyVersion)
@@ -371,13 +441,20 @@ import Testing
         let changedBasePolicy = UniversalPronunciationResolver.morphologyCandidatePackVersion(
             for: fixturePack,
             baseEvidencePolicyVersion: "kokoro-nonfallback-rating4-v2")
+        let changedProperNamePolicy =
+            UniversalPronunciationResolver.morphologyCandidatePackVersion(
+                for: fixturePack,
+                properNamePolicyVersion: "proper-name-risk-v1")
         let changedPack = UniversalPronunciationResolver.morphologyCandidatePackVersion(
             for: pack(packVersion: "sha256:" + String(repeating: "2", count: 64)))
         let changedVocabulary = UniversalPronunciationResolver.morphologyCandidatePackVersion(
             for: pack(kokoroVocabularyVersion: "sha256:" + String(repeating: "3", count: 64)))
 
-        #expect(Set([baseline, changedRule, changedException, changedBasePolicy, changedPack,
-                     changedVocabulary]).count == 6)
+        #expect(
+            Set([
+                baseline, changedRule, changedException, changedBasePolicy,
+                changedProperNamePolicy, changedPack, changedVocabulary,
+            ]).count == 7)
 
         let candidateInputs = [
             ("startable", "start", "morphology.able.exact-base.v1", "stˈɑɹt", "stˈɑɹtəbəl",

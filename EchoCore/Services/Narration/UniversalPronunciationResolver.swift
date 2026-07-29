@@ -9,8 +9,14 @@ nonisolated enum UniversalPronunciationResolver {
     static let morphologyIdentitySchemaVersion = 1
     static let suffixIPA = "əbəl"
     static let minimumBaseLength = 3
-    static let properNamePolicyVersion = "proper-name-risk-v1"
+    static let properNamePolicyVersion = "proper-name-risk-v2"
     static let baseEvidencePolicyVersion = "kokoro-nonfallback-rating3-v1"
+    static let ambiguousPeriodAbbreviations: Set<String> = [
+        "approx", "capt", "cmdr", "co", "col", "corp", "dept", "dr", "est",
+        "etc", "fig", "gen", "gov", "hon", "inc", "jr", "lt", "ltd", "m.d",
+        "mr", "mrs", "ms", "no", "ph.d", "pres", "prof", "rep", "rev", "sen",
+        "sgt", "sr", "st", "vs",
+    ]
     static let contextualExclusions: Set<String> = [
         "content", "read", "live", "lives", "record", "records",
     ]
@@ -49,13 +55,14 @@ nonisolated enum UniversalPronunciationResolver {
         let derivationRuleID: String?
     }
 
-    /// One broad source token for the validated ASCII key grammar plus common
-    /// authored apostrophe/hyphen variants. Boundary guards ensure malformed or
-    /// unsupported connected tokens are rejected as a unit, never re-tokenized
-    /// into independently eligible fragments.
+    /// Captures each complete lexically connected run before validated-key
+    /// filtering. Unsupported letters, marks, numbers, connector punctuation,
+    /// dash punctuation, format controls, and middle dots therefore make the
+    /// whole source run ineligible instead of exposing eligible pieces.
+    /// Ordinary punctuation remains a separator between runs.
     private static let wordRegex = try! NSRegularExpression(
         pattern:
-            #"(?<![\p{L}\-‐‑‒–—'’])[\p{L}]+(?:[\-‐‑‒–—'’][\p{L}]+)*(?:['’])?(?![\p{L}\-‐‑‒–—'’])"#)
+            #"[\p{L}\p{M}\p{N}\p{Pc}\p{Pd}\p{Cf}'’\x{00B7}]+"#)
     private static let linkRegex = try! NSRegularExpression(
         pattern: #"\[[^\]]+\]\(/[^/]*/\)"#)
 
@@ -63,6 +70,7 @@ nonisolated enum UniversalPronunciationResolver {
         for pack: EnglishPronunciationPack,
         ruleIDs: [String] = DerivationRule.allCases.map(\.rawValue),
         exceptionWords: Set<String> = exceptionWords,
+        properNamePolicyVersion: String = properNamePolicyVersion,
         baseEvidencePolicyVersion: String = baseEvidencePolicyVersion
     ) -> String {
         guard let exceptionData = canonicalJSON(Array(exceptionWords).sorted()) else {
@@ -133,11 +141,12 @@ nonisolated enum UniversalPronunciationResolver {
                 continue
             }
             let sourceWord = String(text[range])
-            let normalizedSpelling = sourceWord.lowercased()
+            let canonicalSourceSpelling = sourceWord.lowercased()
                 .replacingOccurrences(of: "’", with: "'")
+            let normalizedSpelling = PronunciationAuditContext.normalizedWord(sourceWord)
             let isPossessive =
-                normalizedSpelling.hasSuffix("'s")
-                || normalizedSpelling.hasSuffix("'")
+                canonicalSourceSpelling.hasSuffix("'s")
+                || canonicalSourceSpelling.hasSuffix("'")
             guard !isPossessive,
                 EnglishPronunciationPack.isValidNormalizedKey(normalizedSpelling),
                 !contextualExclusions.contains(normalizedSpelling),
@@ -294,11 +303,45 @@ nonisolated enum UniversalPronunciationResolver {
         }
         guard sourceWord.first?.isUppercase == true else { return false }
         let prefix = text[..<sourceRange.lowerBound]
-        let sentenceTail =
-            prefix.lastIndex(where: { ".!?…\n\r".contains($0) })
-            .map { prefix[prefix.index(after: $0)...] }
-            ?? prefix[prefix.startIndex...]
-        return sentenceTail.contains { $0.isLetter || $0.isNumber }
+        guard let boundary = prefix.lastIndex(where: { ".!?…\n\r".contains($0) })
+        else {
+            return prefix.contains { $0.isLetter || $0.isNumber }
+        }
+        let sentenceTail = prefix[prefix.index(after: boundary)...]
+        if sentenceTail.contains(where: { $0.isLetter || $0.isNumber }) {
+            return true
+        }
+        return prefix[boundary] == "." && isAmbiguousPeriod(boundary, in: text)
+    }
+
+    private static func isAmbiguousPeriod(
+        _ period: String.Index,
+        in text: String
+    ) -> Bool {
+        let beforePeriod = text[..<period]
+        var tokenStart = beforePeriod.endIndex
+        while tokenStart > beforePeriod.startIndex {
+            let previous = beforePeriod.index(before: tokenStart)
+            let character = beforePeriod[previous]
+            guard character.isLetter || character.isNumber || character == "."
+            else {
+                break
+            }
+            tokenStart = previous
+        }
+        let token = String(beforePeriod[tokenStart...]).lowercased()
+        guard !token.isEmpty else { return true }
+        if ambiguousPeriodAbbreviations.contains(token) {
+            return true
+        }
+
+        let components = token.split(separator: ".", omittingEmptySubsequences: false)
+        if components.count == 1 {
+            return token.count == 1 && token.first?.isLetter == true
+        }
+        return components.allSatisfy {
+            $0.count == 1 && $0.first?.isLetter == true
+        }
     }
 
     private static func isNormalizedWord(_ value: String) -> Bool {

@@ -792,6 +792,49 @@ import Testing
         #expect(decisions["startable"]?.source == .derivedMorphology)
     }
 
+    @Test func straightAndCurlyApostropheCandidatesMaterializeIdenticalAuditProvenance() throws {
+        let candidateID = "cmudict.aujourd'hui.fixture"
+        let packVersion =
+            "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        let ipa = "oʒuɹdɥˈi"
+        let pack = EnglishPronunciationPack.emptyForTesting(
+            packVersion: packVersion,
+            kokoroVocabularyVersion:
+                "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            automaticEntries: [
+                "aujourd'hui": (candidateID, ipa)
+            ])
+        let authoredWords = ["aujourd'hui", "aujourd’hui"]
+        let plan = try NarrationRenderPlanner.make(
+            blocks: authoredWords.enumerated().map { index, word in
+                block(id: "apostrophe-\(index)", text: "An \(word) example.", index: index)
+            },
+            overrides: PronunciationOverrides(entries: [:]),
+            pronunciationPack: pack)
+
+        #expect(plan.blocks.count == authoredWords.count)
+        for (index, authoredWord) in authoredWords.enumerated() {
+            let planned = plan.blocks[index]
+            let chunk = try #require(planned.synthesisChunks.first)
+            let decision = try #require(planned.pronunciationDecisions.first)
+
+            #expect(planned.pronunciationDecisions.count == 1)
+            #expect(planned.pronunciationDecisionDiagnostics.isEmpty)
+            #expect(planned.pronunciationAuditDiagnostics.isEmpty)
+            #expect(chunk.g2pInputText == "An [\(authoredWord)](/\(ipa)/) example.")
+            #expect(chunk.phonemes.contains(ipa))
+            #expect(decision.normalizedWord == "aujourd'hui")
+            #expect(decision.sourceWord == authoredWord)
+            #expect(decision.wordStart == 1)
+            #expect(decision.wordEnd == 1)
+            #expect(decision.selectedIPA == ipa)
+            #expect(!decision.kokoroTokenIDs.isEmpty)
+            #expect(decision.source == .supplementalLexicon)
+            #expect(decision.candidateID == candidateID)
+            #expect(decision.candidatePackVersion == packVersion)
+        }
+    }
+
     @Test func overrideWinsUniversalCandidateAndFirstSeedForSpanStaysFrozen() throws {
         let pack = EnglishPronunciationPack.emptyForTesting(
             packVersion:
