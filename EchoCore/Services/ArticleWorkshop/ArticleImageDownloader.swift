@@ -235,23 +235,15 @@ private nonisolated enum PNGIntegrity {
     private static func validatesCompressedPixels(_ compressed: Data, header: Header) -> Bool {
         guard header.compressionMethod == 0,
               header.filterMethod == 0,
-              header.interlaceMethod == 0,
+              [0, 1].contains(header.interlaceMethod),
               let channels = header.channels,
               [1, 2, 4, 8, 16].contains(header.bitDepth)
         else { return false }
-        let bitsPerRow = header.width.multipliedReportingOverflow(by: channels)
-        guard bitsPerRow.overflow == false else { return false }
-        let bits = bitsPerRow.partialValue.multipliedReportingOverflow(by: header.bitDepth)
-        guard bits.overflow == false else { return false }
-        let rowBytes = (bits.partialValue + 7) / 8
-        let rowWithFilter = rowBytes.addingReportingOverflow(1)
-        guard rowWithFilter.overflow == false else { return false }
-        let expected = rowWithFilter.partialValue.multipliedReportingOverflow(by: header.height)
-        guard expected.overflow == false,
-              expected.partialValue > 0,
-              expected.partialValue <= 100_000_000
+        guard let expectedOutputBytes = header.expectedOutputBytes(channels: channels),
+              expectedOutputBytes > 0,
+              expectedOutputBytes <= 100_000_000
         else { return false }
-        return hasCompleteZlibStream(compressed, expectedOutputBytes: expected.partialValue)
+        return hasCompleteZlibStream(compressed, expectedOutputBytes: expectedOutputBytes)
     }
 
     private static func hasCompleteZlibStream(_ compressed: Data, expectedOutputBytes: Int) -> Bool {
@@ -266,10 +258,11 @@ private nonisolated enum PNGIntegrity {
             var totalOutput = 0
             while true {
                 var output = [UInt8](repeating: 0, count: 8 * 1024)
+                let inputBefore = stream.avail_in
                 let status: Int32 = output.withUnsafeMutableBytes { destinationBuffer in
                     stream.next_out = destinationBuffer.bindMemory(to: UInt8.self).baseAddress!
                     stream.avail_out = uInt(destinationBuffer.count)
-                    return inflate(&stream, Z_FINISH)
+                    return inflate(&stream, Z_NO_FLUSH)
                 }
                 let emitted = output.count - Int(stream.avail_out)
                 let total = totalOutput.addingReportingOverflow(emitted)
@@ -278,7 +271,8 @@ private nonisolated enum PNGIntegrity {
                 if status == Z_STREAM_END {
                     return stream.avail_in == 0 && totalOutput == expectedOutputBytes
                 }
-                guard status == Z_OK, emitted > 0 else { return false }
+                let madeProgress = emitted > 0 || stream.avail_in < inputBefore
+                guard madeProgress, status == Z_OK || status == Z_BUF_ERROR else { return false }
             }
         }
     }
@@ -315,6 +309,42 @@ private nonisolated enum PNGIntegrity {
             case 6: 4
             default: nil
             }
+        }
+
+        func expectedOutputBytes(channels: Int) -> Int? {
+            let passes: [(Int, Int, Int, Int)] = interlaceMethod == 1
+                ? [(0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2)]
+                : [(0, 0, 1, 1)]
+            var total = 0
+            for (originX, originY, stepX, stepY) in passes {
+                guard let passWidth = passDimension(length: width, origin: originX, step: stepX),
+                      let passHeight = passDimension(length: height, origin: originY, step: stepY)
+                else { return nil }
+                guard passWidth > 0, passHeight > 0 else { continue }
+                let samples = passWidth.multipliedReportingOverflow(by: channels)
+                guard samples.overflow == false else { return nil }
+                let bits = samples.partialValue.multipliedReportingOverflow(by: bitDepth)
+                guard bits.overflow == false else { return nil }
+                let rowBytes = bits.partialValue.addingReportingOverflow(7)
+                guard rowBytes.overflow == false else { return nil }
+                let filteredRow = (rowBytes.partialValue / 8).addingReportingOverflow(1)
+                guard filteredRow.overflow == false else { return nil }
+                let passBytes = filteredRow.partialValue.multipliedReportingOverflow(by: passHeight)
+                guard passBytes.overflow == false else { return nil }
+                let next = total.addingReportingOverflow(passBytes.partialValue)
+                guard next.overflow == false else { return nil }
+                total = next.partialValue
+            }
+            return total
+        }
+
+        private func passDimension(length: Int, origin: Int, step: Int) -> Int? {
+            guard length >= 0, origin >= 0, step > 0 else { return nil }
+            guard length > origin else { return 0 }
+            let remaining = length - origin
+            let adjusted = remaining.addingReportingOverflow(step - 1)
+            guard adjusted.overflow == false else { return nil }
+            return adjusted.partialValue / step
         }
     }
 }

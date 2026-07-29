@@ -102,13 +102,16 @@ struct ArticleURLCaptureService {
         }
         let lowercased = html.lowercased()
         let passwordInput = #"<input\b[^>]*\btype\s*=\s*[\"']?password\b"#
-        let loginSignal = #"(sign\s*in|log\s*in|login|authenticate|action\s*=\s*[\"'][^\"']*(login|auth)|<button\b[^>]*>\s*(sign\s*in|log\s*in|login)\b|<input\b[^>]*\btype\s*=\s*[\"']?submit\b)"#
+        let loginSignal = #"(sign\s*in|log\s*in|login|authenticate)"#
+        let actionElement = #"(?is)<(?:form|input|button|label|h[1-6])\b[^>]*(?:>[^<]*</(?:button|label|h[1-6])>)?"#
         let forms = lowercased.matches(of: try! Regex(#"(?s)<form\b[^>]*>.*?</form>"#))
         if forms.contains(where: { form in
             let markup = String(lowercased[form.range])
             return markup.contains("password")
                 && markup.contains(regex: passwordInput)
-                && markup.contains(regex: loginSignal)
+                && markup.matches(of: try! Regex(actionElement)).contains { element in
+                    String(markup[element.range]).contains(regex: loginSignal)
+                }
         }) { return true }
         // Some sites place the heading immediately outside an otherwise standard form.
         return lowercased.contains(regex: passwordInput)

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Testing
+import zlib
 
 @testable import Echo
 
@@ -117,6 +118,59 @@ import Testing
         #expect(result.warnings == [.invalidImage])
     }
 
+    @Test func acceptsMultiBufferPNGAndRejectsTruncatedOrCorruptVariants() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let valid = try png(width: 128, height: 128, interlaced: false)
+        #expect(try decompressedScanlineByteCount(in: valid) > 8 * 1024)
+        var corrupt = valid
+        let idatOffset = try idatChunkOffset(in: corrupt)
+        corrupt[idatOffset + 8] ^= 0xFF
+        rewriteCRC(ofChunkAt: idatOffset, in: &corrupt)
+        let truncated = Data(valid.dropLast(8))
+        ArticleURLProtocol.install { request in
+            switch request.url?.lastPathComponent {
+            case "valid.png": .response(status: 200, mimeType: "image/png", data: valid)
+            case "corrupt.png": .response(status: 200, mimeType: "image/png", data: corrupt)
+            default: .response(status: 200, mimeType: "image/png", data: truncated)
+            }
+        }
+        defer { ArticleURLProtocol.reset() }
+
+        let result = await ArticleImageDownloader(sessionConfiguration: articleURLProtocolConfiguration()).localize(
+            candidates: [
+                URL(string: "https://example.test/valid.png")!,
+                URL(string: "https://example.test/corrupt.png")!,
+                URL(string: "https://example.test/truncated.png")!,
+            ],
+            into: root)
+
+        #expect(result.localURLs.count == 1)
+        #expect(result.warnings == [.invalidImage, .invalidImage])
+    }
+
+    @Test func acceptsAdam7PNGAndRejectsCorruptCounterpart() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let valid = try png(width: 17, height: 19, interlaced: true)
+        #expect(try interlaceMethod(in: valid) == 1)
+        var corrupt = valid
+        let idatOffset = try idatChunkOffset(in: corrupt)
+        corrupt[idatOffset + 8] ^= 0xFF
+        rewriteCRC(ofChunkAt: idatOffset, in: &corrupt)
+        ArticleURLProtocol.install { request in
+            .response(status: 200, mimeType: "image/png", data: request.url?.lastPathComponent == "valid.png" ? valid : corrupt)
+        }
+        defer { ArticleURLProtocol.reset() }
+
+        let result = await ArticleImageDownloader(sessionConfiguration: articleURLProtocolConfiguration()).localize(
+            candidates: [URL(string: "https://example.test/valid.png")!, URL(string: "https://example.test/corrupt.png")!],
+            into: root)
+
+        #expect(result.localURLs.count == 1)
+        #expect(result.warnings == [.invalidImage])
+    }
+
     @Test func refusesExistingOrSymlinkedDestinationsWithoutOverwritingFiles() async throws {
         let root = try temporaryRoot()
         let external = try temporaryRoot()
@@ -217,6 +271,66 @@ import Testing
             UInt8(truncatingIfNeeded: value >> 8),
             UInt8(truncatingIfNeeded: value),
         ])
+    }
+
+    private func png(width: Int, height: Int, interlaced: Bool) throws -> Data {
+        let passes = interlaced
+            ? [(0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2)]
+            : [(0, 0, 1, 1)]
+        var scanlines = Data()
+        for (originX, originY, stepX, stepY) in passes {
+            let passWidth = dimension(length: width, origin: originX, step: stepX)
+            let passHeight = dimension(length: height, origin: originY, step: stepY)
+            guard passWidth > 0, passHeight > 0 else { continue }
+            for row in 0..<passHeight {
+                scanlines.append(0)
+                for column in 0..<passWidth {
+                    scanlines.append(UInt8(truncatingIfNeeded: row * 31 + column * 17))
+                }
+            }
+        }
+        var compressed = [UInt8](repeating: 0, count: Int(compressBound(uLong(scanlines.count))))
+        var compressedCount = uLongf(compressed.count)
+        let result = scanlines.withUnsafeBytes { source in
+            compress2(
+                &compressed,
+                &compressedCount,
+                source.bindMemory(to: Bytef.self).baseAddress!,
+                uLong(scanlines.count),
+                Z_BEST_SPEED)
+        }
+        guard result == Z_OK else { throw CocoaError(.fileWriteUnknown) }
+
+        var data = Data([137, 80, 78, 71, 13, 10, 26, 10])
+        var header = Data()
+        appendUInt32(UInt32(width), to: &header)
+        appendUInt32(UInt32(height), to: &header)
+        header.append(contentsOf: [8, 0, 0, 0, interlaced ? 1 : 0])
+        appendPNGChunk(type: "IHDR", payload: header, to: &data)
+        appendPNGChunk(type: "IDAT", payload: compressed.prefix(Int(compressedCount)), to: &data)
+        appendPNGChunk(type: "IEND", payload: [], to: &data)
+        return data
+    }
+
+    private func dimension(length: Int, origin: Int, step: Int) -> Int {
+        guard length > origin else { return 0 }
+        return (length - origin + step - 1) / step
+    }
+
+    private func interlaceMethod(in data: Data) throws -> UInt8 {
+        let bytes = [UInt8](data)
+        guard bytes.count >= 29, bytes[12] == 73, bytes[13] == 72, bytes[14] == 68, bytes[15] == 82 else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        return bytes[28]
+    }
+
+    private func decompressedScanlineByteCount(in data: Data) throws -> Int {
+        let bytes = [UInt8](data)
+        guard bytes.count >= 29 else { throw CocoaError(.fileReadCorruptFile) }
+        let width = Int(bytes[16]) << 24 | Int(bytes[17]) << 16 | Int(bytes[18]) << 8 | Int(bytes[19])
+        let height = Int(bytes[20]) << 24 | Int(bytes[21]) << 16 | Int(bytes[22]) << 8 | Int(bytes[23])
+        return (width + 1) * height
     }
 
     private func crc32(_ bytes: [UInt8]) -> UInt32 {
