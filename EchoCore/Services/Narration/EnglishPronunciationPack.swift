@@ -648,6 +648,7 @@ private extension EnglishPronunciationPack {
 private nonisolated struct StrictPackJSONValidator {
     private enum Expectation {
         case any
+        case integer
         case manifest
         case sources
         case source
@@ -785,10 +786,14 @@ private nonisolated struct StrictPackJSONValidator {
             }
             try consumeLiteral("null")
         case 0x2D, 0x30...0x39:
-            guard expectation == .any else {
+            switch expectation {
+            case .any:
+                try parseNumber()
+            case .integer:
+                try parseInteger()
+            default:
                 throw StructuralError.invalid
             }
-            try parseNumber()
         default:
             throw StructuralError.invalid
         }
@@ -1030,6 +1035,33 @@ private nonisolated struct StrictPackJSONValidator {
         }
     }
 
+    private mutating func parseInteger() throws {
+        _ = consumeIfPresent(0x2D)
+        guard let first = peek() else {
+            throw StructuralError.invalid
+        }
+        if first == 0x30 {
+            advance()
+            if let next = peek(), (0x30...0x39).contains(next) {
+                throw StructuralError.invalid
+            }
+        } else if (0x31...0x39).contains(first) {
+            repeat { advance() } while peek().map {
+                (0x30...0x39).contains($0)
+            } == true
+        } else {
+            throw StructuralError.invalid
+        }
+
+        if let byte = peek(),
+            !Self.isWhitespace(byte),
+            byte != 0x2C,
+            byte != 0x7D
+        {
+            throw StructuralError.invalid
+        }
+    }
+
     private mutating func consumeDigits() throws {
         var consumed = false
         while let byte = peek(), (0x30...0x39).contains(byte) {
@@ -1094,6 +1126,7 @@ private nonisolated struct StrictPackJSONValidator {
         case (.semanticIdentity, "sourceSnapshots"): .sourceSnapshots
         case (.semanticIdentity, "generatorBehavior"): .generatorBehavior
         case (.entries, _): .candidates
+        case (.report, _): .integer
         default: .any
         }
     }

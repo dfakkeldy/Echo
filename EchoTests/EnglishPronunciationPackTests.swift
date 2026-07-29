@@ -254,6 +254,30 @@ import Testing
         }
     }
 
+    @Test func reportFieldsRejectIntegralDecimalAndExponentSyntax() {
+        let fieldsAndValidValues = [
+            ("existingGold", "0"),
+            ("existingSilver", "0"),
+            ("ambiguous", "1"),
+            ("incompatible", "0"),
+            ("imported", "2"),
+        ]
+
+        for (field, validValue) in fieldsAndValidValues {
+            for invalidToken in ["\(validValue).0", "\(validValue)e0"] {
+                let data = Self.replacingFirst(
+                    "\"\(field)\":\(validValue)",
+                    with: "\"\(field)\":\(invalidToken)")
+                #expect(
+                    throws: (any Error).self,
+                    "Expected \(field) to reject JSON token \(invalidToken)"
+                ) {
+                    _ = try EnglishPronunciationPack(data: data)
+                }
+            }
+        }
+    }
+
     @Test func reportImportedAndAmbiguousCountsMatchLoadedEntries() throws {
         let inconsistentReports = [
             try Self.mutated { root in
