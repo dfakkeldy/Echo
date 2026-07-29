@@ -10,6 +10,8 @@ nonisolated struct ArticleWorkshopFileStore {
         case unsupportedSchemaVersion(Int)
         case captureIDMismatch(expected: UUID, actual: UUID)
         case destinationDigestMismatch(UUID)
+        case captureRecordIDInvalid(String)
+        case contentDigestMismatch(UUID)
         case unsafePackage(URL)
         case unsafeFile(URL)
         case fileChangedDuringValidation(URL)
@@ -28,6 +30,10 @@ nonisolated struct ArticleWorkshopFileStore {
                 return "Article capture package ID \(expected.uuidString) does not match envelope ID \(actual.uuidString)."
             case .destinationDigestMismatch(let id):
                 return "The durable article capture for \(id.uuidString) has a different digest."
+            case .captureRecordIDInvalid(let id):
+                return "The article capture record has an invalid identifier: \(id)."
+            case .contentDigestMismatch(let id):
+                return "The durable article capture for \(id.uuidString) no longer matches its stored digest."
             case .unsafePackage(let url):
                 return "Article capture package is not a regular directory: \(url.path)"
             case .unsafeFile(let url):
@@ -121,6 +127,39 @@ nonisolated struct ArticleWorkshopFileStore {
         return ValidatedEnvelope(envelope: envelope, sha256: Self.sha256(data))
     }
 
+    func loadSnapshot(for record: ArticleCaptureRecord) throws -> ArticleSnapshot {
+        guard let captureID = UUID(uuidString: record.id) else {
+            throw Error.captureRecordIDInvalid(record.id)
+        }
+        let capturesRoot = root.appending(path: "Captures", directoryHint: .isDirectory)
+        let package = capturesRoot.appending(
+            path: captureID.uuidString,
+            directoryHint: .isDirectory)
+        let snapshotURL = package.appending(path: "snapshot.json")
+
+        guard try exactDirectory(root) else { throw Error.unsafePackage(root) }
+        guard try exactDirectory(capturesRoot) else {
+            throw Error.unsafePackage(capturesRoot)
+        }
+        guard try exactDirectory(package) else { throw Error.unsafePackage(package) }
+        let data = try boundedRegularFileData(at: snapshotURL)
+        guard Self.sha256(data) == record.contentSHA256 else {
+            throw Error.contentDigestMismatch(captureID)
+        }
+        let envelope = try JSONDecoder.articleWorkshop.decode(
+            ArticleCaptureEnvelope.self,
+            from: data)
+        guard envelope.schemaVersion == 1 else {
+            throw Error.unsupportedSchemaVersion(envelope.schemaVersion)
+        }
+        guard envelope.captureID == captureID else {
+            throw Error.captureIDMismatch(
+                expected: captureID,
+                actual: envelope.captureID)
+        }
+        return try ArticleBlockSanitizer().sanitize(envelope: envelope)
+    }
+
     private func boundedRegularFileData(at url: URL) throws -> Data {
         let sizeBefore = try regularFileSize(url)
         guard sizeBefore <= ArticleWorkshopLimits.maxEnvelopeBytes else {
@@ -148,8 +187,18 @@ nonisolated struct ArticleWorkshopFileStore {
     }
 
     private func safeDirectory(_ url: URL) throws -> Bool {
-        let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        let values = try url.resourceValues(
+            forKeys: [
+                .isDirectoryKey,
+                .isSymbolicLinkKey,
+            ])
         return values.isDirectory == true && values.isSymbolicLink != true
+    }
+
+    private func exactDirectory(_ url: URL) throws -> Bool {
+        guard url.standardizedFileURL == url else { return false }
+        guard try safeDirectory(url) else { return false }
+        return url.resolvingSymlinksInPath().standardizedFileURL == url.standardizedFileURL
     }
 
     private static func sha256(_ data: Data) -> String {

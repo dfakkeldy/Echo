@@ -7,7 +7,18 @@ nonisolated enum ArticleCaptureDeletionResult: Equatable, Sendable {
     case referenced(projectNames: [String])
 }
 
-nonisolated struct ArticleCaptureDAO {
+nonisolated enum ArticleRevisionPublicationResult: Equatable, Sendable {
+    case published(ArticleRevisionRecord)
+    case conflict(actualCurrentRevisionID: String?)
+}
+
+nonisolated enum ArticleRevisionPublicationError: Swift.Error, Equatable, Sendable {
+    case captureNotFound(String)
+    case parentMismatch(expected: String?, actual: String?)
+    case baseRevisionNotOwned(captureID: String, revisionID: String)
+}
+
+nonisolated struct ArticleCaptureDAO: Sendable {
     private let db: DatabaseWriter
 
     init(db: DatabaseWriter) {
@@ -74,6 +85,66 @@ nonisolated struct ArticleCaptureDAO {
         }
     }
 
+    func publishRevision(
+        _ revision: ArticleRevisionRecord,
+        expectedCurrentRevisionID: String?
+    ) throws -> ArticleRevisionPublicationResult {
+        guard revision.parentRevisionID == expectedCurrentRevisionID else {
+            throw ArticleRevisionPublicationError.parentMismatch(
+                expected: expectedCurrentRevisionID,
+                actual: revision.parentRevisionID)
+        }
+
+        do {
+            return try db.write { db in
+                guard try ArticleCaptureRecord.fetchOne(db, key: revision.captureID) != nil else {
+                    throw ArticleRevisionPublicationError.captureNotFound(revision.captureID)
+                }
+                if let expectedCurrentRevisionID {
+                    guard
+                        let base = try ArticleRevisionRecord.fetchOne(
+                            db,
+                            key: expectedCurrentRevisionID),
+                        base.captureID == revision.captureID
+                    else {
+                        throw ArticleRevisionPublicationError.baseRevisionNotOwned(
+                            captureID: revision.captureID,
+                            revisionID: expectedCurrentRevisionID)
+                    }
+                }
+
+                var revision = revision
+                try revision.insert(db)
+                try db.execute(
+                    sql: """
+                        UPDATE article_capture
+                        SET current_revision_id = ?
+                        WHERE id = ?
+                          AND (
+                            (current_revision_id IS NULL AND ? IS NULL)
+                            OR current_revision_id = ?
+                          )
+                        """,
+                    arguments: [
+                        revision.id,
+                        revision.captureID,
+                        expectedCurrentRevisionID,
+                        expectedCurrentRevisionID,
+                    ])
+                guard db.changesCount == 1 else {
+                    let actual = try String.fetchOne(
+                        db,
+                        sql: "SELECT current_revision_id FROM article_capture WHERE id = ?",
+                        arguments: [revision.captureID])
+                    throw ConditionalPublicationConflict(actualCurrentRevisionID: actual)
+                }
+                return .published(revision)
+            }
+        } catch let conflict as ConditionalPublicationConflict {
+            return .conflict(actualCurrentRevisionID: conflict.actualCurrentRevisionID)
+        }
+    }
+
     func revisions(captureID: String) throws -> [ArticleRevisionRecord] {
         try db.read { db in
             try ArticleRevisionRecord
@@ -127,4 +198,8 @@ nonisolated struct ArticleCaptureDAO {
             return .deleted
         }
     }
+}
+
+private nonisolated struct ConditionalPublicationConflict: Swift.Error {
+    let actualCurrentRevisionID: String?
 }

@@ -33,10 +33,14 @@ final class ArticleInboxViewModel {
 
     @ObservationIgnored private let service: ArticleInboxService
     @ObservationIgnored private let reloadWorker: ArticleInboxReloadWorker
+    @ObservationIgnored let cleanupContext: ArticleCleanupContext?
     @ObservationIgnored private var reloadGeneration = 0
 
     init(db: DatabaseService, fileStore: ArticleWorkshopFileStore) {
         let captureDAO = ArticleCaptureDAO(db: db.writer)
+        cleanupContext = ArticleCleanupContext(
+            captureDAO: captureDAO,
+            fileStore: fileStore)
         let service = ArticleInboxService(
             captureDAO: captureDAO,
             anthologyDAO: AnthologyDAO(db: db.writer),
@@ -69,6 +73,7 @@ final class ArticleInboxViewModel {
         drainStaging: @escaping @Sendable () throws -> Void
     ) {
         self.service = service
+        cleanupContext = nil
         reloadWorker = ArticleInboxReloadWorker {
             try Task.checkCancellation()
             try drainStaging()
@@ -87,6 +92,7 @@ final class ArticleInboxViewModel {
     ) {
         self.service = service
         self.reloadWorker = reloadWorker
+        cleanupContext = nil
     }
 
     func reload() async {

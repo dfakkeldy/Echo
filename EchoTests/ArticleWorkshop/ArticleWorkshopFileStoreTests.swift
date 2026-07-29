@@ -106,11 +106,89 @@ import Testing
         }
     }
 
+    @Test func loadsOwnedSnapshotByCaptureIDAndIgnoresDatabasePackagePath() throws {
+        let root = try temporaryRoot()
+        defer { try! FileManager.default.removeItem(at: root) }
+        let workshop = root.appending(path: "workshop", directoryHint: .isDirectory)
+        let store = ArticleWorkshopFileStore(root: workshop)
+        let envelope = articleWorkshopFixtureEnvelope(
+            captureID: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+            contentXHTML: "<article><p>Owned body.</p></article>")
+        let staged = try ArticleCaptureStagingWriter(root: root.appending(path: "staging")).stage(envelope)
+        let imported = try store.importEnvelope(at: staged)
+        let record = workshopCaptureRecord(
+            envelope: envelope,
+            digest: imported.sha256,
+            packagePath: root.appending(path: "attacker-controlled").path)
+
+        let snapshot = try store.loadSnapshot(for: record)
+
+        #expect(snapshot.captureID == envelope.captureID)
+        #expect(snapshot.blocks.map(\.text) == ["Owned body."])
+    }
+
+    @Test func loadSnapshotRejectsDigestMismatchAndSymlinkedOwnershipBoundary() throws {
+        let root = try temporaryRoot()
+        defer { try! FileManager.default.removeItem(at: root) }
+        let realWorkshop = root.appending(path: "real-workshop", directoryHint: .isDirectory)
+        let store = ArticleWorkshopFileStore(root: realWorkshop)
+        let envelope = articleWorkshopFixtureEnvelope(
+            captureID: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!)
+        let staged = try ArticleCaptureStagingWriter(root: root.appending(path: "staging")).stage(envelope)
+        let imported = try store.importEnvelope(at: staged)
+
+        #expect(throws: ArticleWorkshopFileStore.Error.self) {
+            _ = try store.loadSnapshot(
+                for: workshopCaptureRecord(
+                    envelope: envelope,
+                    digest: String(repeating: "0", count: 64),
+                    packagePath: imported.snapshotURL.deletingLastPathComponent().path))
+        }
+
+        let symlinkWorkshop = root.appending(path: "linked-workshop", directoryHint: .isDirectory)
+        try FileManager.default.createSymbolicLink(
+            at: symlinkWorkshop,
+            withDestinationURL: realWorkshop)
+        #expect(throws: ArticleWorkshopFileStore.Error.self) {
+            _ = try ArticleWorkshopFileStore(root: symlinkWorkshop).loadSnapshot(
+                for: workshopCaptureRecord(
+                    envelope: envelope,
+                    digest: imported.sha256,
+                    packagePath: imported.snapshotURL.deletingLastPathComponent().path))
+        }
+    }
+
     private func temporaryRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "ArticleWorkshopFileStoreTests-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         return root
+    }
+
+    private func workshopCaptureRecord(
+        envelope: ArticleCaptureEnvelope,
+        digest: String,
+        packagePath: String
+    ) -> ArticleCaptureRecord {
+        ArticleCaptureRecord(
+            id: envelope.captureID.uuidString,
+            sourceURL: envelope.payload.sourceURL,
+            canonicalURL: envelope.payload.canonicalURL,
+            title: envelope.payload.title ?? "Untitled",
+            author: envelope.payload.byline,
+            siteName: envelope.payload.siteName,
+            language: envelope.payload.language,
+            publishedAt: envelope.payload.publishedTime,
+            capturedAt: "2026-07-29T00:00:00Z",
+            captureMethod: envelope.method,
+            packagePath: packagePath,
+            contentSHA256: digest,
+            extractorVersion: "1",
+            contentState: "ready",
+            warningsJSON: "[]",
+            currentRevisionID: nil,
+            createdAt: "2026-07-29T00:00:00Z",
+            modifiedAt: "2026-07-29T00:00:00Z")
     }
 }
 
@@ -120,7 +198,8 @@ private enum WriterInterruption: Error {
 
 func articleWorkshopFixtureEnvelope(
     captureID: UUID = UUID(),
-    title: String = "A Small Article"
+    title: String = "A Small Article",
+    contentXHTML: String = "<article><p>Body.</p></article>"
 ) -> ArticleCaptureEnvelope {
     ArticleCaptureEnvelope(
         schemaVersion: 1,
@@ -137,7 +216,7 @@ func articleWorkshopFixtureEnvelope(
             language: "en",
             publishedTime: "2026-07-28",
             excerpt: "A fixture.",
-            contentXHTML: "<article><p>Body.</p></article>",
+            contentXHTML: contentXHTML,
             textContent: "Body.",
             imageURLs: []
         )

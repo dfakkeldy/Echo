@@ -4,6 +4,7 @@
 
     struct ArticleDetailView: View {
         let article: ArticleInboxItem
+        let cleanupContext: ArticleCleanupContext?
 
         var body: some View {
             List {
@@ -51,13 +52,36 @@
                     Label("Cleanup is on demand", systemImage: "wand.and.stars")
                         .font(.headline)
                     Text(
-                        "Echo keeps the captured article unchanged until you choose to clean it up. Structural cleanup editing will be available here."
+                        "Echo always keeps the original capture. Cleanup saves a reversible structural revision."
                     )
                     .foregroundStyle(.secondary)
+
+                    if cleanupContext != nil {
+                        NavigationLink(value: ArticleCleanupRoute(captureID: article.id)) {
+                            Label("Clean Up Article", systemImage: "slider.horizontal.3")
+                                .frame(minHeight: 44)
+                        }
+                        .accessibilityHint(
+                            "Opens reversible controls for removing blocks, trimming, and correcting metadata"
+                        )
+                    } else {
+                        Label(
+                            "Cleanup is unavailable in this context.",
+                            systemImage: "exclamationmark.triangle"
+                        )
+                        .foregroundStyle(.secondary)
+                    }
                 }
             }
             .navigationTitle("Article")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: ArticleCleanupRoute.self) { route in
+                if let cleanupContext {
+                    ArticleCleanupLoadingView(
+                        captureID: route.captureID,
+                        context: cleanupContext)
+                }
+            }
         }
 
         private var byline: String? {
@@ -82,5 +106,9 @@
             }
             return url
         }
+    }
+
+    nonisolated struct ArticleCleanupRoute: Hashable, Sendable {
+        let captureID: String
     }
 #endif

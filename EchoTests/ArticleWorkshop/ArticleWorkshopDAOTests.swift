@@ -35,6 +35,79 @@ struct ArticleWorkshopDAOTests {
         ) == [captureWithCurrentRevision])
     }
 
+    @Test func conditionalRevisionPublicationIsAtomicAndRejectsStaleSibling() throws {
+        let service = try DatabaseService(inMemory: ())
+        let dao = ArticleCaptureDAO(db: service.writer)
+        let savedCapture = capture("capture-conditional", digest: "digest")
+        try dao.saveCapture(savedCapture)
+        let first = revision(
+            id: "revision-first",
+            captureID: savedCapture.id,
+            parentRevisionID: nil)
+
+        #expect(
+            try dao.publishRevision(first, expectedCurrentRevisionID: nil)
+                == .published(first))
+        #expect(try dao.capture(id: savedCapture.id)?.currentRevisionID == first.id)
+
+        let stale = revision(
+            id: "revision-stale",
+            captureID: savedCapture.id,
+            parentRevisionID: nil)
+        #expect(
+            try dao.publishRevision(stale, expectedCurrentRevisionID: nil)
+                == .conflict(actualCurrentRevisionID: first.id))
+        #expect(try dao.revisions(captureID: savedCapture.id) == [first])
+        #expect(try dao.capture(id: savedCapture.id)?.currentRevisionID == first.id)
+
+        let child = revision(
+            id: "revision-child",
+            captureID: savedCapture.id,
+            parentRevisionID: first.id)
+        #expect(
+            try dao.publishRevision(child, expectedCurrentRevisionID: first.id)
+                == .published(child))
+        let revisions = try dao.revisions(captureID: savedCapture.id)
+        #expect(revisions.count == 2)
+        #expect(revisions.contains(first))
+        #expect(revisions.contains(child))
+        #expect(!revisions.contains(stale))
+        #expect(try dao.capture(id: savedCapture.id)?.currentRevisionID == child.id)
+    }
+
+    @Test func conditionalRevisionPublicationRequiresExactCaptureAndParentOwnership() throws {
+        let service = try DatabaseService(inMemory: ())
+        let dao = ArticleCaptureDAO(db: service.writer)
+        try dao.saveCapture(capture("capture-owner", digest: "owner"))
+        try dao.saveCapture(capture("capture-other", digest: "other"))
+        let foreignParent = revision(
+            id: "revision-foreign",
+            captureID: "capture-other",
+            parentRevisionID: nil)
+        try dao.saveRevision(foreignParent, makeCurrent: false)
+
+        let wrongParent = revision(
+            id: "revision-wrong-parent",
+            captureID: "capture-owner",
+            parentRevisionID: foreignParent.id)
+        #expect(throws: ArticleRevisionPublicationError.self) {
+            _ = try dao.publishRevision(
+                wrongParent,
+                expectedCurrentRevisionID: foreignParent.id)
+        }
+        #expect(try dao.revisions(captureID: "capture-owner").isEmpty)
+
+        let missingCapture = revision(
+            id: "revision-missing-capture",
+            captureID: "capture-missing",
+            parentRevisionID: nil)
+        #expect(throws: ArticleRevisionPublicationError.self) {
+            _ = try dao.publishRevision(
+                missingCapture,
+                expectedCurrentRevisionID: nil)
+        }
+    }
+
     @Test func anthologyAllocatesStableSlotsWithoutReusingRemovedSlots() throws {
         let service = try DatabaseService(inMemory: ())
         let captureDAO = ArticleCaptureDAO(db: service.writer)
@@ -147,6 +220,22 @@ struct ArticleWorkshopDAOTests {
             createdAt: "2026-07-28T12:01:00Z",
             modifiedAt: "2026-07-28T12:01:00Z"
         )
+    }
+
+    private func revision(
+        id: String,
+        captureID: String,
+        parentRevisionID: String?
+    ) -> ArticleRevisionRecord {
+        ArticleRevisionRecord(
+            id: id,
+            captureID: captureID,
+            parentRevisionID: parentRevisionID,
+            metadataOverridesJSON: "{}",
+            recipeJSON: #"{"excludedBlockIDs":[],"metadataOverrides":{}}"#,
+            readableContentSHA256: "readable-\(id)",
+            createdAt: "2026-07-29T00:00:00Z",
+            deviceName: "Test")
     }
 
     private func build(id: String, revision: Int, status: String) -> AnthologyBuildRecord {

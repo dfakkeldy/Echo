@@ -35,7 +35,9 @@
                             }
                     }
                     .navigationDestination(for: ArticleInboxItem.self) { article in
-                        ArticleDetailView(article: article)
+                        ArticleDetailView(
+                            article: article,
+                            cleanupContext: viewModel.cleanupContext)
                     }
                 }
             }
