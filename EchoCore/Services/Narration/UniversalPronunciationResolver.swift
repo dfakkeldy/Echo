@@ -9,13 +9,13 @@ nonisolated enum UniversalPronunciationResolver {
     static let morphologyIdentitySchemaVersion = 1
     static let suffixIPA = "əbəl"
     static let minimumBaseLength = 3
-    static let properNamePolicyVersion = "proper-name-risk-v2"
+    static let properNamePolicyVersion = "proper-name-risk-v3"
     static let baseEvidencePolicyVersion = "kokoro-nonfallback-rating3-v1"
     static let ambiguousPeriodAbbreviations: Set<String> = [
-        "approx", "capt", "cmdr", "co", "col", "corp", "dept", "dr", "est",
-        "etc", "fig", "gen", "gov", "hon", "inc", "jr", "lt", "ltd", "m.d",
-        "mr", "mrs", "ms", "no", "ph.d", "pres", "prof", "rep", "rev", "sen",
-        "sgt", "sr", "st", "vs",
+        "adm", "approx", "capt", "cmdr", "co", "col", "corp", "dept", "dr",
+        "est", "etc", "fig", "fr", "gen", "gov", "hon", "inc", "jr", "lt",
+        "ltd", "m.d", "maj", "mr", "mrs", "ms", "msgr", "mx", "no", "ph.d",
+        "pres", "prof", "rep", "rev", "sen", "sgt", "sr", "st", "vs",
     ]
     static let contextualExclusions: Set<String> = [
         "content", "read", "live", "lives", "record", "records",
@@ -63,8 +63,10 @@ nonisolated enum UniversalPronunciationResolver {
     private static let wordRegex = try! NSRegularExpression(
         pattern:
             #"[\p{L}\p{M}\p{N}\p{Pc}\p{Pd}\p{Cf}'’\x{00B7}]+"#)
-    private static let linkRegex = try! NSRegularExpression(
-        pattern: #"\[[^\]]+\]\(/[^/]*/\)"#)
+    private static let ordinaryBoundaryPunctuation: Set<Character> = [
+        "\"", "“", "”", "(", ")", "[", "]", "{", "}", ",", ".", ";", ":",
+        "!", "?",
+    ]
 
     static func morphologyCandidatePackVersion(
         for pack: EnglishPronunciationPack,
@@ -127,23 +129,34 @@ nonisolated enum UniversalPronunciationResolver {
             return PronunciationRewriteResult(text: text, decisionSeeds: [])
         }
         let nsText = text as NSString
-        let fullRange = NSRange(location: 0, length: nsText.length)
-        let linkRanges = linkRegex.matches(in: text, range: fullRange).map(\.range)
-        let matches = wordRegex.matches(in: text, range: fullRange)
+        let protectedRanges = NarrationTextChunker.pronunciationProtectedRanges(in: text)
+            .map { NSRange($0, in: text) }
+        let matches = lexicalTokenRanges(in: text).flatMap { tokenRange in
+            wordRegex.matches(in: text, range: tokenRange).map {
+                (match: $0, tokenRange: tokenRange)
+            }
+        }
         var replacements:
             [(range: NSRange, sourceWord: String, resolution: Resolution,
               decisionSeed: PronunciationDecisionSeed)] = []
 
-        for match in matches {
-            guard !linkRanges.contains(where: { NSLocationInRange(match.range.location, $0) }),
+        for matchedToken in matches {
+            let match = matchedToken.match
+            guard !protectedRanges.contains(where: {
+                NSIntersectionRange(match.range, $0).length > 0
+            }),
+                isAtomicCandidateRange(
+                    match.range,
+                    in: matchedToken.tokenRange,
+                    source: nsText),
                 let range = Range(match.range, in: text)
             else {
                 continue
             }
             let sourceWord = String(text[range])
-            let canonicalSourceSpelling = sourceWord.lowercased()
-                .replacingOccurrences(of: "’", with: "'")
-            let normalizedSpelling = PronunciationAuditContext.normalizedWord(sourceWord)
+            let canonicalSourceSpelling =
+                PronunciationAuditContext.canonicalEnglishKeySpelling(sourceWord)
+            let normalizedSpelling = canonicalSourceSpelling
             let isPossessive =
                 canonicalSourceSpelling.hasSuffix("'s")
                 || canonicalSourceSpelling.hasSuffix("'")
@@ -221,6 +234,54 @@ nonisolated enum UniversalPronunciationResolver {
         return PronunciationRewriteResult(
             text: result,
             decisionSeeds: replacements.map(\.decisionSeed))
+    }
+
+    private static func isAtomicCandidateRange(
+        _ candidateRange: NSRange,
+        in tokenRange: NSRange,
+        source: NSString
+    ) -> Bool {
+        guard candidateRange.location >= tokenRange.location,
+            NSMaxRange(candidateRange) <= NSMaxRange(tokenRange)
+        else {
+            return false
+        }
+        let leadingRange = NSRange(
+            location: tokenRange.location,
+            length: candidateRange.location - tokenRange.location)
+        let trailingRange = NSRange(
+            location: NSMaxRange(candidateRange),
+            length: NSMaxRange(tokenRange) - NSMaxRange(candidateRange))
+        return source.substring(with: leadingRange).allSatisfy {
+            ordinaryBoundaryPunctuation.contains($0)
+        } && source.substring(with: trailingRange).allSatisfy {
+            ordinaryBoundaryPunctuation.contains($0)
+        }
+    }
+
+    /// Unicode-scalar whitespace bounds keep format controls attached to the
+    /// authored token even when Swift grapheme clustering associates a leading
+    /// joiner with the preceding whitespace character.
+    private static func lexicalTokenRanges(in source: String) -> [NSRange] {
+        let scalars = source.unicodeScalars
+        var ranges: [NSRange] = []
+        var tokenStart: String.Index?
+        var index = scalars.startIndex
+        while index < scalars.endIndex {
+            if scalars[index].properties.isWhitespace {
+                if let start = tokenStart {
+                    ranges.append(NSRange(start..<index, in: source))
+                    tokenStart = nil
+                }
+            } else if tokenStart == nil {
+                tokenStart = index
+            }
+            index = scalars.index(after: index)
+        }
+        if let tokenStart {
+            ranges.append(NSRange(tokenStart..<scalars.endIndex, in: source))
+        }
+        return ranges
     }
 
     private static func morphologyResolution(

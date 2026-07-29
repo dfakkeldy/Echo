@@ -434,7 +434,7 @@ The morphology policy identity is canonical JSON using the same encoding rules:
   ],
   "suffixIPA": "əbəl",
   "minimumBaseLength": 3,
-  "properNamePolicyVersion": "proper-name-risk-v2",
+  "properNamePolicyVersion": "proper-name-risk-v3",
   "baseEvidencePolicyVersion": "kokoro-nonfallback-rating3-v1",
   "exceptionSetSHA256": "sha256:<canonical-sorted-exception-set-digest>",
   "pronunciationPackVersion": "sha256:<semantic-pack-digest>",

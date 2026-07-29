@@ -28,6 +28,8 @@ import Foundation
 ///   collapsed runs of whitespace.
 /// - Empty / whitespace-only input → `[]`.
 enum NarrationTextChunker {
+    nonisolated private static let linkDetector = try? NSDataDetector(
+        types: NSTextCheckingResult.CheckingType.link.rawValue)
 
     /// Default budget: 350 chars ≈ 350–455 phonemes, a comfortable margin under
     /// Kokoro's ~510-phoneme ceiling while roughly halving the synth-call count
@@ -272,7 +274,7 @@ enum NarrationTextChunker {
     /// parentheses in the destination. Generic links are not pronunciation
     /// overrides, but they must still remain byte-for-byte atomic while the
     /// resolved chunker scans URL punctuation for sentence boundaries.
-    private static func markdownInlineLinkRange(
+    nonisolated static func markdownInlineLinkRange(
         in source: String,
         startingAt start: String.Index
     ) -> Range<String.Index>? {
@@ -301,6 +303,35 @@ enum NarrationTextChunker {
             index = source.index(after: index)
         }
         return nil
+    }
+
+    /// Complete source spans that pronunciation rewriters must never alter.
+    /// Markdown parsing owns balanced destination parentheses; Foundation link
+    /// detection conservatively covers scheme and scheme-less plain URLs.
+    nonisolated static func pronunciationProtectedRanges(
+        in source: String
+    ) -> [Range<String.Index>] {
+        var ranges: [Range<String.Index>] = []
+        var index = source.startIndex
+        while index < source.endIndex {
+            if let markdownRange = markdownInlineLinkRange(in: source, startingAt: index) {
+                ranges.append(markdownRange)
+                index = markdownRange.upperBound
+            } else {
+                index = source.index(after: index)
+            }
+        }
+
+        if let linkDetector {
+            let fullRange = NSRange(source.startIndex..., in: source)
+            ranges.append(
+                contentsOf: linkDetector.matches(in: source, range: fullRange).compactMap {
+                    result in
+                    guard result.resultType == .link else { return nil }
+                    return Range(result.range, in: source)
+                })
+        }
+        return ranges
     }
 
     private static func mergeByPhonemeBudget(

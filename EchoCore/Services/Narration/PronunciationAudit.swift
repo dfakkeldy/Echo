@@ -721,14 +721,18 @@ nonisolated enum PronunciationWatchVocabulary {
 nonisolated enum PronunciationAuditContext {
     private static let contextRadius = 5
 
+    static func canonicalEnglishKeySpelling(_ sourceWord: String) -> String {
+        sourceWord.lowercased()
+            .replacingOccurrences(of: "’", with: "'")
+    }
+
     static func normalizedWord(_ sourceWord: String) -> String {
         let display = MisakiPronunciationMarkup.displayText(from: sourceWord)
         return WordTokenizer.words(in: display)
             .map { word in
-                String(word)
-                    .trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-                    .lowercased()
-                    .replacingOccurrences(of: "’", with: "'")
+                canonicalEnglishKeySpelling(
+                    String(word)
+                        .trimmingCharacters(in: CharacterSet.alphanumerics.inverted))
             }
             .filter { !$0.isEmpty }
             .joined(separator: " ")
