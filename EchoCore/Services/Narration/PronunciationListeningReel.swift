@@ -206,7 +206,8 @@ nonisolated enum PronunciationListeningReel {
                 blockID: decision.blockID,
                 wordStart: decision.wordStart,
                 wordEnd: decision.wordEnd,
-                normalizedWord: decision.normalizedWord)
+                normalizedWord: decision.normalizedWord,
+                source: decision.source)
                 ? evidence
                 : nil
         }

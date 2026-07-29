@@ -161,6 +161,25 @@ nonisolated enum ContextualPronunciationEvidenceValidator {
         blockID: String,
         wordStart: Int,
         wordEnd: Int,
+        normalizedWord: String,
+        source: PronunciationAuditDecision.Source
+    ) -> Bool {
+        guard isEligiblePhaseTwoSource(source) else {
+            return false
+        }
+        return isValidPhaseTwoEnvelope(
+            evidence,
+            blockID: blockID,
+            wordStart: wordStart,
+            wordEnd: wordEnd,
+            normalizedWord: normalizedWord)
+    }
+
+    private static func isValidPhaseTwoEnvelope(
+        _ evidence: ContextualPronunciationEvidence,
+        blockID: String,
+        wordStart: Int,
+        wordEnd: Int,
         normalizedWord: String
     ) -> Bool {
         guard
@@ -219,6 +238,7 @@ nonisolated enum ContextualPronunciationEvidenceValidator {
         case .shadowModelFailure:
             return evidence.modelAvailability == .available
                 && evidence.modelFailure != nil
+                && evidence.modelFailure != .cancelled
                 && evidence.modelCandidateID == nil
                 && !evidence.modelAbstained
         }
@@ -228,7 +248,7 @@ nonisolated enum ContextualPronunciationEvidenceValidator {
         _ evidence: ContextualPronunciationEvidence,
         for occurrence: ContextualPronunciationOccurrence
     ) -> Bool {
-        isValidPhaseTwo(
+        isValidPhaseTwoEnvelope(
             evidence,
             blockID: occurrence.blockID,
             wordStart: occurrence.wordStart,
@@ -244,6 +264,18 @@ nonisolated enum ContextualPronunciationEvidenceValidator {
 
     private static func isPresent(_ value: String) -> Bool {
         !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private static func isEligiblePhaseTwoSource(
+        _ source: PronunciationAuditDecision.Source
+    ) -> Bool {
+        switch source {
+        case .occurrenceOverride, .bookOverride, .globalOverride, .builtInOverride:
+            return false
+        case .contextualHomograph, .supplementalLexicon, .derivedMorphology,
+            .monitoredLexicon, .fallback:
+            return true
+        }
     }
 }
 

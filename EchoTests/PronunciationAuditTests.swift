@@ -98,7 +98,8 @@ import Testing
     }
 
     private func contextualDecision(
-        evidence: ContextualPronunciationEvidence?
+        evidence: ContextualPronunciationEvidence?,
+        source: PronunciationAuditDecision.Source = .contextualHomograph
     ) -> PronunciationAuditDecision {
         PronunciationAuditDecision(
             blockID: "context",
@@ -109,9 +110,22 @@ import Testing
             sourceContext: "Please record this bounded fixture",
             selectedIPA: "ɹəkˈɔɹd",
             kokoroTokenIDs: [1, 2, 3],
-            source: .contextualHomograph,
+            source: source,
             ruleID: "homograph.record.verb",
             rationale: "Deterministic production decision.",
+            candidateID:
+                source == .supplementalLexicon || source == .derivedMorphology
+                ? "record.verb"
+                : nil,
+            candidatePackVersion:
+                source == .supplementalLexicon || source == .derivedMorphology
+                ? ContextualPronunciationFamilies.candidatePackVersion
+                : nil,
+            derivationBase: source == .derivedMorphology ? "record" : nil,
+            derivationRuleID:
+                source == .derivedMorphology
+                ? "morphology.record.fixture"
+                : nil,
             contextualEvidence: evidence,
             chapterIndex: 0,
             chapterRelativeAudioRange: .init(start: 1, end: 1.2),
@@ -379,6 +393,11 @@ import Testing
                 acceptanceReason: .shadowModelFailure),
             replacingContextualEvidence(
                 valid,
+                modelCandidateID: .some(nil),
+                modelFailure: .some(.cancelled),
+                acceptanceReason: .shadowModelFailure),
+            replacingContextualEvidence(
+                valid,
                 modelCandidateID: "record.unknown"),
             replacingContextualEvidence(
                 valid,
@@ -430,6 +449,77 @@ import Testing
                     PronunciationAuditManifest.self,
                     from: rawSchemaFour)
             }
+        }
+    }
+
+    @Test func contextualEvidenceRejectsOverrideSourcesAndPermitsOtherSources() throws {
+        let sources: [PronunciationAuditDecision.Source] = [
+            .occurrenceOverride,
+            .bookOverride,
+            .globalOverride,
+            .builtInOverride,
+            .contextualHomograph,
+            .supplementalLexicon,
+            .derivedMorphology,
+            .monitoredLexicon,
+            .fallback,
+        ]
+        let overrideSources: [PronunciationAuditDecision.Source] = [
+            .occurrenceOverride,
+            .bookOverride,
+            .globalOverride,
+            .builtInOverride,
+        ]
+        func manifest(
+            evidence: ContextualPronunciationEvidence?,
+            source: PronunciationAuditDecision.Source
+        ) -> PronunciationAuditManifest {
+            PronunciationAuditManifest.make(
+                renderVersion: NarrationFileNaming.renderVersion,
+                voice: VoiceID("af_heart"),
+                captureCoverage: .complete,
+                legacyChapterIndexes: [],
+                audiobookURL: URL(fileURLWithPath: "/tmp/context.m4b"),
+                reelURL: nil,
+                audiobookSHA256: String(repeating: "a", count: 64),
+                listeningReelSHA256: nil,
+                watchWords: [],
+                decisions: [contextualDecision(evidence: evidence, source: source)],
+                diagnostics: [])
+        }
+
+        for source in sources {
+            let receipt = manifest(
+                evidence: contextualEvidence(),
+                source: source)
+            if overrideSources.contains(source) {
+                #expect(receipt.coverage == .incompleteEvidence)
+                #expect(throws: (any Error).self) {
+                    _ = try receipt.encoded()
+                }
+                let rawSchemaFour = try JSONEncoder().encode(receipt)
+                #expect(throws: (any Error).self) {
+                    _ = try JSONDecoder().decode(
+                        PronunciationAuditManifest.self,
+                        from: rawSchemaFour)
+                }
+            } else {
+                #expect(receipt.coverage == .complete)
+                let decoded = try JSONDecoder().decode(
+                    PronunciationAuditManifest.self,
+                    from: receipt.encoded())
+                #expect(decoded.coverage == .complete)
+            }
+        }
+
+        for source in overrideSources {
+            let receipt = manifest(evidence: nil, source: source)
+            #expect(receipt.coverage == .complete)
+            #expect(
+                try JSONDecoder().decode(
+                    PronunciationAuditManifest.self,
+                    from: receipt.encoded()
+                ).coverage == .complete)
         }
     }
 

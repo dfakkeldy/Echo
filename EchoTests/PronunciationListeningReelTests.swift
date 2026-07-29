@@ -85,6 +85,31 @@ import Testing
             isLimited: false)
     }
 
+    private func cancelledShadowFailureEvidence() -> ContextualPronunciationEvidence {
+        let evidence = shadowDisagreementEvidence()
+        return ContextualPronunciationEvidence(
+            occurrenceID: evidence.occurrenceID,
+            familyID: evidence.familyID,
+            candidatePackVersion: evidence.candidatePackVersion,
+            submittedCandidateIDs: evidence.submittedCandidateIDs,
+            deterministicCandidateID: evidence.deterministicCandidateID,
+            deterministicRuleID: evidence.deterministicRuleID,
+            deterministicStrength: evidence.deterministicStrength,
+            modelCandidateID: nil,
+            modelAbstained: false,
+            modelAvailability: .available,
+            modelFailure: .cancelled,
+            familyState: .shadow,
+            acceptanceReason: .shadowModelFailure,
+            promptSchemaVersion: evidence.promptSchemaVersion,
+            platform: evidence.platform,
+            osBuild: evidence.osBuild,
+            qualifiedRuntimeFamilyID: evidence.qualifiedRuntimeFamilyID,
+            humanCandidateID: nil,
+            humanCorrectionScope: nil,
+            isLimited: false)
+    }
+
     @Test func selectionDeduplicatesAfterValidationAndPreservesReadingOrder() {
         let invalidFirst = decision(
             word: "verified", range: .init(start: 2, end: 2), precision: .exactSynthesisWord)
@@ -232,6 +257,89 @@ import Testing
 
         #expect(items.count == 16)
         #expect(items.contains { $0.title.contains("record") } == false)
+    }
+
+    @Test func shadowEvidenceCannotChangePriorityForOverrideSources() {
+        let sources: [PronunciationAuditDecision.Source] = [
+            .occurrenceOverride,
+            .bookOverride,
+            .globalOverride,
+            .builtInOverride,
+            .contextualHomograph,
+            .supplementalLexicon,
+            .derivedMorphology,
+            .monitoredLexicon,
+            .fallback,
+        ]
+        let monitored = (0..<16).map { index in
+            decision(
+                word: "ordinary-\(index)",
+                source: .monitoredLexicon,
+                range: .init(start: Double(index), end: Double(index) + 0.1),
+                precision: .blockAnchorFallback)
+        }
+
+        for source in sources {
+            let withoutEvidence = decision(
+                word: "record",
+                source: source,
+                range: .init(start: 20, end: 20.2),
+                precision: .exactSynthesisWord)
+            let withEvidence = decision(
+                word: "record",
+                source: source,
+                contextualEvidence: shadowDisagreementEvidence(),
+                range: .init(start: 20, end: 20.2),
+                precision: .exactSynthesisWord)
+            let baseline = PronunciationListeningReel.exportItems(
+                decisions: monitored + [withoutEvidence],
+                audiobookURL: sourceURL,
+                sourceDuration: CMTime(seconds: 30, preferredTimescale: 600))
+            let evidenced = PronunciationListeningReel.exportItems(
+                decisions: monitored + [withEvidence],
+                audiobookURL: sourceURL,
+                sourceDuration: CMTime(seconds: 30, preferredTimescale: 600))
+
+            switch source {
+            case .occurrenceOverride, .bookOverride, .globalOverride, .builtInOverride, .fallback:
+                #expect(baseline.map(\.title) == evidenced.map(\.title))
+            default:
+                #expect(baseline.map(\.title) != evidenced.map(\.title))
+                #expect(evidenced.first?.title.contains("record") == true)
+            }
+        }
+    }
+
+    @Test func cancelledShadowFailureCannotChangeListeningPriority() {
+        let monitored = (0..<16).map { index in
+            decision(
+                word: "ordinary-\(index)",
+                source: .monitoredLexicon,
+                range: .init(start: Double(index), end: Double(index) + 0.1),
+                precision: .blockAnchorFallback)
+        }
+        let withoutEvidence = decision(
+            word: "record",
+            source: .contextualHomograph,
+            range: .init(start: 20, end: 20.2),
+            precision: .exactSynthesisWord)
+        let withCancelledEvidence = decision(
+            word: "record",
+            source: .contextualHomograph,
+            contextualEvidence: cancelledShadowFailureEvidence(),
+            range: .init(start: 20, end: 20.2),
+            precision: .exactSynthesisWord)
+
+        let baseline = PronunciationListeningReel.exportItems(
+            decisions: monitored + [withoutEvidence],
+            audiobookURL: sourceURL,
+            sourceDuration: CMTime(seconds: 30, preferredTimescale: 600))
+        let cancelled = PronunciationListeningReel.exportItems(
+            decisions: monitored + [withCancelledEvidence],
+            audiobookURL: sourceURL,
+            sourceDuration: CMTime(seconds: 30, preferredTimescale: 600))
+
+        #expect(baseline.map(\.title) == cancelled.map(\.title))
     }
 
     @Test func uniquenessRemainsPronunciationSpecificAfterRiskSorting() {

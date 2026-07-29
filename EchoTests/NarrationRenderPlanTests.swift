@@ -995,6 +995,11 @@ import Testing
                 acceptanceReason: .shadowModelFailure),
             replacingContextualEvidence(
                 exact,
+                modelCandidateID: .some(nil),
+                modelFailure: .some(.cancelled),
+                acceptanceReason: .shadowModelFailure),
+            replacingContextualEvidence(
+                exact,
                 modelCandidateID: "record.unknown"),
             replacingContextualEvidence(
                 exact,
@@ -1018,6 +1023,59 @@ import Testing
                     contextualEvidence: [exactKey: evidence])
             }
         }
+    }
+
+    @Test func contextualEvidenceCannotAttachToExactOccurrenceOverride() throws {
+        let sourceBlock = block(
+            id: "context",
+            text: "Please record this.",
+            index: 0)
+        let occurrence = try #require(
+            ContextualPronunciationDiscovery.discover(
+                text: sourceBlock.text ?? "",
+                blockID: sourceBlock.id
+            ).first)
+        let overrideResult = PronunciationOccurrenceOverrides(entries: [
+            PronunciationOccurrenceOverride(
+                blockID: occurrence.blockID,
+                wordStart: occurrence.wordStart,
+                wordEnd: occurrence.wordEnd,
+                word: occurrence.targetWord,
+                ipa: "ɹəkˈɔɹd")
+        ]).rewrite(
+            to: sourceBlock.text ?? "",
+            blockID: sourceBlock.id)
+        var rewrittenBlock = sourceBlock
+        rewrittenBlock.text = overrideResult.text
+        let prepared = NarrationPreparedBlock(
+            block: rewrittenBlock,
+            pronunciationDecisionSeeds: overrideResult.decisionSeeds)
+        let key = ContextualPronunciationKey(
+            blockID: occurrence.blockID,
+            wordStart: occurrence.wordStart,
+            wordEnd: occurrence.wordEnd)
+        let evidence = contextualEvidence(for: occurrence, slot: .a)
+
+        #expect(throws: NarrationRenderPlanError.self) {
+            _ = try NarrationRenderPlanner.make(
+                preparedBlocks: [prepared],
+                overrides: PronunciationOverrides(entries: [:]),
+                contextualEvidence: [key: evidence],
+                requiresContextualEvidence: true)
+        }
+
+        let overrideOnlyPlan = try NarrationRenderPlanner.make(
+            preparedBlocks: [prepared],
+            overrides: PronunciationOverrides(entries: [:]),
+            requiresContextualEvidence: true)
+        let decision = try #require(
+            overrideOnlyPlan.blocks.first?.pronunciationDecisions.first)
+        #expect(decision.source == .occurrenceOverride)
+        #expect(decision.contextualEvidence == nil)
+        #expect(
+            overrideOnlyPlan.pronunciationAuditDiagnostics.contains {
+                $0.reason == .missingContextualEvidence
+            } == false)
     }
 
     @Test func sharedOccurrenceIdentityMatchesTheLockedDiscoveryVector() throws {

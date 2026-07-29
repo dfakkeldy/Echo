@@ -317,7 +317,8 @@ enum NarrationRenderPlanner {
                 blockID: seed.blockID,
                 wordStart: seed.wordStart,
                 wordEnd: seed.wordEnd,
-                normalizedWord: seed.normalizedWord)
+                normalizedWord: seed.normalizedWord,
+                source: seed.source)
         else {
             throw NarrationRenderPlanError.contextualEvidenceIdentityMismatch
         }

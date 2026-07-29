@@ -499,7 +499,8 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
                         blockID: decision.blockID,
                         wordStart: decision.wordStart,
                         wordEnd: decision.wordEnd,
-                        normalizedWord: decision.normalizedWord)
+                        normalizedWord: decision.normalizedWord,
+                        source: decision.source)
                 else {
                     throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
                         "contextual pronunciation evidence is incomplete")
@@ -518,7 +519,8 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
                     blockID: decision.blockID,
                     wordStart: decision.wordStart,
                     wordEnd: decision.wordEnd,
-                    normalizedWord: decision.normalizedWord)
+                    normalizedWord: decision.normalizedWord,
+                    source: decision.source)
             }
             return PronunciationAuditContext.requiresContextualEvidence(
                 normalizedWord: decision.normalizedWord,
