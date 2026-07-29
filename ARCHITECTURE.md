@@ -885,6 +885,15 @@ category, render, or outcome evidence fails closed. Terminal repeated-failure
 queue items are deduplicated by the authoritative ledger event's sequence and
 canonical hash, clip ID, and reason.
 
+The shipped `audio_judge.py recover` command exposes that recovery without
+re-entering evaluation. It accepts only the claimed run ID and an external
+output root, locks and strictly replays the existing ledger, republishes all
+derived state and required terminal queue entries, and emits a count-only local
+result. It never opens a manifest or audio file, constructs a request, reads a
+credential, reserves an API attempt, or invokes transport. Empty, malformed,
+conflicting, unclaimed, repository-contained, and unsafe-artifact runs fail
+closed.
+
 The judge does not let its input manifest authorize its own provenance. Each
 run requires a separate absolute, single-link regular, non-symlink authority
 file outside the repository that binds the exact opaque clip ID, measured

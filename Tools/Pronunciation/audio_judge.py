@@ -1683,6 +1683,53 @@ def record_rerender(
     return _with_ledger_lock(run_directory, operation)
 
 
+def recover_run(
+    *,
+    run_id: str,
+    output_root: str | Path | None = None,
+) -> dict[str, Any]:
+    """Republish ledger-derived local artifacts without evaluating audio."""
+    run_directory = _run_directory(run_id, output_root)
+    preflight_events = _load_ledger_events(
+        run_directory / "attempt-ledger.jsonl"
+    )
+    if not preflight_events:
+        raise LedgerError("attempt ledger is empty")
+    _derive_attempt_states(preflight_events)
+
+    def operation(events: list[dict[str, Any]]) -> dict[str, Any]:
+        if not events:
+            raise LedgerError("attempt ledger is empty")
+        states = _derive_attempt_states(events)
+        terminal_queue_events = [
+            (sequence, event)
+            for sequence, event in enumerate(events, start=1)
+            if event.get("eventType") == "rerender_recorded"
+            and event.get("state") == "morning_review"
+        ]
+        _write_attempt_snapshot(run_directory, states)
+        for sequence, event in terminal_queue_events:
+            _append_repeated_failure_to_morning_queue(
+                run_directory,
+                event["clipID"],
+                ledger_event=event,
+                ledger_event_sequence=sequence,
+            )
+        return {
+            "schemaVersion": 1,
+            "runID": run_id,
+            "status": "RECOVERED",
+            "ledgerEventCount": len(events),
+            "clipStateCount": len(states),
+            "attemptStatePublished": True,
+            "morningQueueEntryCount": len(terminal_queue_events),
+            "requestCount": 0,
+            "transportAttemptCount": 0,
+        }
+
+    return _with_ledger_lock(run_directory, operation)
+
+
 def _result_proof_boundaries(label_status: str) -> dict[str, Any]:
     provisional = label_status == "provisional"
     return {
@@ -1952,6 +1999,10 @@ def _build_argument_parser() -> argparse.ArgumentParser:
     rerender.add_argument("--family-regression-receipt", required=True)
     rerender.add_argument("--outcome", choices=("pass", "fail"), required=True)
     rerender.add_argument("--output-root", type=Path)
+
+    recover = subparsers.add_parser("recover")
+    recover.add_argument("--run-id", required=True)
+    recover.add_argument("--output-root", type=Path)
     return parser
 
 
@@ -1978,7 +2029,7 @@ def main(arguments: list[str] | None = None) -> int:
                 implementation_review_receipt=options.implementation_review_receipt,
                 output_root=options.output_root,
             )
-        else:
+        elif options.command == "record-rerender":
             result = record_rerender(
                 run_id=options.run_id,
                 clip_id=options.clip_id,
@@ -1986,6 +2037,11 @@ def main(arguments: list[str] | None = None) -> int:
                 audio_retest_receipt=options.audio_retest_receipt,
                 family_regression_receipt=options.family_regression_receipt,
                 outcome=options.outcome,
+                output_root=options.output_root,
+            )
+        else:
+            result = recover_run(
+                run_id=options.run_id,
                 output_root=options.output_root,
             )
     except (ManifestError, ResponseValidationError, LedgerError) as error:

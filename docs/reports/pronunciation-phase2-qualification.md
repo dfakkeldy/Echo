@@ -30,7 +30,7 @@ The following independent local gates passed on 2026-07-29:
 | --- | --- |
 | Pronunciation corpus tests | 47 passed |
 | Pronunciation pack tests and regeneration check | 38 passed; generated pack matched the committed pack |
-| Development audio-judge tests | 58 passed without an API request |
+| Development audio-judge tests | 61 passed without an API request |
 | Task 10 Swift acceptance suite | 6 passed |
 | Echo test-products build | Passed |
 | Complete Echo unit-test gate | Passed before this test/tool/documentation-only correction; not rerun because production/shared Swift did not change |
@@ -204,6 +204,14 @@ without appending a duplicate event; any conflicting source, receipt, category,
 render, or outcome evidence is rejected. Queue deduplication binds the
 authoritative event's sequence and canonical SHA-256 to the clip and fixed
 repeated-failure reason.
+
+The offline `audio_judge.py recover` command accepts only `--run-id` and
+`--output-root`. It validates the external judge-owned claim, locks and
+strictly replays the ledger, republishes the snapshot and every required
+terminal queue entry, and emits only safe local counts. It does not reopen a
+manifest, authority, or audio file; inspect credentials; build a request;
+reserve an attempt; or invoke transport. Invalid runs fail before changing
+ledger-derived artifact bytes.
 
 Admission also requires a separate absolute, single-link regular, non-symlink
 provenance authority file outside the repository. It binds every admitted

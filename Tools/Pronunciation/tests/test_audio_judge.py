@@ -1454,6 +1454,313 @@ class AttemptLedgerTests(ManifestAdmissionTests):
         )
         return clip_id, output_root
 
+    def run_recovery_cli(self, *, run_id, output_root):
+        environment = dict(os.environ)
+        environment["OPENAI_API_KEY"] = "must-not-be-used-by-recovery"
+        return subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "recover",
+                "--run-id",
+                run_id,
+                "--output-root",
+                str(output_root),
+            ],
+            cwd=REPOSITORY_ROOT,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    @staticmethod
+    def run_file_bytes(run_directory):
+        return {
+            path.relative_to(run_directory).as_posix(): path.read_bytes()
+            for path in sorted(run_directory.rglob("*"))
+            if path.is_file()
+        }
+
+    def test_recover_cli_restores_committed_proposal_without_media_or_transport(self):
+        clip_id = generate_clip_id()
+        audio_path = self.write_wav(clip_id)
+        manifest = self.write_manifest(
+            [self.manifest_row(clip_id, audio_path, 0.25)]
+        )
+        authority_path = self.provenance_authority_path
+        output_root = self.directory / "runs"
+        run_evaluation(
+            manifest_path=manifest,
+            run_id="cli-recover-proposal",
+            dry_run=True,
+            output_root=output_root,
+        )
+        run_directory = output_root / "cli-recover-proposal"
+        with mock.patch.object(
+            audio_judge,
+            "_write_attempt_snapshot",
+            side_effect=LedgerError("simulated publication failure"),
+        ):
+            with self.assertRaisesRegex(LedgerError, "simulated"):
+                audio_judge._emit_proposal(
+                    run_id="cli-recover-proposal",
+                    clip_id=clip_id,
+                    category="wrong_sense",
+                    output_root=output_root,
+                )
+        ledger_before = (run_directory / "attempt-ledger.jsonl").read_bytes()
+        receipt_before = (run_directory / "receipt.json").read_bytes()
+        manifest.unlink()
+        authority_path.unlink()
+        audio_path.unlink()
+
+        completed = self.run_recovery_cli(
+            run_id="cli-recover-proposal",
+            output_root=output_root,
+        )
+
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertEqual(
+            {
+                "schemaVersion": 1,
+                "runID": "cli-recover-proposal",
+                "status": "RECOVERED",
+                "ledgerEventCount": 1,
+                "clipStateCount": 1,
+                "attemptStatePublished": True,
+                "morningQueueEntryCount": 0,
+                "requestCount": 0,
+                "transportAttemptCount": 0,
+            },
+            json.loads(completed.stdout),
+        )
+        self.assertNotIn(str(output_root), completed.stdout + completed.stderr)
+        self.assertEqual(
+            ledger_before,
+            (run_directory / "attempt-ledger.jsonl").read_bytes(),
+        )
+        self.assertEqual(
+            receipt_before,
+            (run_directory / "receipt.json").read_bytes(),
+        )
+        self.assertFalse(
+            (run_directory / "request-reservations.jsonl").exists()
+        )
+        snapshot = json.loads(
+            (run_directory / "attempt-state.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            "proposal_emitted",
+            snapshot["clips"][clip_id]["state"],
+        )
+        state = record_attempt(
+            run_id="cli-recover-proposal",
+            clip_id=clip_id,
+            source_commit="d" * 40,
+            red_test_receipt="1" * 64,
+            green_test_receipt="2" * 64,
+            negative_guard_receipt="3" * 64,
+            implementation_review_receipt="4" * 64,
+            output_root=output_root,
+        )
+        self.assertEqual("rerender_pending", state["state"])
+
+    def test_recover_cli_restores_attempt_snapshot_and_terminal_queue_once(self):
+        clip_id, output_root = self.failing_run(run_id="cli-recover-workflow")
+        run_directory = output_root / "cli-recover-workflow"
+        record_attempt(
+            run_id="cli-recover-workflow",
+            clip_id=clip_id,
+            source_commit="d" * 40,
+            red_test_receipt="1" * 64,
+            green_test_receipt="2" * 64,
+            negative_guard_receipt="3" * 64,
+            implementation_review_receipt="4" * 64,
+            output_root=output_root,
+        )
+        (run_directory / "attempt-state.json").unlink()
+
+        attempt_recovery = self.run_recovery_cli(
+            run_id="cli-recover-workflow",
+            output_root=output_root,
+        )
+
+        self.assertEqual(0, attempt_recovery.returncode, attempt_recovery.stderr)
+        attempt_snapshot = json.loads(
+            (run_directory / "attempt-state.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            "rerender_pending",
+            attempt_snapshot["clips"][clip_id]["state"],
+        )
+        record_rerender(
+            run_id="cli-recover-workflow",
+            clip_id=clip_id,
+            render_content_sha256="5" * 64,
+            audio_retest_receipt="6" * 64,
+            family_regression_receipt="7" * 64,
+            outcome="fail",
+            output_root=output_root,
+        )
+        record_attempt(
+            run_id="cli-recover-workflow",
+            clip_id=clip_id,
+            source_commit="e" * 40,
+            red_test_receipt="8" * 64,
+            green_test_receipt="9" * 64,
+            negative_guard_receipt="a" * 64,
+            implementation_review_receipt="b" * 64,
+            output_root=output_root,
+        )
+        record_rerender(
+            run_id="cli-recover-workflow",
+            clip_id=clip_id,
+            render_content_sha256="c" * 64,
+            audio_retest_receipt="d" * 64,
+            family_regression_receipt="e" * 64,
+            outcome="fail",
+            output_root=output_root,
+        )
+        ledger_before = (run_directory / "attempt-ledger.jsonl").read_bytes()
+        reservations_before = (
+            run_directory / "request-reservations.jsonl"
+        ).read_bytes()
+        (run_directory / "attempt-state.json").unlink()
+        (run_directory / "morning-queue.json").unlink()
+
+        first = self.run_recovery_cli(
+            run_id="cli-recover-workflow",
+            output_root=output_root,
+        )
+        second = self.run_recovery_cli(
+            run_id="cli-recover-workflow",
+            output_root=output_root,
+        )
+
+        self.assertEqual(0, first.returncode, first.stderr)
+        self.assertEqual(first.stdout, second.stdout)
+        self.assertEqual(
+            ledger_before,
+            (run_directory / "attempt-ledger.jsonl").read_bytes(),
+        )
+        self.assertEqual(
+            reservations_before,
+            (run_directory / "request-reservations.jsonl").read_bytes(),
+        )
+        terminal_snapshot = json.loads(
+            (run_directory / "attempt-state.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            "morning_review",
+            terminal_snapshot["clips"][clip_id]["state"],
+        )
+        queue = json.loads(
+            (run_directory / "morning-queue.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(1, len(queue))
+        self.assertEqual(
+            ["repeated_regression_failure"],
+            queue[0]["reasons"],
+        )
+        self.assertEqual(5, queue[0]["ledgerEventSequence"])
+
+    def test_recover_cli_rejects_invalid_runs_without_mutation(self):
+        output_root = self.directory / "runs"
+        output_root.mkdir()
+        unclaimed = output_root / "unclaimed-recovery"
+        unclaimed.mkdir()
+        (unclaimed / "sentinel").write_bytes(b"unchanged")
+
+        for run_id, ledger_bytes in (
+            ("empty-recovery", None),
+            ("malformed-recovery", b"{not-json\n"),
+        ):
+            clip_id = generate_clip_id()
+            audio_path = self.write_wav(clip_id)
+            manifest = self.write_manifest(
+                [self.manifest_row(clip_id, audio_path, 0.25)]
+            )
+            run_evaluation(
+                manifest_path=manifest,
+                run_id=run_id,
+                dry_run=True,
+                output_root=output_root,
+            )
+            run_directory = output_root / run_id
+            if ledger_bytes is not None:
+                (run_directory / "attempt-ledger.jsonl").write_bytes(
+                    ledger_bytes
+                )
+
+        conflicting_run = output_root / "conflicting-recovery"
+        conflicting_run.mkdir()
+        (conflicting_run / "run-claim.json").write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "runID": "conflicting-recovery",
+                    "state": "claimed",
+                }
+            ),
+            encoding="utf-8",
+        )
+        conflicting_events = [
+            {
+                "schemaVersion": 1,
+                "eventType": "proposal_emitted",
+                "clipID": generate_clip_id(),
+                "state": "proposal_emitted",
+                "attemptCount": 0,
+                "proposalCategory": "wrong_sense",
+                "productionMutationAuthorized": False,
+                "touchedFamilyGraduation": False,
+                "phase3Graduation": False,
+            },
+            {
+                "schemaVersion": 1,
+                "eventType": "proposal_emitted",
+                "clipID": generate_clip_id(),
+                "state": "proposal_emitted",
+                "attemptCount": 0,
+                "proposalCategory": "stress",
+                "productionMutationAuthorized": False,
+                "touchedFamilyGraduation": False,
+                "phase3Graduation": False,
+            },
+        ]
+        with (conflicting_run / "attempt-ledger.jsonl").open("wb") as ledger:
+            for event in conflicting_events:
+                ledger.write(
+                    json.dumps(
+                        event,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                    + b"\n"
+                )
+            ledger.flush()
+            os.fsync(ledger.fileno())
+
+        for run_id in (
+            "unclaimed-recovery",
+            "empty-recovery",
+            "malformed-recovery",
+            "conflicting-recovery",
+        ):
+            with self.subTest(run_id=run_id):
+                run_directory = output_root / run_id
+                before = self.run_file_bytes(run_directory)
+
+                completed = self.run_recovery_cli(
+                    run_id=run_id,
+                    output_root=output_root,
+                )
+
+                self.assertNotEqual(0, completed.returncode)
+                self.assertEqual("", completed.stdout)
+                self.assertEqual(before, self.run_file_bytes(run_directory))
+
     def test_attempt_requires_reviewed_receipts_and_never_increments_while_pending(self):
         clip_id, output_root = self.failing_run()
         initial = read_attempt_state(
