@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import stat
 import unicodedata
@@ -976,17 +977,71 @@ def _external_regular_file(path: Path, *, name: str) -> Path:
         raise ValueError(f"{name} is unavailable") from error
     if not stat.S_ISREG(metadata.st_mode):
         raise ValueError(f"{name} must be a regular file")
+    if metadata.st_nlink != 1:
+        raise ValueError(f"{name} cannot be a hardlink")
     if resolved == REPOSITORY_ROOT or resolved.is_relative_to(REPOSITORY_ROOT):
         raise ValueError(f"{name} must be outside the repository")
     return resolved
 
 
+def _stable_metadata(metadata: os.stat_result) -> tuple[int, ...]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        stat.S_IFMT(metadata.st_mode),
+        metadata.st_nlink,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def _read_external_unique_regular_bytes(path: Path, *, name: str) -> bytes:
+    resolved = _external_regular_file(path, name=name)
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise ValueError(f"{name} cannot be read without symlink protection")
+    try:
+        path_before = resolved.lstat()
+        descriptor = os.open(resolved, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(descriptor, "rb") as source:
+            descriptor_before = os.fstat(source.fileno())
+            if (
+                not stat.S_ISREG(descriptor_before.st_mode)
+                or descriptor_before.st_nlink != 1
+                or _stable_metadata(path_before)
+                != _stable_metadata(descriptor_before)
+            ):
+                raise ValueError(f"{name} changed before it could be read")
+            content = source.read()
+            descriptor_after = os.fstat(source.fileno())
+        path_after = resolved.lstat()
+    except ValueError:
+        raise
+    except OSError as error:
+        raise ValueError(f"{name} is unavailable") from error
+    expected = _stable_metadata(path_before)
+    if (
+        _stable_metadata(descriptor_after) != expected
+        or _stable_metadata(path_after) != expected
+    ):
+        raise ValueError(f"{name} changed while it was read")
+    return content
+
+
 def _load_human_evidence_authority(path: Path) -> str:
-    authority_path = _external_regular_file(
+    authority_bytes = _read_external_unique_regular_bytes(
         path,
         name="human evidence authority",
     )
-    authority = _load_json(authority_path)
+    try:
+        authority = _strict_json_loads(
+            authority_bytes.decode("utf-8"),
+            "human evidence authority",
+        )
+    except UnicodeDecodeError as error:
+        raise ValueError(
+            "human evidence authority is not valid UTF-8"
+        ) from error
     if (
         not isinstance(authority, dict)
         or set(authority) != HUMAN_EVIDENCE_AUTHORITY_FIELDS
@@ -1000,6 +1055,26 @@ def _load_human_evidence_authority(path: Path) -> str:
     ):
         raise ValueError("human evidence authority is invalid")
     return authority["evidenceBundleSHA256"]
+
+
+def _load_external_human_evidence(
+    trusted_receipts: Path | str | None,
+    human_evidence_authority: Path | str | None,
+) -> tuple[list[dict[str, Any]], str | None]:
+    if trusted_receipts is None and human_evidence_authority is None:
+        return [], None
+    if trusted_receipts is None:
+        raise ValueError("human evidence authority requires trusted receipts")
+    if human_evidence_authority is None:
+        raise ValueError("trusted receipts require a human evidence authority")
+    receipt_path = _external_regular_file(
+        Path(trusted_receipts),
+        name="trusted receipts",
+    )
+    return (
+        _load_jsonl(receipt_path),
+        _load_human_evidence_authority(Path(human_evidence_authority)),
+    )
 
 
 def _validate_candidate_research(path: Path) -> int:
@@ -1081,7 +1156,13 @@ def validate_fixture_directory(fixtures: Path | str) -> dict[str, Any]:
     }
 
 
-def build_report(fixtures: Path | str, pack: Path | str) -> dict[str, Any]:
+def build_report(
+    fixtures: Path | str,
+    pack: Path | str,
+    *,
+    trusted_receipts: Path | str | None = None,
+    human_evidence_authority: Path | str | None = None,
+) -> dict[str, Any]:
     fixture_directory = Path(fixtures)
     summary = validate_fixture_directory(fixture_directory)
     contextual_records = summary["contextualRecords"]
@@ -1091,11 +1172,14 @@ def build_report(fixtures: Path | str, pack: Path | str) -> dict[str, Any]:
     morphology_rows = validate_morphology(
         _load_jsonl(fixture_directory / "morphology_v1.jsonl")
     )
-    trusted_path = fixture_directory / "trusted_label_receipts_v1.jsonl"
-    trusted_receipts = _load_jsonl(trusted_path) if trusted_path.is_file() else []
+    trusted_receipt_rows, authority_digest = _load_external_human_evidence(
+        trusted_receipts,
+        human_evidence_authority,
+    )
     qualification = qualification_status(
         contextual_records,
-        trusted_receipts=trusted_receipts,
+        trusted_receipts=trusted_receipt_rows,
+        trusted_authority_digest=authority_digest,
     )
 
     pack_value = _load_json(Path(pack))
@@ -1132,7 +1216,7 @@ def build_report(fixtures: Path | str, pack: Path | str) -> dict[str, Any]:
 
     receipts_by_id = {
         receipt.receipt_id: receipt
-        for receipt in validate_trusted_receipts(trusted_receipts)
+        for receipt in validate_trusted_receipts(trusted_receipt_rows)
     }
     qualifying_adjudicated = sum(
         1
@@ -1193,40 +1277,32 @@ def main(argv: list[str] | None = None) -> int:
     report_parser = subparsers.add_parser("report")
     report_parser.add_argument("--fixtures", type=Path, required=True)
     report_parser.add_argument("--pack", type=Path, required=True)
+    report_parser.add_argument("--trusted-receipts", type=Path)
+    report_parser.add_argument("--human-evidence-authority", type=Path)
     arguments = parser.parse_args(argv)
 
     try:
         if arguments.command == "report":
-            _print_json(build_report(arguments.fixtures, arguments.pack))
+            _print_json(
+                build_report(
+                    arguments.fixtures,
+                    arguments.pack,
+                    trusted_receipts=arguments.trusted_receipts,
+                    human_evidence_authority=arguments.human_evidence_authority,
+                )
+            )
             return 0
         summary = validate_fixture_directory(arguments.fixtures)
         contextual_records = summary.pop("contextualRecords")
         if arguments.command == "validate-contract":
             _print_json(summary)
         else:
-            if (
-                arguments.trusted_receipts is None
-                and arguments.human_evidence_authority is not None
-            ):
-                raise ValueError(
-                    "human evidence authority requires trusted receipts"
-                )
-            if arguments.trusted_receipts is not None:
-                if arguments.human_evidence_authority is None:
-                    raise ValueError(
-                        "trusted receipts require a human evidence authority"
-                    )
-                receipt_path = _external_regular_file(
+            trusted_receipts, authority_digest = (
+                _load_external_human_evidence(
                     arguments.trusted_receipts,
-                    name="trusted receipts",
+                    arguments.human_evidence_authority,
                 )
-                trusted_receipts = _load_jsonl(receipt_path)
-                authority_digest = _load_human_evidence_authority(
-                    arguments.human_evidence_authority
-                )
-            else:
-                trusted_receipts = []
-                authority_digest = None
+            )
             _print_json(
                 qualification_status(
                     contextual_records,

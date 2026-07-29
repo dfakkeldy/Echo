@@ -412,6 +412,54 @@ class ResponseValidationTests(unittest.TestCase):
 
 
 class EvaluationGateTests(ManifestAdmissionTests):
+    def test_receipt_binds_the_single_manifest_snapshot_admitted_before_replacement(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest(
+            [self.manifest_row(clip_id, path, 0.25)]
+        )
+        admitted_bytes = manifest.read_bytes()
+        admitted_identity = "sha256:" + "c" * 64
+        replacement = self.directory / "replacement-manifest.json"
+        replacement.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "corpusIdentity": "sha256:" + "d" * 64,
+                    "clips": [
+                        self.manifest_row(clip_id, path, 0.25)
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        replacement_hash = hashlib.sha256(replacement.read_bytes()).hexdigest()
+        real_admission = audio_judge._admit_manifest_with_authority
+
+        def replace_after_admission(*args, **kwargs):
+            admitted = real_admission(*args, **kwargs)
+            replacement.replace(manifest)
+            return admitted
+
+        with mock.patch.object(
+            audio_judge,
+            "_admit_manifest_with_authority",
+            side_effect=replace_after_admission,
+        ):
+            receipt = run_evaluation(
+                manifest_path=manifest,
+                run_id="manifest-snapshot",
+                dry_run=True,
+                output_root=self.directory / "runs",
+            )
+
+        self.assertEqual(admitted_identity, receipt["corpusIdentity"])
+        self.assertEqual(
+            hashlib.sha256(admitted_bytes).hexdigest(),
+            receipt["manifestContentSHA256"],
+        )
+        self.assertNotEqual(replacement_hash, receipt["manifestContentSHA256"])
+
     def test_prospective_request_and_cost_caps_use_the_stricter_limit(self):
         enforce_prospective_cap(
             request_count=199,

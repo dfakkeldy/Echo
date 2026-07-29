@@ -1,6 +1,7 @@
 import dataclasses
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -907,6 +908,106 @@ class PronunciationCorpusTests(unittest.TestCase):
         self.assertIn("cannot be a symlink", symlinked_authority.stderr)
         self.assertNotIn("Traceback", symlinked_authority.stderr)
 
+    def test_cli_authority_file_guards_never_emit_qualification(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary_root = Path(temporary_directory)
+            fixture_directory = temporary_root / "fixtures"
+            shutil.copytree(FIXTURES, fixture_directory)
+            case = test_only_human_case(
+                "guarded-authority",
+                "content.material",
+            )
+            (
+                fixture_directory / "contextual_families_v1.jsonl"
+            ).write_text(
+                json.dumps(case, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            receipt = test_only_trusted_receipt(case)
+            receipt_path = temporary_root / "trusted-receipts.jsonl"
+            receipt_path.write_text(
+                json.dumps(receipt, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            contextual_records = [
+                json.loads(line)
+                for line in (
+                    fixture_directory
+                    / "contextual_family_candidates_v1.jsonl"
+                ).read_text(encoding="utf-8").splitlines()
+                if line
+            ] + [case]
+            valid_authority = {
+                "schemaVersion": 1,
+                "authorityKind": "user-controlled-out-of-repository",
+                "authorizationPurpose":
+                    "pronunciation-human-evidence-qualification",
+                "evidenceBundleSHA256": test_only_authority_digest(
+                    contextual_records,
+                    [receipt],
+                ),
+            }
+            authority_target = temporary_root / "authority-target.json"
+            authority_target.write_text(
+                json.dumps(valid_authority, sort_keys=True),
+                encoding="utf-8",
+            )
+            authority_path = temporary_root / "human-evidence-authority.json"
+            command = [
+                sys.executable,
+                str(SCRIPT),
+                "qualification-status",
+                "--fixtures",
+                str(fixture_directory),
+                "--trusted-receipts",
+                str(receipt_path),
+                "--human-evidence-authority",
+                str(authority_path),
+            ]
+
+            os.link(authority_target, authority_path)
+            hardlinked = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            authority_path.unlink()
+            authority_path.symlink_to(authority_target)
+            symlinked = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            authority_path.unlink()
+            authority_path.write_text(
+                json.dumps(
+                    {
+                        **valid_authority,
+                        "evidenceBundleSHA256": "0" * 64,
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            mismatched = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertNotEqual(0, hardlinked.returncode)
+        self.assertIn("hardlink", hardlinked.stderr)
+        self.assertEqual("", hardlinked.stdout)
+        self.assertNotEqual(0, symlinked.returncode)
+        self.assertIn("symlink", symlinked.stderr)
+        self.assertEqual("", symlinked.stdout)
+        self.assertNotEqual(0, mismatched.returncode)
+        self.assertIn("exact human evidence authority binding", mismatched.stderr)
+        self.assertEqual("", mismatched.stdout)
+
     def test_cli_rejects_ambiguous_json_and_invalid_utf8_without_traceback(self):
         probes = [
             (
@@ -1048,6 +1149,93 @@ class PronunciationCorpusTests(unittest.TestCase):
             "unavailable-no-approved-source",
             report["frequencyBandReport"],
         )
+
+    def test_program_report_qualifies_only_with_external_receipts_and_authority(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary_root = Path(temporary_directory)
+            fixture_directory = temporary_root / "fixtures"
+            shutil.copytree(FIXTURES, fixture_directory)
+            cases, receipts = complete_test_only_qualification_matrix()
+            (
+                fixture_directory / "contextual_families_v1.jsonl"
+            ).write_text(
+                "".join(
+                    json.dumps(case, sort_keys=True) + "\n"
+                    for case in cases
+                ),
+                encoding="utf-8",
+            )
+            receipt_path = temporary_root / "trusted-receipts.jsonl"
+            receipt_path.write_text(
+                "".join(
+                    json.dumps(receipt, sort_keys=True) + "\n"
+                    for receipt in receipts
+                ),
+                encoding="utf-8",
+            )
+            contextual_records = [
+                json.loads(line)
+                for line in (
+                    fixture_directory
+                    / "contextual_family_candidates_v1.jsonl"
+                ).read_text(encoding="utf-8").splitlines()
+                if line
+            ] + cases
+            authority_path = temporary_root / "human-evidence-authority.json"
+            authority_path.write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "authorityKind": "user-controlled-out-of-repository",
+                        "authorizationPurpose":
+                            "pronunciation-human-evidence-qualification",
+                        "evidenceBundleSHA256": test_only_authority_digest(
+                            contextual_records,
+                            receipts,
+                        ),
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "authority"):
+                build_report(
+                    fixture_directory,
+                    PACK,
+                    trusted_receipts=receipt_path,
+                )
+
+            report = build_report(
+                fixture_directory,
+                PACK,
+                trusted_receipts=receipt_path,
+                human_evidence_authority=authority_path,
+            )
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "report",
+                    "--fixtures",
+                    str(fixture_directory),
+                    "--pack",
+                    str(PACK),
+                    "--trusted-receipts",
+                    str(receipt_path),
+                    "--human-evidence-authority",
+                    str(authority_path),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual("QUALIFIED", report["corpusQualificationStatus"])
+        self.assertEqual(800, report["evidenceCounts"]["qualifyingHumanLabelled"])
+        self.assertEqual({}, report["missingFamilyCounts"])
+        self.assertEqual({}, report["missingSenseCounts"])
+        self.assertEqual(report, json.loads(completed.stdout))
 
     def test_program_report_cli_is_byte_identical_across_runs(self):
         command = [

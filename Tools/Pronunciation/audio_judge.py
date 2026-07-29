@@ -197,6 +197,15 @@ class AdmittedClip:
     _audio_path: Path
 
 
+@dataclass(frozen=True)
+class AdmittedManifest:
+    clips: tuple[AdmittedClip, ...]
+    manifest_bytes: bytes
+    corpus_identity: str
+    manifest_content_sha256: str
+    provenance_authority_sha256: str
+
+
 def generate_clip_id() -> str:
     """Return an opaque identifier independent of clip content and metadata."""
     return f"clip_{uuid.uuid4()}"
@@ -223,15 +232,15 @@ def _strict_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
-def _load_strict_json(path: Path) -> Any:
+def _load_strict_json_bytes(content: bytes) -> Any:
     try:
         return json.loads(
-            path.read_text(encoding="utf-8"),
+            content.decode("utf-8"),
             object_pairs_hook=_strict_object,
             parse_constant=lambda _value: (_ for _ in ()).throw(
                 ManifestError("non-finite JSON number")),
         )
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+    except (UnicodeError, json.JSONDecodeError) as error:
         raise ManifestError("manifest is not readable strict JSON") from error
 
 
@@ -532,7 +541,7 @@ def _admit_clip(
 def _admit_manifest_with_authority(
     manifest_path: str | Path,
     provenance_authority_path: str | Path | None,
-) -> tuple[list[AdmittedClip], str]:
+) -> AdmittedManifest:
     path = Path(manifest_path)
     authority_path = (
         Path(provenance_authority_path)
@@ -540,8 +549,12 @@ def _admit_manifest_with_authority(
         else path.parent / "provenance-authority.json"
     )
     authority, authority_sha256 = _load_provenance_authority(authority_path)
+    try:
+        manifest_bytes = path.read_bytes()
+    except OSError as error:
+        raise ManifestError("manifest is not readable strict JSON") from error
     manifest = _require_exact_fields(
-        _load_strict_json(path),
+        _load_strict_json_bytes(manifest_bytes),
         MANIFEST_FIELDS,
         "manifest",
     )
@@ -557,14 +570,14 @@ def _admit_manifest_with_authority(
     if not isinstance(rows, list) or not rows:
         raise ManifestError("manifest clips must be a non-empty array")
     seen_clip_ids: set[str] = set()
-    clips = [
+    clips = tuple(
         _admit_clip(
             row,
             manifest_directory=path.parent,
             seen_clip_ids=seen_clip_ids,
         )
         for row in rows
-    ]
+    )
     if set(authority) != {clip.clip_id for clip in clips}:
         raise ManifestError("provenance authority does not match admitted clips")
     for clip in clips:
@@ -576,7 +589,13 @@ def _admit_manifest_with_authority(
             > _DURATION_TOLERANCE_SECONDS
         ):
             raise ManifestError("provenance authority does not match admitted clip")
-    return clips, authority_sha256
+    return AdmittedManifest(
+        clips=clips,
+        manifest_bytes=manifest_bytes,
+        corpus_identity=corpus_identity,
+        manifest_content_sha256=hashlib.sha256(manifest_bytes).hexdigest(),
+        provenance_authority_sha256=authority_sha256,
+    )
 
 
 def admit_manifest(
@@ -585,11 +604,11 @@ def admit_manifest(
     provenance_authority_path: str | Path | None = None,
 ) -> list[AdmittedClip]:
     """Admit clips only when a separate external authority binds provenance."""
-    clips, _ = _admit_manifest_with_authority(
+    admission = _admit_manifest_with_authority(
         manifest_path,
         provenance_authority_path,
     )
-    return clips
+    return list(admission.clips)
 
 
 def encode_audio(clip: AdmittedClip) -> dict[str, str]:
@@ -1576,13 +1595,11 @@ def run_evaluation(
     """Admit, cap, optionally evaluate, and persist a redacted run receipt."""
     if RUN_ID_PATTERN.fullmatch(run_id) is None:
         raise ManifestError("run identifier is invalid")
-    manifest_file = Path(manifest_path)
-    clips, provenance_authority_sha256 = _admit_manifest_with_authority(
-        manifest_file,
+    admission = _admit_manifest_with_authority(
+        manifest_path,
         provenance_authority_path,
     )
-    manifest = _load_strict_json(manifest_file)
-    manifest_hash = hashlib.sha256(manifest_file.read_bytes()).hexdigest()
+    clips = admission.clips
     baseline_estimates = [
         _request_estimate(clip, build_request_body(clip))
         for clip in clips
@@ -1610,9 +1627,10 @@ def run_evaluation(
         "estimatedCostUSD": round(prospective_corpus_cost, 8),
         "prospectiveCorpusCostUSD": round(prospective_corpus_cost, 8),
         "pricing": PRICING_CONFIG,
-        "corpusIdentity": manifest["corpusIdentity"],
-        "manifestContentSHA256": manifest_hash,
-        "provenanceAuthoritySHA256": provenance_authority_sha256,
+        "corpusIdentity": admission.corpus_identity,
+        "manifestContentSHA256": admission.manifest_content_sha256,
+        "provenanceAuthoritySHA256":
+            admission.provenance_authority_sha256,
         "results": [],
         "morningQueue": [],
         "proofBoundaries": {

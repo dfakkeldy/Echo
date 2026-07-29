@@ -28,9 +28,9 @@ The following independent local gates passed on 2026-07-29:
 
 | Gate | Result |
 | --- | --- |
-| Pronunciation corpus tests | 45 passed |
+| Pronunciation corpus tests | 47 passed |
 | Pronunciation pack tests and regeneration check | 38 passed; generated pack matched the committed pack |
-| Development audio-judge tests | 54 passed without an API request |
+| Development audio-judge tests | 55 passed without an API request |
 | Task 10 Swift acceptance suite | 6 passed |
 | Echo test-products build | Passed |
 | Complete Echo unit-test gate | Passed before this test/tool/documentation-only correction; not rerun because production/shared Swift did not change |
@@ -128,14 +128,18 @@ No agent-generated, model-generated, provisional, or source-order label is
 represented as human evidence.
 
 Any future trusted human receipt must be paired at evaluation time with an
-absolute, regular, non-symlink authority file outside the repository. That
-authority binds the canonical SHA-256 of the exact contextual corpus plus the
-exact trusted-receipt set and is required before those receipts can contribute
-to qualification. It is an explicit operator-controlled integrity root, not
-cryptographic proof of who listened or how a label was obtained; the receipt
-schema, source-verifiability rules, and human adjudication requirement remain
-independent gates. No trusted receipts or human-evidence authority were present
-for this report.
+absolute, single-link regular, non-symlink authority file outside the
+repository. The authority is read once through a no-follow descriptor and is
+rejected if its inode, link count, size, or modification metadata changes
+during the read. It binds the canonical SHA-256 of the exact contextual corpus
+plus the exact trusted-receipt set and is required before those receipts can
+contribute to qualification. The report API and CLI accept the paired external
+receipt and authority paths explicitly; with neither path, the default Make
+report remains `WAITING_FOR_HUMAN_LABELS`. It is an explicit
+operator-controlled integrity root, not cryptographic proof of who listened or
+how a label was obtained; the receipt schema, source-verifiability rules, and
+human adjudication requirement remain independent gates. No trusted receipts
+or human-evidence authority were present for this report.
 
 ## Development audio-judge API evaluation
 
@@ -196,6 +200,9 @@ Admission also requires a separate absolute, single-link regular, non-symlink
 provenance authority file outside the repository. It binds every admitted
 clip's opaque ID, measured audio hash, duration, and
 `public-domain`/`synthetic` provenance; the receipt records the authority hash.
+The admitted manifest's immutable byte snapshot supplies both the receipt's
+corpus identity and its manifest-content hash, so replacing the manifest path
+after admission cannot rebind the receipt.
 Judge-owned claims and mutable run artifacts must also be single-link files,
 preventing append/state writes through an external hardlink. This is an
 operator-controlled integrity root that prevents the manifest from authorizing

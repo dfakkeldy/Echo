@@ -880,11 +880,17 @@ The judge does not let its input manifest authorize its own provenance. Each
 run requires a separate absolute, single-link regular, non-symlink authority
 file outside the repository that binds the exact opaque clip ID, measured
 audio hash, duration, and `public-domain`/`synthetic` assertion; the receipt
-records that authority's hash. Judge-owned claims and mutable run artifacts
-must also be single-link files, preventing an append or state write through an
-external hardlink. Likewise, future trusted human-label receipts contribute
-to qualification only when paired with a separate out-of-repository authority
-binding the canonical exact corpus-and-receipt bundle digest. These are
+records that authority's hash. Manifest admission carries one immutable byte
+snapshot, corpus identity, and content hash into the receipt, so a later path
+replacement cannot change the admitted run identity. Judge-owned claims and
+mutable run artifacts must also be single-link files, preventing an append or
+state write through an external hardlink. Likewise, future trusted human-label
+receipts contribute to qualification only when paired with a separate
+out-of-repository authority binding the canonical exact corpus-and-receipt
+bundle digest. The authority is read once through a no-follow, single-link
+regular descriptor and rejected if its metadata changes during the read. The
+program-report API and CLI accept that receipts-and-authority pair explicitly;
+without both, the default report remains `WAITING_FOR_HUMAN_LABELS`. These are
 operator-controlled integrity roots, not cryptographic proof of authorship,
 listening, or historical provenance, so licensing/source verification and
 human adjudication remain independent proof gates.
