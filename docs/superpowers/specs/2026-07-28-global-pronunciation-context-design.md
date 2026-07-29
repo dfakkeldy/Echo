@@ -286,17 +286,11 @@ this exact semantic record shape:
   "lexicalClass": null,
   "senseLabel": null,
   "sourceID": "cmudict",
-  "sourceSnapshotID": "cmudict@74790861f652b15e4ac49015a90074ad62a27690",
   "sourceTier": "supplemental",
   "kind": "explicit",
   "automaticWithoutContext": true,
   "frequencyBand": "unknown",
-  "validationStatus": "validated-automatic",
-  "ruleProvenance": {
-    "normalizationPolicyVersion": "english-key-normalization-v1",
-    "arpabetMappingVersion": "cmudict-arpabet-to-kokoro-v2",
-    "validationPolicyVersion": "source-candidate-validation-v1"
-  }
+  "validationStatus": "validated-automatic"
 }
 ```
 
@@ -320,10 +314,22 @@ it is neither an automatic fallback nor a model-selectable contextual
 candidate. It can leave report-only status only through genuine human-reviewed
 label evidence and a newly generated semantic pack.
 
+Source and rule provenance is immutable and pack-scoped rather than repeated
+inside every candidate. Each candidate's compact `sourceID` must resolve to
+exactly one validated top-level source record containing its `snapshotID` and
+SHA-256. The validated
+`semanticIdentityPayload.generatorBehavior` contains the generator,
+normalization, ARPAbet conversion, source-precedence, automatic-selection, and
+candidate-validation policy versions. Together, `(candidateID,
+candidatePackVersion)` and the validated pack manifest resolve the frozen
+source snapshot and rule provenance without redundant candidate records.
+
 Candidate IDs are stable only within a declared candidate-pack version. They
-are identifiers, not semantic truth. A changed IPA, sense label, or candidate
-status, provenance field, or candidate set changes the canonical `entries`
-object, pack identity, and dependent cached decisions.
+are identifiers, not semantic truth. A changed IPA, sense label, candidate
+status, or candidate set changes the canonical `entries` object and therefore
+the pack identity. A changed source snapshot or generator-behavior version also
+changes the pack identity through the semantic manifest, even when `entries`
+are unchanged. Either kind of change invalidates dependent cached decisions.
 
 All IPA is validated against the exact Kokoro phoneme vocabulary before pack
 generation succeeds. Unsupported symbols are build failures, never characters

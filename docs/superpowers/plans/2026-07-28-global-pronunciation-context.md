@@ -571,8 +571,8 @@ sources = [
 ]
 ```
 
-- [ ] Emit every candidate with this exact field shape so all validation and
-  provenance metadata participates in `normalizedDataSHA256` and
+- [ ] Emit every candidate with this exact compact field shape so its
+  candidate-level state participates in `normalizedDataSHA256` and
   `packVersion`:
 
 ```python
@@ -582,7 +582,6 @@ candidate = {
     "lexicalClass": None,
     "senseLabel": None,
     "sourceID": "cmudict",
-    "sourceSnapshotID": f"cmudict@{commit}",
     "sourceTier": "supplemental",
     "kind": "explicit",
     "automaticWithoutContext": is_automatic,
@@ -592,14 +591,17 @@ candidate = {
         if is_automatic
         else "report-only-missing-sense-label"
     ),
-    "ruleProvenance": {
-        "normalizationPolicyVersion": "english-key-normalization-v1",
-        "arpabetMappingVersion": "cmudict-arpabet-to-kokoro-v2",
-        "validationPolicyVersion": "source-candidate-validation-v1",
-    },
 }
 ```
 
+- [ ] Keep source and rule provenance immutable and pack-scoped. Require every
+  candidate `sourceID` to resolve to exactly one top-level source record.
+  Require `semanticIdentityPayload.generatorBehavior` to contain the exact
+  generator, normalization, ARPAbet conversion, source-precedence,
+  automatic-selection, and candidate-validation policy versions. Do not copy a
+  snapshot ID or rule-provenance object into each candidate:
+  `(candidateID, candidatePackVersion)` plus the validated pack manifest
+  resolves both authorities.
 - [ ] Build this semantic-identity payload from actual canonical inputs:
 
 ```python
@@ -801,10 +803,13 @@ nonisolated struct EnglishPronunciationPack: Equatable, Sendable {
         let licensePath: String
     }
 
-    struct RuleProvenance: Codable, Equatable, Sendable {
+    struct GeneratorBehavior: Codable, Equatable, Sendable {
+        let generatorVersion: String
         let normalizationPolicyVersion: String
         let arpabetMappingVersion: String
-        let validationPolicyVersion: String
+        let sourcePrecedencePolicyVersion: String
+        let automaticSelectionPolicyVersion: String
+        let candidateValidationPolicyVersion: String
     }
 
     struct Candidate: Codable, Equatable, Sendable {
@@ -813,13 +818,11 @@ nonisolated struct EnglishPronunciationPack: Equatable, Sendable {
         let lexicalClass: String?
         let senseLabel: String?
         let sourceID: String
-        let sourceSnapshotID: String
         let sourceTier: String
         let kind: String
         let automaticWithoutContext: Bool
         let frequencyBand: FrequencyBand
         let validationStatus: CandidateValidationStatus
-        let ruleProvenance: RuleProvenance
     }
 
     enum FrequencyBand: String, Codable, Equatable, Sendable {
@@ -839,6 +842,7 @@ nonisolated struct EnglishPronunciationPack: Equatable, Sendable {
     let candidateCount: Int
     let normalizedDataSHA256: String
     let kokoroVocabularyVersion: String
+    let generatorBehavior: GeneratorBehavior
     let dialect: String
     let sources: [SourceSnapshot]
     let licenses: [LicenseRecord]
@@ -859,9 +863,19 @@ nonisolated struct EnglishPronunciationPack: Equatable, Sendable {
   IPA, and a `sha256:` pack version.
 - [ ] Require every candidate key in the Section 6.2 record, including the
   nullable `lexicalClass` and `senseLabel` keys; a missing nullable key is
-  malformed rather than equivalent to explicit JSON null. Require
-  `sourceSnapshotID` to match the declared source snapshot and require all three
-  `ruleProvenance` versions to match the semantic generator behavior.
+  malformed rather than equivalent to explicit JSON null. Require every
+  candidate `sourceID` to resolve to exactly one validated top-level source
+  record; candidates do not decode snapshot or rule-provenance subrecords.
+- [ ] Decode and validate one pack-level `GeneratorBehavior` from
+  `semanticIdentityPayload.generatorBehavior`. Require every generator,
+  normalization, ARPAbet conversion, source-precedence, automatic-selection,
+  and candidate-validation policy version; do not use defaults for missing
+  versions.
+- [ ] Treat `(candidateID, packVersion)` as the complete compact candidate
+  provenance reference. Only after the manifest is fully validated may that
+  pair resolve the candidate's `sourceID` to its unique snapshot and the pack
+  to its generator behavior; do not materialize repeated provenance inside
+  `Candidate`.
 - [ ] Enforce the closed validation-status invariants:
   `validated-automatic` is allowed only for the sole candidate in an entry and
   requires `automaticWithoutContext: true`;
@@ -1146,6 +1160,11 @@ nonisolated enum UniversalPronunciationResolver {
   `automaticWithoutContext` must be true. Never rewrite from
   `report-only-missing-sense-label` or choose among ambiguous candidates by
   source order, frequency, or IPA.
+- [ ] Record the selected candidate's source-derived `candidateID` together
+  with `pack.packVersion` as `candidatePackVersion`. That pair plus the
+  validated pack manifest resolves the candidate's unique source snapshot and
+  the pack-scoped generator-rule provenance; do not copy those records into
+  the decision seed.
 - [ ] Attempt these morphology transformations in order and accept only when exactly one produces a validated base:
 
 ```swift
@@ -2035,10 +2054,18 @@ git commit -m "feat: record contextual pronunciation shadow evidence"
 - [ ] Prove supplemental rows preserve their source-derived `candidateID` and
   semantic pack `candidatePackVersion` exactly and never acquire morphology
   base/rule fields.
-- [ ] Validate every bundled candidate's required nullable lexical/sense keys,
-  source snapshot, closed validation status, and frozen
-  normalization/ARPAbet/validation provenance. Recompute the entries hash after
-  those fields so removing or changing any one of them invalidates the pack.
+- [ ] Validate every bundled candidate's exact compact field shape, required
+  nullable lexical/sense keys, closed validation status, and `sourceID`.
+  Require each candidate source to resolve to exactly one top-level snapshot,
+  and require the pack-level generator behavior to include every frozen
+  generator, normalization, ARPAbet conversion, source-precedence,
+  automatic-selection, and candidate-validation policy version.
+- [ ] Recompute both the entries hash and semantic pack identity. Prove a
+  candidate-level field change affects `normalizedDataSHA256` and
+  `packVersion`, while a source snapshot or generator-rule version change
+  affects `packVersion` even when entries are unchanged. Prove
+  `(candidateID, candidatePackVersion)` plus the validated manifest resolves
+  source/rule provenance without per-candidate copies.
 - [ ] Prove an exact supplemental rewrite requires one and only one
   `validated-automatic` candidate with `automaticWithoutContext: true`.
   Require every multi-candidate CMUdict spelling with null labels to remain

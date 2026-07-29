@@ -347,11 +347,6 @@ def build_pack(
             silver_sha256=silver_sha256,
         )
     )
-    cmudict_snapshot_id = next(
-        source["snapshotID"]
-        for source in source_records
-        if source["sourceID"] == "cmudict"
-    )
 
     pronunciations_by_word: dict[str, list[Sequence[str]]] = {}
     for line in lines:
@@ -415,21 +410,11 @@ def build_pack(
                     "lexicalClass": None,
                     "senseLabel": None,
                     "sourceID": "cmudict",
-                    "sourceSnapshotID": cmudict_snapshot_id,
                     "sourceTier": "supplemental",
                     "kind": "explicit",
                     "automaticWithoutContext": is_automatic,
                     "frequencyBand": reviewed_bands.get(word, "unknown"),
                     "validationStatus": validation_status,
-                    "ruleProvenance": {
-                        "normalizationPolicyVersion": behavior[
-                            "normalizationPolicyVersion"
-                        ],
-                        "arpabetMappingVersion": behavior["arpabetMappingVersion"],
-                        "validationPolicyVersion": behavior[
-                            "candidateValidationPolicyVersion"
-                        ],
-                    },
                 }
             )
         entries[word] = candidates

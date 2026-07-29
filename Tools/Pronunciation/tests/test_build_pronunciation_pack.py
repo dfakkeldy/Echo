@@ -341,32 +341,58 @@ class PronunciationPackGeneratorTests(unittest.TestCase):
                 "lexicalClass",
                 "senseLabel",
                 "sourceID",
-                "sourceSnapshotID",
                 "sourceTier",
                 "kind",
                 "automaticWithoutContext",
                 "frequencyBand",
                 "validationStatus",
-                "ruleProvenance",
             },
             set(candidate),
         )
         self.assertIsNone(candidate["lexicalClass"])
         self.assertIsNone(candidate["senseLabel"])
         self.assertEqual("cmudict", candidate["sourceID"])
-        self.assertEqual(
-            f"cmudict@{CMUDICT_COMMIT}", candidate["sourceSnapshotID"]
-        )
         self.assertEqual("supplemental", candidate["sourceTier"])
         self.assertEqual("explicit", candidate["kind"])
         self.assertEqual("validated-automatic", candidate["validationStatus"])
+
+    def test_each_candidate_source_resolves_to_exactly_one_pack_source(self):
+        result = build_pack(
+            cmu_lines=[
+                "APPLE  AE1 P AH0 L",
+                "RECORD  R EH1 K ER0 D",
+                "RECORD(2)  R IH0 K AO1 R D",
+            ],
+            gold={},
+            silver={},
+            kokoro_vocab=KOKORO_VOCAB,
+            generation_timestamp="2026-07-29T12:00:00Z",
+        )
+        sources_by_id = {
+            source_id: [
+                source
+                for source in result["sources"]
+                if source["sourceID"] == source_id
+            ]
+            for source_id in {
+                candidate["sourceID"]
+                for candidates in result["entries"].values()
+                for candidate in candidates
+            }
+        }
+
         self.assertEqual(
             {
-                "normalizationPolicyVersion": "english-key-normalization-v1",
-                "arpabetMappingVersion": "cmudict-arpabet-to-kokoro-v2",
-                "validationPolicyVersion": "source-candidate-validation-v1",
+                "cmudict": [
+                    {
+                        "sourceID": "cmudict",
+                        "snapshotID": f"cmudict@{CMUDICT_COMMIT}",
+                        "role": "supplemental-candidates",
+                        "sha256": result["sources"][0]["sha256"],
+                    }
+                ]
             },
-            candidate["ruleProvenance"],
+            sources_by_id,
         )
 
     def test_ambiguous_unlabeled_candidates_are_report_only(self):
@@ -509,6 +535,22 @@ class PronunciationPackIdentityTests(unittest.TestCase):
             changed = minimal_pack(generator_behavior=changed_behavior)
             with self.subTest(generatorBehavior=key):
                 self.assertNotEqual(base["packVersion"], changed["packVersion"])
+
+    def test_pack_scoped_generator_behavior_contains_every_required_rule_version(self):
+        behavior = minimal_pack()["semanticIdentityPayload"]["generatorBehavior"]
+
+        self.assertEqual(
+            {
+                "generatorVersion",
+                "normalizationPolicyVersion",
+                "arpabetMappingVersion",
+                "sourcePrecedencePolicyVersion",
+                "automaticSelectionPolicyVersion",
+                "candidateValidationPolicyVersion",
+            },
+            set(behavior),
+        )
+        self.assertEqual(GENERATOR_BEHAVIOR, behavior)
 
     def test_kokoro_vocabulary_identity_changes_pack_version_without_entry_change(self):
         extended_vocab = copy.deepcopy(KOKORO_VOCAB)
