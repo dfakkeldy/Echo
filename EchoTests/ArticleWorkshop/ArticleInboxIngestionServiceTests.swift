@@ -118,7 +118,53 @@ struct ArticleInboxIngestionServiceTests {
         #expect(try fixture.dao.capture(id: envelope.captureID.uuidString) == nil)
     }
 
-    private func makeFixture(destinationRootIsFile: Bool = false) throws -> Fixture {
+    @Test func replacementBeforeCleanupIsRetainedWhenBytesDoNotMatchImport() async throws {
+        let envelope = articleWorkshopFixtureEnvelope()
+        let replacement = articleWorkshopFixtureEnvelope(captureID: envelope.captureID, title: "Replacement")
+        var writer: ArticleCaptureStagingWriter?
+        let fixture = try makeFixture { point, package in
+            guard point == .beforeQuarantine else { return }
+            try FileManager.default.removeItem(at: package)
+            _ = try writer!.stage(replacement)
+        }
+        writer = fixture.writer
+        defer { try! FileManager.default.removeItem(at: fixture.root) }
+        _ = try fixture.writer.stage(envelope)
+
+        #expect(throws: ArticleInboxIngestionService.Error.self) {
+            try fixture.service.drainStaging()
+        }
+
+        let quarantineRoots = try FileManager.default.contentsOfDirectory(at: fixture.stagingRoot, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix(".cleanup-") }
+        let retained = try #require(quarantineRoots.first)
+            .appending(path: envelope.captureID.uuidString, directoryHint: .isDirectory)
+        let validated = try fixture.fileStore.validateEnvelope(at: retained)
+        #expect(validated.envelope.payload.title == "Replacement")
+    }
+
+    @Test func newOriginalPackageAfterQuarantineIsNotRemoved() async throws {
+        let envelope = articleWorkshopFixtureEnvelope()
+        var writer: ArticleCaptureStagingWriter?
+        let fixture = try makeFixture { point, _ in
+            guard point == .afterQuarantine else { return }
+            _ = try writer!.stage(envelope)
+        }
+        writer = fixture.writer
+        defer { try! FileManager.default.removeItem(at: fixture.root) }
+        _ = try fixture.writer.stage(envelope)
+
+        try fixture.service.drainStaging()
+
+        let replacement = fixture.stagingRoot.appending(path: envelope.captureID.uuidString, directoryHint: .isDirectory)
+        #expect(FileManager.default.fileExists(atPath: replacement.path))
+        #expect(try fixture.dao.capture(id: envelope.captureID.uuidString) != nil)
+    }
+
+    private func makeFixture(
+        destinationRootIsFile: Bool = false,
+        cleanupHook: ((ArticleInboxIngestionService.CleanupPoint, URL) throws -> Void)? = nil
+    ) throws -> Fixture {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "ArticleInboxIngestionServiceTests-\(UUID().uuidString)", directoryHint: .isDirectory)
         let stagingRoot = root.appending(path: "staging", directoryHint: .isDirectory)
@@ -140,7 +186,8 @@ struct ArticleInboxIngestionServiceTests {
             service: ArticleInboxIngestionService(
                 captureDAO: dao,
                 fileStore: fileStore,
-                stagingRoot: stagingRoot
+                stagingRoot: stagingRoot,
+                cleanupHook: cleanupHook
             )
         )
     }

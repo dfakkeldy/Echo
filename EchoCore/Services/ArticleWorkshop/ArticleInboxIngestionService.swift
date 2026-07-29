@@ -3,6 +3,11 @@ import Foundation
 
 @MainActor
 struct ArticleInboxIngestionService {
+    enum CleanupPoint {
+        case beforeQuarantine
+        case afterQuarantine
+    }
+
     enum Error: Swift.Error, LocalizedError {
         case conflictingExistingCapture(UUID)
         case unsafeStagingRoot(URL)
@@ -23,15 +28,18 @@ struct ArticleInboxIngestionService {
     let captureDAO: ArticleCaptureDAO
     let fileStore: ArticleWorkshopFileStore
     let stagingRoot: URL
+    private let cleanupHook: ((CleanupPoint, URL) throws -> Void)?
 
     init(
         captureDAO: ArticleCaptureDAO,
         fileStore: ArticleWorkshopFileStore = ArticleWorkshopFileStore(),
-        stagingRoot: URL
+        stagingRoot: URL,
+        cleanupHook: ((CleanupPoint, URL) throws -> Void)? = nil
     ) {
         self.captureDAO = captureDAO
         self.fileStore = fileStore
         self.stagingRoot = stagingRoot
+        self.cleanupHook = cleanupHook
     }
 
     func drainStaging() throws {
@@ -56,14 +64,61 @@ struct ArticleInboxIngestionService {
                 guard existing == expected else {
                     throw Error.conflictingExistingCapture(imported.envelope.captureID)
                 }
-                _ = try fileStore.validateEnvelope(at: package)
-                try fileManager.removeItem(at: package)
+                try cleanup(package: package, imported: imported, stagingRoot: normalizedRoot)
                 continue
             }
 
             try captureDAO.saveCapture(expected)
-            _ = try fileStore.validateEnvelope(at: package)
-            try fileManager.removeItem(at: package)
+            try cleanup(package: package, imported: imported, stagingRoot: normalizedRoot)
+        }
+    }
+
+    private func cleanup(
+        package: URL,
+        imported: ArticleWorkshopFileStore.ImportedEnvelope,
+        stagingRoot: URL
+    ) throws {
+        let fileManager = FileManager.default
+        try cleanupHook?(.beforeQuarantine, package)
+        guard package.standardizedFileURL.deletingLastPathComponent() == stagingRoot,
+              try safeDirectory(package)
+        else {
+            throw Error.unsafeStagingPackage(package)
+        }
+
+        let cleanupRoot = stagingRoot.appending(
+            path: ".cleanup-\(imported.envelope.captureID.uuidString)-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        let quarantined = cleanupRoot.appending(
+            path: imported.envelope.captureID.uuidString,
+            directoryHint: .isDirectory
+        )
+        try fileManager.createDirectory(at: cleanupRoot, withIntermediateDirectories: false)
+        do {
+            try fileManager.moveItem(at: package, to: quarantined)
+        } catch {
+            try fileManager.removeItem(at: cleanupRoot)
+            throw error
+        }
+
+        do {
+            try cleanupHook?(.afterQuarantine, package)
+            guard cleanupRoot.standardizedFileURL.deletingLastPathComponent() == stagingRoot,
+                  quarantined.standardizedFileURL.deletingLastPathComponent() == cleanupRoot,
+                  try safeDirectory(cleanupRoot),
+                  try safeDirectory(quarantined)
+            else {
+                throw Error.unsafeStagingPackage(quarantined)
+            }
+            let validated = try fileStore.validateEnvelope(at: quarantined)
+            guard validated.sha256 == imported.sha256 else {
+                throw Error.conflictingExistingCapture(imported.envelope.captureID)
+            }
+            try fileManager.removeItem(at: quarantined)
+            try fileManager.removeItem(at: cleanupRoot)
+        } catch {
+            throw error
         }
     }
 

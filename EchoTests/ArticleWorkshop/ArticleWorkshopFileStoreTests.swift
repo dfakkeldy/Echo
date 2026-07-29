@@ -118,17 +118,20 @@ private enum WriterInterruption: Error {
     case interrupted
 }
 
-func articleWorkshopFixtureEnvelope() -> ArticleCaptureEnvelope {
+func articleWorkshopFixtureEnvelope(
+    captureID: UUID = UUID(),
+    title: String = "A Small Article"
+) -> ArticleCaptureEnvelope {
     ArticleCaptureEnvelope(
         schemaVersion: 1,
-        captureID: UUID(),
+        captureID: captureID,
         capturedAt: Date(timeIntervalSince1970: 1_775_000_000),
         method: .safariRenderedPage,
         sourceApplication: "com.apple.mobilesafari",
         payload: ReadabilityCapturePayload(
             sourceURL: "https://example.test/article",
             canonicalURL: "https://example.test/article",
-            title: "A Small Article",
+            title: title,
             byline: "A. Writer",
             siteName: "Example",
             language: "en",
