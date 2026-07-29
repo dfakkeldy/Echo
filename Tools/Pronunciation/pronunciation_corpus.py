@@ -53,6 +53,13 @@ HUMAN_EVIDENCE_FIELDS = {
 }
 HUMAN_EVIDENCE_KINDS = {"independent-human", "source-verifiable"}
 PRIVATE_KEYS = {"bookTitle", "author", "userID", "localPath"}
+# Mirrors Echo's EnglishG2P phoneme sets plus Kokoro's length marker. General
+# Latin path spellings and arbitrary combining marks are intentionally absent.
+ENGLISH_PRONUNCIATION_OVERRIDE_CHARACTERS = frozenset(
+    "AIOQWYaiuæɑɒɔəɛɜɪʊʌᵻ"
+    "bdfhjklmnpstvwzðŋɡɹɾʃʒʤʧθ"
+    "ˌˈː"
+)
 MINIMUM_FAMILY_CASES = 200
 MINIMUM_SENSE_CASES = 50
 
@@ -132,15 +139,22 @@ def _is_nonempty_string(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
-def _contains_absolute_local_path(value: str) -> bool:
+def _contains_absolute_local_path(
+    value: str,
+    *,
+    allowed_override_target: str | None = None,
+) -> bool:
     override_slash_starts = {
-        match.start() + 2
-        for match in re.finditer(r"\]\(/([^/\s]+)/\)", value)
-        if any(
-            0x0250 <= ord(character) <= 0x02FF
-            or 0x1D00 <= ord(character) <= 0x1DBF
-            or 0x0300 <= ord(character) <= 0x036F
-            for character in match.group(1)
+        match.start(2) - 1
+        for match in re.finditer(
+            r"\[([^\[\]\r\n]+)\]\(/([^/\s]+)/\)",
+            value,
+        )
+        if allowed_override_target is not None
+        and match.group(1).casefold() == allowed_override_target.casefold()
+        and all(
+            character in ENGLISH_PRONUNCIATION_OVERRIDE_CHARACTERS
+            for character in match.group(2)
         )
     }
     for match in re.finditer(r"(?<![:/\w])/+\S*", value):
@@ -161,12 +175,25 @@ def _contains_absolute_local_path(value: str) -> bool:
     return False
 
 
-def _validate_no_private_data(value: Any, location: str = "record") -> None:
+def _validate_no_private_data(
+    value: Any,
+    location: str = "record",
+    *,
+    allowed_override_target: str | None = None,
+    allowed_override_field: str | None = None,
+) -> None:
     if isinstance(value, dict):
         for key, nested in value.items():
             if key in PRIVATE_KEYS:
                 raise ValueError(f"{location} contains prohibited private field {key}")
-            _validate_no_private_data(nested, f"{location}.{key}")
+            nested_override_target = (
+                allowed_override_target if key == allowed_override_field else None
+            )
+            _validate_no_private_data(
+                nested,
+                f"{location}.{key}",
+                allowed_override_target=nested_override_target,
+            )
         return
     if isinstance(value, list):
         for index, nested in enumerate(value):
@@ -178,7 +205,10 @@ def _validate_no_private_data(value: Any, location: str = "record") -> None:
     candidate = value.strip()
     if re.search(r"file://", candidate, flags=re.IGNORECASE):
         raise ValueError(f"{location} contains a prohibited file:// URL")
-    if _contains_absolute_local_path(candidate):
+    if _contains_absolute_local_path(
+        candidate,
+        allowed_override_target=allowed_override_target,
+    ):
         raise ValueError(f"{location} contains prohibited absolute paths")
 
 
@@ -290,7 +320,15 @@ def _parse_contextual_case(raw_case: dict[str, Any] | ContextualCase) -> Context
     if not isinstance(record, dict):
         raise ValueError("contextual case must be a JSON object")
 
-    _validate_no_private_data(record, "contextual case")
+    target_word = record.get("targetWord")
+    _validate_no_private_data(
+        record,
+        "contextual case",
+        allowed_override_target=(
+            target_word if _is_nonempty_string(target_word) else None
+        ),
+        allowed_override_field="targetSentence",
+    )
     _validate_fields(
         record,
         required=CONTEXTUAL_REQUIRED_FIELDS,
@@ -680,7 +718,15 @@ def validate_named_regressions(
     for raw_row in raw_rows:
         if not isinstance(raw_row, dict):
             raise ValueError("named regression must be a JSON object")
-        _validate_no_private_data(raw_row, "named regression")
+        target_word = raw_row.get("targetWord")
+        _validate_no_private_data(
+            raw_row,
+            "named regression",
+            allowed_override_target=(
+                target_word if _is_nonempty_string(target_word) else None
+            ),
+            allowed_override_field="targetSentence",
+        )
         _validate_fields(
             raw_row,
             required=required,

@@ -313,6 +313,12 @@ class PronunciationCorpusTests(unittest.TestCase):
             "Synthetic content [private](/Users/example/)",
             "Synthetic content [private](/Users/) remains.",
             "Synthetic content [private](/home/) remains.",
+            "Synthetic content [private](/Usersɐ/) remains.",
+            "Synthetic content [private](/homé/) remains.",
+            "Synthetic content [private](/kˈɑntɛnt/) remains.",
+            "Use [content](/Usersɐ/) here.",
+            "Use [content](/homé/) here.",
+            "Use [content](/kˈɑntɛnt́/) here.",
             "Synthetic content references //server/share/private/",
             "Synthetic content references ///Users/example/private/",
             "Synthetic content references ////server/share/private/",
@@ -350,6 +356,17 @@ class PronunciationCorpusTests(unittest.TestCase):
                         )
                     ]
                 )
+
+        validate_contract(
+            [
+                contextual_case(
+                    caseID="override-content-casefold",
+                    familyID="content",
+                    targetWord="Content",
+                    targetSentence="Use [CONTENT](/kˈɑntɛnt/) here.",
+                )
+            ]
+        )
 
     def test_contract_rejects_source_metadata_on_synthetic_rows(self):
         malformed_metadata = [
@@ -609,6 +626,23 @@ class PronunciationCorpusTests(unittest.TestCase):
                 with self.assertRaisesRegex(
                     ValueError, "not a candidate for targetWord"
                 ):
+                    validate_named_regressions(rows)
+
+    def test_named_regressions_reject_malformed_target_override_paths(self):
+        for payload in ("Usersɐ", "homé"):
+            rows = named_regression_matrix()
+            override_row = next(
+                row
+                for row in rows
+                if row["familyID"] == "content"
+                and row["shape"] == "override-markup"
+            )
+            override_row["targetSentence"] = (
+                f"Use [content](/{payload}/) for this synthetic override."
+            )
+
+            with self.subTest(payload=payload):
+                with self.assertRaisesRegex(ValueError, "absolute paths"):
                     validate_named_regressions(rows)
 
     def test_repository_fixtures_pass_contract_but_not_human_qualification(self):
