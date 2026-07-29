@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Improve Echo narration for all future books by adding a reproducible bundled American-English pronunciation pack, conservative auditable morphology, a noun-first fallback for `content`, and on-device Foundation Models contextual classification recorded in shadow-mode audits.
+**Goal:** Improve Echo narration for all future books by adding a reproducible bundled American-English pronunciation pack, conservative auditable morphology, a noun-first fallback for `content`, on-device Foundation Models contextual classification recorded in shadow-mode audits, and a bounded development-only direct-audio judge used before final Phase 0–2 qualification/publication.
 
-**Architecture:** Keep Echo's existing override → homograph → Kokoro G2P pipeline and insert one deterministic universal-pronunciation rewrite between overrides and homographs. Foundation Models run independently before rendering, choose only among stable candidate IDs for four approved contextual families, and attach evidence to the audit without changing narration or synthesis cache identity in Phases 0–2.
+**Architecture:** Keep Echo's existing override → homograph → Kokoro G2P pipeline and insert one deterministic universal-pronunciation rewrite between overrides and homographs. Foundation Models run independently before rendering, choose only among stable candidate IDs for four approved contextual families, and attach evidence to the audit without changing narration or synthesis cache identity in Phases 0–2. Task 10 adds a standard-library Python development tool that sends only eligible short public-domain or synthetic production Echo renders to the pinned OpenAI audio-input model, strictly validates machine verdicts, and records separate capped evidence outside the repository; it is not a production authority or runtime cloud fallback.
 
-**Tech Stack:** Swift 6, Swift Testing, Foundation Models behind iOS 26/macOS 26 availability gates, MisakiSwift/Kokoro G2P, Foundation, NaturalLanguage sentence segmentation, standard-library Python 3 tooling, JSON/JSONL resources, Make, Xcode synchronized groups.
+**Tech Stack:** Swift 6, Swift Testing, Foundation Models behind iOS 26/macOS 26 availability gates, MisakiSwift/Kokoro G2P, Foundation, NaturalLanguage sentence segmentation, standard-library Python 3 tooling, OpenAI Chat Completions direct audio input, JSON/JSONL resources, Make, Xcode synchronized groups.
 
 **Design source:** `docs/superpowers/specs/2026-07-28-global-pronunciation-context-design.md`
 
@@ -21,6 +21,41 @@
 - Do not add a runtime dictionary updater, cloud service, adapter, neural OOV model, or third-party package.
 - Keep CMUdict and generated pack inputs pinned, licensed, reproducible, and reviewable. `wordfreq` remains an optional development-only input until separately licensed.
 - Keep private books and generated model evidence out of committed fixtures and logs.
+- Paid OpenAI audio calls are authorized only for short public-domain or
+  synthetic pronunciation clips. Never send private or copyrighted book text
+  or audio, titles, authors, paths, identifiers, or metadata.
+- Pin the Task 10 audio judge to the current official audio-input model at
+  implementation time: `gpt-audio-1.5` through Chat Completions. Record both
+  the requested model ID and the API-returned `model` value.
+- `gpt-audio-1.5` does not support Structured Outputs. Request one small JSON
+  object, strictly validate every field and the closed vocabulary locally,
+  reject malformed/duplicate/extra/unknown output, and never treat parsing
+  fallback as a pass.
+- Read `OPENAI_API_KEY` only from the process environment or an established
+  secret provider in the repository/API credential workflow. Never accept a
+  key in arguments, persist it, print it, log request headers, or commit it.
+- If no credential exists, continue every independent local task and report
+  only the audio-judge lane as `WAITING_FOR_USER`, never passed or failed.
+- The first unattended audio-judge run stops before request 201 and before the
+  estimated cumulative cost would exceed USD 10.00; the stricter limit wins.
+  Estimate before every request and record actual API usage when returned.
+- Keep current official model rates in an explicit versioned pricing
+  configuration with source URL and check date. Judge requests use audio input
+  and text output only.
+- Mac speakers remain muted. The model evaluates MP3/WAV files directly;
+  acoustic playback is not needed.
+- Treat audio-judge results as development evidence. Transcription may assist
+  diagnosis, but machine verdicts are never human labels or final human
+  listening, and machine-proposed corpus examples remain `provisional` until
+  independently human-labelled and adjudicated.
+- The audio model cannot edit production pronunciation data. Allow one narrow
+  diagnosis/fix proposal at a time and no more than two automated fix attempts
+  per failing clip before morning review; require red/green tests, negative
+  guards, implementation review, rerender, retest, and full touched-family
+  regression.
+- Results and morning queues contain no raw private text/audio, titles,
+  authors, paths, identifiers, API keys, or request headers. Public/synthetic
+  clip IDs are opaque corpus IDs.
 - Use concrete types and closure injection; do not introduce a provider protocol for the single Foundation Models implementation.
 - Run all model and lexicon preflight work off the UI actor, propagate cancellation, and use a fresh `LanguageModelSession` per batch.
 - Feature work branches from and opens a PR to `nightly`; never push directly to `main`, `weekly`, or `nightly`.
@@ -47,9 +82,11 @@ make echo-cli
 
 - `Tools/Pronunciation/pronunciation_corpus.py`
 - `Tools/Pronunciation/build_pronunciation_pack.py`
+- `Tools/Pronunciation/audio_judge.py`
 - `Tools/Pronunciation/cmudict.lock.json`
 - `Tools/Pronunciation/tests/test_pronunciation_corpus.py`
 - `Tools/Pronunciation/tests/test_build_pronunciation_pack.py`
+- `Tools/Pronunciation/tests/test_audio_judge.py`
 - `ThirdParty/CMUdict/LICENSE`
 - `ThirdParty/CMUdict/cmudict.dict`
 - `THIRD_PARTY_NOTICES.md`
@@ -102,7 +139,13 @@ make echo-cli
 - The semantic human-review UI, persistent human candidate/scope decisions, and the proposed `--allow-limited-pronunciation` CLI mode are deferred because shadow results neither block nor control production.
 - Phase 2 batches stage atomically in memory. Persistent staged-batch resume is deferred; cancellation or process exit recomputes shadow evidence, while existing completed audio is never re-analyzed in place.
 - A model runtime, prompt schema, or candidate selection enters synthesis cache identity only in a future phase where it actually affects accepted pronunciation.
-- Correction contribution/export, runtime pack downloads, Foundation Models adapters, cloud inference, and neural OOV/context models remain out of scope.
+- Correction contribution/export, runtime pack downloads, Foundation Models
+  adapters, production/runtime cloud inference, and neural OOV/context models
+  remain out of scope. The narrowly authorized Task 10 development audio judge
+  is not a runtime endpoint or production fallback.
+- The audio judge cannot graduate a Phase 2 family. A “graduated-family
+  regression” in Task 10 means all previously passing cases in a touched
+  deterministic family plus its negative controls.
 
 ---
 
@@ -1507,6 +1550,8 @@ git commit -m "feat: record contextual pronunciation shadow evidence"
 **Files:**
 
 - Create: `EchoTests/PronunciationProgramAcceptanceTests.swift`
+- Create: `Tools/Pronunciation/audio_judge.py`
+- Create: `Tools/Pronunciation/tests/test_audio_judge.py`
 - Create after real qualification: `docs/reports/pronunciation-phase2-qualification.md`
 - Modify: `Makefile`
 - Modify: `Tools/Pronunciation/pronunciation_corpus.py`
@@ -1566,7 +1611,173 @@ make pronunciation-program-report
 make pronunciation-program-report
 ```
 
-### 10.3 Update architecture documentation
+### 10.3 Build the development audio judge with TDD
+
+- [ ] Write failing standard-library `unittest` cases in
+  `Tools/Pronunciation/tests/test_audio_judge.py`. Tests create temporary
+  manifests and MP3/WAV fixtures; no private or copyrighted fixture enters the
+  repository. Cover:
+  - manifest admission of only short `public-domain` or `synthetic` clips;
+  - rejection before encoding of private/copyrighted provenance, raw text or
+    audio fields, titles, authors, local paths, user/book identifiers, metadata,
+    non-opaque clip IDs, and content-hash mismatches;
+  - a dry-run that performs eligibility, privacy, request-cap, and cost checks
+    without constructing or sending an HTTP request;
+  - stop before request 201 and before estimated cumulative cost would exceed
+    USD 10.00, with the stricter limit winning;
+  - direct base64 encoding of MP3 (`audio/mpeg`) and WAV (`audio/wav`) inputs;
+  - strict duplicate-key-aware JSON validation with no extra fields, the exact
+    `clipID`, finite confidence from 0 through 1, and the closed verdict and
+    category vocabularies;
+  - no-credential `WAITING_FOR_USER` with no passed/failed API-evaluation
+    status while independent local tests continue;
+  - one bounded retry for an eligible transient transport failure and no
+    reinterpretation of malformed output or model refusal as a pass;
+  - morning-queue routing for confidence below `0.80`, `uncertain`, malformed
+    output, model refusal, transport failure, deterministic disagreement, and
+    repeated regression failure;
+  - one narrow fix proposal at a time and no more than two automated fix
+    attempts per failing clip;
+  - redaction of private fields, keys, headers, and source paths from results,
+    errors, logs, and morning queues;
+  - requested and returned model IDs, per-request usage, cost, validation/retry
+    outcomes, corpus/content hashes, source commit, and render identity in the
+    run receipt.
+
+Run:
+
+```bash
+python3 -m unittest discover -s Tools/Pronunciation/tests -p 'test_audio_judge.py'
+```
+
+Expected: import failure for `audio_judge`.
+
+- [ ] Implement `Tools/Pronunciation/audio_judge.py` using only the Python
+  standard library and existing repository/runtime tools. The production code
+  must not import it. Default run artifacts go outside the repository under
+  `~/Library/Application Support/Echo/PronunciationAudioJudge/<run-id>/`.
+- [ ] Use Chat Completions with the current implementation-time pin
+  `gpt-audio-1.5`. As verified on 2026-07-28, the official model page identifies
+  it as the best audio-in/audio-out Chat Completions model, supports text and
+  audio input/output, and does not support Structured Outputs. Judge requests
+  use audio input and text output only.
+- [ ] Put pricing in an explicit versioned configuration in the tool. Recheck
+  and record the current official rates at implementation time. The
+  2026-07-28 reference rates are USD 2.50 per million text-input tokens, USD
+  10.00 per million text-output tokens, USD 32.00 per million audio-input
+  tokens, and USD 64.00 per million audio-output tokens. Record the pricing
+  source and check date from:
+  - `https://developers.openai.com/api/docs/models/gpt-audio-1.5`
+  - `https://developers.openai.com/api/docs/models/all`
+  - `https://developers.openai.com/api/docs/guides/audio`
+  - `https://platform.openai.com/docs/api-reference/chat`
+- [ ] Before each request, calculate a conservative estimate from the
+  versioned input-estimation rule and bounded maximum text output, add it to the
+  cumulative estimate, and refuse the request if it would be request 201 or
+  make estimated cumulative cost exceed USD 10.00. Record actual API usage
+  when the response supplies it; actual usage does not relax the prospective
+  cap.
+- [ ] Read `OPENAI_API_KEY` only through `os.environ` or an already established
+  repository secret-provider hook. Do not add a key argument or config field,
+  and never persist/print the key or log request headers. If neither source
+  yields a credential, write a credential-free receipt with
+  `status: "WAITING_FOR_USER"` and leave all independent local work runnable.
+- [ ] Request exactly one JSON object per clip and decode it with duplicate-key
+  rejection. Accept only these fields and vocabularies:
+
+```json
+{
+  "clipID": "opaque-public-or-synthetic-id",
+  "verdict": "pass | fail | uncertain",
+  "confidence": 0.0,
+  "category": "correct | wrong_word | wrong_sense | stress | vowel | consonant | timing | artifact | inaudible | other",
+  "heard": "optional, at most 160 Unicode scalar values",
+  "note": "optional, at most 400 Unicode scalar values"
+}
+```
+
+- [ ] Require `clipID`, `verdict`, `confidence`, and `category`; allow only the
+  bounded `heard` and `note` optionals. Reject missing, duplicate, extra,
+  unknown, wrong-type, non-finite, out-of-range, and overlong fields. Never
+  salvage prose, fenced JSON, partial objects, or parsing fallback as a pass.
+- [ ] Record corpus identity and content hashes; requested and returned model
+  IDs; request and clip counts; per-request usage; estimated cost and pricing
+  source/check date; verdict/confidence/category; validation and retry outcomes;
+  source commit and production render identity. Results and morning queues
+  contain no raw private text/audio, titles, authors, paths, identifiers, API
+  keys, or request headers; expose clips only through opaque corpus IDs.
+- [ ] Add this Make target:
+
+```make
+pronunciation-audio-judge-test:
+	python3 -m unittest discover -s Tools/Pronunciation/tests -p 'test_audio_judge.py'
+```
+
+- [ ] Run:
+
+```bash
+make pronunciation-audio-judge-test
+```
+
+Expected: all local audio-judge tests pass without a credential or API call.
+
+### 10.4 Run the capped public/synthetic audio-judge loop
+
+- [ ] Execute this exact development loop: production Echo render → direct
+  audio-file evaluation → validated structured verdict, confidence, and
+  category → narrow diagnosis/fix → rerender → retest → graduated-family
+  regression run → unresolved and low-confidence morning queue.
+- [ ] Prepare only short human-labelled public-domain or synthetic production
+  Echo pronunciation renders and a manifest at
+  `~/Library/Application Support/Echo/PronunciationAudioJudge/input/public-synthetic-v1/manifest.json`.
+  Each manifest row contains only opaque `clipID`, `provenance`, media type,
+  duration, audio content hash, corpus identity, deterministic expectation,
+  source commit, render identity, and the input fields required by the
+  versioned pre-request cost estimator. Resolve each clip from a sibling file
+  named `<clipID>.mp3` or `<clipID>.wav`; never put that path in a request,
+  result, log, receipt, or morning queue. Machine-proposed examples must carry
+  `labelStatus: "provisional"` and cannot enter the human-labelled corpus until
+  independently labelled/adjudicated.
+- [ ] Keep Mac speakers muted. Validate direct file evaluation first:
+
+```bash
+python3 Tools/Pronunciation/audio_judge.py evaluate \
+  --manifest ~/Library/Application\ Support/Echo/PronunciationAudioJudge/input/public-synthetic-v1/manifest.json \
+  --run-id public-synthetic-v1-dry-run \
+  --dry-run
+```
+
+Expected: eligibility, privacy, content hashes, request cap, and cost cap pass;
+zero API requests occur; a dry-run receipt is stored outside the repository.
+
+- [ ] Run the first unattended capped evaluation:
+
+```bash
+python3 Tools/Pronunciation/audio_judge.py evaluate \
+  --manifest ~/Library/Application\ Support/Echo/PronunciationAudioJudge/input/public-synthetic-v1/manifest.json \
+  --run-id public-synthetic-v1
+```
+
+Expected with a credential: direct MP3/WAV evaluation through
+`gpt-audio-1.5`, no request 201, estimated total at or below USD 10.00, actual
+usage recorded when returned, and strictly validated receipts and morning
+queue. Expected without a credential: `WAITING_FOR_USER`; do not mark the lane
+passed or failed, and continue Sections 10.5–10.10 wherever independent.
+
+- [ ] For each `fail`, make at most one narrow diagnosis/fix proposal at a time.
+  The model cannot edit production pronunciation data. Any accepted proposal
+  goes through red/green tests, negative guards, implementation review,
+  production Echo rerender, audio retest, and a regression run containing every
+  previously passing case in the touched deterministic family plus its
+  negative controls. A fix cannot graduate from only the failing clip, and no
+  failing clip receives more than two automated fix attempts before morning
+  review.
+- [ ] Queue confidence below `0.80`, `uncertain`, malformed output, refusal,
+  transport failure, deterministic disagreement, and repeated regression
+  failure for morning review. Keep machine results separate from human labels
+  and final human listening. This loop cannot graduate a Phase 2 family.
+
+### 10.5 Update architecture documentation
 
 - [ ] Add a concise `ARCHITECTURE.md` section covering:
   - the versioned bundled pack and source precedence;
@@ -1579,14 +1790,19 @@ make pronunciation-program-report
   - production cache identity including pack/morphology but excluding shadow evidence;
   - Phase 3's separate approval requirement.
 - [ ] State that the app still deploys to iOS 18/macOS 15 and Foundation Models are gated at iOS 26/macOS 26 with deterministic behavior on older/ineligible devices.
+- [ ] Document the development-only audio-judge boundary: public/synthetic
+  direct-audio input, no private/copyrighted material, muted speakers, strict
+  validated machine evidence, caps and `WAITING_FOR_USER`, no production
+  authority, and mandatory human-labelled corpus plus bounded listening.
 
-### 10.4 Run the complete mechanical gate
+### 10.6 Run the complete mechanical gate
 
 - [ ] Run from a clean task worktree:
 
 ```bash
 make pronunciation-corpus-test
 make pronunciation-pack-test
+make pronunciation-audio-judge-test
 make test
 make echo-cli
 git status --short --branch
@@ -1594,7 +1810,7 @@ git status --short --branch
 
 Expected: all local gates pass and only intended qualification/documentation changes remain.
 
-### 10.5 Perform real eligible-device shadow qualification
+### 10.7 Perform real eligible-device shadow qualification
 
 - [ ] On an Apple-Intelligence-eligible iOS 26+/macOS 26+ device with the system model available, narrate a synthetic or public-domain fixture containing every family and every sense.
 - [ ] Verify the v4 audit contains an envelope for every discovered occurrence and no raw three-sentence window.
@@ -1609,7 +1825,7 @@ Expected: all local gates pass and only intended qualification/documentation cha
 - [ ] Record device class, platform, OS build, qualified runtime-family ID, candidate pack, prompt schema, occurrence counts, selection/abstention/failure counts, and test dates. Do not record raw private source text or model responses.
 - [ ] If no eligible device is available, stop here and report runtime qualification as blocked. Passing simulator/unit tests is not a substitute.
 
-### 10.6 Perform bounded acoustic and human-listening checks
+### 10.8 Perform bounded acoustic and human-listening checks
 
 - [ ] Render representative samples for:
   - supplemental exact entries;
@@ -1618,8 +1834,10 @@ Expected: all local gates pass and only intended qualification/documentation cha
   - all senses of `read`, `live`/`lives`, and `record`.
 - [ ] Verify plan-to-audio mechanical integrity through the existing audit and listening-reel checks.
 - [ ] Have a human listen to the bounded sample set and record pass/fail plus corrections. Do not report mechanical checks as human acceptance.
+- [ ] Keep the human result separate from direct-audio API evaluation. Neither
+  a machine `pass` nor transcription is a human label or final listening result.
 
-### 10.7 Write the qualification receipt
+### 10.9 Write the qualification receipt
 
 - [ ] Create `docs/reports/pronunciation-phase2-qualification.md` with these sections and actual results:
 
@@ -1630,6 +1848,7 @@ Expected: all local gates pass and only intended qualification/documentation cha
 ## Local unit and build gates
 ## Pack reproducibility and attribution
 ## Corpus counts and deterministic metrics
+## Development audio-judge API evaluation
 ## Eligible-device Foundation Models shadow run
 ## Ineligible/older-platform fallback
 ## Cancellation and categorized failures
@@ -1640,14 +1859,25 @@ Expected: all local gates pass and only intended qualification/documentation cha
 ```
 
 - [ ] Under “Explicitly unproven,” state that Phase 2 does not prove any family is ready for model-controlled narration and does not authorize Phase 3.
-- [ ] Keep local tests, eligible-device execution, human listening, hosted CI, merge, installation, and release as separate statuses.
+- [ ] In “Development audio-judge API evaluation,” record the corpus identity
+  and hashes, requested/returned model IDs, request/clip counts, per-request
+  usage, estimated cost and pricing source/check date, structured results,
+  validation/retry outcomes, source commit, render identity, and morning-queue
+  count. If no credential exists, record `WAITING_FOR_USER`, never pass/fail.
+  Do not include raw private text/audio, titles, authors, paths, identifiers,
+  API keys, or request headers.
+- [ ] Keep local tests, builds, API evaluation, eligible-device shadow
+  execution, rendered-audio integrity, human listening, hosted CI, merge,
+  installation, and release as separate statuses.
 
-### 10.8 Commit and publish through the repository workflow
+### 10.10 Commit and publish through the repository workflow
 
 - [ ] Commit the acceptance test, metrics, architecture, and evidence receipt:
 
 ```bash
 git add Makefile Tools/Pronunciation/pronunciation_corpus.py \
+  Tools/Pronunciation/audio_judge.py \
+  Tools/Pronunciation/tests/test_audio_judge.py \
   EchoTests/PronunciationProgramAcceptanceTests.swift \
   ARCHITECTURE.md docs/reports/pronunciation-phase2-qualification.md
 git commit -m "docs: qualify pronunciation phases zero through two"
@@ -1669,3 +1899,18 @@ git commit -m "docs: qualify pronunciation phases zero through two"
 - [ ] Every contextual shadow occurrence receives one validated v4 envelope, including unavailable/failure outcomes.
 - [ ] Cancellation cannot produce a finalized partial plan.
 - [ ] The plan uses concrete file paths, type names, commands, expected outcomes, and commits; it contains no unfinished implementation marker or invented publication proof.
+- [ ] Task 10 owns the development audio judge, its standard-library tests, dry
+  run, and first capped public/synthetic API run; no earlier task or production
+  target depends on a credential.
+- [ ] Strict response validation has a closed vocabulary and no parsing
+  fallback; request/cost caps, `WAITING_FOR_USER`, bounded retries, two-attempt
+  fix limit, touched-family regression, and morning-queue rules all have tests.
+- [ ] Audio-judge receipts contain the required corpus, hash, model, usage,
+  pricing, verdict, validation/retry, source-commit, and render-identity
+  evidence without private/copyrighted content or secret/header data.
+- [ ] Machine judgments and `provisional` examples remain separate from
+  independently human-labelled corpora, rendered-audio integrity, and bounded
+  human listening.
+- [ ] Qualification reports local tests, builds, API evaluation,
+  eligible-device shadow execution, rendered-audio integrity, human listening,
+  hosted CI, merge, installation, and release as separate proof states.
