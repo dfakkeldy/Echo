@@ -457,12 +457,15 @@ initials and dotted initialisms remain ambiguous too. No honest spelling-only
 rule distinguishes longer abbreviations such as `Mass.` or `Chap.` from all
 ordinary sentence-ending words, so longer forms remain in a reviewed
 categorized catalog with independently selected category regressions. Ordinary
-proper-name sentence state is computed once in source order and indexed by
-candidate start. The forward index preserves the no-boundary,
-tail-alphanumeric, ambiguous-period, newline/CRLF, dotted-initialism, all-caps,
-and true-boundary semantics without rescanning a growing prefix per
-capitalized token. Ordinary lexical sentence endings such as `Done. Foobar`
-remain true boundaries.
+proper-name sentence state is computed once in `source.unicodeScalars` order
+and indexed by candidate start, matching the exact scalar index domain used by
+lexical tokenization. This admits scalar-interior candidate starts instead of
+parking the forward cursor, and observes CR and LF independently even when
+Swift's `Character` view clusters CRLF. The forward index preserves the
+no-boundary, tail-alphanumeric, ambiguous-period, newline/CRLF,
+dotted-initialism, all-caps, and true-boundary semantics without rescanning a
+growing prefix per capitalized token. Ordinary lexical sentence endings such
+as `Done. Foobar` remain true boundaries.
 
 The morphology policy identity is canonical JSON using the same encoding rules:
 
@@ -477,7 +480,7 @@ The morphology policy identity is canonical JSON using the same encoding rules:
   ],
   "suffixIPA": "əbəl",
   "minimumBaseLength": 3,
-  "properNamePolicyVersion": "proper-name-risk-v6",
+  "properNamePolicyVersion": "proper-name-risk-v7",
   "baseEvidencePolicyVersion": "kokoro-nonfallback-rating3-v1",
   "exceptionSetSHA256": "sha256:<canonical-sorted-exception-set-digest>",
   "pronunciationPackVersion": "sha256:<semantic-pack-digest>",

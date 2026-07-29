@@ -22,7 +22,7 @@ nonisolated enum UniversalPronunciationResolver {
     static let morphologyIdentitySchemaVersion = 1
     static let suffixIPA = "əbəl"
     static let minimumBaseLength = 3
-    static let properNamePolicyVersion = "proper-name-risk-v6"
+    static let properNamePolicyVersion = "proper-name-risk-v7"
     static let baseEvidencePolicyVersion = "kokoro-nonfallback-rating3-v1"
     /// Common honorific, military, professional, organizational, geographic,
     /// reference, and calendar abbreviations. A period after one of these is
@@ -84,7 +84,8 @@ nonisolated enum UniversalPronunciationResolver {
         let derivationRuleID: String?
     }
 
-    /// Candidate-start proper-name state built in one source-order pass.
+    /// Candidate-start proper-name state built in one Unicode-scalar
+    /// source-order pass, matching the index domain used by lexical tokens.
     /// Capitalization of each candidate is checked separately; this index owns
     /// only the preceding sentence-boundary context that was formerly rescanned
     /// from the candidate back to the start of the source.
@@ -169,8 +170,9 @@ nonisolated enum UniversalPronunciationResolver {
                     && currentComponentContainsOnlyLetters
             }
 
-            var sourceIndex = source.startIndex
-            while sourceIndex < source.endIndex {
+            let sourceScalars = source.unicodeScalars
+            var sourceIndex = sourceScalars.startIndex
+            while sourceIndex < sourceScalars.endIndex {
                 inspections += 1
                 if candidateCursor < candidateStarts.count,
                     candidateStarts[candidateCursor] == sourceIndex
@@ -184,8 +186,9 @@ nonisolated enum UniversalPronunciationResolver {
                     candidateCursor += 1
                 }
 
-                let character = source[sourceIndex]
-                if character == "." {
+                let scalar = sourceScalars[sourceIndex]
+                let character = Character(String(scalar))
+                if scalar.value == 0x2E {
                     hasBoundary = true
                     boundaryTailHasAlphanumeric = false
                     lastBoundaryIsAmbiguousPeriod =
@@ -211,7 +214,12 @@ nonisolated enum UniversalPronunciationResolver {
                             tokenCanMatchCatalog = false
                         }
                     }
-                } else if "!?…\n\r".contains(character) {
+                } else if scalar.value == 0x21
+                    || scalar.value == 0x3F
+                    || scalar.value == 0x2026
+                    || scalar.value == 0x0A
+                    || scalar.value == 0x0D
+                {
                     hasBoundary = true
                     boundaryTailHasAlphanumeric = false
                     lastBoundaryIsAmbiguousPeriod = false
@@ -222,10 +230,17 @@ nonisolated enum UniversalPronunciationResolver {
                         boundaryTailHasAlphanumeric = true
                     }
                     appendToPeriodToken(character.lowercased())
+                } else if tokenCharacterCount > 0,
+                    scalar.properties.generalCategory == .nonspacingMark
+                        || scalar.properties.generalCategory == .spacingMark
+                        || scalar.properties.generalCategory == .enclosingMark
+                {
+                    tokenForCatalog = ""
+                    tokenCanMatchCatalog = false
                 } else {
                     resetPeriodToken()
                 }
-                sourceIndex = source.index(after: sourceIndex)
+                sourceIndex = sourceScalars.index(after: sourceIndex)
             }
 
             riskByCandidateStart = risks

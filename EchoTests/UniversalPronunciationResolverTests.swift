@@ -741,6 +741,135 @@ import Testing
         }
     }
 
+    @Test func scalarNewlinesResetAmbiguousPeriodRisk() throws {
+        let supplementalPack = pack(automaticEntries: [
+            "foobar": ("cmudict.foobar.fixture", "fˈubɑɹ")
+        ])
+
+        let rewrittenCases = [
+            ("Dr.\nFoobar arrived.", "Dr.\n[Foobar](/fˈubɑɹ/) arrived."),
+            ("Dr.\rFoobar arrived.", "Dr.\r[Foobar](/fˈubɑɹ/) arrived."),
+            ("Dr.\r\nFoobar arrived.", "Dr.\r\n[Foobar](/fˈubɑɹ/) arrived."),
+            ("A.\nFoobar arrived.", "A.\n[Foobar](/fˈubɑɹ/) arrived."),
+            ("A.\rFoobar arrived.", "A.\r[Foobar](/fˈubɑɹ/) arrived."),
+            ("A.\r\nFoobar arrived.", "A.\r\n[Foobar](/fˈubɑɹ/) arrived."),
+            ("Done.\r\nFoobar arrived.", "Done.\r\n[Foobar](/fˈubɑɹ/) arrived."),
+            ("Done\u{301}. Foobar arrived.", "Done\u{301}. [Foobar](/fˈubɑɹ/) arrived."),
+        ]
+        for (source, expected) in rewrittenCases {
+            let result = UniversalPronunciationResolver.rewrite(
+                to: source,
+                blockID: "b1",
+                pack: supplementalPack,
+                basePronunciation: { _ in nil })
+
+            #expect(result.text == expected)
+            let seed = try #require(result.decisionSeeds.first)
+            #expect(result.decisionSeeds.count == 1)
+            #expect(seed.blockID == "b1")
+            #expect(seed.wordStart == 1)
+            #expect(seed.wordEnd == 1)
+            #expect(seed.sourceWord == "Foobar")
+            #expect(seed.normalizedWord == "foobar")
+            #expect(seed.selectedIPA == "fˈubɑɹ")
+            #expect(seed.source == .supplementalLexicon)
+            #expect(seed.ruleID == "supplemental-lexicon.exact.v1")
+            #expect(seed.candidateID == "cmudict.foobar.fixture")
+            #expect(seed.candidatePackVersion == supplementalPack.packVersion)
+            #expect(seed.derivationBase == nil)
+            #expect(seed.derivationRuleID == nil)
+        }
+
+        for source in [
+            "Dr. Foobar arrived.",
+            "A. Foobar arrived.",
+            "U.S. Foobar arrived.",
+            "Ph.D. Foobar arrived.",
+            "SSgt. Foobar arrived.",
+            "Done.\r\nA Foobar arrived.",
+        ] {
+            let result = UniversalPronunciationResolver.rewrite(
+                to: source,
+                blockID: "b1",
+                pack: supplementalPack,
+                basePronunciation: { _ in nil })
+            #expect(result.text == source)
+            #expect(result.decisionSeeds.isEmpty)
+        }
+    }
+
+    @Test func scalarInteriorCandidateStartsDoNotSuppressLaterSentenceStarts() throws {
+        let supplementalPack = pack(automaticEntries: [
+            "foobar": ("cmudict.foobar.fixture", "fˈubɑɹ")
+        ])
+        let cases = [
+            (
+                source: " \u{200D}unsupported. Foobar appeared.",
+                expected:
+                    " \u{200D}unsupported. [Foobar](/fˈubɑɹ/) appeared.",
+                wordStart: 1
+            ),
+            (
+                source: "A \u{200D}unsupported\r\nFoobar appeared.",
+                expected:
+                    "A \u{200D}unsupported\r\n[Foobar](/fˈubɑɹ/) appeared.",
+                wordStart: 2
+            ),
+        ]
+
+        for testCase in cases {
+            let result = UniversalPronunciationResolver.rewrite(
+                to: testCase.source,
+                blockID: "b1",
+                pack: supplementalPack,
+                basePronunciation: { _ in nil })
+
+            #expect(result.text == testCase.expected)
+            let seed = try #require(result.decisionSeeds.first)
+            #expect(result.decisionSeeds.count == 1)
+            #expect(seed.blockID == "b1")
+            #expect(seed.wordStart == testCase.wordStart)
+            #expect(seed.wordEnd == testCase.wordStart)
+            #expect(seed.sourceWord == "Foobar")
+            #expect(seed.normalizedWord == "foobar")
+            #expect(seed.selectedIPA == "fˈubɑɹ")
+            #expect(seed.source == .supplementalLexicon)
+            #expect(seed.ruleID == "supplemental-lexicon.exact.v1")
+            #expect(seed.candidateID == "cmudict.foobar.fixture")
+            #expect(seed.candidatePackVersion == supplementalPack.packVersion)
+            #expect(seed.derivationBase == nil)
+            #expect(seed.derivationRuleID == nil)
+        }
+    }
+
+    @Test func unicodeScalarStartsAndCRLFUseSourceLinearProperNameWork() throws {
+        let supplementalPack = pack(automaticEntries: [
+            "foobar": ("cmudict.foobar.fixture", "fˈubɑɹ")
+        ])
+
+        for repetitionCount in [1_000, 2_000, 4_000] {
+            let source = String(
+                repeating: " \u{200D}unsupported. Dr.\r\nFoobar ",
+                count: repetitionCount)
+            var operationCounts = UniversalPronunciationResolver.OperationCounts()
+
+            let result = UniversalPronunciationResolver.rewrite(
+                to: source,
+                blockID: "b1",
+                pack: supplementalPack,
+                basePronunciation: { _ in nil },
+                operationCounts: &operationCounts)
+
+            #expect(result.decisionSeeds.count == repetitionCount)
+            #expect(result.decisionSeeds.allSatisfy { $0.sourceWord == "Foobar" })
+            #expect(operationCounts.parserInspections <= source.count * 20)
+            #expect(operationCounts.protectedIntervalOperations <= source.count * 4)
+            try #require(operationCounts.properNameInspections <= source.count * 4)
+            #expect(operationCounts.sourceTraversalOperations <= source.count * 28)
+            #expect(operationCounts.auditSnapshotConstructions == 1)
+        }
+    }
+
     @Test func abbreviationsAndInitialsDoNotProveSentenceStart() {
         let supplementalPack = pack(automaticEntries: [
             "foobar": ("cmudict.foobar.fixture", "fˈubɑɹ")
@@ -788,7 +917,7 @@ import Testing
             "U.S. Foobar arrived.",
             "e.g. Foobar arrived.",
             "Version 3.14 Foobar arrived.",
-            // Held-out short forms exercise the general v5 rule rather than
+            // Held-out short forms exercise the general versioned rule rather than
             // duplicating individually catalogued implementation entries.
             "Mme. Foobar arrived.",
             "Cmd. Foobar arrived.",
@@ -816,7 +945,7 @@ import Testing
         #expect(trueBoundary.decisionSeeds.map(\.normalizedWord) == ["foobar"])
     }
 
-    @Test func v6LongerAbbreviationCategoriesDoNotProveSentenceStart() {
+    @Test func v7LongerAbbreviationCategoriesDoNotProveSentenceStart() {
         let supplementalPack = pack(automaticEntries: [
             "foobar": ("cmudict.foobar.fixture", "fˈubɑɹ")
         ])
@@ -828,7 +957,7 @@ import Testing
             "Thurs. Foobar arrived.",
         ]
         // Independently selected representatives exercise each named category
-        // beyond the five omissions that triggered the v6 review.
+        // beyond the five omissions that originally expanded the catalog.
         let heldOutCategoryCases = [
             "GySgt. Foobar arrived.",
             "Intl. Foobar arrived.",
@@ -1004,8 +1133,8 @@ import Testing
 
         #expect(
             policyVersion
-                == "morphology-v1:sha256:2580d437001e2d89c46736ba822b130de246f086b0e343af90665fdc1c163280")
-        #expect(candidateID == "morphology.startable.bba3cbb67e4e")
+                == "morphology-v1:sha256:58523e5570d98308c8f233be1e1cadb6c0f32079f54725f87ddabaa4151ca5d9")
+        #expect(candidateID == "morphology.startable.14f4cfb4f8f1")
         #expect(
             UniversalPronunciationResolver.morphologyCandidatePackVersion(for: fixturePack)
                 == policyVersion)
@@ -1040,7 +1169,7 @@ import Testing
         let changedProperNamePolicy =
             UniversalPronunciationResolver.morphologyCandidatePackVersion(
                 for: fixturePack,
-                properNamePolicyVersion: "proper-name-risk-v5")
+                properNamePolicyVersion: "proper-name-risk-v6")
         let changedPack = UniversalPronunciationResolver.morphologyCandidatePackVersion(
             for: pack(packVersion: "sha256:" + String(repeating: "2", count: 64)))
         let changedVocabulary = UniversalPronunciationResolver.morphologyCandidatePackVersion(

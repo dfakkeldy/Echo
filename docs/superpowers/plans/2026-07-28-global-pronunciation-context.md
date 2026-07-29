@@ -1096,7 +1096,7 @@ nonisolated enum UniversalPronunciationResolver {
     static let morphologyIdentitySchemaVersion = 1
     static let suffixIPA = "əbəl"
     static let minimumBaseLength = 3
-    static let properNamePolicyVersion = "proper-name-risk-v6"
+    static let properNamePolicyVersion = "proper-name-risk-v7"
     static let baseEvidencePolicyVersion = "kokoro-nonfallback-rating3-v1"
     static let contextualExclusions: Set<String> = [
         "content", "read", "live", "lives", "record", "records",
@@ -1140,7 +1140,7 @@ nonisolated enum UniversalPronunciationResolver {
   ],
   "suffixIPA": "əbəl",
   "minimumBaseLength": 3,
-  "properNamePolicyVersion": "proper-name-risk-v6",
+  "properNamePolicyVersion": "proper-name-risk-v7",
   "baseEvidencePolicyVersion": "kokoro-nonfallback-rating3-v1",
   "exceptionSetSHA256": "sha256:<canonical-sorted-exception-set-digest>",
   "pronunciationPackVersion": "<pack.packVersion>",
@@ -1193,8 +1193,10 @@ nonisolated enum UniversalPronunciationResolver {
   the implementation table. Initials and dotted initialisms remain ambiguous
   too. Preserve ordinary lexical sentence endings such as `Done. Foobar` as
   true boundaries. Precompute this sentence/proper-name state in one
-  source-order pass indexed by candidate start; never rescan a growing prefix
-  for each capitalized candidate.
+  `source.unicodeScalars` pass indexed by the exact scalar-domain candidate
+  starts emitted by lexical tokenization. Recognize CR and LF independently,
+  including a clustered CRLF pair, and never rescan a growing prefix for each
+  capitalized candidate.
 - [ ] Apply an exact pack candidate first only through
   `pack.automaticCandidate(for:)`: the entry must contain exactly one
   candidate, its status must be `validated-automatic`, and
