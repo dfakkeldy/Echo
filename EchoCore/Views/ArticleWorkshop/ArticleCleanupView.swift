@@ -7,18 +7,36 @@
         let captureID: String
         let context: ArticleCleanupContext
 
-        @State private var viewModel: ArticleCleanupViewModel?
-        @State private var loadError: String?
+        @State private var coordinator: ArticleCleanupLoadingCoordinator
+
+        init(captureID: String, context: ArticleCleanupContext) {
+            self.captureID = captureID
+            self.context = context
+            _coordinator = State(
+                initialValue: ArticleCleanupLoadingCoordinator(
+                    loadState: { captureID in
+                        try await context.loader.load(captureID: captureID)
+                    },
+                    publishRevision: context.publishRevision))
+        }
 
         var body: some View {
             Group {
-                if let viewModel {
+                if let viewModel = coordinator.viewModel {
                     ArticleCleanupView(viewModel: viewModel)
-                } else if let loadError {
-                    ContentUnavailableView(
-                        "Cleanup Unavailable",
-                        systemImage: "exclamationmark.triangle",
-                        description: Text(loadError))
+                } else if let userMessage = coordinator.userMessage {
+                    ContentUnavailableView {
+                        Label(
+                            "Cleanup Unavailable",
+                            systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(userMessage)
+                    } actions: {
+                        Button("Try Again") {
+                            coordinator.retry()
+                        }
+                        .frame(minHeight: 44)
+                    }
                 } else {
                     ProgressView("Loading original capture…")
                 }
@@ -26,23 +44,10 @@
             .navigationTitle("Clean Up")
             .navigationBarTitleDisplayMode(.inline)
             .task(id: captureID) {
-                await load()
+                coordinator.start(captureID: captureID)
             }
-        }
-
-        private func load() async {
-            do {
-                let loaded = try await context.loader.load(captureID: captureID)
-                try Task.checkCancellation()
-                viewModel = try ArticleCleanupViewModel(
-                    loadedState: loaded,
-                    publishRevision: context.publishRevision)
-                loadError = nil
-            } catch is CancellationError {
-                return
-            } catch {
-                viewModel = nil
-                loadError = error.localizedDescription
+            .onDisappear {
+                coordinator.cancel()
             }
         }
     }
@@ -239,18 +244,20 @@
 
         @ViewBuilder
         private func blockRow(_ block: ArticleBlock) -> some View {
-            let excluded = viewModel.isExcluded(block.id)
+            let presentation =
+                viewModel.presentation(for: block.id)
+                ?? ArticleCleanupBlockPresentation(
+                    state: .included,
+                    startsHere: false,
+                    endsHere: false)
+            let excluded = presentation.state == .explicitlyRemoved
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline) {
                     Label(blockLabel(block.kind), systemImage: blockIcon(block.kind))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
-                    if excluded {
-                        Label("Removed", systemImage: "minus.circle")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    blockStatus(presentation)
                 }
                 if excluded {
                     Button("Restore") {
@@ -279,6 +286,31 @@
             }
             .padding(.vertical, 4)
             .accessibilityElement(children: .contain)
+            .accessibilityValue(presentation.accessibilityValue)
+        }
+
+        @ViewBuilder
+        private func blockStatus(_ presentation: ArticleCleanupBlockPresentation) -> some View {
+            VStack(alignment: .trailing, spacing: 4) {
+                switch presentation.state {
+                case .included:
+                    EmptyView()
+                case .explicitlyRemoved:
+                    Label("Removed", systemImage: "minus.circle")
+                case .trimmedAbove:
+                    Label("Trimmed above", systemImage: "arrow.up.to.line")
+                case .trimmedBelow:
+                    Label("Trimmed below", systemImage: "arrow.down.to.line")
+                }
+                if presentation.startsHere {
+                    Label("Starts here", systemImage: "arrow.right.to.line")
+                }
+                if presentation.endsHere {
+                    Label("Ends here", systemImage: "arrow.left.to.line")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
 
         @ViewBuilder
@@ -317,7 +349,7 @@
                 _ = try viewModel.save(deviceName: UIDevice.current.name)
                 saveError = nil
             } catch {
-                saveError = error.localizedDescription
+                saveError = ArticleCleanupUserMessage.save(error)
             }
         }
 

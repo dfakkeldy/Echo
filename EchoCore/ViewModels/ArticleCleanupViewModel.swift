@@ -21,6 +21,7 @@ actor ArticleCleanupLoader {
         case malformedCurrentRevision(String)
         case inconsistentMetadataOverrides(String)
         case invalidCurrentRecipe(String)
+        case originalCaptureUnreadable
 
         var errorDescription: String? {
             switch self {
@@ -34,6 +35,8 @@ actor ArticleCleanupLoader {
                 return "The saved cleanup metadata is inconsistent."
             case .invalidCurrentRecipe:
                 return "The saved cleanup references content outside this article."
+            case .originalCaptureUnreadable:
+                return "The original capture could not be read safely."
             }
         }
     }
@@ -50,7 +53,12 @@ actor ArticleCleanupLoader {
         guard let capture = try captureDAO.capture(id: captureID) else {
             throw Error.captureNotFound(captureID)
         }
-        let source = try fileStore.loadSnapshot(for: capture)
+        let source: ArticleSnapshot
+        do {
+            source = try fileStore.loadSnapshot(for: capture)
+        } catch {
+            throw Error.originalCaptureUnreadable
+        }
         guard let current = try captureDAO.currentRevision(captureID: captureID) else {
             return ArticleCleanupLoadedState(
                 source: source,
@@ -103,6 +111,142 @@ nonisolated struct ArticleCleanupContext: Sendable {
                 revision,
                 expectedCurrentRevisionID: expectedCurrentRevisionID)
         }
+    }
+}
+
+nonisolated enum ArticleCleanupUserMessage {
+    static func load(_ error: any Swift.Error) -> String {
+        if let loaderError = error as? ArticleCleanupLoader.Error {
+            switch loaderError {
+            case .captureNotFound:
+                return "This article is no longer available."
+            case .originalCaptureUnreadable:
+                return "The original capture could not be read safely."
+            case .currentRevisionBelongsToAnotherCapture,
+                .malformedCurrentRevision,
+                .inconsistentMetadataOverrides,
+                .invalidCurrentRecipe:
+                return "The saved cleanup could not be read safely."
+            }
+        }
+        if error is ArticleWorkshopFileStore.Error {
+            return "The original capture could not be read safely."
+        }
+        if error is ArticleRevisionService.Error {
+            return "The saved cleanup could not be read safely."
+        }
+        return "Cleanup could not be loaded right now. Try again."
+    }
+
+    static func save(_ error: any Swift.Error) -> String {
+        if let conflict = error as? ArticleCleanupViewModel.Error {
+            return conflict.localizedDescription
+        }
+        return "Cleanup could not be saved. Try again. Your unsaved choices remain."
+    }
+}
+
+typealias ArticleCleanupStateLoader =
+    @Sendable (String) async throws -> ArticleCleanupLoadedState
+
+@MainActor
+@Observable
+final class ArticleCleanupLoadingCoordinator {
+    private(set) var viewModel: ArticleCleanupViewModel?
+    private(set) var userMessage: String?
+    private(set) var isLoading = false
+
+    @ObservationIgnored private let loadState: ArticleCleanupStateLoader
+    @ObservationIgnored private let publishRevision: ArticleRevisionPublisher
+    @ObservationIgnored private var captureID: String?
+    @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var loadTask: Task<Void, Never>?
+
+    init(
+        loadState: @escaping ArticleCleanupStateLoader,
+        publishRevision: @escaping ArticleRevisionPublisher
+    ) {
+        self.loadState = loadState
+        self.publishRevision = publishRevision
+    }
+
+    func start(captureID: String) {
+        self.captureID = captureID
+        startLoad(captureID: captureID)
+    }
+
+    func retry() {
+        guard let captureID else { return }
+        startLoad(captureID: captureID)
+    }
+
+    func cancel() {
+        generation += 1
+        loadTask?.cancel()
+        loadTask = nil
+        isLoading = false
+    }
+
+    private func startLoad(captureID: String) {
+        loadTask?.cancel()
+        generation += 1
+        let loadGeneration = generation
+        let loadState = loadState
+        let publishRevision = publishRevision
+        viewModel = nil
+        userMessage = nil
+        isLoading = true
+
+        loadTask = Task { [weak self] in
+            do {
+                let loaded = try await loadState(captureID)
+                try Task.checkCancellation()
+                let viewModel = try ArticleCleanupViewModel(
+                    loadedState: loaded,
+                    publishRevision: publishRevision)
+                guard let self, generation == loadGeneration else { return }
+                self.viewModel = viewModel
+            } catch is CancellationError {
+                return
+            } catch {
+                guard let self, generation == loadGeneration else { return }
+                userMessage = ArticleCleanupUserMessage.load(error)
+            }
+            guard let self, generation == loadGeneration else { return }
+            isLoading = false
+            loadTask = nil
+        }
+    }
+}
+
+nonisolated struct ArticleCleanupBlockPresentation: Equatable, Sendable {
+    enum State: Equatable, Sendable {
+        case included
+        case explicitlyRemoved
+        case trimmedAbove
+        case trimmedBelow
+    }
+
+    let state: State
+    let startsHere: Bool
+    let endsHere: Bool
+
+    var accessibilityValue: String {
+        let stateValue: String
+        switch state {
+        case .included: stateValue = "Included"
+        case .explicitlyRemoved: stateValue = "Removed"
+        case .trimmedAbove: stateValue = "Trimmed above"
+        case .trimmedBelow: stateValue = "Trimmed below"
+        }
+        var values = [stateValue]
+        if startsHere {
+            values.append("starts here")
+        }
+        if endsHere {
+            values.append("ends here")
+        }
+        return values.joined(separator: ", ")
     }
 }
 
@@ -177,6 +321,34 @@ final class ArticleCleanupViewModel {
 
     func isExcluded(_ blockID: String) -> Bool {
         recipe.excludedBlockIDs.contains(blockID)
+    }
+
+    func presentation(for blockID: String) -> ArticleCleanupBlockPresentation? {
+        guard let index = source.blocks.firstIndex(where: { $0.id == blockID }) else {
+            return nil
+        }
+        let startIndex = recipe.trimBeforeBlockID.flatMap { boundary in
+            source.blocks.firstIndex(where: { $0.id == boundary })
+        }
+        let endIndex = recipe.trimAfterBlockID.flatMap { boundary in
+            source.blocks.firstIndex(where: { $0.id == boundary })
+        }
+        if let startIndex, index < startIndex {
+            return ArticleCleanupBlockPresentation(
+                state: .trimmedAbove,
+                startsHere: false,
+                endsHere: false)
+        }
+        if let endIndex, index > endIndex {
+            return ArticleCleanupBlockPresentation(
+                state: .trimmedBelow,
+                startsHere: false,
+                endsHere: false)
+        }
+        return ArticleCleanupBlockPresentation(
+            state: isExcluded(blockID) ? .explicitlyRemoved : .included,
+            startsHere: index == startIndex,
+            endsHere: index == endIndex)
     }
 
     func exclude(blockID: String) {

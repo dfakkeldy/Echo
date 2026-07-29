@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import CryptoKit
+import Darwin
 import Foundation
 
 nonisolated struct ArticleWorkshopFileStore {
+    enum ValidationPoint: Equatable, Sendable {
+        case afterRead
+    }
+
     enum Error: Swift.Error, LocalizedError {
         case incompletePackage(URL)
         case invalidCaptureDirectory(URL)
@@ -56,9 +61,14 @@ nonisolated struct ArticleWorkshopFileStore {
     }
 
     let root: URL
+    private let validationHook: @Sendable (ValidationPoint, URL) throws -> Void
 
-    init(root: URL = FileLocations.articleWorkshopRootDirectory) {
+    init(
+        root: URL = FileLocations.articleWorkshopRootDirectory,
+        validationHook: @escaping @Sendable (ValidationPoint, URL) throws -> Void = { _, _ in }
+    ) {
         self.root = root
+        self.validationHook = validationHook
     }
 
     func importEnvelope(at package: URL) throws -> ImportedEnvelope {
@@ -161,21 +171,87 @@ nonisolated struct ArticleWorkshopFileStore {
     }
 
     private func boundedRegularFileData(at url: URL) throws -> Data {
-        let sizeBefore = try regularFileSize(url)
-        guard sizeBefore <= ArticleWorkshopLimits.maxEnvelopeBytes else {
-            throw Error.envelopeTooLarge(sizeBefore)
-        }
+        let pathBefore = try pathMetadataWithoutFollowingLeaf(at: url)
         let handle = try FileHandle(forReadingFrom: url)
-        let data = try handle.read(upToCount: ArticleWorkshopLimits.maxEnvelopeBytes + 1) ?? Data()
-        try handle.close()
+        defer { try? handle.close() }
+        let metadataBefore = try descriptorMetadata(
+            handle.fileDescriptor,
+            url: url)
+        guard pathBefore.hasSameIdentity(as: metadataBefore) else {
+            throw Error.fileChangedDuringValidation(url)
+        }
+        guard
+            metadataBefore.size
+                <= Int64(ArticleWorkshopLimits.maxEnvelopeBytes)
+        else {
+            throw Error.envelopeTooLarge(Int(metadataBefore.size))
+        }
+        let data =
+            try handle.read(
+                upToCount: ArticleWorkshopLimits.maxEnvelopeBytes + 1)
+            ?? Data()
+        try validationHook(.afterRead, url)
+        let metadataAfter = try descriptorMetadata(
+            handle.fileDescriptor,
+            url: url)
+        guard metadataBefore == metadataAfter else {
+            throw Error.fileChangedDuringValidation(url)
+        }
+        let livePath = try pathMetadataWithoutFollowingLeaf(at: url)
+        guard metadataAfter.hasSameIdentity(as: livePath) else {
+            throw Error.fileChangedDuringValidation(url)
+        }
         guard data.count <= ArticleWorkshopLimits.maxEnvelopeBytes else {
             throw Error.envelopeTooLarge(data.count)
         }
-        let sizeAfter = try regularFileSize(url)
-        guard sizeBefore == sizeAfter, sizeAfter == data.count else {
+        guard metadataAfter.size == Int64(data.count) else {
             throw Error.fileChangedDuringValidation(url)
         }
         return data
+    }
+
+    private func descriptorMetadata(
+        _ descriptor: Int32,
+        url: URL
+    ) throws -> FileMetadata {
+        var information = stat()
+        guard fstat(descriptor, &information) == 0 else {
+            throw Error.unsafeFile(url)
+        }
+        return try fileMetadata(information, url: url)
+    }
+
+    private func pathMetadataWithoutFollowingLeaf(at url: URL) throws -> FileMetadata {
+        var information = stat()
+        let result: Int32 = url.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return -1 }
+            return lstat(path, &information)
+        }
+        guard result == 0 else {
+            throw Error.unsafeFile(url)
+        }
+        return try fileMetadata(information, url: url)
+    }
+
+    private func fileMetadata(
+        _ information: stat,
+        url: URL
+    ) throws -> FileMetadata {
+        guard
+            (information.st_mode & S_IFMT) == S_IFREG,
+            information.st_size >= 0
+        else {
+            throw Error.unsafeFile(url)
+        }
+        return FileMetadata(
+            device: UInt64(information.st_dev),
+            inode: UInt64(information.st_ino),
+            size: Int64(information.st_size),
+            modificationSeconds: Int64(information.st_mtimespec.tv_sec),
+            modificationNanoseconds: Int64(information.st_mtimespec.tv_nsec),
+            changeSeconds: Int64(information.st_ctimespec.tv_sec),
+            changeNanoseconds: Int64(information.st_ctimespec.tv_nsec),
+        )
     }
 
     private func regularFileSize(_ url: URL) throws -> Int {
@@ -203,5 +279,19 @@ nonisolated struct ArticleWorkshopFileStore {
 
     private static func sha256(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+private nonisolated struct FileMetadata: Equatable {
+    let device: UInt64
+    let inode: UInt64
+    let size: Int64
+    let modificationSeconds: Int64
+    let modificationNanoseconds: Int64
+    let changeSeconds: Int64
+    let changeNanoseconds: Int64
+
+    func hasSameIdentity(as other: FileMetadata) -> Bool {
+        device == other.device && inode == other.inode
     }
 }

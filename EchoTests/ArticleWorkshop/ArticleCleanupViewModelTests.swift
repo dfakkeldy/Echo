@@ -197,6 +197,166 @@ import Testing
         #expect(sink.publishedRecords == [saved])
     }
 
+    @Test func presentsIncludedRemovedAndTrimmedRowsWithBoundaries() throws {
+        let source = cleanupSnapshot(blockCount: 7)
+        let viewModel = try makeViewModel(source: source)
+        viewModel.trimBefore(blockID: source.blocks[1].id)
+        viewModel.trimAfter(blockID: source.blocks[5].id)
+        viewModel.exclude(blockID: source.blocks[3].id)
+
+        let presentations = source.blocks.compactMap {
+            viewModel.presentation(for: $0.id)
+        }
+
+        #expect(
+            presentations == [
+                ArticleCleanupBlockPresentation(
+                    state: .trimmedAbove,
+                    startsHere: false,
+                    endsHere: false),
+                ArticleCleanupBlockPresentation(
+                    state: .included,
+                    startsHere: true,
+                    endsHere: false),
+                ArticleCleanupBlockPresentation(
+                    state: .included,
+                    startsHere: false,
+                    endsHere: false),
+                ArticleCleanupBlockPresentation(
+                    state: .explicitlyRemoved,
+                    startsHere: false,
+                    endsHere: false),
+                ArticleCleanupBlockPresentation(
+                    state: .included,
+                    startsHere: false,
+                    endsHere: false),
+                ArticleCleanupBlockPresentation(
+                    state: .included,
+                    startsHere: false,
+                    endsHere: true),
+                ArticleCleanupBlockPresentation(
+                    state: .trimmedBelow,
+                    startsHere: false,
+                    endsHere: false),
+            ])
+        #expect(
+            presentations.map(\.accessibilityValue) == [
+                "Trimmed above",
+                "Included, starts here",
+                "Included",
+                "Removed",
+                "Included",
+                "Included, ends here",
+                "Trimmed below",
+            ])
+    }
+
+    @Test func mapsLoadAndSaveErrorsWithoutLeakingPrivateDiagnostics() {
+        let privatePath = "/Users/reader/Private/article/snapshot.json"
+        let sql = "GRDB: SELECT * FROM article_capture"
+        let hostile = HostileCleanupError(message: "\(sql) at \(privatePath)")
+        let conflict = ArticleCleanupViewModel.Error.revisionConflict(
+            expected: "revision-private",
+            actual: "revision-other")
+        let messages = [
+            ArticleCleanupUserMessage.load(
+                ArticleCleanupLoader.Error.captureNotFound("capture-private")),
+            ArticleCleanupUserMessage.load(
+                ArticleCleanupLoader.Error.malformedCurrentRevision("revision-private")),
+            ArticleCleanupUserMessage.load(
+                ArticleWorkshopFileStore.Error.unsafeFile(
+                    URL(fileURLWithPath: privatePath))),
+            ArticleCleanupUserMessage.load(hostile),
+            ArticleCleanupUserMessage.save(hostile),
+            ArticleCleanupUserMessage.save(conflict),
+        ]
+
+        #expect(
+            messages == [
+                "This article is no longer available.",
+                "The saved cleanup could not be read safely.",
+                "The original capture could not be read safely.",
+                "Cleanup could not be loaded right now. Try again.",
+                "Cleanup could not be saved. Try again. Your unsaved choices remain.",
+                conflict.localizedDescription,
+            ])
+        for message in messages {
+            #expect(message.contains(privatePath) == false)
+            #expect(message.contains(sql) == false)
+            #expect(message.contains("revision-private") == false)
+        }
+    }
+
+    @Test func retryStartsNewLoadAfterSafeFailure() async {
+        let loader = ControlledCleanupLoader()
+        let coordinator = ArticleCleanupLoadingCoordinator(
+            loadState: loader.load,
+            publishRevision: { revision, _ in .published(revision) })
+        coordinator.start(captureID: "capture")
+        await loader.waitForAttemptCount(1)
+        await loader.fail(
+            attempt: 1,
+            error: HostileCleanupError(
+                message: "GRDB SELECT /Users/reader/Private/snapshot.json"))
+        #expect(
+            await eventually {
+                coordinator.userMessage == "Cleanup could not be loaded right now. Try again."
+            })
+
+        coordinator.retry()
+        await loader.waitForAttemptCount(2)
+        await loader.succeed(
+            attempt: 2,
+            state: ArticleCleanupLoadedState(
+                source: cleanupSnapshot(title: "Retry result"),
+                baselineRecipe: ArticleEditRecipe(),
+                expectedBaseRevisionID: nil))
+
+        #expect(
+            await eventually {
+                coordinator.viewModel?.source.metadata.title == "Retry result"
+            })
+        #expect(await loader.attemptCount == 2)
+        #expect(coordinator.userMessage == nil)
+    }
+
+    @Test func staleCancelledLoadCannotOverwriteRetryResult() async {
+        let loader = ControlledCleanupLoader()
+        let coordinator = ArticleCleanupLoadingCoordinator(
+            loadState: loader.load,
+            publishRevision: { revision, _ in .published(revision) })
+        coordinator.start(captureID: "capture")
+        await loader.waitForAttemptCount(1)
+
+        coordinator.retry()
+        await loader.waitForAttemptCount(2)
+        await loader.succeed(
+            attempt: 2,
+            state: ArticleCleanupLoadedState(
+                source: cleanupSnapshot(title: "New result"),
+                baselineRecipe: ArticleEditRecipe(),
+                expectedBaseRevisionID: nil))
+        #expect(
+            await eventually {
+                coordinator.viewModel?.source.metadata.title == "New result"
+            })
+
+        await loader.succeed(
+            attempt: 1,
+            state: ArticleCleanupLoadedState(
+                source: cleanupSnapshot(title: "Stale result"),
+                baselineRecipe: ArticleEditRecipe(),
+                expectedBaseRevisionID: nil))
+        for _ in 0..<200 {
+            if await loader.finishedAttemptCount == 2 { break }
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+
+        #expect(coordinator.viewModel?.source.metadata.title == "New result")
+        #expect(await loader.attemptCount == 2)
+        #expect(await loader.finishedAttemptCount == 2)
+    }
+
     @Test func loaderUsesCurrentRecipeAndRejectsMalformedOrForeignRevision() async throws {
         let fixture = try CleanupLoaderFixture()
         defer { fixture.removeFiles() }
@@ -304,6 +464,55 @@ private nonisolated final class CleanupRevisionSink: @unchecked Sendable {
         if let result { return result }
         publishedRecords.append(revision)
         return .published(revision)
+    }
+}
+
+private nonisolated struct HostileCleanupError: LocalizedError, Sendable {
+    let message: String
+
+    var errorDescription: String? { message }
+}
+
+private actor ControlledCleanupLoader {
+    private var nextAttempt = 0
+    private var pending: [Int: CheckedContinuation<ArticleCleanupLoadedState, any Error>] = [:]
+    private var attemptWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private(set) var finishedAttemptCount = 0
+
+    var attemptCount: Int { nextAttempt }
+
+    func load(_ captureID: String) async throws -> ArticleCleanupLoadedState {
+        nextAttempt += 1
+        let attempt = nextAttempt
+        let state = try await withCheckedThrowingContinuation { continuation in
+            pending[attempt] = continuation
+            releaseAttemptWaiters()
+        }
+        finishedAttemptCount += 1
+        return state
+    }
+
+    func waitForAttemptCount(_ count: Int) async {
+        guard nextAttempt < count else { return }
+        await withCheckedContinuation { continuation in
+            attemptWaiters.append((count, continuation))
+        }
+    }
+
+    func succeed(attempt: Int, state: ArticleCleanupLoadedState) {
+        pending.removeValue(forKey: attempt)?.resume(returning: state)
+    }
+
+    func fail(attempt: Int, error: any Error) {
+        pending.removeValue(forKey: attempt)?.resume(throwing: error)
+    }
+
+    private func releaseAttemptWaiters() {
+        let ready = attemptWaiters.filter { $0.count <= nextAttempt }
+        attemptWaiters.removeAll { $0.count <= nextAttempt }
+        for waiter in ready {
+            waiter.continuation.resume()
+        }
     }
 }
 
@@ -429,17 +638,38 @@ private struct CleanupLoaderFixture {
     }
 }
 
-private func cleanupSnapshot() -> ArticleSnapshot {
+@MainActor
+private func eventually(_ condition: @MainActor () -> Bool) async -> Bool {
+    for _ in 0..<200 {
+        if condition() { return true }
+        try? await Task.sleep(for: .milliseconds(1))
+    }
+    return condition()
+}
+
+private func cleanupSnapshot(
+    title: String = "Original title",
+    blockCount: Int = 3
+) -> ArticleSnapshot {
     let captureID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
-    let blocks = [
-        cleanupBlock(captureID: captureID, ordinal: 0, kind: .heading, text: "Heading"),
-        cleanupBlock(captureID: captureID, ordinal: 1, kind: .paragraph, text: "First"),
-        cleanupBlock(captureID: captureID, ordinal: 2, kind: .paragraph, text: "Second"),
-    ]
+    let blocks = (0..<blockCount).map { ordinal in
+        let text: String
+        switch ordinal {
+        case 0: text = "Heading"
+        case 1: text = "First"
+        case 2: text = "Second"
+        default: text = "Block \(ordinal)"
+        }
+        return cleanupBlock(
+            captureID: captureID,
+            ordinal: ordinal,
+            kind: ordinal == 0 ? .heading : .paragraph,
+            text: text)
+    }
     return ArticleSnapshot(
         captureID: captureID,
         metadata: ArticleMetadata(
-            title: "Original title",
+            title: title,
             author: "Original author",
             siteName: "Original site",
             language: "en",

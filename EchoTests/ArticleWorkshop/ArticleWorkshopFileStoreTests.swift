@@ -158,6 +158,80 @@ import Testing
         }
     }
 
+    @Test func unchangedSnapshotLoadsAfterSingleFileValidation() throws {
+        let fixture = try installedSnapshotFixture()
+        defer { try! FileManager.default.removeItem(at: fixture.root) }
+        let recorder = ValidationURLRecorder()
+        let store = ArticleWorkshopFileStore(
+            root: fixture.workshop,
+            validationHook: { point, url in
+                guard point == .afterRead else { return }
+                recorder.append(url)
+            })
+
+        let snapshot = try store.loadSnapshot(for: fixture.record)
+
+        #expect(snapshot.captureID == fixture.envelope.captureID)
+        #expect(recorder.urls == [fixture.snapshotURL])
+    }
+
+    @Test func loadSnapshotRejectsAtomicSameLengthReplacementAfterRead() throws {
+        let fixture = try installedSnapshotFixture()
+        defer { try! FileManager.default.removeItem(at: fixture.root) }
+        let byteCount = try Data(contentsOf: fixture.snapshotURL).count
+        let replacement = Data(repeating: 0x78, count: byteCount)
+        let store = ArticleWorkshopFileStore(
+            root: fixture.workshop,
+            validationHook: { point, url in
+                guard point == .afterRead, url == fixture.snapshotURL else { return }
+                try replacement.write(to: url, options: .atomic)
+            })
+
+        #expect {
+            _ = try store.loadSnapshot(for: fixture.record)
+        } throws: { error in
+            guard
+                case .fileChangedDuringValidation(let url) =
+                    error as? ArticleWorkshopFileStore.Error
+            else {
+                return false
+            }
+            return url == fixture.snapshotURL
+        }
+    }
+
+    @Test func loadSnapshotRejectsSameInodeSameSizeRewriteAfterRead() throws {
+        let fixture = try installedSnapshotFixture()
+        defer { try! FileManager.default.removeItem(at: fixture.root) }
+        let byteCount = try Data(contentsOf: fixture.snapshotURL).count
+        let replacement = Data(repeating: 0x79, count: byteCount)
+        let store = ArticleWorkshopFileStore(
+            root: fixture.workshop,
+            validationHook: { point, url in
+                guard point == .afterRead, url == fixture.snapshotURL else { return }
+                let handle = try FileHandle(forWritingTo: url)
+                defer { try? handle.close() }
+                try handle.seek(toOffset: 0)
+                try handle.write(contentsOf: replacement)
+                try handle.synchronize()
+                try FileManager.default.setAttributes(
+                    [.modificationDate: Date(timeIntervalSince1970: 1)],
+                    ofItemAtPath: url.path)
+            })
+
+        #expect {
+            _ = try store.loadSnapshot(for: fixture.record)
+        } throws: { error in
+            guard
+                case .fileChangedDuringValidation(let url) =
+                    error as? ArticleWorkshopFileStore.Error
+            else {
+                return false
+            }
+            return url == fixture.snapshotURL
+        }
+    }
+
     private func temporaryRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "ArticleWorkshopFileStoreTests-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -190,10 +264,51 @@ import Testing
             createdAt: "2026-07-29T00:00:00Z",
             modifiedAt: "2026-07-29T00:00:00Z")
     }
+
+    private func installedSnapshotFixture() throws -> (
+        root: URL,
+        workshop: URL,
+        envelope: ArticleCaptureEnvelope,
+        record: ArticleCaptureRecord,
+        snapshotURL: URL
+    ) {
+        let root = try temporaryRoot()
+        let workshop = root.appending(path: "workshop", directoryHint: .isDirectory)
+        let envelope = articleWorkshopFixtureEnvelope(
+            captureID: UUID(uuidString: "33333333-3333-3333-3333-333333333333")!)
+        let staged = try ArticleCaptureStagingWriter(
+            root: root.appending(path: "staging", directoryHint: .isDirectory)
+        ).stage(envelope)
+        let imported = try ArticleWorkshopFileStore(root: workshop).importEnvelope(at: staged)
+        return (
+            root,
+            workshop,
+            envelope,
+            workshopCaptureRecord(
+                envelope: envelope,
+                digest: imported.sha256,
+                packagePath: "/untrusted"),
+            imported.snapshotURL)
+    }
 }
 
 private enum WriterInterruption: Error {
     case interrupted
+}
+
+private nonisolated final class ValidationURLRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [URL] = []
+
+    var urls: [URL] {
+        lock.withLock { storage }
+    }
+
+    func append(_ url: URL) {
+        lock.withLock {
+            storage.append(url)
+        }
+    }
 }
 
 func articleWorkshopFixtureEnvelope(
