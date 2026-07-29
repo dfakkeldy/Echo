@@ -52,6 +52,127 @@ import Testing
         #expect(viewModel.isImporting == false)
     }
 
+    @Test func olderReloadCannotPublishOrClearImportingBeforeLatestReloadCompletes() async throws {
+        let fixture = try ViewModelFixture()
+        defer { fixture.removeFiles() }
+        let baseline = fixture.inboxItem(id: "baseline")
+        let stale = fixture.inboxItem(id: "stale")
+        let latest = fixture.inboxItem(id: "latest")
+        let operations = SequencedReloadOperations(results: [
+            ArticleInboxReloadResult(articles: [stale], anthologies: []),
+            ArticleInboxReloadResult(articles: [latest], anthologies: []),
+        ])
+        let viewModel = ArticleInboxViewModel(
+            service: fixture.service,
+            reloadWorker: ArticleInboxReloadWorker(operation: operations.next)
+        )
+        viewModel.articles = [baseline]
+
+        let firstReload = Task { @MainActor in await viewModel.reload() }
+        await operations.waitUntilStarted(0)
+        let secondReload = Task { @MainActor in await viewModel.reload() }
+        await MainActor.run {}
+
+        operations.release(0)
+        await operations.waitUntilStarted(1)
+        await firstReload.value
+
+        #expect(viewModel.articles.map(\.id) == ["baseline"])
+        #expect(viewModel.isImporting)
+        #expect(viewModel.errorMessage == nil)
+
+        operations.release(1)
+        await secondReload.value
+
+        #expect(viewModel.articles.map(\.id) == ["latest"])
+        #expect(viewModel.isImporting == false)
+        #expect(viewModel.errorMessage == nil)
+    }
+
+    @Test func olderReloadCannotResurrectArticleAfterLogicalDeletion() async throws {
+        let fixture = try ViewModelFixture()
+        defer { fixture.removeFiles() }
+        let captureID = "00000000-0000-0000-0000-000000000001"
+        let package = try fixture.createOwnedPackage(id: captureID)
+        try fixture.captureDAO.saveCapture(
+            fixture.capture(id: captureID, packagePath: package.path))
+        let stale = fixture.inboxItem(id: captureID)
+        let operations = SequencedReloadOperations(results: [
+            ArticleInboxReloadResult(articles: [stale], anthologies: []),
+            ArticleInboxReloadResult(articles: [], anthologies: []),
+        ])
+        let deletionCommitted = DeletionCommitSignal()
+        let service = fixture.makeService { point, _ in
+            if point == .beforeQuarantineCleanup {
+                deletionCommitted.signal()
+            }
+        }
+        let viewModel = ArticleInboxViewModel(
+            service: service,
+            reloadWorker: ArticleInboxReloadWorker(operation: operations.next)
+        )
+        viewModel.articles = [stale]
+        viewModel.selectedIDs = [captureID]
+
+        let oldReload = Task { @MainActor in await viewModel.reload() }
+        await operations.waitUntilStarted(0)
+        let deletion = Task { @MainActor in await viewModel.delete(id: captureID) }
+        await deletionCommitted.wait()
+        while viewModel.articles.isEmpty == false {
+            await Task.yield()
+        }
+
+        operations.release(0)
+        await operations.waitUntilStarted(1)
+        await oldReload.value
+
+        #expect(viewModel.articles.isEmpty)
+        #expect(viewModel.selectedIDs.isEmpty)
+        #expect(viewModel.isImporting)
+
+        operations.release(1)
+        await deletion.value
+        #expect(viewModel.articles.isEmpty)
+        #expect(viewModel.selectedIDs.isEmpty)
+        #expect(viewModel.isImporting == false)
+    }
+
+    @Test func cancelledOlderReloadCannotPublishErrorOrClearLatestImportingState() async throws {
+        let fixture = try ViewModelFixture()
+        defer { fixture.removeFiles() }
+        let baseline = fixture.inboxItem(id: "baseline")
+        let cancelled = fixture.inboxItem(id: "cancelled")
+        let latest = fixture.inboxItem(id: "latest")
+        let operations = SequencedReloadOperations(results: [
+            ArticleInboxReloadResult(articles: [cancelled], anthologies: []),
+            ArticleInboxReloadResult(articles: [latest], anthologies: []),
+        ])
+        let viewModel = ArticleInboxViewModel(
+            service: fixture.service,
+            reloadWorker: ArticleInboxReloadWorker(operation: operations.next)
+        )
+        viewModel.articles = [baseline]
+
+        let cancelledReload = Task { @MainActor in await viewModel.reload() }
+        await operations.waitUntilStarted(0)
+        let latestReload = Task { @MainActor in await viewModel.reload() }
+        await MainActor.run {}
+        cancelledReload.cancel()
+        operations.release(0)
+        await operations.waitUntilStarted(1)
+        await cancelledReload.value
+
+        #expect(viewModel.articles.map(\.id) == ["baseline"])
+        #expect(viewModel.errorMessage == nil)
+        #expect(viewModel.isImporting)
+
+        operations.release(1)
+        await latestReload.value
+        #expect(viewModel.articles.map(\.id) == ["latest"])
+        #expect(viewModel.errorMessage == nil)
+        #expect(viewModel.isImporting == false)
+    }
+
     @Test func selectionPrunesMissingIDsAndSelectAllTogglesPredictably() async throws {
         let fixture = try ViewModelFixture()
         defer { fixture.removeFiles() }
@@ -197,6 +318,35 @@ private final class ViewModelFixture {
         return package
     }
 
+    func makeService(
+        deletionHook: @escaping @Sendable (ArticleInboxService.DeletionPoint, URL) throws -> Void
+    ) -> ArticleInboxService {
+        ArticleInboxService(
+            captureDAO: captureDAO,
+            anthologyDAO: anthologyDAO,
+            fileStore: fileStore,
+            now: { Date(timeIntervalSince1970: 1_775_000_000) },
+            makeID: { UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")! },
+            deletionHook: deletionHook
+        )
+    }
+
+    func inboxItem(id: String) -> ArticleInboxItem {
+        ArticleInboxItem(
+            id: id,
+            title: "Article \(id)",
+            author: nil,
+            siteName: "Example",
+            sourceURL: "https://example.com/articles/\(id)",
+            canonicalURL: nil,
+            capturedAt: "2026-07-28T12:01:00Z",
+            state: .ready,
+            warnings: [],
+            isPossibleDuplicate: false,
+            keepBothAvailable: true
+        )
+    }
+
     func capture(
         id: String,
         capturedAt: String = "2026-07-28T12:01:00Z",
@@ -260,5 +410,61 @@ private nonisolated final class LockedFlag: @unchecked Sendable {
         set {
             lock.withLock { storedValue = newValue }
         }
+    }
+}
+
+private nonisolated final class SequencedReloadOperations: @unchecked Sendable {
+    private let lock = NSLock()
+    private let results: [ArticleInboxReloadResult]
+    private let started: [DispatchSemaphore]
+    private let releases: [DispatchSemaphore]
+    private var nextIndex = 0
+
+    init(results: [ArticleInboxReloadResult]) {
+        self.results = results
+        started = results.map { _ in DispatchSemaphore(value: 0) }
+        releases = results.map { _ in DispatchSemaphore(value: 0) }
+    }
+
+    func next() throws -> ArticleInboxReloadResult {
+        let index = lock.withLock {
+            defer { nextIndex += 1 }
+            return nextIndex
+        }
+        started[index].signal()
+        releases[index].wait()
+        return results[index]
+    }
+
+    func waitUntilStarted(_ index: Int) async {
+        await Task.detached {
+            self.blockingWaitUntilStarted(index)
+        }.value
+    }
+
+    func release(_ index: Int) {
+        releases[index].signal()
+    }
+
+    private func blockingWaitUntilStarted(_ index: Int) {
+        started[index].wait()
+    }
+}
+
+private nonisolated final class DeletionCommitSignal: @unchecked Sendable {
+    private let semaphore = DispatchSemaphore(value: 0)
+
+    func signal() {
+        semaphore.signal()
+    }
+
+    func wait() async {
+        await Task.detached {
+            self.blockingWait()
+        }.value
+    }
+
+    private func blockingWait() {
+        semaphore.wait()
     }
 }

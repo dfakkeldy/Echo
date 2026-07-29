@@ -56,6 +56,7 @@ nonisolated struct ArticleInboxIngestionService {
     private func drainStaging(
         enrichment: (snapshot: ArticleSnapshot, warnings: [ArticleImageLocalizationWarning])?
     ) throws {
+        try Task.checkCancellation()
         let fileManager = FileManager.default
         let normalizedRoot = stagingRoot.standardizedFileURL
         guard fileManager.fileExists(atPath: normalizedRoot.path) else { return }
@@ -67,12 +68,15 @@ nonisolated struct ArticleInboxIngestionService {
             includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
             options: []
         )
+        try Task.checkCancellation()
         let reconciledCaptureIDs = try reconcileQuarantinedPackages(
             in: packages,
             stagingRoot: normalizedRoot,
             enrichment: enrichment
         )
+        try Task.checkCancellation()
         for package in packages {
+            try Task.checkCancellation()
             guard let captureID = UUID(uuidString: package.lastPathComponent) else { continue }
             guard reconciledCaptureIDs.contains(captureID) == false else { continue }
             guard package.standardizedFileURL.deletingLastPathComponent() == normalizedRoot else {
@@ -127,6 +131,7 @@ nonisolated struct ArticleInboxIngestionService {
         var reconciledCaptureIDs = Set<UUID>()
 
         for cleanupRoot in entries where cleanupRoot.lastPathComponent.hasPrefix(".cleanup-") {
+            try Task.checkCancellation()
             guard cleanupRoot.standardizedFileURL.deletingLastPathComponent() == stagingRoot,
                 try safeDirectory(cleanupRoot),
                 let captureID = captureID(inCleanupRoot: cleanupRoot)

@@ -7,7 +7,7 @@ nonisolated struct ArticleInboxReloadResult: Sendable {
     let anthologies: [AnthologyRecord]
 }
 
-nonisolated struct ArticleInboxReloadWorker: Sendable {
+actor ArticleInboxReloadWorker {
     private let operation: @Sendable () throws -> ArticleInboxReloadResult
 
     init(operation: @escaping @Sendable () throws -> ArticleInboxReloadResult) {
@@ -15,9 +15,10 @@ nonisolated struct ArticleInboxReloadWorker: Sendable {
     }
 
     func load() async throws -> ArticleInboxReloadResult {
-        try await Task.detached(priority: .userInitiated) {
-            try operation()
-        }.value
+        try Task.checkCancellation()
+        let result = try operation()
+        try Task.checkCancellation()
+        return result
     }
 }
 
@@ -32,6 +33,7 @@ final class ArticleInboxViewModel {
 
     @ObservationIgnored private let service: ArticleInboxService
     @ObservationIgnored private let reloadWorker: ArticleInboxReloadWorker
+    @ObservationIgnored private var reloadGeneration = 0
 
     init(db: DatabaseService, fileStore: ArticleWorkshopFileStore) {
         let captureDAO = ArticleCaptureDAO(db: db.writer)
@@ -42,16 +44,19 @@ final class ArticleInboxViewModel {
         )
         self.service = service
         reloadWorker = ArticleInboxReloadWorker {
+            try Task.checkCancellation()
             let stagingRoot = try FileLocations.articleCaptureStagingDirectory()
             try ArticleInboxIngestionService(
                 captureDAO: captureDAO,
                 fileStore: fileStore,
                 stagingRoot: stagingRoot
             ).drainStaging()
-            return ArticleInboxReloadResult(
-                articles: try service.inboxItems(),
-                anthologies: try service.anthologies()
-            )
+            try Task.checkCancellation()
+            let articles = try service.inboxItems()
+            try Task.checkCancellation()
+            let anthologies = try service.anthologies()
+            try Task.checkCancellation()
+            return ArticleInboxReloadResult(articles: articles, anthologies: anthologies)
         }
     }
 
@@ -65,11 +70,14 @@ final class ArticleInboxViewModel {
     ) {
         self.service = service
         reloadWorker = ArticleInboxReloadWorker {
+            try Task.checkCancellation()
             try drainStaging()
-            return ArticleInboxReloadResult(
-                articles: try service.inboxItems(),
-                anthologies: try service.anthologies()
-            )
+            try Task.checkCancellation()
+            let articles = try service.inboxItems()
+            try Task.checkCancellation()
+            let anthologies = try service.anthologies()
+            try Task.checkCancellation()
+            return ArticleInboxReloadResult(articles: articles, anthologies: anthologies)
         }
     }
 
@@ -82,16 +90,28 @@ final class ArticleInboxViewModel {
     }
 
     func reload() async {
+        reloadGeneration &+= 1
+        let generation = reloadGeneration
         isImporting = true
-        defer { isImporting = false }
         do {
             let result = try await reloadWorker.load()
+            guard generation == reloadGeneration else { return }
+            guard Task.isCancelled == false else {
+                isImporting = false
+                return
+            }
             articles = result.articles
             anthologies = result.anthologies
             selectedIDs.formIntersection(result.articles.map(\.id))
             errorMessage = nil
+            isImporting = false
+        } catch is CancellationError {
+            guard generation == reloadGeneration else { return }
+            isImporting = false
         } catch {
+            guard generation == reloadGeneration else { return }
             errorMessage = error.localizedDescription
+            isImporting = false
         }
     }
 
@@ -123,6 +143,7 @@ final class ArticleInboxViewModel {
             try await Task.detached {
                 try deletionService.delete(id: id)
             }.value
+            reloadGeneration &+= 1
             articles.removeAll { $0.id == id }
             selectedIDs.remove(id)
             await reload()

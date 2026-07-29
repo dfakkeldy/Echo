@@ -289,6 +289,77 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: marker.path))
     }
 
+    @Test func symlinkedWorkshopRootIsRejectedWithoutRemovingTargetResidue() throws {
+        let fixture = try Fixture()
+        defer { fixture.removeFiles() }
+        let target = fixture.root.appending(
+            path: "workshop-target", directoryHint: .isDirectory)
+        let symlink = fixture.root.appending(
+            path: "workshop-symlink", directoryHint: .isDirectory)
+        let targetStore = ArticleWorkshopFileStore(root: target)
+        let targetQuarantine = targetStore.root.appending(
+            path: ".DeletionQuarantine", directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(
+            at: targetQuarantine, withIntermediateDirectories: true)
+        let targetMarker = targetStore.root.appending(path: "keep.txt")
+        try Data("keep".utf8).write(to: targetMarker)
+        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: target)
+        let service = fixture.makeService(
+            fileStore: ArticleWorkshopFileStore(root: symlink),
+            deletionQuarantineLimit: 2
+        )
+
+        #expect(throws: ArticleInboxService.Error.self) {
+            try service.inboxItems()
+        }
+
+        #expect(FileManager.default.fileExists(atPath: targetMarker.path))
+        #expect(FileManager.default.fileExists(atPath: targetQuarantine.path))
+    }
+
+    @Test func overLimitDeletionResiduesFailBeforeRemovingAnyEntry() throws {
+        let fixture = try Fixture()
+        defer { fixture.removeFiles() }
+        let residues = try (1...3).map { index in
+            try fixture.createDeletionResidue(
+                in: fixture.fileStore,
+                captureID: String(
+                    format: "10000000-0000-0000-0000-%012d", index),
+                nonce: String(
+                    format: "20000000-0000-0000-0000-%012d", index)
+            )
+        }
+        let service = fixture.makeService(deletionQuarantineLimit: 2)
+
+        #expect(throws: ArticleInboxService.Error.self) {
+            try service.inboxItems()
+        }
+
+        #expect(residues.allSatisfy { FileManager.default.fileExists(atPath: $0.marker.path) })
+    }
+
+    @Test func atLimitValidDeletionResiduesReconcileCompletely() throws {
+        let fixture = try Fixture()
+        defer { fixture.removeFiles() }
+        let residues = try (1...2).map { index in
+            try fixture.createDeletionResidue(
+                in: fixture.fileStore,
+                captureID: String(
+                    format: "10000000-0000-0000-0000-%012d", index),
+                nonce: String(
+                    format: "20000000-0000-0000-0000-%012d", index)
+            )
+        }
+        let service = fixture.makeService(deletionQuarantineLimit: 2)
+
+        #expect(try service.inboxItems().isEmpty)
+
+        #expect(
+            residues.allSatisfy { FileManager.default.fileExists(atPath: $0.marker.path) == false })
+        #expect(try fixture.deletionQuarantineContents().isEmpty)
+    }
+
     @Test func forgedPackagePathFailsClosedWithoutDeletingFileOrDatabase() throws {
         let fixture = try Fixture()
         defer { fixture.removeFiles() }
@@ -398,16 +469,38 @@ private final class Fixture {
     }
 
     func makeService(
-        deletionHook: @escaping @Sendable (ArticleInboxService.DeletionPoint, URL) throws -> Void
+        fileStore: ArticleWorkshopFileStore? = nil,
+        deletionQuarantineLimit: Int = 128,
+        deletionHook: (@Sendable (ArticleInboxService.DeletionPoint, URL) throws -> Void)? = nil
     ) -> ArticleInboxService {
         ArticleInboxService(
             captureDAO: captureDAO,
             anthologyDAO: anthologyDAO,
-            fileStore: fileStore,
+            fileStore: fileStore ?? self.fileStore,
             now: { Date(timeIntervalSince1970: 1_775_000_000) },
             makeID: { UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")! },
+            deletionQuarantineLimit: deletionQuarantineLimit,
             deletionHook: deletionHook
         )
+    }
+
+    func createDeletionResidue(
+        in fileStore: ArticleWorkshopFileStore,
+        captureID: String,
+        nonce: String
+    ) throws -> (directory: URL, marker: URL) {
+        let directory =
+            fileStore.root
+            .appending(path: ".DeletionQuarantine", directoryHint: .isDirectory)
+            .appending(
+                path: "\(captureID)-\(nonce)",
+                directoryHint: .isDirectory
+            )
+        try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true)
+        let marker = directory.appending(path: "keep.txt")
+        try Data("keep".utf8).write(to: marker)
+        return (directory, marker)
     }
 
     func deletionQuarantineContents() throws -> [URL] {

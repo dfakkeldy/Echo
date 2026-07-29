@@ -2,6 +2,8 @@
 import Foundation
 
 nonisolated struct ArticleInboxService: Sendable {
+    static let productionDeletionQuarantineLimit = 128
+
     enum DeletionPoint: Equatable, Sendable {
         case beforeDatabaseCommit
         case beforeQuarantineCleanup
@@ -15,6 +17,7 @@ nonisolated struct ArticleInboxService: Sendable {
         case unsafePackagePath(URL)
         case unsafeOwnedDirectory(URL)
         case unsafeQuarantineResidue(URL)
+        case tooManyQuarantineResidues(Int)
         case restoreFailed(original: String, restore: String)
 
         var errorDescription: String? {
@@ -34,6 +37,9 @@ nonisolated struct ArticleInboxService: Sendable {
                     "Echo refused to delete an article package that is not a regular managed folder."
             case .unsafeQuarantineResidue(let url):
                 return "Echo refused to reconcile an unsafe deletion residue at \(url.path)."
+            case .tooManyQuarantineResidues(let limit):
+                return
+                    "Echo refused to reconcile more than \(limit) deletion residues in one pass."
             case .restoreFailed(let original, let restore):
                 return
                     "Deletion failed (\(original)), and the article package could not be restored (\(restore))."
@@ -46,6 +52,7 @@ nonisolated struct ArticleInboxService: Sendable {
     private let fileStore: ArticleWorkshopFileStore
     private let now: @Sendable () -> Date
     private let makeID: @Sendable () -> UUID
+    private let deletionQuarantineLimit: Int
     private let deletionHook: (@Sendable (DeletionPoint, URL) throws -> Void)?
 
     init(
@@ -54,6 +61,7 @@ nonisolated struct ArticleInboxService: Sendable {
         fileStore: ArticleWorkshopFileStore,
         now: @escaping @Sendable () -> Date = Date.init,
         makeID: @escaping @Sendable () -> UUID = UUID.init,
+        deletionQuarantineLimit: Int = ArticleInboxService.productionDeletionQuarantineLimit,
         deletionHook: (@Sendable (DeletionPoint, URL) throws -> Void)? = nil
     ) {
         self.captureDAO = captureDAO
@@ -61,6 +69,7 @@ nonisolated struct ArticleInboxService: Sendable {
         self.fileStore = fileStore
         self.now = now
         self.makeID = makeID
+        self.deletionQuarantineLimit = deletionQuarantineLimit
         self.deletionHook = deletionHook
     }
 
@@ -215,17 +224,42 @@ nonisolated struct ArticleInboxService: Sendable {
             path: ".DeletionQuarantine", directoryHint: .isDirectory
         ).standardizedFileURL
         guard fileManager.fileExists(atPath: quarantineRoot.path) else { return }
-        guard quarantineRoot.deletingLastPathComponent() == root,
+        guard try isRegularDirectory(root),
+            quarantineRoot.deletingLastPathComponent() == root,
             try isRegularDirectory(quarantineRoot)
         else {
             throw Error.unsafeQuarantineResidue(quarantineRoot)
         }
 
-        let entries = try fileManager.contentsOfDirectory(
-            at: quarantineRoot,
-            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
-            options: []
-        )
+        var enumerationFailureURL: URL?
+        guard
+            let enumerator = fileManager.enumerator(
+                at: quarantineRoot,
+                includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+                options: [.skipsSubdirectoryDescendants],
+                errorHandler: { url, _ in
+                    enumerationFailureURL = url
+                    return false
+                }
+            )
+        else {
+            throw Error.unsafeQuarantineResidue(quarantineRoot)
+        }
+
+        var entries: [URL] = []
+        while let object = enumerator.nextObject() {
+            guard let entry = object as? URL else {
+                throw Error.unsafeQuarantineResidue(quarantineRoot)
+            }
+            entries.append(entry)
+            if entries.count > deletionQuarantineLimit {
+                throw Error.tooManyQuarantineResidues(deletionQuarantineLimit)
+            }
+        }
+        if let enumerationFailureURL {
+            throw Error.unsafeQuarantineResidue(enumerationFailureURL)
+        }
+
         var validatedEntries: [URL] = []
         for entry in entries {
             guard entry.standardizedFileURL.deletingLastPathComponent() == quarantineRoot,
