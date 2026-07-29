@@ -319,6 +319,10 @@ class PronunciationCorpusTests(unittest.TestCase):
             "Use [content](/Usersɐ/) here.",
             "Use [content](/homé/) here.",
             "Use [content](/kˈɑntɛnt́/) here.",
+            "Use [content](/data/) here.",
+            "Use [content](/tmp/) here.",
+            "Use [content](/kˈɑntɛnt/)/Users/example/private/ here.",
+            "Use [content](/kˈɑntɛnt/)///Users/example/private/ here.",
             "Synthetic content references //server/share/private/",
             "Synthetic content references ///Users/example/private/",
             "Synthetic content references ////server/share/private/",
@@ -629,7 +633,7 @@ class PronunciationCorpusTests(unittest.TestCase):
                     validate_named_regressions(rows)
 
     def test_named_regressions_reject_malformed_target_override_paths(self):
-        for payload in ("Usersɐ", "homé"):
+        for payload in ("Usersɐ", "homé", "data", "tmp"):
             rows = named_regression_matrix()
             override_row = next(
                 row
@@ -642,6 +646,27 @@ class PronunciationCorpusTests(unittest.TestCase):
             )
 
             with self.subTest(payload=payload):
+                with self.assertRaisesRegex(ValueError, "absolute paths"):
+                    validate_named_regressions(rows)
+
+    def test_named_regressions_scan_paths_after_valid_override_span(self):
+        suffixes = (
+            "/Users/example/private/",
+            "///Users/example/private/",
+        )
+        for suffix in suffixes:
+            rows = named_regression_matrix()
+            override_row = next(
+                row
+                for row in rows
+                if row["familyID"] == "content"
+                and row["shape"] == "override-markup"
+            )
+            override_row["targetSentence"] = (
+                f"Use [content](/kˈɑntɛnt/){suffix} here."
+            )
+
+            with self.subTest(suffix=suffix):
                 with self.assertRaisesRegex(ValueError, "absolute paths"):
                     validate_named_regressions(rows)
 

@@ -60,6 +60,9 @@ ENGLISH_PRONUNCIATION_OVERRIDE_CHARACTERS = frozenset(
     "bdfhjklmnpstvwzðŋɡɹɾʃʒʤʧθ"
     "ˌˈː"
 )
+PRONUNCIATION_OVERRIDE_SIGNAL_CHARACTERS = frozenset(
+    "æɑɒɔəɛɜɪʊʌᵻðŋɡɹɾʃʒʤʧθˌˈː"
+)
 MINIMUM_FAMILY_CASES = 200
 MINIMUM_SENSE_CASES = 50
 
@@ -144,8 +147,8 @@ def _contains_absolute_local_path(
     *,
     allowed_override_target: str | None = None,
 ) -> bool:
-    override_slash_starts = {
-        match.start(2) - 1
+    accepted_override_spans = [
+        match.span()
         for match in re.finditer(
             r"\[([^\[\]\r\n]+)\]\(/([^/\s]+)/\)",
             value,
@@ -156,18 +159,25 @@ def _contains_absolute_local_path(
             character in ENGLISH_PRONUNCIATION_OVERRIDE_CHARACTERS
             for character in match.group(2)
         )
-    }
-    for match in re.finditer(r"(?<![:/\w])/+\S*", value):
+        and any(
+            character in PRONUNCIATION_OVERRIDE_SIGNAL_CHARACTERS
+            for character in match.group(2)
+        )
+    ]
+    masked_value = list(value)
+    for start, end in accepted_override_spans:
+        masked_value[start:end] = " " * (end - start)
+    path_scan_value = "".join(masked_value)
+
+    for match in re.finditer(r"(?<![:/\w])/+\S*", path_scan_value):
         fragment = match.group().rstrip(".,;:!?)}]>\"'")
-        if match.start() in override_slash_starts:
-            continue
         if PurePosixPath(fragment).is_absolute():
             return True
 
     windows_pattern = re.compile(
         r"(?<!\w)(?:[A-Za-z]:[\\/]|\\\\|\\(?!\\))\S*"
     )
-    for match in windows_pattern.finditer(value):
+    for match in windows_pattern.finditer(path_scan_value):
         fragment = match.group().rstrip(".,;:!?)}]>\"'")
         windows_path = PureWindowsPath(fragment)
         if windows_path.is_absolute() or bool(windows_path.root):
