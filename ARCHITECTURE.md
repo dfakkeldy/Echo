@@ -900,6 +900,17 @@ unclaimed, repository-contained, and unsafe-artifact runs fail closed. Queue
 conflicts found by the outside-lock preflight do not change the snapshot,
 queue, ledger, receipt, or lock.
 
+Recovery pins the claimed run directory's no-symlink device/inode identity
+after preflight claim validation. The same exact identity is required before
+lock creation, again under the lock before ledger replay and queue planning,
+and before each derived snapshot or queue publication. Replacing the pathname
+with a second same-ID claimed directory therefore fails without writing either
+directory or creating a replacement lock. Run claims, ledger events, and queue
+rows also require their exact JSON scalar types before any equality, set
+membership, or regular-expression check: in particular, a boolean is not an
+integer schema version, and structured category, outcome, or source-commit
+values produce a controlled ledger error rather than a traceback.
+
 The judge does not let its input manifest authorize its own provenance. Each
 run requires a separate absolute, single-link regular, non-symlink authority
 file outside the repository that binds the exact opaque clip ID, measured

@@ -30,7 +30,7 @@ The following independent local gates passed on 2026-07-29:
 | --- | --- |
 | Pronunciation corpus tests | 47 passed |
 | Pronunciation pack tests and regeneration check | 38 passed; generated pack matched the committed pack |
-| Development audio-judge tests | 63 passed without an API request |
+| Development audio-judge tests | 65 passed without an API request |
 | Task 10 Swift acceptance suite | 6 passed |
 | Echo test-products build | Passed |
 | Complete Echo unit-test gate | Passed before this test/tool/documentation-only correction; not rerun because production/shared Swift did not change |
@@ -216,6 +216,16 @@ authority, or audio file; inspect credentials; build a request; reserve an
 attempt; or invoke transport. Invalid or conflicting runs fail before changing
 ledger-derived state. Queue conflicts detected by the outside-lock preflight
 leave the snapshot, queue, ledger, receipt, and lock bytes unchanged.
+
+Recovery additionally pins the claimed run directory's no-symlink device and
+inode. It revalidates that exact identity before creating the lock, under the
+lock before replay and reconciliation, and before each derived write. A
+deterministic replacement by a second claimed directory with the same run ID is
+rejected without changing either directory or creating a replacement lock.
+Claims, ledger events, and queue rows require exact JSON scalar types, so
+boolean schema versions and structured queue category, proposal category,
+rerender outcome, or source-commit values fail as controlled ledger errors
+without a traceback or artifact mutation.
 
 Admission also requires a separate absolute, single-link regular, non-symlink
 provenance authority file outside the repository. It binds every admitted

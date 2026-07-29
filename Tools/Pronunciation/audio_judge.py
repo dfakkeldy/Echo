@@ -223,6 +223,15 @@ def validate_clip_id(value: Any) -> bool:
     )
 
 
+def _has_exact_json_type(value: Any, expected_type: type[Any]) -> bool:
+    """Reject JSON booleans where integers and other exact scalars are required."""
+    return type(value) is expected_type
+
+
+def _is_exact_string_choice(value: Any, choices: set[str]) -> bool:
+    return _has_exact_json_type(value, str) and value in choices
+
+
 def _strict_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -297,6 +306,24 @@ def _validate_existing_mutable_file(
         raise error_type(f"{name} is not a regular file")
     if metadata.st_nlink != 1:
         raise error_type(f"{name} cannot be a hardlink")
+
+
+def _run_directory_identity(run_directory: Path) -> tuple[int, int]:
+    try:
+        metadata = run_directory.lstat()
+    except OSError as error:
+        raise LedgerError("judge-owned run directory is invalid") from error
+    if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+        raise LedgerError("judge-owned run directory is invalid")
+    return (metadata.st_dev, metadata.st_ino)
+
+
+def _require_run_directory_identity(
+    run_directory: Path,
+    expected_identity: tuple[int, int],
+) -> None:
+    if _run_directory_identity(run_directory) != expected_identity:
+        raise LedgerError("judge-owned run directory identity changed")
 
 
 def _read_unique_regular_bytes(
@@ -1073,11 +1100,14 @@ def _run_directory(run_id: str, output_root: str | Path | None) -> Path:
     except (UnicodeError, json.JSONDecodeError, ManifestError) as error:
         raise LedgerError("judge-owned run claim is invalid") from error
     if (
-        claim != {
-            "schemaVersion": 1,
-            "runID": run_id,
-            "state": "claimed",
-        }
+        not isinstance(claim, dict)
+        or set(claim) != {"schemaVersion", "runID", "state"}
+        or not _has_exact_json_type(claim.get("schemaVersion"), int)
+        or claim["schemaVersion"] != 1
+        or not _has_exact_json_type(claim.get("runID"), str)
+        or claim["runID"] != run_id
+        or not _has_exact_json_type(claim.get("state"), str)
+        or claim["state"] != "claimed"
     ):
         raise LedgerError("judge-owned run claim is invalid")
     return run_directory
@@ -1153,10 +1183,10 @@ def _derive_attempt_states(
         state = event.get("state")
         attempt_count = event.get("attemptCount")
         if (
-            event.get("schemaVersion") != 1
+            not _has_exact_json_type(event.get("schemaVersion"), int)
+            or event["schemaVersion"] != 1
             or not validate_clip_id(clip_id)
-            or not isinstance(attempt_count, int)
-            or isinstance(attempt_count, bool)
+            or not _has_exact_json_type(attempt_count, int)
             or not 0 <= attempt_count <= 2
         ):
             raise LedgerError("attempt ledger event is invalid")
@@ -1168,7 +1198,10 @@ def _derive_attempt_states(
                 or previous is not None
                 or state != "proposal_emitted"
                 or attempt_count != 0
-                or event.get("proposalCategory") not in CATEGORIES
+                or not _is_exact_string_choice(
+                    event.get("proposalCategory"),
+                    CATEGORIES,
+                )
                 or event.get("productionMutationAuthorized") is not False
             ):
                 raise LedgerError("attempt ledger transition is invalid")
@@ -1187,8 +1220,12 @@ def _derive_attempt_states(
                 or previous["attemptCount"] >= 2
                 or state != "rerender_pending"
                 or attempt_count != previous["attemptCount"] + 1
+                or not _has_exact_json_type(
+                    event.get("sourceCommit"),
+                    str,
+                )
                 or SOURCE_COMMIT_PATTERN.fullmatch(
-                    event.get("sourceCommit", "")
+                    event["sourceCommit"]
                 )
                 is None
                 or not all(_valid_receipt_hash(value) for value in receipts)
@@ -1217,7 +1254,7 @@ def _derive_attempt_states(
                 or previous is None
                 or previous["state"] != "rerender_pending"
                 or attempt_count != previous["attemptCount"]
-                or outcome not in {"pass", "fail"}
+                or not _is_exact_string_choice(outcome, {"pass", "fail"})
                 or state != expected_state
                 or not all(_valid_receipt_hash(value) for value in evidence)
                 or len(set(evidence)) != len(evidence)
@@ -1342,7 +1379,14 @@ def _recover_committed_event_locked(
 def _with_ledger_lock(
     run_directory: Path,
     operation: Callable[[list[dict[str, Any]]], Any],
+    *,
+    expected_run_identity: tuple[int, int] | None = None,
 ) -> Any:
+    if expected_run_identity is not None:
+        _require_run_directory_identity(
+            run_directory,
+            expected_run_identity,
+        )
     lock_path = run_directory / ".attempt-ledger.lock"
     for artifact_path, artifact_name in (
         (lock_path, "attempt ledger lock"),
@@ -1372,6 +1416,11 @@ def _with_ledger_lock(
     with os.fdopen(descriptor, "a+", encoding="utf-8") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         try:
+            if expected_run_identity is not None:
+                _require_run_directory_identity(
+                    run_directory,
+                    expected_run_identity,
+                )
             events = _load_ledger_events(run_directory / "attempt-ledger.jsonl")
             return operation(events)
         finally:
@@ -1642,10 +1691,16 @@ def _plan_morning_queue(
             reasons = item.get("reasons")
             if (
                 not validate_clip_id(item.get("clipID"))
-                or item.get("queueCategory") not in evaluation_categories
-                or not isinstance(reasons, list)
+                or not _is_exact_string_choice(
+                    item.get("queueCategory"),
+                    evaluation_categories,
+                )
+                or not _has_exact_json_type(reasons, list)
                 or not reasons
-                or not all(isinstance(reason, str) for reason in reasons)
+                or not all(
+                    _has_exact_json_type(reason, str)
+                    for reason in reasons
+                )
                 or len(set(reasons)) != len(reasons)
                 or not all(reason in evaluation_reasons for reason in reasons)
             ):
@@ -1657,9 +1712,8 @@ def _plan_morning_queue(
         sequence = item.get("ledgerEventSequence")
         event_hash = item.get("ledgerEventSHA256")
         if (
-            not isinstance(sequence, int)
-            or isinstance(sequence, bool)
-            or not isinstance(event_hash, str)
+            not _has_exact_json_type(sequence, int)
+            or not _has_exact_json_type(event_hash, str)
             or SHA256_PATTERN.fullmatch(event_hash) is None
         ):
             raise LedgerError("morning queue ledger identity is invalid")
@@ -1807,6 +1861,7 @@ def recover_run(
 ) -> dict[str, Any]:
     """Republish ledger-derived local artifacts without evaluating audio."""
     run_directory = _run_directory(run_id, output_root)
+    run_identity = _run_directory_identity(run_directory)
     preflight_events = _load_ledger_events(
         run_directory / "attempt-ledger.jsonl"
     )
@@ -1817,13 +1872,16 @@ def recover_run(
     _plan_morning_queue(preflight_events, preflight_queue)
 
     def operation(events: list[dict[str, Any]]) -> dict[str, Any]:
+        _require_run_directory_identity(run_directory, run_identity)
         if not events:
             raise LedgerError("attempt ledger is empty")
         states = _derive_attempt_states(events)
         current_queue = _load_morning_queue(run_directory)
         planned_queue = _plan_morning_queue(events, current_queue)
         terminal_queue_entries = _required_terminal_queue_entries(events)
+        _require_run_directory_identity(run_directory, run_identity)
         _write_attempt_snapshot(run_directory, states)
+        _require_run_directory_identity(run_directory, run_identity)
         _publish_morning_queue_plan(
             run_directory,
             current_queue=current_queue,
@@ -1841,7 +1899,11 @@ def recover_run(
             "transportAttemptCount": 0,
         }
 
-    return _with_ledger_lock(run_directory, operation)
+    return _with_ledger_lock(
+        run_directory,
+        operation,
+        expected_run_identity=run_identity,
+    )
 
 
 def _result_proof_boundaries(label_status: str) -> dict[str, Any]:

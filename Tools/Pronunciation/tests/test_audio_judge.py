@@ -1803,6 +1803,160 @@ class AttemptLedgerTests(ManifestAdmissionTests):
                 self.assertEqual("", completed.stdout)
                 self.assertEqual(before, self.run_file_bytes(run_directory))
 
+    def test_recover_rejects_run_directory_swap_without_writing_replacement(self):
+        run_id = "directory-identity-swap"
+        _clip_id, output_root = self.failing_run(run_id=run_id)
+        run_directory = output_root / run_id
+        replacement_root = self.directory / "replacement-runs"
+        replacement_root.mkdir()
+        replacement_directory = replacement_root / run_id
+        shutil.copytree(run_directory, replacement_directory)
+        (run_directory / "attempt-state.json").write_bytes(
+            b"original stale snapshot\n"
+        )
+        (replacement_directory / "attempt-state.json").write_bytes(
+            b"replacement stale snapshot\n"
+        )
+        (run_directory / ".attempt-ledger.lock").unlink()
+        (replacement_directory / ".attempt-ledger.lock").unlink()
+        original_before = self.run_file_bytes(run_directory)
+        replacement_before = self.run_file_bytes(replacement_directory)
+        displaced_directory = output_root / f"{run_id}-displaced"
+        real_with_ledger_lock = audio_judge._with_ledger_lock
+
+        def swap_before_lock(
+            path,
+            operation,
+            *,
+            expected_run_identity=None,
+        ):
+            path.rename(displaced_directory)
+            replacement_directory.rename(path)
+            return real_with_ledger_lock(
+                path,
+                operation,
+                expected_run_identity=expected_run_identity,
+            )
+
+        caught = None
+        with mock.patch.object(
+            audio_judge,
+            "_with_ledger_lock",
+            side_effect=swap_before_lock,
+        ):
+            try:
+                audio_judge.recover_run(
+                    run_id=run_id,
+                    output_root=output_root,
+                )
+            except Exception as error:
+                caught = error
+
+        self.assertIsInstance(caught, LedgerError)
+        self.assertEqual(
+            original_before,
+            self.run_file_bytes(displaced_directory),
+        )
+        self.assertEqual(
+            replacement_before,
+            self.run_file_bytes(run_directory),
+        )
+        self.assertFalse(
+            (run_directory / ".attempt-ledger.lock").exists()
+        )
+
+    def test_recover_rejects_non_exact_json_types_without_mutation_or_traceback(self):
+        probes = (
+            "claim-schema-bool",
+            "ledger-schema-bool",
+            "queue-category-object",
+            "proposal-category-object",
+            "outcome-object",
+            "source-commit-object",
+        )
+
+        def corrupt(run_directory, probe):
+            if probe == "claim-schema-bool":
+                claim_path = run_directory / "run-claim.json"
+                claim = json.loads(claim_path.read_text(encoding="utf-8"))
+                claim["schemaVersion"] = True
+                claim_path.write_text(json.dumps(claim), encoding="utf-8")
+            elif probe == "queue-category-object":
+                queue_path = run_directory / "morning-queue.json"
+                queue = json.loads(queue_path.read_text(encoding="utf-8"))
+                queue[0]["queueCategory"] = {"nested": "invalid"}
+                queue_path.write_text(json.dumps(queue), encoding="utf-8")
+            else:
+                ledger_path = run_directory / "attempt-ledger.jsonl"
+                events = [
+                    json.loads(line)
+                    for line in ledger_path.read_text(
+                        encoding="utf-8"
+                    ).splitlines()
+                ]
+                if probe == "ledger-schema-bool":
+                    events[0]["schemaVersion"] = True
+                elif probe == "proposal-category-object":
+                    events[0]["proposalCategory"] = {"nested": "invalid"}
+                elif probe == "outcome-object":
+                    events[2]["outcome"] = {"nested": "invalid"}
+                else:
+                    events[1]["sourceCommit"] = {"nested": "invalid"}
+                ledger_path.write_text(
+                    "".join(
+                        json.dumps(
+                            event,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        )
+                        + "\n"
+                        for event in events
+                    ),
+                    encoding="utf-8",
+                )
+            (run_directory / "attempt-state.json").write_bytes(
+                b"stale snapshot sentinel\n"
+            )
+            (run_directory / ".attempt-ledger.lock").unlink()
+
+        for probe_index, probe in enumerate(probes):
+            for surface in ("local", "shipped-cli"):
+                with self.subTest(probe=probe, surface=surface):
+                    run_id = f"exact-type-{probe_index}-{surface}"
+                    _clip_id, output_root = self.terminal_morning_run(
+                        run_id=run_id
+                    )
+                    run_directory = output_root / run_id
+                    corrupt(run_directory, probe)
+                    before = self.run_file_bytes(run_directory)
+
+                    if surface == "local":
+                        caught = None
+                        try:
+                            audio_judge.recover_run(
+                                run_id=run_id,
+                                output_root=output_root,
+                            )
+                        except Exception as error:
+                            caught = error
+                        self.assertIsInstance(caught, LedgerError)
+                    else:
+                        completed = self.run_recovery_cli(
+                            run_id=run_id,
+                            output_root=output_root,
+                        )
+                        self.assertNotEqual(0, completed.returncode)
+                        self.assertEqual("", completed.stdout)
+                        self.assertNotIn("Traceback", completed.stderr)
+
+                    self.assertEqual(
+                        before,
+                        self.run_file_bytes(run_directory),
+                    )
+                    self.assertFalse(
+                        (run_directory / ".attempt-ledger.lock").exists()
+                    )
+
     def test_recover_cli_rejects_queue_collisions_before_any_mutation(self):
         probes = (
             "same-sequence-different-hash",
