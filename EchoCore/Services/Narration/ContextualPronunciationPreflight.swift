@@ -7,6 +7,14 @@ nonisolated enum ContextualPronunciationPreflight {
         environment: ContextualModelRuntime,
         configuration: ContextualPronunciationPreflightConfiguration = .phaseTwo
     ) async throws -> [ContextualPronunciationEvidence] {
+        guard occurrenceIDsAreUnique(occurrences) else {
+            try Task.checkCancellation()
+            return makeFailureEvidence(
+                for: occurrences,
+                failure: .invalidBatch,
+                runtime: environment)
+        }
+
         var evidence: [ContextualPronunciationEvidence] = []
         for batch in plannedBatches(occurrences, configuration: configuration) {
             try Task.checkCancellation()
@@ -265,6 +273,18 @@ nonisolated enum ContextualPronunciationPreflight {
         return batches
     }
 
+    private static func occurrenceIDsAreUnique(
+        _ occurrences: [ContextualPronunciationOccurrence]
+    ) -> Bool {
+        var occurrenceIDs: Set<String> = []
+        for occurrence in occurrences {
+            guard occurrenceIDs.insert(occurrence.occurrenceID).inserted else {
+                return false
+            }
+        }
+        return true
+    }
+
     private static func estimatedPromptCharacters(
         for occurrence: ContextualPronunciationOccurrence
     ) -> Int {
@@ -313,8 +333,13 @@ nonisolated enum ContextualPronunciationPreflight {
             return nil
         }
 
-        let occurrencesByID = Dictionary(
-            uniqueKeysWithValues: occurrences.map { ($0.occurrenceID, $0) })
+        var occurrencesByID: [String: ContextualPronunciationOccurrence] = [:]
+        for occurrence in occurrences {
+            guard occurrencesByID[occurrence.occurrenceID] == nil else {
+                return nil
+            }
+            occurrencesByID[occurrence.occurrenceID] = occurrence
+        }
         var selectionsByID: [String: ContextualCandidateSlot] = [:]
 
         for selection in result.selections {

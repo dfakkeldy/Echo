@@ -245,6 +245,66 @@ private nonisolated enum PreflightFixtures {
         #expect(evidence.allSatisfy { $0.modelFailure == .invalidBatch })
     }
 
+    @Test func duplicateSubmittedOccurrenceIDsFailClosedBeforeEvaluation() async throws {
+        let fixtures = PreflightFixtures.occurrences(count: 9)
+        let first = fixtures[0]
+        let duplicate = ContextualPronunciationOccurrence(
+            occurrenceID: first.occurrenceID,
+            blockID: "second-block",
+            wordStart: 5,
+            wordEnd: 9,
+            targetWord: first.targetWord,
+            precedingSentence: first.precedingSentence,
+            targetSentence: first.targetSentence,
+            followingSentence: first.followingSentence,
+            familyID: "second-family",
+            candidates: first.candidates,
+            deterministicCandidateID: "second-deterministic-candidate",
+            deterministicRuleID: "second-deterministic-rule",
+            deterministicStrength: .definitive)
+        let occurrences = Array(fixtures.dropLast()) + [duplicate]
+        let recorder = PreflightCallRecorder()
+        let evaluator: ContextualPronunciationBatchEvaluator = { request in
+            _ = await recorder.record(request)
+            return PreflightFixtures.success(for: request)
+        }
+
+        let evidence = try await ContextualPronunciationPreflight.run(
+            occurrences: occurrences,
+            evaluator: evaluator,
+            environment: PreflightFixtures.runtime)
+
+        #expect(await recorder.batchCounts().isEmpty)
+        #expect(evidence.count == 9)
+        #expect(
+            evidence.map(\.occurrenceID) == [
+                "occurrence-0",
+                "occurrence-1",
+                "occurrence-2",
+                "occurrence-3",
+                "occurrence-4",
+                "occurrence-5",
+                "occurrence-6",
+                "occurrence-7",
+                "occurrence-0",
+            ])
+        #expect(
+            evidence.map(\.familyID) == [
+                "read", "read", "read", "read", "read", "read", "read", "read",
+                "second-family",
+            ])
+        #expect(
+            evidence.allSatisfy {
+                $0.modelCandidateID == nil
+                    && $0.modelFailure == .invalidBatch
+                    && $0.modelAvailability == .available
+                    && $0.acceptanceReason == .shadowModelFailure
+                    && $0.platform == "test"
+                    && $0.osBuild == "test-build"
+                    && $0.qualifiedRuntimeFamilyID == "test-runtime"
+            })
+    }
+
     @Test func missingDuplicateAndInvalidSlotSelectionsRejectWholeBatches() async throws {
         let occurrences = PreflightFixtures.occurrences(count: 2)
         for shape in [
