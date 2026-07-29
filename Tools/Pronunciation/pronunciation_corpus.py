@@ -6,10 +6,12 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import unicodedata
 from collections import Counter
 from dataclasses import asdict, dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Iterable
+from urllib.parse import urlsplit
 
 
 CONTEXTUAL_FAMILIES = {
@@ -17,6 +19,16 @@ CONTEXTUAL_FAMILIES = {
     "read": {"read.present", "read.past"},
     "live": {"live.adjective", "live.verb", "lives.noun", "lives.verb"},
     "record": {"record.noun", "record.verb"},
+}
+
+TARGET_CANDIDATES = {
+    "content": {"content": {"content.material", "content.satisfied"}},
+    "read": {"read": {"read.present", "read.past"}},
+    "live": {
+        "live": {"live.adjective", "live.verb"},
+        "lives": {"lives.noun", "lives.verb"},
+    },
+    "record": {"record": {"record.noun", "record.verb"}},
 }
 
 REQUIRED_NAMED_SHAPES = {
@@ -59,6 +71,14 @@ CONTEXTUAL_ALLOWED_FIELDS = (
     | HUMAN_EVIDENCE_FIELDS
     | {"sourceURL", "license"}
 )
+TRUSTED_RECEIPT_FIELDS = {
+    "receiptID",
+    "caseID",
+    "evidenceKind",
+    "labelA",
+    "labelB",
+    "adjudicated",
+}
 
 
 @dataclass(frozen=True)
@@ -76,6 +96,16 @@ class ContextualCase:
     label_evidence_kind: str | None
     label_evidence_id: str | None
     provenance: str
+
+
+@dataclass(frozen=True)
+class TrustedLabelReceipt:
+    receipt_id: str
+    case_id: str
+    evidence_kind: str
+    label_a: str
+    label_b: str
+    adjudicated: str | None
 
 
 @dataclass(frozen=True)
@@ -102,6 +132,28 @@ def _is_nonempty_string(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
+def _contains_absolute_local_path(value: str) -> bool:
+    for match in re.finditer(r"(?<![:/\w])/(?!/)\S*", value):
+        fragment = match.group().rstrip(".,;:!?)}]>\"'")
+        if (
+            value[max(0, match.start() - 2) : match.start()] == "]("
+            and fragment.endswith("/")
+        ):
+            continue
+        if PurePosixPath(fragment).is_absolute():
+            return True
+
+    windows_pattern = re.compile(
+        r"(?<!\w)(?:[A-Za-z]:[\\/]|\\\\|\\(?!\\))\S+"
+    )
+    for match in windows_pattern.finditer(value):
+        fragment = match.group().rstrip(".,;:!?)}]>\"'")
+        windows_path = PureWindowsPath(fragment)
+        if windows_path.is_absolute() or bool(windows_path.root):
+            return True
+    return False
+
+
 def _validate_no_private_data(value: Any, location: str = "record") -> None:
     if isinstance(value, dict):
         for key, nested in value.items():
@@ -117,9 +169,9 @@ def _validate_no_private_data(value: Any, location: str = "record") -> None:
         return
 
     candidate = value.strip()
-    if candidate.lower().startswith("file://"):
+    if re.search(r"file://", candidate, flags=re.IGNORECASE):
         raise ValueError(f"{location} contains a prohibited file:// URL")
-    if Path(candidate).is_absolute() or re.match(r"^[A-Za-z]:[\\/]", candidate):
+    if _contains_absolute_local_path(candidate):
         raise ValueError(f"{location} contains prohibited absolute paths")
 
 
@@ -148,21 +200,59 @@ def _validate_provenance(record: dict[str, Any], record_name: str) -> None:
         raise ValueError(
             f"{record_name} provenance must be public-domain, permissive, or synthetic"
         )
-    if provenance != "synthetic":
-        if not _is_nonempty_string(record.get("sourceURL")) or not _is_nonempty_string(
-            record.get("license")
-        ):
+    if provenance == "synthetic":
+        unexpected = {"sourceURL", "license"} & record.keys()
+        if unexpected:
             raise ValueError(
-                f"{record_name} non-synthetic provenance requires sourceURL and license"
+                f"{record_name} synthetic provenance cannot contain "
+                f"{', '.join(sorted(unexpected))}"
             )
-        if not str(record["sourceURL"]).startswith(("https://", "http://")):
-            raise ValueError(f"{record_name} sourceURL must be an HTTP(S) URL")
+        return
+
+    if not _is_nonempty_string(record.get("sourceURL")) or not _is_nonempty_string(
+        record.get("license")
+    ):
+        raise ValueError(
+            f"{record_name} non-synthetic provenance requires sourceURL and license"
+        )
+    parsed_url = urlsplit(record["sourceURL"])
+    if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+        raise ValueError(f"{record_name} sourceURL must be an HTTP(S) URL")
 
 
 def _target_words_for_family(family_id: str) -> set[str]:
-    if family_id == "live":
-        return {"live", "lives"}
-    return {family_id}
+    return set(TARGET_CANDIDATES[family_id])
+
+
+def _candidates_for_target(family_id: str, target_word: str) -> set[str]:
+    return TARGET_CANDIDATES[family_id][target_word.casefold()]
+
+
+def _contains_whole_target_token(sentence: str, target_word: str) -> bool:
+    folded_sentence = sentence.casefold()
+    folded_target = target_word.casefold()
+
+    def is_token_character(character: str) -> bool:
+        return (
+            character == "_"
+            or unicodedata.category(character)[0] in {"L", "M", "N"}
+        )
+
+    search_start = 0
+    while True:
+        match_start = folded_sentence.find(folded_target, search_start)
+        if match_start < 0:
+            return False
+        match_end = match_start + len(folded_target)
+        before_is_token = match_start > 0 and is_token_character(
+            folded_sentence[match_start - 1]
+        )
+        after_is_token = match_end < len(folded_sentence) and is_token_character(
+            folded_sentence[match_end]
+        )
+        if not before_is_token and not after_is_token:
+            return True
+        search_start = match_start + 1
 
 
 def _contextual_case_to_record(case: ContextualCase) -> dict[str, Any]:
@@ -213,9 +303,16 @@ def _parse_contextual_case(raw_case: dict[str, Any] | ContextualCase) -> Context
     family_id = record["familyID"]
     if family_id not in CONTEXTUAL_FAMILIES:
         raise ValueError(f"unknown contextual family {family_id}")
-    if record["targetWord"].lower() not in _target_words_for_family(family_id):
+    normalized_target = record["targetWord"].casefold()
+    if normalized_target not in _target_words_for_family(family_id):
         raise ValueError(
             f"targetWord {record['targetWord']} does not belong to family {family_id}"
+        )
+    if not _contains_whole_target_token(
+        record["targetSentence"], record["targetWord"]
+    ):
+        raise ValueError(
+            f"targetSentence must contain whole target token {record['targetWord']}"
         )
 
     label_status = record["labelStatus"]
@@ -242,16 +339,30 @@ def _parse_contextual_case(raw_case: dict[str, Any] | ContextualCase) -> Context
                 "human-labelled rows require a nonempty labelEvidenceID"
             )
 
-        candidates = CONTEXTUAL_FAMILIES[family_id]
+        family_candidates = CONTEXTUAL_FAMILIES[family_id]
+        target_candidates = _candidates_for_target(family_id, record["targetWord"])
         for field in ("labelA", "labelB", "adjudicated"):
             label = record.get(field)
-            if label is not None and label not in candidates:
+            if label is not None and label not in family_candidates:
                 raise ValueError(
                     f"{field} {label} is not a candidate for family {family_id}"
+                )
+            if label is not None and label not in target_candidates:
+                raise ValueError(
+                    f"{field} {label} is not a candidate for targetWord "
+                    f"{record['targetWord']}"
                 )
         if record["labelA"] != record["labelB"] and record.get("adjudicated") is None:
             raise ValueError(
                 "human-labelled dual-label disagreement requires adjudicated"
+            )
+        if (
+            record["labelA"] == record["labelB"]
+            and record.get("adjudicated") is not None
+            and record["adjudicated"] != record["labelA"]
+        ):
+            raise ValueError(
+                "adjudicated must equal the agreeing labels or be absent"
             )
 
     return ContextualCase(
@@ -285,6 +396,73 @@ def validate_contract(
     return parsed
 
 
+def _trusted_receipt_to_record(
+    receipt: TrustedLabelReceipt,
+) -> dict[str, Any]:
+    return {
+        "receiptID": receipt.receipt_id,
+        "caseID": receipt.case_id,
+        "evidenceKind": receipt.evidence_kind,
+        "labelA": receipt.label_a,
+        "labelB": receipt.label_b,
+        "adjudicated": receipt.adjudicated,
+    }
+
+
+def validate_trusted_receipts(
+    raw_receipts: Iterable[dict[str, Any] | TrustedLabelReceipt],
+) -> list[TrustedLabelReceipt]:
+    receipts: list[TrustedLabelReceipt] = []
+    seen_receipt_ids: set[str] = set()
+    seen_case_ids: set[str] = set()
+    for raw_receipt in raw_receipts:
+        record = (
+            _trusted_receipt_to_record(raw_receipt)
+            if isinstance(raw_receipt, TrustedLabelReceipt)
+            else raw_receipt
+        )
+        if not isinstance(record, dict):
+            raise ValueError("trusted receipt must be a JSON object")
+        _validate_no_private_data(record, "trusted receipt")
+        _validate_fields(
+            record,
+            required=TRUSTED_RECEIPT_FIELDS,
+            allowed=TRUSTED_RECEIPT_FIELDS,
+            record_name="trusted receipt",
+        )
+        for field in ("receiptID", "caseID", "evidenceKind", "labelA", "labelB"):
+            if not _is_nonempty_string(record[field]):
+                raise ValueError(f"trusted receipt {field} must be nonempty")
+        if record["adjudicated"] is not None and not _is_nonempty_string(
+            record["adjudicated"]
+        ):
+            raise ValueError("trusted receipt adjudicated must be null or nonempty")
+        if record["evidenceKind"] not in HUMAN_EVIDENCE_KINDS:
+            raise ValueError(
+                "trusted receipt evidenceKind must be independent-human "
+                "or source-verifiable"
+            )
+        if record["receiptID"] in seen_receipt_ids:
+            raise ValueError(f"duplicate receiptID {record['receiptID']}")
+        if record["caseID"] in seen_case_ids:
+            raise ValueError(
+                f"multiple trusted receipts for caseID {record['caseID']}"
+            )
+        seen_receipt_ids.add(record["receiptID"])
+        seen_case_ids.add(record["caseID"])
+        receipts.append(
+            TrustedLabelReceipt(
+                receipt_id=record["receiptID"],
+                case_id=record["caseID"],
+                evidence_kind=record["evidenceKind"],
+                label_a=record["labelA"],
+                label_b=record["labelB"],
+                adjudicated=record["adjudicated"],
+            )
+        )
+    return receipts
+
+
 def _gold_label(case: ContextualCase) -> str:
     if case.label_a == case.label_b:
         assert case.label_a is not None
@@ -295,8 +473,15 @@ def _gold_label(case: ContextualCase) -> str:
 
 def qualification_status(
     raw_cases: Iterable[dict[str, Any] | ContextualCase],
+    *,
+    trusted_receipts: Iterable[
+        dict[str, Any] | TrustedLabelReceipt
+    ] | None = None,
 ) -> QualificationResult:
     cases = validate_contract(raw_cases)
+    receipts = validate_trusted_receipts(trusted_receipts or [])
+    receipts_by_id = {receipt.receipt_id: receipt for receipt in receipts}
+    receipt_claims: dict[str, str] = {}
     family_counts = Counter({family: 0 for family in CONTEXTUAL_FAMILIES})
     sense_counts = Counter(
         {
@@ -309,6 +494,27 @@ def qualification_status(
     for case in cases:
         if case.label_status != "human-labelled":
             continue
+        assert case.label_evidence_id is not None
+        receipt = receipts_by_id.get(case.label_evidence_id)
+        if receipt is None:
+            continue
+        previous_case_id = receipt_claims.get(receipt.receipt_id)
+        if previous_case_id is not None and previous_case_id != case.case_id:
+            raise ValueError(
+                f"trusted receipt {receipt.receipt_id} cannot qualify multiple cases"
+            )
+        receipt_claims[receipt.receipt_id] = case.case_id
+        if (
+            receipt.case_id != case.case_id
+            or receipt.evidence_kind != case.label_evidence_kind
+            or receipt.label_a != case.label_a
+            or receipt.label_b != case.label_b
+            or receipt.adjudicated != case.adjudicated
+        ):
+            raise ValueError(
+                f"trusted receipt {receipt.receipt_id} does not exactly match case "
+                f"{case.case_id}"
+            )
         family_counts[case.family_id] += 1
         sense_counts[_gold_label(case)] += 1
 
@@ -490,14 +696,28 @@ def validate_named_regressions(
         family_id = raw_row["familyID"]
         if family_id not in CONTEXTUAL_FAMILIES:
             raise ValueError(f"unknown contextual family {family_id}")
-        if raw_row["targetWord"].lower() not in _target_words_for_family(family_id):
+        if raw_row["targetWord"].casefold() not in _target_words_for_family(family_id):
             raise ValueError(
                 f"targetWord {raw_row['targetWord']} does not belong to family {family_id}"
+            )
+        if not _contains_whole_target_token(
+            raw_row["targetSentence"], raw_row["targetWord"]
+        ):
+            raise ValueError(
+                f"targetSentence must contain whole target token "
+                f"{raw_row['targetWord']}"
             )
         if raw_row["expectedCandidateID"] not in CONTEXTUAL_FAMILIES[family_id]:
             raise ValueError(
                 f"expectedCandidateID {raw_row['expectedCandidateID']} "
                 f"is not a candidate for family {family_id}"
+            )
+        if raw_row["expectedCandidateID"] not in _candidates_for_target(
+            family_id, raw_row["targetWord"]
+        ):
+            raise ValueError(
+                f"expectedCandidateID {raw_row['expectedCandidateID']} "
+                f"is not a candidate for targetWord {raw_row['targetWord']}"
             )
         if raw_row["expectedOutcome"] not in {"automatic", "review"}:
             raise ValueError("expectedOutcome must be automatic or review")
@@ -516,28 +736,58 @@ def validate_named_regressions(
     return rows
 
 
-def _load_json(path: Path) -> Any:
+def _read_utf8(path: Path) -> str:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise ValueError(f"cannot read valid JSON from {path.name}: {error}") from error
+        data = path.read_bytes()
+    except OSError as error:
+        raise ValueError(f"cannot read {path.name}: {error}") from error
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        line_number = data[: error.start].count(b"\n") + 1
+        raise ValueError(
+            f"{path.name}:{line_number} is not valid UTF-8: {error.reason}"
+        ) from error
+
+
+def _strict_json_loads(text: str, location: str) -> Any:
+    def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"{location} contains duplicate key {key}")
+            result[key] = value
+        return result
+
+    def reject_nonstandard_constant(value: str) -> None:
+        raise ValueError(
+            f"{location} contains non-standard JSON constant {value}"
+        )
+
+    try:
+        return json.loads(
+            text,
+            object_pairs_hook=reject_duplicate_keys,
+            parse_constant=reject_nonstandard_constant,
+        )
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            f"{location} is not valid JSON: {error.msg} "
+            f"at column {error.colno}"
+        ) from error
+
+
+def _load_json(path: Path) -> Any:
+    return _strict_json_loads(_read_utf8(path), path.name)
 
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError as error:
-        raise ValueError(f"cannot read {path.name}: {error}") from error
+    lines = _read_utf8(path).splitlines()
     for line_number, line in enumerate(lines, start=1):
         if not line.strip():
             continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError as error:
-            raise ValueError(
-                f"{path.name}:{line_number} is not valid JSON: {error.msg}"
-            ) from error
+        row = _strict_json_loads(line, f"{path.name}:{line_number}")
         if not isinstance(row, dict):
             raise ValueError(f"{path.name}:{line_number} must contain a JSON object")
         rows.append(row)
@@ -604,7 +854,8 @@ def validate_fixture_directory(fixtures: Path | str) -> dict[str, Any]:
         raise ValueError(
             "contextual labelled fixture may contain only human-labelled rows"
         )
-    contextual_cases = validate_contract(candidate_rows + labelled_rows)
+    contextual_records = candidate_rows + labelled_rows
+    validate_contract(contextual_records)
     distribution_works = validate_distribution_works(_load_json(distribution_path))
     morphology_rows = validate_morphology(_load_jsonl(morphology_path))
     research_sources = _validate_candidate_research(research_path)
@@ -618,7 +869,7 @@ def validate_fixture_directory(fixtures: Path | str) -> dict[str, Any]:
         "distributionWorks": len(distribution_works),
         "morphologyCases": len(morphology_rows),
         "candidateResearchSources": research_sources,
-        "contextualCases": contextual_cases,
+        "contextualRecords": contextual_records,
     }
 
 
@@ -629,18 +880,30 @@ def _print_json(summary: dict[str, Any]) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
-    for command in ("validate-contract", "qualification-status"):
-        command_parser = subparsers.add_parser(command)
-        command_parser.add_argument("--fixtures", type=Path, required=True)
+    contract_parser = subparsers.add_parser("validate-contract")
+    contract_parser.add_argument("--fixtures", type=Path, required=True)
+    qualification_parser = subparsers.add_parser("qualification-status")
+    qualification_parser.add_argument("--fixtures", type=Path, required=True)
+    qualification_parser.add_argument("--trusted-receipts", type=Path)
     arguments = parser.parse_args(argv)
 
     try:
         summary = validate_fixture_directory(arguments.fixtures)
-        contextual_cases = summary.pop("contextualCases")
+        contextual_records = summary.pop("contextualRecords")
         if arguments.command == "validate-contract":
             _print_json(summary)
         else:
-            _print_json(qualification_status(contextual_cases).as_summary())
+            trusted_receipts = (
+                _load_jsonl(arguments.trusted_receipts)
+                if arguments.trusted_receipts is not None
+                else []
+            )
+            _print_json(
+                qualification_status(
+                    contextual_records,
+                    trusted_receipts=trusted_receipts,
+                ).as_summary()
+            )
     except ValueError as error:
         parser.error(str(error))
     return 0
