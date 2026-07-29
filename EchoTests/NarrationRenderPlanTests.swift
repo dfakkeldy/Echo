@@ -336,6 +336,26 @@ import Testing
                 == true)
     }
 
+    @Test func standaloneContentHeadingUsesMaterialNounFallback() throws {
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "heading", text: "Content", kind: "heading", index: 0)],
+            overrides: PronunciationOverrides(entries: [:]))
+
+        let plannedBlock = try #require(plan.blocks.first)
+        let chunk = try #require(plannedBlock.synthesisChunks.first)
+        let decision = try #require(
+            plannedBlock.pronunciationDecisions.first {
+                $0.normalizedWord == "content"
+            })
+
+        #expect(chunk.displayText == "Content")
+        #expect(chunk.g2pInputText == "Content")
+        #expect(chunk.phonemes == "kˈɑntɛnt")
+        #expect(decision.source == .monitoredLexicon)
+        #expect(decision.ruleID == "g2p.lexicon.content")
+        #expect(decision.selectedIPA == "kˈɑntɛnt")
+    }
+
     @Test func bookOverrideWinsOverGlobalOverrideWithBookProvenance() throws {
         let overrides = PronunciationOverrides.merging(
             global: PronunciationOverrides(entries: ["record": "ɹˈɛkəɹd"]),

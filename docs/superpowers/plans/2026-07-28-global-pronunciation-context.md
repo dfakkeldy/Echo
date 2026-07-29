@@ -1395,7 +1395,11 @@ Expected: the bare-word test fails before the lexicon edit.
   `content-default-material-noun-v1`. This cache-identity change is atomic with
   the lexicon default; do not allow old adjective-default audio or headless
   captures to resume under the noun-default behavior.
-- [ ] Regenerate the supplemental pack and verify it remains byte-identical because existing gold entries are excluded.
+- [ ] Regenerate the supplemental pack. Because existing gold entries are
+  excluded, verify that the canonical candidate `entries`,
+  `normalizedDataSHA256`, and entry/candidate counts remain identical. The full
+  pack must still rotate its gold exclusion-input snapshot, `packVersion`,
+  generation timestamp, and file bytes so strict provenance remains current.
 
 Run:
 
@@ -1414,6 +1418,8 @@ make test-only FILTER=EchoTests/NarrationFileNamingTests
 ```bash
 git add EchoCore/Services/Narration/MisakiResources/us_gold.json \
   EchoCore/Services/Narration/EnglishPronunciationPack.swift \
+  EchoCore/Services/Narration/PronunciationResources/us_pronunciation_pack.json \
+  Tools/Pronunciation/tests/test_build_pronunciation_pack.py \
   EchoTests/KokoroG2PTests.swift \
   EchoTests/HomographPronunciationResolverTests.swift \
   EchoTests/NarrationRenderPlanTests.swift \

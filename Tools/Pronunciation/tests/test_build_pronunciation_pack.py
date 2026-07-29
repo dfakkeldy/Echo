@@ -526,6 +526,53 @@ class PronunciationPackIdentityTests(unittest.TestCase):
             with self.subTest(sourceID=source_id):
                 self.assertNotEqual(base["packVersion"], changed["packVersion"])
 
+    def test_excluded_gold_change_preserves_entries_but_rotates_provenance(self):
+        adjective_default = minimal_pack(
+            cmu_lines=["CONTENT  K AA1 N T EH0 N T"],
+            gold={
+                "content": {
+                    "DEFAULT": "kəntˈɛnt",
+                    "NOUN": "kˈɑntɛnt",
+                }
+            }
+        )
+        noun_default = minimal_pack(
+            cmu_lines=["CONTENT  K AA1 N T EH0 N T"],
+            gold={
+                "content": {
+                    "ADJ": "kəntˈɛnt",
+                    "DEFAULT": "kˈɑntɛnt",
+                    "NOUN": "kˈɑntɛnt",
+                }
+            }
+        )
+        adjective_gold = next(
+            source
+            for source in adjective_default["sources"]
+            if source["sourceID"] == "echo-us-gold"
+        )
+        noun_gold = next(
+            source
+            for source in noun_default["sources"]
+            if source["sourceID"] == "echo-us-gold"
+        )
+
+        self.assertEqual(adjective_default["entries"], noun_default["entries"])
+        self.assertEqual(
+            adjective_default["normalizedDataSHA256"],
+            noun_default["normalizedDataSHA256"],
+        )
+        self.assertEqual(
+            adjective_default["entryCount"], noun_default["entryCount"]
+        )
+        self.assertEqual(
+            adjective_default["candidateCount"], noun_default["candidateCount"]
+        )
+        self.assertNotEqual(adjective_gold["sha256"], noun_gold["sha256"])
+        self.assertNotEqual(
+            adjective_default["packVersion"], noun_default["packVersion"]
+        )
+
     def test_each_generator_behavior_version_changes_pack_version(self):
         base = minimal_pack()
         for key in GENERATOR_BEHAVIOR:

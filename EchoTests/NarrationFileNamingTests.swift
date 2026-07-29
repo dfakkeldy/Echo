@@ -172,7 +172,7 @@ import Testing
             ]).count == 8)
     }
 
-    @Test func currentAndFutureContentDefaultPoliciesCannotShareCacheIdentity() {
+    @Test func materialNounAndLegacyAdjectiveContentPoliciesCannotShareCacheOrCaptureIdentity() {
         let pack = EnglishPronunciationPack.emptyForTesting(
             packVersion:
                 "sha256:0000000000000000000000000000000000000000000000000000000000000000",
@@ -180,22 +180,37 @@ import Testing
                 "sha256:1111111111111111111111111111111111111111111111111111111111111111")
         let block = block(id: "b0", text: "Content")
         let currentPolicy = pack.productionPolicySignature
-        let futurePolicy = pack.productionPolicySignature(
-            contentDefaultPolicyVersion: "content-default-material-noun-v1")
+        let legacyPolicy = pack.productionPolicySignature(
+            contentDefaultPolicyVersion: "content-default-legacy-adjective-v1")
+        let currentSignature = NarrationFileNaming.contentSignature(
+            spokenBlocks: [block],
+            renderedTexts: ["Content"],
+            includeLeadOutPad: false,
+            pronunciationPolicySignature: currentPolicy)
+        let legacySignature = NarrationFileNaming.contentSignature(
+            spokenBlocks: [block],
+            renderedTexts: ["Content"],
+            includeLeadOutPad: false,
+            pronunciationPolicySignature: legacyPolicy)
 
-        #expect(currentPolicy.hasSuffix("|content-default-legacy-adjective-v1"))
-        #expect(futurePolicy.hasSuffix("|content-default-material-noun-v1"))
+        #expect(currentPolicy.hasSuffix("|content-default-material-noun-v1"))
+        #expect(legacyPolicy.hasSuffix("|content-default-legacy-adjective-v1"))
+        #expect(currentSignature != legacySignature)
         #expect(
-            NarrationFileNaming.contentSignature(
-                spokenBlocks: [block],
-                renderedTexts: ["Content"],
-                includeLeadOutPad: false,
-                pronunciationPolicySignature: currentPolicy)
-                != NarrationFileNaming.contentSignature(
-                    spokenBlocks: [block],
-                    renderedTexts: ["Content"],
-                    includeLeadOutPad: false,
-                    pronunciationPolicySignature: futurePolicy))
+            HeadlessNarrationRunner.captureSetID(
+                sourceFingerprint: "source",
+                voice: VoiceID("af_heart"),
+                renderVersion: NarrationFileNaming.renderVersion,
+                rendererIdentity: NarrationFileNaming.rendererIdentity,
+                normalizationMode: "deterministic",
+                orderedChapterSignatures: ["0:\(currentSignature)"])
+                != HeadlessNarrationRunner.captureSetID(
+                    sourceFingerprint: "source",
+                    voice: VoiceID("af_heart"),
+                    renderVersion: NarrationFileNaming.renderVersion,
+                    rendererIdentity: NarrationFileNaming.rendererIdentity,
+                    normalizationMode: "deterministic",
+                    orderedChapterSignatures: ["0:\(legacySignature)"]))
     }
 
     @Test func auditOnlyPackTimestampCannotChangeProductionPolicyOrContentSignature() {
