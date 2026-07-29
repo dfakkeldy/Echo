@@ -5,6 +5,24 @@ import Testing
 @testable import Echo
 
 @Suite struct PronunciationAuditTests {
+    private static let schemaThreeManifestJSON = #"""
+    {
+      "schemaVersion": 3,
+      "renderVersion": 15,
+      "voice": "af_heart",
+      "chapterVoices": {},
+      "coverage": "complete",
+      "legacyChapterIndexes": [],
+      "audiobookFileName": "book.m4b",
+      "audiobookSHA256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "listeningReelFileName": null,
+      "listeningReelSHA256": null,
+      "watchCounts": {},
+      "decisions": [],
+      "diagnostics": []
+    }
+    """#
+
     private func decision(
         word: String,
         ruleID: String,
@@ -60,7 +78,7 @@ import Testing
             decisions: [first, second],
             diagnostics: [])
 
-        #expect(manifest.schemaVersion == 3)
+        #expect(manifest.schemaVersion == 4)
         #expect(manifest.renderVersion == 11)
         #expect(manifest.voice == "af_heart")
         #expect(manifest.coverage == .complete)
@@ -298,5 +316,219 @@ import Testing
 
         #expect(throws: Error.self) { _ = try malformed.encoded() }
         #expect(throws: Error.self) { _ = try unpaired.encoded() }
+    }
+
+    @Test func schemaThreeAuditDecodesAsIncompleteEvidence() throws {
+        let decoded = try JSONDecoder().decode(
+            PronunciationAuditManifest.self,
+            from: Data(Self.schemaThreeManifestJSON.utf8))
+        let reencoded = try #require(
+            JSONSerialization.jsonObject(with: decoded.encoded())
+                as? [String: Any])
+
+        #expect(decoded.schemaVersion == 3)
+        #expect(decoded.coverage == .incompleteEvidence)
+        #expect(reencoded["schemaVersion"] as? Int == 4)
+        #expect(reencoded["coverage"] as? String == "incompleteEvidence")
+    }
+
+    @Test func schemaThreeLegacyLimitationRemainsStronger() throws {
+        var root = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(Self.schemaThreeManifestJSON.utf8)) as? [String: Any])
+        root["coverage"] = "incompleteLegacyCapture"
+        root["legacyChapterIndexes"] = [2]
+
+        let decoded = try JSONDecoder().decode(
+            PronunciationAuditManifest.self,
+            from: JSONSerialization.data(withJSONObject: root))
+
+        #expect(decoded.schemaVersion == 3)
+        #expect(decoded.coverage == .incompleteLegacyCapture)
+        #expect(decoded.legacyChapterIndexes == [2])
+    }
+
+    @Test func unsupportedAuditSchemasAreRejectedDuringDecoding() throws {
+        for schemaVersion in [2, 5] {
+            var root = try #require(
+                JSONSerialization.jsonObject(
+                    with: Data(Self.schemaThreeManifestJSON.utf8)) as? [String: Any])
+            root["schemaVersion"] = schemaVersion
+
+            #expect(throws: (any Error).self) {
+                _ = try JSONDecoder().decode(
+                    PronunciationAuditManifest.self,
+                    from: JSONSerialization.data(withJSONObject: root))
+            }
+        }
+    }
+
+    @Test func derivedProvenanceSurvivesMaterializationTimingAndJSONRoundTrip() throws {
+        let seed = PronunciationDecisionSeed(
+            blockID: "s0-b0",
+            wordStart: 3,
+            wordEnd: 3,
+            normalizedWord: "startable",
+            sourceWord: "startable",
+            sourceContext: "The widget is startable now",
+            selectedIPA: "stˈɑɹtəbəl",
+            source: .derivedMorphology,
+            ruleID: "universal.morphology",
+            rationale: "One validated base and one versioned rule.",
+            candidateID: "morphology.startable.0123456789ab",
+            candidatePackVersion: "morphology-v1:sha256:"
+                + String(repeating: "a", count: 64),
+            derivationBase: "start",
+            derivationRuleID: "morphology.able.exact-base.v1")
+
+        let materialized = seed.materialized(
+            selectedIPA: "stˈɑɹtəbəl",
+            kokoroTokenIDs: [10, 20, 30])
+        let rendered = materialized.attachingRenderTiming(
+            chapterIndex: 4,
+            chapterRelativeAudioRange: .init(start: 2, end: 2.5),
+            timingPrecision: .exactSynthesisWord)
+        let booked = rendered.attachingBookTiming(
+            chapterIndex: 4,
+            chapterOffset: 100)
+        let manifest = PronunciationAuditManifest.make(
+            renderVersion: 15,
+            voice: VoiceID("af_heart"),
+            captureCoverage: .complete,
+            legacyChapterIndexes: [],
+            audiobookURL: URL(fileURLWithPath: "/tmp/book.m4b"),
+            reelURL: nil,
+            audiobookSHA256: String(repeating: "a", count: 64),
+            listeningReelSHA256: nil,
+            watchWords: [],
+            decisions: [booked],
+            diagnostics: [])
+        let decoded = try JSONDecoder().decode(
+            PronunciationAuditManifest.self,
+            from: manifest.encoded())
+        let decision = try #require(decoded.decisions.first)
+
+        #expect(decoded.schemaVersion == 4)
+        #expect(decision.candidateID == "morphology.startable.0123456789ab")
+        #expect(decision.candidatePackVersion
+            == "morphology-v1:sha256:" + String(repeating: "a", count: 64))
+        #expect(decision.derivationBase == "start")
+        #expect(decision.derivationRuleID == "morphology.able.exact-base.v1")
+        #expect(
+            decision.chapterRelativeAudioRange
+                == PronunciationAuditDecision.AudioRange(start: 2, end: 2.5))
+        #expect(
+            decision.bookRelativeAudioRange
+                == PronunciationAuditDecision.AudioRange(start: 102, end: 102.5))
+    }
+
+    @Test func supplementalProvenanceSurvivesWithoutMorphologyFields() throws {
+        let decision = PronunciationDecisionSeed(
+            blockID: "b1",
+            wordStart: 0,
+            wordEnd: 0,
+            normalizedWord: "example",
+            sourceWord: "Example",
+            sourceContext: "Example",
+            selectedIPA: "ɪɡzˈæmpəl",
+            source: .supplementalLexicon,
+            ruleID: "universal.supplemental",
+            rationale: "One validated supplemental candidate.",
+            candidateID: "cmudict.example.63ea23914424",
+            candidatePackVersion: "sha256:" + String(repeating: "b", count: 64))
+            .materialized(
+                selectedIPA: "ɪɡzˈæmpəl",
+                kokoroTokenIDs: [1, 2, 3])
+
+        #expect(decision.candidateID == "cmudict.example.63ea23914424")
+        #expect(decision.candidatePackVersion
+            == "sha256:" + String(repeating: "b", count: 64))
+        #expect(decision.derivationBase == nil)
+        #expect(decision.derivationRuleID == nil)
+    }
+
+    @Test func universalDecisionsRejectIncompleteProvenanceCombinations() {
+        let validSupplemental = PronunciationAuditDecision(
+            blockID: "b1",
+            wordStart: 0,
+            wordEnd: 0,
+            normalizedWord: "example",
+            sourceWord: "example",
+            sourceContext: "example",
+            selectedIPA: "ipa",
+            kokoroTokenIDs: [1],
+            source: .supplementalLexicon,
+            ruleID: "universal.supplemental",
+            rationale: "fixture",
+            candidateID: "cmudict.example.fixture",
+            candidatePackVersion: "sha256:" + String(repeating: "c", count: 64))
+        let validDerived = PronunciationAuditDecision(
+            blockID: "b1",
+            wordStart: 0,
+            wordEnd: 0,
+            normalizedWord: "startable",
+            sourceWord: "startable",
+            sourceContext: "startable",
+            selectedIPA: "ipa",
+            kokoroTokenIDs: [1],
+            source: .derivedMorphology,
+            ruleID: "universal.morphology",
+            rationale: "fixture",
+            candidateID: "morphology.startable.fixture",
+            candidatePackVersion: "morphology-v1:sha256:"
+                + String(repeating: "d", count: 64),
+            derivationBase: "start",
+            derivationRuleID: "morphology.able.exact-base.v1")
+
+        let invalid = [
+            replacingProvenance(validSupplemental, candidateID: .some(nil)),
+            replacingProvenance(validSupplemental, candidatePackVersion: .some(nil)),
+            replacingProvenance(validSupplemental, derivationBase: "example"),
+            replacingProvenance(validDerived, candidateID: ""),
+            replacingProvenance(validDerived, candidatePackVersion: ""),
+            replacingProvenance(validDerived, derivationBase: ""),
+            replacingProvenance(validDerived, derivationRuleID: ""),
+        ]
+
+        for decision in invalid {
+            let manifest = PronunciationAuditManifest.make(
+                renderVersion: 15,
+                voice: VoiceID("af_heart"),
+                captureCoverage: .complete,
+                legacyChapterIndexes: [],
+                audiobookURL: URL(fileURLWithPath: "/tmp/book.m4b"),
+                reelURL: nil,
+                audiobookSHA256: String(repeating: "a", count: 64),
+                listeningReelSHA256: nil,
+                watchWords: [],
+                decisions: [decision],
+                diagnostics: [])
+            #expect(throws: (any Error).self) { _ = try manifest.encoded() }
+        }
+    }
+
+    private func replacingProvenance(
+        _ decision: PronunciationAuditDecision,
+        candidateID: String?? = nil,
+        candidatePackVersion: String?? = nil,
+        derivationBase: String?? = nil,
+        derivationRuleID: String?? = nil
+    ) -> PronunciationAuditDecision {
+        PronunciationAuditDecision(
+            blockID: decision.blockID,
+            wordStart: decision.wordStart,
+            wordEnd: decision.wordEnd,
+            normalizedWord: decision.normalizedWord,
+            sourceWord: decision.sourceWord,
+            sourceContext: decision.sourceContext,
+            selectedIPA: decision.selectedIPA,
+            kokoroTokenIDs: decision.kokoroTokenIDs,
+            source: decision.source,
+            ruleID: decision.ruleID,
+            rationale: decision.rationale,
+            candidateID: candidateID ?? decision.candidateID,
+            candidatePackVersion: candidatePackVersion ?? decision.candidatePackVersion,
+            derivationBase: derivationBase ?? decision.derivationBase,
+            derivationRuleID: derivationRuleID ?? decision.derivationRuleID)
     }
 }

@@ -147,6 +147,8 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
         case globalOverride
         case builtInOverride
         case contextualHomograph
+        case supplementalLexicon
+        case derivedMorphology
         case monitoredLexicon
         case fallback
     }
@@ -173,6 +175,10 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
     let source: Source
     let ruleID: String
     let rationale: String
+    let candidateID: String?
+    let candidatePackVersion: String?
+    let derivationBase: String?
+    let derivationRuleID: String?
     let chapterIndex: Int?
     let chapterRelativeAudioRange: AudioRange?
     let bookRelativeAudioRange: AudioRange?
@@ -190,6 +196,10 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
         source: Source,
         ruleID: String,
         rationale: String,
+        candidateID: String? = nil,
+        candidatePackVersion: String? = nil,
+        derivationBase: String? = nil,
+        derivationRuleID: String? = nil,
         chapterIndex: Int? = nil,
         chapterRelativeAudioRange: AudioRange? = nil,
         bookRelativeAudioRange: AudioRange? = nil,
@@ -206,6 +216,10 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
         self.source = source
         self.ruleID = ruleID
         self.rationale = rationale
+        self.candidateID = candidateID
+        self.candidatePackVersion = candidatePackVersion
+        self.derivationBase = derivationBase
+        self.derivationRuleID = derivationRuleID
         self.chapterIndex = chapterIndex
         self.chapterRelativeAudioRange = chapterRelativeAudioRange
         self.bookRelativeAudioRange = bookRelativeAudioRange
@@ -229,6 +243,10 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
             source: source,
             ruleID: ruleID,
             rationale: rationale,
+            candidateID: candidateID,
+            candidatePackVersion: candidatePackVersion,
+            derivationBase: derivationBase,
+            derivationRuleID: derivationRuleID,
             chapterIndex: chapterIndex,
             chapterRelativeAudioRange: chapterRelativeAudioRange,
             bookRelativeAudioRange: bookRelativeAudioRange,
@@ -259,6 +277,10 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
             source: source,
             ruleID: ruleID,
             rationale: rationale,
+            candidateID: candidateID,
+            candidatePackVersion: candidatePackVersion,
+            derivationBase: derivationBase,
+            derivationRuleID: derivationRuleID,
             chapterIndex: chapterIndex,
             chapterRelativeAudioRange: chapterRelativeAudioRange,
             bookRelativeAudioRange: bookRelativeAudioRange,
@@ -279,7 +301,7 @@ nonisolated enum PronunciationAuditCoverage: String, Codable, Equatable, Sendabl
 /// completed narration render. File references deliberately contain names only:
 /// the manifest can move with its sibling audiobook without leaking a local path.
 nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
-    static let currentSchemaVersion = 3
+    static let currentSchemaVersion = 4
 
     let schemaVersion: Int
     let renderVersion: Int
@@ -394,7 +416,7 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
     }
 
     private func validateFields() throws {
-        guard schemaVersion == Self.currentSchemaVersion else {
+        guard (3...Self.currentSchemaVersion).contains(schemaVersion) else {
             throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
                 "unsupported pronunciation-audit schema \(schemaVersion)")
         }
@@ -436,6 +458,35 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
             throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
                 "listening-reel SHA-256 is not 64 lowercase hexadecimal characters")
         }
+        for decision in decisions {
+            switch decision.source {
+            case .supplementalLexicon:
+                guard Self.isPresent(decision.candidateID),
+                    Self.isPresent(decision.candidatePackVersion),
+                    decision.derivationBase == nil,
+                    decision.derivationRuleID == nil
+                else {
+                    throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                        "supplemental pronunciation evidence is incomplete")
+                }
+            case .derivedMorphology:
+                guard Self.isPresent(decision.candidateID),
+                    Self.isPresent(decision.candidatePackVersion),
+                    Self.isPresent(decision.derivationBase),
+                    Self.isPresent(decision.derivationRuleID)
+                else {
+                    throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                        "derived pronunciation evidence is incomplete")
+                }
+            default:
+                break
+            }
+        }
+    }
+
+    private static func isPresent(_ value: String?) -> Bool {
+        guard let value else { return false }
+        return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// Writes through a unique sibling, then atomically promotes it over the
@@ -456,6 +507,99 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
     }
 }
 
+extension PronunciationAuditManifest {
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case renderVersion
+        case voice
+        case chapterVoices
+        case coverage
+        case legacyChapterIndexes
+        case audiobookFileName
+        case audiobookSHA256
+        case listeningReelFileName
+        case listeningReelSHA256
+        case watchCounts
+        case decisions
+        case diagnostics
+    }
+
+    nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        guard (3...Self.currentSchemaVersion).contains(schemaVersion) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schemaVersion,
+                in: container,
+                debugDescription:
+                    "Unsupported pronunciation-audit schema \(schemaVersion).")
+        }
+
+        let storedCoverage = try container.decode(
+            PronunciationAuditCoverage.self,
+            forKey: .coverage)
+        let effectiveCoverage: PronunciationAuditCoverage
+        if schemaVersion == 3, storedCoverage == .complete {
+            effectiveCoverage = .incompleteEvidence
+        } else {
+            effectiveCoverage = storedCoverage
+        }
+
+        self.schemaVersion = schemaVersion
+        renderVersion = try container.decode(Int.self, forKey: .renderVersion)
+        voice = try container.decode(String.self, forKey: .voice)
+        chapterVoices = try container.decode(
+            [String: String].self,
+            forKey: .chapterVoices)
+        coverage = effectiveCoverage
+        legacyChapterIndexes = try container.decode(
+            [Int].self,
+            forKey: .legacyChapterIndexes)
+        audiobookFileName = try container.decode(
+            String.self,
+            forKey: .audiobookFileName)
+        audiobookSHA256 = try container.decode(
+            String.self,
+            forKey: .audiobookSHA256)
+        listeningReelFileName = try container.decodeIfPresent(
+            String.self,
+            forKey: .listeningReelFileName)
+        listeningReelSHA256 = try container.decodeIfPresent(
+            String.self,
+            forKey: .listeningReelSHA256)
+        watchCounts = try container.decode(
+            [String: Int].self,
+            forKey: .watchCounts)
+        decisions = try container.decode(
+            [PronunciationAuditDecision].self,
+            forKey: .decisions)
+        diagnostics = try container.decode(
+            [PronunciationAuditDiagnostic].self,
+            forKey: .diagnostics)
+    }
+
+    nonisolated func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(Self.currentSchemaVersion, forKey: .schemaVersion)
+        try container.encode(renderVersion, forKey: .renderVersion)
+        try container.encode(voice, forKey: .voice)
+        try container.encode(chapterVoices, forKey: .chapterVoices)
+        try container.encode(coverage, forKey: .coverage)
+        try container.encode(legacyChapterIndexes, forKey: .legacyChapterIndexes)
+        try container.encode(audiobookFileName, forKey: .audiobookFileName)
+        try container.encode(audiobookSHA256, forKey: .audiobookSHA256)
+        try container.encodeIfPresent(
+            listeningReelFileName,
+            forKey: .listeningReelFileName)
+        try container.encodeIfPresent(
+            listeningReelSHA256,
+            forKey: .listeningReelSHA256)
+        try container.encode(watchCounts, forKey: .watchCounts)
+        try container.encode(decisions, forKey: .decisions)
+        try container.encode(diagnostics, forKey: .diagnostics)
+    }
+}
+
 /// Rewrite-stage provenance. The render planner binds this metadata to an exact
 /// final chunk phoneme and Kokoro-ID slice before exposing a portable decision.
 nonisolated struct PronunciationDecisionSeed: Equatable, Sendable {
@@ -469,6 +613,42 @@ nonisolated struct PronunciationDecisionSeed: Equatable, Sendable {
     let source: PronunciationAuditDecision.Source
     let ruleID: String
     let rationale: String
+    let candidateID: String?
+    let candidatePackVersion: String?
+    let derivationBase: String?
+    let derivationRuleID: String?
+
+    init(
+        blockID: String,
+        wordStart: Int,
+        wordEnd: Int,
+        normalizedWord: String,
+        sourceWord: String,
+        sourceContext: String,
+        selectedIPA: String,
+        source: PronunciationAuditDecision.Source,
+        ruleID: String,
+        rationale: String,
+        candidateID: String? = nil,
+        candidatePackVersion: String? = nil,
+        derivationBase: String? = nil,
+        derivationRuleID: String? = nil
+    ) {
+        self.blockID = blockID
+        self.wordStart = wordStart
+        self.wordEnd = wordEnd
+        self.normalizedWord = normalizedWord
+        self.sourceWord = sourceWord
+        self.sourceContext = sourceContext
+        self.selectedIPA = selectedIPA
+        self.source = source
+        self.ruleID = ruleID
+        self.rationale = rationale
+        self.candidateID = candidateID
+        self.candidatePackVersion = candidatePackVersion
+        self.derivationBase = derivationBase
+        self.derivationRuleID = derivationRuleID
+    }
 
     func materialized(
         selectedIPA: String,
@@ -485,7 +665,11 @@ nonisolated struct PronunciationDecisionSeed: Equatable, Sendable {
             kokoroTokenIDs: kokoroTokenIDs,
             source: source,
             ruleID: ruleID,
-            rationale: rationale)
+            rationale: rationale,
+            candidateID: candidateID,
+            candidatePackVersion: candidatePackVersion,
+            derivationBase: derivationBase,
+            derivationRuleID: derivationRuleID)
     }
 }
 
