@@ -26,9 +26,11 @@ final class ReadabilityWebExtractor: NSObject, WKNavigationDelegate {
 
     typealias SourceProvider = @MainActor @Sendable () throws -> String
     typealias RuleCompiler = @MainActor @Sendable (_ rules: String, _ completion: @escaping @MainActor (Result<WKContentRuleList, Swift.Error>) -> Void) -> Void
+    typealias CancellationScheduler = @MainActor @Sendable (_ extractionID: UUID, _ operation: @escaping @MainActor () -> Void) -> Void
 
     private let sourceProvider: SourceProvider
     private let ruleCompiler: RuleCompiler
+    private let cancellationScheduler: CancellationScheduler
     private var navigationContinuation: CheckedContinuation<Void, Swift.Error>?
     private var rulesContinuation: CheckedContinuation<WKContentRuleList, Swift.Error>?
     private var parserContinuation: CheckedContinuation<Void, Swift.Error>?
@@ -48,10 +50,12 @@ final class ReadabilityWebExtractor: NSObject, WKNavigationDelegate {
             WKContentRuleListStore.default().compileContentRuleList(
                 forIdentifier: "echo-readability-no-subresources-v1", encodedContentRuleList: rules
             ) { list, error in completion(list.map(Result.success) ?? .failure(error ?? Error.ruleCompilationFailed)) }
-        }
+        },
+        cancellationScheduler: @escaping CancellationScheduler = { _, operation in Task { @MainActor in operation() } }
     ) {
         self.sourceProvider = sourceProvider
         self.ruleCompiler = ruleCompiler
+        self.cancellationScheduler = cancellationScheduler
     }
 
     func extract(html: String, sourceURL: URL) async throws -> ReadabilityCapturePayload {
@@ -140,7 +144,7 @@ final class ReadabilityWebExtractor: NSObject, WKNavigationDelegate {
                 self?.resumeRules(token: token, result: result)
             }
             }
-        }, onCancel: { [weak self] in Task { @MainActor in self?.cancelActiveWork() } })
+        }, onCancel: { [weak self] in Task { @MainActor in self?.scheduleCancellation(token) } })
     }
 
     private func load(html: String, into webView: WKWebView, baseURL: URL, token: UUID) async throws {
@@ -153,7 +157,7 @@ final class ReadabilityWebExtractor: NSObject, WKNavigationDelegate {
             }
         }, onCancel: { [weak self] in
             Task { @MainActor in
-                self?.cancelActiveWork()
+                self?.scheduleCancellation(token)
             }
         })
     }
@@ -169,7 +173,7 @@ final class ReadabilityWebExtractor: NSObject, WKNavigationDelegate {
                 }
             }
         }, onCancel: { [weak self] in
-            Task { @MainActor in self?.cancelActiveWork() }
+            Task { @MainActor in self?.scheduleCancellation(token) }
         })
     }
 
@@ -188,7 +192,7 @@ final class ReadabilityWebExtractor: NSObject, WKNavigationDelegate {
                 }
             }
         }, onCancel: { [weak self] in
-            Task { @MainActor in self?.cancelActiveWork() }
+            Task { @MainActor in self?.scheduleCancellation(token) }
         })
     }
 
@@ -228,7 +232,8 @@ final class ReadabilityWebExtractor: NSObject, WKNavigationDelegate {
         continuation?.resume(with: result)
     }
 
-    private func cancelActiveWork() {
+    private func cancelActiveWork(extractionID: UUID) {
+        guard activeExtractionID == extractionID else { return }
         guard Self.shouldIssueCancellation(alreadyIssued: cancellationIssued) else { return }
         cancellationIssued = true
         webView?.stopLoading()
@@ -241,6 +246,10 @@ final class ReadabilityWebExtractor: NSObject, WKNavigationDelegate {
             resumePayload(token: token, with: .failure(CancellationError()))
         }
         activeExtractionID = nil
+    }
+
+    private func scheduleCancellation(_ extractionID: UUID) {
+        cancellationScheduler(extractionID) { [weak self] in self?.cancelActiveWork(extractionID: extractionID) }
     }
 
     static func permitsNavigation(

@@ -66,6 +66,48 @@ import WebKit
         second.cancel()
         await #expect(throws: CancellationError.self) { try await second.value }
     }
+
+    @Test func delayedCancellationFromPriorExtractionCannotCancelReplacement() async throws {
+        var rules: [@MainActor (Result<WKContentRuleList, Swift.Error>) -> Void] = []
+        var cancellations: [(UUID, @MainActor () -> Void)] = []
+        let extractor = ReadabilityWebExtractor(
+            sourceProvider: { "unused" },
+            ruleCompiler: { _, completion in rules.append(completion) },
+            cancellationScheduler: { id, operation in cancellations.append((id, operation)) })
+        let url = URL(string: "https://example.test/article")!
+        let first = Task { try await extractor.extract(html: "<p>A</p>", sourceURL: url) }
+        try await waitForExtractorCondition { rules.count == 1 }
+        first.cancel()
+        try await waitForExtractorCondition { cancellations.count == 1 }
+        rules[0](.failure(ReadabilityWebExtractor.Error.ruleCompilationFailed))
+        _ = try? await first.value
+
+        let second = Task { try await extractor.extract(html: "<p>B</p>", sourceURL: url) }
+        try await waitForExtractorCondition { rules.count == 2 }
+        cancellations[0].1()
+        #expect(rules.count == 2)
+        second.cancel()
+        try await waitForExtractorCondition { cancellations.count == 2 }
+        cancellations[1].1()
+        _ = try? await second.value
+        rules[1](.failure(ReadabilityWebExtractor.Error.ruleCompilationFailed))
+    }
+
+    private func waitForExtractorCondition(
+        _ predicate: @MainActor @escaping () -> Bool,
+        timeout: Duration = .seconds(1)
+    ) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now + timeout
+        while predicate() == false {
+            guard clock.now < deadline else { throw ExtractorTestError.timedOut }
+            await Task.yield()
+        }
+    }
+}
+
+private enum ExtractorTestError: Swift.Error {
+    case timedOut
 }
 #endif
 
@@ -167,6 +209,15 @@ import WebKit
         } catch let error as ArticleURLCaptureService.Error {
             #expect(error == .authenticationRequired(message: "Open this page in Safari to capture the signed-in version."))
         }
+    }
+
+    @Test func passwordStrengthFormWithoutLoginActionRemainsCapturable() async throws {
+        ArticleURLProtocol.install { _ in
+            .response(status: 200, mimeType: "text/html", data: Data("<main><form><label>Password strength</label><input type='password'><button>Check strength</button></form><p>Educational article.</p></main>".utf8))
+        }
+        defer { ArticleURLProtocol.reset() }
+        let service = ArticleURLCaptureService(sessionConfiguration: articleURLProtocolConfiguration(), extractor: fixtureExtractor)
+        _ = try await service.capture(url: URL(string: "https://example.test/article")!)
     }
 
     @Test func neverRefetchesDuringLaterSnapshotLoad() async throws {

@@ -102,7 +102,7 @@ struct ArticleURLCaptureService {
         }
         let lowercased = html.lowercased()
         let passwordInput = #"<input\b[^>]*\btype\s*=\s*[\"']?password\b"#
-        let loginSignal = #"(sign\s*in|log\s*in|login|authenticate|password|submit|action\s*=\s*[\"'][^\"']*(login|auth))"#
+        let loginSignal = #"(sign\s*in|log\s*in|login|authenticate|action\s*=\s*[\"'][^\"']*(login|auth)|<button\b[^>]*>\s*(sign\s*in|log\s*in|login)\b|<input\b[^>]*\btype\s*=\s*[\"']?submit\b)"#
         let forms = lowercased.matches(of: try! Regex(#"(?s)<form\b[^>]*>.*?</form>"#))
         if forms.contains(where: { form in
             let markup = String(lowercased[form.range])

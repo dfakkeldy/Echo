@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
-import ImageIO
 import Testing
 
 @testable import Echo
@@ -91,12 +90,28 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         var corrupt = png
         // Keep PNG chunk framing and IEND intact, but corrupt an IDAT byte.
-        corrupt[try idatPayloadOffset(in: corrupt)] ^= 0xFF
+        let idatOffset = try idatChunkOffset(in: corrupt)
+        corrupt[idatOffset + 8] ^= 0xFF
+        rewriteCRC(ofChunkAt: idatOffset, in: &corrupt)
         ArticleURLProtocol.install { _ in .response(status: 200, mimeType: "image/png", data: corrupt) }
         defer { ArticleURLProtocol.reset() }
 
         let result = await ArticleImageDownloader(sessionConfiguration: articleURLProtocolConfiguration())
             .localize(candidates: [URL(string: "https://example.test/corrupt.png")!], into: root)
+
+        #expect(result.localURLs.isEmpty)
+        #expect(result.warnings == [.invalidImage])
+    }
+
+    @Test func rejectsPNGWithNonconsecutiveIDATChunksEvenWhenChunkCRCsAreValid() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let malformed = try pngWithNonconsecutiveIDATChunks(from: png)
+        ArticleURLProtocol.install { _ in .response(status: 200, mimeType: "image/png", data: malformed) }
+        defer { ArticleURLProtocol.reset() }
+
+        let result = await ArticleImageDownloader(sessionConfiguration: articleURLProtocolConfiguration())
+            .localize(candidates: [URL(string: "https://example.test/nonconsecutive.png")!], into: root)
 
         #expect(result.localURLs.isEmpty)
         #expect(result.warnings == [.invalidImage])
@@ -140,28 +155,77 @@ import Testing
     }
 
     private var png: Data {
-            let data = NSMutableData()
-            let destination = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil)!
-            let context = CGContext(
-                data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-            context.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.6, alpha: 1))
-            context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
-            CGImageDestinationAddImage(destination, context.makeImage()!, nil)
-            precondition(CGImageDestinationFinalize(destination))
-            return data as Data
+        Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABAQMAAAAl21bKAAAAIGNIUk0AAHomAACAhAAA+gAAAIDoAAB1MAAA6mAAADqYAAAXcJy6UTwAAAAGUExURTNmmf////ENxh0AAAABYktHRAH/Ai3eAAAAB3RJTUUH6gcdBwQUEKHG6gAAACV0RVh0ZGF0ZTpjcmVhdGUAMjAyNi0wNy0yOVQwNzowNDoyMCswMDowMAupiH8AAAAldEVYdGRhdGU6bW9kaWZ5ADIwMjYtMDctMjlUMDc6MDQ6MjArMDA6MDB69DDDAAAAKHRFWHRkYXRlOnRpbWVzdGFtcAAyMDI2LTA3LTI5VDA3OjA0OjIwKzAwOjAwLeERHAAAAApJREFUCNdjYAAAAAIAAeIhvDMAAAAASUVORK5CYII=")!
     }
 
     private func idatPayloadOffset(in data: Data) throws -> Int {
+        try idatChunkOffset(in: data) + 8
+    }
+
+    private func idatChunkOffset(in data: Data) throws -> Int {
         let bytes = [UInt8](data)
         var offset = 8
         while offset + 12 <= bytes.count {
             let length = Int(bytes[offset]) << 24 | Int(bytes[offset + 1]) << 16 | Int(bytes[offset + 2]) << 8 | Int(bytes[offset + 3])
             let type = String(bytes: bytes[(offset + 4)..<(offset + 8)], encoding: .ascii)
-            if type == "IDAT" { return offset + 8 }
+            if type == "IDAT" { return offset }
             offset += 12 + length
         }
         throw CocoaError(.fileReadCorruptFile)
+    }
+
+    private func pngWithNonconsecutiveIDATChunks(from original: Data) throws -> Data {
+        let idatOffset = try idatChunkOffset(in: original)
+        let bytes = [UInt8](original)
+        let length = Int(bytes[idatOffset]) << 24 | Int(bytes[idatOffset + 1]) << 16 | Int(bytes[idatOffset + 2]) << 8 | Int(bytes[idatOffset + 3])
+        let payloadStart = idatOffset + 8
+        let payload = Data(bytes[payloadStart..<(payloadStart + length)])
+        guard payload.count > 1 else { throw CocoaError(.fileReadCorruptFile) }
+        let split = payload.count / 2
+        var result = Data(original.prefix(idatOffset))
+        appendPNGChunk(type: "IDAT", payload: payload.prefix(split), to: &result)
+        appendPNGChunk(type: "tEXt", payload: Data("note\u{0}separated".utf8), to: &result)
+        appendPNGChunk(type: "IDAT", payload: payload.dropFirst(split), to: &result)
+        result.append(original[(payloadStart + length + 4)...])
+        return result
+    }
+
+    private func appendPNGChunk(type: String, payload: some Collection<UInt8>, to data: inout Data) {
+        let payload = Array(payload)
+        appendUInt32(UInt32(payload.count), to: &data)
+        let type = Array(type.utf8)
+        data.append(contentsOf: type)
+        data.append(contentsOf: payload)
+        appendUInt32(crc32(type + payload), to: &data)
+    }
+
+    private func rewriteCRC(ofChunkAt offset: Int, in data: inout Data) {
+        let bytes = [UInt8](data)
+        let length = Int(bytes[offset]) << 24 | Int(bytes[offset + 1]) << 16 | Int(bytes[offset + 2]) << 8 | Int(bytes[offset + 3])
+        let crcOffset = offset + 8 + length
+        let crc = crc32(Array(bytes[(offset + 4)..<crcOffset]))
+        data[crcOffset] = UInt8(truncatingIfNeeded: crc >> 24)
+        data[crcOffset + 1] = UInt8(truncatingIfNeeded: crc >> 16)
+        data[crcOffset + 2] = UInt8(truncatingIfNeeded: crc >> 8)
+        data[crcOffset + 3] = UInt8(truncatingIfNeeded: crc)
+    }
+
+    private func appendUInt32(_ value: UInt32, to data: inout Data) {
+        data.append(contentsOf: [
+            UInt8(truncatingIfNeeded: value >> 24),
+            UInt8(truncatingIfNeeded: value >> 16),
+            UInt8(truncatingIfNeeded: value >> 8),
+            UInt8(truncatingIfNeeded: value),
+        ])
+    }
+
+    private func crc32(_ bytes: [UInt8]) -> UInt32 {
+        var crc: UInt32 = 0xFFFF_FFFF
+        for byte in bytes {
+            crc ^= UInt32(byte)
+            for _ in 0..<8 { crc = crc & 1 == 1 ? (crc >> 1) ^ 0xEDB8_8320 : crc >> 1 }
+        }
+        return crc ^ 0xFFFF_FFFF
     }
 
     private var jpeg: Data {

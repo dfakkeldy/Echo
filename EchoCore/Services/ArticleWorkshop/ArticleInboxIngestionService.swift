@@ -81,7 +81,8 @@ struct ArticleInboxIngestionService {
                 guard matchesImportedRecord(existing, expected: expected) else {
                     throw Error.conflictingExistingCapture(imported.envelope.captureID)
                 }
-                if existing.contentState != expected.contentState || existing.warningsJSON != expected.warningsJSON {
+                if enrichment?.snapshot.captureID == imported.envelope.captureID,
+                   (existing.contentState != expected.contentState || existing.warningsJSON != expected.warningsJSON) {
                     try captureDAO.saveCapture(expected)
                 }
                 if enrichment?.snapshot.captureID == imported.envelope.captureID {
@@ -168,7 +169,8 @@ struct ArticleInboxIngestionService {
                 throw Error.conflictingExistingCapture(captureID)
             }
 
-            if existing.contentState != expected.contentState || existing.warningsJSON != expected.warningsJSON {
+            if enrichment?.snapshot.captureID == captureID,
+               (existing.contentState != expected.contentState || existing.warningsJSON != expected.warningsJSON) {
                 try captureDAO.saveCapture(expected)
             }
 

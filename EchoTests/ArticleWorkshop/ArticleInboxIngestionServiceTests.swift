@@ -84,9 +84,11 @@ struct ArticleInboxIngestionServiceTests {
         #expect(persisted.warningsJSON == "[\"image.invalidImage\"]")
         #expect(FileManager.default.fileExists(atPath: package.path))
 
-        try recoveryService(for: fixture).drainStaging(snapshot: snapshot, imageLocalizationWarnings: [.invalidImage])
+        try recoveryService(for: fixture).drainStaging()
         #expect(FileManager.default.fileExists(atPath: package.path) == false)
         #expect(try fixture.dao.captures().filter { $0.id == envelope.captureID.uuidString }.count == 1)
+        #expect(try fixture.dao.capture(id: envelope.captureID.uuidString)?.contentState == ArticleContentState.reviewSuggested.rawValue)
+        #expect(try fixture.dao.capture(id: envelope.captureID.uuidString)?.warningsJSON == "[\"image.invalidImage\"]")
     }
 
     @Test func secondDrainOfSameCaptureUUIDDoesNotDuplicateRows() async throws {
@@ -229,6 +231,31 @@ struct ArticleInboxIngestionServiceTests {
 
         try recoveryService(for: fixture).drainStaging()
 
+        #expect(cleanupRoot(in: fixture.stagingRoot) == nil)
+    }
+
+    @Test func plainQuarantineRecoveryPreservesEnrichedPresentation() async throws {
+        let envelope = articleWorkshopFixtureEnvelope()
+        let snapshot = try ArticleBlockSanitizer().sanitize(envelope: envelope)
+        let fixture = try makeFixture { point, _ in
+            guard point == .afterQuarantine else { return }
+            throw TestInterruption.interrupted
+        }
+        defer { try! FileManager.default.removeItem(at: fixture.root) }
+        _ = try fixture.writer.stage(envelope)
+
+        #expect(throws: (any Error).self) {
+            try fixture.service.drainStaging(snapshot: snapshot, imageLocalizationWarnings: [.invalidImage])
+        }
+        let beforeRecovery = try #require(try fixture.dao.capture(id: envelope.captureID.uuidString))
+        #expect(beforeRecovery.contentState == ArticleContentState.reviewSuggested.rawValue)
+        #expect(beforeRecovery.warningsJSON == "[\"image.invalidImage\"]")
+
+        try recoveryService(for: fixture).drainStaging()
+
+        let recovered = try #require(try fixture.dao.capture(id: envelope.captureID.uuidString))
+        #expect(recovered.contentState == ArticleContentState.reviewSuggested.rawValue)
+        #expect(recovered.warningsJSON == "[\"image.invalidImage\"]")
         #expect(cleanupRoot(in: fixture.stagingRoot) == nil)
     }
 
