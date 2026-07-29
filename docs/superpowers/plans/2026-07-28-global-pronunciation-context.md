@@ -1096,7 +1096,7 @@ nonisolated enum UniversalPronunciationResolver {
     static let morphologyIdentitySchemaVersion = 1
     static let suffixIPA = "əbəl"
     static let minimumBaseLength = 3
-    static let properNamePolicyVersion = "proper-name-risk-v4"
+    static let properNamePolicyVersion = "proper-name-risk-v5"
     static let baseEvidencePolicyVersion = "kokoro-nonfallback-rating3-v1"
     static let contextualExclusions: Set<String> = [
         "content", "read", "live", "lives", "record", "records",
@@ -1140,7 +1140,7 @@ nonisolated enum UniversalPronunciationResolver {
   ],
   "suffixIPA": "əbəl",
   "minimumBaseLength": 3,
-  "properNamePolicyVersion": "proper-name-risk-v4",
+  "properNamePolicyVersion": "proper-name-risk-v5",
   "baseEvidencePolicyVersion": "kokoro-nonfallback-rating3-v1",
   "exceptionSetSHA256": "sha256:<canonical-sorted-exception-set-digest>",
   "pronunciationPackVersion": "<pack.packVersion>",
@@ -1163,9 +1163,11 @@ nonisolated enum UniversalPronunciationResolver {
   longer than one character, and apostrophe possessives as proper-name risk;
   abstain. A period after a versioned, categorized set of common honorific,
   military, professional, organizational, geographic, reference, or calendar
-  abbreviations does not prove a new sentence; initials and dotted initialisms
-  remain ambiguous too. Preserve ordinary lexical sentence endings such as
-  `Done. Foobar` as true boundaries.
+  abbreviations does not prove a new sentence. Fail closed for every
+  alphabetic abbreviation of three letters or fewer without requiring an
+  exhaustive catalog; keep longer forms catalogued by category. Initials and
+  dotted initialisms remain ambiguous too. Preserve ordinary lexical sentence
+  endings such as `Done. Foobar` as true boundaries.
 - [ ] Apply an exact pack candidate first only through
   `pack.automaticCandidate(for:)`: the entry must contain exactly one
   candidate, its status must be `validated-automatic`, and

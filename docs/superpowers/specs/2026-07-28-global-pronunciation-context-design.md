@@ -423,9 +423,11 @@ entry, and transformation rule in the audit evidence.
 
 Capitalization safety fails closed after a versioned, categorized set of
 common honorific, military, professional, organizational, geographic,
-reference, and calendar abbreviations. Initials and dotted initialisms are
-also ambiguous. Ordinary lexical sentence endings such as `Done. Foobar`
-remain true boundaries.
+reference, and calendar abbreviations. Any alphabetic abbreviation of three
+letters or fewer is also ambiguous without requiring an exhaustive catalog;
+initials and dotted initialisms remain ambiguous too. Longer forms stay
+catalogued by category. Ordinary lexical sentence endings such as
+`Done. Foobar` remain true boundaries.
 
 The morphology policy identity is canonical JSON using the same encoding rules:
 
@@ -440,7 +442,7 @@ The morphology policy identity is canonical JSON using the same encoding rules:
   ],
   "suffixIPA": "əbəl",
   "minimumBaseLength": 3,
-  "properNamePolicyVersion": "proper-name-risk-v4",
+  "properNamePolicyVersion": "proper-name-risk-v5",
   "baseEvidencePolicyVersion": "kokoro-nonfallback-rating3-v1",
   "exceptionSetSHA256": "sha256:<canonical-sorted-exception-set-digest>",
   "pronunciationPackVersion": "sha256:<semantic-pack-digest>",

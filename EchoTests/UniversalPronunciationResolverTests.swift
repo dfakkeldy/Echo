@@ -174,6 +174,61 @@ import Testing
         #expect(result.decisionSeeds.allSatisfy { $0.source == .supplementalLexicon })
     }
 
+    @Test func punctuationInsideBalancedSingleQuotesRemainsOutsideTheRewrite() {
+        let supplementalPack = pack(automaticEntries: [
+            "ad-hoc": ("cmudict.ad-hoc.fixture", "ˈædhˈɑk")
+        ])
+        let result = UniversalPronunciationResolver.rewrite(
+            to: "An ('ad-hoc,') and [‘ad-hoc!’] example.",
+            blockID: "b1",
+            pack: supplementalPack,
+            basePronunciation: { _ in nil })
+
+        #expect(
+            result.text
+                == "An ('[ad-hoc](/ˈædhˈɑk/),') and [‘[ad-hoc](/ˈædhˈɑk/)!’] example.")
+        #expect(result.decisionSeeds.map(\.wordStart) == [1, 3])
+        #expect(result.decisionSeeds.map(\.wordEnd) == [1, 3])
+        #expect(result.decisionSeeds.map(\.sourceWord) == ["ad-hoc", "ad-hoc"])
+        #expect(result.decisionSeeds.map(\.normalizedWord) == ["ad-hoc", "ad-hoc"])
+        #expect(
+            result.decisionSeeds.map(\.candidateID)
+                == ["cmudict.ad-hoc.fixture", "cmudict.ad-hoc.fixture"])
+        #expect(
+            result.decisionSeeds.allSatisfy {
+                $0.source == .supplementalLexicon
+                    && $0.ruleID == "supplemental-lexicon.exact.v1"
+            })
+    }
+
+    @Test func balancedQuotedContractionsRemainIneligible() {
+        let supplementalPack = pack(automaticEntries: [
+            "can't": ("cmudict.cant.fixture", "kˈænt"),
+            "won't": ("cmudict.wont.fixture", "wˈoʊnt"),
+            "isn't": ("cmudict.isnt.fixture", "ˈɪzənt"),
+            "we're": ("cmudict.were.fixture", "wˈiɹ"),
+            "they've": ("cmudict.theyve.fixture", "ðˈeɪv"),
+            "he'd": ("cmudict.hed.fixture", "hˈid"),
+            "you'll": ("cmudict.youll.fixture", "jˈul"),
+            "i'm": ("cmudict.im.fixture", "ˈaɪm"),
+            "it's": ("cmudict.its.fixture", "ˈɪts"),
+            "aujourd'hui": ("cmudict.aujourd'hui.fixture", "oʒuɹdɥˈi"),
+        ])
+        let source =
+            "He said 'can't', ‘can’t’, 'won't', 'isn't', 'we're', 'they've', 'he'd', 'you'll', 'i'm', and 'it's', then 'aujourd'hui'."
+        let result = UniversalPronunciationResolver.rewrite(
+            to: source,
+            blockID: "b1",
+            pack: supplementalPack,
+            basePronunciation: { _ in nil })
+
+        #expect(
+            result.text
+                == "He said 'can't', ‘can’t’, 'won't', 'isn't', 'we're', 'they've', 'he'd', 'you'll', 'i'm', and 'it's', then '[aujourd'hui](/oʒuɹdɥˈi/)'.")
+        #expect(result.decisionSeeds.map(\.sourceWord) == ["aujourd'hui"])
+        #expect(result.decisionSeeds.map(\.normalizedWord) == ["aujourd'hui"])
+    }
+
     @Test func malformedAndLexicalApostrophesRemainIneligible() {
         let supplementalPack = pack(automaticEntries: [
             "ad-hoc": ("cmudict.ad-hoc.fixture", "ˈædhˈɑk"),
@@ -257,6 +312,33 @@ import Testing
             #expect(result.text == source)
             #expect(result.decisionSeeds.isEmpty)
         }
+    }
+
+    @Test func inlineTitlesAndMultilineReferenceTitlesRemainProtected() {
+        let supplementalPack = pack(automaticEntries: [
+            "ad-hoc": ("cmudict.ad-hoc.fixture", "ˈædhˈɑk"),
+            "guide": ("cmudict.guide.fixture", "ɡˈaɪd"),
+        ])
+        let source = #"""
+            [multiline]: https://example.com
+              "ad-hoc ("
+
+            [guide](https://example.com "ad-hoc (")
+            [guide](https://example.com 'ad-hoc (')
+            [guide](https://example.com (ad-hoc\)))
+            [guide](<https://example.com/a(b)c> "ad-hoc")
+            [guide](https://example.com "ad-hoc \"quoted\"")
+            See [multiline].
+            """#
+
+        let result = UniversalPronunciationResolver.rewrite(
+            to: source,
+            blockID: "b1",
+            pack: supplementalPack,
+            basePronunciation: { _ in nil })
+
+        #expect(result.text == source)
+        #expect(result.decisionSeeds.isEmpty)
     }
 
     @Test func referenceDefinitionsAndUsesRemainProtectedWhenDefinitionAware() {
@@ -459,6 +541,19 @@ import Testing
             "Supt. Foobar arrived.",
             "Det. Foobar arrived.",
             "Messrs. Foobar arrived.",
+            "Mlle. Foobar arrived.",
+            "Pfc. Foobar arrived.",
+            "Esq. Foobar arrived.",
+            "Univ. Foobar arrived.",
+            "Calif. Foobar arrived.",
+            "Art. Foobar arrived.",
+            "Mon. Foobar arrived.",
+            "Tue. Foobar arrived.",
+            "Wed. Foobar arrived.",
+            "Thu. Foobar arrived.",
+            "Fri. Foobar arrived.",
+            "Sat. Foobar arrived.",
+            "Sun. Foobar arrived.",
             "Mt. Foobar arrived.",
             "Ens. Foobar arrived.",
             "Atty. Foobar arrived.",
@@ -471,6 +566,14 @@ import Testing
             "U.S. Foobar arrived.",
             "e.g. Foobar arrived.",
             "Version 3.14 Foobar arrived.",
+            // Held-out short forms exercise the general v5 rule rather than
+            // duplicating individually catalogued implementation entries.
+            "Mme. Foobar arrived.",
+            "Cmd. Foobar arrived.",
+            "Lic. Foobar arrived.",
+            "Lab. Foobar arrived.",
+            "Ont. Foobar arrived.",
+            "Ref. Foobar arrived.",
         ]
         for text in ambiguousPeriodCases {
             let result = UniversalPronunciationResolver.rewrite(
@@ -639,8 +742,8 @@ import Testing
 
         #expect(
             policyVersion
-                == "morphology-v1:sha256:f06b13ae68baa4d10f6af74bcbd822d71374a0dffb9315a11b1cf16eddcdc349")
-        #expect(candidateID == "morphology.startable.4499e5dbd898")
+                == "morphology-v1:sha256:70b62d319509ced33b25d022ee7ccefaf18b1a0930d94bd535cc4a77849398ae")
+        #expect(candidateID == "morphology.startable.d7660bc2246f")
         #expect(
             UniversalPronunciationResolver.morphologyCandidatePackVersion(for: fixturePack)
                 == policyVersion)
@@ -675,7 +778,7 @@ import Testing
         let changedProperNamePolicy =
             UniversalPronunciationResolver.morphologyCandidatePackVersion(
                 for: fixturePack,
-                properNamePolicyVersion: "proper-name-risk-v3")
+                properNamePolicyVersion: "proper-name-risk-v4")
         let changedPack = UniversalPronunciationResolver.morphologyCandidatePackVersion(
             for: pack(packVersion: "sha256:" + String(repeating: "2", count: 64)))
         let changedVocabulary = UniversalPronunciationResolver.morphologyCandidatePackVersion(

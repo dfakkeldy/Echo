@@ -9,22 +9,24 @@ nonisolated enum UniversalPronunciationResolver {
     static let morphologyIdentitySchemaVersion = 1
     static let suffixIPA = "əbəl"
     static let minimumBaseLength = 3
-    static let properNamePolicyVersion = "proper-name-risk-v4"
+    static let properNamePolicyVersion = "proper-name-risk-v5"
     static let baseEvidencePolicyVersion = "kokoro-nonfallback-rating3-v1"
     /// Common honorific, military, professional, organizational, geographic,
     /// reference, and calendar abbreviations. A period after one of these is
     /// not sufficient evidence that the following capitalized token begins a
     /// new sentence.
     static let ambiguousPeriodAbbreviations: Set<String> = [
-        "adm", "adv", "apr", "approx", "assoc", "asst", "atty", "aug", "ave",
+        "adm", "adv", "apr", "approx", "art", "assoc", "asst", "atty", "aug", "ave",
         "blvd", "br", "brig", "bros", "capt", "ch", "cmdr", "co", "col",
-        "corp", "cpl", "ctr", "dec", "dept", "det", "dist", "dr", "ens", "eq",
-        "est", "etc", "exec", "feb", "fig", "fr", "gen", "gov", "hon", "hwy",
+        "calif", "corp", "cpl", "ctr", "dec", "dept", "det", "dist", "dr", "ens", "eq",
+        "esq",
+        "est", "etc", "exec", "feb", "fig", "fr", "fri", "gen", "gov", "hon", "hwy",
         "inc", "insp", "jan", "jr", "jul", "jun", "jct", "ln", "lt", "ltd",
-        "m.d", "maj", "mar", "messrs", "mr", "mrs", "ms", "msgr", "mt", "mx",
-        "no", "nov", "oct", "ofc", "ph.d", "pkwy", "pl", "pp", "pres", "prof",
-        "pvt", "rd", "rep", "rev", "rte", "sec", "sen", "sep", "sept", "sgt",
-        "sq", "sr", "st", "ste", "supt", "terr", "vol", "vs",
+        "m.d", "maj", "mar", "messrs", "mlle", "mon", "mr", "mrs", "ms", "msgr",
+        "mt", "mx", "no", "nov", "oct", "ofc", "pfc", "ph.d", "pkwy", "pl", "pp",
+        "pres", "prof", "pvt", "rd", "rep", "rev", "rte", "sat", "sec", "sen", "sep",
+        "sept", "sgt", "sq", "sr", "st", "ste", "sun", "supt", "terr", "thu", "tue",
+        "univ", "vol", "vs", "wed",
     ]
     static let contextualExclusions: Set<String> = [
         "content", "read", "live", "lives", "record", "records",
@@ -67,6 +69,9 @@ nonisolated enum UniversalPronunciationResolver {
     private static let ordinaryBoundaryPunctuation: Set<Character> = [
         "\"", "“", "”", "(", ")", "[", "]", "{", "}", ",", ".", ";", ":",
         "!", "?",
+    ]
+    private static let contractionSuffixes = [
+        "'d", "'ll", "'m", "n't", "'re", "'s", "'ve",
     ]
 
     static func morphologyCandidatePackVersion(
@@ -154,7 +159,11 @@ nonisolated enum UniversalPronunciationResolver {
             let isPossessive =
                 canonicalSourceSpelling.hasSuffix("'s")
                 || canonicalSourceSpelling.hasSuffix("'")
+            let isContraction = contractionSuffixes.contains {
+                canonicalSourceSpelling.hasSuffix($0)
+            }
             guard !isPossessive,
+                !isContraction,
                 EnglishPronunciationPack.isValidNormalizedKey(normalizedSpelling),
                 !contextualExclusions.contains(normalizedSpelling),
                 !isProperNameRisk(
@@ -250,6 +259,25 @@ nonisolated enum UniversalPronunciationResolver {
             return nil
         }
 
+        trimOrdinaryBoundaryPunctuation(from: &range, in: source)
+        guard !range.isEmpty else { return nil }
+
+        let first = source[range].first
+        let last = source[range].last
+        if (first == "'" && last == "'") || (first == "‘" && last == "’") {
+            let quoteStart = source.index(after: range.lowerBound)
+            let quoteEnd = source.index(before: range.upperBound)
+            guard quoteStart <= quoteEnd else { return nil }
+            range = quoteStart..<quoteEnd
+            trimOrdinaryBoundaryPunctuation(from: &range, in: source)
+        }
+        return range.isEmpty ? nil : range
+    }
+
+    private static func trimOrdinaryBoundaryPunctuation(
+        from range: inout Range<String.Index>,
+        in source: String
+    ) {
         while let first = source[range].first,
             ordinaryBoundaryPunctuation.contains(first)
         {
@@ -260,16 +288,6 @@ nonisolated enum UniversalPronunciationResolver {
         {
             range = range.lowerBound..<source.index(before: range.upperBound)
         }
-        guard !range.isEmpty else { return nil }
-
-        let first = source[range].first
-        let last = source[range].last
-        if (first == "'" && last == "'") || (first == "‘" && last == "’") {
-            let quoteStart = source.index(after: range.lowerBound)
-            let quoteEnd = source.index(before: range.upperBound)
-            range = quoteStart..<quoteEnd
-        }
-        return range.isEmpty ? nil : range
     }
 
     private static func isInsideBalancedEditorialBrackets(
@@ -447,6 +465,9 @@ nonisolated enum UniversalPronunciationResolver {
         let token = String(beforePeriod[tokenStart...]).lowercased()
         guard !token.isEmpty else { return true }
         if ambiguousPeriodAbbreviations.contains(token) {
+            return true
+        }
+        if token.count <= 3, token.allSatisfy(\.isLetter) {
             return true
         }
 

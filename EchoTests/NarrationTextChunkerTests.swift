@@ -238,12 +238,64 @@ import Testing
         let pieces = NarrationTextChunker.splitResolved(source, maxPhonemes: 12) {
             $0.count
         }
+        let protected = NarrationTextChunker.markdownProtectedRanges(in: source)
+            .map { String(source[$0]) }
 
-        for protectedSyntax in [
-            nested, escaped, fullReference, collapsedReference, shortcutReference,
-        ] {
-            #expect(pieces.contains { $0.contains(protectedSyntax) })
+        #expect(protected.contains(fullReference))
+        #expect(pieces.contains { $0.contains(nested) })
+        #expect(pieces.contains { $0.contains(escaped) })
+        #expect(pieces.contains { $0.contains(fullReference) })
+        #expect(pieces.contains { $0.contains(collapsedReference) })
+        #expect(pieces.contains { $0.contains(shortcutReference) })
+    }
+
+    @Test func markdownTitlesAndMultilineDefinitionsRemainAtomic() {
+        let doubleTitle = #"[guide](https://example.com "ad-hoc (")"#
+        let singleTitle = #"[guide](https://example.com 'ad-hoc (')"#
+        let parenthesizedTitle = #"[guide](https://example.com (ad-hoc\)))"#
+        let angleDestination = #"[guide](<https://example.com/a(b)c> "ad-hoc")"#
+        let escapedTitle = #"[guide](https://example.com "ad-hoc \"quoted\"")"#
+        let multilineDefinition = #"""
+            [multiline]: https://example.com
+              "ad-hoc ("
+            """#
+        let source = """
+            \(multilineDefinition)
+
+            \(doubleTitle) \(singleTitle) \(parenthesizedTitle)
+            \(angleDestination) \(escapedTitle) See [multiline].
+            """
+        let pieces = NarrationTextChunker.splitResolved(source, maxPhonemes: 12) {
+            $0.count
         }
+        let definitionPieces = NarrationTextChunker.splitResolved(
+            multilineDefinition,
+            maxPhonemes: 12
+        ) { $0.count }
+        let protected = NarrationTextChunker.markdownProtectedRanges(in: source)
+            .map { String(source[$0]) }
+
+        #expect(protected.contains(multilineDefinition))
+        #expect(definitionPieces == [multilineDefinition])
+        #expect(pieces.first { $0.contains("[multiline]:") } == multilineDefinition)
+        #expect(pieces.contains { $0.contains(multilineDefinition) })
+        #expect(pieces.contains { $0.contains(doubleTitle) })
+        #expect(pieces.contains { $0.contains(singleTitle) })
+        #expect(pieces.contains { $0.contains(parenthesizedTitle) })
+        #expect(pieces.contains { $0.contains(angleDestination) })
+        #expect(pieces.contains { $0.contains(escapedTitle) })
+    }
+
+    @Test func unmatchedMarkdownBracketsHaveBoundedInspectionWork() {
+        let source = String(repeating: "[", count: 20_000)
+        var inspectionCount = 0
+
+        let ranges = NarrationTextChunker.markdownProtectedRanges(
+            in: source,
+            inspectionCount: &inspectionCount)
+
+        #expect(ranges.isEmpty)
+        #expect(inspectionCount <= source.count * 20)
     }
 
     @Test func editorialSquareBracketsDoNotDisableSentenceSplitting() {

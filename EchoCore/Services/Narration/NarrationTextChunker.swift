@@ -188,6 +188,7 @@ enum NarrationTextChunker {
         var normalized = ""
         var index = text.startIndex
         var needsSpace = false
+        var preserveFollowingLineBreak = false
         let markdownRanges = markdownProtectedRangesByStart(in: text)
 
         while index < text.endIndex {
@@ -201,6 +202,9 @@ enum NarrationTextChunker {
             if let linkRange = markdownRanges[index] {
                 if needsSpace, !normalized.isEmpty { normalized.append(" ") }
                 normalized.append(contentsOf: text[linkRange])
+                preserveFollowingLineBreak = text[linkRange].contains {
+                    $0.isNewline
+                }
                 needsSpace = false
                 index = linkRange.upperBound
                 continue
@@ -208,12 +212,18 @@ enum NarrationTextChunker {
 
             let character = text[index]
             if character.isWhitespace {
-                needsSpace = !normalized.isEmpty
+                if preserveFollowingLineBreak, character.isNewline {
+                    normalized.append(character)
+                    needsSpace = false
+                } else {
+                    needsSpace = !normalized.isEmpty
+                }
             } else {
                 if needsSpace { normalized.append(" ") }
                 normalized.append(character)
                 needsSpace = false
             }
+            preserveFollowingLineBreak = false
             index = text.index(after: index)
         }
 
@@ -277,28 +287,490 @@ enum NarrationTextChunker {
         let contentRange: Range<String.Index>
     }
 
-    /// Returns one complete inline Markdown link. Both label brackets and
-    /// destination parentheses are balanced, and escaped delimiters do not
-    /// affect nesting.
+    private struct MarkdownDefinitions {
+        let ids: Set<String>
+        let ranges: [Range<String.Index>]
+    }
+
+    /// A source-local parser. The initializer inspects every character once to
+    /// precompute escaped-aware square-bracket matches, so malformed repeated
+    /// opening brackets cannot trigger suffix rescans.
+    private nonisolated struct MarkdownParser {
+        private enum BareDestinationResult {
+            case closedLink(String.Index)
+            case stoppedAtWhitespace(String.Index)
+            case invalid
+        }
+
+        let source: String
+        let matchingSquareBracket: [String.Index: String.Index]
+        private(set) var inspectionCount: Int
+
+        init(source: String) {
+            self.source = source
+            var matches: [String.Index: String.Index] = [:]
+            var stack: [String.Index] = []
+            var inspections = 0
+            var index = source.startIndex
+
+            while index < source.endIndex {
+                inspections += 1
+                if source[index] == "\\" {
+                    let escaped = source.index(after: index)
+                    if escaped < source.endIndex {
+                        inspections += 1
+                        index = source.index(after: escaped)
+                    } else {
+                        index = escaped
+                    }
+                    continue
+                }
+                if source[index] == "[" {
+                    stack.append(index)
+                } else if source[index] == "]", let opening = stack.popLast() {
+                    matches[opening] = index
+                }
+                index = source.index(after: index)
+            }
+
+            matchingSquareBracket = matches
+            inspectionCount = inspections
+        }
+
+        mutating func protectedRanges() -> [Range<String.Index>] {
+            let definitions = referenceDefinitions()
+            let definitionRangesByStart = Dictionary(
+                uniqueKeysWithValues: definitions.ranges.map {
+                    ($0.lowerBound, $0)
+                })
+            var ranges = definitions.ranges
+            var index = source.startIndex
+
+            while index < source.endIndex {
+                inspectionCount += 1
+                if let definition = definitionRangesByStart[index] {
+                    index = definition.upperBound
+                    continue
+                }
+                guard source[index] == "[", let label = label(at: index) else {
+                    index = source.index(after: index)
+                    continue
+                }
+
+                if let inlineRange = inlineLinkRange(label: label) {
+                    ranges.append(inlineRange)
+                    index = inlineRange.upperBound
+                    continue
+                }
+
+                let next = label.range.upperBound
+                if next < source.endIndex, source[next] == "[",
+                    let reference = self.label(at: next)
+                {
+                    // Full and collapsed reference syntax stays atomic even
+                    // after the chunker narrows to a sentence that no longer
+                    // carries the source definition alongside it.
+                    let range = index..<reference.range.upperBound
+                    ranges.append(range)
+                    index = range.upperBound
+                    continue
+                } else {
+                    let shortcutID = NarrationTextChunker.normalizedMarkdownReference(
+                        source[label.contentRange])
+                    if definitions.ids.contains(shortcutID) {
+                        ranges.append(label.range)
+                        index = label.range.upperBound
+                        continue
+                    }
+                }
+                index = source.index(after: index)
+            }
+
+            return ranges.sorted { $0.lowerBound < $1.lowerBound }
+        }
+
+        mutating func inlineLinkRange(startingAt start: String.Index)
+            -> Range<String.Index>?
+        {
+            guard let label = label(at: start) else { return nil }
+            return inlineLinkRange(label: label)
+        }
+
+        private mutating func inlineLinkRange(label: MarkdownLabel)
+            -> Range<String.Index>?
+        {
+            let opening = label.range.upperBound
+            guard opening < source.endIndex, inspect(opening) == "(",
+                let upperBound = inlineLinkUpperBound(afterOpening: opening)
+            else {
+                return nil
+            }
+            return label.range.lowerBound..<upperBound
+        }
+
+        /// Parses the destination first, then an optional title. Quoted-title
+        /// parentheses are literal text and never destination nesting.
+        private mutating func inlineLinkUpperBound(
+            afterOpening opening: String.Index
+        ) -> String.Index? {
+            var index = source.index(after: opening)
+            let hadLeadingWhitespace = skipWhitespace(&index, before: source.endIndex)
+            guard index < source.endIndex else { return nil }
+
+            if inspect(index) == ")" {
+                return source.index(after: index)
+            }
+
+            if hadLeadingWhitespace, isTitleOpening(inspect(index)) {
+                guard let afterTitle = titleUpperBound(
+                    startingAt: index,
+                    before: source.endIndex)
+                else { return nil }
+                index = afterTitle
+                _ = skipWhitespace(&index, before: source.endIndex)
+                guard index < source.endIndex, inspect(index) == ")" else {
+                    return nil
+                }
+                return source.index(after: index)
+            }
+
+            if inspect(index) == "<" {
+                guard let afterDestination = angleDestinationUpperBound(
+                    startingAt: index,
+                    before: source.endIndex)
+                else { return nil }
+                index = afterDestination
+            } else {
+                switch bareInlineDestinationResult(startingAt: index) {
+                case .closedLink(let upperBound):
+                    return upperBound
+                case .stoppedAtWhitespace(let whitespace):
+                    index = whitespace
+                case .invalid:
+                    return nil
+                }
+            }
+
+            if index < source.endIndex, inspect(index) == ")" {
+                return source.index(after: index)
+            }
+            guard skipWhitespace(&index, before: source.endIndex) else {
+                return nil
+            }
+            if index < source.endIndex, inspect(index) == ")" {
+                return source.index(after: index)
+            }
+            guard index < source.endIndex, isTitleOpening(inspect(index)),
+                let afterTitle = titleUpperBound(
+                    startingAt: index,
+                    before: source.endIndex)
+            else { return nil }
+            index = afterTitle
+            _ = skipWhitespace(&index, before: source.endIndex)
+            guard index < source.endIndex, inspect(index) == ")" else {
+                return nil
+            }
+            return source.index(after: index)
+        }
+
+        private mutating func bareInlineDestinationResult(
+            startingAt start: String.Index
+        ) -> BareDestinationResult {
+            var depth = 0
+            var index = start
+            while index < source.endIndex {
+                let character = inspect(index)
+                if character == "\\" {
+                    guard advancePastEscape(&index, before: source.endIndex) else {
+                        return .invalid
+                    }
+                    continue
+                }
+                if character.isWhitespace, depth == 0 {
+                    return .stoppedAtWhitespace(index)
+                }
+                if character == "<" || character == ">" {
+                    return .invalid
+                }
+                if character == "(" {
+                    depth += 1
+                } else if character == ")" {
+                    if depth == 0 {
+                        return .closedLink(source.index(after: index))
+                    }
+                    depth -= 1
+                }
+                index = source.index(after: index)
+            }
+            return .invalid
+        }
+
+        private mutating func angleDestinationUpperBound(
+            startingAt start: String.Index,
+            before limit: String.Index
+        ) -> String.Index? {
+            guard inspect(start) == "<" else { return nil }
+            var index = source.index(after: start)
+            while index < limit {
+                let character = inspect(index)
+                if character == "\\" {
+                    guard advancePastEscape(&index, before: limit) else {
+                        return nil
+                    }
+                    continue
+                }
+                if character == ">" {
+                    return source.index(after: index)
+                }
+                if character == "<" || character.isWhitespace {
+                    return nil
+                }
+                index = source.index(after: index)
+            }
+            return nil
+        }
+
+        private mutating func titleUpperBound(
+            startingAt start: String.Index,
+            before limit: String.Index
+        ) -> String.Index? {
+            let opening = inspect(start)
+            let closing: Character
+            switch opening {
+            case "\"": closing = "\""
+            case "'": closing = "'"
+            case "(": closing = ")"
+            default: return nil
+            }
+
+            var index = source.index(after: start)
+            while index < limit {
+                let character = inspect(index)
+                if character == "\\" {
+                    guard advancePastEscape(&index, before: limit) else {
+                        return nil
+                    }
+                    continue
+                }
+                if character == closing {
+                    return source.index(after: index)
+                }
+                if opening == "(", character == "(" {
+                    return nil
+                }
+                index = source.index(after: index)
+            }
+            return nil
+        }
+
+        private mutating func referenceDefinitions() -> MarkdownDefinitions {
+            var ids: Set<String> = []
+            var ranges: [Range<String.Index>] = []
+            var lineStart = source.startIndex
+
+            while lineStart < source.endIndex {
+                let lineEnd = endOfLine(startingAt: lineStart)
+                if let definition = referenceDefinition(
+                    lineStart: lineStart,
+                    lineEnd: lineEnd)
+                {
+                    ids.insert(definition.id)
+                    ranges.append(definition.range)
+                }
+                guard lineEnd < source.endIndex else { break }
+                lineStart = source.index(after: lineEnd)
+            }
+            return MarkdownDefinitions(ids: ids, ranges: ranges)
+        }
+
+        private mutating func referenceDefinition(
+            lineStart: String.Index,
+            lineEnd: String.Index
+        ) -> (id: String, range: Range<String.Index>)? {
+            var index = lineStart
+            var indentation = 0
+            while index < lineEnd, inspect(index) == " ", indentation < 3 {
+                indentation += 1
+                index = source.index(after: index)
+            }
+            guard let label = label(at: index),
+                label.range.upperBound < lineEnd,
+                inspect(label.range.upperBound) == ":"
+            else { return nil }
+
+            let id = NarrationTextChunker.normalizedMarkdownReference(
+                source[label.contentRange])
+            guard !id.isEmpty else { return nil }
+
+            index = source.index(after: label.range.upperBound)
+            _ = skipHorizontalWhitespace(&index, before: lineEnd)
+            guard index < lineEnd,
+                let destinationEnd = definitionDestinationUpperBound(
+                    startingAt: index,
+                    before: lineEnd)
+            else { return nil }
+            index = destinationEnd
+
+            let hadWhitespace = skipHorizontalWhitespace(&index, before: lineEnd)
+            if index < lineEnd {
+                guard hadWhitespace, isTitleOpening(inspect(index)),
+                    let afterTitle = titleUpperBound(
+                        startingAt: index,
+                        before: lineEnd)
+                else { return nil }
+                index = afterTitle
+                _ = skipHorizontalWhitespace(&index, before: lineEnd)
+                guard index == lineEnd else { return nil }
+                return (id, lineStart..<lineEnd)
+            }
+
+            guard lineEnd < source.endIndex else {
+                return (id, lineStart..<lineEnd)
+            }
+            let nextLineStart = source.index(after: lineEnd)
+            let nextLineEnd = endOfLine(startingAt: nextLineStart)
+            var titleStart = nextLineStart
+            var titleIndentation = 0
+            while titleStart < nextLineEnd,
+                inspect(titleStart) == " ",
+                titleIndentation < 3
+            {
+                titleIndentation += 1
+                titleStart = source.index(after: titleStart)
+            }
+            guard titleStart < nextLineEnd,
+                isTitleOpening(inspect(titleStart)),
+                let afterTitle = titleUpperBound(
+                    startingAt: titleStart,
+                    before: nextLineEnd)
+            else {
+                return (id, lineStart..<lineEnd)
+            }
+            var trailing = afterTitle
+            _ = skipHorizontalWhitespace(&trailing, before: nextLineEnd)
+            guard trailing == nextLineEnd else {
+                return (id, lineStart..<lineEnd)
+            }
+            return (id, lineStart..<nextLineEnd)
+        }
+
+        private mutating func definitionDestinationUpperBound(
+            startingAt start: String.Index,
+            before limit: String.Index
+        ) -> String.Index? {
+            if inspect(start) == "<" {
+                return angleDestinationUpperBound(startingAt: start, before: limit)
+            }
+
+            var depth = 0
+            var index = start
+            while index < limit {
+                let character = inspect(index)
+                if character == "\\" {
+                    guard advancePastEscape(&index, before: limit) else {
+                        return nil
+                    }
+                    continue
+                }
+                if character.isWhitespace {
+                    return depth == 0 ? index : nil
+                }
+                if character == "<" || character == ">" {
+                    return nil
+                }
+                if character == "(" {
+                    depth += 1
+                } else if character == ")" {
+                    guard depth > 0 else { return nil }
+                    depth -= 1
+                }
+                index = source.index(after: index)
+            }
+            return depth == 0 && index > start ? index : nil
+        }
+
+        private func label(at start: String.Index) -> MarkdownLabel? {
+            guard start < source.endIndex, source[start] == "[",
+                let close = matchingSquareBracket[start]
+            else { return nil }
+            let upperBound = source.index(after: close)
+            return MarkdownLabel(
+                range: start..<upperBound,
+                contentRange: source.index(after: start)..<close)
+        }
+
+        private mutating func endOfLine(
+            startingAt start: String.Index
+        ) -> String.Index {
+            var index = start
+            while index < source.endIndex {
+                if inspect(index).isNewline { return index }
+                index = source.index(after: index)
+            }
+            return source.endIndex
+        }
+
+        @discardableResult
+        private mutating func skipWhitespace(
+            _ index: inout String.Index,
+            before limit: String.Index
+        ) -> Bool {
+            var consumed = false
+            while index < limit, inspect(index).isWhitespace {
+                consumed = true
+                index = source.index(after: index)
+            }
+            return consumed
+        }
+
+        @discardableResult
+        private mutating func skipHorizontalWhitespace(
+            _ index: inout String.Index,
+            before limit: String.Index
+        ) -> Bool {
+            var consumed = false
+            while index < limit {
+                let character = inspect(index)
+                guard character == " " || character == "\t" else { break }
+                consumed = true
+                index = source.index(after: index)
+            }
+            return consumed
+        }
+
+        private mutating func advancePastEscape(
+            _ index: inout String.Index,
+            before limit: String.Index
+        ) -> Bool {
+            let escaped = source.index(after: index)
+            guard escaped < limit else {
+                index = escaped
+                return false
+            }
+            inspectionCount += 1
+            index = source.index(after: escaped)
+            return true
+        }
+
+        private func isTitleOpening(_ character: Character) -> Bool {
+            character == "\"" || character == "'" || character == "("
+        }
+
+        private mutating func inspect(_ index: String.Index) -> Character {
+            inspectionCount += 1
+            return source[index]
+        }
+    }
+
+    /// Returns one complete inline Markdown link. Labels use precomputed
+    /// escaped-aware matches; the suffix parser separates destination and title
+    /// states so literal punctuation inside a quoted title is non-structural.
     nonisolated static func markdownInlineLinkRange(
         in source: String,
         startingAt start: String.Index
     ) -> Range<String.Index>? {
-        guard let label = markdownLabel(in: source, startingAt: start) else {
-            return nil
-        }
-        let openParenthesis = label.range.upperBound
-        guard openParenthesis < source.endIndex, source[openParenthesis] == "(" else {
-            return nil
-        }
-
-        guard let destination = balancedRange(
-            in: source,
-            startingAt: openParenthesis,
-            opening: "(",
-            closing: ")")
-        else { return nil }
-        return start..<destination.upperBound
+        var parser = MarkdownParser(source: source)
+        return parser.inlineLinkRange(startingAt: start)
     }
 
     /// Complete source spans that pronunciation rewriters must never alter.
@@ -328,61 +800,18 @@ enum NarrationTextChunker {
     nonisolated static func markdownProtectedRanges(
         in source: String
     ) -> [Range<String.Index>] {
-        let definitions = markdownReferenceDefinitions(in: source)
-        let definitionRanges = Dictionary(
-            uniqueKeysWithValues: definitions.ranges.map {
-                ($0.lowerBound, $0)
-            })
-        var ranges = definitions.ranges
-        var index = source.startIndex
+        var parser = MarkdownParser(source: source)
+        return parser.protectedRanges()
+    }
 
-        while index < source.endIndex {
-            if let definition = definitionRanges[index] {
-                index = definition.upperBound
-                continue
-            }
-            guard source[index] == "[",
-                let label = markdownLabel(in: source, startingAt: index)
-            else {
-                index = source.index(after: index)
-                continue
-            }
-
-            if let inlineRange = markdownInlineLinkRange(in: source, startingAt: index) {
-                ranges.append(inlineRange)
-                index = inlineRange.upperBound
-                continue
-            }
-
-            let next = label.range.upperBound
-            if next < source.endIndex, source[next] == "[",
-                let reference = markdownLabel(in: source, startingAt: next)
-            {
-                let referenceID =
-                    reference.contentRange.isEmpty
-                    ? normalizedMarkdownReference(
-                        source[label.contentRange])
-                    : normalizedMarkdownReference(
-                        source[reference.contentRange])
-                if definitions.ids.contains(referenceID) {
-                    let range = index..<reference.range.upperBound
-                    ranges.append(range)
-                    index = range.upperBound
-                    continue
-                }
-            } else {
-                let shortcutID = normalizedMarkdownReference(
-                    source[label.contentRange])
-                if definitions.ids.contains(shortcutID) {
-                    ranges.append(label.range)
-                    index = label.range.upperBound
-                    continue
-                }
-            }
-            index = source.index(after: index)
-        }
-
-        return ranges.sorted { $0.lowerBound < $1.lowerBound }
+    nonisolated static func markdownProtectedRanges(
+        in source: String,
+        inspectionCount: inout Int
+    ) -> [Range<String.Index>] {
+        var parser = MarkdownParser(source: source)
+        let ranges = parser.protectedRanges()
+        inspectionCount = parser.inspectionCount
+        return ranges
     }
 
     private nonisolated static func markdownProtectedRangesByStart(
@@ -392,97 +821,6 @@ enum NarrationTextChunker {
             uniqueKeysWithValues: markdownProtectedRanges(in: source).map {
                 ($0.lowerBound, $0)
             })
-    }
-
-    private nonisolated static func markdownReferenceDefinitions(
-        in source: String
-    ) -> (ids: Set<String>, ranges: [Range<String.Index>]) {
-        var ids: Set<String> = []
-        var ranges: [Range<String.Index>] = []
-        var lineStart = source.startIndex
-
-        while lineStart < source.endIndex {
-            let lineEnd =
-                source[lineStart...].firstIndex(where: { $0.isNewline })
-                ?? source.endIndex
-            var contentStart = lineStart
-            var indentation = 0
-            while contentStart < lineEnd,
-                source[contentStart] == " ",
-                indentation < 3
-            {
-                indentation += 1
-                contentStart = source.index(after: contentStart)
-            }
-
-            if contentStart < lineEnd,
-                let label = markdownLabel(in: source, startingAt: contentStart),
-                label.range.upperBound < lineEnd,
-                source[label.range.upperBound] == ":"
-            {
-                let referenceID = normalizedMarkdownReference(
-                    source[label.contentRange])
-                if !referenceID.isEmpty {
-                    ids.insert(referenceID)
-                    ranges.append(lineStart..<lineEnd)
-                }
-            }
-
-            guard lineEnd < source.endIndex else { break }
-            lineStart = source.index(after: lineEnd)
-        }
-        return (ids, ranges)
-    }
-
-    private nonisolated static func markdownLabel(
-        in source: String,
-        startingAt start: String.Index
-    ) -> MarkdownLabel? {
-        guard start < source.endIndex, source[start] == "[",
-            let range = balancedRange(
-                in: source,
-                startingAt: start,
-                opening: "[",
-                closing: "]")
-        else { return nil }
-        let contentStart = source.index(after: range.lowerBound)
-        let contentEnd = source.index(before: range.upperBound)
-        return MarkdownLabel(
-            range: range,
-            contentRange: contentStart..<contentEnd)
-    }
-
-    private nonisolated static func balancedRange(
-        in source: String,
-        startingAt start: String.Index,
-        opening: Character,
-        closing: Character
-    ) -> Range<String.Index>? {
-        guard start < source.endIndex, source[start] == opening else {
-            return nil
-        }
-        var depth = 1
-        var index = source.index(after: start)
-        while index < source.endIndex {
-            if source[index] == "\\" {
-                let escaped = source.index(after: index)
-                index =
-                    escaped < source.endIndex
-                    ? source.index(after: escaped)
-                    : escaped
-                continue
-            }
-            if source[index] == opening {
-                depth += 1
-            } else if source[index] == closing {
-                depth -= 1
-                if depth == 0 {
-                    return start..<source.index(after: index)
-                }
-            }
-            index = source.index(after: index)
-        }
-        return nil
     }
 
     private nonisolated static func normalizedMarkdownReference(
