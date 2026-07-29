@@ -34,6 +34,9 @@ struct EPubBlockRecord: Identifiable, Equatable, Hashable, Sendable, Codable, Fe
     /// Language hint for `.code` blocks ("python", "swift", …), sniffed from
     /// markup at import. Nil for non-code blocks or unhinted listings.
     var codeLanguage: String?
+    /// Trusted source chapter identity for generated anthologies. Generic EPUB
+    /// imports leave this nil and retain their order-based identity.
+    var sourceChapterKey: String? = nil
     var createdAt: String?
     var modifiedAt: String?
 
@@ -61,6 +64,7 @@ struct EPubBlockRecord: Identifiable, Equatable, Hashable, Sendable, Codable, Fe
         case textFormats = "text_formats"
         case narrationText = "narration_text"
         case codeLanguage = "code_language"
+        case sourceChapterKey = "source_chapter_key"
         case createdAt = "created_at"
         case modifiedAt = "modified_at"
     }

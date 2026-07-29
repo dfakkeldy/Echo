@@ -29,6 +29,20 @@ struct AnthologyLibraryIntegrationTests {
         #expect(audiobook.coverArtPath == fixture.managedCoverURL.path)
         #expect(audiobook.textOrigin == "epub")
         #expect(try fixture.importedBlockCount() > 0)
+        let generatedBlocks = try fixture.importedBlocks()
+            .filter { $0.sourceChapterKey != nil }
+        #expect(
+            generatedBlocks.map(\.id) == [
+                "epub-\(fixture.audiobookID)-s0-b0",
+                "epub-\(fixture.audiobookID)-s0-b1",
+                "epub-\(fixture.audiobookID)-s0-b2",
+                "epub-\(fixture.audiobookID)-s0-b1000",
+                "epub-\(fixture.audiobookID)-s0-b1001",
+                "epub-\(fixture.audiobookID)-s0-b900000",
+            ])
+        #expect(
+            Set(generatedBlocks.map(\.sourceChapterKey))
+                == [fixture.manifest.chapters[0].entryID.uuidString])
         #expect(
             try EPubTOCEntryDAO(db: fixture.database.writer)
                 .entries(for: fixture.audiobookID)
@@ -48,6 +62,8 @@ struct AnthologyLibraryIntegrationTests {
         let priorAudiobook = try #require(
             try fixture.audiobookDAO.get(fixture.audiobookID))
         let priorBlocks = try fixture.importedBlockEvidence()
+        let priorState = try fixture.seedRollbackState(
+            blockID: "epub-\(fixture.audiobookID)-s0-b1000")
 
         await #expect(throws: AnthologyBuildService.Error.self) {
             try await fixture.service(
@@ -90,13 +106,79 @@ struct AnthologyLibraryIntegrationTests {
             #expect(restored.textFormats == prior.textFormats)
             #expect(restored.narrationText == prior.narrationText)
             #expect(restored.codeLanguage == prior.codeLanguage)
+            #expect(restored.sourceChapterKey == prior.sourceChapterKey)
         }
         let toc = try EPubTOCEntryDAO(db: fixture.database.writer)
             .entries(for: fixture.audiobookID)
         #expect(toc.contains { $0.title == "A Coordinator Chapter" })
         #expect(toc.contains { $0.title == "Replacement Chapter" } == false)
+        #expect(try fixture.note(id: priorState.note.id) == priorState.note)
+        #expect(try fixture.anchor(id: priorState.anchor.id) == priorState.anchor)
         #expect(try fixture.taskResidue().isEmpty)
         #expect(networkRequests.count == 0)
+    }
+}
+
+@MainActor
+@Suite(.serialized)
+struct AnthologyLibraryRollbackIntegrationTests {
+    @Test func rollbackSnapshotCaptureLimitFailsBeforeMutationWithoutRecoveryError() async throws {
+        let fixture = try AnthologyLibraryIntegrationFixture()
+        defer { fixture.removeFiles() }
+        let first = try await fixture.service().build(
+            anthologyID: fixture.anthologyID.uuidString)
+        let priorBytes = try Data(contentsOf: fixture.finalURL)
+        let priorAudiobook = try #require(
+            try fixture.audiobookDAO.get(fixture.audiobookID))
+        let priorBlocks = try fixture.importedBlockEvidence()
+
+        await #expect(throws: AnthologyBuildService.Error.buildFailed) {
+            try await fixture.service(
+                manifest: fixture.revisedManifest(),
+                rollbackLimits: .init(maximumBlocks: 0)
+            ).build(anthologyID: fixture.anthologyID.uuidString)
+        }
+
+        #expect(try Data(contentsOf: fixture.finalURL) == priorBytes)
+        #expect(
+            try fixture.anthologyDAO.latestSuccessfulBuild(
+                anthologyID: fixture.anthologyID.uuidString) == first)
+        let restoredAudiobook = try #require(
+            try fixture.audiobookDAO.get(fixture.audiobookID))
+        #expect(restoredAudiobook.title == priorAudiobook.title)
+        #expect(restoredAudiobook.author == priorAudiobook.author)
+        #expect(restoredAudiobook.coverArtPath == priorAudiobook.coverArtPath)
+        #expect(restoredAudiobook.textOrigin == priorAudiobook.textOrigin)
+        #expect(try fixture.importedBlockEvidence() == priorBlocks)
+        let failure = try #require(
+            try fixture.builds().first { $0.status == "failed" })
+        #expect(failure.status == "failed")
+        #expect(failure.errorCode == "build_failed")
+    }
+
+    @Test func rollbackSnapshotValidationFailureIsReportedAsLibraryRecoveryFailure() async throws {
+        let fixture = try AnthologyLibraryIntegrationFixture()
+        defer { fixture.removeFiles() }
+        let first = try await fixture.service().build(
+            anthologyID: fixture.anthologyID.uuidString)
+        let priorBytes = try Data(contentsOf: fixture.finalURL)
+
+        await #expect(throws: AnthologyBuildService.Error.libraryRecoveryFailed) {
+            try await fixture.service(
+                manifest: fixture.revisedManifest(),
+                failSuccessfulReceipt: true,
+                injectSnapshotRestoreCollision: true
+            ).build(anthologyID: fixture.anthologyID.uuidString)
+        }
+
+        #expect(try Data(contentsOf: fixture.finalURL) == priorBytes)
+        #expect(
+            try fixture.anthologyDAO.latestSuccessfulBuild(
+                anthologyID: fixture.anthologyID.uuidString) == first)
+        let failure = try #require(
+            try fixture.builds().first { $0.status == "failed" })
+        #expect(failure.status == "failed")
+        #expect(failure.errorCode == "library_recovery_failed")
     }
 }
 
@@ -175,6 +257,8 @@ private struct AnthologyLibraryIntegrationFixture {
     func service(
         manifest requestedManifest: AnthologyBuildManifest? = nil,
         failSuccessfulReceipt: Bool = false,
+        rollbackLimits: GeneratedAnthologyImportRollbackSnapshot.Limits = .production,
+        injectSnapshotRestoreCollision: Bool = false,
         networkRequests: LockedNetworkRequestCounter? = nil
     ) -> AnthologyBuildService {
         let requestedManifest = requestedManifest ?? manifest
@@ -208,6 +292,14 @@ private struct AnthologyLibraryIntegrationFixture {
                     return AnthologyLibraryImportReceipt(
                         audiobookID: audiobookID)
                 },
+                importGeneratedEPUB: { finalURL, audiobookID, identity in
+                    try await GeneratedAnthologyImportReconciler.importArchive(
+                        at: finalURL,
+                        audiobookID: audiobookID,
+                        identity: identity,
+                        databaseService: database,
+                        rollbackLimits: rollbackLimits)
+                },
                 saveBuild: { build in
                     if failSuccessfulReceipt, build.status == "succeeded" {
                         throw AnthologyLibraryIntegrationError.injected
@@ -226,6 +318,37 @@ private struct AnthologyLibraryIntegrationFixture {
                         networkRequestObserver: { request in
                             networkRequests?.record(request)
                         })
+                },
+                restoreGeneratedImport: { finalURL, audiobookID, identity in
+                    _ = try await GeneratedAnthologyImportReconciler.importArchive(
+                        at: finalURL,
+                        audiobookID: audiobookID,
+                        identity: identity,
+                        databaseService: database,
+                        rollbackLimits: rollbackLimits)
+                    if injectSnapshotRestoreCollision {
+                        try await writer.write { database in
+                            let otherAudiobookID = "\(audiobookID)-collision"
+                            var other = AudiobookRecord(
+                                id: otherAudiobookID,
+                                title: "Collision sentinel",
+                                author: nil,
+                                duration: 0,
+                                fileCount: 0,
+                                addedAt: "2026-07-29T12:00:00Z")
+                            try other.save(database)
+                            try database.execute(
+                                sql: """
+                                    UPDATE epub_block
+                                    SET audiobook_id = ?
+                                    WHERE id = ?
+                                    """,
+                                arguments: [
+                                    otherAudiobookID,
+                                    "epub-\(audiobookID)-s0-b1000",
+                                ])
+                        }
+                    }
                 }),
             now: { Date(timeIntervalSince1970: 1_775_000_000) },
             makeID: UUID.init)
@@ -282,10 +405,72 @@ private struct AnthologyLibraryIntegrationFixture {
         }
     }
 
+    func importedBlocks() throws -> [EPubBlockRecord] {
+        try EPubBlockDAO(db: database.writer).allBlocks(for: audiobookID)
+    }
+
     func importedBlockEvidence() throws -> [ImportedBlockEvidence] {
-        try EPubBlockDAO(db: database.writer)
-            .allBlocks(for: audiobookID)
-            .map(ImportedBlockEvidence.init)
+        try importedBlocks().map(ImportedBlockEvidence.init)
+    }
+
+    func builds() throws -> [AnthologyBuildRecord] {
+        try database.writer.read { database in
+            try AnthologyBuildRecord
+                .order(Column("created_at"), Column("id"))
+                .fetchAll(database)
+        }
+    }
+
+    func seedRollbackState(
+        blockID: String
+    ) throws -> (note: NoteRecord, anchor: AlignmentAnchorRecord) {
+        try database.writer.write { database in
+            guard
+                try EPubBlockRecord
+                    .filter(Column("audiobook_id") == audiobookID)
+                    .filter(Column("id") == blockID)
+                    .fetchCount(database) == 1
+            else {
+                throw AnthologyLibraryIntegrationError.missingStableBlock
+            }
+            var note = NoteRecord(
+                id: "integration-note",
+                audiobookID: audiobookID,
+                text: "Keep this annotation",
+                mediaTimestamp: 12,
+                realTimestamp: nil,
+                isEnabled: true,
+                playlistPosition: 12,
+                createdAt: "2026-07-29T12:00:00Z",
+                modifiedAt: "2026-07-29T12:00:00Z",
+                epubBlockID: blockID)
+            try note.insert(database)
+            var anchor = AlignmentAnchorRecord(
+                id: "integration-anchor",
+                audiobookID: audiobookID,
+                epubBlockID: blockID,
+                audioTime: 12,
+                audioEndTime: 14,
+                anchorKind: AlignmentAnchorRecord.AnchorKind.point.rawValue,
+                source: AlignmentAnchorRecord.Source.synthesized.rawValue,
+                note: "Prior generated timing",
+                createdAt: "2026-07-29T12:00:00Z",
+                modifiedAt: nil)
+            try anchor.insert(database)
+            return (note, anchor)
+        }
+    }
+
+    func note(id: String) throws -> NoteRecord? {
+        try database.writer.read { database in
+            try NoteRecord.fetchOne(database, key: id)
+        }
+    }
+
+    func anchor(id: String) throws -> AlignmentAnchorRecord? {
+        try database.writer.read { database in
+            try AlignmentAnchorRecord.fetchOne(database, key: id)
+        }
     }
 
     func taskResidue() throws -> [URL] {
@@ -390,6 +575,7 @@ private struct ImportedBlockEvidence: Equatable, Sendable {
     let textFormats: String?
     let narrationText: String?
     let codeLanguage: String?
+    let sourceChapterKey: String?
 
     init(_ block: EPubBlockRecord) {
         id = block.id
@@ -413,6 +599,7 @@ private struct ImportedBlockEvidence: Equatable, Sendable {
         textFormats = Self.canonicalJSON(block.textFormats)
         narrationText = block.narrationText
         codeLanguage = block.codeLanguage
+        sourceChapterKey = block.sourceChapterKey
     }
 
     private static func canonicalJSON(_ value: String?) -> String? {
@@ -431,6 +618,7 @@ private struct ImportedBlockEvidence: Equatable, Sendable {
 
 private enum AnthologyLibraryIntegrationError: Swift.Error {
     case injected
+    case missingStableBlock
 }
 
 private nonisolated final class LockedNetworkRequestCounter: @unchecked Sendable {

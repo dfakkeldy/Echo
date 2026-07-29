@@ -46,7 +46,11 @@ struct EPUBBlockParse {
 ///     use the same value for the resulting IDs to match.
 ///   - epubURL: An expanded EPUB directory (callers extract `.epub` archives
 ///     first, mirroring the iOS import path).
-func parseEPUBBlocks(audiobookID: String, epubURL: URL) throws -> EPUBBlockParse {
+func parseEPUBBlocks(
+    audiobookID: String,
+    epubURL: URL,
+    generatedIdentity: GeneratedAnthologyImportIdentity? = nil
+) throws -> EPUBBlockParse {
     // 1. Locate container.xml and find the OPF path.
     let containerURL = epubURL.appendingPathComponent("META-INF/container.xml")
     guard FileManager.default.fileExists(atPath: containerURL.path) else {
@@ -62,6 +66,9 @@ func parseEPUBBlocks(audiobookID: String, epubURL: URL) throws -> EPUBBlockParse
     // 2. Parse OPF for spine order.
     let opfData = try Data(contentsOf: opfURL)
     let opfResult = parseOPF(from: opfData)
+    try generatedIdentity?.validatePackage(
+        identifier: opfResult.packageIdentifier,
+        manifestSHA256: opfResult.echoManifestSHA256)
     let spine = opfResult.spine
     guard !spine.isEmpty else {
         throw EPUBImportError.spineEmpty
@@ -98,9 +105,18 @@ func parseEPUBBlocks(audiobookID: String, epubURL: URL) throws -> EPUBBlockParse
     // 3. Parse XHTML spine items into blocks.
     var parsedSpines: [(blocks: [TextBlockDescriptor], title: String?)] = []
     var spineXHTMLURLByIndex: [Int: URL] = [:]
+    var generatedChapterBySpineIndex: [Int: GeneratedChapterIdentity] = [:]
+    var seenGeneratedHrefs = Set<String>()
 
     for (i, item) in spine.enumerated() {
         let href = item.href
+        let generatedChapter = generatedIdentity?.chapter(for: href)
+        if let generatedChapter {
+            guard seenGeneratedHrefs.insert(generatedChapter.href).inserted else {
+                throw GeneratedAnthologyImportError.unexpectedChapter
+            }
+            generatedChapterBySpineIndex[i] = generatedChapter
+        }
         let xhtmlURL: URL
         if href.hasPrefix("/") || href.contains("://") {
             xhtmlURL = epubURL.appendingPathComponent(href)
@@ -115,8 +131,15 @@ func parseEPUBBlocks(audiobookID: String, epubURL: URL) throws -> EPUBBlockParse
         }
 
         let xhtmlData = try Data(contentsOf: xhtmlURL)
-        let parsedXHTML = parseXHTML(from: xhtmlData)
+        let parsedXHTML = parseXHTML(
+            from: xhtmlData,
+            captureEchoMetadata: generatedChapter != nil)
         parsedSpines.append((blocks: parsedXHTML.blocks, title: parsedXHTML.title))
+    }
+    if let generatedIdentity,
+        seenGeneratedHrefs != Set(generatedIdentity.chaptersByHref.keys)
+    {
+        throw GeneratedAnthologyImportError.unexpectedChapter
     }
 
     // 4. Apply Heuristic Engine.
@@ -152,8 +175,21 @@ func parseEPUBBlocks(audiobookID: String, epubURL: URL) throws -> EPUBBlockParse
                 rawTags: textBlocks[j].rawTags,
                 anchorIDs: textBlocks[j].anchorIDs,
                 narrationCue: textBlocks[j].narrationCue,
-                codeLanguage: textBlocks[j].codeLanguage
+                codeLanguage: textBlocks[j].codeLanguage,
+                echoMetadataPresent: textBlocks[j].echoMetadataPresent,
+                echoStableSlot: textBlocks[j].echoStableSlot,
+                echoBlockIndex: textBlocks[j].echoBlockIndex,
+                echoNarration: textBlocks[j].echoNarration,
+                echoLinkNarrationValues: textBlocks[j].echoLinkNarrationValues
             )
+        }
+        let stableBlockIndices: [Int]?
+        if let chapter = generatedChapterBySpineIndex[i], let generatedIdentity {
+            stableBlockIndices = try generatedIdentity.validate(
+                descriptors: textBlocks,
+                chapter: chapter)
+        } else {
+            stableBlockIndices = nil
         }
 
         // Apply TOC Map or Document Title fallback if no *content* heading.
@@ -182,10 +218,8 @@ func parseEPUBBlocks(audiobookID: String, epubURL: URL) throws -> EPUBBlockParse
         let canUseTitleHeuristic = bodyStartSpineIndex == nil && !hasSeenContentHeading
         let titleMatchesFrontMatterKeyword =
             canUseTitleHeuristic
-            && (
-                EPUBStructure.matchesFrontMatterTitleKeyword(fallbackTitle)
-                    || EPUBStructure.hrefMatchesFrontMatterTitleKeyword(spineHref)
-            )
+            && (EPUBStructure.matchesFrontMatterTitleKeyword(fallbackTitle)
+                || EPUBStructure.hrefMatchesFrontMatterTitleKeyword(spineHref))
         let isFrontMatterSpine =
             structuralFrontMatter
             || (canUseTitleHeuristic && !hasContentHeading && titleIsNonContent)
@@ -209,14 +243,21 @@ func parseEPUBBlocks(audiobookID: String, epubURL: URL) throws -> EPUBBlockParse
         }
 
         for (blockIdx, textBlock) in textBlocks.enumerated() {
+            let stableBlockIndex = stableBlockIndices?[blockIdx]
+            let generatedChapter = generatedChapterBySpineIndex[i]
             let wordCount =
                 textBlock.text?.split(whereSeparator: { $0.isWhitespace }).count ?? 0
             let block = EPubBlockRecord(
-                id: "epub-\(audiobookID)-s\(i)-b\(blockIdx)",
+                id: stableBlockIndex.map {
+                    "epub-\(audiobookID)-s\(generatedChapter!.stableSlot)-b\($0)"
+                }
+                    ?? (generatedIdentity == nil
+                        ? "epub-\(audiobookID)-s\(i)-b\(blockIdx)"
+                        : "epub-\(audiobookID)-generic-s\(i)-b\(blockIdx)"),
                 audiobookID: audiobookID,
                 spineHref: spineHref,
                 spineIndex: i,
-                blockIndex: blockIdx,
+                blockIndex: stableBlockIndex ?? blockIdx,
                 sequenceIndex: sequenceIndex,
                 blockKind: textBlock.kind.rawValue,
                 text: textBlock.text,
@@ -232,6 +273,7 @@ func parseEPUBBlocks(audiobookID: String, epubURL: URL) throws -> EPUBBlockParse
                 textFormats: EPubBlockRecord.encodeFormats(textBlock.textFormats),
                 narrationText: textBlock.narrationCue,
                 codeLanguage: textBlock.codeLanguage,
+                sourceChapterKey: generatedChapter?.sourceChapterKey,
                 createdAt: createdAt,
                 modifiedAt: nil
             )
@@ -270,7 +312,8 @@ enum EPUBStructure {
 
     static func matchesFrontMatterTitleKeyword(_ title: String?) -> Bool {
         guard let title else { return false }
-        let normalized = title
+        let normalized =
+            title
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { !$0.isEmpty }

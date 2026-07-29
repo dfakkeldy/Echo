@@ -4,8 +4,17 @@ import Darwin
 import Foundation
 import GRDB
 
-nonisolated struct AnthologyLibraryImportReceipt: Equatable, Sendable {
+nonisolated struct AnthologyLibraryImportReceipt: Sendable {
     let audiobookID: String
+    let generatedRollbackSnapshot: GeneratedAnthologyImportRollbackSnapshot?
+
+    init(
+        audiobookID: String,
+        generatedRollbackSnapshot: GeneratedAnthologyImportRollbackSnapshot? = nil
+    ) {
+        self.audiobookID = audiobookID
+        self.generatedRollbackSnapshot = generatedRollbackSnapshot
+    }
 }
 
 nonisolated enum AnthologyEPUBStatus: Equatable, Sendable {
@@ -37,6 +46,7 @@ actor AnthologyBuildService {
         case unsafeManagedPath
         case invalidBuildResult
         case publicationRecoveryFailed
+        case libraryRecoveryFailed
         case buildFailed
 
         var errorDescription: String? {
@@ -51,6 +61,8 @@ actor AnthologyBuildService {
                 return "The EPUB did not pass Echo’s safety checks."
             case .publicationRecoveryFailed:
                 return "Echo could not safely restore the previous edition."
+            case .libraryRecoveryFailed:
+                return "Echo restored the prior file, but could not restore its library state."
             case .buildFailed:
                 return "The EPUB could not be built. Try again."
             }
@@ -62,11 +74,23 @@ actor AnthologyBuildService {
         let buildEPUB: @Sendable (AnthologyBuildManifest, URL) throws -> AnthologyEPUBBuildResult
         let preflight: @Sendable (AnthologyEPUBBuildResult, AnthologyBuildManifest) throws -> Void
         let importEPUB: @Sendable (URL, URL, String) async throws -> AnthologyLibraryImportReceipt
+        let importGeneratedEPUB:
+            (
+                @Sendable (
+                    URL, String, GeneratedAnthologyImportIdentity
+                ) async throws -> AnthologyLibraryImportReceipt
+            )?
         let saveBuild: (@Sendable (AnthologyBuildRecord) throws -> Void)?
         let loadAudiobook: (@Sendable (String) throws -> AudiobookRecord?)?
         let saveAudiobook: (@Sendable (AudiobookRecord) throws -> Void)?
         let deleteAudiobook: (@Sendable (String) throws -> Void)?
         let restoreImport: (@Sendable (URL, URL, String) async throws -> Void)?
+        let restoreGeneratedImport:
+            (
+                @Sendable (
+                    URL, String, GeneratedAnthologyImportIdentity
+                ) async throws -> Void
+            )?
         let publicationFaultInjector: (@Sendable (AnthologyPublicationFaultPoint) throws -> Void)?
 
         init(
@@ -84,12 +108,24 @@ actor AnthologyBuildService {
                 @escaping @Sendable (
                     URL, URL, String
                 ) async throws -> AnthologyLibraryImportReceipt,
+            importGeneratedEPUB:
+                (
+                    @Sendable (
+                        URL, String, GeneratedAnthologyImportIdentity
+                    ) async throws -> AnthologyLibraryImportReceipt
+                )? = nil,
             saveBuild: (@Sendable (AnthologyBuildRecord) throws -> Void)? = nil,
             loadAudiobook: (@Sendable (String) throws -> AudiobookRecord?)? = nil,
             saveAudiobook: (@Sendable (AudiobookRecord) throws -> Void)? = nil,
             deleteAudiobook: (@Sendable (String) throws -> Void)? = nil,
             restoreImport:
                 (@Sendable (URL, URL, String) async throws -> Void)? = nil,
+            restoreGeneratedImport:
+                (
+                    @Sendable (
+                        URL, String, GeneratedAnthologyImportIdentity
+                    ) async throws -> Void
+                )? = nil,
             publicationFaultInjector:
                 (@Sendable (AnthologyPublicationFaultPoint) throws -> Void)? = nil
         ) {
@@ -97,11 +133,13 @@ actor AnthologyBuildService {
             self.buildEPUB = buildEPUB
             self.preflight = preflight
             self.importEPUB = importEPUB
+            self.importGeneratedEPUB = importGeneratedEPUB
             self.saveBuild = saveBuild
             self.loadAudiobook = loadAudiobook
             self.saveAudiobook = saveAudiobook
             self.deleteAudiobook = deleteAudiobook
             self.restoreImport = restoreImport
+            self.restoreGeneratedImport = restoreGeneratedImport
             self.publicationFaultInjector = publicationFaultInjector
         }
     }
@@ -147,6 +185,13 @@ actor AnthologyBuildService {
                     networkPolicy: .localOnly)
                 return AnthologyLibraryImportReceipt(audiobookID: result.audiobookID)
             },
+            importGeneratedEPUB: { finalURL, audiobookID, identity in
+                try await GeneratedAnthologyImportReconciler.importArchive(
+                    at: finalURL,
+                    audiobookID: audiobookID,
+                    identity: identity,
+                    databaseService: databaseService)
+            },
             restoreImport: { finalURL, editionDirectory, audiobookID in
                 _ = try await EPUBImportCoordinator.importEPUB(
                     from: finalURL,
@@ -156,6 +201,13 @@ actor AnthologyBuildService {
                     duration: nil,
                     audiobookID: audiobookID,
                     networkPolicy: .localOnly)
+            },
+            restoreGeneratedImport: { finalURL, audiobookID, identity in
+                _ = try await GeneratedAnthologyImportReconciler.importArchive(
+                    at: finalURL,
+                    audiobookID: audiobookID,
+                    identity: identity,
+                    databaseService: databaseService)
             })
         self.now = now
         self.makeID = makeID
@@ -223,8 +275,21 @@ actor AnthologyBuildService {
             path: ".book-\(temporaryID).rollback")
         let audiobookID = editionDirectory.standardizedFileURL.absoluteString
         let previousAudiobook: AudiobookRecord?
+        let previousGeneratedIdentity: GeneratedAnthologyImportIdentity?
         do {
             previousAudiobook = try loadAudiobook(audiobookID)
+            previousGeneratedIdentity =
+                try previousAudiobook == nil
+                ? nil
+                : loadPriorGeneratedIdentity(
+                    anthologyID: manifest.anthologyID,
+                    audiobookID: audiobookID)
+            if previousAudiobook != nil,
+                dependencies.importGeneratedEPUB != nil,
+                previousGeneratedIdentity == nil
+            {
+                throw Error.buildFailed
+            }
         } catch {
             try? recordFailure(
                 manifest: manifest,
@@ -234,6 +299,8 @@ actor AnthologyBuildService {
         }
         var publication: ManagedEditionStore.Publication?
         var libraryTouched = false
+        var generatedImportCommitted = false
+        var generatedRollbackSnapshot: GeneratedAnthologyImportRollbackSnapshot?
 
         do {
             let store = ManagedEditionStore(
@@ -269,10 +336,24 @@ actor AnthologyBuildService {
             try saveAudiobook(record)
             libraryTouched = true
 
-            let importReceipt = try await dependencies.importEPUB(
-                finalURL,
-                editionDirectory,
-                audiobookID)
+            let generatedIdentity = try GeneratedAnthologyImportIdentity(manifest: manifest)
+            let importReceipt: AnthologyLibraryImportReceipt
+            if let importGeneratedEPUB = dependencies.importGeneratedEPUB {
+                importReceipt = try await importGeneratedEPUB(
+                    finalURL,
+                    audiobookID,
+                    generatedIdentity)
+                generatedImportCommitted = true
+                generatedRollbackSnapshot = importReceipt.generatedRollbackSnapshot
+                guard generatedRollbackSnapshot != nil else {
+                    throw Error.invalidBuildResult
+                }
+            } else {
+                importReceipt = try await dependencies.importEPUB(
+                    finalURL,
+                    editionDirectory,
+                    audiobookID)
+            }
             guard importReceipt.audiobookID == audiobookID else {
                 throw Error.invalidBuildResult
             }
@@ -304,19 +385,35 @@ actor AnthologyBuildService {
             if let publication {
                 try? store.rollback(publication, in: editionDirectory)
             }
+            var recoveryFailed = false
             if libraryTouched {
-                try? await restoreAudiobook(
-                    previousAudiobook,
-                    audiobookID: audiobookID,
-                    finalURL: finalURL,
-                    editionDirectory: editionDirectory)
+                do {
+                    try await restoreAudiobook(
+                        previousAudiobook,
+                        audiobookID: audiobookID,
+                        finalURL: finalURL,
+                        editionDirectory: editionDirectory,
+                        generatedIdentity: previousGeneratedIdentity,
+                        generatedImportCommitted: generatedImportCommitted,
+                        rollbackSnapshot: generatedRollbackSnapshot)
+                } catch {
+                    recoveryFailed = true
+                }
             }
             try? store.removeValidatedTemporary(temporaryURL, in: editionDirectory)
+            let reportedError: Error =
+                recoveryFailed
+                ? .libraryRecoveryFailed
+                : ((error as? Error) ?? .buildFailed)
+            let failureCode =
+                recoveryFailed
+                ? Self.errorCode(Error.libraryRecoveryFailed)
+                : Self.errorCode(error)
             try? recordFailure(
                 manifest: manifest,
                 evidence: manifestEvidence,
-                errorCode: Self.errorCode(error))
-            throw (error as? Error) ?? Error.buildFailed
+                errorCode: failureCode)
+            throw reportedError
         }
     }
 
@@ -517,18 +614,68 @@ actor AnthologyBuildService {
         _ previous: AudiobookRecord?,
         audiobookID: String,
         finalURL: URL,
-        editionDirectory: URL
+        editionDirectory: URL,
+        generatedIdentity: GeneratedAnthologyImportIdentity?,
+        generatedImportCommitted: Bool,
+        rollbackSnapshot: GeneratedAnthologyImportRollbackSnapshot?
     ) async throws {
         if let previous {
             try saveAudiobook(previous)
-            if FileManager.default.fileExists(atPath: finalURL.path),
-                let restore = dependencies.restoreImport
-            {
-                try await restore(finalURL, editionDirectory, audiobookID)
+            if FileManager.default.fileExists(atPath: finalURL.path) {
+                if generatedImportCommitted {
+                    guard let generatedIdentity,
+                        let restore = dependencies.restoreGeneratedImport,
+                        let rollbackSnapshot
+                    else {
+                        throw Error.libraryRecoveryFailed
+                    }
+                    try await restore(finalURL, audiobookID, generatedIdentity)
+                    try await databaseWriter.write { database in
+                        try rollbackSnapshot.restore(
+                            audiobookID: audiobookID,
+                            in: database)
+                    }
+                } else if dependencies.importGeneratedEPUB == nil,
+                    let restore = dependencies.restoreImport
+                {
+                    try await restore(finalURL, editionDirectory, audiobookID)
+                }
             }
         } else {
             try deleteAudiobook(audiobookID)
         }
+    }
+
+    private func loadPriorGeneratedIdentity(
+        anthologyID: UUID,
+        audiobookID: String
+    ) throws -> GeneratedAnthologyImportIdentity? {
+        let record = try databaseWriter.read { database in
+            try AnthologyBuildRecord.fetchOne(
+                database,
+                sql: """
+                    SELECT * FROM anthology_build
+                    WHERE anthology_id = ?
+                      AND audiobook_id = ?
+                      AND status = 'succeeded'
+                    ORDER BY revision DESC, rowid DESC
+                    LIMIT 1
+                    """,
+                arguments: [anthologyID.uuidString, audiobookID])
+        }
+        guard let record,
+            let data = record.manifestJSON.data(using: .utf8),
+            let manifest = try? JSONDecoder.articleWorkshop.decode(
+                AnthologyBuildManifest.self,
+                from: data),
+            manifest.anthologyID == anthologyID,
+            manifest.revision == record.revision,
+            manifest.epubIdentifier == record.epubIdentifier,
+            try Self.manifestEvidence(manifest).sha256 == record.manifestSHA256
+        else {
+            return nil
+        }
+        return try GeneratedAnthologyImportIdentity(manifest: manifest)
     }
 
     private nonisolated static func libraryRecord(
@@ -615,6 +762,8 @@ actor AnthologyBuildService {
             return "invalid_build_result"
         case Error.publicationRecoveryFailed:
             return "publication_recovery_failed"
+        case Error.libraryRecoveryFailed:
+            return "library_recovery_failed"
         default:
             return "build_failed"
         }

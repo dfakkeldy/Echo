@@ -38,15 +38,21 @@ struct EPUBImportService {
         audiobookID: String,
         epubURL: URL,
         chapters: [Chapter],
-        bookDuration: TimeInterval?
+        bookDuration: TimeInterval?,
+        generatedIdentity: GeneratedAnthologyImportIdentity? = nil,
+        persistencePolicy: EPUBBlockPersistencePolicy = .replaceAll
     ) async throws -> [EPubBlockRecord] {
         // Parse the canonical block set + stable IDs via the shared driver, then
         // run the shared persist/post-process phase. Text import reuses that
         // phase via the `parse:` overload below.
-        let parse = try parseEPUBBlocks(audiobookID: audiobookID, epubURL: epubURL)
+        let parse = try parseEPUBBlocks(
+            audiobookID: audiobookID,
+            epubURL: epubURL,
+            generatedIdentity: generatedIdentity)
         return try await `import`(
             parse: parse, audiobookID: audiobookID, chapters: chapters,
-            bookDuration: bookDuration, assetBaseURL: epubURL)
+            bookDuration: bookDuration, assetBaseURL: epubURL,
+            persistencePolicy: persistencePolicy)
     }
 
     /// Persist + post-process a pre-computed block parse (image localization, TOC
@@ -58,7 +64,8 @@ struct EPUBImportService {
         audiobookID: String,
         chapters: [Chapter],
         bookDuration: TimeInterval?,
-        assetBaseURL: URL
+        assetBaseURL: URL,
+        persistencePolicy: EPUBBlockPersistencePolicy = .replaceAll
     ) async throws -> [EPubBlockRecord] {
         // 2. Prepare asset storage directory (for image localization below).
         try assetStorage.prepare(for: audiobookID)
@@ -194,17 +201,26 @@ struct EPUBImportService {
         let blocksToInsert = allBlocks
         let tocRecordsToInsert = tocRecords
         try await db.writer.write { database in
-            try EPubTOCEntryRecord
-                .filter(Column("audiobook_id") == audiobookID)
-                .deleteAll(database)
-            try EPubBlockRecord
-                .filter(Column("audiobook_id") == audiobookID)
-                .deleteAll(database)
-            for var block in blocksToInsert {
-                try block.insert(database)
-            }
-            for var tocRecord in tocRecordsToInsert {
-                try tocRecord.insert(database)
+            switch persistencePolicy {
+            case .replaceAll:
+                try EPubTOCEntryRecord
+                    .filter(Column("audiobook_id") == audiobookID)
+                    .deleteAll(database)
+                try EPubBlockRecord
+                    .filter(Column("audiobook_id") == audiobookID)
+                    .deleteAll(database)
+                for var block in blocksToInsert {
+                    try block.insert(database)
+                }
+                for var tocRecord in tocRecordsToInsert {
+                    try tocRecord.insert(database)
+                }
+            case .reconcileGenerated:
+                try GeneratedAnthologyImportReconciler.reconcile(
+                    audiobookID: audiobookID,
+                    incomingBlocks: blocksToInsert,
+                    tocEntries: tocRecordsToInsert,
+                    in: database)
             }
         }
 
