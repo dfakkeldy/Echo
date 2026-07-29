@@ -200,6 +200,8 @@ and auditable.
 | D14 | Existing audio | Old plans and audio remain unchanged until an explicit re-analysis or re-render. |
 | D15 | First implementation | Universal foundation plus contextual shadowing only; no model-controlled production pronunciation. |
 | D16 | Development audio judge | Task 10 adds a capped, development-only direct-audio evaluation loop for public-domain or synthetic clips. Its validated machine verdicts are evidence, never human labels, production authority, or Phase 3 graduation. |
+| D17 | Human-label proof state | Agents may validate schemas and prepare separately identified `provisional` candidates, but never populate human-label/adjudication fields as evidence. Without independently supplied or source-verifiable labels, corpus qualification is `WAITING_FOR_HUMAN_LABELS`; independent implementation continues while corpus-dependent qualification and final Phase 0–2 acceptance remain pending. |
+| D18 | Judge mutation boundary | The development judge admits only clips matching the exact duration, format, provenance, and random UUIDv4 identity contract. It emits proposals and records evidence in an outside-repository attempt ledger; it never edits production data or invokes an editor. |
 
 ---
 
@@ -731,6 +733,17 @@ regression evaluation. A touched-family regression includes every previously
 passing case in that deterministic family and its negative controls; a single
 failing clip can never graduate a fix.
 
+`audio_judge.py` owns a durable append-only attempt ledger under the run's
+outside-repository artifact directory. Each clip has an attempt count from zero
+through two. The judge may emit a proposal, but it never edits a production
+file, invokes an editor, runs an autonomous production mutation, or increments
+the counter merely because it proposed a fix. A separate `record-attempt`
+operation increments the counter only after the external reviewed
+implementation workflow supplies a source commit and red-test, green-test,
+negative-guard, and implementation-review receipts. A failed rerender after
+attempt one may return to one new proposal; a failed rerender after attempt two
+must transition to `morning_review`.
+
 ### Runtime outcomes
 
 | Outcome | Meaning | Normal export |
@@ -805,7 +818,46 @@ Each family has at least:
 - two human labels with adjudication on disagreement.
 
 Foundation Models may help discover candidate examples but cannot label its own
-held-out exam.
+held-out exam. Agents and machine tools may prepare separately identified
+`provisional` candidate rows, but they must not populate `labelA`, `labelB`, or
+`adjudicated` as human evidence. Only independently supplied or
+source-verifiable human-labelled/adjudicated rows count toward the 200-case and
+per-sense thresholds.
+
+Contract/schema validation and corpus qualification are separate results. A
+valid schema and provisional candidate set may pass local contract tests while
+qualification reports `WAITING_FOR_HUMAN_LABELS`. That state does not block
+independent Tasks 2–10, but every corpus-dependent metric, qualification claim,
+and final Phase 0–2 acceptance remains pending until the human thresholds are
+met. `WAITING_FOR_HUMAN_LABELS` is distinct from the audio-credential state
+`WAITING_FOR_USER`.
+
+#### Candidate contextual-label source research
+
+Google's official archived
+[`WikipediaHomographData`](https://github.com/google-research-datasets/WikipediaHomographData)
+repository is Apache-2.0-labelled and says three annotators labelled its data,
+with a fourth person adjudicating disagreements. It directly includes Echo's
+five target spellings. The current source-file counts are:
+
+- `content`: 100;
+- `read`: 125;
+- `live`: 98;
+- `lives`: 101;
+- `record`: 100.
+
+Those counts are insufficient by themselves for the approved family and
+per-sense thresholds. The sentences are Wikipedia-derived, so their
+redistribution, attribution, and share-alike implications require explicit
+review before any source sentence is committed despite the repository's
+Apache-2.0 label. This is candidate-source research, not accepted corpus
+evidence or qualification.
+
+CMUdict is human-maintained pronunciation data, not contextual sense labels.
+WordNet is a permissively licensed sense inventory, not this held-out labelled
+corpus. Common Voice and LibriSpeech provide licensed audio/transcripts, not
+contextual sense labels. None is automatically accepted as human-labelled
+Phase 0 evidence.
 
 #### Distribution corpus
 
@@ -998,15 +1050,62 @@ Machine-proposed corpus examples are marked `provisional` until independently
 human-labelled and adjudicated. The human-labelled corpus and bounded
 human-listening qualification in Sections 13.1 and 13.6 remain mandatory.
 
+Paid-run admission is exact and fail-closed:
+
+- media format is MP3 or WAV;
+- file-measured clip duration is at most 15.0 seconds; a declared manifest
+  duration is never trusted without matching the media probe;
+- provenance is exactly `public-domain` or `synthetic`;
+- `clipID` matches
+  `^clip_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`;
+- the UUID portion parses as canonical lowercase random UUIDv4 with RFC 4122
+  variant and version 4;
+- the ID is generated randomly and independently of text, audio, title, author,
+  path, identifier, or metadata.
+
+The validator checks the grammar, canonical lowercase representation, UUID
+version, and UUID variant, and rejects duplicate IDs. The generator, not a
+semantic hash or caller-provided name, creates the random UUIDv4 independently
+of clip content and metadata.
+
+`labelStatus: provisional` is allowed for diagnostic paid evaluation when every
+other admission rule passes. It routes to distinct `provisional_evidence` and
+`provisional_review` result/queue categories. Provisional results cannot count
+toward corpus accuracy, human labels, human listening, qualification, family
+regression graduation, or Phase 3 graduation.
+
+For repair governance, each outside-repository run contains an append-only
+`attempt-ledger.jsonl` and atomically derived state owned by
+`audio_judge.py`. Per-clip transitions are:
+
+1. `evaluated_fail` → `proposal_emitted`, with `attemptCount` unchanged;
+2. external reviewed implementation completes outside the judge;
+3. `record-attempt` requires the new source commit plus red-test, green-test,
+   negative-guard, and implementation-review receipts, then increments
+   `attemptCount` to one or two and transitions to `rerender_pending`;
+4. a successful rerender, retest, and full touched-family regression transitions
+   to `resolved`;
+5. a failed rerender with `attemptCount == 1` may transition to one new
+   `proposal_emitted`;
+6. a failed rerender with `attemptCount == 2` transitions irreversibly to
+   `morning_review`.
+
+The judge only emits proposals and records evidence/state. It never writes
+production pronunciation data, invokes an editor, or performs the external
+reviewed implementation workflow.
+
 ---
 
 ## 14. Rollout
 
 ### Phase 0 — Evidence and pack contract
 
-- Freeze named, balanced, distribution, and morphology corpora.
+- Freeze named, balanced, distribution, and morphology corpus contracts.
 - Keep machine-proposed examples `provisional` until independently
   human-labelled and adjudicated.
+- If thresholds lack independently supplied or source-verifiable human labels,
+  report `WAITING_FOR_HUMAN_LABELS`; continue independent implementation but
+  keep corpus qualification and final Phase 0–2 acceptance pending.
 - Record the current deterministic and rendered baselines.
 - Add the pack manifest and reproducible build report around existing gold and
   silver resources.
@@ -1150,6 +1249,10 @@ data require a deliberate redistribution design.
 | An unattended judge run exceeds its authority or budget | Stop before request 201 and before estimated cumulative cost exceeds USD 10.00, record returned usage, and apply the stricter cap. |
 | Malformed or low-confidence judge output is normalized into success | Strictly validate the closed JSON vocabulary, reject fallback parsing, and route malformed, uncertain, or sub-`0.80` results to the morning queue. |
 | An audio-model diagnosis edits production data or overfits one clip | Permit only one narrow proposal at a time, cap automated fix attempts at two per failing clip, require red/green tests and negative guards, and regress the full touched family. |
+| An agent fabricates labels to make Task 1 pass | Separate contract validation from qualification, prohibit agent-populated human evidence, and report `WAITING_FOR_HUMAN_LABELS` until independent/source-verifiable labels meet the thresholds. |
+| A semantic clip ID or long clip leaks information into a paid request | Require MP3/WAV at most 15.0 seconds, exact public-domain/synthetic provenance, and a canonical random UUIDv4 `clipID` generated independently of content or metadata. |
+| A provisional paid result is counted as qualification | Route it only to `provisional_evidence`/`provisional_review` and exclude it from accuracy, human labels/listening, qualification, and graduation. |
+| Fix proposals bypass the two-attempt cap | Make the outside-repository ledger authoritative; only `record-attempt` with reviewed implementation receipts increments the 0–2 counter, and force `morning_review` after the second failed rerender. |
 | First implementation grows into a model platform | Keep packs bundled, use no adapter/download service, and stop at shadow mode. |
 
 ---
@@ -1222,11 +1325,23 @@ The first implementation program is complete when:
 - production logs contain no raw book context or model output;
 - existing audit schemas still decode and new incomplete evidence fails closed;
 - named linguistic tests pass;
+- corpus contract/schema tests pass without fabricated labels; if independent
+  or source-verifiable labels do not yet satisfy the approved thresholds,
+  corpus qualification is `WAITING_FOR_HUMAN_LABELS` and final Phase 0–2
+  acceptance remains pending;
 - representative rendered samples pass the mechanical and human listening
   checks defined for the first program;
 - the development audio judge passes privacy/manifest, hard request/cost cap,
   strict response, direct MP3/WAV, bounded retry, morning-queue, and
   no-credential `WAITING_FOR_USER` tests;
+- paid admission enforces MP3/WAV duration at most 15.0 seconds, exact
+  public-domain/synthetic provenance, and canonical lowercase random UUIDv4
+  clip IDs independent of semantic inputs;
+- provisional paid evidence is isolated from corpus accuracy, human
+  labels/listening, qualification, and graduation;
+- the judge-owned outside-repository attempt ledger enforces reviewed
+  `record-attempt` transitions from zero through two and forced
+  `morning_review` after the second failed rerender without invoking an editor;
 - a dry-run proves eligibility, privacy, cap, and cost checks without an API
   call;
 - when a credential exists, the first capped public/synthetic run records the

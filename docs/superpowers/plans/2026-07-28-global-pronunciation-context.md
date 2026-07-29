@@ -48,11 +48,29 @@
   diagnosis, but machine verdicts are never human labels or final human
   listening, and machine-proposed corpus examples remain `provisional` until
   independently human-labelled and adjudicated.
+- Agents may implement and test corpus schemas and prepare separately
+  identified `provisional` candidates, but must never populate `labelA`,
+  `labelB`, or `adjudicated` as human evidence. Only independently supplied or
+  source-verifiable human-labelled/adjudicated rows count toward thresholds.
+  Without enough such rows, report `WAITING_FOR_HUMAN_LABELS`, continue
+  independent Tasks 2–10, and keep corpus-dependent qualification and final
+  Phase 0–2 acceptance pending. This is distinct from the audio-key state
+  `WAITING_FOR_USER`.
+- Admit paid clips only when they are MP3/WAV, at most 15.0 seconds, exactly
+  `public-domain` or `synthetic`, and identified by `clip_` plus a canonical
+  lowercase random UUIDv4 generated independently of all semantic content and
+  metadata. `provisional` clips may be evaluated diagnostically but never count
+  toward corpus accuracy, human labels/listening, qualification, or graduation.
 - The audio model cannot edit production pronunciation data. Allow one narrow
   diagnosis/fix proposal at a time and no more than two automated fix attempts
   per failing clip before morning review; require red/green tests, negative
   guards, implementation review, rerender, retest, and full touched-family
   regression.
+- `audio_judge.py` only emits proposals and records evidence. It never edits a
+  production file or invokes an editor. Its outside-repository durable ledger
+  owns the per-clip zero-through-two reviewed-attempt counter; only an explicit
+  `record-attempt` operation with source commit plus red/green,
+  negative-guard, and review receipts may increment it.
 - Results and morning queues contain no raw private text/audio, titles,
   authors, paths, identifiers, API keys, or request headers. Public/synthetic
   clip IDs are opaque corpus IDs.
@@ -106,7 +124,10 @@ make echo-cli
 - `EchoTests/FoundationModelsContextualPronunciationEvaluatorTests.swift`
 - `EchoTests/PronunciationProgramAcceptanceTests.swift`
 - `EchoTests/Fixtures/Pronunciation/named_regressions_v1.jsonl`
-- `EchoTests/Fixtures/Pronunciation/contextual_families_v1.jsonl`
+- `EchoTests/Fixtures/Pronunciation/contextual_family_candidates_v1.jsonl`
+- `EchoTests/Fixtures/Pronunciation/contextual_families_v1.jsonl` only when
+  independently supplied or source-verifiable labels are legally cleared and
+  meet the qualification contract
 - `EchoTests/Fixtures/Pronunciation/distribution_works_v1.json`
 - `EchoTests/Fixtures/Pronunciation/morphology_v1.jsonl`
 - `docs/reports/pronunciation-phase2-qualification.md`
@@ -156,25 +177,43 @@ make echo-cli
 - Create: `Tools/Pronunciation/pronunciation_corpus.py`
 - Create: `Tools/Pronunciation/tests/test_pronunciation_corpus.py`
 - Create: `EchoTests/Fixtures/Pronunciation/named_regressions_v1.jsonl`
-- Create: `EchoTests/Fixtures/Pronunciation/contextual_families_v1.jsonl`
+- Create: `EchoTests/Fixtures/Pronunciation/contextual_family_candidates_v1.jsonl`
+- Create only when qualifying labels are actually available:
+  `EchoTests/Fixtures/Pronunciation/contextual_families_v1.jsonl`
 - Create: `EchoTests/Fixtures/Pronunciation/distribution_works_v1.json`
 - Create: `EchoTests/Fixtures/Pronunciation/morphology_v1.jsonl`
 - Modify: `Makefile`
 
-### 1.1 Write failing corpus-validator tests
+### 1.1 Write failing contract and qualification-validator tests
 
-- [ ] Add standard-library `unittest` coverage for missing fields, invalid family/candidate pairs, unresolved dual-label disagreements, duplicate case IDs, private-looking paths, unbalanced senses, fewer than 200 examples per family, fewer than 10 distribution works, and morphology entries without an expected derivation result.
+- [ ] Add standard-library `unittest` coverage for missing fields, invalid
+  family/candidate pairs, unresolved dual-label disagreements, duplicate case
+  IDs, private-looking paths, unbalanced senses, fewer than 200 independently
+  labelled examples per family, fewer than 10 distribution works, and
+  morphology entries without an expected derivation result.
+- [ ] Test two separate operations:
+  - contract validation accepts a well-formed `provisional` candidate with
+    `labelA`, `labelB`, and `adjudicated` all absent/null, but rejects a
+    provisional row that populates any human-evidence field;
+  - qualification validation counts only rows marked `human-labelled` with an
+    independently supplied or source-verifiable label-evidence receipt, and
+    returns `WAITING_FOR_HUMAN_LABELS` rather than fabricating or failing when
+    valid evidence is below a threshold.
 
 ```python
 class PronunciationCorpusTests(unittest.TestCase):
-    def test_balanced_corpus_requires_two_human_labels_or_adjudication(self):
+    def test_contract_accepts_provisional_candidate_without_human_evidence(self):
         case = contextual_case(
-            label_a="read.past",
-            label_b="read.present",
+            label_status="provisional",
+            label_a=None,
+            label_b=None,
             adjudicated=None,
         )
-        with self.assertRaisesRegex(ValueError, "unresolved label disagreement"):
-            validate_contextual_cases([case] * 800)
+        validate_contract([case])
+
+    def test_qualification_waits_for_independent_human_labels(self):
+        result = qualification_status([provisional_contextual_case()])
+        self.assertEqual("WAITING_FOR_HUMAN_LABELS", result.status)
 
     def test_distribution_requires_ten_distinct_public_or_synthetic_works(self):
         works = [
@@ -195,7 +234,7 @@ python3 -m unittest discover -s Tools/Pronunciation/tests -p 'test_pronunciation
 
 Expected: import failure for `pronunciation_corpus`.
 
-### 1.2 Implement the corpus schemas and validator
+### 1.2 Implement split contract and qualification validation
 
 - [ ] Implement dataclass-backed parsing and validation with these exact contextual fields:
 
@@ -215,14 +254,35 @@ class ContextualCase:
     preceding_sentence: str | None
     target_sentence: str
     following_sentence: str | None
-    label_a: str
-    label_b: str
+    label_status: str
+    label_a: str | None
+    label_b: str | None
     adjudicated: str | None
+    label_evidence_kind: str | None
+    label_evidence_id: str | None
     provenance: str
 ```
 
-- [ ] Resolve the gold label as `labelA` when the two labels agree, otherwise require `adjudicated`. Reject labels outside the declared family candidate set.
-- [ ] Require at least 200 cases per family and at least 50 cases for each two-way sense. For the `live` family, require at least 50 each for `live.adjective`, `live.verb`, `lives.noun`, and `lives.verb`.
+- [ ] Accept only `labelStatus: provisional` or `human-labelled`.
+  `provisional` requires null/absent `labelA`, `labelB`, `adjudicated`,
+  `labelEvidenceKind`, and `labelEvidenceID`. `human-labelled` requires
+  `labelA`, `labelB`, `labelEvidenceKind` of `independent-human` or
+  `source-verifiable`, and a nonempty externally supplied evidence ID.
+- [ ] For qualifying human-labelled rows, resolve the gold label as `labelA`
+  when the two labels agree, otherwise require `adjudicated`. Reject labels
+  outside the declared family candidate set. Agents may import independently
+  supplied/source-verifiable evidence but may not invent or fill these fields
+  to complete the task.
+- [ ] Contract validation checks schema, provenance, licensing fields, private
+  data, and candidate-family consistency without enforcing human-label counts.
+  Qualification validation counts only qualifying `human-labelled` rows,
+  requires at least 200 cases per family and at least 50 cases for each two-way
+  sense, and requires at least 50 each for `live.adjective`, `live.verb`,
+  `lives.noun`, and `lives.verb`.
+- [ ] A well-formed but insufficient corpus yields the valid pending result
+  `WAITING_FOR_HUMAN_LABELS`. It is not a pass, failure, or permission to lower
+  thresholds. Independent Tasks 2–10 may continue, but corpus-dependent metrics,
+  qualification, and final Phase 0–2 acceptance remain pending.
 - [ ] Require ten distinct distribution work IDs. Allow only `public-domain`, `permissive`, or `synthetic` provenance and require a `sourceURL` plus license for non-synthetic work.
 - [ ] Reject absolute paths, `file://` URLs, and fields named `bookTitle`, `author`, `userID`, or `localPath`.
 - [ ] Give morphology rows these exact fields:
@@ -231,43 +291,84 @@ class ContextualCase:
 {"caseID":"morph-able-001","word":"startable","expectedBase":"start","expectedRuleID":"morphology.able.exact-base","expectedIPA":"stˈɑɹtəbəl","automatic":true}
 ```
 
-### 1.3 Add the committed corpora
+### 1.3 Add contract fixtures and only truthful evidence
 
 - [ ] Add a named regression matrix containing at least these ambiguity shapes for each family: direct grammatical cue, long-distance cue within the target sentence, misleading adjacent cue, quotation/dialogue, heading fragment, malformed fragment, capitalization, punctuation adjacency, and override markup.
-- [ ] Add at least 200 independently human-labeled examples per family to `contextual_families_v1.jsonl`; keep every sentence synthetic or appropriately licensed.
+- [ ] Prepare synthetic or legally cleared discovery candidates in
+  `contextual_family_candidates_v1.jsonl` with
+  `labelStatus: "provisional"` and no human-evidence fields. These rows exercise
+  the contract and may guide later independent labelling, but do not count
+  toward accuracy or qualification.
+- [ ] Create/populate `contextual_families_v1.jsonl` only from independently
+  supplied or source-verifiable human-labelled/adjudicated rows whose sentence
+  redistribution is cleared. Never have an agent or model fill `labelA`,
+  `labelB`, or `adjudicated` as evidence. If fewer than 200 per family or 50 per
+  represented sense are available, preserve
+  `WAITING_FOR_HUMAN_LABELS`.
 - [ ] Add at least ten public-domain, permissive, or synthetic work profiles to `distribution_works_v1.json`. Store only short test sentences, source/license metadata, and counts—not full copyrighted books.
 - [ ] Add positive and negative `-able`/`-ible` morphology cases, including proper nouns, multiple possible bases, exception-list words, already-explicit words, and contextual-family exclusions.
 
-Example contextual row:
+Example provisional candidate row, not human evidence:
 
 ```json
-{"caseID":"read-001","familyID":"read","targetWord":"read","precedingSentence":null,"targetSentence":"Yesterday, Mira read the final chapter aloud.","followingSentence":null,"labelA":"read.past","labelB":"read.past","adjudicated":null,"provenance":"synthetic"}
+{"caseID":"candidate-read-001","familyID":"read","targetWord":"read","precedingSentence":null,"targetSentence":"Yesterday, Mira read the final chapter aloud.","followingSentence":null,"labelStatus":"provisional","labelA":null,"labelB":null,"adjudicated":null,"labelEvidenceKind":null,"labelEvidenceID":null,"provenance":"synthetic"}
 ```
 
-### 1.4 Add a repeatable validation gate
+- [ ] Record these candidate-source research findings without treating them as
+  accepted data:
+  - Google's official archived
+    `https://github.com/google-research-datasets/WikipediaHomographData`
+    repository is Apache-2.0-labelled, says three annotators plus fourth-person
+    disagreement adjudication, and directly includes `content` (100), `read`
+    (125), `live` (98), `lives` (101), and `record` (100);
+  - those counts are insufficient alone, and the Wikipedia-derived sentence
+    redistribution/attribution/share-alike implications require explicit
+    review before committing source sentences despite the repository label;
+  - CMUdict is human-maintained pronunciation data, not contextual labels;
+  - WordNet is a permissively licensed sense inventory, not the held-out
+    labelled corpus;
+  - Common Voice and LibriSpeech provide licensed audio/transcripts, not sense
+    labels.
 
-- [ ] Add this Make target:
+### 1.4 Add repeatable contract and qualification gates
+
+- [ ] Add these Make targets:
 
 ```make
 pronunciation-corpus-test:
 	python3 -m unittest discover -s Tools/Pronunciation/tests -p 'test_pronunciation_corpus.py'
-	python3 Tools/Pronunciation/pronunciation_corpus.py validate \
+	python3 Tools/Pronunciation/pronunciation_corpus.py validate-contract \
+		--fixtures EchoTests/Fixtures/Pronunciation
+
+pronunciation-corpus-qualification:
+	python3 Tools/Pronunciation/pronunciation_corpus.py qualification-status \
 		--fixtures EchoTests/Fixtures/Pronunciation
 ```
 
-- [ ] Run it twice and verify deterministic identical summaries.
+- [ ] Run both twice and verify deterministic identical summaries.
 
 Run:
 
 ```bash
 make pronunciation-corpus-test
+make pronunciation-corpus-qualification
 ```
 
-Expected: four family counts of at least 200, at least ten distribution works, and zero validation errors.
+Expected: contract/schema tests pass with zero validation errors. Qualification
+prints either `QUALIFIED` with independently supplied/source-verifiable counts
+meeting every threshold, or `WAITING_FOR_HUMAN_LABELS` with exact missing
+family/sense counts. `WAITING_FOR_HUMAN_LABELS` is a truthful non-error status
+for this command, not corpus acceptance; corpus-dependent qualification and
+final Phase 0–2 acceptance remain pending.
 
 ### 1.5 Commit
 
-- [ ] Commit only the Phase 0 corpus contract.
+- [ ] Commit only the Phase 0 corpus contract, truthful fixtures, provisional
+  candidates, and any legally cleared independently supplied/source-verifiable
+  labels actually available. Do not fabricate labels to satisfy this commit.
+- [ ] If qualification is `WAITING_FOR_HUMAN_LABELS`, record that status and
+  continue independent Tasks 2–10. Do not rename provisional candidates as the
+  held-out corpus or claim Task 1 corpus qualification is complete.
 
 ```bash
 git add Makefile Tools/Pronunciation/pronunciation_corpus.py \
@@ -1559,7 +1660,15 @@ git commit -m "feat: record contextual pronunciation shadow evidence"
 
 ### 10.1 Write the program-level acceptance tests
 
-- [ ] Load every committed corpus fixture and assert the validator's exact counts from Swift-facing test data.
+- [ ] Load every committed contract fixture and assert the validator's exact
+  counts from Swift-facing test data. Exclude `provisional` rows from labelled
+  counts and accuracy.
+- [ ] If independently supplied/source-verifiable labels meet every threshold,
+  assert qualification is `QUALIFIED`. Otherwise assert the exact valid
+  `WAITING_FOR_HUMAN_LABELS` status and missing family/sense counts; do not fail
+  independent implementation wiring, fabricate evidence, or mark the corpus
+  accepted. Corpus-dependent qualification and final Phase 0–2 acceptance
+  remain pending.
 - [ ] For each named regression row, require discovery to produce the expected family/candidate set and the deterministic analyzer to match its declared expectation or explicit abstention.
 - [ ] For every automatic morphology row, require the final planned IPA and audit provenance. For every negative row, require no `.derivedMorphology` decision.
 - [ ] Prove the pack manifest's source ID, license path, hash, and candidate IPA all match the committed lock and Kokoro vocabulary.
@@ -1592,9 +1701,13 @@ Expected: failures identify any incomplete cross-layer wiring.
   - pack imported/ambiguous/incompatible/existing counts;
   - corpus counts by family, sense, provenance, and morphology rule;
   - deterministic resolved/advisory/abstained counts;
+  - provisional candidate counts separately from qualifying
+    human-labelled/adjudicated counts;
+  - `corpusQualificationStatus` as `QUALIFIED` or
+    `WAITING_FOR_HUMAN_LABELS`, with exact missing family/sense counts;
   - fallback counts by frequency band only when a legally approved band input exists;
   - `"frequencyBandReport":"unavailable-no-approved-source"` otherwise.
-- [ ] Do not calculate model accuracy from a model-labeled corpus.
+- [ ] Do not calculate accuracy from model-labelled or `provisional` rows.
 - [ ] Add a Make target:
 
 ```make
@@ -1617,10 +1730,22 @@ make pronunciation-program-report
   `Tools/Pronunciation/tests/test_audio_judge.py`. Tests create temporary
   manifests and MP3/WAV fixtures; no private or copyrighted fixture enters the
   repository. Cover:
-  - manifest admission of only short `public-domain` or `synthetic` clips;
+  - manifest admission only for MP3/WAV clips whose measured duration is at
+    most 15.0 seconds and whose provenance is exactly `public-domain` or
+    `synthetic`;
+  - media-probed duration rather than trust in the manifest declaration, with
+    rejection when measured and declared duration differ;
   - rejection before encoding of private/copyrighted provenance, raw text or
     audio fields, titles, authors, local paths, user/book identifiers, metadata,
-    non-opaque clip IDs, and content-hash mismatches;
+    clips longer than 15.0 seconds, and content-hash mismatches;
+  - `clipID` grammar
+    `^clip_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`,
+    canonical lowercase, UUID version 4, RFC 4122 variant, duplicate rejection,
+    and random generation independent of text/audio/title/author/path/metadata;
+  - paid admission for `labelStatus: provisional` only into distinct
+    `provisional_evidence`/`provisional_review` categories, with assertions that
+    it never contributes to accuracy, human labels/listening, qualification,
+    touched-family graduation, or Phase 3 graduation;
   - a dry-run that performs eligibility, privacy, request-cap, and cost checks
     without constructing or sending an HTTP request;
   - stop before request 201 and before estimated cumulative cost would exceed
@@ -1636,8 +1761,15 @@ make pronunciation-program-report
   - morning-queue routing for confidence below `0.80`, `uncertain`, malformed
     output, model refusal, transport failure, deterministic disagreement, and
     repeated regression failure;
-  - one narrow fix proposal at a time and no more than two automated fix
-    attempts per failing clip;
+  - proposal emission without repository mutation, production-file writes, or
+    editor invocation;
+  - a durable outside-repository append-only per-clip attempt ledger with
+    `attemptCount` limited to 0...2;
+  - rejection of `record-attempt` without source commit plus red-test,
+    green-test, negative-guard, and implementation-review receipts;
+  - increment only after the external reviewed workflow is recorded complete,
+    one proposal at a time, no third attempt, and forced `morning_review` after
+    the second failed rerender;
   - redaction of private fields, keys, headers, and source paths from results,
     errors, logs, and morning queues;
   - requested and returned model IDs, per-request usage, cost, validation/retry
@@ -1656,6 +1788,15 @@ Expected: import failure for `audio_judge`.
   standard library and existing repository/runtime tools. The production code
   must not import it. Default run artifacts go outside the repository under
   `~/Library/Application Support/Echo/PronunciationAudioJudge/<run-id>/`.
+  Store the authoritative append-only attempt ledger at
+  `<run-id>/attempt-ledger.jsonl` with an atomically derived state snapshot.
+  The tool only evaluates audio, emits proposals, and records evidence/state;
+  it never edits production pronunciation data, writes production files,
+  invokes an editor, or performs an autonomous implementation.
+- [ ] Measure duration from the MP3/WAV file with an existing trusted
+  repository/runtime media probe, compare it with the manifest declaration,
+  and fail closed on probe failure or mismatch. Never admit a clip based only
+  on a caller-supplied duration.
 - [ ] Use Chat Completions with the current implementation-time pin
   `gpt-audio-1.5`. As verified on 2026-07-28, the official model page identifies
   it as the best audio-in/audio-out Chat Completions model, supports text and
@@ -1687,7 +1828,7 @@ Expected: import failure for `audio_judge`.
 
 ```json
 {
-  "clipID": "opaque-public-or-synthetic-id",
+  "clipID": "clip_3f38e874-2f8e-4a90-8c42-b8f1599c8393",
   "verdict": "pass | fail | uncertain",
   "confidence": 0.0,
   "category": "correct | wrong_word | wrong_sense | stress | vowel | consonant | timing | artifact | inaudible | other",
@@ -1700,6 +1841,11 @@ Expected: import failure for `audio_judge`.
   bounded `heard` and `note` optionals. Reject missing, duplicate, extra,
   unknown, wrong-type, non-finite, out-of-range, and overlong fields. Never
   salvage prose, fenced JSON, partial objects, or parsing fallback as a pass.
+- [ ] Generate `clipID` as `clip_` plus a canonical lowercase random UUIDv4
+  independently of text, audio, title, author, path, identifier, and metadata.
+  Validate the exact regex, parse and verify version 4 and RFC 4122 variant, and
+  reject duplicates. A semantic hash, filename-derived UUID, UUIDv5, or
+  caller-authored descriptive ID is ineligible.
 - [ ] Record corpus identity and content hashes; requested and returned model
   IDs; request and clip counts; per-request usage; estimated cost and pricing
   source/check date; verdict/confidence/category; validation and retry outcomes;
@@ -1727,17 +1873,26 @@ Expected: all local audio-judge tests pass without a credential or API call.
   audio-file evaluation → validated structured verdict, confidence, and
   category → narrow diagnosis/fix → rerender → retest → graduated-family
   regression run → unresolved and low-confidence morning queue.
-- [ ] Prepare only short human-labelled public-domain or synthetic production
-  Echo pronunciation renders and a manifest at
+- [ ] Prepare only eligible human-labelled or explicitly `provisional`
+  public-domain/synthetic production Echo pronunciation renders and a manifest
+  at
   `~/Library/Application Support/Echo/PronunciationAudioJudge/input/public-synthetic-v1/manifest.json`.
-  Each manifest row contains only opaque `clipID`, `provenance`, media type,
-  duration, audio content hash, corpus identity, deterministic expectation,
-  source commit, render identity, and the input fields required by the
-  versioned pre-request cost estimator. Resolve each clip from a sibling file
-  named `<clipID>.mp3` or `<clipID>.wav`; never put that path in a request,
-  result, log, receipt, or morning queue. Machine-proposed examples must carry
-  `labelStatus: "provisional"` and cannot enter the human-labelled corpus until
-  independently labelled/adjudicated.
+  Each manifest row contains only `clipID`, provenance, `labelStatus`, media
+  type, measured duration, audio content hash, corpus identity, deterministic
+  expectation, source commit, render identity, and the input fields required by
+  the versioned pre-request cost estimator. Enforce MP3/WAV, duration at most
+  15.0 seconds, provenance exactly `public-domain` or `synthetic`, and `clipID`
+  matching
+  `^clip_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`
+  with canonical lowercase UUID version/variant checks. Generate the random
+  UUIDv4 independently of text/audio/title/author/path/metadata. Resolve each
+  clip from a sibling file named `<clipID>.mp3` or `<clipID>.wav`; never put
+  that path in a request, result, log, receipt, or morning queue.
+- [ ] Permit `labelStatus: "provisional"` for diagnostic paid evaluation when
+  every other admission rule passes. Route its output only to
+  `provisional_evidence` and `provisional_review`; it cannot count toward corpus
+  accuracy, human labels, human listening, qualification, family regression
+  graduation, or Phase 3 graduation.
 - [ ] Keep Mac speakers muted. Validate direct file evaluation first:
 
 ```bash
@@ -1765,13 +1920,49 @@ queue. Expected without a credential: `WAITING_FOR_USER`; do not mark the lane
 passed or failed, and continue Sections 10.5–10.10 wherever independent.
 
 - [ ] For each `fail`, make at most one narrow diagnosis/fix proposal at a time.
-  The model cannot edit production pronunciation data. Any accepted proposal
-  goes through red/green tests, negative guards, implementation review,
-  production Echo rerender, audio retest, and a regression run containing every
-  previously passing case in the touched deterministic family plus its
-  negative controls. A fix cannot graduate from only the failing clip, and no
-  failing clip receives more than two automated fix attempts before morning
-  review.
+  The judge emits the proposal and ledger state only. It never edits production
+  pronunciation data, writes a production file, invokes an editor, runs the
+  external implementation, or increments `attemptCount` for a proposal.
+- [ ] Perform any accepted production change through the existing external
+  reviewed implementation workflow with red/green tests, negative guards, and
+  implementation review. Only after that workflow finishes, record it:
+
+```bash
+python3 Tools/Pronunciation/audio_judge.py record-attempt \
+  --run-id <run-id> \
+  --clip-id <canonical-clip-id> \
+  --source-commit <full-source-commit> \
+  --red-test-receipt <sha256> \
+  --green-test-receipt <sha256> \
+  --negative-guard-receipt <sha256> \
+  --implementation-review-receipt <sha256>
+```
+
+Expected: the tool validates the current `proposal_emitted` state and all
+required receipts, appends one durable ledger event, increments `attemptCount`
+from zero to one or one to two, and transitions to `rerender_pending`. Missing
+receipts, a concurrent/unresolved attempt, a reused implementation receipt, or
+an attempted third increment is rejected without state change.
+
+- [ ] After the external production Echo rerender, audio retest, and regression
+  run containing every previously passing case in the touched deterministic
+  family plus its negative controls, record the result:
+
+```bash
+python3 Tools/Pronunciation/audio_judge.py record-rerender \
+  --run-id <run-id> \
+  --clip-id <canonical-clip-id> \
+  --render-content-sha256 <sha256> \
+  --audio-retest-receipt <sha256> \
+  --family-regression-receipt <sha256> \
+  --outcome <pass-or-fail>
+```
+
+Expected: success transitions to `resolved`. Failure after attempt one may
+transition to one new `proposal_emitted`; failure after attempt two must
+transition irreversibly to `morning_review`. A fix cannot graduate from only
+the failing clip. `record-rerender` never edits a production file or invokes an
+editor.
 - [ ] Queue confidence below `0.80`, `uncertain`, malformed output, refusal,
   transport failure, deterministic disagreement, and repeated regression
   failure for morning review. Keep machine results separate from human labels
@@ -1801,6 +1992,7 @@ passed or failed, and continue Sections 10.5–10.10 wherever independent.
 
 ```bash
 make pronunciation-corpus-test
+make pronunciation-corpus-qualification
 make pronunciation-pack-test
 make pronunciation-audio-judge-test
 make test
@@ -1808,7 +2000,10 @@ make echo-cli
 git status --short --branch
 ```
 
-Expected: all local gates pass and only intended qualification/documentation changes remain.
+Expected: all independent local gates pass and only intended
+qualification/documentation changes remain. A
+`WAITING_FOR_HUMAN_LABELS` qualification-status result is recorded truthfully
+and leaves corpus-dependent/final Phase 0–2 acceptance pending.
 
 ### 10.7 Perform real eligible-device shadow qualification
 
@@ -1847,7 +2042,7 @@ Expected: all local gates pass and only intended qualification/documentation cha
 ## Exact source state
 ## Local unit and build gates
 ## Pack reproducibility and attribution
-## Corpus counts and deterministic metrics
+## Corpus contract, human-label status, and deterministic metrics
 ## Development audio-judge API evaluation
 ## Eligible-device Foundation Models shadow run
 ## Ineligible/older-platform fallback
@@ -1859,6 +2054,11 @@ Expected: all local gates pass and only intended qualification/documentation cha
 ```
 
 - [ ] Under “Explicitly unproven,” state that Phase 2 does not prove any family is ready for model-controlled narration and does not authorize Phase 3.
+- [ ] Record `QUALIFIED` only when independently supplied/source-verifiable
+  human-labelled/adjudicated rows meet every family/sense threshold. Otherwise
+  record `WAITING_FOR_HUMAN_LABELS`, exact missing counts, and pending
+  corpus-dependent/final Phase 0–2 acceptance while keeping independent local
+  results separate.
 - [ ] In “Development audio-judge API evaluation,” record the corpus identity
   and hashes, requested/returned model IDs, request/clip counts, per-request
   usage, estimated cost and pricing source/check date, structured results,
@@ -1893,7 +2093,10 @@ git commit -m "docs: qualify pronunciation phases zero through two"
 
 - [ ] Every design requirement in Sections 6–11 and 13–18 of the approved spec maps to an implementation task or is explicitly deferred to Phase 3+.
 - [ ] No task enables model-controlled pronunciation.
-- [ ] No task introduces a provider protocol, cloud call, runtime download, model adapter, neural OOV model, or `wordfreq` production dependency.
+- [ ] No task introduces a provider protocol, production/runtime cloud call,
+  runtime download, model adapter, neural OOV model, or `wordfreq` production
+  dependency. The single exception is Task 10's explicitly bounded
+  development-only OpenAI audio call.
 - [ ] All production-affecting inputs enter cache identity; all shadow-only inputs stay out.
 - [ ] Old schema-v3 audits decode without being mistaken for complete current evidence.
 - [ ] Every contextual shadow occurrence receives one validated v4 envelope, including unavailable/failure outcomes.
@@ -1905,6 +2108,16 @@ git commit -m "docs: qualify pronunciation phases zero through two"
 - [ ] Strict response validation has a closed vocabulary and no parsing
   fallback; request/cost caps, `WAITING_FOR_USER`, bounded retries, two-attempt
   fix limit, touched-family regression, and morning-queue rules all have tests.
+- [ ] Contract validation can pass without fabricated labels; qualification
+  counts only independent/source-verifiable human evidence and otherwise
+  reports `WAITING_FOR_HUMAN_LABELS` while independent Tasks 2–10 continue.
+- [ ] Paid-run validation enforces MP3/WAV at most 15.0 seconds, exact allowed
+  provenance, canonical lowercase random UUIDv4 IDs independent of semantic
+  inputs, and isolated provisional evidence/queue categories.
+- [ ] The judge never edits production data or invokes an editor. Its
+  outside-repository ledger owns explicit proposal, `record-attempt`,
+  `record-rerender`, resolved, retry, and forced `morning_review` transitions
+  with an attempt count from zero through two.
 - [ ] Audio-judge receipts contain the required corpus, hash, model, usage,
   pricing, verdict, validation/retry, source-commit, and render-identity
   evidence without private/copyrighted content or secret/header data.
