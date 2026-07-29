@@ -5,11 +5,17 @@ import Foundation
 struct ArticleInboxIngestionService {
     enum Error: Swift.Error, LocalizedError {
         case conflictingExistingCapture(UUID)
+        case unsafeStagingRoot(URL)
+        case unsafeStagingPackage(URL)
 
         var errorDescription: String? {
             switch self {
             case .conflictingExistingCapture(let id):
-                return "The existing article capture record for \(id.uuidString) has a different digest."
+                return "The existing article capture record for \(id.uuidString) does not match the staged package."
+            case .unsafeStagingRoot(let url):
+                return "Article capture staging root is unsafe: \(url.path)"
+            case .unsafeStagingPackage(let url):
+                return "Article capture staging package is unsafe: \(url.path)"
             }
         }
     }
@@ -30,29 +36,40 @@ struct ArticleInboxIngestionService {
 
     func drainStaging() throws {
         let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: stagingRoot.path) else { return }
+        let normalizedRoot = stagingRoot.standardizedFileURL
+        guard fileManager.fileExists(atPath: normalizedRoot.path) else { return }
+        guard try safeDirectory(normalizedRoot) else { throw Error.unsafeStagingRoot(normalizedRoot) }
         let packages = try fileManager.contentsOfDirectory(
-            at: stagingRoot,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
+            at: normalizedRoot,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: []
         )
         for package in packages {
-            let values = try package.resourceValues(forKeys: [.isDirectoryKey])
-            guard values.isDirectory == true else { continue }
+            guard UUID(uuidString: package.lastPathComponent) != nil else { continue }
+            guard package.standardizedFileURL.deletingLastPathComponent() == normalizedRoot else { continue }
+            guard try safeDirectory(package) else { throw Error.unsafeStagingPackage(package) }
             guard fileManager.fileExists(atPath: package.appending(path: "complete").path) else { continue }
 
             let imported = try fileStore.importEnvelope(at: package)
+            let expected = record(for: imported)
             if let existing = try captureDAO.capture(id: imported.envelope.captureID.uuidString) {
-                guard existing.contentSHA256 == imported.sha256 else {
+                guard existing == expected else {
                     throw Error.conflictingExistingCapture(imported.envelope.captureID)
                 }
+                _ = try fileStore.validateEnvelope(at: package)
                 try fileManager.removeItem(at: package)
                 continue
             }
 
-            try captureDAO.saveCapture(record(for: imported))
+            try captureDAO.saveCapture(expected)
+            _ = try fileStore.validateEnvelope(at: package)
             try fileManager.removeItem(at: package)
         }
+    }
+
+    private func safeDirectory(_ url: URL) throws -> Bool {
+        let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        return values.isDirectory == true && values.isSymbolicLink != true
     }
 
     private func record(for imported: ArticleWorkshopFileStore.ImportedEnvelope) -> ArticleCaptureRecord {

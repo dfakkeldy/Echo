@@ -43,7 +43,7 @@ nonisolated enum FileLocations {
     }
 
     static func articleCaptureStagingDirectory() throws -> URL {
-        let directory = applicationSupportDirectory
+        let directory = try appGroupContainer()
             .appending(path: "ArticleWorkshop/Staging", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory

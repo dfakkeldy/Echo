@@ -82,6 +82,42 @@ struct ArticleInboxIngestionServiceTests {
         #expect(try fixture.dao.capture(id: envelope.captureID.uuidString) == nil)
     }
 
+    @Test func matchingDigestWithConflictingMetadataRetainsStagingPackage() async throws {
+        let fixture = try makeFixture()
+        defer { try! FileManager.default.removeItem(at: fixture.root) }
+        let envelope = articleWorkshopFixtureEnvelope()
+        _ = try fixture.writer.stage(envelope)
+        try fixture.service.drainStaging()
+        var conflicting = try #require(try fixture.dao.capture(id: envelope.captureID.uuidString))
+        conflicting.title = "Conflicting title"
+        try fixture.dao.saveCapture(conflicting)
+        let package = try fixture.writer.stage(envelope)
+
+        #expect(throws: ArticleInboxIngestionService.Error.self) {
+            try fixture.service.drainStaging()
+        }
+
+        #expect(FileManager.default.fileExists(atPath: package.path))
+        #expect(try fixture.dao.capture(id: envelope.captureID.uuidString)?.title == "Conflicting title")
+    }
+
+    @Test func symlinkedDirectPackageIsRejectedWithoutFollowingIt() async throws {
+        let fixture = try makeFixture()
+        defer { try! FileManager.default.removeItem(at: fixture.root) }
+        let envelope = articleWorkshopFixtureEnvelope()
+        let externalRoot = fixture.root.appending(path: "external", directoryHint: .isDirectory)
+        let externalPackage = try ArticleCaptureStagingWriter(root: externalRoot).stage(envelope)
+        let stagedPath = fixture.stagingRoot.appending(path: envelope.captureID.uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createSymbolicLink(at: stagedPath, withDestinationURL: externalPackage)
+
+        #expect(throws: (any Error).self) {
+            try fixture.service.drainStaging()
+        }
+
+        #expect(FileManager.default.fileExists(atPath: externalPackage.path))
+        #expect(try fixture.dao.capture(id: envelope.captureID.uuidString) == nil)
+    }
+
     private func makeFixture(destinationRootIsFile: Bool = false) throws -> Fixture {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "ArticleInboxIngestionServiceTests-\(UUID().uuidString)", directoryHint: .isDirectory)
