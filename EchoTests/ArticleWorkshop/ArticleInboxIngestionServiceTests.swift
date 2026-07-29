@@ -1,0 +1,121 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+import Foundation
+import Testing
+
+@testable import Echo
+
+@MainActor
+struct ArticleInboxIngestionServiceTests {
+    @Test func incompletePackageIsIgnored() async throws {
+        let fixture = try makeFixture()
+        defer { try! FileManager.default.removeItem(at: fixture.root) }
+        let envelope = articleWorkshopFixtureEnvelope()
+        let package = fixture.stagingRoot.appending(path: envelope.captureID.uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
+        try JSONEncoder.articleWorkshop.encode(envelope).write(
+            to: package.appending(path: "envelope.json"), options: .atomic)
+
+        try fixture.service.drainStaging()
+
+        #expect(try fixture.dao.capture(id: envelope.captureID.uuidString) == nil)
+        #expect(FileManager.default.fileExists(atPath: package.path))
+        #expect(FileManager.default.fileExists(
+            atPath: fixture.workshopRoot.appending(path: "Captures/\(envelope.captureID.uuidString)/snapshot.json").path
+        ) == false)
+    }
+
+    @Test func validPackageMovesIntoApplicationSupportAndDeletesStagingCopy() async throws {
+        let fixture = try makeFixture()
+        defer { try! FileManager.default.removeItem(at: fixture.root) }
+        let envelope = articleWorkshopFixtureEnvelope()
+        let package = try fixture.writer.stage(envelope)
+
+        try fixture.service.drainStaging()
+
+        let snapshot = fixture.workshopRoot
+            .appending(path: "Captures/\(envelope.captureID.uuidString)/snapshot.json")
+        #expect(FileManager.default.fileExists(atPath: snapshot.path))
+        #expect(FileManager.default.fileExists(atPath: package.path) == false)
+        #expect(try fixture.dao.capture(id: envelope.captureID.uuidString)?.packagePath == snapshot.deletingLastPathComponent().path)
+    }
+
+    @Test func secondDrainOfSameCaptureUUIDDoesNotDuplicateRows() async throws {
+        let fixture = try makeFixture()
+        defer { try! FileManager.default.removeItem(at: fixture.root) }
+        let envelope = articleWorkshopFixtureEnvelope()
+        _ = try fixture.writer.stage(envelope)
+        try fixture.service.drainStaging()
+        _ = try fixture.writer.stage(envelope)
+
+        try fixture.service.drainStaging()
+
+        #expect(try fixture.dao.captures().filter { $0.id == envelope.captureID.uuidString }.count == 1)
+        #expect(FileManager.default.fileExists(
+            atPath: fixture.stagingRoot.appending(path: envelope.captureID.uuidString).path
+        ) == false)
+    }
+
+    @Test func importedButUnclearedStagingPackageIsCleanedOnRetry() async throws {
+        let fixture = try makeFixture()
+        defer { try! FileManager.default.removeItem(at: fixture.root) }
+        let envelope = articleWorkshopFixtureEnvelope()
+        let package = try fixture.writer.stage(envelope)
+        _ = try fixture.fileStore.importEnvelope(at: package)
+
+        try fixture.service.drainStaging()
+
+        #expect(try fixture.dao.capture(id: envelope.captureID.uuidString) != nil)
+        #expect(FileManager.default.fileExists(atPath: package.path) == false)
+    }
+
+    @Test func failedDestinationWriteLeavesCompleteStagingPackageForRetry() async throws {
+        let fixture = try makeFixture(destinationRootIsFile: true)
+        defer { try! FileManager.default.removeItem(at: fixture.root) }
+        let envelope = articleWorkshopFixtureEnvelope()
+        let package = try fixture.writer.stage(envelope)
+
+        #expect(throws: (any Error).self) {
+            try fixture.service.drainStaging()
+        }
+
+        #expect(FileManager.default.fileExists(atPath: package.appending(path: "complete").path))
+        #expect(try fixture.dao.capture(id: envelope.captureID.uuidString) == nil)
+    }
+
+    private func makeFixture(destinationRootIsFile: Bool = false) throws -> Fixture {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: "ArticleInboxIngestionServiceTests-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let stagingRoot = root.appending(path: "staging", directoryHint: .isDirectory)
+        let workshopRoot = root.appending(path: "workshop", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: stagingRoot, withIntermediateDirectories: true)
+        if destinationRootIsFile {
+            try Data("not a directory".utf8).write(to: workshopRoot, options: .atomic)
+        }
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleCaptureDAO(db: database.writer)
+        let fileStore = ArticleWorkshopFileStore(root: workshopRoot)
+        return Fixture(
+            root: root,
+            stagingRoot: stagingRoot,
+            workshopRoot: workshopRoot,
+            writer: ArticleCaptureStagingWriter(root: stagingRoot),
+            fileStore: fileStore,
+            dao: dao,
+            service: ArticleInboxIngestionService(
+                captureDAO: dao,
+                fileStore: fileStore,
+                stagingRoot: stagingRoot
+            )
+        )
+    }
+
+    private struct Fixture {
+        let root: URL
+        let stagingRoot: URL
+        let workshopRoot: URL
+        let writer: ArticleCaptureStagingWriter
+        let fileStore: ArticleWorkshopFileStore
+        let dao: ArticleCaptureDAO
+        let service: ArticleInboxIngestionService
+    }
+}
