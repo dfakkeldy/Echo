@@ -4,6 +4,8 @@
 
     struct LibraryView: View {
         @State private var vm: LibraryViewModel
+        @State private var articleInboxViewModel: ArticleInboxViewModel
+        @State private var mode = LibraryMode.books
         @State private var showingManageRoots = false
         @State private var showingRecoveryFolderPicker = false
         let onAddFolder: () -> Void
@@ -16,49 +18,73 @@
             onConnectServer: @escaping () -> Void
         ) {
             _vm = State(initialValue: LibraryViewModel(db: db, openBook: openBook))
+            _articleInboxViewModel = State(
+                initialValue: ArticleInboxViewModel(db: db)
+            )
             self.onAddFolder = onAddFolder
             self.onConnectServer = onConnectServer
         }
 
         var body: some View {
-            Group {
-                if vm.isEmpty {
-                    emptyState
-                } else {
-                    LibraryShelfGrid(
-                        sections: vm.sections,
-                        statusMap: vm.statusMap,
-                        siblingEditions: { vm.siblingEditions(of: $0) },
-                        readAlongCandidates: { vm.readAlongCandidates(of: $0) }
-                    ) { book in
-                        vm.open(book)
-                    } onUseAsReadAlong: { edition, book in
-                        vm.useAsReadAlongText(edition, for: book)
-                    } onSeparateEdition: { book in
-                        vm.separateEdition(book)
+            VStack(spacing: 0) {
+                LibraryModePicker(selection: $mode)
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+
+                Group {
+                    switch mode {
+                    case .books:
+                        booksContent
+                    case .inbox:
+                        ArticleInboxView(viewModel: articleInboxViewModel)
+                    case .anthologies:
+                        anthologiesContent
                     }
-                }
-            }
-            .overlay {
-                if vm.isScanning {
-                    ProgressView("Scanning...")
-                        .padding()
-                        .background(.regularMaterial, in: .rect(cornerRadius: 8))
                 }
             }
             .navigationTitle("Library")
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
-                    LibraryBrowseByView(selectedAxis: vm.selectedAxis) { axis in
-                        vm.selectAxis(axis)
-                    }
-                    Menu("Library Options", systemImage: "ellipsis.circle") {
-                        Toggle("Show Missing Books", isOn: showUnavailable)
-                        Button("Manage Roots", systemImage: "folder.badge.gearshape") {
-                            showingManageRoots = true
+                    switch mode {
+                    case .books:
+                        LibraryBrowseByView(selectedAxis: vm.selectedAxis) { axis in
+                            vm.selectAxis(axis)
                         }
+                        Menu("Library Options", systemImage: "ellipsis.circle") {
+                            Toggle("Show Missing Books", isOn: showUnavailable)
+                            Button("Manage Roots", systemImage: "folder.badge.gearshape") {
+                                showingManageRoots = true
+                            }
+                        }
+                        Button(
+                            "Add Folder",
+                            systemImage: "folder.badge.plus",
+                            action: onAddFolder
+                        )
+                    case .inbox:
+                        Button(
+                            articleInboxViewModel.selectedIDs.count
+                                == articleInboxViewModel.articles.count
+                                && articleInboxViewModel.articles.isEmpty == false
+                                ? "Clear Selection" : "Select All",
+                            systemImage: "checkmark.circle"
+                        ) {
+                            articleInboxViewModel.selectAll()
+                        }
+                        .disabled(articleInboxViewModel.articles.isEmpty)
+
+                        Button("New Anthology", systemImage: "text.badge.plus") {
+                            do {
+                                _ = try articleInboxViewModel.createAnthology()
+                                mode = .anthologies
+                            } catch {
+                                articleInboxViewModel.errorMessage = error.localizedDescription
+                            }
+                        }
+                        .disabled(articleInboxViewModel.selectedIDs.isEmpty)
+                    case .anthologies:
+                        EmptyView()
                     }
-                    Button("Add Folder", systemImage: "folder.badge.plus", action: onAddFolder)
                 }
             }
             .sheet(isPresented: $showingManageRoots) {
@@ -70,7 +96,13 @@
                     Task { await vm.relocatePendingRecoveryBook(to: url) }
                 }
             }
-            .onAppear { vm.reload() }
+            .onAppear {
+                vm.reload()
+            }
+            .task(id: mode) {
+                guard mode != .books else { return }
+                await articleInboxViewModel.reload()
+            }
             .alert("Couldn't open book", isPresented: errorPresented) {
                 Button("OK") { vm.errorMessage = nil }
             } message: {
@@ -127,6 +159,53 @@
                 onAddFolder: onAddFolder,
                 onConnectServer: onConnectServer
             )
+        }
+
+        @ViewBuilder
+        private var booksContent: some View {
+            Group {
+                if vm.isEmpty {
+                    emptyState
+                } else {
+                    LibraryShelfGrid(
+                        sections: vm.sections,
+                        statusMap: vm.statusMap,
+                        siblingEditions: { vm.siblingEditions(of: $0) },
+                        readAlongCandidates: { vm.readAlongCandidates(of: $0) }
+                    ) { book in
+                        vm.open(book)
+                    } onUseAsReadAlong: { edition, book in
+                        vm.useAsReadAlongText(edition, for: book)
+                    } onSeparateEdition: { book in
+                        vm.separateEdition(book)
+                    }
+                }
+            }
+            .overlay {
+                if vm.isScanning {
+                    ProgressView("Scanning...")
+                        .padding()
+                        .background(.regularMaterial, in: .rect(cornerRadius: 8))
+                }
+            }
+        }
+
+        @ViewBuilder
+        private var anthologiesContent: some View {
+            if articleInboxViewModel.anthologies.isEmpty {
+                ContentUnavailableView(
+                    "No Anthologies",
+                    systemImage: "text.book.closed",
+                    description: Text(
+                        "Select articles in Inbox, then choose New Anthology."
+                    )
+                )
+            } else {
+                List(articleInboxViewModel.anthologies, id: \.id) { anthology in
+                    Label(anthology.title, systemImage: "text.book.closed")
+                        .accessibilityLabel("Anthology: \(anthology.title)")
+                }
+            }
         }
     }
 
