@@ -11,6 +11,7 @@ final class ReadabilityWebExtractor: NSObject, WKNavigationDelegate {
         case ruleCompilationFailed
         case navigationFailed
         case invalidPayload
+        case extractionInProgress
 
         var errorDescription: String? {
             switch self {
@@ -18,49 +19,70 @@ final class ReadabilityWebExtractor: NSObject, WKNavigationDelegate {
             case .ruleCompilationFailed: "The isolated article document could not be configured."
             case .navigationFailed: "The isolated article document could not be loaded."
             case .invalidPayload: "Readability did not return a valid article payload."
+            case .extractionInProgress: "Another article extraction is already in progress."
             }
         }
     }
 
     typealias SourceProvider = @MainActor @Sendable () throws -> String
+    typealias RuleCompiler = @MainActor @Sendable (_ rules: String, _ completion: @escaping @MainActor (Result<WKContentRuleList, Swift.Error>) -> Void) -> Void
 
     private let sourceProvider: SourceProvider
+    private let ruleCompiler: RuleCompiler
     private var navigationContinuation: CheckedContinuation<Void, Swift.Error>?
+    private var rulesContinuation: CheckedContinuation<WKContentRuleList, Swift.Error>?
     private var parserContinuation: CheckedContinuation<Void, Swift.Error>?
     private var payloadContinuation: CheckedContinuation<String, Swift.Error>?
     private var parserToken: UUID?
     private var payloadToken: UUID?
+    private var rulesToken: UUID?
+    private var navigationToken: UUID?
     private weak var webView: WKWebView?
     private var allowedInitialNavigation = false
     private var cancellationIssued = false
+    private var activeExtractionID: UUID?
 
-    init(sourceProvider: @escaping SourceProvider = { try ReadabilityWebExtractor.vendoredReadabilitySource() }) {
+    init(
+        sourceProvider: @escaping SourceProvider = { try ReadabilityWebExtractor.vendoredReadabilitySource() },
+        ruleCompiler: @escaping RuleCompiler = { rules, completion in
+            WKContentRuleListStore.default().compileContentRuleList(
+                forIdentifier: "echo-readability-no-subresources-v1", encodedContentRuleList: rules
+            ) { list, error in completion(list.map(Result.success) ?? .failure(error ?? Error.ruleCompilationFailed)) }
+        }
+    ) {
         self.sourceProvider = sourceProvider
+        self.ruleCompiler = ruleCompiler
     }
 
     func extract(html: String, sourceURL: URL) async throws -> ReadabilityCapturePayload {
         guard ArticleNetworkURLPolicy.normalized(sourceURL) != nil else {
             throw Error.navigationFailed
         }
+        guard Self.canBeginExtraction(activeExtractionID: activeExtractionID) else { throw Error.extractionInProgress }
+        let extractionID = UUID()
+        activeExtractionID = extractionID
+        cancellationIssued = false
+        defer {
+            if activeExtractionID == extractionID { activeExtractionID = nil }
+        }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
-        let rules = try await blockingRules()
+        let rules = try await blockingRules(token: extractionID)
         configuration.userContentController.add(rules)
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = self
         self.webView = webView
         self.allowedInitialNavigation = false
-        self.cancellationIssued = false
         defer {
             webView.stopLoading()
             webView.navigationDelegate = nil
             self.webView = nil
         }
-        try await load(html: html, into: webView, baseURL: sourceURL)
+        try await load(html: html, into: webView, baseURL: sourceURL, token: extractionID)
         let source = try sourceProvider()
-        try await evaluateReadability(source, in: webView)
-        let json = try await evaluatePayload(Self.extractionAdapter, in: webView)
+        try await evaluateReadability(source, in: webView, token: extractionID)
+        let json = try await evaluatePayload(Self.extractionAdapter, in: webView, token: extractionID)
         guard let data = json.data(using: .utf8),
               let payload = try? JSONDecoder().decode(ReadabilityCapturePayload.self, from: data),
               payload.contentXHTML.isEmpty == false,
@@ -70,7 +92,7 @@ final class ReadabilityWebExtractor: NSObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        resumeNavigation(with: .success(()))
+        resumeNavigation(webView: webView, with: .success(()))
     }
 
     func webView(
@@ -101,30 +123,32 @@ final class ReadabilityWebExtractor: NSObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Swift.Error) {
-        resumeNavigation(with: .failure(error))
+        resumeNavigation(webView: webView, with: .failure(error))
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Swift.Error) {
-        resumeNavigation(with: .failure(error))
+        resumeNavigation(webView: webView, with: .failure(error))
     }
 
-    private func blockingRules() async throws -> WKContentRuleList {
-        try await withCheckedThrowingContinuation { continuation in
-            WKContentRuleListStore.default().compileContentRuleList(
-                forIdentifier: "echo-readability-no-subresources-v1",
-                encodedContentRuleList: Self.blockingRuleJSON
-            ) { rules, error in
-                if let rules { continuation.resume(returning: rules) }
-                else { continuation.resume(throwing: error ?? Error.ruleCompilationFailed) }
+    private func blockingRules(token: UUID) async throws -> WKContentRuleList {
+        return try await withTaskCancellationHandler(operation: {
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { continuation in
+            rulesToken = token
+            rulesContinuation = continuation
+            ruleCompiler(Self.blockingRuleJSON) { [weak self] result in
+                self?.resumeRules(token: token, result: result)
             }
-        }
+            }
+        }, onCancel: { [weak self] in Task { @MainActor in self?.cancelActiveWork() } })
     }
 
-    private func load(html: String, into webView: WKWebView, baseURL: URL) async throws {
+    private func load(html: String, into webView: WKWebView, baseURL: URL, token: UUID) async throws {
         try await withTaskCancellationHandler(operation: {
             try Task.checkCancellation()
             try await withCheckedThrowingContinuation { continuation in
                 navigationContinuation = continuation
+                navigationToken = token
                 webView.loadHTMLString(html, baseURL: baseURL)
             }
         }, onCancel: { [weak self] in
@@ -134,8 +158,7 @@ final class ReadabilityWebExtractor: NSObject, WKNavigationDelegate {
         })
     }
 
-    private func evaluateReadability(_ source: String, in webView: WKWebView) async throws {
-        let token = UUID()
+    private func evaluateReadability(_ source: String, in webView: WKWebView, token: UUID) async throws {
         try await withTaskCancellationHandler(operation: {
             try Task.checkCancellation()
             _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Swift.Error>) in
@@ -150,8 +173,7 @@ final class ReadabilityWebExtractor: NSObject, WKNavigationDelegate {
         })
     }
 
-    private func evaluatePayload(_ source: String, in webView: WKWebView) async throws -> String {
-        let token = UUID()
+    private func evaluatePayload(_ source: String, in webView: WKWebView, token: UUID) async throws -> String {
         return try await withTaskCancellationHandler(operation: {
             try Task.checkCancellation()
             return try await withCheckedThrowingContinuation { continuation in
@@ -170,9 +192,23 @@ final class ReadabilityWebExtractor: NSObject, WKNavigationDelegate {
         })
     }
 
-    private func resumeNavigation(with result: Result<Void, Swift.Error>) {
+    private func resumeNavigation(webView: WKWebView? = nil, with result: Result<Void, Swift.Error>) {
+        guard Self.acceptsNavigationCallback(
+            activeExtractionID: activeExtractionID,
+            navigationToken: navigationToken,
+            isActiveWebView: webView.map { self.webView === $0 } ?? true
+        ) else { return }
+        navigationToken = nil
         let continuation = navigationContinuation
         navigationContinuation = nil
+        continuation?.resume(with: result)
+    }
+
+    private func resumeRules(token: UUID, result: Result<WKContentRuleList, Swift.Error>) {
+        guard Self.acceptsRuleCallback(activeExtractionID: activeExtractionID, ruleToken: rulesToken, callbackToken: token) else { return }
+        rulesToken = nil
+        let continuation = rulesContinuation
+        rulesContinuation = nil
         continuation?.resume(with: result)
     }
 
@@ -197,12 +233,14 @@ final class ReadabilityWebExtractor: NSObject, WKNavigationDelegate {
         cancellationIssued = true
         webView?.stopLoading()
         resumeNavigation(with: .failure(CancellationError()))
+        if let token = rulesToken { resumeRules(token: token, result: .failure(CancellationError())) }
         if let token = parserToken {
             resumeParser(token: token, with: .failure(CancellationError()))
         }
         if let token = payloadToken {
             resumePayload(token: token, with: .failure(CancellationError()))
         }
+        activeExtractionID = nil
     }
 
     static func permitsNavigation(
@@ -218,6 +256,20 @@ final class ReadabilityWebExtractor: NSObject, WKNavigationDelegate {
 
     static func acceptsCallback(activeToken: UUID?, callbackToken: UUID) -> Bool {
         activeToken == callbackToken
+    }
+
+    static func canBeginExtraction(activeExtractionID: UUID?) -> Bool { activeExtractionID == nil }
+
+    static func acceptsRuleCallback(activeExtractionID: UUID?, ruleToken: UUID?, callbackToken: UUID) -> Bool {
+        activeExtractionID == callbackToken && ruleToken == callbackToken
+    }
+
+    static func acceptsNavigationCallback(
+        activeExtractionID: UUID?,
+        navigationToken: UUID?,
+        isActiveWebView: Bool
+    ) -> Bool {
+        isActiveWebView && activeExtractionID != nil && activeExtractionID == navigationToken
     }
 
     static let blockingRuleJSON = "[{\"trigger\":{\"url-filter\":\".*\",\"resource-type\":[\"document\",\"image\",\"style-sheet\",\"script\",\"font\",\"media\",\"raw\",\"svg-document\"]},\"action\":{\"type\":\"block\"}}]"

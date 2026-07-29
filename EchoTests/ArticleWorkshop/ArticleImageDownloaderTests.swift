@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import ImageIO
 import Testing
 
 @testable import Echo
@@ -85,6 +86,22 @@ import Testing
         #expect(try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil).isEmpty)
     }
 
+    @Test func completeContainerWithCorruptCompressedPixelsIsRejectedByImmediateDecode() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var corrupt = png
+        // Keep PNG chunk framing and IEND intact, but corrupt an IDAT byte.
+        corrupt[try idatPayloadOffset(in: corrupt)] ^= 0xFF
+        ArticleURLProtocol.install { _ in .response(status: 200, mimeType: "image/png", data: corrupt) }
+        defer { ArticleURLProtocol.reset() }
+
+        let result = await ArticleImageDownloader(sessionConfiguration: articleURLProtocolConfiguration())
+            .localize(candidates: [URL(string: "https://example.test/corrupt.png")!], into: root)
+
+        #expect(result.localURLs.isEmpty)
+        #expect(result.warnings == [.invalidImage])
+    }
+
     @Test func refusesExistingOrSymlinkedDestinationsWithoutOverwritingFiles() async throws {
         let root = try temporaryRoot()
         let external = try temporaryRoot()
@@ -123,7 +140,28 @@ import Testing
     }
 
     private var png: Data {
-        Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL1nQAAAABJRU5ErkJggg==")!
+            let data = NSMutableData()
+            let destination = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil)!
+            let context = CGContext(
+                data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            context.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.6, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+            CGImageDestinationAddImage(destination, context.makeImage()!, nil)
+            precondition(CGImageDestinationFinalize(destination))
+            return data as Data
+    }
+
+    private func idatPayloadOffset(in data: Data) throws -> Int {
+        let bytes = [UInt8](data)
+        var offset = 8
+        while offset + 12 <= bytes.count {
+            let length = Int(bytes[offset]) << 24 | Int(bytes[offset + 1]) << 16 | Int(bytes[offset + 2]) << 8 | Int(bytes[offset + 3])
+            let type = String(bytes: bytes[(offset + 4)..<(offset + 8)], encoding: .ascii)
+            if type == "IDAT" { return offset + 8 }
+            offset += 12 + length
+        }
+        throw CocoaError(.fileReadCorruptFile)
     }
 
     private var jpeg: Data {

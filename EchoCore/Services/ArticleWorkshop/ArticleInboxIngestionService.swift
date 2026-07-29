@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 struct ArticleInboxIngestionService {
     enum CleanupPoint {
+        case afterPresentationPersistence
         case beforeQuarantine
         case afterQuarantine
     }
@@ -49,6 +50,10 @@ struct ArticleInboxIngestionService {
     }
 
     func drainStaging() throws {
+        try drainStaging(enrichment: nil)
+    }
+
+    private func drainStaging(enrichment: (snapshot: ArticleSnapshot, warnings: [ArticleImageLocalizationWarning])?) throws {
         let fileManager = FileManager.default
         let normalizedRoot = stagingRoot.standardizedFileURL
         guard fileManager.fileExists(atPath: normalizedRoot.path) else { return }
@@ -60,7 +65,8 @@ struct ArticleInboxIngestionService {
         )
         let reconciledCaptureIDs = try reconcileQuarantinedPackages(
             in: packages,
-            stagingRoot: normalizedRoot
+            stagingRoot: normalizedRoot,
+            enrichment: enrichment
         )
         for package in packages {
             guard let captureID = UUID(uuidString: package.lastPathComponent) else { continue }
@@ -70,45 +76,41 @@ struct ArticleInboxIngestionService {
             guard fileManager.fileExists(atPath: package.appending(path: "complete").path) else { continue }
 
             let imported = try fileStore.importEnvelope(at: package)
-            let expected = record(for: imported)
+            let expected = enrichedRecord(for: imported, enrichment: enrichment)
             if let existing = try captureDAO.capture(id: imported.envelope.captureID.uuidString) {
                 guard matchesImportedRecord(existing, expected: expected) else {
                     throw Error.conflictingExistingCapture(imported.envelope.captureID)
+                }
+                if existing.contentState != expected.contentState || existing.warningsJSON != expected.warningsJSON {
+                    try captureDAO.saveCapture(expected)
+                }
+                if enrichment?.snapshot.captureID == imported.envelope.captureID {
+                    try cleanupHook?(.afterPresentationPersistence, package)
                 }
                 try cleanup(package: package, imported: imported, stagingRoot: normalizedRoot)
                 continue
             }
 
             try captureDAO.saveCapture(expected)
+            if enrichment?.snapshot.captureID == imported.envelope.captureID {
+                try cleanupHook?(.afterPresentationPersistence, package)
+            }
             try cleanup(package: package, imported: imported, stagingRoot: normalizedRoot)
         }
     }
 
-    /// Imports first so the staged-envelope protocol remains recoverable, then records the
-    /// sanitized presentation state and non-fatal image-localization result for this capture.
+    /// Persists presentation state before recoverable quarantine cleanup.
     func drainStaging(
         snapshot: ArticleSnapshot,
         imageLocalizationWarnings: [ArticleImageLocalizationWarning]
     ) throws {
-        try drainStaging()
-        guard var record = try captureDAO.capture(id: snapshot.captureID.uuidString) else {
-            throw Error.missingCapture(snapshot.captureID)
-        }
-        let warnings = Array(Set(
-            snapshot.warnings.map { "sanitizer.\($0.rawValue)" }
-                + imageLocalizationWarnings.map { "image.\($0.rawValue)" }
-        )).sorted()
-        record.contentState = presentationState(
-            sanitizerState: snapshot.contentState,
-            hasImageWarnings: imageLocalizationWarnings.isEmpty == false
-        )
-        record.warningsJSON = String(decoding: try JSONEncoder().encode(warnings), as: UTF8.self)
-        try captureDAO.saveCapture(record)
+        try drainStaging(enrichment: (snapshot, imageLocalizationWarnings))
     }
 
     private func reconcileQuarantinedPackages(
         in entries: [URL],
-        stagingRoot: URL
+        stagingRoot: URL,
+        enrichment: (snapshot: ArticleSnapshot, warnings: [ArticleImageLocalizationWarning])?
     ) throws -> Set<UUID> {
         let fileManager = FileManager.default
         var reconciledCaptureIDs = Set<UUID>()
@@ -159,11 +161,15 @@ struct ArticleInboxIngestionService {
             guard imported.sha256 == validated.sha256 else {
                 throw Error.unreconciledCleanupPackage(quarantined)
             }
-            let expected = record(for: imported)
+            let expected = enrichedRecord(for: imported, enrichment: enrichment)
             guard let existing = try captureDAO.capture(id: captureID.uuidString),
                   matchesImportedRecord(existing, expected: expected)
             else {
                 throw Error.conflictingExistingCapture(captureID)
+            }
+
+            if existing.contentState != expected.contentState || existing.warningsJSON != expected.warningsJSON {
+                try captureDAO.saveCapture(expected)
             }
 
             try fileManager.removeItem(at: quarantined)
@@ -272,11 +278,29 @@ struct ArticleInboxIngestionService {
         )
     }
 
+    private func enrichedRecord(
+        for imported: ArticleWorkshopFileStore.ImportedEnvelope,
+        enrichment: (snapshot: ArticleSnapshot, warnings: [ArticleImageLocalizationWarning])?
+    ) -> ArticleCaptureRecord {
+        var record = record(for: imported)
+        guard let enrichment, enrichment.snapshot.captureID == imported.envelope.captureID else { return record }
+        let warnings = Array(Set(enrichment.snapshot.warnings.map { "sanitizer.\($0.rawValue)" }
+            + enrichment.warnings.map { "image.\($0.rawValue)" })).sorted()
+        record.contentState = presentationState(
+            sanitizerState: enrichment.snapshot.contentState,
+            hasImageWarnings: enrichment.warnings.isEmpty == false)
+        record.warningsJSON = String(decoding: (try? JSONEncoder().encode(warnings)) ?? Data("[]".utf8), as: UTF8.self)
+        return record
+    }
+
     private func matchesImportedRecord(_ existing: ArticleCaptureRecord, expected: ArticleCaptureRecord) -> Bool {
         var normalized = existing
         normalized.contentState = "ready"
         normalized.warningsJSON = "[]"
-        return normalized == expected
+        var normalizedExpected = expected
+        normalizedExpected.contentState = "ready"
+        normalizedExpected.warningsJSON = "[]"
+        return normalized == normalizedExpected
     }
 
     private func presentationState(

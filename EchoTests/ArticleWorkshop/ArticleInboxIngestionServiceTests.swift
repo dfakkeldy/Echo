@@ -64,6 +64,31 @@ struct ArticleInboxIngestionServiceTests {
         #expect(FileManager.default.fileExists(atPath: fixture.stagingRoot.appending(path: envelope.captureID.uuidString).path) == false)
     }
 
+    @Test func enrichedRecordPersistsBeforeCleanupAndRetryFinishesWithoutDuplicate() async throws {
+        let envelope = articleWorkshopFixtureEnvelope()
+        let snapshot = try ArticleBlockSanitizer().sanitize(envelope: envelope)
+        var interrupt = true
+        let fixture = try makeFixture { point, _ in
+            guard point == .afterPresentationPersistence, interrupt else { return }
+            interrupt = false
+            throw TestInterruption.interrupted
+        }
+        defer { try! FileManager.default.removeItem(at: fixture.root) }
+        let package = try fixture.writer.stage(envelope)
+
+        #expect(throws: (any Error).self) {
+            try fixture.service.drainStaging(snapshot: snapshot, imageLocalizationWarnings: [.invalidImage])
+        }
+        let persisted = try #require(try fixture.dao.capture(id: envelope.captureID.uuidString))
+        #expect(persisted.contentState == ArticleContentState.reviewSuggested.rawValue)
+        #expect(persisted.warningsJSON == "[\"image.invalidImage\"]")
+        #expect(FileManager.default.fileExists(atPath: package.path))
+
+        try recoveryService(for: fixture).drainStaging(snapshot: snapshot, imageLocalizationWarnings: [.invalidImage])
+        #expect(FileManager.default.fileExists(atPath: package.path) == false)
+        #expect(try fixture.dao.captures().filter { $0.id == envelope.captureID.uuidString }.count == 1)
+    }
+
     @Test func secondDrainOfSameCaptureUUIDDoesNotDuplicateRows() async throws {
         let fixture = try makeFixture()
         defer { try! FileManager.default.removeItem(at: fixture.root) }

@@ -102,11 +102,23 @@ struct ArticleURLCaptureService {
         }
         let lowercased = html.lowercased()
         let passwordInput = #"<input\b[^>]*\btype\s*=\s*[\"']?password\b"#
-        let signInHeading = #"<h[1-6]\b[^>]*>\s*(sign\s*in|log\s*in|login)\b"#
-        let passwordCount = lowercased.matches(of: try! Regex(passwordInput)).count
-        let headingCount = lowercased.matches(of: try! Regex(signInHeading)).count
-        let articleSignals = lowercased.matches(of: try! Regex(#"<(p|article|main)\b"#)).count
-        return (passwordCount >= 2 || (passwordCount >= 1 && headingCount >= 1)) && articleSignals < 2
+        let loginSignal = #"(sign\s*in|log\s*in|login|authenticate|password|submit|action\s*=\s*[\"'][^\"']*(login|auth))"#
+        let forms = lowercased.matches(of: try! Regex(#"(?s)<form\b[^>]*>.*?</form>"#))
+        if forms.contains(where: { form in
+            let markup = String(lowercased[form.range])
+            return markup.contains("password")
+                && markup.contains(regex: passwordInput)
+                && markup.contains(regex: loginSignal)
+        }) { return true }
+        // Some sites place the heading immediately outside an otherwise standard form.
+        return lowercased.contains(regex: passwordInput)
+            && lowercased.contains(regex: #"<h[1-6]\b[^>]*>\s*(sign\s*in|log\s*in|login)\b"#)
+    }
+}
+
+private extension String {
+    func contains(regex pattern: String) -> Bool {
+        range(of: pattern, options: .regularExpression) != nil
     }
 }
 

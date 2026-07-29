@@ -5,6 +5,7 @@ import Testing
 @testable import Echo
 
 #if canImport(WebKit)
+import WebKit
 @MainActor
 @Suite struct ReadabilityWebExtractorPolicyTests {
     @Test func blocksEveryDocumentAndSubresourceClassWithoutAllowingFollowupNavigation() {
@@ -29,6 +30,41 @@ import Testing
         #expect(ReadabilityWebExtractor.acceptsCallback(activeToken: active, callbackToken: active))
         #expect(ReadabilityWebExtractor.acceptsCallback(activeToken: nil, callbackToken: active) == false)
         #expect(ReadabilityWebExtractor.acceptsCallback(activeToken: UUID(), callbackToken: active) == false)
+    }
+
+    @Test func ruleCancellationAndStaleNavigationCannotResumeNewExtraction() {
+        let cancelled = UUID()
+        let replacement = UUID()
+
+        #expect(ReadabilityWebExtractor.acceptsRuleCallback(
+            activeExtractionID: cancelled, ruleToken: cancelled, callbackToken: cancelled))
+        #expect(ReadabilityWebExtractor.acceptsRuleCallback(
+            activeExtractionID: replacement, ruleToken: cancelled, callbackToken: cancelled) == false)
+        #expect(ReadabilityWebExtractor.acceptsNavigationCallback(
+            activeExtractionID: replacement, navigationToken: cancelled, isActiveWebView: true) == false)
+        #expect(ReadabilityWebExtractor.acceptsNavigationCallback(
+            activeExtractionID: replacement, navigationToken: replacement, isActiveWebView: false) == false)
+        #expect(ReadabilityWebExtractor.canBeginExtraction(activeExtractionID: nil))
+        #expect(ReadabilityWebExtractor.canBeginExtraction(activeExtractionID: replacement) == false)
+    }
+
+    @Test func ruleCompilerCancellationIgnoresLateCallbackAndReleasesSingleFlight() async throws {
+        var callbacks: [@MainActor (Result<WKContentRuleList, Swift.Error>) -> Void] = []
+        let extractor = ReadabilityWebExtractor(
+            sourceProvider: { "unused" },
+            ruleCompiler: { _, completion in callbacks.append(completion) })
+        let first = Task { try await extractor.extract(html: "<p>unused</p>", sourceURL: URL(string: "https://example.test/article")!) }
+        await Task.yield()
+        #expect(callbacks.count == 1)
+        first.cancel()
+        await #expect(throws: CancellationError.self) { try await first.value }
+        callbacks[0](.failure(ReadabilityWebExtractor.Error.ruleCompilationFailed))
+
+        let second = Task { try await extractor.extract(html: "<p>unused</p>", sourceURL: URL(string: "https://example.test/article")!) }
+        await Task.yield()
+        #expect(callbacks.count == 2)
+        second.cancel()
+        await #expect(throws: CancellationError.self) { try await second.value }
     }
 }
 #endif
@@ -115,6 +151,21 @@ import Testing
         } catch let error as ArticleURLCaptureService.Error {
             #expect(error == .authenticationRequired(
                 message: "Open this page in Safari to capture the signed-in version."))
+        }
+    }
+
+    @Test func classifiesFormLocalAuthenticationDespiteExplanatoryArticleMarkup() async throws {
+        ArticleURLProtocol.install { _ in
+            .response(status: 200, mimeType: "text/html", data: Data("<main><p>Help signing in.</p><form action='/login'><label>Sign in</label><input type='password'><button type='submit'>Log in</button></form><p>Support text.</p></main>".utf8))
+        }
+        defer { ArticleURLProtocol.reset() }
+        let service = ArticleURLCaptureService(sessionConfiguration: articleURLProtocolConfiguration(), extractor: fixtureExtractor)
+
+        do {
+            _ = try await service.capture(url: URL(string: "https://example.test/article")!)
+            Issue.record("Expected authentication classification")
+        } catch let error as ArticleURLCaptureService.Error {
+            #expect(error == .authenticationRequired(message: "Open this page in Safari to capture the signed-in version."))
         }
     }
 
