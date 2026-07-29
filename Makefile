@@ -1,4 +1,4 @@
-.PHONY: help docs architecture whats-new devlog-update devlog-pr-body doc-automation-test pronunciation-corpus-test pronunciation-corpus-qualification test build-tests test-only hooks-test echo-cli renderer-install-test install-renderer verify-renderer promote-renderer repair-renderer
+.PHONY: help docs architecture whats-new devlog-update devlog-pr-body doc-automation-test pronunciation-corpus-test pronunciation-corpus-qualification pronunciation-pack pronunciation-pack-test test build-tests test-only hooks-test echo-cli renderer-install-test install-renderer verify-renderer promote-renderer repair-renderer
 
 help: ## List available targets
 	@echo "Echo: Audiobook Study Player — available targets:"
@@ -46,6 +46,23 @@ pronunciation-corpus-test: ## Validate pronunciation corpus tests and fixture co
 pronunciation-corpus-qualification: ## Report independent-label corpus qualification
 	python3 Tools/Pronunciation/pronunciation_corpus.py qualification-status \
 		--fixtures EchoTests/Fixtures/Pronunciation
+
+pronunciation-pack: ## Regenerate the pinned supplemental pronunciation pack
+	python3 Tools/Pronunciation/build_pronunciation_pack.py build \
+		--lock Tools/Pronunciation/cmudict.lock.json \
+		--gold EchoCore/Services/Narration/MisakiResources/us_gold.json \
+		--silver EchoCore/Services/Narration/MisakiResources/us_silver.json \
+		--vocab EchoCore/Services/Narration/_kokoro_vocab.json \
+		--output EchoCore/Services/Narration/PronunciationResources/us_pronunciation_pack.json
+
+pronunciation-pack-test: ## Test and deterministically verify the pronunciation pack
+	python3 -m unittest discover -s Tools/Pronunciation/tests -p 'test_build_pronunciation_pack.py'
+	python3 Tools/Pronunciation/build_pronunciation_pack.py check \
+		--lock Tools/Pronunciation/cmudict.lock.json \
+		--gold EchoCore/Services/Narration/MisakiResources/us_gold.json \
+		--silver EchoCore/Services/Narration/MisakiResources/us_silver.json \
+		--vocab EchoCore/Services/Narration/_kokoro_vocab.json \
+		--expected EchoCore/Services/Narration/PronunciationResources/us_pronunciation_pack.json
 
 SIM_DEST = platform=iOS Simulator,name=iPhone 17
 
