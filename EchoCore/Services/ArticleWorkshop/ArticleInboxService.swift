@@ -2,6 +2,11 @@
 import Foundation
 
 nonisolated struct ArticleInboxService: Sendable {
+    enum DeletionPoint: Equatable, Sendable {
+        case beforeDatabaseCommit
+        case beforeQuarantineCleanup
+    }
+
     enum Error: Swift.Error, LocalizedError {
         case captureNotFound(String)
         case emptySelection
@@ -9,6 +14,7 @@ nonisolated struct ArticleInboxService: Sendable {
         case captureIsReferenced([String])
         case unsafePackagePath(URL)
         case unsafeOwnedDirectory(URL)
+        case unsafeQuarantineResidue(URL)
         case restoreFailed(original: String, restore: String)
 
         var errorDescription: String? {
@@ -26,6 +32,8 @@ nonisolated struct ArticleInboxService: Sendable {
             case .unsafeOwnedDirectory:
                 return
                     "Echo refused to delete an article package that is not a regular managed folder."
+            case .unsafeQuarantineResidue(let url):
+                return "Echo refused to reconcile an unsafe deletion residue at \(url.path)."
             case .restoreFailed(let original, let restore):
                 return
                     "Deletion failed (\(original)), and the article package could not be restored (\(restore))."
@@ -38,22 +46,26 @@ nonisolated struct ArticleInboxService: Sendable {
     private let fileStore: ArticleWorkshopFileStore
     private let now: @Sendable () -> Date
     private let makeID: @Sendable () -> UUID
+    private let deletionHook: (@Sendable (DeletionPoint, URL) throws -> Void)?
 
     init(
         captureDAO: ArticleCaptureDAO,
         anthologyDAO: AnthologyDAO,
         fileStore: ArticleWorkshopFileStore,
         now: @escaping @Sendable () -> Date = Date.init,
-        makeID: @escaping @Sendable () -> UUID = UUID.init
+        makeID: @escaping @Sendable () -> UUID = UUID.init,
+        deletionHook: (@Sendable (DeletionPoint, URL) throws -> Void)? = nil
     ) {
         self.captureDAO = captureDAO
         self.anthologyDAO = anthologyDAO
         self.fileStore = fileStore
         self.now = now
         self.makeID = makeID
+        self.deletionHook = deletionHook
     }
 
     func inboxItems() throws -> [ArticleInboxItem] {
+        try reconcileDeletionQuarantine()
         let records = try captureDAO.captures()
         return
             records
@@ -74,11 +86,6 @@ nonisolated struct ArticleInboxService: Sendable {
 
     func createAnthologySeed(title: String, captureIDs: [String]) throws -> AnthologyRecord {
         guard captureIDs.isEmpty == false else { throw Error.emptySelection }
-        for captureID in captureIDs {
-            guard try captureDAO.capture(id: captureID) != nil else {
-                throw Error.captureNotFound(captureID)
-            }
-        }
 
         let timestamp = now().ISO8601Format()
         let anthology = AnthologyRecord(
@@ -93,11 +100,11 @@ nonisolated struct ArticleInboxService: Sendable {
             createdAt: timestamp,
             modifiedAt: timestamp
         )
-        try anthologyDAO.save(anthology)
-        for captureID in captureIDs {
-            _ = try anthologyDAO.addCapture(captureID, to: anthology.id)
+        do {
+            return try anthologyDAO.create(anthology, captureIDs: captureIDs)
+        } catch AnthologyDAOError.captureNotFound(let captureID) {
+            throw Error.captureNotFound(captureID)
         }
-        return anthology
     }
 
     func deletionImpact(for id: String) throws -> ArticleDeletionImpact {
@@ -169,10 +176,19 @@ nonisolated struct ArticleInboxService: Sendable {
 
         try fileManager.moveItem(at: expected, to: quarantine)
         do {
-            try captureDAO.deleteCapture(id: id)
+            try deletionHook?(.beforeDatabaseCommit, quarantine)
+            switch try captureDAO.deleteCaptureIfUnreferenced(id: id) {
+            case .deleted:
+                break
+            case .notFound:
+                throw Error.captureNotFound(id)
+            case .referenced(let projectNames):
+                throw Error.captureIsReferenced(projectNames)
+            }
         } catch {
             do {
                 try fileManager.moveItem(at: quarantine, to: expected)
+                removeEmptyDirectoryIfPresent(quarantineRoot)
             } catch let restoreError {
                 throw Error.restoreFailed(
                     original: error.localizedDescription,
@@ -181,9 +197,73 @@ nonisolated struct ArticleInboxService: Sendable {
             }
             throw error
         }
-        try fileManager.removeItem(at: quarantine)
-        if (try? fileManager.contentsOfDirectory(atPath: quarantineRoot.path).isEmpty) == true {
-            try? fileManager.removeItem(at: quarantineRoot)
+
+        do {
+            try deletionHook?(.beforeQuarantineCleanup, quarantine)
+            try fileManager.removeItem(at: quarantine)
+            removeEmptyDirectoryIfPresent(quarantineRoot)
+        } catch {
+            // The database deletion is the logical commit point. A safe,
+            // recognized quarantine is retried during a later Inbox load.
+        }
+    }
+
+    private func reconcileDeletionQuarantine() throws {
+        let fileManager = FileManager.default
+        let root = fileStore.root.standardizedFileURL
+        let quarantineRoot = root.appending(
+            path: ".DeletionQuarantine", directoryHint: .isDirectory
+        ).standardizedFileURL
+        guard fileManager.fileExists(atPath: quarantineRoot.path) else { return }
+        guard quarantineRoot.deletingLastPathComponent() == root,
+            try isRegularDirectory(quarantineRoot)
+        else {
+            throw Error.unsafeQuarantineResidue(quarantineRoot)
+        }
+
+        let entries = try fileManager.contentsOfDirectory(
+            at: quarantineRoot,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: []
+        )
+        var validatedEntries: [URL] = []
+        for entry in entries {
+            guard entry.standardizedFileURL.deletingLastPathComponent() == quarantineRoot,
+                try isRegularDirectory(entry),
+                let captureID = captureID(inQuarantineEntry: entry),
+                try captureDAO.capture(id: captureID.uuidString) == nil
+            else {
+                throw Error.unsafeQuarantineResidue(entry)
+            }
+            validatedEntries.append(entry)
+        }
+
+        for entry in validatedEntries {
+            try fileManager.removeItem(at: entry)
+        }
+        removeEmptyDirectoryIfPresent(quarantineRoot)
+    }
+
+    private func captureID(inQuarantineEntry entry: URL) -> UUID? {
+        let name = entry.lastPathComponent
+        guard name.count == 73 else { return nil }
+        let captureEnd = name.index(name.startIndex, offsetBy: 36)
+        guard name[captureEnd] == "-" else { return nil }
+        let captureIDString = String(name[..<captureEnd])
+        let nonceString = String(name[name.index(after: captureEnd)...])
+        guard let captureID = UUID(uuidString: captureIDString),
+            let nonce = UUID(uuidString: nonceString),
+            name == "\(captureID.uuidString)-\(nonce.uuidString)"
+        else {
+            return nil
+        }
+        return captureID
+    }
+
+    private func removeEmptyDirectoryIfPresent(_ directory: URL) {
+        let fileManager = FileManager.default
+        if (try? fileManager.contentsOfDirectory(atPath: directory.path).isEmpty) == true {
+            try? fileManager.removeItem(at: directory)
         }
     }
 

@@ -41,8 +41,8 @@
                             )
                         }
 
-                        ForEach(article.warnings, id: \.self) { warning in
-                            Label(warning, systemImage: "exclamationmark.triangle")
+                        ForEach(article.warningOccurrences) { warning in
+                            Label(warning.text, systemImage: "exclamationmark.triangle")
                         }
                     }
                 }

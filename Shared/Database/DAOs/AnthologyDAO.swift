@@ -4,6 +4,7 @@ import GRDB
 
 enum AnthologyDAOError: Error, Equatable {
     case anthologyNotFound
+    case captureNotFound(String)
     case invalidEntryOrder
 }
 
@@ -46,20 +47,49 @@ nonisolated struct AnthologyDAO {
         }
     }
 
+    func create(_ anthology: AnthologyRecord, captureIDs: [String]) throws -> AnthologyRecord {
+        try db.write { db in
+            var created = anthology
+            created.nextStableSlot = captureIDs.count
+            try created.insert(db)
+
+            for (position, captureID) in captureIDs.enumerated() {
+                guard try ArticleCaptureRecord.fetchOne(db, key: captureID) != nil else {
+                    throw AnthologyDAOError.captureNotFound(captureID)
+                }
+                var entry = AnthologyEntryRecord(
+                    id: UUID().uuidString,
+                    anthologyID: created.id,
+                    captureID: captureID,
+                    sortOrder: position,
+                    stableSlot: position,
+                    chapterTitleOverride: nil,
+                    narrationVoiceID: nil
+                )
+                try entry.insert(db)
+            }
+            return created
+        }
+    }
+
     func addCapture(_ captureID: String, to anthologyID: String) throws -> AnthologyEntryRecord {
         try db.write { db in
-            guard let stableSlot = try Int.fetchOne(
-                db,
-                sql: "SELECT next_stable_slot FROM anthology WHERE id = ?",
-                arguments: [anthologyID]
-            ) else {
+            guard
+                let stableSlot = try Int.fetchOne(
+                    db,
+                    sql: "SELECT next_stable_slot FROM anthology WHERE id = ?",
+                    arguments: [anthologyID]
+                )
+            else {
                 throw AnthologyDAOError.anthologyNotFound
             }
-            let sortOrder = try Int.fetchOne(
-                db,
-                sql: "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM anthology_entry WHERE anthology_id = ?",
-                arguments: [anthologyID]
-            ) ?? 0
+            let sortOrder =
+                try Int.fetchOne(
+                    db,
+                    sql:
+                        "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM anthology_entry WHERE anthology_id = ?",
+                    arguments: [anthologyID]
+                ) ?? 0
             var entry = AnthologyEntryRecord(
                 id: UUID().uuidString,
                 anthologyID: anthologyID,
@@ -80,7 +110,8 @@ nonisolated struct AnthologyDAO {
 
     func replaceOrder(anthologyID: String, entryIDs: [String]) throws {
         try db.write { db in
-            let entries = try AnthologyEntryRecord
+            let entries =
+                try AnthologyEntryRecord
                 .filter(Column("anthology_id") == anthologyID)
                 .fetchAll(db)
             guard entries.count == entryIDs.count,
@@ -91,7 +122,8 @@ nonisolated struct AnthologyDAO {
             }
             for (sortOrder, entryID) in entryIDs.enumerated() {
                 try db.execute(
-                    sql: "UPDATE anthology_entry SET sort_order = ? WHERE id = ? AND anthology_id = ?",
+                    sql:
+                        "UPDATE anthology_entry SET sort_order = ? WHERE id = ? AND anthology_id = ?",
                     arguments: [sortOrder, entryID, anthologyID]
                 )
             }

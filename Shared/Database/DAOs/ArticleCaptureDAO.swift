@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import GRDB
 
+nonisolated enum ArticleCaptureDeletionResult: Equatable, Sendable {
+    case deleted
+    case notFound
+    case referenced(projectNames: [String])
+}
+
 nonisolated struct ArticleCaptureDAO {
     private let db: DatabaseWriter
 
@@ -31,7 +37,8 @@ nonisolated struct ArticleCaptureDAO {
         }
     }
 
-    func possibleDuplicates(canonicalURL: String?, digest: String) throws -> [ArticleCaptureRecord] {
+    func possibleDuplicates(canonicalURL: String?, digest: String) throws -> [ArticleCaptureRecord]
+    {
         try db.read { db in
             let sql: String
             let arguments: StatementArguments
@@ -94,6 +101,30 @@ nonisolated struct ArticleCaptureDAO {
     func deleteCapture(id: String) throws {
         _ = try db.write { db in
             try ArticleCaptureRecord.deleteOne(db, key: id)
+        }
+    }
+
+    func deleteCaptureIfUnreferenced(id: String) throws -> ArticleCaptureDeletionResult {
+        try db.write { db in
+            let projectNames = try String.fetchAll(
+                db,
+                sql: """
+                    SELECT DISTINCT anthology.title
+                    FROM anthology_entry
+                    JOIN anthology ON anthology.id = anthology_entry.anthology_id
+                    WHERE anthology_entry.capture_id = ?
+                    ORDER BY anthology.title
+                    """,
+                arguments: [id]
+            )
+            guard projectNames.isEmpty else {
+                return .referenced(projectNames: projectNames)
+            }
+            guard try ArticleCaptureRecord.fetchOne(db, key: id) != nil else {
+                return .notFound
+            }
+            _ = try ArticleCaptureRecord.deleteOne(db, key: id)
+            return .deleted
         }
     }
 }

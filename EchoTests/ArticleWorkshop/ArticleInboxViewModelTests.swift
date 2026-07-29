@@ -10,10 +10,12 @@ import Testing
         let fixture = try ViewModelFixture()
         defer { fixture.removeFiles() }
         let stagedID = "00000000-0000-0000-0000-000000000001"
+        let captureDAO = fixture.captureDAO
+        let stagedCapture = fixture.capture(id: stagedID)
         let viewModel = ArticleInboxViewModel(
             service: fixture.service,
             drainStaging: {
-                try fixture.captureDAO.saveCapture(fixture.capture(id: stagedID))
+                try captureDAO.saveCapture(stagedCapture)
             }
         )
 
@@ -22,6 +24,32 @@ import Testing
         #expect(viewModel.articles.map(\.id) == [stagedID])
         #expect(viewModel.isImporting == false)
         #expect(viewModel.errorMessage == nil)
+    }
+
+    @Test func reloadWorkerYieldsMainActorWhileStagingAndDatabaseWorkAreBlocked() async throws {
+        let fixture = try ViewModelFixture()
+        defer { fixture.removeFiles() }
+        let gate = ReloadWorkerGate()
+        let worker = ArticleInboxReloadWorker {
+            gate.signalStartedAndWaitForRelease()
+            return ArticleInboxReloadResult(articles: [], anthologies: [])
+        }
+        let viewModel = ArticleInboxViewModel(service: fixture.service, reloadWorker: worker)
+
+        let reloadTask = Task { @MainActor in
+            await viewModel.reload()
+        }
+        await Task.detached {
+            gate.waitUntilStarted()
+        }.value
+
+        #expect(viewModel.isImporting)
+        let mainActorDidRun = await Task { @MainActor in true }.value
+        #expect(mainActorDidRun)
+
+        gate.release()
+        await reloadTask.value
+        #expect(viewModel.isImporting == false)
     }
 
     @Test func selectionPrunesMissingIDsAndSelectAllTogglesPredictably() async throws {
@@ -54,15 +82,15 @@ import Testing
         defer { fixture.removeFiles() }
         let captureID = "00000000-0000-0000-0000-000000000001"
         try fixture.captureDAO.saveCapture(fixture.capture(id: captureID))
-        var shouldFail = false
+        let shouldFail = LockedFlag()
         let viewModel = ArticleInboxViewModel(
             service: fixture.service,
             drainStaging: {
-                if shouldFail { throw ReloadFailure.expected }
+                if shouldFail.value { throw ReloadFailure.expected }
             }
         )
         await viewModel.reload()
-        shouldFail = true
+        shouldFail.value = true
 
         await viewModel.reload()
 
@@ -95,6 +123,35 @@ import Testing
             ])
         #expect(viewModel.selectedIDs.isEmpty)
         #expect(viewModel.anthologies.map(\.id) == [anthology.id])
+    }
+
+    @Test func reloadFailureAfterLogicalDeleteDoesNotRestoreStaleArticleOrSelection() async throws {
+        let fixture = try ViewModelFixture()
+        defer { fixture.removeFiles() }
+        let captureID = "00000000-0000-0000-0000-000000000001"
+        let package = try fixture.createOwnedPackage(id: captureID)
+        try fixture.captureDAO.saveCapture(
+            fixture.capture(id: captureID, packagePath: package.path))
+        let reloadShouldFail = LockedFlag()
+        let service = fixture.service
+        let worker = ArticleInboxReloadWorker {
+            if reloadShouldFail.value { throw ReloadFailure.expected }
+            return ArticleInboxReloadResult(
+                articles: try service.inboxItems(),
+                anthologies: try service.anthologies()
+            )
+        }
+        let viewModel = ArticleInboxViewModel(service: service, reloadWorker: worker)
+        await viewModel.reload()
+        viewModel.toggleSelection(captureID)
+        reloadShouldFail.value = true
+
+        await viewModel.delete(id: captureID)
+
+        #expect(viewModel.articles.isEmpty)
+        #expect(viewModel.selectedIDs.isEmpty)
+        #expect(viewModel.errorMessage != nil)
+        #expect(try fixture.captureDAO.capture(id: captureID) == nil)
     }
 }
 
@@ -131,7 +188,20 @@ private final class ViewModelFixture {
         try? FileManager.default.removeItem(at: root)
     }
 
-    func capture(id: String, capturedAt: String = "2026-07-28T12:01:00Z") -> ArticleCaptureRecord {
+    func createOwnedPackage(id: String) throws -> URL {
+        let package = fileStore.root
+            .appending(path: "Captures", directoryHint: .isDirectory)
+            .appending(path: id, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
+        try Data("snapshot".utf8).write(to: package.appending(path: "snapshot.json"))
+        return package
+    }
+
+    func capture(
+        id: String,
+        capturedAt: String = "2026-07-28T12:01:00Z",
+        packagePath: String? = nil
+    ) -> ArticleCaptureRecord {
         ArticleCaptureRecord(
             id: id,
             sourceURL: "https://example.com/articles/\(id)",
@@ -143,7 +213,8 @@ private final class ViewModelFixture {
             publishedAt: nil,
             capturedAt: capturedAt,
             captureMethod: .urlFetch,
-            packagePath: fileStore.root
+            packagePath: packagePath
+                ?? fileStore.root
                 .appending(path: "Captures/\(id)", directoryHint: .isDirectory).path,
             contentSHA256: "digest-\(id)",
             extractorVersion: "1",
@@ -156,6 +227,38 @@ private final class ViewModelFixture {
     }
 }
 
-private enum ReloadFailure: Error {
+private nonisolated enum ReloadFailure: Error {
     case expected
+}
+
+private nonisolated final class ReloadWorkerGate: @unchecked Sendable {
+    private let started = DispatchSemaphore(value: 0)
+    private let releaseWorker = DispatchSemaphore(value: 0)
+
+    func signalStartedAndWaitForRelease() {
+        started.signal()
+        releaseWorker.wait()
+    }
+
+    func waitUntilStarted() {
+        started.wait()
+    }
+
+    func release() {
+        releaseWorker.signal()
+    }
+}
+
+private nonisolated final class LockedFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedValue = false
+
+    var value: Bool {
+        get {
+            lock.withLock { storedValue }
+        }
+        set {
+            lock.withLock { storedValue = newValue }
+        }
+    }
 }

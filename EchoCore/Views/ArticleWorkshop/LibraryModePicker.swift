@@ -3,18 +3,46 @@
     import SwiftUI
 
     struct LibraryModePicker: View {
+        @Environment(\.dynamicTypeSize) private var dynamicTypeSize
         @Binding var selection: LibraryMode
 
+        @ViewBuilder
         var body: some View {
-            Picker("Library section", selection: $selection) {
-                ForEach(LibraryMode.allCases) { mode in
-                    Label(mode.title, systemImage: mode.systemImage)
-                        .tag(mode)
+            switch LibraryModePickerPolicy.presentation(
+                isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
+            {
+            case .segmented:
+                Picker("Library section", selection: $selection) {
+                    modeOptions
                 }
+                .pickerStyle(.segmented)
+                .frame(minHeight: 44)
+                .accessibilityLabel("Library section")
+                .accessibilityValue(selection.title)
+                .accessibilityHint("Choose Books, Inbox, or Anthologies")
+            case .menu:
+                LabeledContent("Library section") {
+                    Picker(selection: $selection) {
+                        modeOptions
+                    } label: {
+                        Label(selection.title, systemImage: selection.systemImage)
+                    }
+                    .pickerStyle(.menu)
+                }
+                .frame(minHeight: 44)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Library section")
+                .accessibilityValue(selection.title)
+                .accessibilityHint("Choose Books, Inbox, or Anthologies")
             }
-            .pickerStyle(.segmented)
-            .frame(minHeight: 44)
-            .accessibilityHint("Choose Books, Inbox, or Anthologies")
+        }
+
+        @ViewBuilder
+        private var modeOptions: some View {
+            ForEach(LibraryModePickerPolicy.availableModes) { mode in
+                Label(mode.title, systemImage: mode.systemImage)
+                    .tag(mode)
+            }
         }
     }
 #endif

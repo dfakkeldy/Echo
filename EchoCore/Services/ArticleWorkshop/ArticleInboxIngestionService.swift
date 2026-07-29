@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
-@MainActor
-struct ArticleInboxIngestionService {
+nonisolated struct ArticleInboxIngestionService {
     enum CleanupPoint {
         case afterPresentationPersistence
         case beforeQuarantine
@@ -19,7 +18,8 @@ struct ArticleInboxIngestionService {
         var errorDescription: String? {
             switch self {
             case .conflictingExistingCapture(let id):
-                return "The existing article capture record for \(id.uuidString) does not match the staged package."
+                return
+                    "The existing article capture record for \(id.uuidString) does not match the staged package."
             case .unsafeStagingRoot(let url):
                 return "Article capture staging root is unsafe: \(url.path)"
             case .unsafeStagingPackage(let url):
@@ -53,11 +53,15 @@ struct ArticleInboxIngestionService {
         try drainStaging(enrichment: nil)
     }
 
-    private func drainStaging(enrichment: (snapshot: ArticleSnapshot, warnings: [ArticleImageLocalizationWarning])?) throws {
+    private func drainStaging(
+        enrichment: (snapshot: ArticleSnapshot, warnings: [ArticleImageLocalizationWarning])?
+    ) throws {
         let fileManager = FileManager.default
         let normalizedRoot = stagingRoot.standardizedFileURL
         guard fileManager.fileExists(atPath: normalizedRoot.path) else { return }
-        guard try safeDirectory(normalizedRoot) else { throw Error.unsafeStagingRoot(normalizedRoot) }
+        guard try safeDirectory(normalizedRoot) else {
+            throw Error.unsafeStagingRoot(normalizedRoot)
+        }
         let packages = try fileManager.contentsOfDirectory(
             at: normalizedRoot,
             includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
@@ -71,9 +75,13 @@ struct ArticleInboxIngestionService {
         for package in packages {
             guard let captureID = UUID(uuidString: package.lastPathComponent) else { continue }
             guard reconciledCaptureIDs.contains(captureID) == false else { continue }
-            guard package.standardizedFileURL.deletingLastPathComponent() == normalizedRoot else { continue }
+            guard package.standardizedFileURL.deletingLastPathComponent() == normalizedRoot else {
+                continue
+            }
             guard try safeDirectory(package) else { throw Error.unsafeStagingPackage(package) }
-            guard fileManager.fileExists(atPath: package.appending(path: "complete").path) else { continue }
+            guard fileManager.fileExists(atPath: package.appending(path: "complete").path) else {
+                continue
+            }
 
             let imported = try fileStore.importEnvelope(at: package)
             let expected = enrichedRecord(for: imported, enrichment: enrichment)
@@ -82,7 +90,9 @@ struct ArticleInboxIngestionService {
                     throw Error.conflictingExistingCapture(imported.envelope.captureID)
                 }
                 if enrichment?.snapshot.captureID == imported.envelope.captureID,
-                   (existing.contentState != expected.contentState || existing.warningsJSON != expected.warningsJSON) {
+                    existing.contentState != expected.contentState
+                        || existing.warningsJSON != expected.warningsJSON
+                {
                     try captureDAO.saveCapture(expected)
                 }
                 if enrichment?.snapshot.captureID == imported.envelope.captureID {
@@ -118,8 +128,8 @@ struct ArticleInboxIngestionService {
 
         for cleanupRoot in entries where cleanupRoot.lastPathComponent.hasPrefix(".cleanup-") {
             guard cleanupRoot.standardizedFileURL.deletingLastPathComponent() == stagingRoot,
-                  try safeDirectory(cleanupRoot),
-                  let captureID = captureID(inCleanupRoot: cleanupRoot)
+                try safeDirectory(cleanupRoot),
+                let captureID = captureID(inCleanupRoot: cleanupRoot)
             else {
                 throw Error.unreconciledCleanupPackage(cleanupRoot)
             }
@@ -139,8 +149,8 @@ struct ArticleInboxIngestionService {
             }
             let quarantined = children[0]
             guard quarantined.lastPathComponent == captureID.uuidString,
-                  quarantined.standardizedFileURL.deletingLastPathComponent() == cleanupRoot,
-                  try safeDirectory(quarantined)
+                quarantined.standardizedFileURL.deletingLastPathComponent() == cleanupRoot,
+                try safeDirectory(quarantined)
             else {
                 throw Error.unreconciledCleanupPackage(cleanupRoot)
             }
@@ -153,7 +163,7 @@ struct ArticleInboxIngestionService {
                 .appending(path: "Captures", directoryHint: .isDirectory)
                 .appending(path: captureID.uuidString, directoryHint: .isDirectory)
             guard fileManager.fileExists(atPath: durablePackage.path),
-                  try safeDirectory(durablePackage)
+                try safeDirectory(durablePackage)
             else {
                 throw Error.unreconciledCleanupPackage(quarantined)
             }
@@ -164,13 +174,15 @@ struct ArticleInboxIngestionService {
             }
             let expected = enrichedRecord(for: imported, enrichment: enrichment)
             guard let existing = try captureDAO.capture(id: captureID.uuidString),
-                  matchesImportedRecord(existing, expected: expected)
+                matchesImportedRecord(existing, expected: expected)
             else {
                 throw Error.conflictingExistingCapture(captureID)
             }
 
             if enrichment?.snapshot.captureID == captureID,
-               (existing.contentState != expected.contentState || existing.warningsJSON != expected.warningsJSON) {
+                existing.contentState != expected.contentState
+                    || existing.warningsJSON != expected.warningsJSON
+            {
                 try captureDAO.saveCapture(expected)
             }
 
@@ -190,7 +202,7 @@ struct ArticleInboxIngestionService {
         let fileManager = FileManager.default
         try cleanupHook?(.beforeQuarantine, package)
         guard package.standardizedFileURL.deletingLastPathComponent() == stagingRoot,
-              try safeDirectory(package)
+            try safeDirectory(package)
         else {
             throw Error.unsafeStagingPackage(package)
         }
@@ -214,9 +226,9 @@ struct ArticleInboxIngestionService {
         do {
             try cleanupHook?(.afterQuarantine, package)
             guard cleanupRoot.standardizedFileURL.deletingLastPathComponent() == stagingRoot,
-                  quarantined.standardizedFileURL.deletingLastPathComponent() == cleanupRoot,
-                  try safeDirectory(cleanupRoot),
-                  try safeDirectory(quarantined)
+                quarantined.standardizedFileURL.deletingLastPathComponent() == cleanupRoot,
+                try safeDirectory(cleanupRoot),
+                try safeDirectory(quarantined)
             else {
                 throw Error.unsafeStagingPackage(quarantined)
             }
@@ -247,15 +259,17 @@ struct ArticleInboxIngestionService {
         let captureIDString = String(suffix[..<captureEnd])
         let nonceString = String(suffix[suffix.index(after: captureEnd)...])
         guard let captureID = UUID(uuidString: captureIDString),
-              let nonce = UUID(uuidString: nonceString),
-              name == ".cleanup-\(captureID.uuidString)-\(nonce.uuidString)"
+            let nonce = UUID(uuidString: nonceString),
+            name == ".cleanup-\(captureID.uuidString)-\(nonce.uuidString)"
         else {
             return nil
         }
         return captureID
     }
 
-    private func record(for imported: ArticleWorkshopFileStore.ImportedEnvelope) -> ArticleCaptureRecord {
+    private func record(for imported: ArticleWorkshopFileStore.ImportedEnvelope)
+        -> ArticleCaptureRecord
+    {
         let envelope = imported.envelope
         let timestamp = envelope.capturedAt.ISO8601Format()
         return ArticleCaptureRecord(
@@ -285,17 +299,25 @@ struct ArticleInboxIngestionService {
         enrichment: (snapshot: ArticleSnapshot, warnings: [ArticleImageLocalizationWarning])?
     ) -> ArticleCaptureRecord {
         var record = record(for: imported)
-        guard let enrichment, enrichment.snapshot.captureID == imported.envelope.captureID else { return record }
-        let warnings = Array(Set(enrichment.snapshot.warnings.map { "sanitizer.\($0.rawValue)" }
-            + enrichment.warnings.map { "image.\($0.rawValue)" })).sorted()
+        guard let enrichment, enrichment.snapshot.captureID == imported.envelope.captureID else {
+            return record
+        }
+        let warnings = Array(
+            Set(
+                enrichment.snapshot.warnings.map { "sanitizer.\($0.rawValue)" }
+                    + enrichment.warnings.map { "image.\($0.rawValue)" })
+        ).sorted()
         record.contentState = presentationState(
             sanitizerState: enrichment.snapshot.contentState,
             hasImageWarnings: enrichment.warnings.isEmpty == false)
-        record.warningsJSON = String(decoding: (try? JSONEncoder().encode(warnings)) ?? Data("[]".utf8), as: UTF8.self)
+        record.warningsJSON = String(
+            decoding: (try? JSONEncoder().encode(warnings)) ?? Data("[]".utf8), as: UTF8.self)
         return record
     }
 
-    private func matchesImportedRecord(_ existing: ArticleCaptureRecord, expected: ArticleCaptureRecord) -> Bool {
+    private func matchesImportedRecord(
+        _ existing: ArticleCaptureRecord, expected: ArticleCaptureRecord
+    ) -> Bool {
         var normalized = existing
         normalized.contentState = "ready"
         normalized.warningsJSON = "[]"

@@ -134,12 +134,36 @@ import Testing
 
         #expect(anthology.title == "Weekend Reading")
         #expect(anthology.latestBuildRevision == 0)
+        #expect(anthology.nextStableSlot == 2)
         #expect(
             try fixture.anthologyDAO.entries(anthologyID: anthology.id).map(\.captureID) == [
                 second, first,
             ])
         #expect(
             try fixture.anthologyDAO.entries(anthologyID: anthology.id).map(\.sortOrder) == [0, 1])
+        #expect(
+            try fixture.anthologyDAO.entries(anthologyID: anthology.id).map(\.stableSlot) == [0, 1])
+        #expect(try fixture.anthologyDAO.anthology(id: anthology.id)?.nextStableSlot == 2)
+    }
+
+    @Test func laterEntryFailureRollsBackEntireAnthologySeed() throws {
+        let fixture = try Fixture()
+        defer { fixture.removeFiles() }
+        let first = "00000000-0000-0000-0000-000000000001"
+        let second = "00000000-0000-0000-0000-000000000002"
+        let anthologyID = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+        try fixture.captureDAO.saveCapture(fixture.capture(id: first))
+        try fixture.captureDAO.saveCapture(fixture.capture(id: second))
+
+        #expect(throws: (any Error).self) {
+            try fixture.service.createAnthologySeed(
+                title: "Must Roll Back",
+                captureIDs: [first, second, first]
+            )
+        }
+
+        #expect(try fixture.anthologyDAO.anthology(id: anthologyID) == nil)
+        #expect(try fixture.anthologyDAO.entries(anthologyID: anthologyID).isEmpty)
     }
 
     @Test func referencedArticleDeletionReturnsAffectedProjectNames() throws {
@@ -174,6 +198,95 @@ import Testing
 
         #expect(try fixture.captureDAO.capture(id: captureID) == nil)
         #expect(FileManager.default.fileExists(atPath: package.path) == false)
+    }
+
+    @Test func failureBeforeDatabaseCommitRestoresPackageAndRow() throws {
+        let fixture = try Fixture()
+        defer { fixture.removeFiles() }
+        let captureID = "00000000-0000-0000-0000-000000000001"
+        let package = try fixture.createOwnedPackage(id: captureID)
+        try fixture.captureDAO.saveCapture(
+            fixture.capture(id: captureID, packagePath: package.path))
+        let service = fixture.makeService { point, _ in
+            if point == .beforeDatabaseCommit {
+                throw DeletionFailure.expected
+            }
+        }
+
+        #expect(throws: DeletionFailure.self) {
+            try service.delete(id: captureID)
+        }
+
+        #expect(try fixture.captureDAO.capture(id: captureID) != nil)
+        #expect(FileManager.default.fileExists(atPath: package.path))
+        #expect(try fixture.deletionQuarantineContents().isEmpty)
+    }
+
+    @Test func failureAfterDatabaseCommitLeavesReconciliableResidue() throws {
+        let fixture = try Fixture()
+        defer { fixture.removeFiles() }
+        let captureID = "00000000-0000-0000-0000-000000000001"
+        let package = try fixture.createOwnedPackage(id: captureID)
+        try fixture.captureDAO.saveCapture(
+            fixture.capture(id: captureID, packagePath: package.path))
+        let service = fixture.makeService { point, _ in
+            if point == .beforeQuarantineCleanup {
+                throw DeletionFailure.expected
+            }
+        }
+
+        try service.delete(id: captureID)
+
+        #expect(try fixture.captureDAO.capture(id: captureID) == nil)
+        #expect(FileManager.default.fileExists(atPath: package.path) == false)
+        #expect(try fixture.deletionQuarantineContents().count == 1)
+
+        #expect(try fixture.service.inboxItems().isEmpty)
+        #expect(try fixture.deletionQuarantineContents().isEmpty)
+    }
+
+    @Test func referenceAppearingBeforeTransactionalDeleteRestoresPackageAndRow() throws {
+        let fixture = try Fixture()
+        defer { fixture.removeFiles() }
+        let captureID = "00000000-0000-0000-0000-000000000001"
+        let package = try fixture.createOwnedPackage(id: captureID)
+        try fixture.captureDAO.saveCapture(
+            fixture.capture(id: captureID, packagePath: package.path))
+        let anthologyDAO = fixture.anthologyDAO
+        let anthology = fixture.anthology(id: "late-reference", title: "Late Reference")
+        let service = fixture.makeService { point, _ in
+            guard point == .beforeDatabaseCommit else { return }
+            try anthologyDAO.save(anthology)
+            _ = try anthologyDAO.addCapture(captureID, to: anthology.id)
+        }
+
+        #expect(throws: ArticleInboxService.Error.self) {
+            try service.delete(id: captureID)
+        }
+
+        #expect(try fixture.captureDAO.capture(id: captureID) != nil)
+        #expect(FileManager.default.fileExists(atPath: package.path))
+        #expect(try fixture.anthologyDAO.entries(anthologyID: anthology.id).count == 1)
+        #expect(try fixture.deletionQuarantineContents().isEmpty)
+    }
+
+    @Test func unrecognizedDeletionResidueFailsClosedWithoutRemovingIt() throws {
+        let fixture = try Fixture()
+        defer { fixture.removeFiles() }
+        let quarantineRoot = fixture.fileStore.root.appending(
+            path: ".DeletionQuarantine", directoryHint: .isDirectory)
+        let unrecognized = quarantineRoot.appending(
+            path: "not-a-deletion-residue", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: unrecognized, withIntermediateDirectories: true)
+        let marker = unrecognized.appending(path: "keep.txt")
+        try Data("keep".utf8).write(to: marker)
+
+        #expect(throws: ArticleInboxService.Error.self) {
+            try fixture.service.inboxItems()
+        }
+
+        #expect(FileManager.default.fileExists(atPath: marker.path))
     }
 
     @Test func forgedPackagePathFailsClosedWithoutDeletingFileOrDatabase() throws {
@@ -266,19 +379,45 @@ private final class Fixture {
     }
 
     func saveAnthology(id: String, title: String, captureID: String) throws {
-        try anthologyDAO.save(
-            AnthologyRecord(
-                id: id,
-                title: title,
-                subtitle: nil,
-                creator: "Echo",
-                coverPath: nil,
-                nextStableSlot: 0,
-                latestBuildRevision: 0,
-                createdAt: "2026-07-28T12:01:00Z",
-                modifiedAt: "2026-07-28T12:01:00Z"
-            ))
+        try anthologyDAO.save(anthology(id: id, title: title))
         _ = try anthologyDAO.addCapture(captureID, to: id)
+    }
+
+    func anthology(id: String, title: String) -> AnthologyRecord {
+        AnthologyRecord(
+            id: id,
+            title: title,
+            subtitle: nil,
+            creator: "Echo",
+            coverPath: nil,
+            nextStableSlot: 0,
+            latestBuildRevision: 0,
+            createdAt: "2026-07-28T12:01:00Z",
+            modifiedAt: "2026-07-28T12:01:00Z"
+        )
+    }
+
+    func makeService(
+        deletionHook: @escaping @Sendable (ArticleInboxService.DeletionPoint, URL) throws -> Void
+    ) -> ArticleInboxService {
+        ArticleInboxService(
+            captureDAO: captureDAO,
+            anthologyDAO: anthologyDAO,
+            fileStore: fileStore,
+            now: { Date(timeIntervalSince1970: 1_775_000_000) },
+            makeID: { UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")! },
+            deletionHook: deletionHook
+        )
+    }
+
+    func deletionQuarantineContents() throws -> [URL] {
+        let root = fileStore.root.appending(
+            path: ".DeletionQuarantine", directoryHint: .isDirectory)
+        guard FileManager.default.fileExists(atPath: root.path) else { return [] }
+        return try FileManager.default.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+        )
     }
 
     func capture(
@@ -311,4 +450,8 @@ private final class Fixture {
             modifiedAt: capturedAt
         )
     }
+}
+
+private nonisolated enum DeletionFailure: Error {
+    case expected
 }

@@ -25,6 +25,19 @@ nonisolated enum LibraryMode: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+nonisolated enum LibraryModePickerPresentation: Equatable, Sendable {
+    case segmented
+    case menu
+}
+
+nonisolated enum LibraryModePickerPolicy {
+    static let availableModes = LibraryMode.allCases
+
+    static func presentation(isAccessibilitySize: Bool) -> LibraryModePickerPresentation {
+        isAccessibilitySize ? .menu : .segmented
+    }
+}
+
 nonisolated enum ArticleInboxPresentationState: String, Equatable, Sendable {
     case ready
     case reviewSuggested
@@ -59,6 +72,17 @@ nonisolated struct ArticleInboxItem: Equatable, Hashable, Identifiable, Sendable
     let warnings: [String]
     let isPossibleDuplicate: Bool
     let keepBothAvailable: Bool
+
+    var warningOccurrences: [ArticleWarningOccurrence] {
+        warnings.enumerated().map { offset, warning in
+            ArticleWarningOccurrence(id: offset, text: warning)
+        }
+    }
+}
+
+nonisolated struct ArticleWarningOccurrence: Equatable, Identifiable, Sendable {
+    let id: Int
+    let text: String
 }
 
 nonisolated enum ArticleDeletionImpact: Equatable, Sendable {

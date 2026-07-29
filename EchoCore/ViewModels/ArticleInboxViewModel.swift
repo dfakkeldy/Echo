@@ -2,6 +2,25 @@
 import Foundation
 import Observation
 
+nonisolated struct ArticleInboxReloadResult: Sendable {
+    let articles: [ArticleInboxItem]
+    let anthologies: [AnthologyRecord]
+}
+
+nonisolated struct ArticleInboxReloadWorker: Sendable {
+    private let operation: @Sendable () throws -> ArticleInboxReloadResult
+
+    init(operation: @escaping @Sendable () throws -> ArticleInboxReloadResult) {
+        self.operation = operation
+    }
+
+    func load() async throws -> ArticleInboxReloadResult {
+        try await Task.detached(priority: .userInitiated) {
+            try operation()
+        }.value
+    }
+}
+
 @MainActor
 @Observable
 final class ArticleInboxViewModel {
@@ -12,22 +31,27 @@ final class ArticleInboxViewModel {
     var errorMessage: String?
 
     @ObservationIgnored private let service: ArticleInboxService
-    @ObservationIgnored private let drainStaging: @MainActor () throws -> Void
+    @ObservationIgnored private let reloadWorker: ArticleInboxReloadWorker
 
     init(db: DatabaseService, fileStore: ArticleWorkshopFileStore) {
         let captureDAO = ArticleCaptureDAO(db: db.writer)
-        service = ArticleInboxService(
+        let service = ArticleInboxService(
             captureDAO: captureDAO,
             anthologyDAO: AnthologyDAO(db: db.writer),
             fileStore: fileStore
         )
-        drainStaging = {
+        self.service = service
+        reloadWorker = ArticleInboxReloadWorker {
             let stagingRoot = try FileLocations.articleCaptureStagingDirectory()
             try ArticleInboxIngestionService(
                 captureDAO: captureDAO,
                 fileStore: fileStore,
                 stagingRoot: stagingRoot
             ).drainStaging()
+            return ArticleInboxReloadResult(
+                articles: try service.inboxItems(),
+                anthologies: try service.anthologies()
+            )
         }
     }
 
@@ -37,22 +61,34 @@ final class ArticleInboxViewModel {
 
     init(
         service: ArticleInboxService,
-        drainStaging: @escaping @MainActor () throws -> Void
+        drainStaging: @escaping @Sendable () throws -> Void
     ) {
         self.service = service
-        self.drainStaging = drainStaging
+        reloadWorker = ArticleInboxReloadWorker {
+            try drainStaging()
+            return ArticleInboxReloadResult(
+                articles: try service.inboxItems(),
+                anthologies: try service.anthologies()
+            )
+        }
+    }
+
+    init(
+        service: ArticleInboxService,
+        reloadWorker: ArticleInboxReloadWorker
+    ) {
+        self.service = service
+        self.reloadWorker = reloadWorker
     }
 
     func reload() async {
         isImporting = true
         defer { isImporting = false }
         do {
-            try drainStaging()
-            let loadedArticles = try service.inboxItems()
-            let loadedAnthologies = try service.anthologies()
-            articles = loadedArticles
-            anthologies = loadedAnthologies
-            selectedIDs.formIntersection(loadedArticles.map(\.id))
+            let result = try await reloadWorker.load()
+            articles = result.articles
+            anthologies = result.anthologies
+            selectedIDs.formIntersection(result.articles.map(\.id))
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -87,6 +123,8 @@ final class ArticleInboxViewModel {
             try await Task.detached {
                 try deletionService.delete(id: id)
             }.value
+            articles.removeAll { $0.id == id }
+            selectedIDs.remove(id)
             await reload()
         } catch {
             errorMessage = error.localizedDescription
