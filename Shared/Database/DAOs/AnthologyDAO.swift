@@ -17,7 +17,20 @@ nonisolated struct AnthologyDAO {
     func save(_ anthology: AnthologyRecord) throws {
         var anthology = anthology
         try db.write { db in
-            try anthology.save(db)
+            _ = try anthology.upsertAndFetch(
+                db,
+                onConflict: ["id"],
+                updating: .noColumnUnlessSpecified,
+                doUpdate: { excluded in
+                    [
+                        Column("title").set(to: excluded[Column("title")]),
+                        Column("subtitle").set(to: excluded[Column("subtitle")]),
+                        Column("creator").set(to: excluded[Column("creator")]),
+                        Column("cover_path").set(to: excluded[Column("cover_path")]),
+                        Column("modified_at").set(to: excluded[Column("modified_at")]),
+                    ]
+                }
+            )
         }
     }
 

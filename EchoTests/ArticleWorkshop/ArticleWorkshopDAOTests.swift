@@ -90,6 +90,28 @@ struct ArticleWorkshopDAOTests {
         #expect(try dao.latestSuccessfulBuild(anthologyID: "anthology-1") == successfulBuild)
     }
 
+    @Test func savingStaleAnthologyDoesNotRegressManagedCounters() throws {
+        let service = try DatabaseService(inMemory: ())
+        let captureDAO = ArticleCaptureDAO(db: service.writer)
+        let anthologyDAO = AnthologyDAO(db: service.writer)
+        let staleAnthology = anthology("anthology-1")
+        try anthologyDAO.save(staleAnthology)
+        try captureDAO.saveCapture(capture("capture-a", digest: "a"))
+        try captureDAO.saveCapture(capture("capture-b", digest: "b"))
+
+        let entryA = try anthologyDAO.addCapture("capture-a", to: staleAnthology.id)
+        try anthologyDAO.removeEntry(id: entryA.id)
+        try anthologyDAO.saveBuild(build(id: "build-5", revision: 5, status: "succeeded"))
+
+        try anthologyDAO.save(staleAnthology)
+
+        let entryB = try anthologyDAO.addCapture("capture-b", to: staleAnthology.id)
+        #expect(entryB.stableSlot == 1)
+        let savedAnthology = try #require(try anthologyDAO.anthology(id: staleAnthology.id))
+        #expect(savedAnthology.nextStableSlot == 2)
+        #expect(savedAnthology.latestBuildRevision == 5)
+    }
+
     private func capture(_ id: String, digest: String) -> ArticleCaptureRecord {
         ArticleCaptureRecord(
             id: id,
