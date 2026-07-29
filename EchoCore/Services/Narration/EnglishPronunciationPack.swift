@@ -17,6 +17,7 @@ nonisolated struct EnglishPronunciationPack: Equatable, Sendable {
     fileprivate static let maximumSourceCount = 16
     fileprivate static let maximumLicenseCount = 16
     fileprivate static let maximumAcknowledgmentCount = 32
+    fileprivate static let maximumGenerationReportCount = 1_000_000
     fileprivate static let maximumNormalizedWordByteCount = 128
 
     struct SourceSnapshot: Codable, Equatable, Sendable {
@@ -290,6 +291,15 @@ private extension EnglishPronunciationPack {
         let generationTimestamp: String
         let semanticIdentityPayload: SemanticIdentityPayload
         let entries: [String: [Candidate]]
+        let report: GenerationReport
+    }
+
+    nonisolated struct GenerationReport: Codable, Equatable {
+        let existingGold: Int
+        let existingSilver: Int
+        let ambiguous: Int
+        let incompatible: Int
+        let imported: Int
     }
 
     nonisolated struct SourceProjection: Codable, Equatable {
@@ -350,6 +360,18 @@ private extension EnglishPronunciationPack {
             manifest.requiredAcknowledgments.count <= maximumAcknowledgmentCount
         else {
             throw ValidationError.invalid("aggregate count")
+        }
+        let reportCounts = [
+            manifest.report.existingGold,
+            manifest.report.existingSilver,
+            manifest.report.ambiguous,
+            manifest.report.incompatible,
+            manifest.report.imported,
+        ]
+        guard reportCounts.allSatisfy({
+            (0...maximumGenerationReportCount).contains($0)
+        }) else {
+            throw ValidationError.invalid("generation report")
         }
 
         let sourceIDs = manifest.sources.map(\.sourceID)
@@ -433,6 +455,14 @@ private extension EnglishPronunciationPack {
         }
         guard manifest.candidateCount == actualCandidateCount else {
             throw ValidationError.invalid("candidate count")
+        }
+        let actualAmbiguousCount = manifest.entries.values.count {
+            $0.count > 1
+        }
+        guard manifest.report.imported == manifest.entryCount,
+            manifest.report.ambiguous == actualAmbiguousCount
+        else {
+            throw ValidationError.invalid("generation report")
         }
 
         let entriesDigest = "sha256:" + sha256Hex(try canonicalData(manifest.entries))

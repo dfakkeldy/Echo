@@ -192,6 +192,105 @@ import Testing
         }
     }
 
+    @Test func everyReportFieldRequiresABoundedIntegerValue() throws {
+        let fields = [
+            "existingGold",
+            "existingSilver",
+            "ambiguous",
+            "incompatible",
+            "imported",
+        ]
+        let wrongTypes: [Any] = [
+            ["nested": ["value"]],
+            [0, 1],
+            "1",
+            true,
+            NSNull(),
+            1.5,
+        ]
+
+        for field in fields {
+            for value in wrongTypes {
+                let data = try Self.mutated { root in
+                    var report = root["report"] as! [String: Any]
+                    report[field] = value
+                    root["report"] = report
+                }
+                #expect(
+                    throws: (any Error).self,
+                    "Expected \(field) to reject \(String(describing: value))"
+                ) {
+                    _ = try EnglishPronunciationPack(data: data)
+                }
+            }
+
+            let negative = try Self.mutated { root in
+                var report = root["report"] as! [String: Any]
+                report[field] = -1
+                root["report"] = report
+            }
+            #expect(throws: (any Error).self, "Expected \(field) to reject -1") {
+                _ = try EnglishPronunciationPack(data: negative)
+            }
+
+            let unreasonable = try Self.mutated { root in
+                var report = root["report"] as! [String: Any]
+                report[field] = Int.max
+                root["report"] = report
+            }
+            #expect(
+                throws: (any Error).self,
+                "Expected \(field) to reject an unreasonably large integer"
+            ) {
+                _ = try EnglishPronunciationPack(data: unreasonable)
+            }
+        }
+
+        let overflowing = Self.replacingFirst(
+            #""existingGold":0"#,
+            with: #""existingGold":9223372036854775808"#)
+        #expect(throws: (any Error).self) {
+            _ = try EnglishPronunciationPack(data: overflowing)
+        }
+    }
+
+    @Test func reportImportedAndAmbiguousCountsMatchLoadedEntries() throws {
+        let inconsistentReports = [
+            try Self.mutated { root in
+                var report = root["report"] as! [String: Any]
+                report["imported"] = 1
+                root["report"] = report
+            },
+            try Self.mutated { root in
+                var report = root["report"] as! [String: Any]
+                report["ambiguous"] = 0
+                root["report"] = report
+            },
+        ]
+
+        for data in inconsistentReports {
+            #expect(throws: (any Error).self) {
+                _ = try EnglishPronunciationPack(data: data)
+            }
+        }
+    }
+
+    @Test func reportCountersRemainOutsideSemanticPackIdentity() throws {
+        let original = try EnglishPronunciationPack(data: Data(Self.validPackJSON.utf8))
+        let changedReport = try Self.mutated { root in
+            var report = root["report"] as! [String: Any]
+            report["existingGold"] = 7
+            report["existingSilver"] = 8
+            report["incompatible"] = 9
+            root["report"] = report
+        }
+
+        let changed = try EnglishPronunciationPack(data: changedReport)
+
+        #expect(changed.packVersion == original.packVersion)
+        #expect(changed.normalizedDataSHA256 == original.normalizedDataSHA256)
+    }
+
     @Test func malformedStringsAndNestingFailBeforeTypedDecoding() {
         let malformed = [
             Data(#"{"candidateCount":3,"broken":"unterminated}"#.utf8),
