@@ -142,6 +142,40 @@ nonisolated enum HomographPronunciationResolver {
         rewrite(to: text, blockID: "").text
     }
 
+    /// Exposes the existing grammatical rule result as independent evidence.
+    /// It never rewrites text and has no model input or model-selected value.
+    static func contextualAnalysis(
+        in text: String,
+        wordStart: Int
+    ) -> ContextualDeterministicAnalysis {
+        let tokens = tokens(in: text)
+        for index in tokens.indices {
+            let token = tokens[index]
+            guard !token.isAuthoredLinkDisplay,
+                !isHyphenated(token.range, in: text),
+                let family = ContextualPronunciationFamilies.family(for: token.lowercased),
+                let wordSpan = PronunciationAuditContext.wordSpan(
+                    containing: token.range,
+                    in: text),
+                wordSpan.contains(wordStart)
+            else {
+                continue
+            }
+            guard let resolution = resolution(for: token, at: index, tokens: tokens),
+                let candidateID = family.candidates.first(where: {
+                    $0.ipa == resolution.ipa
+                })?.candidateID
+            else {
+                return .abstained
+            }
+            return ContextualDeterministicAnalysis(
+                candidateID: candidateID,
+                ruleID: resolution.ruleID,
+                strength: deterministicStrength(for: resolution.ruleID))
+        }
+        return .abstained
+    }
+
     static func rewrite(to text: String, blockID: String) -> PronunciationRewriteResult {
         let tokens = tokens(in: text)
         guard !tokens.isEmpty else {
@@ -238,6 +272,15 @@ nonisolated enum HomographPronunciationResolver {
         default:
             return nil
         }
+    }
+
+    /// Phase 2 promotes only the exact satisfied-content construction. Existing
+    /// lexical cue rules remain useful shadow evidence but are conservatively
+    /// advisory until their families complete corpus qualification.
+    private static func deterministicStrength(
+        for ruleID: String
+    ) -> DeterministicRuleStrength {
+        ruleID == "homograph.content.adjective.copula" ? .definitive : .advisory
     }
 
     private static func readResolution(at index: Int, tokens: [Token]) -> Resolution? {

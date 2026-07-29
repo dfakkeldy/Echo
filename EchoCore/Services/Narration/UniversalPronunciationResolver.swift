@@ -444,6 +444,25 @@ nonisolated enum UniversalPronunciationResolver {
         "'d", "'ll", "'m", "n't", "'re", "'s", "'ve",
     ]
 
+    /// Reuses the morphology resolver's versioned capitalization policy for
+    /// other pronunciation discovery passes. Ranges must be in source order.
+    static func properNameRiskFlags(
+        in source: String,
+        candidateRanges: [Range<String.Index>]
+    ) -> [Bool] {
+        guard !candidateRanges.isEmpty else { return [] }
+        let index = ProperNameIndex(
+            source: source,
+            candidateRanges: candidateRanges)
+        var inspectionCount = index.inspectionCount
+        return candidateRanges.map { range in
+            index.isProperNameRisk(
+                sourceWord: String(source[range]),
+                sourceRange: range,
+                inspectionCount: &inspectionCount)
+        }
+    }
+
     static func morphologyCandidatePackVersion(
         for pack: EnglishPronunciationPack,
         ruleIDs: [String] = DerivationRule.allCases.map(\.rawValue),

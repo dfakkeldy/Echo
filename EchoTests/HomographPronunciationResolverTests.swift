@@ -4,6 +4,37 @@ import Testing
 @testable import Echo
 
 @Suite struct HomographPronunciationResolverTests {
+    @Test func contextualAnalysisExposesExactSatisfiedRuleWithoutChangingRewriteBehavior() {
+        let source = "I am content with the result."
+
+        let analysis = HomographPronunciationResolver.contextualAnalysis(
+            in: source,
+            wordStart: 2)
+
+        #expect(analysis.candidateID == "content.satisfied")
+        #expect(analysis.ruleID == "homograph.content.adjective.copula")
+        #expect(analysis.strength == .definitive)
+        #expect(
+            HomographPronunciationResolver.apply(to: source)
+                == "I am [content](/kəntˈɛnt/) with the result.")
+    }
+
+    @Test func contextualAnalysisClassifiesCueHeuristicAndAbstentionIndependently() {
+        let advisory = HomographPronunciationResolver.contextualAnalysis(
+            in: "I read the book yesterday.",
+            wordStart: 1)
+        let abstained = HomographPronunciationResolver.contextualAnalysis(
+            in: "I read every day.",
+            wordStart: 1)
+
+        #expect(advisory.candidateID == "read.past")
+        #expect(advisory.ruleID == "homograph.read.past.temporal-cue")
+        #expect(advisory.strength == .advisory)
+        #expect(abstained.candidateID == nil)
+        #expect(abstained.ruleID == nil)
+        #expect(abstained.strength == .abstained)
+    }
+
     @Test func structuredResolutionMapsRegexTokensToCanonicalWhitespaceSpan() throws {
         let source = "That can't be where this subject lives."
 
