@@ -147,6 +147,9 @@ final class ArticleCleanupViewModel {
         now: @escaping @Sendable () -> Date = { Date() },
         publishRevision: @escaping ArticleRevisionPublisher
     ) throws {
+        let baselineRecipe = try Self.normalized(
+            baselineRecipe,
+            for: source)
         self.source = source
         recipe = baselineRecipe
         preview = try ArticleRevisionService().apply(
@@ -265,12 +268,30 @@ final class ArticleCleanupViewModel {
     }
 
     private func update(to next: ArticleEditRecipe) {
-        guard let revised = try? revisionService.apply(snapshot: source, recipe: next) else {
+        guard
+            let next = try? Self.normalized(next, for: source),
+            let revised = try? revisionService.apply(snapshot: source, recipe: next)
+        else {
             return
         }
         recipe = next
         preview = revised
         hasUnsavedChanges = next != baselineRecipe
+    }
+
+    nonisolated private static func normalized(
+        _ recipe: ArticleEditRecipe,
+        for source: ArticleSnapshot
+    ) throws -> ArticleEditRecipe {
+        _ = try ArticleRevisionService().apply(
+            snapshot: source,
+            recipe: recipe)
+        var recipe = recipe
+        let excluded = Set(recipe.excludedBlockIDs)
+        recipe.excludedBlockIDs = source.blocks.lazy
+            .map(\.id)
+            .filter(excluded.contains)
+        return recipe
     }
 
     private func canonicalJSONString<T: Encodable>(_ value: T) throws -> String {

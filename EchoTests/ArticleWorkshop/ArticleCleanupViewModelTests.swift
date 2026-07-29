@@ -155,6 +155,48 @@ import Testing
         #expect(viewModel.isExcluded(source.blocks[2].id) == false)
     }
 
+    @Test func normalizesLoadedExclusionsBeforeMetadataOnlySave() throws {
+        let source = cleanupSnapshot()
+        let sink = CleanupRevisionSink()
+        let baseline = ArticleEditRecipe(
+            excludedBlockIDs: [
+                source.blocks[2].id,
+                source.blocks[0].id,
+                source.blocks[2].id,
+            ],
+            trimBeforeBlockID: source.blocks[0].id,
+            trimAfterBlockID: source.blocks[2].id,
+            metadataOverrides: .init(title: "Saved title"))
+        let viewModel = try makeViewModel(
+            source: source,
+            baselineRecipe: baseline,
+            expectedBaseRevisionID: "revision-parent",
+            publishRevision: sink.publish)
+
+        #expect(
+            viewModel.recipe.excludedBlockIDs
+                == [source.blocks[0].id, source.blocks[2].id])
+        #expect(viewModel.recipe.trimBeforeBlockID == source.blocks[0].id)
+        #expect(viewModel.recipe.trimAfterBlockID == source.blocks[2].id)
+        #expect(viewModel.recipe.metadataOverrides == baseline.metadataOverrides)
+        #expect(viewModel.hasUnsavedChanges == false)
+        #expect(sink.publishedRecords.isEmpty)
+
+        viewModel.updateMetadata(.init(title: "Updated title"))
+        let saved = try viewModel.save(deviceName: "Test iPhone")
+        let savedRecipe = try JSONDecoder.articleWorkshop.decode(
+            ArticleEditRecipe.self,
+            from: Data(saved.recipeJSON.utf8))
+
+        #expect(
+            savedRecipe.excludedBlockIDs
+                == [source.blocks[0].id, source.blocks[2].id])
+        #expect(savedRecipe.trimBeforeBlockID == source.blocks[0].id)
+        #expect(savedRecipe.trimAfterBlockID == source.blocks[2].id)
+        #expect(savedRecipe.metadataOverrides.title == "Updated title")
+        #expect(sink.publishedRecords == [saved])
+    }
+
     @Test func loaderUsesCurrentRecipeAndRejectsMalformedOrForeignRevision() async throws {
         let fixture = try CleanupLoaderFixture()
         defer { fixture.removeFiles() }
