@@ -1856,12 +1856,17 @@ private struct FMContextualDecision {
 }
 
 @available(iOS 26, macOS 26, *)
-@frozen
 @Generable
 private enum FMContextualCandidateSlot {
     case a, b, c, d, needsReview
 }
 ```
+
+The fixed-choice enum remains private and source-closed. The active Swift
+compiler warns that `@frozen` has no effect on a non-public enum, so the
+implementation omits that ineffective attribute rather than widening the
+provider's visibility or ABI. Its five cases remain exhaustively mapped and
+tested.
 
 - [ ] Keep static instructions separate from the book-derived prompt:
 
@@ -1909,7 +1914,12 @@ refusal                     → .refusal
 
 - [ ] Preserve an `@unknown default → .unknown` branch. Map a cancellation to `CancellationError` before classifying any SDK error.
 - [ ] If the SDK exposes a dedicated timeout or structured-output parsing error on the active Xcode toolchain, map it to `.timeout` or `.parsing` respectively. Keep those SDK-specific references inside their own availability gate.
-- [ ] The current SDK documents the session limit but does not expose a public per-runtime capacity property. If the source-verified SDK used during implementation adds one, feed that value into batch sizing; otherwise retain the conservative character ceiling plus typed `.contextTooLarge` splitting. Do not inspect private framework state.
+- [ ] The source-verified Xcode 26.6 SDK exposes the public, back-deployed
+  `SystemLanguageModel.contextSize` capacity. Use it as a conservative provider
+  guard and return typed `.contextTooLarge` when the formatted batch exceeds
+  that guard, allowing the Task 7 serial split policy to reduce the batch.
+  Retain the conservative character ceiling and typed runtime overflow handling;
+  do not inspect private framework state.
 - [ ] Do not use a broad catch as the complete policy. A final broad catch may map an otherwise unknown SDK error to `.unknown` after cancellation and all known typed errors have been handled.
 - [ ] Build `ContextualModelRuntime` from platform name, `ProcessInfo.processInfo.operatingSystemVersionString` plus OS build, and a non-user-specific system model/runtime family identifier. If Apple exposes no stable model identifier, use `foundation-models-system-v1`; do not inspect private frameworks.
 
