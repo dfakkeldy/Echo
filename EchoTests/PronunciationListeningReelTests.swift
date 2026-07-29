@@ -10,6 +10,8 @@ import Testing
         word: String,
         ipa: String? = nil,
         ruleID: String? = nil,
+        source: PronunciationAuditDecision.Source = .monitoredLexicon,
+        contextualEvidence: ContextualPronunciationEvidence? = nil,
         range: PronunciationAuditDecision.AudioRange?,
         precision: PronunciationAuditDecision.TimingPrecision?
     ) -> PronunciationAuditDecision {
@@ -22,9 +24,10 @@ import Testing
             sourceContext: "Listen to \(word) in this context",
             selectedIPA: ipa ?? "ipa-\(word)",
             kokoroTokenIDs: [1, 2],
-            source: .monitoredLexicon,
+            source: source,
             ruleID: ruleID ?? "rule.\(word)",
             rationale: "Synthetic reel fixture.",
+            contextualEvidence: contextualEvidence,
             chapterIndex: 0,
             chapterRelativeAudioRange: range,
             bookRelativeAudioRange: range,
@@ -32,6 +35,30 @@ import Testing
     }
 
     private let sourceURL = URL(fileURLWithPath: "/tmp/public-synthetic.m4b")
+
+    private func shadowDisagreementEvidence() -> ContextualPronunciationEvidence {
+        ContextualPronunciationEvidence(
+            occurrenceID: "occurrence-record",
+            familyID: "record",
+            candidatePackVersion: ContextualPronunciationFamilies.candidatePackVersion,
+            submittedCandidateIDs: ["record.noun", "record.verb"],
+            deterministicCandidateID: "record.noun",
+            deterministicRuleID: "record.noun.fixture",
+            deterministicStrength: .definitive,
+            modelCandidateID: "record.verb",
+            modelAbstained: false,
+            modelAvailability: .available,
+            modelFailure: nil,
+            familyState: .shadow,
+            acceptanceReason: .shadowObserved,
+            promptSchemaVersion: ContextualPronunciationFamilies.promptSchemaVersion,
+            platform: "test",
+            osBuild: "test-build",
+            qualifiedRuntimeFamilyID: "test-runtime",
+            humanCandidateID: nil,
+            humanCorrectionScope: nil,
+            isLimited: false)
+    }
 
     @Test func selectionDeduplicatesAfterValidationAndPreservesReadingOrder() {
         let invalidFirst = decision(
@@ -82,13 +109,67 @@ import Testing
         }
     }
 
+    @Test func highRiskContextualSampleDisplacesLowerPriorityWhenBounded() {
+        let lowPriority = (0..<16).map { index in
+            decision(
+                word: "ordinary-\(index)",
+                source: .monitoredLexicon,
+                range: .init(start: Double(index), end: Double(index) + 0.1),
+                precision: .blockAnchorFallback)
+        }
+        let contextual = decision(
+            word: "record",
+            ipa: "ɹəkˈɔɹd",
+            ruleID: "homograph.record.verb",
+            source: .contextualHomograph,
+            contextualEvidence: shadowDisagreementEvidence(),
+            range: .init(start: 20, end: 20.2),
+            precision: .exactSynthesisWord)
+
+        let items = PronunciationListeningReel.exportItems(
+            decisions: lowPriority + [contextual],
+            audiobookURL: sourceURL,
+            sourceDuration: CMTime(seconds: 30, preferredTimescale: 600))
+
+        #expect(items.count == 16)
+        #expect(items.first?.title.contains("record") == true)
+        #expect(items.contains { $0.title.contains("ordinary-15") } == false)
+    }
+
+    @Test func uniquenessRemainsPronunciationSpecificAfterRiskSorting() {
+        let noun = decision(
+            word: "record",
+            ipa: "ɹˈɛkəɹd",
+            ruleID: "homograph.record.noun",
+            range: .init(start: 1, end: 1.2),
+            precision: .exactSynthesisWord)
+        let verb = decision(
+            word: "record",
+            ipa: "ɹəkˈɔɹd",
+            ruleID: "homograph.record.verb",
+            source: .contextualHomograph,
+            contextualEvidence: shadowDisagreementEvidence(),
+            range: .init(start: 2, end: 2.2),
+            precision: .exactSynthesisWord)
+
+        let items = PronunciationListeningReel.exportItems(
+            decisions: [noun, verb],
+            audiobookURL: sourceURL,
+            sourceDuration: CMTime(seconds: 10, preferredTimescale: 600))
+
+        #expect(items.count == 2)
+        #expect(items.contains { $0.title.contains("ɹˈɛkəɹd") })
+        #expect(items.contains { $0.title.contains("ɹəkˈɔɹd") })
+    }
+
     @Test func exactPaddingAndFallbackRangesClampToLoadedAssetDuration() {
         let exactAtStart = decision(
             word: "startable", range: .init(start: 0.1, end: 0.2), precision: .exactSynthesisWord)
         let exactAtEnd = decision(
             word: "verified", range: .init(start: 0.9, end: 1.2), precision: .exactSynthesisWord)
         let fallback = decision(
-            word: "filesystem", range: .init(start: -0.2, end: 0.3), precision: .blockAnchorFallback)
+            word: "filesystem", range: .init(start: -0.2, end: 0.3), precision: .blockAnchorFallback
+        )
 
         let items = PronunciationListeningReel.exportItems(
             decisions: [exactAtStart, exactAtEnd, fallback],
@@ -108,10 +189,12 @@ import Testing
         let decisions = [
             decision(word: "missing", range: nil, precision: .exactSynthesisWord),
             decision(word: "unknown", range: .init(start: 0, end: 1), precision: nil),
-            decision(word: "nan", range: .init(start: .nan, end: 1), precision: .exactSynthesisWord),
+            decision(
+                word: "nan", range: .init(start: .nan, end: 1), precision: .exactSynthesisWord),
             decision(word: "zero", range: .init(start: 1, end: 1), precision: .blockAnchorFallback),
             decision(word: "past", range: .init(start: 2, end: 3), precision: .blockAnchorFallback),
-            decision(word: "good", range: .init(start: 0, end: 0.2), precision: .blockAnchorFallback),
+            decision(
+                word: "good", range: .init(start: 0, end: 0.2), precision: .blockAnchorFallback),
         ]
 
         let items = PronunciationListeningReel.exportItems(
@@ -242,10 +325,11 @@ import Testing
 
         let siblings = try FileManager.default.contentsOfDirectory(
             at: tmp, includingPropertiesForKeys: nil)
-        #expect(Set(siblings.map(\.lastPathComponent)) == [
-            audiobookURL.lastPathComponent,
-            auditURL.lastPathComponent,
-            reelURL.lastPathComponent,
-        ])
+        #expect(
+            Set(siblings.map(\.lastPathComponent)) == [
+                audiobookURL.lastPathComponent,
+                auditURL.lastPathComponent,
+                reelURL.lastPathComponent,
+            ])
     }
 }

@@ -6,22 +6,22 @@ import Testing
 
 @Suite struct PronunciationAuditTests {
     private static let schemaThreeManifestJSON = #"""
-    {
-      "schemaVersion": 3,
-      "renderVersion": 15,
-      "voice": "af_heart",
-      "chapterVoices": {},
-      "coverage": "complete",
-      "legacyChapterIndexes": [],
-      "audiobookFileName": "book.m4b",
-      "audiobookSHA256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "listeningReelFileName": null,
-      "listeningReelSHA256": null,
-      "watchCounts": {},
-      "decisions": [],
-      "diagnostics": []
-    }
-    """#
+        {
+          "schemaVersion": 3,
+          "renderVersion": 15,
+          "voice": "af_heart",
+          "chapterVoices": {},
+          "coverage": "complete",
+          "legacyChapterIndexes": [],
+          "audiobookFileName": "book.m4b",
+          "audiobookSHA256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "listeningReelFileName": null,
+          "listeningReelSHA256": null,
+          "watchCounts": {},
+          "decisions": [],
+          "diagnostics": []
+        }
+        """#
 
     private func decision(
         word: String,
@@ -44,7 +44,9 @@ import Testing
             chapterIndex: chapterIndex,
             chapterRelativeAudioRange: range,
             bookRelativeAudioRange: range.map {
-                .init(start: Double(chapterIndex * 10) + $0.start, end: Double(chapterIndex * 10) + $0.end)
+                .init(
+                    start: Double(chapterIndex * 10) + $0.start,
+                    end: Double(chapterIndex * 10) + $0.end)
             },
             timingPrecision: range == nil ? nil : .exactSynthesisWord)
     }
@@ -62,6 +64,61 @@ import Testing
             fallbackHits: [])
     }
 
+    private func contextualEvidence(
+        availability: ContextualModelAvailability = .available,
+        failure: ContextualModelFailure? = nil
+    ) -> ContextualPronunciationEvidence {
+        ContextualPronunciationEvidence(
+            occurrenceID: "occurrence-record",
+            familyID: "record",
+            candidatePackVersion: ContextualPronunciationFamilies.candidatePackVersion,
+            submittedCandidateIDs: ["record.noun", "record.verb"],
+            deterministicCandidateID: "record.noun",
+            deterministicRuleID: "record.noun.fixture",
+            deterministicStrength: .definitive,
+            modelCandidateID: availability == .available && failure == nil
+                ? "record.verb"
+                : nil,
+            modelAbstained: false,
+            modelAvailability: availability,
+            modelFailure: failure,
+            familyState: .shadow,
+            acceptanceReason: failure != nil
+                ? .shadowModelFailure
+                : availability == .available
+                    ? .shadowObserved
+                    : .shadowModelUnavailable,
+            promptSchemaVersion: ContextualPronunciationFamilies.promptSchemaVersion,
+            platform: "test",
+            osBuild: "test-build",
+            qualifiedRuntimeFamilyID: "test-runtime",
+            humanCandidateID: nil,
+            humanCorrectionScope: nil,
+            isLimited: availability != .available || failure != nil)
+    }
+
+    private func contextualDecision(
+        evidence: ContextualPronunciationEvidence?
+    ) -> PronunciationAuditDecision {
+        PronunciationAuditDecision(
+            blockID: "context",
+            wordStart: 1,
+            wordEnd: 1,
+            normalizedWord: "record",
+            sourceWord: "record",
+            sourceContext: "Please record this bounded fixture",
+            selectedIPA: "ɹəkˈɔɹd",
+            kokoroTokenIDs: [1, 2, 3],
+            source: .contextualHomograph,
+            ruleID: "homograph.record.verb",
+            rationale: "Deterministic production decision.",
+            contextualEvidence: evidence,
+            chapterIndex: 0,
+            chapterRelativeAudioRange: .init(start: 1, end: 1.2),
+            bookRelativeAudioRange: .init(start: 1, end: 1.2),
+            timingPrecision: .exactSynthesisWord)
+    }
+
     @Test func englishKeyNormalizationCanonicalizesInternalCurlyApostrophe() {
         #expect(PronunciationAuditContext.normalizedWord("aujourd'hui") == "aujourd'hui")
         #expect(PronunciationAuditContext.normalizedWord("aujourd’hui") == "aujourd'hui")
@@ -69,7 +126,8 @@ import Testing
     }
 
     @Test func manifestPreservesStableEvidenceAndCountsEveryWatchedWord() {
-        let second = decision(word: "filesystem", ruleID: "override.builtin.filesystem", chapterIndex: 2)
+        let second = decision(
+            word: "filesystem", ruleID: "override.builtin.filesystem", chapterIndex: 2)
         let first = decision(word: "verified", ruleID: "g2p.lexicon.verified", chapterIndex: 0)
         let manifest = PronunciationAuditManifest.make(
             renderVersion: 11,
@@ -204,6 +262,77 @@ import Testing
         #expect(incompleteEvidence.diagnostics == [evidenceDiagnostic])
         #expect(legacy.coverage == .incompleteLegacyCapture)
         #expect(legacy.legacyChapterIndexes == [1, 7])
+    }
+
+    @Test func contextualEvidenceSurvivesMaterializationTimingAndSchemaFourJSON() throws {
+        let evidence = contextualEvidence()
+        let seed = PronunciationDecisionSeed(
+            blockID: "context",
+            wordStart: 1,
+            wordEnd: 1,
+            normalizedWord: "record",
+            sourceWord: "record",
+            sourceContext: "Please record this bounded fixture",
+            selectedIPA: "ɹəkˈɔɹd",
+            source: .contextualHomograph,
+            ruleID: "homograph.record.verb",
+            rationale: "Deterministic production decision.",
+            contextualEvidence: evidence)
+        let decision = seed.materialized(
+            selectedIPA: "ɹəkˈɔɹd",
+            kokoroTokenIDs: [1, 2, 3]
+        )
+        .attachingRenderTiming(
+            chapterIndex: 2,
+            chapterRelativeAudioRange: .init(start: 1, end: 1.2),
+            timingPrecision: .exactSynthesisWord
+        )
+        .attachingBookTiming(chapterIndex: 2, chapterOffset: 10)
+        let manifest = PronunciationAuditManifest.make(
+            renderVersion: NarrationFileNaming.renderVersion,
+            voice: VoiceID("af_heart"),
+            captureCoverage: .complete,
+            legacyChapterIndexes: [],
+            audiobookURL: URL(fileURLWithPath: "/tmp/context.m4b"),
+            reelURL: nil,
+            audiobookSHA256: String(repeating: "a", count: 64),
+            listeningReelSHA256: nil,
+            watchWords: [],
+            decisions: [decision],
+            diagnostics: [])
+        let decoded = try JSONDecoder().decode(
+            PronunciationAuditManifest.self,
+            from: manifest.encoded())
+
+        #expect(decoded.coverage == .complete)
+        #expect(decoded.decisions.first?.contextualEvidence == evidence)
+        #expect(decoded.decisions.first?.selectedIPA == "ɹəkˈɔɹd")
+        #expect(
+            decoded.decisions.first?.bookRelativeAudioRange
+                == .init(start: 11, end: 11.2))
+    }
+
+    @Test func unavailableEnvelopeIsCompleteButMissingCurrentEvidenceIsIncomplete() {
+        let unavailable = contextualDecision(
+            evidence: contextualEvidence(availability: .deviceNotEligible))
+        let missing = contextualDecision(evidence: nil)
+        func manifest(for decision: PronunciationAuditDecision) -> PronunciationAuditManifest {
+            PronunciationAuditManifest.make(
+                renderVersion: NarrationFileNaming.renderVersion,
+                voice: VoiceID("af_heart"),
+                captureCoverage: .complete,
+                legacyChapterIndexes: [],
+                audiobookURL: URL(fileURLWithPath: "/tmp/context.m4b"),
+                reelURL: nil,
+                audiobookSHA256: String(repeating: "a", count: 64),
+                listeningReelSHA256: nil,
+                watchWords: [],
+                decisions: [decision],
+                diagnostics: [])
+        }
+
+        #expect(manifest(for: unavailable).coverage == .complete)
+        #expect(manifest(for: missing).coverage == .incompleteEvidence)
     }
 
     @Test func legacyChapterListWinsOverOtherwiseCompleteOrDiagnosticCoverage() {
@@ -418,8 +547,9 @@ import Testing
 
         #expect(decoded.schemaVersion == 4)
         #expect(decision.candidateID == "morphology.startable.0123456789ab")
-        #expect(decision.candidatePackVersion
-            == "morphology-v1:sha256:" + String(repeating: "a", count: 64))
+        #expect(
+            decision.candidatePackVersion
+                == "morphology-v1:sha256:" + String(repeating: "a", count: 64))
         #expect(decision.derivationBase == "start")
         #expect(decision.derivationRuleID == "morphology.able.exact-base.v1")
         #expect(
@@ -443,14 +573,16 @@ import Testing
             ruleID: "universal.supplemental",
             rationale: "One validated supplemental candidate.",
             candidateID: "cmudict.example.63ea23914424",
-            candidatePackVersion: "sha256:" + String(repeating: "b", count: 64))
-            .materialized(
-                selectedIPA: "ɪɡzˈæmpəl",
-                kokoroTokenIDs: [1, 2, 3])
+            candidatePackVersion: "sha256:" + String(repeating: "b", count: 64)
+        )
+        .materialized(
+            selectedIPA: "ɪɡzˈæmpəl",
+            kokoroTokenIDs: [1, 2, 3])
 
         #expect(decision.candidateID == "cmudict.example.63ea23914424")
-        #expect(decision.candidatePackVersion
-            == "sha256:" + String(repeating: "b", count: 64))
+        #expect(
+            decision.candidatePackVersion
+                == "sha256:" + String(repeating: "b", count: 64))
         #expect(decision.derivationBase == nil)
         #expect(decision.derivationRuleID == nil)
     }

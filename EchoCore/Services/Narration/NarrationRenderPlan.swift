@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
+enum NarrationRenderPlanError: Error, Equatable {
+    case contextualEvidenceIdentityMismatch
+}
+
 struct NarrationRenderPlan: Equatable, Sendable {
     let blocks: [NarrationPlannedBlock]
 
@@ -25,31 +29,32 @@ struct NarrationPlannedBlock: Equatable, Sendable {
     var isSpeakable: Bool { !synthesisChunks.isEmpty }
 
     var pronunciationAuditDiagnostics: [PronunciationAuditDiagnostic] {
-        pronunciationDecisionDiagnostics + synthesisChunks.enumerated().compactMap {
-            chunkIndex, chunk in
-            switch chunk.pronunciationEvidenceValidation {
-            case .matched:
-                return nil
-            case let .mismatch(expectedDisplayText, reconstructedSpokenSurface):
-                return PronunciationAuditDiagnostic(
-                    reason: .spokenSurfaceMismatch,
-                    blockID: blockID,
-                    chunkIndex: chunkIndex,
-                    expectedDisplayText: expectedDisplayText,
-                    reconstructedSpokenSurface: reconstructedSpokenSurface,
-                    fallbackHits: chunk.pronunciationFallbackHits)
-            case let .phonemeSequenceMismatch(finalPhonemes, reconstructedTokenPhonemes):
-                return PronunciationAuditDiagnostic(
-                    reason: .phonemeSequenceMismatch,
-                    blockID: blockID,
-                    chunkIndex: chunkIndex,
-                    expectedDisplayText: chunk.displayText,
-                    reconstructedSpokenSurface: chunk.displayText,
-                    fallbackHits: chunk.pronunciationFallbackHits,
-                    finalPhonemes: finalPhonemes,
-                    reconstructedTokenPhonemes: reconstructedTokenPhonemes)
+        pronunciationDecisionDiagnostics
+            + synthesisChunks.enumerated().compactMap {
+                chunkIndex, chunk in
+                switch chunk.pronunciationEvidenceValidation {
+                case .matched:
+                    return nil
+                case .mismatch(let expectedDisplayText, let reconstructedSpokenSurface):
+                    return PronunciationAuditDiagnostic(
+                        reason: .spokenSurfaceMismatch,
+                        blockID: blockID,
+                        chunkIndex: chunkIndex,
+                        expectedDisplayText: expectedDisplayText,
+                        reconstructedSpokenSurface: reconstructedSpokenSurface,
+                        fallbackHits: chunk.pronunciationFallbackHits)
+                case .phonemeSequenceMismatch(let finalPhonemes, let reconstructedTokenPhonemes):
+                    return PronunciationAuditDiagnostic(
+                        reason: .phonemeSequenceMismatch,
+                        blockID: blockID,
+                        chunkIndex: chunkIndex,
+                        expectedDisplayText: chunk.displayText,
+                        reconstructedSpokenSurface: chunk.displayText,
+                        fallbackHits: chunk.pronunciationFallbackHits,
+                        finalPhonemes: finalPhonemes,
+                        reconstructedTokenPhonemes: reconstructedTokenPhonemes)
+                }
             }
-        }
     }
 }
 
@@ -75,6 +80,8 @@ enum NarrationRenderPlanner {
         blocks: [EPubBlockRecord],
         overrides: PronunciationOverrides,
         pronunciationPack: EnglishPronunciationPack = .empty,
+        contextualEvidence: [ContextualPronunciationKey: ContextualPronunciationEvidence] = [:],
+        requiresContextualEvidence: Bool = false,
         maxChars: Int = 350,
         maxPhonemes: Int = 420
     ) throws -> NarrationRenderPlan {
@@ -90,6 +97,8 @@ enum NarrationRenderPlanner {
             },
             overrides: overrides,
             pronunciationPack: pronunciationPack,
+            contextualEvidence: contextualEvidence,
+            requiresContextualEvidence: requiresContextualEvidence,
             maxChars: maxChars,
             maxPhonemes: maxPhonemes)
     }
@@ -98,6 +107,8 @@ enum NarrationRenderPlanner {
         preparedBlocks: [NarrationPreparedBlock],
         overrides: PronunciationOverrides,
         pronunciationPack: EnglishPronunciationPack = .empty,
+        contextualEvidence: [ContextualPronunciationKey: ContextualPronunciationEvidence] = [:],
+        requiresContextualEvidence: Bool = false,
         maxChars: Int = 350,
         maxPhonemes: Int = 420
     ) throws -> NarrationRenderPlan {
@@ -112,10 +123,12 @@ enum NarrationRenderPlanner {
         }
 
         var planned: [NarrationPlannedBlock] = []
+        var unusedContextualEvidence = contextualEvidence
         for preparedBlock in candidates {
             let block = preparedBlock.block
             let isCode = EPubBlockRecord.Kind(rawValue: block.blockKind) == .code
-            let normalized = isCode
+            let normalized =
+                isCode
                 ? (block.text ?? "")
                 : TextNormalizer.normalize(block.text ?? "")
             if !isCode, isDecorativeSeparator(normalized) {
@@ -178,9 +191,24 @@ enum NarrationRenderPlanner {
                 synthesisChunks.append(chunk)
                 wordBase += chunk.wordCount
             }
+            decisionSeeds = try decisionSeeds.map { seed in
+                let key = ContextualPronunciationKey(
+                    blockID: seed.blockID,
+                    wordStart: seed.wordStart,
+                    wordEnd: seed.wordEnd)
+                guard
+                    let evidence = unusedContextualEvidence.removeValue(
+                        forKey: key)
+                else {
+                    return seed
+                }
+                try validateContextualEvidence(evidence, for: seed)
+                return seed.attachingContextualEvidence(evidence)
+            }
             let pronunciationMaterialization = materializedPronunciationEvidence(
                 from: decisionSeeds,
-                synthesisChunks: synthesisChunks)
+                synthesisChunks: synthesisChunks,
+                requiresContextualEvidence: requiresContextualEvidence)
             planned.append(
                 NarrationPlannedBlock(
                     blockID: block.id,
@@ -191,6 +219,9 @@ enum NarrationRenderPlanner {
                     trailingSilence: nil))
         }
 
+        guard unusedContextualEvidence.isEmpty else {
+            throw NarrationRenderPlanError.contextualEvidenceIdentityMismatch
+        }
         return NarrationRenderPlan(blocks: attachTrailingSilences(to: planned))
     }
 
@@ -204,7 +235,8 @@ enum NarrationRenderPlanner {
 
     static func materializedPronunciationEvidence(
         from seeds: [PronunciationDecisionSeed],
-        synthesisChunks: [PlannedSynthesisChunk]
+        synthesisChunks: [PlannedSynthesisChunk],
+        requiresContextualEvidence: Bool = false
     ) -> PronunciationDecisionMaterialization {
         var decisions: [PronunciationAuditDecision] = []
         var diagnostics: [PronunciationAuditDiagnostic] = []
@@ -249,15 +281,60 @@ enum NarrationRenderPlanner {
                         finalIPA: selection.selectedIPA))
                 continue
             }
-            decisions.append(
-                seed.materialized(
-                    selectedIPA: selection.selectedIPA,
-                    kokoroTokenIDs: selection.kokoroTokenIDs))
+            let decision = seed.materialized(
+                selectedIPA: selection.selectedIPA,
+                kokoroTokenIDs: selection.kokoroTokenIDs)
+            decisions.append(decision)
+            if requiresContextualEvidence,
+                decision.contextualEvidence == nil,
+                PronunciationAuditContext.requiresContextualEvidence(
+                    normalizedWord: decision.normalizedWord,
+                    source: decision.source)
+            {
+                diagnostics.append(
+                    PronunciationAuditDiagnostic(
+                        reason: .missingContextualEvidence,
+                        blockID: decision.blockID,
+                        chunkIndex: selection.chunkIndex,
+                        expectedDisplayText: decision.sourceWord,
+                        reconstructedSpokenSurface: "",
+                        fallbackHits: selection.fallbackHits))
+            }
         }
 
         return PronunciationDecisionMaterialization(
             decisions: decisions,
             diagnostics: diagnostics)
+    }
+
+    private static func validateContextualEvidence(
+        _ evidence: ContextualPronunciationEvidence,
+        for seed: PronunciationDecisionSeed
+    ) throws {
+        guard
+            let family = ContextualPronunciationFamilies.family(
+                for: seed.normalizedWord),
+            evidence.familyID == family.familyID,
+            evidence.candidatePackVersion
+                == ContextualPronunciationFamilies.candidatePackVersion,
+            evidence.submittedCandidateIDs == family.candidates.map(\.candidateID),
+            evidence.familyState == family.state,
+            evidence.promptSchemaVersion
+                == ContextualPronunciationFamilies.promptSchemaVersion
+        else {
+            throw NarrationRenderPlanError.contextualEvidenceIdentityMismatch
+        }
+
+        let submittedCandidateIDs = Set(evidence.submittedCandidateIDs)
+        for candidateID in [
+            evidence.deterministicCandidateID,
+            evidence.modelCandidateID,
+            evidence.humanCandidateID,
+        ].compactMap({ $0 }) {
+            guard submittedCandidateIDs.contains(candidateID) else {
+                throw NarrationRenderPlanError.contextualEvidenceIdentityMismatch
+            }
+        }
     }
 
     private struct FinalPronunciationSelection: Equatable {

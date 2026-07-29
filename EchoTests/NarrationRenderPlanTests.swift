@@ -534,7 +534,8 @@ import Testing
         let noFallbackDiagnostic = plannedBlock.pronunciationAuditDiagnostics[1]
         #expect(noFallbackDiagnostic.chunkIndex == 1)
         #expect(noFallbackDiagnostic.fallbackHits.isEmpty)
-        #expect(renderPlan.pronunciationAuditDiagnostics == plannedBlock.pronunciationAuditDiagnostics)
+        #expect(
+            renderPlan.pronunciationAuditDiagnostics == plannedBlock.pronunciationAuditDiagnostics)
 
         let encoded = try JSONEncoder().encode(renderPlan.pronunciationAuditDiagnostics)
         #expect(
@@ -879,5 +880,203 @@ import Testing
         #expect(
             planned.synthesisChunks.first?.g2pInputText
                 == "A [foobar](/fˈoʊbɑɹ/) appeared.")
+    }
+
+    @Test func contextualEvidenceAttachesOnlyToItsExactSourceDecision() throws {
+        let text = "Please record this."
+        let occurrence = try #require(
+            ContextualPronunciationDiscovery.discover(
+                text: text,
+                blockID: "context"
+            ).first)
+        let evidence = contextualEvidence(for: occurrence, slot: .b)
+        let key = ContextualPronunciationKey(
+            blockID: occurrence.blockID,
+            wordStart: occurrence.wordStart,
+            wordEnd: occurrence.wordEnd)
+
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "context", text: text, index: 0)],
+            overrides: PronunciationOverrides(entries: [:]),
+            contextualEvidence: [key: evidence])
+        let decision = try #require(
+            plan.blocks.first?.pronunciationDecisions.first {
+                $0.normalizedWord == "record"
+            })
+
+        #expect(decision.contextualEvidence == evidence)
+        #expect(decision.selectedIPA == "ɹəkˈɔɹd")
+        #expect(decision.contextualEvidence?.modelCandidateID == "record.verb")
+        #expect(plan.pronunciationAuditDiagnostics.isEmpty)
+    }
+
+    @Test func contextualEvidenceIdentityAndCandidatePackMismatchesFailClosed() throws {
+        let text = "Please record this."
+        let occurrence = try #require(
+            ContextualPronunciationDiscovery.discover(
+                text: text,
+                blockID: "context"
+            ).first)
+        let exactKey = ContextualPronunciationKey(
+            blockID: occurrence.blockID,
+            wordStart: occurrence.wordStart,
+            wordEnd: occurrence.wordEnd)
+        let exact = contextualEvidence(for: occurrence, slot: .a)
+        let malformed: [(ContextualPronunciationKey, ContextualPronunciationEvidence)] = [
+            (
+                ContextualPronunciationKey(
+                    blockID: occurrence.blockID,
+                    wordStart: occurrence.wordStart + 1,
+                    wordEnd: occurrence.wordEnd + 1),
+                exact
+            ),
+            (
+                exactKey,
+                replacingContextualEvidence(exact, familyID: "read")
+            ),
+            (
+                exactKey,
+                replacingContextualEvidence(
+                    exact,
+                    submittedCandidateIDs: ["record.noun"])
+            ),
+            (
+                exactKey,
+                replacingContextualEvidence(
+                    exact,
+                    candidatePackVersion: "context-candidates-unknown")
+            ),
+        ]
+
+        for (key, evidence) in malformed {
+            #expect(throws: NarrationRenderPlanError.self) {
+                _ = try NarrationRenderPlanner.make(
+                    blocks: [block(id: "context", text: text, index: 0)],
+                    overrides: PronunciationOverrides(entries: [:]),
+                    contextualEvidence: [key: evidence])
+            }
+        }
+    }
+
+    @Test func evaluatedContextualDecisionWithoutEvidenceIsDiagnosed() throws {
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "missing", text: "Please record this.", index: 0)],
+            overrides: PronunciationOverrides(entries: [:]),
+            contextualEvidence: [:],
+            requiresContextualEvidence: true)
+
+        let decision = try #require(
+            plan.blocks.first?.pronunciationDecisions.first {
+                $0.normalizedWord == "record"
+            })
+        let diagnostic = try #require(
+            plan.pronunciationAuditDiagnostics.first {
+                $0.reason == .missingContextualEvidence
+            })
+
+        #expect(decision.contextualEvidence == nil)
+        #expect(diagnostic.blockID == "missing")
+        #expect(diagnostic.expectedDisplayText == "record")
+    }
+
+    @Test func frozenRetryAndTimingCopiesPreserveContextWithoutChangingSelectedIPA() throws {
+        let text =
+            "Please record this careful synthetic sentence, then continue with enough words "
+            + "to force the immutable retry plan into more than one bounded slice."
+        let occurrence = try #require(
+            ContextualPronunciationDiscovery.discover(
+                text: text,
+                blockID: "retry"
+            ).first)
+        let evidence = contextualEvidence(for: occurrence, slot: .a)
+        let key = ContextualPronunciationKey(
+            blockID: occurrence.blockID,
+            wordStart: occurrence.wordStart,
+            wordEnd: occurrence.wordEnd)
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "retry", text: text, index: 0)],
+            overrides: PronunciationOverrides(entries: [:]),
+            contextualEvidence: [key: evidence])
+        let planned = try #require(plan.blocks.first)
+        let parent = try #require(planned.synthesisChunks.first)
+        let decision = try #require(
+            planned.pronunciationDecisions.first {
+                $0.normalizedWord == "record"
+            })
+        let retrySlices = parent.frozenRetrySlices(maxPhonemes: 32)
+        try #require(retrySlices.count > 1)
+
+        let timed = decision.attachingRenderTiming(
+            chapterIndex: 2,
+            chapterRelativeAudioRange: .init(start: 1, end: 1.4),
+            timingPrecision: .exactSynthesisWord
+        )
+        .attachingBookTiming(chapterIndex: 2, chapterOffset: 10)
+
+        #expect(retrySlices.map(\.phonemes).joined() == parent.phonemes)
+        #expect(
+            retrySlices.flatMap { $0.phonemeIDs.dropFirst().dropLast() }
+                == parent.phonemeIDs.dropFirst().dropLast())
+        #expect(timed.contextualEvidence == evidence)
+        #expect(timed.selectedIPA == decision.selectedIPA)
+        #expect(timed.kokoroTokenIDs == decision.kokoroTokenIDs)
+        #expect(timed.contextualEvidence?.modelCandidateID == "record.noun")
+    }
+
+    private func contextualEvidence(
+        for occurrence: ContextualPronunciationOccurrence,
+        slot: ContextualCandidateSlot
+    ) -> ContextualPronunciationEvidence {
+        let modelCandidateID = occurrence.candidates.first { $0.slot == slot }?.candidateID
+        return ContextualPronunciationEvidence(
+            occurrenceID: occurrence.occurrenceID,
+            familyID: occurrence.familyID,
+            candidatePackVersion: ContextualPronunciationFamilies.candidatePackVersion,
+            submittedCandidateIDs: occurrence.candidates.map(\.candidateID),
+            deterministicCandidateID: occurrence.deterministicCandidateID,
+            deterministicRuleID: occurrence.deterministicRuleID,
+            deterministicStrength: occurrence.deterministicStrength,
+            modelCandidateID: modelCandidateID,
+            modelAbstained: slot == .needsReview,
+            modelAvailability: .available,
+            modelFailure: nil,
+            familyState: .shadow,
+            acceptanceReason: slot == .needsReview ? .shadowNeedsReview : .shadowObserved,
+            promptSchemaVersion: ContextualPronunciationFamilies.promptSchemaVersion,
+            platform: "test",
+            osBuild: "test-build",
+            qualifiedRuntimeFamilyID: "test-runtime",
+            humanCandidateID: nil,
+            humanCorrectionScope: nil,
+            isLimited: false)
+    }
+
+    private func replacingContextualEvidence(
+        _ evidence: ContextualPronunciationEvidence,
+        familyID: String? = nil,
+        candidatePackVersion: String? = nil,
+        submittedCandidateIDs: [String]? = nil
+    ) -> ContextualPronunciationEvidence {
+        ContextualPronunciationEvidence(
+            occurrenceID: evidence.occurrenceID,
+            familyID: familyID ?? evidence.familyID,
+            candidatePackVersion: candidatePackVersion ?? evidence.candidatePackVersion,
+            submittedCandidateIDs: submittedCandidateIDs ?? evidence.submittedCandidateIDs,
+            deterministicCandidateID: evidence.deterministicCandidateID,
+            deterministicRuleID: evidence.deterministicRuleID,
+            deterministicStrength: evidence.deterministicStrength,
+            modelCandidateID: evidence.modelCandidateID,
+            modelAbstained: evidence.modelAbstained,
+            modelAvailability: evidence.modelAvailability,
+            modelFailure: evidence.modelFailure,
+            familyState: evidence.familyState,
+            acceptanceReason: evidence.acceptanceReason,
+            promptSchemaVersion: evidence.promptSchemaVersion,
+            platform: evidence.platform,
+            osBuild: evidence.osBuild,
+            qualifiedRuntimeFamilyID: evidence.qualifiedRuntimeFamilyID,
+            humanCandidateID: evidence.humanCandidateID,
+            humanCorrectionScope: evidence.humanCorrectionScope,
+            isLimited: evidence.isLimited)
     }
 }

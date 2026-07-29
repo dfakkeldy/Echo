@@ -94,6 +94,7 @@ final class NarrationService {
     private let pronunciationOccurrenceOverrides: () -> PronunciationOccurrenceOverrides
     /// Immutable pronunciation source snapshot shared by planning and cache identity.
     private let pronunciationPack: EnglishPronunciationPack
+    private let contextualPronunciationEvaluator: ContextualPronunciationBatchEvaluator
 
     init(
         db: DatabaseWriter, audiobookID: String, tts: TTSEngine,
@@ -105,6 +106,8 @@ final class NarrationService {
             .empty
         },
         pronunciationPack: EnglishPronunciationPack = .empty,
+        contextualPronunciationEvaluator: @escaping ContextualPronunciationBatchEvaluator =
+            FoundationModelsContextualPronunciationEvaluator.makeBatchEvaluator(),
         fmEnabled: @escaping () -> Bool = {
             UserDefaults.standard.string(forKey: "narrationQAClassifier") ?? "auto" == "auto"
         }
@@ -118,6 +121,7 @@ final class NarrationService {
         self.pronunciationOverrides = pronunciationOverrides
         self.pronunciationOccurrenceOverrides = pronunciationOccurrenceOverrides
         self.pronunciationPack = pronunciationPack
+        self.contextualPronunciationEvaluator = contextualPronunciationEvaluator
         self.fmEnabledProvider = fmEnabled
     }
 
@@ -668,9 +672,7 @@ final class NarrationService {
             var timing = NarrationSynthesisTiming(blockID: plannedBlock.blockID, blockStart: cursor)
             var blockChunkTimings: [(timings: [ChunkWordTiming]?, startInFile: TimeInterval)] = []
             var originalWordBase = 0
-            for (originalChunkIndex, synthesisChunk) in
-                plannedBlock.synthesisChunks.enumerated()
-            {
+            for (originalChunkIndex, synthesisChunk) in plannedBlock.synthesisChunks.enumerated() {
                 try Task.checkCancellation()
                 let identity = OriginalSynthesisChunkIdentity(
                     blockID: plannedBlock.blockID,
@@ -840,10 +842,82 @@ final class NarrationService {
             blocks,
             occurrenceOverrides: occurrenceOverrides,
             fmEnabled: fmEnabled)
+        let contextualOccurrences = preparedBlocks.flatMap { preparedBlock in
+            let block = preparedBlock.block
+            guard let text = block.text,
+                !text.isEmpty,
+                !block.isHidden,
+                EPubBlockRecord.Kind(rawValue: block.blockKind) != .code
+            else {
+                return [ContextualPronunciationOccurrence]()
+            }
+
+            // Dictionary links are applied only to this discovery copy. The
+            // production planner below still owns the actual synthesis rewrite.
+            let discoveryText = overrides.rewrite(
+                to: text,
+                blockID: block.id
+            ).text
+            return ContextualPronunciationDiscovery.discover(
+                text: discoveryText,
+                blockID: block.id)
+        }
+        let contextualEvidence = try await ContextualPronunciationPreflight.run(
+            occurrences: contextualOccurrences,
+            evaluator: contextualPronunciationEvaluator,
+            environment: FoundationModelsContextualPronunciationEvaluator.runtime)
+        let contextualEvidenceByKey = try Self.contextualEvidenceByKey(
+            contextualEvidence,
+            occurrences: contextualOccurrences)
+        try Task.checkCancellation()
         return try NarrationRenderPlanner.make(
             preparedBlocks: preparedBlocks,
             overrides: overrides,
-            pronunciationPack: pronunciationPack)
+            pronunciationPack: pronunciationPack,
+            contextualEvidence: contextualEvidenceByKey,
+            requiresContextualEvidence: true)
+    }
+
+    private nonisolated static func contextualEvidenceByKey(
+        _ evidence: [ContextualPronunciationEvidence],
+        occurrences: [ContextualPronunciationOccurrence]
+    ) throws -> [ContextualPronunciationKey: ContextualPronunciationEvidence] {
+        var occurrencesByID: [String: ContextualPronunciationOccurrence] = [:]
+        occurrencesByID.reserveCapacity(occurrences.count)
+        for occurrence in occurrences {
+            guard
+                occurrencesByID.updateValue(
+                    occurrence,
+                    forKey: occurrence.occurrenceID) == nil
+            else {
+                throw NarrationRenderPlanError.contextualEvidenceIdentityMismatch
+            }
+        }
+
+        guard evidence.count == occurrencesByID.count else {
+            throw NarrationRenderPlanError.contextualEvidenceIdentityMismatch
+        }
+        var evidenceByKey: [ContextualPronunciationKey: ContextualPronunciationEvidence] = [:]
+        evidenceByKey.reserveCapacity(evidence.count)
+        for envelope in evidence {
+            guard
+                let occurrence = occurrencesByID.removeValue(
+                    forKey: envelope.occurrenceID)
+            else {
+                throw NarrationRenderPlanError.contextualEvidenceIdentityMismatch
+            }
+            let key = ContextualPronunciationKey(
+                blockID: occurrence.blockID,
+                wordStart: occurrence.wordStart,
+                wordEnd: occurrence.wordEnd)
+            guard evidenceByKey.updateValue(envelope, forKey: key) == nil else {
+                throw NarrationRenderPlanError.contextualEvidenceIdentityMismatch
+            }
+        }
+        guard occurrencesByID.isEmpty else {
+            throw NarrationRenderPlanError.contextualEvidenceIdentityMismatch
+        }
+        return evidenceByKey
     }
 
     private func prepareBlocksForRenderPlan(
@@ -1064,11 +1138,12 @@ final class NarrationService {
                 }
 
                 if decision.wordStart == decision.wordEnd {
-                    let exactRanges = exactRangesByWord[
-                        BlockWordIdentity(
-                            blockID: decision.blockID,
-                            wordIndex: decision.wordStart)
-                    ] ?? []
+                    let exactRanges =
+                        exactRangesByWord[
+                            BlockWordIdentity(
+                                blockID: decision.blockID,
+                                wordIndex: decision.wordStart)
+                        ] ?? []
                     if exactRanges.count == 1, let exactRange = exactRanges.first {
                         return decision.attachingRenderTiming(
                             chapterIndex: chapterIndex,

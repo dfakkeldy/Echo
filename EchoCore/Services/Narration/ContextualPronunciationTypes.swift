@@ -36,6 +36,12 @@ nonisolated struct ContextualPronunciationOccurrence: Codable, Equatable, Sendab
     let deterministicStrength: DeterministicRuleStrength
 }
 
+nonisolated struct ContextualPronunciationKey: Hashable, Sendable {
+    let blockID: String
+    let wordStart: Int
+    let wordEnd: Int
+}
+
 nonisolated enum ContextualModelAvailability: String, Codable, Equatable, Sendable {
     case available
     case unsupportedOS

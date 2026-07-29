@@ -91,6 +91,51 @@ import Testing
         #expect(plain != fmMode)
     }
 
+    @Test func shadowEvidenceCannotChangeContentSignature() {
+        func evidence(_ modelCandidateID: String) -> ContextualPronunciationEvidence {
+            ContextualPronunciationEvidence(
+                occurrenceID: "occurrence-record",
+                familyID: "record",
+                candidatePackVersion: ContextualPronunciationFamilies.candidatePackVersion,
+                submittedCandidateIDs: ["record.noun", "record.verb"],
+                deterministicCandidateID: "record.noun",
+                deterministicRuleID: "record.noun.fixture",
+                deterministicStrength: .definitive,
+                modelCandidateID: modelCandidateID,
+                modelAbstained: false,
+                modelAvailability: .available,
+                modelFailure: nil,
+                familyState: .shadow,
+                acceptanceReason: .shadowObserved,
+                promptSchemaVersion: ContextualPronunciationFamilies.promptSchemaVersion,
+                platform: "test",
+                osBuild: "test-build",
+                qualifiedRuntimeFamilyID: "test-runtime",
+                humanCandidateID: nil,
+                humanCorrectionScope: nil,
+                isLimited: false)
+        }
+        let sourceBlock = block(id: "b0", text: "Please record this.")
+        func signature(
+            shadowEvidence: ContextualPronunciationEvidence
+        ) -> String {
+            _ = shadowEvidence
+            return NarrationFileNaming.contentSignature(
+                spokenBlocks: [sourceBlock],
+                renderedTexts: ["Please [record](/ɹəkˈɔɹd/) this."],
+                includeLeadOutPad: false,
+                pronunciationPolicySignature:
+                    EnglishPronunciationPack.empty.productionPolicySignature)
+        }
+        let nounEvidence = evidence("record.noun")
+        let verbEvidence = evidence("record.verb")
+
+        #expect(nounEvidence != verbEvidence)
+        #expect(
+            signature(shadowEvidence: nounEvidence)
+                == signature(shadowEvidence: verbEvidence))
+    }
+
     @Test func contentSignatureChangesWhenBlockKindChangesPlannedSilence() {
         let paragraph = block(id: "b0", kind: "paragraph", text: "Chapter title")
         let heading = block(id: "b0", kind: "heading", text: "Chapter title")

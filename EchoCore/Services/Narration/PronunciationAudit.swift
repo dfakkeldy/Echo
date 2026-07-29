@@ -57,6 +57,7 @@ nonisolated struct PronunciationAuditDiagnostic: Codable, Equatable, Sendable {
         case decisionEvidenceMismatch
         case incompleteRender
         case qualityRejected
+        case missingContextualEvidence
     }
 
     let reason: Reason
@@ -179,6 +180,7 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
     let candidatePackVersion: String?
     let derivationBase: String?
     let derivationRuleID: String?
+    let contextualEvidence: ContextualPronunciationEvidence?
     let chapterIndex: Int?
     let chapterRelativeAudioRange: AudioRange?
     let bookRelativeAudioRange: AudioRange?
@@ -200,6 +202,7 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
         candidatePackVersion: String? = nil,
         derivationBase: String? = nil,
         derivationRuleID: String? = nil,
+        contextualEvidence: ContextualPronunciationEvidence? = nil,
         chapterIndex: Int? = nil,
         chapterRelativeAudioRange: AudioRange? = nil,
         bookRelativeAudioRange: AudioRange? = nil,
@@ -220,6 +223,7 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
         self.candidatePackVersion = candidatePackVersion
         self.derivationBase = derivationBase
         self.derivationRuleID = derivationRuleID
+        self.contextualEvidence = contextualEvidence
         self.chapterIndex = chapterIndex
         self.chapterRelativeAudioRange = chapterRelativeAudioRange
         self.bookRelativeAudioRange = bookRelativeAudioRange
@@ -247,6 +251,7 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
             candidatePackVersion: candidatePackVersion,
             derivationBase: derivationBase,
             derivationRuleID: derivationRuleID,
+            contextualEvidence: contextualEvidence,
             chapterIndex: chapterIndex,
             chapterRelativeAudioRange: chapterRelativeAudioRange,
             bookRelativeAudioRange: bookRelativeAudioRange,
@@ -281,6 +286,7 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
             candidatePackVersion: candidatePackVersion,
             derivationBase: derivationBase,
             derivationRuleID: derivationRuleID,
+            contextualEvidence: contextualEvidence,
             chapterIndex: chapterIndex,
             chapterRelativeAudioRange: chapterRelativeAudioRange,
             bookRelativeAudioRange: bookRelativeAudioRange,
@@ -350,7 +356,10 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
             || captureCoverage == .incompleteLegacyCapture
         {
             effectiveCoverage = .incompleteLegacyCapture
-        } else if !diagnostics.isEmpty || captureCoverage == .incompleteEvidence {
+        } else if !diagnostics.isEmpty
+            || Self.hasMissingCurrentContextualEvidence(decisions)
+            || captureCoverage == .incompleteEvidence
+        {
             effectiveCoverage = .incompleteEvidence
         } else {
             effectiveCoverage = .complete
@@ -390,8 +399,9 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
             throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
                 "audiobook filename does not match the manifest")
         }
-        guard try PronunciationArtifactIntegrity.sha256Hex(of: audiobookURL)
-            == audiobookSHA256
+        guard
+            try PronunciationArtifactIntegrity.sha256Hex(of: audiobookURL)
+                == audiobookSHA256
         else {
             throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
                 "audiobook SHA-256 does not match the manifest")
@@ -438,8 +448,9 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
             throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
                 "mixed pronunciation audit requires more than one chapter voice")
         }
-        guard voice == "mixed" || distinctChapterVoices.isEmpty
-            || distinctChapterVoices == Set([voice])
+        guard
+            voice == "mixed" || distinctChapterVoices.isEmpty
+                || distinctChapterVoices == Set([voice])
         else {
             throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
                 "uniform pronunciation audit disagrees with chapter voices")
@@ -480,6 +491,54 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
                 }
             default:
                 break
+            }
+            if let evidence = decision.contextualEvidence {
+                try Self.validateContextualEvidence(
+                    evidence,
+                    for: decision.normalizedWord)
+            }
+        }
+    }
+
+    private static func hasMissingCurrentContextualEvidence(
+        _ decisions: [PronunciationAuditDecision]
+    ) -> Bool {
+        decisions.contains { decision in
+            decision.contextualEvidence == nil
+                && PronunciationAuditContext.requiresContextualEvidence(
+                    normalizedWord: decision.normalizedWord,
+                    source: decision.source)
+        }
+    }
+
+    private static func validateContextualEvidence(
+        _ evidence: ContextualPronunciationEvidence,
+        for normalizedWord: String
+    ) throws {
+        guard
+            let family = ContextualPronunciationFamilies.family(
+                for: normalizedWord),
+            evidence.familyID == family.familyID,
+            evidence.candidatePackVersion
+                == ContextualPronunciationFamilies.candidatePackVersion,
+            evidence.submittedCandidateIDs == family.candidates.map(\.candidateID),
+            evidence.familyState == family.state,
+            evidence.promptSchemaVersion
+                == ContextualPronunciationFamilies.promptSchemaVersion
+        else {
+            throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                "contextual pronunciation evidence is incomplete")
+        }
+
+        let submittedCandidateIDs = Set(evidence.submittedCandidateIDs)
+        for candidateID in [
+            evidence.deterministicCandidateID,
+            evidence.modelCandidateID,
+            evidence.humanCandidateID,
+        ].compactMap({ $0 }) {
+            guard submittedCandidateIDs.contains(candidateID) else {
+                throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                    "contextual pronunciation candidate is unknown")
             }
         }
     }
@@ -538,20 +597,12 @@ extension PronunciationAuditManifest {
         let storedCoverage = try container.decode(
             PronunciationAuditCoverage.self,
             forKey: .coverage)
-        let effectiveCoverage: PronunciationAuditCoverage
-        if schemaVersion == 3, storedCoverage == .complete {
-            effectiveCoverage = .incompleteEvidence
-        } else {
-            effectiveCoverage = storedCoverage
-        }
-
         self.schemaVersion = schemaVersion
         renderVersion = try container.decode(Int.self, forKey: .renderVersion)
         voice = try container.decode(String.self, forKey: .voice)
         chapterVoices = try container.decode(
             [String: String].self,
             forKey: .chapterVoices)
-        coverage = effectiveCoverage
         legacyChapterIndexes = try container.decode(
             [Int].self,
             forKey: .legacyChapterIndexes)
@@ -576,6 +627,16 @@ extension PronunciationAuditManifest {
         diagnostics = try container.decode(
             [PronunciationAuditDiagnostic].self,
             forKey: .diagnostics)
+        if storedCoverage == .incompleteLegacyCapture {
+            coverage = .incompleteLegacyCapture
+        } else if schemaVersion == 3
+            || !diagnostics.isEmpty
+            || Self.hasMissingCurrentContextualEvidence(decisions)
+        {
+            coverage = .incompleteEvidence
+        } else {
+            coverage = storedCoverage
+        }
         try validateFields()
     }
 
@@ -618,6 +679,7 @@ nonisolated struct PronunciationDecisionSeed: Equatable, Sendable {
     let candidatePackVersion: String?
     let derivationBase: String?
     let derivationRuleID: String?
+    let contextualEvidence: ContextualPronunciationEvidence?
 
     init(
         blockID: String,
@@ -633,7 +695,8 @@ nonisolated struct PronunciationDecisionSeed: Equatable, Sendable {
         candidateID: String? = nil,
         candidatePackVersion: String? = nil,
         derivationBase: String? = nil,
-        derivationRuleID: String? = nil
+        derivationRuleID: String? = nil,
+        contextualEvidence: ContextualPronunciationEvidence? = nil
     ) {
         self.blockID = blockID
         self.wordStart = wordStart
@@ -649,6 +712,7 @@ nonisolated struct PronunciationDecisionSeed: Equatable, Sendable {
         self.candidatePackVersion = candidatePackVersion
         self.derivationBase = derivationBase
         self.derivationRuleID = derivationRuleID
+        self.contextualEvidence = contextualEvidence
     }
 
     func materialized(
@@ -670,7 +734,29 @@ nonisolated struct PronunciationDecisionSeed: Equatable, Sendable {
             candidateID: candidateID,
             candidatePackVersion: candidatePackVersion,
             derivationBase: derivationBase,
-            derivationRuleID: derivationRuleID)
+            derivationRuleID: derivationRuleID,
+            contextualEvidence: contextualEvidence)
+    }
+
+    func attachingContextualEvidence(
+        _ contextualEvidence: ContextualPronunciationEvidence
+    ) -> PronunciationDecisionSeed {
+        PronunciationDecisionSeed(
+            blockID: blockID,
+            wordStart: wordStart,
+            wordEnd: wordEnd,
+            normalizedWord: normalizedWord,
+            sourceWord: sourceWord,
+            sourceContext: sourceContext,
+            selectedIPA: selectedIPA,
+            source: source,
+            ruleID: ruleID,
+            rationale: rationale,
+            candidateID: candidateID,
+            candidatePackVersion: candidatePackVersion,
+            derivationBase: derivationBase,
+            derivationRuleID: derivationRuleID,
+            contextualEvidence: contextualEvidence)
     }
 }
 
@@ -720,6 +806,24 @@ nonisolated enum PronunciationWatchVocabulary {
 /// Shared source-mapping rules for occurrence, dictionary, and regex rewriters.
 nonisolated enum PronunciationAuditContext {
     private static let contextRadius = 5
+
+    static func requiresContextualEvidence(
+        normalizedWord: String,
+        source: PronunciationAuditDecision.Source
+    ) -> Bool {
+        guard
+            ContextualPronunciationFamilies.family(
+                for: normalizedWord)?.state == .shadow
+        else {
+            return false
+        }
+        switch source {
+        case .occurrenceOverride, .bookOverride, .globalOverride, .builtInOverride:
+            return false
+        default:
+            return true
+        }
+    }
 
     static func canonicalEnglishKeySpelling(_ sourceWord: String) -> String {
         sourceWord.lowercased()
