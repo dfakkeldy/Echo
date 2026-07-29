@@ -158,4 +158,60 @@ import Testing
                     ["record.noun", "record.verb"],
                 ])
     }
+
+    @Test func denseDiscoveryUsesOnePreparedSnapshotAndOneHomographTokenization() {
+        let spellings = ["content", "read", "live", "lives", "record"]
+        let repetitions = 24
+        let source = Array(repeating: spellings, count: repetitions)
+            .flatMap { $0 }
+            .joined(separator: " ")
+        let expectedCount = spellings.count * repetitions
+        var operationCounts = ContextualPronunciationDiscovery.OperationCounts()
+
+        let occurrences = ContextualPronunciationDiscovery.discover(
+            text: source,
+            blockID: "b-dense",
+            operationCounts: &operationCounts)
+
+        #expect(occurrences.count == expectedCount)
+        #expect(operationCounts.sourceSnapshotConstructions == 1)
+        #expect(operationCounts.homographTokenizations == 1)
+        #expect(operationCounts.homographTokenVisits == expectedCount)
+        #expect(operationCounts.candidateSpanLookups == expectedCount)
+        #expect(operationCounts.homographSpanLookups == expectedCount)
+        #expect(operationCounts.sentenceLookups == expectedCount)
+    }
+
+    @Test func unmatchedLinkTailsUseBoundedPreparedLinkInspection() {
+        let source = String(repeating: "[", count: 2_048) + "read"
+        var operationCounts = ContextualPronunciationDiscovery.OperationCounts()
+
+        let occurrences = ContextualPronunciationDiscovery.discover(
+            text: source,
+            blockID: "b-unmatched-links",
+            operationCounts: &operationCounts)
+
+        #expect(occurrences.map(\.targetWord) == ["read"])
+        #expect(operationCounts.sourceLinkInspections <= source.count * 12)
+        #expect(operationCounts.sourceSnapshotConstructions == 1)
+        #expect(operationCounts.homographTokenizations == 1)
+    }
+
+    @Test func preparedSnapshotPreservesMultipleLinksUnicodeAndCRLFCoordinates() {
+        let source =
+            "😀 [lead](/lˈid/) Café.\r\n"
+            + "[record](/ɹˈɛkəɹd/) Read, then read; live lives content record."
+
+        let occurrences = ContextualPronunciationDiscovery.discover(
+            text: source,
+            blockID: "b-unicode-links-crlf")
+
+        #expect(
+            occurrences.map(\.targetWord)
+                == ["read", "live", "lives", "content", "record"])
+        #expect(occurrences.map(\.wordStart) == [6, 7, 8, 9, 10])
+        #expect(occurrences.map(\.wordEnd) == [6, 7, 8, 9, 10])
+        #expect(Set(occurrences.map(\.occurrenceID)).count == occurrences.count)
+        #expect(occurrences.allSatisfy { !$0.targetSentence.contains("\r") })
+    }
 }

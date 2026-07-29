@@ -4,6 +4,32 @@ import Testing
 @testable import Echo
 
 @Suite struct HomographPronunciationResolverTests {
+    @Test func contextualBatchMatchesSingleAnalysisWithOneTokenization() {
+        let source = "I am content with this. I read it yesterday. I read every day."
+        let wordStarts = [2, 6, 10]
+        var operationCounts =
+            HomographPronunciationResolver.ContextualAnalysisOperationCounts()
+
+        let batch = HomographPronunciationResolver.contextualAnalyses(
+            in: source,
+            wordStarts: wordStarts,
+            operationCounts: &operationCounts)
+
+        for wordStart in wordStarts {
+            #expect(
+                batch[wordStart]
+                    == HomographPronunciationResolver.contextualAnalysis(
+                        in: source,
+                        wordStart: wordStart))
+        }
+        #expect(batch[2]?.strength == .definitive)
+        #expect(batch[6]?.strength == .advisory)
+        #expect(batch[10]?.strength == .abstained)
+        #expect(operationCounts.tokenizations == 1)
+        #expect(operationCounts.tokenVisits == 13)
+        #expect(operationCounts.wordSpanLookups == 3)
+    }
+
     @Test func contextualAnalysisExposesExactSatisfiedRuleWithoutChangingRewriteBehavior() {
         let source = "I am content with the result."
 

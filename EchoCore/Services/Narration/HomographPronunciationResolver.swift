@@ -23,6 +23,28 @@ nonisolated enum HomographPronunciationResolver {
         let startsSentence: Bool
     }
 
+    struct ContextualAnalysisOperationCounts {
+        var tokenizations = 0
+        var tokenVisits = 0
+        var wordSpanLookups = 0
+    }
+
+    struct ContextualAnalysisContext {
+        private let analysisByWordStart: [Int: ContextualDeterministicAnalysis]
+
+        fileprivate init(
+            analysisByWordStart: [Int: ContextualDeterministicAnalysis]
+        ) {
+            self.analysisByWordStart = analysisByWordStart
+        }
+
+        func analysis(
+            atWordStart wordStart: Int
+        ) -> ContextualDeterministicAnalysis {
+            analysisByWordStart[wordStart] ?? .abstained
+        }
+    }
+
     private enum IPA {
         static let readPast = "ɹˈɛd"
         static let liveAdjective = "lˈIv"
@@ -148,32 +170,78 @@ nonisolated enum HomographPronunciationResolver {
         in text: String,
         wordStart: Int
     ) -> ContextualDeterministicAnalysis {
-        let tokens = tokens(in: text)
+        var operationCounts = ContextualAnalysisOperationCounts()
+        return contextualAnalyses(
+            in: text,
+            wordStarts: [wordStart],
+            operationCounts: &operationCounts
+        )[wordStart] ?? .abstained
+    }
+
+    static func contextualAnalyses(
+        in text: String,
+        wordStarts: [Int],
+        operationCounts: inout ContextualAnalysisOperationCounts
+    ) -> [Int: ContextualDeterministicAnalysis] {
+        let sourceSnapshot =
+            ContextualPronunciationDiscovery.SourceSnapshot(source: text)
+        let context = prepareContextualAnalysis(
+            in: text,
+            sourceSnapshot: sourceSnapshot,
+            operationCounts: &operationCounts)
+        var result: [Int: ContextualDeterministicAnalysis] = [:]
+        result.reserveCapacity(wordStarts.count)
+        for wordStart in wordStarts {
+            result[wordStart] = context.analysis(atWordStart: wordStart)
+        }
+        return result
+    }
+
+    static func prepareContextualAnalysis(
+        in text: String,
+        sourceSnapshot: ContextualPronunciationDiscovery.SourceSnapshot,
+        operationCounts: inout ContextualAnalysisOperationCounts
+    ) -> ContextualAnalysisContext {
+        operationCounts = ContextualAnalysisOperationCounts()
+        let tokens = tokens(
+            in: text,
+            authoredLinks: sourceSnapshot.authoredLinks)
+        operationCounts.tokenizations = 1
+        var analysisByWordStart: [Int: ContextualDeterministicAnalysis] = [:]
         for index in tokens.indices {
+            operationCounts.tokenVisits += 1
             let token = tokens[index]
             guard !token.isAuthoredLinkDisplay,
                 !isHyphenated(token.range, in: text),
-                let family = ContextualPronunciationFamilies.family(for: token.lowercased),
-                let wordSpan = PronunciationAuditContext.wordSpan(
-                    containing: token.range,
-                    in: text),
-                wordSpan.contains(wordStart)
+                let family = ContextualPronunciationFamilies.family(for: token.lowercased)
             else {
                 continue
             }
-            guard let resolution = resolution(for: token, at: index, tokens: tokens),
+
+            operationCounts.wordSpanLookups += 1
+            guard let wordSpan = sourceSnapshot.wordSpan(containing: token.range) else {
+                continue
+            }
+            let analysis: ContextualDeterministicAnalysis
+            if let resolution = resolution(for: token, at: index, tokens: tokens),
                 let candidateID = family.candidates.first(where: {
                     $0.ipa == resolution.ipa
                 })?.candidateID
-            else {
-                return .abstained
+            {
+                analysis = ContextualDeterministicAnalysis(
+                    candidateID: candidateID,
+                    ruleID: resolution.ruleID,
+                    strength: deterministicStrength(for: resolution.ruleID))
+            } else {
+                analysis = .abstained
             }
-            return ContextualDeterministicAnalysis(
-                candidateID: candidateID,
-                ruleID: resolution.ruleID,
-                strength: deterministicStrength(for: resolution.ruleID))
+            for wordStart in wordSpan
+            where analysisByWordStart[wordStart] == nil {
+                analysisByWordStart[wordStart] = analysis
+            }
         }
-        return .abstained
+        return ContextualAnalysisContext(
+            analysisByWordStart: analysisByWordStart)
     }
 
     static func rewrite(to text: String, blockID: String) -> PronunciationRewriteResult {
@@ -597,6 +665,33 @@ nonisolated enum HomographPronunciationResolver {
             plainTextStart = index
         }
 
+        appendTokens(
+            in: plainTextStart..<text.endIndex,
+            of: text,
+            isAuthoredLinkDisplay: false,
+            to: &result)
+        return result
+    }
+
+    private static func tokens(
+        in text: String,
+        authoredLinks: [ContextualPronunciationDiscovery.SourceSnapshot.AuthoredLink]
+    ) -> [Token] {
+        var result: [Token] = []
+        var plainTextStart = text.startIndex
+        for link in authoredLinks {
+            appendTokens(
+                in: plainTextStart..<link.range.lowerBound,
+                of: text,
+                isAuthoredLinkDisplay: false,
+                to: &result)
+            appendTokens(
+                in: link.displayRange,
+                of: text,
+                isAuthoredLinkDisplay: true,
+                to: &result)
+            plainTextStart = link.range.upperBound
+        }
         appendTokens(
             in: plainTextStart..<text.endIndex,
             of: text,

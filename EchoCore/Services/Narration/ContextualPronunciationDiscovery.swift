@@ -6,6 +6,237 @@ import NaturalLanguage
 /// Finds known contextual ambiguities without changing narration text. The
 /// returned sentence window is local evidence for Phase 2 shadow evaluation.
 nonisolated enum ContextualPronunciationDiscovery {
+    struct OperationCounts {
+        var sourceSnapshotConstructions = 0
+        var sourceLinkInspections = 0
+        var homographTokenizations = 0
+        var homographTokenVisits = 0
+        var candidateSpanLookups = 0
+        var homographSpanLookups = 0
+        var sentenceLookups = 0
+    }
+
+    /// One immutable authored-to-display coordinate map per discovery pass.
+    /// Span and sentence lookups use precomputed UTF-16 ranges rather than
+    /// rebuilding markup-free source prefixes for every occurrence.
+    struct SourceSnapshot {
+        struct AuthoredLink {
+            let range: Range<String.Index>
+            let displayRange: Range<String.Index>
+        }
+
+        let displayText: String
+        let displayWords: [String]
+        let authoredLinks: [AuthoredLink]
+        let linkInspections: Int
+
+        private let displayUTF16OffsetBySourceIndex: [String.Index: Int]
+        private let displayWordRanges: [NSRange]
+        private let sentenceRanges: [NSRange]
+
+        init(source: String) {
+            var inspections = 0
+            var nextClosingSquareByIndex: [String.Index: String.Index] = [:]
+            var nextClosingParenthesisByIndex: [String.Index: String.Index] = [:]
+            var nextClosingSquare: String.Index?
+            var nextClosingParenthesis: String.Index?
+            var reverseIndex = source.endIndex
+            while reverseIndex > source.startIndex {
+                inspections += 1
+                reverseIndex = source.index(before: reverseIndex)
+                if source[reverseIndex] == "]" {
+                    nextClosingSquare = reverseIndex
+                } else if source[reverseIndex] == ")" {
+                    nextClosingParenthesis = reverseIndex
+                }
+                if let nextClosingSquare {
+                    nextClosingSquareByIndex[reverseIndex] = nextClosingSquare
+                }
+                if let nextClosingParenthesis {
+                    nextClosingParenthesisByIndex[reverseIndex] =
+                        nextClosingParenthesis
+                }
+            }
+
+            func link(startingAt start: String.Index) -> AuthoredLink? {
+                inspections += 1
+                guard source[start] == "[" else { return nil }
+                let displayStart = source.index(after: start)
+                inspections += 1
+                guard let displayEnd = nextClosingSquareByIndex[displayStart],
+                    displayStart < displayEnd
+                else {
+                    return nil
+                }
+                let openParenthesis = source.index(after: displayEnd)
+                inspections += 1
+                guard openParenthesis < source.endIndex,
+                    source[openParenthesis] == "("
+                else {
+                    return nil
+                }
+                let openingSlash = source.index(after: openParenthesis)
+                inspections += 1
+                guard openingSlash < source.endIndex,
+                    source[openingSlash] == "/"
+                else {
+                    return nil
+                }
+                let ipaStart = source.index(after: openingSlash)
+                inspections += 1
+                guard let closeParenthesis =
+                    nextClosingParenthesisByIndex[ipaStart],
+                    ipaStart < closeParenthesis
+                else {
+                    return nil
+                }
+                let closingSlash = source.index(before: closeParenthesis)
+                inspections += 1
+                guard closingSlash > openingSlash,
+                    source[closingSlash] == "/"
+                else {
+                    return nil
+                }
+                return AuthoredLink(
+                    range: start..<source.index(after: closeParenthesis),
+                    displayRange: displayStart..<displayEnd)
+            }
+
+            var display = ""
+            display.reserveCapacity(source.utf8.count)
+            var offsets: [String.Index: Int] = [:]
+            var links: [AuthoredLink] = []
+            var displayUTF16Offset = 0
+            var sourceIndex = source.startIndex
+            while sourceIndex < source.endIndex {
+                inspections += 1
+                offsets[sourceIndex] = displayUTF16Offset
+                if let link = link(startingAt: sourceIndex) {
+                    let authoredDisplay = source[link.displayRange]
+                    links.append(link)
+                    display.append(contentsOf: authoredDisplay)
+                    displayUTF16Offset += authoredDisplay.utf16.count
+                    sourceIndex = link.range.upperBound
+                    offsets[sourceIndex] = displayUTF16Offset
+                    continue
+                }
+                let character = source[sourceIndex]
+                display.append(character)
+                displayUTF16Offset += String(character).utf16.count
+                sourceIndex = source.index(after: sourceIndex)
+            }
+            offsets[source.endIndex] = displayUTF16Offset
+
+            let wordRanges = WordTokenizer.wordRanges(in: display)
+            let tokenizer = NLTokenizer(unit: .sentence)
+            tokenizer.string = display
+            var sentences: [NSRange] = []
+            tokenizer.enumerateTokens(in: display.startIndex..<display.endIndex) {
+                range, _ in
+                sentences.append(NSRange(range, in: display))
+                return true
+            }
+
+            displayText = display
+            displayWords = wordRanges.map { String(display[$0]) }
+            authoredLinks = links
+            linkInspections = inspections
+            displayUTF16OffsetBySourceIndex = offsets
+            displayWordRanges = wordRanges.map { NSRange($0, in: display) }
+            sentenceRanges = sentences
+        }
+
+        func wordSpan(
+            containing sourceRange: Range<String.Index>
+        ) -> ClosedRange<Int>? {
+            guard let matchRange = displayRange(containing: sourceRange),
+                let first = firstRangeOverlapping(
+                    matchRange,
+                    in: displayWordRanges)
+            else {
+                return nil
+            }
+
+            var low = first
+            var high = displayWordRanges.count
+            while low < high {
+                let middle = (low + high) / 2
+                if displayWordRanges[middle].location < NSMaxRange(matchRange) {
+                    low = middle + 1
+                } else {
+                    high = middle
+                }
+            }
+            return first...(low - 1)
+        }
+
+        func sentenceIndex(
+            containing sourceRange: Range<String.Index>
+        ) -> Int? {
+            guard let matchRange = displayRange(containing: sourceRange) else {
+                return nil
+            }
+            return firstRangeOverlapping(matchRange, in: sentenceRanges)
+        }
+
+        func sentence(before index: Int) -> String? {
+            guard index > sentenceRanges.startIndex else { return nil }
+            return sentenceText(at: index - 1)
+        }
+
+        func sentence(at index: Int) -> String {
+            sentenceText(at: index)
+        }
+
+        func sentence(after index: Int) -> String? {
+            let following = index + 1
+            guard following < sentenceRanges.endIndex else { return nil }
+            return sentenceText(at: following)
+        }
+
+        private func displayRange(
+            containing sourceRange: Range<String.Index>
+        ) -> NSRange? {
+            guard let lower = displayUTF16OffsetBySourceIndex[sourceRange.lowerBound],
+                let upper = displayUTF16OffsetBySourceIndex[sourceRange.upperBound],
+                upper > lower
+            else {
+                return nil
+            }
+            return NSRange(location: lower, length: upper - lower)
+        }
+
+        private func firstRangeOverlapping(
+            _ target: NSRange,
+            in ranges: [NSRange]
+        ) -> Int? {
+            var low = 0
+            var high = ranges.count
+            while low < high {
+                let middle = (low + high) / 2
+                if NSMaxRange(ranges[middle]) <= target.location {
+                    low = middle + 1
+                } else {
+                    high = middle
+                }
+            }
+            guard low < ranges.count,
+                ranges[low].location < NSMaxRange(target)
+            else {
+                return nil
+            }
+            return low
+        }
+
+        private func sentenceText(at index: Int) -> String {
+            guard let range = Range(sentenceRanges[index], in: displayText) else {
+                return ""
+            }
+            return String(displayText[range])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
     private struct SourceToken {
         let text: String
         let normalized: String
@@ -21,9 +252,31 @@ nonisolated enum ContextualPronunciationDiscovery {
         isHidden: Bool = false,
         isCodeBlock: Bool = false
     ) -> [ContextualPronunciationOccurrence] {
+        var operationCounts = OperationCounts()
+        return discover(
+            text: text,
+            blockID: blockID,
+            isHidden: isHidden,
+            isCodeBlock: isCodeBlock,
+            operationCounts: &operationCounts)
+    }
+
+    static func discover(
+        text: String,
+        blockID: String,
+        isHidden: Bool = false,
+        isCodeBlock: Bool = false,
+        operationCounts: inout OperationCounts
+    ) -> [ContextualPronunciationOccurrence] {
+        operationCounts = OperationCounts()
         guard !isHidden, !isCodeBlock, !text.isEmpty else { return [] }
 
-        let sourceTokens = tokens(in: text)
+        let sourceSnapshot = SourceSnapshot(source: text)
+        operationCounts.sourceSnapshotConstructions = 1
+        operationCounts.sourceLinkInspections = sourceSnapshot.linkInspections
+        let sourceTokens = tokens(
+            in: text,
+            authoredLinks: sourceSnapshot.authoredLinks)
         let familyTokenIndexes = sourceTokens.indices.filter {
             ContextualPronunciationFamilies.family(for: sourceTokens[$0].normalized) != nil
         }
@@ -33,9 +286,16 @@ nonisolated enum ContextualPronunciationDiscovery {
         let properNameRisks = UniversalPronunciationResolver.properNameRiskFlags(
             in: text,
             candidateRanges: familyRanges)
-        let displayText = MisakiPronunciationMarkup.displayText(from: text)
-        let displayWords = WordTokenizer.words(in: displayText)
-        let sentenceRanges = sentences(in: displayText)
+        var homographCounts =
+            HomographPronunciationResolver.ContextualAnalysisOperationCounts()
+        let homographContext =
+            HomographPronunciationResolver.prepareContextualAnalysis(
+                in: text,
+                sourceSnapshot: sourceSnapshot,
+                operationCounts: &homographCounts)
+        operationCounts.homographTokenizations = homographCounts.tokenizations
+        operationCounts.homographTokenVisits = homographCounts.tokenVisits
+        operationCounts.homographSpanLookups = homographCounts.wordSpanLookups
 
         var occurrences: [ContextualPronunciationOccurrence] = []
         occurrences.reserveCapacity(familyTokenIndexes.count)
@@ -43,26 +303,26 @@ nonisolated enum ContextualPronunciationDiscovery {
             let token = sourceTokens[tokenIndex]
             guard !token.isAuthoredLinkDisplay,
                 !properNameRisks[familyOffset],
-                let family = ContextualPronunciationFamilies.family(for: token.normalized),
-                let wordSpan = PronunciationAuditContext.wordSpan(
-                    containing: token.range,
-                    in: text),
+                let family = ContextualPronunciationFamilies.family(for: token.normalized)
+            else {
+                continue
+            }
+            operationCounts.candidateSpanLookups += 1
+            let wordSpan = sourceSnapshot.wordSpan(containing: token.range)
+            operationCounts.sentenceLookups += 1
+            let sentenceIndex = sourceSnapshot.sentenceIndex(containing: token.range)
+            guard let wordSpan,
                 wordSpan.lowerBound == wordSpan.upperBound,
-                displayWords.indices.contains(wordSpan.lowerBound),
+                sourceSnapshot.displayWords.indices.contains(wordSpan.lowerBound),
                 PronunciationAuditContext.normalizedWord(
-                    String(displayWords[wordSpan.lowerBound])) == token.normalized,
-                let sentenceIndex = sentenceIndex(
-                    containing: token.range,
-                    sourceText: text,
-                    displayText: displayText,
-                    sentenceRanges: sentenceRanges)
+                    sourceSnapshot.displayWords[wordSpan.lowerBound]) == token.normalized,
+                let sentenceIndex
             else {
                 continue
             }
 
-            let analysis = HomographPronunciationResolver.contextualAnalysis(
-                in: text,
-                wordStart: wordSpan.lowerBound)
+            let analysis = homographContext.analysis(
+                atWordStart: wordSpan.lowerBound)
             occurrences.append(
                 ContextualPronunciationOccurrence(
                     occurrenceID: occurrenceID(
@@ -74,17 +334,9 @@ nonisolated enum ContextualPronunciationDiscovery {
                     wordStart: wordSpan.lowerBound,
                     wordEnd: wordSpan.upperBound,
                     targetWord: token.text,
-                    precedingSentence: sentence(
-                        before: sentenceIndex,
-                        in: sentenceRanges,
-                        displayText: displayText),
-                    targetSentence: sentenceText(
-                        sentenceRanges[sentenceIndex],
-                        in: displayText),
-                    followingSentence: sentence(
-                        after: sentenceIndex,
-                        in: sentenceRanges,
-                        displayText: displayText),
+                    precedingSentence: sourceSnapshot.sentence(before: sentenceIndex),
+                    targetSentence: sourceSnapshot.sentence(at: sentenceIndex),
+                    followingSentence: sourceSnapshot.sentence(after: sentenceIndex),
                     familyID: family.familyID,
                     candidates: family.candidates,
                     deterministicCandidateID: analysis.candidateID,
@@ -94,28 +346,24 @@ nonisolated enum ContextualPronunciationDiscovery {
         return occurrences
     }
 
-    private static func tokens(in text: String) -> [SourceToken] {
+    private static func tokens(
+        in text: String,
+        authoredLinks: [SourceSnapshot.AuthoredLink]
+    ) -> [SourceToken] {
         var result: [SourceToken] = []
         var plainTextStart = text.startIndex
-        var index = text.startIndex
-
-        while index < text.endIndex {
-            guard let link = MisakiPronunciationMarkup.link(in: text, startingAt: index) else {
-                index = text.index(after: index)
-                continue
-            }
+        for link in authoredLinks {
             appendTokens(
                 in: plainTextStart..<link.range.lowerBound,
                 of: text,
                 isAuthoredLinkDisplay: false,
                 to: &result)
             appendTokens(
-                in: link.displayText.startIndex..<link.displayText.endIndex,
+                in: link.displayRange,
                 of: text,
                 isAuthoredLinkDisplay: true,
                 to: &result)
-            index = link.range.upperBound
-            plainTextStart = index
+            plainTextStart = link.range.upperBound
         }
 
         appendTokens(
@@ -143,65 +391,6 @@ nonisolated enum ContextualPronunciationDiscovery {
                     range: range,
                     isAuthoredLinkDisplay: isAuthoredLinkDisplay)
             })
-    }
-
-    private static func sentences(in displayText: String) -> [Range<String.Index>] {
-        guard !displayText.isEmpty else { return [] }
-        let tokenizer = NLTokenizer(unit: .sentence)
-        tokenizer.string = displayText
-        var result: [Range<String.Index>] = []
-        tokenizer.enumerateTokens(in: displayText.startIndex..<displayText.endIndex) {
-            range, _ in
-            result.append(range)
-            return true
-        }
-        return result
-    }
-
-    private static func sentenceIndex(
-        containing sourceRange: Range<String.Index>,
-        sourceText: String,
-        displayText: String,
-        sentenceRanges: [Range<String.Index>]
-    ) -> Int? {
-        let displayPrefix = MisakiPronunciationMarkup.displayText(
-            from: String(sourceText[..<sourceRange.lowerBound]))
-        let displayThroughTarget = MisakiPronunciationMarkup.displayText(
-            from: String(sourceText[..<sourceRange.upperBound]))
-        let targetRange = NSRange(
-            location: displayPrefix.utf16.count,
-            length: displayThroughTarget.utf16.count - displayPrefix.utf16.count)
-        guard targetRange.length > 0 else { return nil }
-
-        return sentenceRanges.firstIndex {
-            NSIntersectionRange(NSRange($0, in: displayText), targetRange).length > 0
-        }
-    }
-
-    private static func sentence(
-        before index: Int,
-        in ranges: [Range<String.Index>],
-        displayText: String
-    ) -> String? {
-        guard index > ranges.startIndex else { return nil }
-        return sentenceText(ranges[index - 1], in: displayText)
-    }
-
-    private static func sentence(
-        after index: Int,
-        in ranges: [Range<String.Index>],
-        displayText: String
-    ) -> String? {
-        let following = index + 1
-        guard following < ranges.endIndex else { return nil }
-        return sentenceText(ranges[following], in: displayText)
-    }
-
-    private static func sentenceText(
-        _ range: Range<String.Index>,
-        in displayText: String
-    ) -> String {
-        String(displayText[range]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func occurrenceID(
