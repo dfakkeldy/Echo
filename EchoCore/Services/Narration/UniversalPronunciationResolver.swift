@@ -5,6 +5,19 @@ import Foundation
 /// Deterministic, context-free pronunciation enrichment applied after authored
 /// overrides and before contextual homograph handling.
 nonisolated enum UniversalPronunciationResolver {
+    struct OperationCounts {
+        var parserInspections = 0
+        var protectedIntervalOperations = 0
+        var properNameInspections = 0
+        var auditSnapshotConstructions = 0
+
+        var sourceTraversalOperations: Int {
+            parserInspections
+                + protectedIntervalOperations
+                + properNameInspections
+        }
+    }
+
     static let morphologyVersion = "morphology-v1"
     static let morphologyIdentitySchemaVersion = 1
     static let suffixIPA = "əbəl"
@@ -38,6 +51,8 @@ nonisolated enum UniversalPronunciationResolver {
         "comfortable", "content", "livable", "live", "lives", "read",
         "readable", "record", "recordable", "records", "responsible",
     ]
+    private static let maximumAmbiguousPeriodAbbreviationLength =
+        ambiguousPeriodAbbreviations.map(\.count).max() ?? 0
 
     private enum DerivationRule: String, CaseIterable {
         case ableExactBase = "morphology.able.exact-base.v1"
@@ -67,6 +82,182 @@ nonisolated enum UniversalPronunciationResolver {
         let candidatePackVersion: String
         let derivationBase: String?
         let derivationRuleID: String?
+    }
+
+    /// Candidate-start proper-name state built in one source-order pass.
+    /// Capitalization of each candidate is checked separately; this index owns
+    /// only the preceding sentence-boundary context that was formerly rescanned
+    /// from the candidate back to the start of the source.
+    private struct ProperNameIndex {
+        let riskByCandidateStart: [String.Index: Bool]
+        let inspectionCount: Int
+
+        init(
+            source: String,
+            candidateRanges: [Range<String.Index>]
+        ) {
+            let candidateStarts = candidateRanges.map(\.lowerBound)
+            var candidateCursor = 0
+            var risks: [String.Index: Bool] = [:]
+            risks.reserveCapacity(candidateStarts.count)
+
+            var hasAnyAlphanumeric = false
+            var hasBoundary = false
+            var boundaryTailHasAlphanumeric = false
+            var lastBoundaryIsAmbiguousPeriod = false
+
+            var tokenForCatalog = ""
+            var tokenCanMatchCatalog = true
+            var tokenCharacterCount = 0
+            var tokenContainsOnlyLetters = true
+            var tokenDotCount = 0
+            var completedComponentsAreSingleLetters = true
+            var currentComponentCharacterCount = 0
+            var currentComponentContainsOnlyLetters = true
+            var inspections = 0
+
+            func resetPeriodToken() {
+                tokenForCatalog = ""
+                tokenCanMatchCatalog = true
+                tokenCharacterCount = 0
+                tokenContainsOnlyLetters = true
+                tokenDotCount = 0
+                completedComponentsAreSingleLetters = true
+                currentComponentCharacterCount = 0
+                currentComponentContainsOnlyLetters = true
+            }
+
+            func appendToPeriodToken(_ fragment: String) {
+                for character in fragment {
+                    inspections += 1
+                    tokenCharacterCount += 1
+                    tokenContainsOnlyLetters =
+                        tokenContainsOnlyLetters && character.isLetter
+                    currentComponentCharacterCount += 1
+                    currentComponentContainsOnlyLetters =
+                        currentComponentContainsOnlyLetters && character.isLetter
+                    if tokenCanMatchCatalog {
+                        tokenForCatalog.append(character)
+                        if tokenCharacterCount
+                            > UniversalPronunciationResolver
+                                .maximumAmbiguousPeriodAbbreviationLength
+                        {
+                            tokenForCatalog = ""
+                            tokenCanMatchCatalog = false
+                        }
+                    }
+                }
+            }
+
+            func currentPeriodIsAmbiguous() -> Bool {
+                if tokenCharacterCount == 0 {
+                    return true
+                }
+                if tokenCanMatchCatalog,
+                    UniversalPronunciationResolver
+                        .ambiguousPeriodAbbreviations
+                        .contains(tokenForCatalog)
+                {
+                    return true
+                }
+                if tokenCharacterCount <= 3, tokenContainsOnlyLetters {
+                    return true
+                }
+                return tokenDotCount >= 1
+                    && completedComponentsAreSingleLetters
+                    && currentComponentCharacterCount == 1
+                    && currentComponentContainsOnlyLetters
+            }
+
+            var sourceIndex = source.startIndex
+            while sourceIndex < source.endIndex {
+                inspections += 1
+                if candidateCursor < candidateStarts.count,
+                    candidateStarts[candidateCursor] == sourceIndex
+                {
+                    let risk =
+                        hasBoundary
+                        ? boundaryTailHasAlphanumeric
+                            || lastBoundaryIsAmbiguousPeriod
+                        : hasAnyAlphanumeric
+                    risks[sourceIndex] = risk
+                    candidateCursor += 1
+                }
+
+                let character = source[sourceIndex]
+                if character == "." {
+                    hasBoundary = true
+                    boundaryTailHasAlphanumeric = false
+                    lastBoundaryIsAmbiguousPeriod =
+                        currentPeriodIsAmbiguous()
+
+                    completedComponentsAreSingleLetters =
+                        completedComponentsAreSingleLetters
+                        && currentComponentCharacterCount == 1
+                        && currentComponentContainsOnlyLetters
+                    currentComponentCharacterCount = 0
+                    currentComponentContainsOnlyLetters = true
+                    tokenDotCount += 1
+                    inspections += 1
+                    tokenCharacterCount += 1
+                    tokenContainsOnlyLetters = false
+                    if tokenCanMatchCatalog {
+                        tokenForCatalog.append(".")
+                        if tokenCharacterCount
+                            > UniversalPronunciationResolver
+                                .maximumAmbiguousPeriodAbbreviationLength
+                        {
+                            tokenForCatalog = ""
+                            tokenCanMatchCatalog = false
+                        }
+                    }
+                } else if "!?…\n\r".contains(character) {
+                    hasBoundary = true
+                    boundaryTailHasAlphanumeric = false
+                    lastBoundaryIsAmbiguousPeriod = false
+                    resetPeriodToken()
+                } else if character.isLetter || character.isNumber {
+                    hasAnyAlphanumeric = true
+                    if hasBoundary {
+                        boundaryTailHasAlphanumeric = true
+                    }
+                    appendToPeriodToken(character.lowercased())
+                } else {
+                    resetPeriodToken()
+                }
+                sourceIndex = source.index(after: sourceIndex)
+            }
+
+            riskByCandidateStart = risks
+            inspectionCount = inspections
+        }
+
+        func isProperNameRisk(
+            sourceWord: String,
+            sourceRange: Range<String.Index>,
+            inspectionCount: inout Int
+        ) -> Bool {
+            var characterCount = 0
+            var isAllCaps = true
+            var firstCharacter: Character?
+            for character in sourceWord {
+                inspectionCount += 1
+                characterCount += 1
+                if firstCharacter == nil {
+                    firstCharacter = character
+                }
+                if character.isLetter, !character.isUppercase {
+                    isAllCaps = false
+                }
+            }
+            if characterCount > 1, isAllCaps {
+                return true
+            }
+            guard firstCharacter?.isUppercase == true else {
+                return false
+            }
+            return riskByCandidateStart[sourceRange.lowerBound] ?? true
+        }
     }
 
     /// One immutable authored-to-display word map per resolver pass. Its link
@@ -292,40 +483,84 @@ nonisolated enum UniversalPronunciationResolver {
         blockID: String,
         pack: EnglishPronunciationPack,
         basePronunciation: (String) -> String?,
-        parserInspectionCount: inout Int,
-        auditSnapshotConstructionCount: inout Int
+        operationCounts: inout OperationCounts
     ) -> PronunciationRewriteResult {
         // `.empty` is the explicit low-level/test and load-failure sentinel.
         // Universal policy fails closed unless a semantic pack snapshot exists.
         guard pack != .empty else {
-            parserInspectionCount = 0
-            auditSnapshotConstructionCount = 0
+            operationCounts = OperationCounts()
             return PronunciationRewriteResult(text: text, decisionSeeds: [])
         }
         let syntaxIndex = NarrationTextChunker.pronunciationSyntaxIndex(
             in: text,
-            inspectionCount: &parserInspectionCount)
-        let protectedRanges = syntaxIndex.protectedRanges
+            inspectionCount: &operationCounts.parserInspections)
+        var intervalOperations = 0
+        var protectedIntervals = syntaxIndex.protectedRanges
             .map { NSRange($0, in: text) }
+        protectedIntervals.sort {
+            intervalOperations += 1
+            if $0.location == $1.location {
+                return $0.length > $1.length
+            }
+            return $0.location < $1.location
+        }
+        var mergedProtectedIntervals: [NSRange] = []
+        mergedProtectedIntervals.reserveCapacity(protectedIntervals.count)
+        for interval in protectedIntervals {
+            intervalOperations += 1
+            guard let last = mergedProtectedIntervals.last else {
+                mergedProtectedIntervals.append(interval)
+                continue
+            }
+            if interval.location <= NSMaxRange(last) {
+                let upperBound = max(
+                    NSMaxRange(last),
+                    NSMaxRange(interval))
+                mergedProtectedIntervals[mergedProtectedIntervals.count - 1] =
+                    NSRange(
+                        location: last.location,
+                        length: upperBound - last.location)
+            } else {
+                mergedProtectedIntervals.append(interval)
+            }
+        }
         let candidateRanges = lexicalTokenRanges(in: text).compactMap {
             candidateRange(
                 in: $0,
                 source: text,
                 editorialRangeByIndex: syntaxIndex.editorialRangeByIndex)
         }
+        let properNameIndex = ProperNameIndex(
+            source: text,
+            candidateRanges: candidateRanges)
+        operationCounts.properNameInspections =
+            properNameIndex.inspectionCount
         let auditSnapshot = AuditSnapshot(source: text)
-        auditSnapshotConstructionCount = 1
+        operationCounts.auditSnapshotConstructions = 1
         var replacements:
             [(range: NSRange, sourceWord: String, resolution: Resolution,
               decisionSeed: PronunciationDecisionSeed)] = []
 
+        var protectedIntervalCursor = 0
         for range in candidateRanges {
             let candidateRange = NSRange(range, in: text)
-            guard !protectedRanges.contains(where: {
-                NSIntersectionRange(candidateRange, $0).length > 0
-            }),
-                !range.isEmpty
-            else {
+            while protectedIntervalCursor < mergedProtectedIntervals.count,
+                NSMaxRange(mergedProtectedIntervals[protectedIntervalCursor])
+                    <= candidateRange.location
+            {
+                intervalOperations += 1
+                protectedIntervalCursor += 1
+            }
+            intervalOperations +=
+                protectedIntervalCursor < mergedProtectedIntervals.count
+                ? 1 : 0
+            let isProtected =
+                protectedIntervalCursor < mergedProtectedIntervals.count
+                && NSIntersectionRange(
+                    candidateRange,
+                    mergedProtectedIntervals[protectedIntervalCursor]
+                ).length > 0
+            guard !isProtected, !range.isEmpty else {
                 continue
             }
             let sourceWord = String(text[range])
@@ -342,10 +577,10 @@ nonisolated enum UniversalPronunciationResolver {
                 !isContraction,
                 EnglishPronunciationPack.isValidNormalizedKey(normalizedSpelling),
                 !contextualExclusions.contains(normalizedSpelling),
-                !isProperNameRisk(
+                !properNameIndex.isProperNameRisk(
                     sourceWord: sourceWord,
                     sourceRange: range,
-                    in: text)
+                    inspectionCount: &operationCounts.properNameInspections)
             else {
                 continue
             }
@@ -414,9 +649,32 @@ nonisolated enum UniversalPronunciationResolver {
             cursor = range.upperBound
         }
         result.append(contentsOf: text[cursor...])
+        operationCounts.protectedIntervalOperations =
+            intervalOperations
         return PronunciationRewriteResult(
             text: result,
             decisionSeeds: replacements.map(\.decisionSeed))
+    }
+
+    static func rewrite(
+        to text: String,
+        blockID: String,
+        pack: EnglishPronunciationPack,
+        basePronunciation: (String) -> String?,
+        parserInspectionCount: inout Int,
+        auditSnapshotConstructionCount: inout Int
+    ) -> PronunciationRewriteResult {
+        var operationCounts = OperationCounts()
+        let result = rewrite(
+            to: text,
+            blockID: blockID,
+            pack: pack,
+            basePronunciation: basePronunciation,
+            operationCounts: &operationCounts)
+        parserInspectionCount = operationCounts.parserInspections
+        auditSnapshotConstructionCount =
+            operationCounts.auditSnapshotConstructions
+        return result
     }
 
     static func rewrite(
@@ -450,6 +708,9 @@ nonisolated enum UniversalPronunciationResolver {
             return nil
         }
         let squareBrackets = source[range].filter { $0 == "[" || $0 == "]" }
+        trimOrdinaryBoundaryPunctuation(from: &range, in: source)
+        guard !range.isEmpty else { return nil }
+
         if !squareBrackets.isEmpty {
             guard let editorialRange = editorialRangeByIndex[range.lowerBound],
                 range.upperBound <= editorialRange.upperBound
@@ -457,9 +718,6 @@ nonisolated enum UniversalPronunciationResolver {
                 return nil
             }
         }
-
-        trimOrdinaryBoundaryPunctuation(from: &range, in: source)
-        guard !range.isEmpty else { return nil }
 
         let first = source[range].first
         let last = source[range].last
@@ -582,60 +840,6 @@ nonisolated enum UniversalPronunciationResolver {
             candidatePackVersion: policyVersion,
             derivationBase: candidate.1,
             derivationRuleID: candidate.0.rawValue)
-    }
-
-    private static func isProperNameRisk(
-        sourceWord: String,
-        sourceRange: Range<String.Index>,
-        in text: String
-    ) -> Bool {
-        if sourceWord.count > 1, sourceWord.allSatisfy({ !$0.isLetter || $0.isUppercase }) {
-            return true
-        }
-        guard sourceWord.first?.isUppercase == true else { return false }
-        let prefix = text[..<sourceRange.lowerBound]
-        guard let boundary = prefix.lastIndex(where: { ".!?…\n\r".contains($0) })
-        else {
-            return prefix.contains { $0.isLetter || $0.isNumber }
-        }
-        let sentenceTail = prefix[prefix.index(after: boundary)...]
-        if sentenceTail.contains(where: { $0.isLetter || $0.isNumber }) {
-            return true
-        }
-        return prefix[boundary] == "." && isAmbiguousPeriod(boundary, in: text)
-    }
-
-    private static func isAmbiguousPeriod(
-        _ period: String.Index,
-        in text: String
-    ) -> Bool {
-        let beforePeriod = text[..<period]
-        var tokenStart = beforePeriod.endIndex
-        while tokenStart > beforePeriod.startIndex {
-            let previous = beforePeriod.index(before: tokenStart)
-            let character = beforePeriod[previous]
-            guard character.isLetter || character.isNumber || character == "."
-            else {
-                break
-            }
-            tokenStart = previous
-        }
-        let token = String(beforePeriod[tokenStart...]).lowercased()
-        guard !token.isEmpty else { return true }
-        if ambiguousPeriodAbbreviations.contains(token) {
-            return true
-        }
-        if token.count <= 3, token.allSatisfy(\.isLetter) {
-            return true
-        }
-
-        let components = token.split(separator: ".", omittingEmptySubsequences: false)
-        if components.count == 1 {
-            return token.count == 1 && token.first?.isLetter == true
-        }
-        return components.allSatisfy {
-            $0.count == 1 && $0.first?.isLetter == true
-        }
     }
 
     private static func isNormalizedWord(_ value: String) -> Bool {

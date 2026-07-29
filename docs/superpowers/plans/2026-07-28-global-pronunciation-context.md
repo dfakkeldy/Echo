@@ -1165,6 +1165,16 @@ nonisolated enum UniversalPronunciationResolver {
   counter. Failed inline destination/title syntax protects and skips only the
   current source line; a malformed next-line reference title protects only the
   definition and that title line before parsing resumes.
+- [ ] Trim only approved ordinary outer punctuation before validating
+  editorial-bracket containment. Keep generated pronunciation links strictly
+  inside the authored brackets and keep closing punctuation byte-for-byte
+  outside; Markdown/reference and unsupported connected suffixes still fail
+  closed.
+- [ ] Convert all protected ranges to one sorted, merged interval list,
+  including detector ranges whose source ordering is not assumed. Walk
+  source-ordered candidate ranges with one monotonic interval cursor. Add
+  deterministic parser, interval, proper-name, and combined source-linear work
+  bounds at 1,000, 2,000, and 4,000 adversarial items.
 - [ ] Build one immutable authored-to-display audit snapshot per resolver pass.
   Remove existing pronunciation markup and tokenize display words once, then
   reuse indexed UTF-16 source offsets, word spans, and radius-5 contexts for
@@ -1182,7 +1192,9 @@ nonisolated enum UniversalPronunciationResolver {
   independently selected regressions rather than deriving the test matrix from
   the implementation table. Initials and dotted initialisms remain ambiguous
   too. Preserve ordinary lexical sentence endings such as `Done. Foobar` as
-  true boundaries.
+  true boundaries. Precompute this sentence/proper-name state in one
+  source-order pass indexed by candidate start; never rescan a growing prefix
+  for each capitalized candidate.
 - [ ] Apply an exact pack candidate first only through
   `pack.automaticCandidate(for:)`: the entry must contain exactly one
   candidate, its status must be `validated-automatic`, and

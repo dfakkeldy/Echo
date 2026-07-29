@@ -429,6 +429,20 @@ does not close fails closed only through the end of its current source line; a
 suspected next-line reference title protects the definition and that one title
 line. Parsing then resumes after the bounded recovery range.
 
+Before editorial-bracket containment is checked, only the resolver's existing
+ordinary outer punctuation is trimmed from the candidate range. This keeps a
+generated pronunciation link inside `[word]` while leaving an authored comma,
+period, or other supported closing punctuation outside both the link and the
+brackets. Markdown/reference suffixes and unsupported connected characters
+remain outside the proved editorial range and therefore fail closed.
+
+Protected source ranges, including detector ranges whose ordering is not
+assumed, are sorted and merged once. Already source-ordered lexical candidates
+then consume those intervals with one monotonic cursor; candidate count never
+multiplies protected-range count. Deterministic resolver accounting separately
+records parser inspections, protected-interval work, and proper-name work, with
+an explicit combined source-linear bound.
+
 The resolver also constructs one immutable authored-to-display audit snapshot
 per source block. It removes existing pronunciation markup once, tokenizes the
 display words once, and reuses indexed UTF-16 source mappings and word contexts
@@ -443,7 +457,12 @@ initials and dotted initialisms remain ambiguous too. No honest spelling-only
 rule distinguishes longer abbreviations such as `Mass.` or `Chap.` from all
 ordinary sentence-ending words, so longer forms remain in a reviewed
 categorized catalog with independently selected category regressions. Ordinary
-lexical sentence endings such as `Done. Foobar` remain true boundaries.
+proper-name sentence state is computed once in source order and indexed by
+candidate start. The forward index preserves the no-boundary,
+tail-alphanumeric, ambiguous-period, newline/CRLF, dotted-initialism, all-caps,
+and true-boundary semantics without rescanning a growing prefix per
+capitalized token. Ordinary lexical sentence endings such as `Done. Foobar`
+remain true boundaries.
 
 The morphology policy identity is canonical JSON using the same encoding rules:
 

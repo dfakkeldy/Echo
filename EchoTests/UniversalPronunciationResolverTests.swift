@@ -479,6 +479,62 @@ import Testing
         }
     }
 
+    @Test func editorialBracketTrailingPunctuationStaysOutsideExactRewrite() throws {
+        let supplementalPack = pack(automaticEntries: [
+            "ad-hoc": ("cmudict.ad-hoc.fixture", "ˈædhˈɑk")
+        ])
+        let cases = [
+            ("An [ad-hoc], note.", "An [[ad-hoc](/ˈædhˈɑk/)], note."),
+            ("An [ad-hoc].", "An [[ad-hoc](/ˈædhˈɑk/)]."),
+            ("An [ad-hoc]! Really.", "An [[ad-hoc](/ˈædhˈɑk/)]! Really."),
+        ]
+
+        for (source, expected) in cases {
+            let result = UniversalPronunciationResolver.rewrite(
+                to: source,
+                blockID: "editorial-block",
+                pack: supplementalPack,
+                basePronunciation: { _ in nil })
+
+            #expect(result.text == expected)
+            let seed = try #require(result.decisionSeeds.first)
+            #expect(result.decisionSeeds.count == 1)
+            #expect(seed.blockID == "editorial-block")
+            #expect(seed.wordStart == 1)
+            #expect(seed.wordEnd == 1)
+            #expect(seed.sourceWord == "ad-hoc")
+            #expect(seed.normalizedWord == "ad-hoc")
+            #expect(seed.selectedIPA == "ˈædhˈɑk")
+            #expect(seed.source == .supplementalLexicon)
+            #expect(seed.ruleID == "supplemental-lexicon.exact.v1")
+            #expect(seed.candidateID == "cmudict.ad-hoc.fixture")
+            #expect(seed.candidatePackVersion == supplementalPack.packVersion)
+            #expect(seed.derivationBase == nil)
+            #expect(seed.derivationRuleID == nil)
+        }
+    }
+
+    @Test func editorialBracketsDoNotAdmitMarkdownOrConnectedSuffixes() {
+        let supplementalPack = pack(automaticEntries: [
+            "ad-hoc": ("cmudict.ad-hoc.fixture", "ˈædhˈɑk")
+        ])
+
+        for source in [
+            "An [ad-hoc][missing] note.",
+            "An [ad-hoc](broken",
+            "An [ad-hoc]_suffix note.",
+            "An [ad-hoc]suffix note.",
+        ] {
+            let result = UniversalPronunciationResolver.rewrite(
+                to: source,
+                blockID: "b1",
+                pack: supplementalPack,
+                basePronunciation: { _ in nil })
+            #expect(result.text == source)
+            #expect(result.decisionSeeds.isEmpty)
+        }
+    }
+
     @Test func repeatedMultiwordEditorialBracketsUseBoundedParserInspectionWork() {
         let supplementalPack = pack(automaticEntries: [
             "ad-hoc": ("cmudict.ad-hoc.fixture", "ˈædhˈɑk")
@@ -498,6 +554,62 @@ import Testing
         #expect(result.decisionSeeds.count == 1_000)
         #expect(parserInspectionCount <= source.count * 20)
         #expect(auditSnapshotConstructionCount == 1)
+    }
+
+    @Test func interleavedProtectedIntervalsUseSourceLinearResolverWork() throws {
+        let supplementalPack = pack(automaticEntries: [
+            "ad-hoc": ("cmudict.ad-hoc.fixture", "ˈædhˈɑk")
+        ])
+
+        for repetitionCount in [1_000, 2_000, 4_000] {
+            let source = String(
+                repeating: "[guide](https://example.com/ad-hoc) ad-hoc ",
+                count: repetitionCount)
+            var operationCounts = UniversalPronunciationResolver.OperationCounts()
+
+            let result = UniversalPronunciationResolver.rewrite(
+                to: source,
+                blockID: "b1",
+                pack: supplementalPack,
+                basePronunciation: { _ in nil },
+                operationCounts: &operationCounts)
+
+            #expect(result.decisionSeeds.count == repetitionCount)
+            #expect(result.decisionSeeds.first?.wordStart == 1)
+            #expect(result.decisionSeeds.last?.wordStart == (repetitionCount * 2) - 1)
+            #expect(result.decisionSeeds.allSatisfy { $0.sourceWord == "ad-hoc" })
+            #expect(operationCounts.parserInspections <= source.count * 20)
+            try #require(operationCounts.protectedIntervalOperations <= source.count * 4)
+            #expect(operationCounts.properNameInspections <= source.count * 4)
+            #expect(operationCounts.sourceTraversalOperations <= source.count * 28)
+            #expect(operationCounts.auditSnapshotConstructions == 1)
+        }
+    }
+
+    @Test func capitalizedCandidatesUseSourceLinearProperNameWork() throws {
+        let supplementalPack = pack(automaticEntries: [
+            "foobar": ("cmudict.foobar.fixture", "fˈubɑɹ")
+        ])
+
+        for repetitionCount in [1_000, 2_000, 4_000] {
+            let source = "A " + String(repeating: "Foobar ", count: repetitionCount)
+            var operationCounts = UniversalPronunciationResolver.OperationCounts()
+
+            let result = UniversalPronunciationResolver.rewrite(
+                to: source,
+                blockID: "b1",
+                pack: supplementalPack,
+                basePronunciation: { _ in nil },
+                operationCounts: &operationCounts)
+
+            #expect(result.text == source)
+            #expect(result.decisionSeeds.isEmpty)
+            #expect(operationCounts.parserInspections <= source.count * 20)
+            #expect(operationCounts.protectedIntervalOperations <= source.count * 4)
+            try #require(operationCounts.properNameInspections <= source.count * 4)
+            #expect(operationCounts.sourceTraversalOperations <= source.count * 28)
+            #expect(operationCounts.auditSnapshotConstructions == 1)
+        }
     }
 
     @Test func malformedSquareBracketEnvelopesFailClosed() {
