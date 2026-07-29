@@ -12,6 +12,7 @@ struct ArticleInboxIngestionService {
         case conflictingExistingCapture(UUID)
         case unsafeStagingRoot(URL)
         case unsafeStagingPackage(URL)
+        case unreconciledCleanupPackage(URL)
 
         var errorDescription: String? {
             switch self {
@@ -21,6 +22,8 @@ struct ArticleInboxIngestionService {
                 return "Article capture staging root is unsafe: \(url.path)"
             case .unsafeStagingPackage(let url):
                 return "Article capture staging package is unsafe: \(url.path)"
+            case .unreconciledCleanupPackage(let url):
+                return "Article capture cleanup package cannot be safely reconciled: \(url.path)"
             }
         }
     }
@@ -52,8 +55,13 @@ struct ArticleInboxIngestionService {
             includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
             options: []
         )
+        let reconciledCaptureIDs = try reconcileQuarantinedPackages(
+            in: packages,
+            stagingRoot: normalizedRoot
+        )
         for package in packages {
-            guard UUID(uuidString: package.lastPathComponent) != nil else { continue }
+            guard let captureID = UUID(uuidString: package.lastPathComponent) else { continue }
+            guard reconciledCaptureIDs.contains(captureID) == false else { continue }
             guard package.standardizedFileURL.deletingLastPathComponent() == normalizedRoot else { continue }
             guard try safeDirectory(package) else { throw Error.unsafeStagingPackage(package) }
             guard fileManager.fileExists(atPath: package.appending(path: "complete").path) else { continue }
@@ -71,6 +79,72 @@ struct ArticleInboxIngestionService {
             try captureDAO.saveCapture(expected)
             try cleanup(package: package, imported: imported, stagingRoot: normalizedRoot)
         }
+    }
+
+    private func reconcileQuarantinedPackages(
+        in entries: [URL],
+        stagingRoot: URL
+    ) throws -> Set<UUID> {
+        let fileManager = FileManager.default
+        var reconciledCaptureIDs = Set<UUID>()
+
+        for cleanupRoot in entries where cleanupRoot.lastPathComponent.hasPrefix(".cleanup-") {
+            guard cleanupRoot.standardizedFileURL.deletingLastPathComponent() == stagingRoot,
+                  try safeDirectory(cleanupRoot),
+                  let captureID = captureID(inCleanupRoot: cleanupRoot)
+            else {
+                throw Error.unreconciledCleanupPackage(cleanupRoot)
+            }
+
+            let children = try fileManager.contentsOfDirectory(
+                at: cleanupRoot,
+                includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+                options: []
+            )
+            if children.isEmpty {
+                try fileManager.removeItem(at: cleanupRoot)
+                continue
+            }
+
+            guard children.count == 1 else {
+                throw Error.unreconciledCleanupPackage(cleanupRoot)
+            }
+            let quarantined = children[0]
+            guard quarantined.lastPathComponent == captureID.uuidString,
+                  quarantined.standardizedFileURL.deletingLastPathComponent() == cleanupRoot,
+                  try safeDirectory(quarantined)
+            else {
+                throw Error.unreconciledCleanupPackage(cleanupRoot)
+            }
+
+            let validated = try fileStore.validateEnvelope(at: quarantined)
+            guard validated.envelope.captureID == captureID else {
+                throw Error.unreconciledCleanupPackage(quarantined)
+            }
+            let durablePackage = fileStore.root
+                .appending(path: "Captures", directoryHint: .isDirectory)
+                .appending(path: captureID.uuidString, directoryHint: .isDirectory)
+            guard fileManager.fileExists(atPath: durablePackage.path),
+                  try safeDirectory(durablePackage)
+            else {
+                throw Error.unreconciledCleanupPackage(quarantined)
+            }
+
+            let imported = try fileStore.importEnvelope(at: quarantined)
+            guard imported.sha256 == validated.sha256 else {
+                throw Error.unreconciledCleanupPackage(quarantined)
+            }
+            let expected = record(for: imported)
+            guard let existing = try captureDAO.capture(id: captureID.uuidString), existing == expected else {
+                throw Error.conflictingExistingCapture(captureID)
+            }
+
+            try fileManager.removeItem(at: quarantined)
+            try fileManager.removeItem(at: cleanupRoot)
+            reconciledCaptureIDs.insert(captureID)
+        }
+
+        return reconciledCaptureIDs
     }
 
     private func cleanup(
@@ -125,6 +199,25 @@ struct ArticleInboxIngestionService {
     private func safeDirectory(_ url: URL) throws -> Bool {
         let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
         return values.isDirectory == true && values.isSymbolicLink != true
+    }
+
+    private func captureID(inCleanupRoot cleanupRoot: URL) -> UUID? {
+        let name = cleanupRoot.lastPathComponent
+        let prefix = ".cleanup-"
+        guard name.hasPrefix(prefix) else { return nil }
+        let suffix = String(name.dropFirst(prefix.count))
+        guard suffix.count == 73 else { return nil }
+        let captureEnd = suffix.index(suffix.startIndex, offsetBy: 36)
+        guard suffix[captureEnd] == "-" else { return nil }
+        let captureIDString = String(suffix[..<captureEnd])
+        let nonceString = String(suffix[suffix.index(after: captureEnd)...])
+        guard let captureID = UUID(uuidString: captureIDString),
+              let nonce = UUID(uuidString: nonceString),
+              name == ".cleanup-\(captureID.uuidString)-\(nonce.uuidString)"
+        else {
+            return nil
+        }
+        return captureID
     }
 
     private func record(for imported: ArticleWorkshopFileStore.ImportedEnvelope) -> ArticleCaptureRecord {
