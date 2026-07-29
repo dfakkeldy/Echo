@@ -18,6 +18,7 @@ import Testing
                     == [
                         "id",
                         "engine_state",
+                        "account_owner_id",
                         "account_status",
                         "last_error_code",
                         "updated_at",
@@ -31,7 +32,23 @@ import Testing
                         "record_type",
                         "entity_id",
                         "operation",
+                        "generation",
+                        "account_owner_id",
                         "queued_at",
+                    ])
+
+            let recordColumns = try db.columns(in: "article_sync_record").map(\.name)
+            #expect(
+                recordColumns
+                    == [
+                        "record_name",
+                        "record_type",
+                        "entity_id",
+                        "system_fields",
+                        "content_fingerprint",
+                        "acknowledged_generation",
+                        "account_owner_id",
+                        "updated_at",
                     ])
         }
     }
@@ -85,24 +102,41 @@ import Testing
     @Test func deleteTombstoneSurvivesSaveAcknowledgmentUntilDeleteAcknowledgment() throws {
         let database = try DatabaseService(inMemory: ())
         let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
         let save = ArticlePendingCloudChange(
             recordName: "capture.00000000-0000-0000-0000-000000000101",
             recordType: .capture,
             entityID: "00000000-0000-0000-0000-000000000101",
             operation: .save,
             queuedAt: "2026-07-29T12:00:00Z")
-        try dao.enqueue(save)
-        try dao.acknowledgeSaved(recordNames: [save.recordName])
+        let persistedSave = try dao.enqueueReturning(save)
+        try dao.acknowledgeSaved([
+            .init(
+                recordName: persistedSave.recordName,
+                generation: persistedSave.generation,
+                systemFields: Data("save-system-fields".utf8),
+                contentFingerprint: "save")
+        ])
         #expect(try dao.pendingChanges().isEmpty)
 
         var tombstone = save
         tombstone.operation = .delete
         tombstone.queuedAt = "2026-07-29T12:01:00Z"
-        try dao.enqueue(tombstone)
-        try dao.acknowledgeSaved(recordNames: [save.recordName])
-        #expect(try dao.pendingChanges() == [tombstone])
+        let persistedTombstone = try dao.enqueueReturning(tombstone)
+        try dao.acknowledgeSaved([
+            .init(
+                recordName: persistedSave.recordName,
+                generation: persistedSave.generation,
+                systemFields: Data("late-save-system-fields".utf8),
+                contentFingerprint: "late-save")
+        ])
+        #expect(try dao.pendingChanges() == [persistedTombstone])
 
-        try dao.acknowledgeDeleted(recordNames: [save.recordName])
+        try dao.acknowledgeDeleted([
+            .init(
+                recordName: persistedTombstone.recordName,
+                generation: persistedTombstone.generation)
+        ])
         #expect(try dao.pendingChanges().isEmpty)
     }
 
@@ -110,6 +144,7 @@ import Testing
     @Test func partialSaveAcknowledgmentRetainsOnlyFailedOutboxRows() throws {
         let database = try DatabaseService(inMemory: ())
         let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
         let succeeded = ArticlePendingCloudChange(
             recordName: "revision.00000000-0000-0000-0000-000000000110",
             recordType: .revision,
@@ -122,11 +157,252 @@ import Testing
             entityID: "00000000-0000-0000-0000-000000000111",
             operation: .save,
             queuedAt: "2026-07-29T12:00:01Z")
-        try dao.enqueue([succeeded, failed])
+        let persistedSucceeded = try dao.enqueueReturning(succeeded)
+        let persistedFailed = try dao.enqueueReturning(failed)
 
-        try dao.acknowledgeSaved(recordNames: [succeeded.recordName])
+        try dao.acknowledgeSaved([
+            .init(
+                recordName: persistedSucceeded.recordName,
+                generation: persistedSucceeded.generation,
+                systemFields: Data("save-system-fields".utf8),
+                contentFingerprint: "save")
+        ])
 
-        #expect(try dao.pendingChanges() == [failed])
+        #expect(try dao.pendingChanges() == [persistedFailed])
+    }
+
+    @MainActor
+    @Test func staleSaveAcknowledgmentCannotDeleteNewerGeneration() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        let change = ArticlePendingCloudChange(
+            recordName: "anthology.00000000-0000-0000-0000-000000000121",
+            recordType: .anthology,
+            entityID: "00000000-0000-0000-0000-000000000121",
+            operation: .save,
+            queuedAt: "2026-07-29T12:00:01Z")
+
+        let v1 = try dao.enqueueReturning(change)
+        let v2 = try dao.enqueueReturning(change)
+        #expect(v2.generation > v1.generation)
+
+        try dao.acknowledgeSaved([
+            .init(
+                recordName: v1.recordName,
+                generation: v1.generation,
+                systemFields: Data("old".utf8),
+                contentFingerprint: "v1")
+        ])
+        #expect(try dao.pendingChanges() == [v2])
+        #expect(
+            try dao.cloudRecord(recordName: v1.recordName)?.systemFields
+                == Data("old".utf8))
+        #expect(try dao.cloudRecord(recordName: v1.recordName)?.contentFingerprint == "v1")
+    }
+
+    @MainActor
+    @Test func systemFieldsPersistForNextSaveAndClearAfterMatchingDelete() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        let save = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: "capture.00000000-0000-0000-0000-000000000122",
+                recordType: .capture,
+                entityID: "00000000-0000-0000-0000-000000000122",
+                operation: .save,
+                queuedAt: "2026-07-29T12:00:01Z"))
+        let fields = Data("server-system-fields".utf8)
+
+        try dao.acknowledgeSaved([
+            .init(
+                recordName: save.recordName,
+                generation: save.generation,
+                systemFields: fields,
+                contentFingerprint: "fingerprint")
+        ])
+        #expect(try dao.cloudRecord(recordName: save.recordName)?.systemFields == fields)
+
+        var deletion = save
+        deletion.operation = .delete
+        deletion.queuedAt = "2026-07-29T12:01:00Z"
+        let tombstone = try dao.enqueueReturning(deletion)
+        try dao.acknowledgeDeleted([
+            .init(recordName: tombstone.recordName, generation: tombstone.generation)
+        ])
+        #expect(try dao.cloudRecord(recordName: save.recordName) == nil)
+    }
+
+    @MainActor
+    @Test func veryLateSaveCannotReplaceNewerAcknowledgedServerBase() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        let seed = ArticlePendingCloudChange(
+            recordName: "capture.00000000-0000-0000-0000-000000000124",
+            recordType: .capture,
+            entityID: "00000000-0000-0000-0000-000000000124",
+            operation: .save,
+            queuedAt: "2026-07-29T12:00:01Z")
+        let v1 = try dao.enqueueReturning(seed)
+        let v2 = try dao.enqueueReturning(seed)
+        try dao.acknowledgeSaved([
+            .init(
+                recordName: v1.recordName,
+                generation: v1.generation,
+                systemFields: Data("v1-fields".utf8),
+                contentFingerprint: "v1")
+        ])
+        try dao.acknowledgeSaved([
+            .init(
+                recordName: v2.recordName,
+                generation: v2.generation,
+                systemFields: Data("v2-fields".utf8),
+                contentFingerprint: "v2")
+        ])
+        _ = try dao.enqueueReturning(seed)
+
+        try dao.acknowledgeSaved([
+            .init(
+                recordName: v1.recordName,
+                generation: v1.generation,
+                systemFields: Data("late-v1-fields".utf8),
+                contentFingerprint: "late-v1")
+        ])
+
+        let stored = try #require(try dao.cloudRecord(recordName: seed.recordName))
+        #expect(stored.systemFields == Data("v2-fields".utf8))
+        #expect(stored.contentFingerprint == "v2")
+        #expect(stored.acknowledgedGeneration == v2.generation)
+    }
+
+    @MainActor
+    @Test func accountSwitchQuarantinesPriorOwnerOutboxAndEngineState() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        let state = try JSONDecoder().decode(
+            CKSyncEngine.State.Serialization.self,
+            from: Data(#"{"data":"YWNjb3VudC1B"}"#.utf8))
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        try dao.saveEngineState(state, updatedAt: "2026-07-29T12:00:01Z")
+        let pendingA = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: "revision.00000000-0000-0000-0000-000000000123",
+                recordType: .revision,
+                entityID: "00000000-0000-0000-0000-000000000123",
+                operation: .save,
+                queuedAt: "2026-07-29T12:00:02Z"))
+        #expect(pendingA.accountOwnerID == "account-A")
+
+        try dao.bindAccountOwner("account-B", updatedAt: "2026-07-29T12:01:00Z")
+
+        #expect(try dao.engineState() == nil)
+        #expect(try dao.pendingChanges().isEmpty)
+        #expect(try dao.pendingChanges(accountOwnerID: "account-A") == [pendingA])
+        #expect(try dao.state()?.accountOwnerID == "account-B")
+    }
+
+    @MainActor
+    @Test func missingZoneRecoveryUsesOnlyActiveOwnerDesiredState() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        let captureDAO = ArticleCaptureDAO(db: database.writer)
+        let accountAID = "00000000-0000-0000-0000-000000000130"
+        let accountBAcknowledgedID = "00000000-0000-0000-0000-000000000131"
+        let accountBPendingSaveID = "00000000-0000-0000-0000-000000000132"
+        let accountBPendingDeleteID = "00000000-0000-0000-0000-000000000133"
+        for id in [
+            accountAID,
+            accountBAcknowledgedID,
+            accountBPendingSaveID,
+            accountBPendingDeleteID,
+        ] {
+            try captureDAO.saveCapture(articleSyncCaptureFixture(id: id))
+        }
+
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        let accountARecordName = "capture.\(accountAID)"
+        try dao.storeFetchedCloudRecord(
+            recordName: accountARecordName,
+            recordType: .capture,
+            entityID: accountAID,
+            systemFields: Data("account-a-fields".utf8),
+            contentFingerprint: "account-a",
+            updatedAt: "2026-07-29T12:00:01Z")
+
+        try dao.bindAccountOwner("account-B", updatedAt: "2026-07-29T12:01:00Z")
+        let accountBAcknowledgedRecordName = "capture.\(accountBAcknowledgedID)"
+        try dao.storeFetchedCloudRecord(
+            recordName: accountBAcknowledgedRecordName,
+            recordType: .capture,
+            entityID: accountBAcknowledgedID,
+            systemFields: Data("account-b-fields".utf8),
+            contentFingerprint: "account-b",
+            updatedAt: "2026-07-29T12:01:01Z")
+        let pendingSave = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: "capture.\(accountBPendingSaveID)",
+                recordType: .capture,
+                entityID: accountBPendingSaveID,
+                operation: .save,
+                queuedAt: "2026-07-29T12:01:02Z"))
+        let pendingDelete = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: "capture.\(accountBPendingDeleteID)",
+                recordType: .capture,
+                entityID: accountBPendingDeleteID,
+                operation: .delete,
+                queuedAt: "2026-07-29T12:01:03Z"))
+
+        let recovered = try dao.recoverMissingZone(updatedAt: "2026-07-29T12:02:00Z")
+
+        #expect(
+            Set(recovered.map(\.recordName)) == [
+                accountBAcknowledgedRecordName,
+                pendingSave.recordName,
+            ])
+        #expect(recovered.allSatisfy { $0.accountOwnerID == "account-B" })
+        #expect(recovered.allSatisfy { $0.operation == .save })
+        #expect(
+            recovered.first { $0.recordName == pendingSave.recordName }?.generation
+                == pendingSave.generation + 1)
+        #expect(recovered.contains { $0.recordName == accountARecordName } == false)
+        #expect(recovered.contains { $0.recordName == pendingDelete.recordName } == false)
+        #expect(try dao.pendingChanges() == recovered)
+        #expect(try dao.allCloudRecords().isEmpty)
+        try database.read { db in
+            let accountAReceiptCount = try Int.fetchOne(
+                db,
+                sql: """
+                    SELECT COUNT(*) FROM article_sync_record
+                    WHERE account_owner_id = 'account-A' AND record_name = ?
+                    """,
+                arguments: [accountARecordName])
+            let captureCount = try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM article_capture")
+            #expect(accountAReceiptCount == 1)
+            #expect(captureCount == 4)
+        }
+    }
+
+    @MainActor
+    @Test func routineStateUpdatePreservesLastErrorUntilExplicitClear() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        let state = try JSONDecoder().decode(
+            CKSyncEngine.State.Serialization.self,
+            from: Data(#"{"data":"c3RhdGU="}"#.utf8))
+        try dao.updateStatus(
+            .temporarilyUnavailable,
+            lastErrorCode: "network",
+            updatedAt: "2026-07-29T12:00:00Z")
+
+        try dao.saveEngineState(state, updatedAt: "2026-07-29T12:00:01Z")
+        #expect(try dao.state()?.lastErrorCode == "network")
+        try dao.clearLastError(updatedAt: "2026-07-29T12:00:02Z")
+        #expect(try dao.state()?.lastErrorCode == nil)
     }
 }
 

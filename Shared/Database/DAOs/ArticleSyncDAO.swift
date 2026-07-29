@@ -37,14 +37,79 @@ nonisolated struct ArticlePendingCloudChange: Codable, Equatable, Hashable, Send
     var recordType: ArticleCloudRecordType
     var entityID: String
     var operation: ArticleSyncOperation
+    var generation: Int64
+    var accountOwnerID: String?
     var queuedAt: String
+
+    init(
+        recordName: String,
+        recordType: ArticleCloudRecordType,
+        entityID: String,
+        operation: ArticleSyncOperation,
+        generation: Int64 = 1,
+        accountOwnerID: String? = nil,
+        queuedAt: String
+    ) {
+        self.recordName = recordName
+        self.recordType = recordType
+        self.entityID = entityID
+        self.operation = operation
+        self.generation = generation
+        self.accountOwnerID = accountOwnerID
+        self.queuedAt = queuedAt
+    }
 }
 
 nonisolated struct ArticleSyncStateSnapshot: Equatable, Sendable {
     let engineState: Data?
+    let accountOwnerID: String?
     let accountStatus: ArticleSyncAccountStatus
     let lastErrorCode: String?
     let updatedAt: String
+}
+
+nonisolated struct ArticleCloudRecordState: Equatable, Sendable {
+    let recordName: String
+    let recordType: ArticleCloudRecordType
+    let entityID: String
+    let systemFields: Data
+    let contentFingerprint: String
+    let acknowledgedGeneration: Int64
+    let accountOwnerID: String
+    let updatedAt: String
+}
+
+nonisolated struct ArticleCloudSaveAcknowledgement: Equatable, Sendable {
+    let recordName: String
+    let generation: Int64
+    let systemFields: Data
+    let contentFingerprint: String
+}
+
+nonisolated struct ArticleCloudDeleteAcknowledgement: Equatable, Sendable {
+    let recordName: String
+    let generation: Int64
+}
+
+nonisolated struct ArticleFetchedCloudRecordReceipt: Equatable, Sendable {
+    let recordName: String
+    let recordType: ArticleCloudRecordType
+    let entityID: String
+    let systemFields: Data
+    let contentFingerprint: String
+}
+
+nonisolated enum ArticleSyncFingerprint {
+    static func anthology(_ manifest: ArticleCloudAnthologyManifest) throws -> String {
+        var cloud = manifest
+        cloud.anthology.coverPath = nil
+        cloud.anthology.latestBuildRevision = 0
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return SHA256.hash(data: try encoder.encode(cloud))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
 }
 
 nonisolated struct ArticleCloudAnthologyManifest: Codable, Equatable, Sendable {
@@ -188,6 +253,8 @@ nonisolated struct ArticleSyncDAO: Sendable {
         case invalidOperation(String)
         case invalidAccountStatus(String)
         case invalidEngineState
+        case missingAccountOwner
+        case invalidGeneration
     }
 
     private let db: DatabaseWriter
@@ -200,19 +267,27 @@ nonisolated struct ArticleSyncDAO: Sendable {
         _ serialization: CKSyncEngine.State.Serialization,
         accountStatus: ArticleSyncAccountStatus? = nil,
         lastErrorCode: String? = nil,
+        clearLastError: Bool = false,
         updatedAt: String
     ) throws {
         let encoder = PropertyListEncoder()
         encoder.outputFormat = .binary
         let data = try encoder.encode(serialization)
         try db.write { db in
-            let storedStatus = try String.fetchOne(
+            let row = try Row.fetchOne(
                 db,
-                sql: "SELECT account_status FROM article_sync_state WHERE id = 'default'")
+                sql: """
+                    SELECT account_status, last_error_code
+                    FROM article_sync_state WHERE id = 'default'
+                    """)
+            let storedStatus: String? = row?["account_status"]
+            let storedError: String? = row?["last_error_code"]
             let currentStatus =
                 accountStatus?.rawValue
                 ?? storedStatus
                 ?? ArticleSyncAccountStatus.unknown.rawValue
+            let currentError =
+                clearLastError ? nil : (lastErrorCode ?? storedError)
             try db.execute(
                 sql: """
                     INSERT INTO article_sync_state (
@@ -225,7 +300,7 @@ nonisolated struct ArticleSyncDAO: Sendable {
                         last_error_code = excluded.last_error_code,
                         updated_at = excluded.updated_at
                     """,
-                arguments: [data, currentStatus, lastErrorCode, updatedAt])
+                arguments: [data, currentStatus, currentError, updatedAt])
         }
     }
 
@@ -251,9 +326,15 @@ nonisolated struct ArticleSyncDAO: Sendable {
     func updateStatus(
         _ accountStatus: ArticleSyncAccountStatus,
         lastErrorCode: String?,
+        clearLastError: Bool = false,
         updatedAt: String
     ) throws {
         try db.write { db in
+            let storedError = try String.fetchOne(
+                db,
+                sql: "SELECT last_error_code FROM article_sync_state WHERE id = 'default'")
+            let currentError =
+                clearLastError ? nil : (lastErrorCode ?? storedError)
             try db.execute(
                 sql: """
                     INSERT INTO article_sync_state (
@@ -265,7 +346,98 @@ nonisolated struct ArticleSyncDAO: Sendable {
                         last_error_code = excluded.last_error_code,
                         updated_at = excluded.updated_at
                     """,
-                arguments: [accountStatus.rawValue, lastErrorCode, updatedAt])
+                arguments: [accountStatus.rawValue, currentError, updatedAt])
+        }
+    }
+
+    func clearLastError(updatedAt: String) throws {
+        try db.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO article_sync_state (
+                        id, engine_state, account_owner_id, account_status,
+                        last_error_code, updated_at
+                    )
+                    VALUES ('default', NULL, NULL, ?, NULL, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        last_error_code = NULL,
+                        updated_at = excluded.updated_at
+                    """,
+                arguments: [
+                    ArticleSyncAccountStatus.unknown.rawValue,
+                    updatedAt,
+                ])
+        }
+    }
+
+    /// Selects the active private-sync lane without deleting local workshop
+    /// data or pending rows owned by another iCloud account.
+    func bindAccountOwner(_ ownerID: String, updatedAt: String) throws {
+        guard ownerID.isEmpty == false else { throw Error.missingAccountOwner }
+        try db.write { db in
+            let previous = try String.fetchOne(
+                db,
+                sql: "SELECT account_owner_id FROM article_sync_state WHERE id = 'default'")
+            let switched = previous != nil && previous != ownerID
+            try db.execute(
+                sql: """
+                    INSERT INTO article_sync_state (
+                        id, engine_state, account_owner_id, account_status,
+                        last_error_code, updated_at
+                    )
+                    VALUES ('default', NULL, ?, ?, NULL, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        engine_state = CASE
+                            WHEN account_owner_id IS NULL OR account_owner_id = excluded.account_owner_id
+                            THEN engine_state
+                            ELSE NULL
+                        END,
+                        account_owner_id = excluded.account_owner_id,
+                        account_status = excluded.account_status,
+                        last_error_code = CASE
+                            WHEN account_owner_id IS NULL OR account_owner_id = excluded.account_owner_id
+                            THEN last_error_code
+                            ELSE NULL
+                        END,
+                        updated_at = excluded.updated_at
+                    """,
+                arguments: [
+                    ownerID,
+                    switched
+                        ? ArticleSyncAccountStatus.switchedAccount.rawValue
+                        : ArticleSyncAccountStatus.available.rawValue,
+                    updatedAt,
+                ])
+
+            // Changes created before an account was known become owned by the
+            // first account only. Rows from a previous owner remain quarantined.
+            if previous == nil {
+                try db.execute(
+                    sql: """
+                        UPDATE article_sync_outbox
+                        SET account_owner_id = ?
+                        WHERE account_owner_id = ''
+                        """,
+                    arguments: [ownerID])
+            }
+        }
+    }
+
+    func unbindAccountOwner(
+        status: ArticleSyncAccountStatus,
+        updatedAt: String
+    ) throws {
+        try db.write { db in
+            try db.execute(
+                sql: """
+                    UPDATE article_sync_state
+                    SET engine_state = NULL,
+                        account_owner_id = NULL,
+                        account_status = ?,
+                        updated_at = ?
+                    WHERE id = 'default'
+                    """,
+                arguments: [status.rawValue, updatedAt])
         }
     }
 
@@ -275,7 +447,8 @@ nonisolated struct ArticleSyncDAO: Sendable {
                 let row = try Row.fetchOne(
                     db,
                     sql: """
-                        SELECT engine_state, account_status, last_error_code, updated_at
+                        SELECT engine_state, account_owner_id, account_status,
+                               last_error_code, updated_at
                         FROM article_sync_state
                         WHERE id = 'default'
                         """)
@@ -288,6 +461,7 @@ nonisolated struct ArticleSyncDAO: Sendable {
             }
             return ArticleSyncStateSnapshot(
                 engineState: row["engine_state"],
+                accountOwnerID: row["account_owner_id"],
                 accountStatus: accountStatus,
                 lastErrorCode: row["last_error_code"],
                 updatedAt: row["updated_at"])
@@ -295,49 +469,99 @@ nonisolated struct ArticleSyncDAO: Sendable {
     }
 
     func enqueue(_ change: ArticlePendingCloudChange) throws {
-        try enqueue([change])
+        _ = try enqueueReturning(change)
     }
 
     func enqueue(_ changes: [ArticlePendingCloudChange]) throws {
         guard changes.isEmpty == false else { return }
-        try db.write { db in
-            for change in changes {
-                try db.execute(
-                    sql: """
-                        INSERT INTO article_sync_outbox (
-                            record_name, record_type, entity_id, operation, queued_at
-                        )
-                        VALUES (?, ?, ?, ?, ?)
-                        ON CONFLICT(record_name) DO UPDATE SET
-                            record_type = excluded.record_type,
-                            entity_id = excluded.entity_id,
-                            operation = excluded.operation,
-                            queued_at = excluded.queued_at
-                        """,
-                    arguments: [
-                        change.recordName,
-                        change.recordType.rawValue,
-                        change.entityID,
-                        change.operation.rawValue,
-                        change.queuedAt,
-                    ])
-            }
+        for change in changes {
+            _ = try enqueueReturning(change)
         }
     }
 
-    func pendingChanges(limit: Int? = nil) throws -> [ArticlePendingCloudChange] {
+    @discardableResult
+    func enqueueReturning(_ change: ArticlePendingCloudChange) throws
+        -> ArticlePendingCloudChange
+    {
+        try db.write { db in
+            let activeOwner =
+                try change.accountOwnerID
+                ?? String.fetchOne(
+                    db,
+                    sql: """
+                        SELECT account_owner_id
+                        FROM article_sync_state WHERE id = 'default'
+                        """)
+            let ownerKey = activeOwner ?? ""
+            let previousGeneration =
+                try Int64.fetchOne(
+                    db,
+                    sql: """
+                        SELECT generation FROM article_sync_outbox
+                        WHERE record_name = ? AND account_owner_id = ?
+                        """,
+                    arguments: [change.recordName, ownerKey]) ?? 0
+            let generation = max(previousGeneration + 1, change.generation)
+            guard generation > 0 else { throw Error.invalidGeneration }
+            try db.execute(
+                sql: """
+                    INSERT INTO article_sync_outbox (
+                        record_name, record_type, entity_id, operation,
+                        generation, account_owner_id, queued_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(record_name, account_owner_id) DO UPDATE SET
+                        record_type = excluded.record_type,
+                        entity_id = excluded.entity_id,
+                        operation = excluded.operation,
+                        generation = excluded.generation,
+                        queued_at = excluded.queued_at
+                    """,
+                arguments: [
+                    change.recordName,
+                    change.recordType.rawValue,
+                    change.entityID,
+                    change.operation.rawValue,
+                    generation,
+                    ownerKey,
+                    change.queuedAt,
+                ])
+            return ArticlePendingCloudChange(
+                recordName: change.recordName,
+                recordType: change.recordType,
+                entityID: change.entityID,
+                operation: change.operation,
+                generation: generation,
+                accountOwnerID: activeOwner,
+                queuedAt: change.queuedAt)
+        }
+    }
+
+    func pendingChanges(
+        limit: Int? = nil,
+        accountOwnerID explicitOwner: String? = nil
+    ) throws -> [ArticlePendingCloudChange] {
         try db.read { db in
+            let stateOwner = try String.fetchOne(
+                db,
+                sql: "SELECT account_owner_id FROM article_sync_state WHERE id = 'default'")
+            let owner = explicitOwner ?? stateOwner
+            let ownerKey = owner ?? ""
             let sql =
                 """
-                SELECT record_name, record_type, entity_id, operation, queued_at
+                SELECT record_name, record_type, entity_id, operation,
+                       generation, account_owner_id, queued_at
                 FROM article_sync_outbox
+                WHERE account_owner_id = ?
                 ORDER BY queued_at, record_name
                 """
                 + (limit == nil ? "" : " LIMIT ?")
+            var arguments: [any DatabaseValueConvertible] = [ownerKey]
+            if let limit { arguments.append(limit) }
             let rows = try Row.fetchAll(
                 db,
                 sql: sql,
-                arguments: limit.map { StatementArguments([$0]) } ?? StatementArguments())
+                arguments: StatementArguments(arguments))
             return try rows.map { row in
                 let rawType: String = row["record_type"]
                 guard let recordType = ArticleCloudRecordType(rawValue: rawType) else {
@@ -352,6 +576,11 @@ nonisolated struct ArticleSyncDAO: Sendable {
                     recordType: recordType,
                     entityID: row["entity_id"],
                     operation: operation,
+                    generation: row["generation"],
+                    accountOwnerID: {
+                        let stored: String = row["account_owner_id"]
+                        return stored.isEmpty ? nil : stored
+                    }(),
                     queuedAt: row["queued_at"])
             }
         }
@@ -361,12 +590,294 @@ nonisolated struct ArticleSyncDAO: Sendable {
         try pendingChanges().first { $0.recordName == recordName }
     }
 
-    func acknowledgeSaved(recordNames: [String]) throws {
-        try acknowledge(recordNames: recordNames, operation: .save)
+    func acknowledgeSaved(_ acknowledgements: [ArticleCloudSaveAcknowledgement]) throws {
+        guard acknowledgements.isEmpty == false else { return }
+        try db.write { db in
+            let owner = try requireActiveOwner(db)
+            for acknowledgement in acknowledgements {
+                let pending = try Row.fetchOne(
+                    db,
+                    sql: """
+                        SELECT record_type, entity_id, generation
+                        FROM article_sync_outbox
+                        WHERE record_name = ? AND account_owner_id = ?
+                              AND operation = ?
+                        """,
+                    arguments: [
+                        acknowledgement.recordName,
+                        owner,
+                        ArticleSyncOperation.save.rawValue,
+                    ])
+                let pendingGeneration: Int64? = pending?["generation"]
+
+                // A stale success is useful only as a server base for a newer
+                // local generation. It must never clear or overwrite that row.
+                if let pendingGeneration,
+                    pendingGeneration == acknowledgement.generation
+                {
+                    try upsertCloudRecord(
+                        acknowledgement,
+                        recordTypeRaw: pending?["record_type"],
+                        entityID: pending?["entity_id"],
+                        owner: owner,
+                        db: db)
+                    try db.execute(
+                        sql: """
+                            DELETE FROM article_sync_outbox
+                            WHERE record_name = ? AND account_owner_id = ?
+                                  AND operation = ? AND generation = ?
+                            """,
+                        arguments: [
+                            acknowledgement.recordName,
+                            owner,
+                            ArticleSyncOperation.save.rawValue,
+                            acknowledgement.generation,
+                        ])
+                } else if pendingGeneration != nil {
+                    try upsertCloudRecord(
+                        acknowledgement,
+                        recordTypeRaw: pending?["record_type"],
+                        entityID: pending?["entity_id"],
+                        owner: owner,
+                        db: db)
+                }
+            }
+        }
     }
 
-    func acknowledgeDeleted(recordNames: [String]) throws {
-        try acknowledge(recordNames: recordNames, operation: .delete)
+    func acknowledgeDeleted(_ acknowledgements: [ArticleCloudDeleteAcknowledgement]) throws {
+        guard acknowledgements.isEmpty == false else { return }
+        try db.write { db in
+            let owner = try requireActiveOwner(db)
+            for acknowledgement in acknowledgements {
+                try db.execute(
+                    sql: """
+                        DELETE FROM article_sync_outbox
+                        WHERE record_name = ? AND account_owner_id = ?
+                              AND operation = ? AND generation = ?
+                        """,
+                    arguments: [
+                        acknowledgement.recordName,
+                        owner,
+                        ArticleSyncOperation.delete.rawValue,
+                        acknowledgement.generation,
+                    ])
+                if db.changesCount > 0 {
+                    try db.execute(
+                        sql: """
+                            DELETE FROM article_sync_record
+                            WHERE record_name = ? AND account_owner_id = ?
+                            """,
+                        arguments: [acknowledgement.recordName, owner])
+                }
+            }
+        }
+    }
+
+    func storeFetchedCloudRecord(
+        recordName: String,
+        recordType: ArticleCloudRecordType,
+        entityID: String,
+        systemFields: Data,
+        contentFingerprint: String,
+        updatedAt: String
+    ) throws {
+        try db.write { db in
+            let owner = try requireActiveOwner(db)
+            try db.execute(
+                sql: """
+                    INSERT INTO article_sync_record (
+                        record_name, record_type, entity_id, system_fields,
+                        content_fingerprint, acknowledged_generation,
+                        account_owner_id, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+                    ON CONFLICT(record_name, account_owner_id) DO UPDATE SET
+                        record_type = excluded.record_type,
+                        entity_id = excluded.entity_id,
+                        system_fields = excluded.system_fields,
+                        content_fingerprint = excluded.content_fingerprint,
+                        acknowledged_generation = article_sync_record.acknowledged_generation,
+                        updated_at = excluded.updated_at
+                    """,
+                arguments: [
+                    recordName,
+                    recordType.rawValue,
+                    entityID,
+                    systemFields,
+                    contentFingerprint,
+                    owner,
+                    updatedAt,
+                ])
+        }
+    }
+
+    func cloudRecord(recordName: String) throws -> ArticleCloudRecordState? {
+        try db.read { db in
+            guard
+                let owner = try String.fetchOne(
+                    db,
+                    sql: """
+                        SELECT account_owner_id FROM article_sync_state
+                        WHERE id = 'default'
+                        """),
+                let row = try Row.fetchOne(
+                    db,
+                    sql: """
+                        SELECT record_name, record_type, entity_id, system_fields,
+                        content_fingerprint, acknowledged_generation,
+                        account_owner_id, updated_at
+                        FROM article_sync_record
+                        WHERE record_name = ? AND account_owner_id = ?
+                        """,
+                    arguments: [recordName, owner])
+            else {
+                return nil
+            }
+            return try cloudRecord(from: row)
+        }
+    }
+
+    func allCloudRecords() throws -> [ArticleCloudRecordState] {
+        try db.read { db in
+            guard
+                let owner = try String.fetchOne(
+                    db,
+                    sql: """
+                        SELECT account_owner_id FROM article_sync_state
+                        WHERE id = 'default'
+                        """)
+            else {
+                return []
+            }
+            return try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT record_name, record_type, entity_id, system_fields,
+                           content_fingerprint, acknowledged_generation,
+                           account_owner_id, updated_at
+                    FROM article_sync_record
+                    WHERE account_owner_id = ?
+                    ORDER BY record_name
+                    """,
+                arguments: [owner]
+            ).map { try cloudRecord(from: $0) }
+        }
+    }
+
+    /// Rebuilds the active account's private zone from its durable desired
+    /// state. Prior-account receipts and all local workshop rows remain
+    /// quarantined from this account's recovery.
+    func recoverMissingZone(updatedAt: String) throws -> [ArticlePendingCloudChange] {
+        try db.write { db in
+            let owner = try requireActiveOwner(db)
+            var identities:
+                [String: (
+                    recordType: ArticleCloudRecordType,
+                    entityID: String,
+                    baseGeneration: Int64
+                )] = [:]
+            let acknowledged = try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT record_name, record_type, entity_id, acknowledged_generation
+                    FROM article_sync_record
+                    WHERE account_owner_id = ?
+                    """,
+                arguments: [owner])
+            for row in acknowledged {
+                let rawType: String = row["record_type"]
+                guard let recordType = ArticleCloudRecordType(rawValue: rawType) else {
+                    throw Error.invalidRecordType(rawType)
+                }
+                let recordName: String = row["record_name"]
+                identities[recordName] = (
+                    recordType: recordType,
+                    entityID: row["entity_id"],
+                    baseGeneration: row["acknowledged_generation"]
+                )
+            }
+
+            let pending = try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT record_name, record_type, entity_id, operation, generation
+                    FROM article_sync_outbox
+                    WHERE account_owner_id = ?
+                    """,
+                arguments: [owner])
+            for row in pending {
+                let recordName: String = row["record_name"]
+                let rawOperation: String = row["operation"]
+                guard let operation = ArticleSyncOperation(rawValue: rawOperation) else {
+                    throw Error.invalidOperation(rawOperation)
+                }
+                switch operation {
+                case .delete:
+                    // The absent zone already satisfies this desired state.
+                    identities.removeValue(forKey: recordName)
+                case .save:
+                    let rawType: String = row["record_type"]
+                    guard let recordType = ArticleCloudRecordType(rawValue: rawType) else {
+                        throw Error.invalidRecordType(rawType)
+                    }
+                    let generation: Int64 = row["generation"]
+                    let acknowledgedGeneration =
+                        identities[recordName]?.baseGeneration ?? 0
+                    identities[recordName] = (
+                        recordType: recordType,
+                        entityID: row["entity_id"],
+                        baseGeneration: max(generation, acknowledgedGeneration)
+                    )
+                }
+            }
+
+            try db.execute(
+                sql: "DELETE FROM article_sync_record WHERE account_owner_id = ?",
+                arguments: [owner])
+            try db.execute(
+                sql: "DELETE FROM article_sync_outbox WHERE account_owner_id = ?",
+                arguments: [owner])
+
+            var result: [ArticlePendingCloudChange] = []
+            for recordName in identities.keys.sorted() {
+                guard let identity = identities[recordName] else { continue }
+                let generation = identity.baseGeneration + 1
+                try db.execute(
+                    sql: """
+                        INSERT INTO article_sync_outbox (
+                            record_name, record_type, entity_id, operation,
+                            generation, account_owner_id, queued_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(record_name, account_owner_id) DO UPDATE SET
+                            record_type = excluded.record_type,
+                            entity_id = excluded.entity_id,
+                            operation = excluded.operation,
+                            generation = excluded.generation,
+                            queued_at = excluded.queued_at
+                        """,
+                    arguments: [
+                        recordName,
+                        identity.recordType.rawValue,
+                        identity.entityID,
+                        ArticleSyncOperation.save.rawValue,
+                        generation,
+                        owner,
+                        updatedAt,
+                    ])
+                result.append(
+                    ArticlePendingCloudChange(
+                        recordName: recordName,
+                        recordType: identity.recordType,
+                        entityID: identity.entityID,
+                        operation: .save,
+                        generation: generation,
+                        accountOwnerID: owner,
+                        queuedAt: updatedAt))
+            }
+            return result
+        }
     }
 
     func capture(id: String) throws -> ArticleCaptureRecord? {
@@ -406,8 +917,16 @@ nonisolated struct ArticleSyncDAO: Sendable {
     /// Applies one fetched CloudKit event in a single SQLite transaction.
     /// Immutable revision siblings are retained, and concurrent anthology
     /// manifests produce a durable recovered copy instead of overwriting local work.
-    func applyFetchedChanges(_ changes: [ArticleFetchedDatabaseChange]) throws {
-        guard changes.isEmpty == false else { return }
+    func applyFetchedChanges(
+        _ changes: [ArticleFetchedDatabaseChange],
+        cloudRecords: [ArticleFetchedCloudRecordReceipt] = [],
+        deletedRecordNames: [String] = []
+    ) throws {
+        guard
+            changes.isEmpty == false
+                || cloudRecords.isEmpty == false
+                || deletedRecordNames.isEmpty == false
+        else { return }
         try db.write { db in
             for change in changes {
                 guard case .capture(var capture) = change else { continue }
@@ -461,22 +980,45 @@ nonisolated struct ArticleSyncDAO: Sendable {
                         db: db)
                 }
             }
-        }
-    }
 
-    private func acknowledge(
-        recordNames: [String],
-        operation: ArticleSyncOperation
-    ) throws {
-        guard recordNames.isEmpty == false else { return }
-        try db.write { db in
-            for recordName in Set(recordNames) {
-                try db.execute(
-                    sql: """
-                        DELETE FROM article_sync_outbox
-                        WHERE record_name = ? AND operation = ?
-                        """,
-                    arguments: [recordName, operation.rawValue])
+            if cloudRecords.isEmpty == false || deletedRecordNames.isEmpty == false {
+                let owner = try requireActiveOwner(db)
+                for receipt in cloudRecords {
+                    try db.execute(
+                        sql: """
+                            INSERT INTO article_sync_record (
+                                record_name, record_type, entity_id, system_fields,
+                                content_fingerprint, acknowledged_generation,
+                                account_owner_id, updated_at
+                            )
+                            VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+                            ON CONFLICT(record_name, account_owner_id) DO UPDATE SET
+                                record_type = excluded.record_type,
+                                entity_id = excluded.entity_id,
+                                system_fields = excluded.system_fields,
+                                content_fingerprint = excluded.content_fingerprint,
+                                acknowledged_generation =
+                                    article_sync_record.acknowledged_generation,
+                                updated_at = excluded.updated_at
+                            """,
+                        arguments: [
+                            receipt.recordName,
+                            receipt.recordType.rawValue,
+                            receipt.entityID,
+                            receipt.systemFields,
+                            receipt.contentFingerprint,
+                            owner,
+                            Date().ISO8601Format(),
+                        ])
+                }
+                for recordName in deletedRecordNames {
+                    try db.execute(
+                        sql: """
+                            DELETE FROM article_sync_record
+                            WHERE record_name = ? AND account_owner_id = ?
+                            """,
+                        arguments: [recordName, owner])
+                }
             }
         }
     }
@@ -499,15 +1041,52 @@ nonisolated struct ArticleSyncDAO: Sendable {
             schemaVersion: incoming.schemaVersion,
             anthology: existingAnthology,
             entries: existingEntries)
-        if cloudComparable(existing) == cloudComparable(incoming) {
-            if existing.anthology.coverPath != incoming.anthology.coverPath {
-                try db.execute(
-                    sql: "UPDATE anthology SET cover_path = ? WHERE id = ?",
-                    arguments: [
-                        incoming.anthology.coverPath,
-                        incoming.anthology.id,
-                    ])
-            }
+        let existingComparable = cloudComparable(existing)
+        let incomingComparable = cloudComparable(incoming)
+        if existingComparable == incomingComparable {
+            return
+        }
+
+        let owner =
+            try String.fetchOne(
+                db,
+                sql: "SELECT account_owner_id FROM article_sync_state WHERE id = 'default'")
+            ?? ""
+        let recordName =
+            "\(ArticleCloudRecordType.anthology.recordNamePrefix).\(incoming.anthology.id)"
+        let hasPendingLocalChange =
+            try Bool.fetchOne(
+                db,
+                sql: """
+                    SELECT EXISTS(
+                        SELECT 1 FROM article_sync_outbox
+                        WHERE record_name = ? AND account_owner_id = ?
+                              AND operation = ?
+                    )
+                    """,
+                arguments: [
+                    recordName,
+                    owner,
+                    ArticleSyncOperation.save.rawValue,
+                ]) ?? false
+        let baseFingerprint = try String.fetchOne(
+            db,
+            sql: """
+                SELECT content_fingerprint FROM article_sync_record
+                WHERE record_name = ? AND account_owner_id = ?
+                """,
+            arguments: [recordName, owner])
+        let existingFingerprint = try ArticleSyncFingerprint.anthology(existingComparable)
+        let incomingFingerprint = try ArticleSyncFingerprint.anthology(incomingComparable)
+        let localDiverged =
+            hasPendingLocalChange
+            && (baseFingerprint == nil || existingFingerprint != baseFingerprint)
+
+        if localDiverged == false || existingFingerprint == incomingFingerprint {
+            try replaceAnthologyAuthoringState(
+                incoming,
+                preserving: existingAnthology,
+                db: db)
             return
         }
 
@@ -539,23 +1118,58 @@ nonisolated struct ArticleSyncDAO: Sendable {
                 anthology: recoveredAnthology,
                 entries: recoveredEntries),
             db: db)
-        let recordName =
+        let recoveredRecordName =
             "\(ArticleCloudRecordType.anthology.recordNamePrefix).\(recoveredID.uuidString)"
         try db.execute(
             sql: """
                 INSERT INTO article_sync_outbox (
-                    record_name, record_type, entity_id, operation, queued_at
+                    record_name, record_type, entity_id, operation,
+                    generation, account_owner_id, queued_at
                 )
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(record_name) DO NOTHING
+                VALUES (?, ?, ?, ?, 1, ?, ?)
+                ON CONFLICT(record_name, account_owner_id) DO NOTHING
                 """,
             arguments: [
-                recordName,
+                recoveredRecordName,
                 ArticleCloudRecordType.anthology.rawValue,
                 recoveredID.uuidString,
                 ArticleSyncOperation.save.rawValue,
+                owner,
                 incoming.anthology.modifiedAt,
             ])
+    }
+
+    private func replaceAnthologyAuthoringState(
+        _ incoming: ArticleCloudAnthologyManifest,
+        preserving local: AnthologyRecord,
+        db: Database
+    ) throws {
+        try db.execute(
+            sql: "DELETE FROM anthology_entry WHERE anthology_id = ?",
+            arguments: [incoming.anthology.id])
+        try db.execute(
+            sql: """
+                UPDATE anthology
+                SET title = ?, subtitle = ?, creator = ?,
+                    next_stable_slot = ?, created_at = ?, modified_at = ?
+                WHERE id = ?
+                """,
+            arguments: [
+                incoming.anthology.title,
+                incoming.anthology.subtitle,
+                incoming.anthology.creator,
+                incoming.anthology.nextStableSlot,
+                incoming.anthology.createdAt,
+                incoming.anthology.modifiedAt,
+                incoming.anthology.id,
+            ])
+        for entry in incoming.entries {
+            var entry = entry
+            try entry.insert(db)
+        }
+        // `cover_path` and `latest_build_revision` are intentionally omitted:
+        // they describe products owned by this device, not cloud authoring state.
+        _ = local
     }
 
     private func cloudComparable(
@@ -585,15 +1199,21 @@ nonisolated struct ArticleSyncDAO: Sendable {
         db: Database
     ) throws {
         let recordName = "\(recordType.recordNamePrefix).\(entityID)"
+        let owner =
+            try String.fetchOne(
+                db,
+                sql: "SELECT account_owner_id FROM article_sync_state WHERE id = 'default'")
+            ?? ""
         let hasPendingLocalChange =
             try Bool.fetchOne(
                 db,
                 sql: """
                     SELECT EXISTS(
-                        SELECT 1 FROM article_sync_outbox WHERE record_name = ?
+                        SELECT 1 FROM article_sync_outbox
+                        WHERE record_name = ? AND account_owner_id = ?
                     )
                     """,
-                arguments: [recordName]) ?? false
+                arguments: [recordName, owner]) ?? false
         guard hasPendingLocalChange == false else { return }
 
         switch recordType {
@@ -628,5 +1248,96 @@ nonisolated struct ArticleSyncDAO: Sendable {
         case .anthology:
             _ = try AnthologyRecord.deleteOne(db, key: entityID)
         }
+    }
+
+    private func requireActiveOwner(_ db: Database) throws -> String {
+        guard
+            let owner = try String.fetchOne(
+                db,
+                sql: """
+                    SELECT account_owner_id FROM article_sync_state
+                    WHERE id = 'default'
+                    """),
+            owner.isEmpty == false
+        else {
+            throw Error.missingAccountOwner
+        }
+        return owner
+    }
+
+    private func cloudRecord(from row: Row) throws -> ArticleCloudRecordState {
+        let rawType: String = row["record_type"]
+        guard let recordType = ArticleCloudRecordType(rawValue: rawType) else {
+            throw Error.invalidRecordType(rawType)
+        }
+        return ArticleCloudRecordState(
+            recordName: row["record_name"],
+            recordType: recordType,
+            entityID: row["entity_id"],
+            systemFields: row["system_fields"],
+            contentFingerprint: row["content_fingerprint"],
+            acknowledgedGeneration: row["acknowledged_generation"],
+            accountOwnerID: row["account_owner_id"],
+            updatedAt: row["updated_at"])
+    }
+
+    private func upsertCloudRecord(
+        _ acknowledgement: ArticleCloudSaveAcknowledgement,
+        recordTypeRaw: String?,
+        entityID: String?,
+        owner: String,
+        db: Database
+    ) throws {
+        guard let recordTypeRaw,
+            ArticleCloudRecordType(rawValue: recordTypeRaw) != nil,
+            let entityID
+        else {
+            throw Error.invalidRecordType(recordTypeRaw ?? "")
+        }
+        try db.execute(
+            sql: """
+                INSERT INTO article_sync_record (
+                    record_name, record_type, entity_id, system_fields,
+                    content_fingerprint, acknowledged_generation,
+                    account_owner_id, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(record_name, account_owner_id) DO UPDATE SET
+                    record_type = CASE
+                        WHEN excluded.acknowledged_generation >= article_sync_record.acknowledged_generation
+                        THEN excluded.record_type ELSE article_sync_record.record_type
+                    END,
+                    entity_id = CASE
+                        WHEN excluded.acknowledged_generation >= article_sync_record.acknowledged_generation
+                        THEN excluded.entity_id ELSE article_sync_record.entity_id
+                    END,
+                    system_fields = CASE
+                        WHEN excluded.acknowledged_generation >= article_sync_record.acknowledged_generation
+                        THEN excluded.system_fields ELSE article_sync_record.system_fields
+                    END,
+                    content_fingerprint = CASE
+                        WHEN excluded.acknowledged_generation >= article_sync_record.acknowledged_generation
+                        THEN excluded.content_fingerprint
+                        ELSE article_sync_record.content_fingerprint
+                    END,
+                    acknowledged_generation = MAX(
+                        article_sync_record.acknowledged_generation,
+                        excluded.acknowledged_generation
+                    ),
+                    updated_at = CASE
+                        WHEN excluded.acknowledged_generation >= article_sync_record.acknowledged_generation
+                        THEN excluded.updated_at ELSE article_sync_record.updated_at
+                    END
+                """,
+            arguments: [
+                acknowledgement.recordName,
+                recordTypeRaw,
+                entityID,
+                acknowledgement.systemFields,
+                acknowledgement.contentFingerprint,
+                acknowledgement.generation,
+                owner,
+                Date().ISO8601Format(),
+            ])
     }
 }

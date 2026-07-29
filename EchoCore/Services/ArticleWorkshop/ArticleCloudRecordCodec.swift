@@ -56,6 +56,8 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         case packageTooLarge
         case invalidPackage
         case prohibitedField(String)
+        case invalidSystemFields
+        case invalidProvenance(String)
     }
 
     private enum Field {
@@ -111,13 +113,19 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
 
     func captureRecord(
         _ capture: ArticleCaptureRecord,
-        packageDirectory: URL
+        packageDirectory: URL,
+        baseSystemFields: Data? = nil
     ) throws -> CKRecord {
         let id = try uuid(capture.id)
         try validateSHA256(capture.contentSHA256, field: Field.contentSHA256)
-        let record = CKRecord(
-            recordType: ArticleCloudRecordType.capture.rawValue,
-            recordID: recordID(for: .capture, entityID: id))
+        try validateProvenanceURL(capture.sourceURL, field: Field.sourceURL)
+        if let canonicalURL = capture.canonicalURL {
+            try validateProvenanceURL(canonicalURL, field: Field.canonicalURL)
+        }
+        let record = try record(
+            type: .capture,
+            entityID: id,
+            baseSystemFields: baseSystemFields)
         try set(capture.id, field: Field.entityID, on: record)
         try set(capture.sourceURL, field: Field.sourceURL, on: record)
         try setOptional(capture.canonicalURL, field: Field.canonicalURL, on: record)
@@ -147,7 +155,7 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
 
         try validateInstalledCapture(
             at: packageDirectory,
-            expectedSHA256: capture.contentSHA256)
+            expected: capture)
         let archiveURL = try makePackageArchive(
             packageDirectory: packageDirectory,
             recordName: record.recordID.recordName)
@@ -155,7 +163,17 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         return record
     }
 
-    func revisionRecord(_ revision: ArticleRevisionRecord) throws -> CKRecord {
+    func revisionRecord(
+        _ revision: ArticleRevisionRecord,
+        baseSystemFields: Data? = nil
+    ) throws -> CKRecord {
+        var canonicalRevision = revision
+        canonicalRevision.metadataOverridesJSON = try canonicalJSONString(
+            revision.metadataOverridesJSON,
+            field: Field.metadataOverridesJSON)
+        canonicalRevision.recipeJSON = try canonicalJSONString(
+            revision.recipeJSON,
+            field: Field.recipeJSON)
         let id = try uuid(revision.id)
         _ = try uuid(revision.captureID)
         if let parentRevisionID = revision.parentRevisionID {
@@ -164,9 +182,11 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         try validateSHA256(
             revision.readableContentSHA256,
             field: Field.readableContentSHA256)
-        let record = CKRecord(
-            recordType: ArticleCloudRecordType.revision.rawValue,
-            recordID: recordID(for: .revision, entityID: id))
+        try validateRevisionJSON(canonicalRevision)
+        let record = try record(
+            type: .revision,
+            entityID: id,
+            baseSystemFields: baseSystemFields)
         try set(revision.id, field: Field.entityID, on: record)
         try set(revision.captureID, field: Field.captureID, on: record)
         try setOptional(
@@ -174,13 +194,11 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
             field: Field.parentRevisionID,
             on: record)
         try set(
-            canonicalJSONString(
-                revision.metadataOverridesJSON,
-                field: Field.metadataOverridesJSON),
+            canonicalRevision.metadataOverridesJSON,
             field: Field.metadataOverridesJSON,
             on: record)
         try set(
-            canonicalJSONString(revision.recipeJSON, field: Field.recipeJSON),
+            canonicalRevision.recipeJSON,
             field: Field.recipeJSON,
             on: record)
         try set(
@@ -194,16 +212,18 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
 
     func anthologyRecord(
         _ manifest: ArticleCloudAnthologyManifest,
-        coverURL: URL?
+        coverURL: URL?,
+        baseSystemFields: Data? = nil
     ) throws -> CKRecord {
         let id = try uuid(manifest.anthology.id)
         var cloudManifest = manifest
         cloudManifest.anthology.coverPath = nil
         cloudManifest.anthology.latestBuildRevision = 0
         try validateManifest(cloudManifest)
-        let record = CKRecord(
-            recordType: ArticleCloudRecordType.anthology.rawValue,
-            recordID: recordID(for: .anthology, entityID: id))
+        let record = try record(
+            type: .anthology,
+            entityID: id,
+            baseSystemFields: baseSystemFields)
         try set(manifest.anthology.id, field: Field.entityID, on: record)
         try set(
             canonicalJSONString(cloudManifest, field: Field.manifestJSON),
@@ -257,6 +277,35 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         return (type, entityID)
     }
 
+    func systemFields(for record: CKRecord) throws -> Data {
+        let archiver = NSKeyedArchiver(requiringSecureCoding: true)
+        record.encodeSystemFields(with: archiver)
+        archiver.finishEncoding()
+        return archiver.encodedData
+    }
+
+    func contentFingerprint(for record: CKRecord) throws -> String {
+        let fields = try record.allKeys().sorted().compactMap { key -> String? in
+            if record[key] is CKAsset { return nil }
+            guard let value = record[key] else { return nil }
+            if let string = value as? String {
+                return "\(key)\u{0}\(string)"
+            }
+            if let number = value as? NSNumber {
+                return "\(key)\u{0}\(number.stringValue)"
+            }
+            throw Error.invalidField(key)
+        }
+        let data = Data(fields.joined(separator: "\u{1}").utf8)
+        return SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    func validateCaptureArchive(at url: URL) throws {
+        try validatePackageArchive(url)
+    }
+
     /// Installs a validated downloaded capture archive into the managed
     /// Article Workshop tree and returns a database-safe record with no
     /// CloudKit temporary path.
@@ -280,7 +329,7 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         if FileManager.default.fileExists(atPath: destination.path) {
             try validateInstalledCapture(
                 at: destination,
-                expectedSHA256: payload.capture.contentSHA256)
+                expected: payload.capture)
             var installed = payload.capture
             installed.packagePath = destination.path
             return installed
@@ -296,7 +345,7 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
             try extractPackageArchive(payload.packageArchiveURL, to: partial)
             try validateInstalledCapture(
                 at: partial,
-                expectedSHA256: payload.capture.contentSHA256)
+                expected: payload.capture)
             try FileManager.default.moveItem(at: partial, to: destination)
         } catch {
             if FileManager.default.fileExists(atPath: partial.path) {
@@ -325,6 +374,10 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
             field: Field.warningsJSON)
         let sourceURL = try requiredString(Field.sourceURL, from: record)
         let canonicalURL = try optionalString(Field.canonicalURL, from: record)
+        try validateProvenanceURL(sourceURL, field: Field.sourceURL)
+        if let canonicalURL {
+            try validateProvenanceURL(canonicalURL, field: Field.canonicalURL)
+        }
         let title = try requiredString(Field.title, from: record)
         let author = try optionalString(Field.author, from: record)
         let siteName = try optionalString(Field.siteName, from: record)
@@ -401,6 +454,7 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         try validateSHA256(
             revision.readableContentSHA256,
             field: Field.readableContentSHA256)
+        try validateRevisionJSON(revision)
         return ArticleCloudRevisionPayload(revision: revision)
     }
 
@@ -452,6 +506,37 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         CKRecordZone.ID(
             zoneName: Self.zoneName,
             ownerName: CKCurrentUserDefaultName)
+    }
+
+    private func record(
+        type: ArticleCloudRecordType,
+        entityID: UUID,
+        baseSystemFields: Data?
+    ) throws -> CKRecord {
+        let expectedID = recordID(for: type, entityID: entityID)
+        guard let baseSystemFields else {
+            return CKRecord(recordType: type.rawValue, recordID: expectedID)
+        }
+        let unarchiver: NSKeyedUnarchiver
+        do {
+            unarchiver = try NSKeyedUnarchiver(forReadingFrom: baseSystemFields)
+        } catch {
+            throw Error.invalidSystemFields
+        }
+        defer { unarchiver.finishDecoding() }
+        unarchiver.requiresSecureCoding = true
+        guard let restored = CKRecord(coder: unarchiver),
+            restored.recordID == expectedID,
+            restored.recordType == type.rawValue
+        else {
+            throw Error.invalidSystemFields
+        }
+        // System fields are the server concurrency base. Every application
+        // field is rewritten from a currently validated local model.
+        for key in restored.allKeys() {
+            restored[key] = nil
+        }
+        return restored
     }
 
     private func validatedTypeAndIdentity(
@@ -524,6 +609,79 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
     private func validateScalar(_ value: String, field: String) throws {
         guard value.utf8.count <= limits.maxScalarBytes else {
             throw Error.scalarTooLarge(field)
+        }
+    }
+
+    private func validateProvenanceURL(_ value: String, field: String) throws {
+        try validateScalar(value, field: field)
+        guard let components = URLComponents(string: value),
+            let scheme = components.scheme?.lowercased(),
+            ["http", "https"].contains(scheme),
+            components.host?.isEmpty == false,
+            components.user == nil,
+            components.password == nil,
+            components.fragment == nil
+        else {
+            throw Error.invalidProvenance(field)
+        }
+        let sensitiveNames = [
+            "access_key", "access_token", "accesskey", "accesstoken", "api_key",
+            "apikey", "authorization", "auth", "bearer", "client_secret", "code",
+            "credential", "credentials", "cookie", "jwt", "key", "password",
+            "passwd", "secret", "session", "sessionid", "sig", "signature", "token",
+        ]
+        let sensitiveValueMarkers = [
+            "access_token", "api_key", "apikey", "authorization", "bearer ",
+            "credential", "jwt", "password", "secret", "session=", "token=",
+        ]
+        for item in components.queryItems ?? [] {
+            let name = item.name.lowercased()
+                .replacingOccurrences(of: "-", with: "_")
+            if sensitiveNames.contains(where: {
+                name == $0 || name.hasSuffix("_\($0)") || name.hasPrefix("\($0)_")
+            }) {
+                throw Error.invalidProvenance(field)
+            }
+            if let value = item.value?.lowercased(),
+                sensitiveValueMarkers.contains(where: value.contains)
+            {
+                throw Error.invalidProvenance(field)
+            }
+        }
+    }
+
+    private func validateRevisionJSON(_ revision: ArticleRevisionRecord) throws {
+        let recipe: ArticleEditRecipe
+        let overrides: ArticleMetadataOverrides
+        do {
+            recipe = try JSONDecoder.articleWorkshop.decode(
+                ArticleEditRecipe.self,
+                from: Data(revision.recipeJSON.utf8))
+            overrides = try JSONDecoder.articleWorkshop.decode(
+                ArticleMetadataOverrides.self,
+                from: Data(revision.metadataOverridesJSON.utf8))
+        } catch {
+            throw Error.invalidJSON(Field.recipeJSON)
+        }
+        guard recipe.metadataOverrides == overrides,
+            Set(recipe.excludedBlockIDs).count == recipe.excludedBlockIDs.count,
+            recipe.excludedBlockIDs.allSatisfy({
+                $0.isEmpty == false && $0.utf8.count <= limits.maxScalarBytes
+            }),
+            [recipe.trimBeforeBlockID, recipe.trimAfterBlockID].allSatisfy({
+                guard let value = $0 else { return true }
+                return value.isEmpty == false && value.utf8.count <= limits.maxScalarBytes
+            })
+        else {
+            throw Error.invalidJSON(Field.recipeJSON)
+        }
+        guard
+            try canonicalJSONString(recipe, field: Field.recipeJSON)
+                == revision.recipeJSON,
+            try canonicalJSONString(overrides, field: Field.metadataOverridesJSON)
+                == revision.metadataOverridesJSON
+        else {
+            throw Error.invalidJSON(Field.recipeJSON)
         }
     }
 
@@ -681,6 +839,12 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         var count = 0
         var sawSnapshot = false
         for case let url as URL in enumerator {
+            guard
+                isBoundedRelativePath(
+                    String(url.path.dropFirst(directory.path.count + 1)))
+            else {
+                throw Error.invalidPackage
+            }
             let values = try url.resourceValues(
                 forKeys: [
                     .isRegularFileKey,
@@ -689,13 +853,15 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
                     .fileSizeKey,
                 ])
             guard values.isSymbolicLink != true else { throw Error.unsafeFile }
+            count += 1
+            guard count <= ArticleWorkshopLimits.maxImages + 2 else {
+                throw Error.packageTooLarge
+            }
             if values.isDirectory == true { continue }
             guard values.isRegularFile == true, let size = values.fileSize, size >= 0 else {
                 throw Error.unsafeFile
             }
-            count += 1
-            guard count <= ArticleWorkshopLimits.maxImages + 2,
-                total <= limits.maxPackageBytes - size
+            guard total <= limits.maxPackageBytes - size
             else {
                 throw Error.packageTooLarge
             }
@@ -720,14 +886,17 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         var sawSnapshot = false
         var paths: Set<String> = []
         for entry in archive {
-            if entry.type == .directory { continue }
             guard isSafeArchivePath(entry.path) else {
                 throw Error.invalidPackage
             }
-            guard entry.type == .file else { throw Error.invalidPackage }
             guard paths.insert(entry.path).inserted else { throw Error.invalidPackage }
             count += 1
-            guard count <= ArticleWorkshopLimits.maxImages + 2,
+            guard count <= ArticleWorkshopLimits.maxImages + 2 else {
+                throw Error.packageTooLarge
+            }
+            if entry.type == .directory { continue }
+            guard entry.type == .file else { throw Error.invalidPackage }
+            guard
                 entry.uncompressedSize <= UInt64(limits.maxPackageBytes),
                 total <= UInt64(limits.maxPackageBytes) - entry.uncompressedSize
             else {
@@ -749,8 +918,8 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
             throw Error.invalidPackage
         }
         for entry in archive {
-            if entry.type == .directory { continue }
             guard isSafeArchivePath(entry.path) else { throw Error.invalidPackage }
+            if entry.type == .directory { continue }
             guard entry.type == .file else { throw Error.invalidPackage }
             let destination = directory.appending(path: entry.path).standardizedFileURL
             let root = directory.standardizedFileURL
@@ -766,19 +935,74 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
 
     private func validateInstalledCapture(
         at directory: URL,
-        expectedSHA256: String
+        expected capture: ArticleCaptureRecord
     ) throws {
         try validatePackageDirectory(directory)
         let snapshot = directory.appending(path: "snapshot.json")
-        try validateRegularFile(snapshot, maximumBytes: limits.maxPackageBytes)
+        try validateRegularFile(
+            snapshot,
+            maximumBytes: min(
+                limits.maxPackageBytes,
+                ArticleWorkshopLimits.maxEnvelopeBytes))
         let data = try Data(
             contentsOf: snapshot,
             options: [.mappedIfSafe])
-        guard data.count <= limits.maxPackageBytes,
+        guard data.count <= ArticleWorkshopLimits.maxEnvelopeBytes,
             SHA256.hash(data: data)
                 .map({ String(format: "%02x", $0) })
-                .joined() == expectedSHA256
+                .joined() == capture.contentSHA256
         else {
+            throw Error.invalidPackage
+        }
+        let envelope: ArticleCaptureEnvelope
+        do {
+            envelope = try JSONDecoder.articleWorkshop.decode(
+                ArticleCaptureEnvelope.self,
+                from: data)
+        } catch {
+            throw Error.invalidPackage
+        }
+        guard envelope.schemaVersion == 1,
+            envelope.captureID.uuidString == capture.id,
+            envelope.method == capture.captureMethod,
+            envelope.payload.sourceURL == capture.sourceURL,
+            envelope.payload.canonicalURL == capture.canonicalURL,
+            capture.title == (envelope.payload.title ?? "Untitled article"),
+            capture.author == envelope.payload.byline,
+            capture.siteName == envelope.payload.siteName,
+            capture.language == envelope.payload.language,
+            capture.publishedAt == envelope.payload.publishedTime,
+            capture.capturedAt == envelope.capturedAt.ISO8601Format(),
+            capture.extractorVersion == "schema-\(envelope.schemaVersion)",
+            ArticleContentState(rawValue: capture.contentState) != nil
+        else {
+            throw Error.invalidPackage
+        }
+        try validateProvenanceURL(envelope.payload.sourceURL, field: Field.sourceURL)
+        if let canonicalURL = envelope.payload.canonicalURL {
+            try validateProvenanceURL(canonicalURL, field: Field.canonicalURL)
+        }
+        let sanitized: ArticleSnapshot
+        do {
+            sanitized = try ArticleBlockSanitizer().sanitize(envelope: envelope)
+        } catch {
+            throw Error.invalidPackage
+        }
+        guard sanitized.captureID.uuidString == capture.id,
+            sanitized.metadata.title == normalizedEnvelopeText(envelope.payload.title)
+                ?? "Untitled article",
+            sanitized.metadata.author == normalizedEnvelopeText(envelope.payload.byline),
+            sanitized.metadata.siteName == normalizedEnvelopeText(envelope.payload.siteName),
+            sanitized.metadata.language == normalizedEnvelopeText(envelope.payload.language),
+            sanitized.metadata.publishedTime
+                == normalizedEnvelopeText(envelope.payload.publishedTime),
+            sanitized.contentState != .captureFailed || capture.contentState == "captureFailed"
+        else {
+            throw Error.invalidPackage
+        }
+        do {
+            _ = try JSONDecoder().decode([String].self, from: Data(capture.warningsJSON.utf8))
+        } catch {
             throw Error.invalidPackage
         }
     }
@@ -786,7 +1010,30 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
     private func isSafeArchivePath(_ path: String) -> Bool {
         guard path.isEmpty == false, path.hasPrefix("/") == false else { return false }
         let components = path.split(separator: "/", omittingEmptySubsequences: false)
-        return components.allSatisfy { $0.isEmpty == false && $0 != "." && $0 != ".." }
+        let pathComponents =
+            components.last?.isEmpty == true ? components.dropLast() : components[...]
+        return path.utf8.count <= 1_024
+            && pathComponents.count <= 24
+            && pathComponents.allSatisfy {
+                $0.isEmpty == false
+                    && $0 != "."
+                    && $0 != ".."
+                    && $0.utf8.count <= 255
+            }
+    }
+
+    private func isBoundedRelativePath(_ path: String) -> Bool {
+        isSafeArchivePath(path)
+    }
+
+    private func normalizedEnvelopeText(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let collapsed =
+            value
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return collapsed.isEmpty ? nil : collapsed
     }
 
     private func validateRegularFile(_ url: URL, maximumBytes: Int) throws {
