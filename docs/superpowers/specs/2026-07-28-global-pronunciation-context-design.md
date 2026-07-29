@@ -872,7 +872,7 @@ not change production resolution.
 | Guardrail or refusal | Do not repeat the same request. Route the occurrence to deterministic fallback/review. |
 | Unsupported language or locale | Do not retry; contextual Foundation Models resolution is English-only in this program. |
 | Transient timeout or rate limit | One bounded retry with a fresh session, then fallback/review. |
-| Concurrent request error | Prevent through serial execution; if encountered, treat as an implementation defect and safely fall back. |
+| Concurrent request error | Prevent through serial execution. If encountered, make exactly one smaller serial retry; if it recurs, emit failure evidence and safely fall back. |
 | Structured-output parsing failure | Reject the entire batch; retry once smaller, then review. |
 | Missing, duplicate, unknown, or invalid occurrence/candidate ID | Reject the entire batch; never salvage partial output. |
 | User cancellation | Propagate cancellation immediately. Do not convert it into fallback and do not continue rendering. |

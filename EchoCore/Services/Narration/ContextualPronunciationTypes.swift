@@ -77,3 +77,68 @@ nonisolated struct ContextualDeterministicAnalysis: Equatable, Sendable {
         ruleID: nil,
         strength: .abstained)
 }
+
+nonisolated struct ContextualPronunciationBatchRequest: Equatable, Sendable {
+    let occurrences: [ContextualPronunciationOccurrence]
+}
+
+nonisolated struct ContextualModelSelection: Equatable, Sendable {
+    let occurrenceID: String
+    let slot: ContextualCandidateSlot
+}
+
+nonisolated struct ContextualModelRuntime: Codable, Equatable, Sendable {
+    let platform: String
+    let osBuild: String
+    let qualifiedRuntimeFamilyID: String
+}
+
+nonisolated struct ContextualPronunciationBatchResult: Equatable, Sendable {
+    let availability: ContextualModelAvailability
+    let selections: [ContextualModelSelection]
+    let failure: ContextualModelFailure?
+    let runtime: ContextualModelRuntime
+}
+
+typealias ContextualPronunciationBatchEvaluator =
+    @Sendable (ContextualPronunciationBatchRequest) async throws
+    -> ContextualPronunciationBatchResult
+
+nonisolated struct ContextualPronunciationEvidence: Codable, Equatable, Sendable {
+    let occurrenceID: String
+    let familyID: String
+    let candidatePackVersion: String
+    let submittedCandidateIDs: [String]
+    let deterministicCandidateID: String?
+    let deterministicRuleID: String?
+    let deterministicStrength: DeterministicRuleStrength
+    let modelCandidateID: String?
+    let modelAbstained: Bool
+    let modelAvailability: ContextualModelAvailability
+    let modelFailure: ContextualModelFailure?
+    let familyState: ContextualFamilyState
+    let acceptanceReason: ContextualAcceptanceReason
+    let promptSchemaVersion: String
+    let platform: String
+    let osBuild: String
+    let qualifiedRuntimeFamilyID: String
+    let humanCandidateID: String?
+    let humanCorrectionScope: String?
+    let isLimited: Bool
+}
+
+nonisolated enum ContextualAcceptanceReason: String, Codable, Equatable, Sendable {
+    case shadowObserved
+    case shadowNeedsReview
+    case shadowModelUnavailable
+    case shadowModelFailure
+}
+
+nonisolated struct ContextualPronunciationPreflightConfiguration: Equatable, Sendable {
+    let maximumBatchCount: Int
+    let maximumPromptCharacters: Int
+
+    static let phaseTwo = Self(
+        maximumBatchCount: 8,
+        maximumPromptCharacters: 8_000)
+}
