@@ -1,9 +1,10 @@
 # Echo Article Inbox and Anthologies
 
-- **Status:** Approved design, pending implementation plan
+- **Status:** Approved design; implementation plan written
 - **Date:** 2026-07-28
 - **Author:** Dan Fakkeldy with Codex
 - **Branch base:** `origin/nightly` at `33c17fda`
+- **Implementation plan:** `docs/superpowers/plans/2026-07-28-article-inbox-anthologies.md`
 - **Origin:** Product-design session prompted by Instapaper-style article collection, extended to a private Echo workflow that turns several captured articles into a chaptered EPUB and, through Echo's existing narration pipeline, a chaptered M4B.
 
 ## 1. Summary
