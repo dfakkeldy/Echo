@@ -341,6 +341,95 @@ import Testing
         #expect(result.decisionSeeds.isEmpty)
     }
 
+    @Test func malformedInlineTitlesFailClosedWithinTheirSourceLine() {
+        let supplementalPack = pack(automaticEntries: [
+            "ad-hoc": ("cmudict.ad-hoc.fixture", "ˈædhˈɑk")
+        ])
+        let malformedSources = [
+            #"[guide](https://example.com "candidate ad-hoc"#,
+            #"[guide](https://example.com 'candidate ad-hoc"#,
+            #"[guide](https://example.com (candidate ad-hoc"#,
+        ]
+
+        for source in malformedSources {
+            let result = UniversalPronunciationResolver.rewrite(
+                to: source,
+                blockID: "b1",
+                pack: supplementalPack,
+                basePronunciation: { _ in nil })
+
+            #expect(result.text == source)
+            #expect(result.decisionSeeds.isEmpty)
+        }
+
+        let boundedSource =
+            #"[guide](https://example.com "candidate ad-hoc"#
+            + "\nOutside ad-hoc."
+        let boundedResult = UniversalPronunciationResolver.rewrite(
+            to: boundedSource,
+            blockID: "b1",
+            pack: supplementalPack,
+            basePronunciation: { _ in nil })
+        #expect(
+            boundedResult.text
+                == #"[guide](https://example.com "candidate ad-hoc"#
+                + "\nOutside [ad-hoc](/ˈædhˈɑk/).")
+        #expect(boundedResult.decisionSeeds.map(\.sourceWord) == ["ad-hoc"])
+    }
+
+    @Test func malformedNextLineReferenceTitlesFailClosedWithinTheTitleLine() {
+        let supplementalPack = pack(automaticEntries: [
+            "ad-hoc": ("cmudict.ad-hoc.fixture", "ˈædhˈɑk")
+        ])
+
+        for opening in ["\"", "'", "("] {
+            let source =
+                "[guide]: https://example.com\n"
+                + "  \(opening)candidate ad-hoc"
+            let result = UniversalPronunciationResolver.rewrite(
+                to: source,
+                blockID: "b1",
+                pack: supplementalPack,
+                basePronunciation: { _ in nil })
+
+            #expect(result.text == source)
+            #expect(result.decisionSeeds.isEmpty)
+        }
+    }
+
+    @Test func crlfUnicodeMalformedRecoveryAndValidReferenceTitlesPreserveBoundaries() {
+        let supplementalPack = pack(automaticEntries: [
+            "ad-hoc": ("cmudict.ad-hoc.fixture", "ˈædhˈɑk")
+        ])
+        let malformed =
+            #"[guide](https://example.com "👩‍💻 candidate ad-hoc"#
+            + "\r\nOutside 'ad-hoc,' and don't."
+        let malformedResult = UniversalPronunciationResolver.rewrite(
+            to: malformed,
+            blockID: "b1",
+            pack: supplementalPack,
+            basePronunciation: { _ in nil })
+
+        #expect(
+            malformedResult.text
+                == #"[guide](https://example.com "👩‍💻 candidate ad-hoc"#
+                + "\r\nOutside '[ad-hoc](/ˈædhˈɑk/),' and don't.")
+        #expect(malformedResult.decisionSeeds.map(\.sourceWord) == ["ad-hoc"])
+
+        let validReference =
+            #"[guide]: https://example.com"#
+            + "\r\n"
+            + #"  "👩‍💻 ad-hoc \"quoted\"""#
+            + "\r\nSee [guide]."
+        let validResult = UniversalPronunciationResolver.rewrite(
+            to: validReference,
+            blockID: "b1",
+            pack: supplementalPack,
+            basePronunciation: { _ in nil })
+        #expect(validResult.text == validReference)
+        #expect(validResult.decisionSeeds.isEmpty)
+    }
+
     @Test func referenceDefinitionsAndUsesRemainProtectedWhenDefinitionAware() {
         let supplementalPack = pack(automaticEntries: [
             "ad-hoc": ("cmudict.ad-hoc.fixture", "ˈædhˈɑk"),
@@ -388,6 +477,27 @@ import Testing
             #expect(unresolvedReference.text == source)
             #expect(unresolvedReference.decisionSeeds.isEmpty)
         }
+    }
+
+    @Test func repeatedMultiwordEditorialBracketsUseBoundedParserInspectionWork() {
+        let supplementalPack = pack(automaticEntries: [
+            "ad-hoc": ("cmudict.ad-hoc.fixture", "ˈædhˈɑk")
+        ])
+        let source = String(repeating: "[ad-hoc editorial] ", count: 1_000)
+        var parserInspectionCount = 0
+        var auditSnapshotConstructionCount = 0
+
+        let result = UniversalPronunciationResolver.rewrite(
+            to: source,
+            blockID: "b1",
+            pack: supplementalPack,
+            basePronunciation: { _ in nil },
+            parserInspectionCount: &parserInspectionCount,
+            auditSnapshotConstructionCount: &auditSnapshotConstructionCount)
+
+        #expect(result.decisionSeeds.count == 1_000)
+        #expect(parserInspectionCount <= source.count * 20)
+        #expect(auditSnapshotConstructionCount == 1)
     }
 
     @Test func malformedSquareBracketEnvelopesFailClosed() {
@@ -594,6 +704,46 @@ import Testing
         #expect(trueBoundary.decisionSeeds.map(\.normalizedWord) == ["foobar"])
     }
 
+    @Test func v6LongerAbbreviationCategoriesDoNotProveSentenceStart() {
+        let supplementalPack = pack(automaticEntries: [
+            "foobar": ("cmudict.foobar.fixture", "fˈubɑɹ")
+        ])
+        let requiredCases = [
+            "SSgt. Foobar arrived.",
+            "Assn. Foobar arrived.",
+            "Mass. Foobar arrived.",
+            "Chap. Foobar arrived.",
+            "Thurs. Foobar arrived.",
+        ]
+        // Independently selected representatives exercise each named category
+        // beyond the five omissions that triggered the v6 review.
+        let heldOutCategoryCases = [
+            "GySgt. Foobar arrived.",
+            "Intl. Foobar arrived.",
+            "Penn. Foobar arrived.",
+            "Append. Foobar arrived.",
+            "Weds. Foobar arrived.",
+        ]
+
+        for text in requiredCases + heldOutCategoryCases {
+            let result = UniversalPronunciationResolver.rewrite(
+                to: text,
+                blockID: "b1",
+                pack: supplementalPack,
+                basePronunciation: { _ in nil })
+            #expect(result.text == text)
+            #expect(result.decisionSeeds.isEmpty)
+        }
+
+        let trueBoundary = UniversalPronunciationResolver.rewrite(
+            to: "Done. Foobar arrived.",
+            blockID: "b1",
+            pack: supplementalPack,
+            basePronunciation: { _ in nil })
+        #expect(trueBoundary.text == "Done. [Foobar](/fˈubɑɹ/) arrived.")
+        #expect(trueBoundary.decisionSeeds.map(\.normalizedWord) == ["foobar"])
+    }
+
     @Test func ordinaryWordsPerformNoMorphologyG2PLookups() {
         var calls: [String] = []
         let result = UniversalPronunciationResolver.rewrite(
@@ -742,8 +892,8 @@ import Testing
 
         #expect(
             policyVersion
-                == "morphology-v1:sha256:70b62d319509ced33b25d022ee7ccefaf18b1a0930d94bd535cc4a77849398ae")
-        #expect(candidateID == "morphology.startable.d7660bc2246f")
+                == "morphology-v1:sha256:2580d437001e2d89c46736ba822b130de246f086b0e343af90665fdc1c163280")
+        #expect(candidateID == "morphology.startable.bba3cbb67e4e")
         #expect(
             UniversalPronunciationResolver.morphologyCandidatePackVersion(for: fixturePack)
                 == policyVersion)
@@ -778,7 +928,7 @@ import Testing
         let changedProperNamePolicy =
             UniversalPronunciationResolver.morphologyCandidatePackVersion(
                 for: fixturePack,
-                properNamePolicyVersion: "proper-name-risk-v4")
+                properNamePolicyVersion: "proper-name-risk-v5")
         let changedPack = UniversalPronunciationResolver.morphologyCandidatePackVersion(
             for: pack(packVersion: "sha256:" + String(repeating: "2", count: 64)))
         let changedVocabulary = UniversalPronunciationResolver.morphologyCandidatePackVersion(

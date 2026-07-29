@@ -286,6 +286,19 @@ import Testing
         #expect(pieces.contains { $0.contains(escapedTitle) })
     }
 
+    @Test func crlfReferenceTitlesAndEscapesRemainAtomic() {
+        let definition =
+            #"[guide]: https://example.com"#
+            + "\r\n"
+            + #"  "ad-hoc \"quoted\"""#
+        let source = definition + "\r\nSee [guide]."
+        let protected = NarrationTextChunker.markdownProtectedRanges(in: source)
+            .map { String(source[$0]) }
+
+        #expect(protected.contains(definition))
+        #expect(protected.contains("[guide]"))
+    }
+
     @Test func unmatchedMarkdownBracketsHaveBoundedInspectionWork() {
         let source = String(repeating: "[", count: 20_000)
         var inspectionCount = 0
@@ -295,6 +308,34 @@ import Testing
             inspectionCount: &inspectionCount)
 
         #expect(ranges.isEmpty)
+        #expect(inspectionCount <= source.count * 20)
+    }
+
+    @Test func repeatedMatchedLabelsWithUnclosedDestinationsHaveBoundedInspectionWork() {
+        for fragment in ["[](", "[x]("] {
+            let source = String(repeating: fragment, count: 1_000)
+            var inspectionCount = 0
+
+            _ = NarrationTextChunker.markdownProtectedRanges(
+                in: source,
+                inspectionCount: &inspectionCount)
+
+            #expect(inspectionCount <= source.count * 20)
+        }
+    }
+
+    @Test func nestedBalancedLabelsIncludingReferenceNormalizationStayBounded() {
+        let depth = 2_000
+        let source =
+            String(repeating: "[", count: depth)
+            + "multi word reference"
+            + String(repeating: "]", count: depth)
+        var inspectionCount = 0
+
+        _ = NarrationTextChunker.markdownProtectedRanges(
+            in: source,
+            inspectionCount: &inspectionCount)
+
         #expect(inspectionCount <= source.count * 20)
     }
 

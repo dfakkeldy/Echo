@@ -421,13 +421,29 @@ irregularities and false segmentations become exceptions. A derived result
 retains its deterministic candidate ID, candidate-pack/policy version, base
 entry, and transformation rule in the audit evidence.
 
+Markdown exclusion uses one escaped-aware source index shared by chunking and
+pronunciation resolution. Square-bracket matching, line ends, reference
+normalization, and editorial-bracket containment are included in its
+deterministic operation counter. A suspected inline destination or title that
+does not close fails closed only through the end of its current source line; a
+suspected next-line reference title protects the definition and that one title
+line. Parsing then resumes after the bounded recovery range.
+
+The resolver also constructs one immutable authored-to-display audit snapshot
+per source block. It removes existing pronunciation markup once, tokenizes the
+display words once, and reuses indexed UTF-16 source mappings and word contexts
+for every decision seed. Candidate count therefore does not multiply full-source
+tokenization or context work.
+
 Capitalization safety fails closed after a versioned, categorized set of
 common honorific, military, professional, organizational, geographic,
 reference, and calendar abbreviations. Any alphabetic abbreviation of three
 letters or fewer is also ambiguous without requiring an exhaustive catalog;
-initials and dotted initialisms remain ambiguous too. Longer forms stay
-catalogued by category. Ordinary lexical sentence endings such as
-`Done. Foobar` remain true boundaries.
+initials and dotted initialisms remain ambiguous too. No honest spelling-only
+rule distinguishes longer abbreviations such as `Mass.` or `Chap.` from all
+ordinary sentence-ending words, so longer forms remain in a reviewed
+categorized catalog with independently selected category regressions. Ordinary
+lexical sentence endings such as `Done. Foobar` remain true boundaries.
 
 The morphology policy identity is canonical JSON using the same encoding rules:
 
@@ -442,7 +458,7 @@ The morphology policy identity is canonical JSON using the same encoding rules:
   ],
   "suffixIPA": "əbəl",
   "minimumBaseLength": 3,
-  "properNamePolicyVersion": "proper-name-risk-v5",
+  "properNamePolicyVersion": "proper-name-risk-v6",
   "baseEvidencePolicyVersion": "kokoro-nonfallback-rating3-v1",
   "exceptionSetSHA256": "sha256:<canonical-sorted-exception-set-digest>",
   "pronunciationPackVersion": "sha256:<semantic-pack-digest>",

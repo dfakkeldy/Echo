@@ -9,24 +9,27 @@ nonisolated enum UniversalPronunciationResolver {
     static let morphologyIdentitySchemaVersion = 1
     static let suffixIPA = "əbəl"
     static let minimumBaseLength = 3
-    static let properNamePolicyVersion = "proper-name-risk-v5"
+    static let properNamePolicyVersion = "proper-name-risk-v6"
     static let baseEvidencePolicyVersion = "kokoro-nonfallback-rating3-v1"
     /// Common honorific, military, professional, organizational, geographic,
     /// reference, and calendar abbreviations. A period after one of these is
     /// not sufficient evidence that the following capitalized token begins a
     /// new sentence.
     static let ambiguousPeriodAbbreviations: Set<String> = [
-        "adm", "adv", "apr", "approx", "art", "assoc", "asst", "atty", "aug", "ave",
-        "blvd", "br", "brig", "bros", "capt", "ch", "cmdr", "co", "col",
-        "calif", "corp", "cpl", "ctr", "dec", "dept", "det", "dist", "dr", "ens", "eq",
-        "esq",
-        "est", "etc", "exec", "feb", "fig", "fr", "fri", "gen", "gov", "hon", "hwy",
-        "inc", "insp", "jan", "jr", "jul", "jun", "jct", "ln", "lt", "ltd",
+        "acad", "adm", "adv", "append", "apr", "approx", "ariz", "ark", "art",
+        "assoc", "assn", "asst", "atty", "aug", "ave", "blvd", "br", "brig", "bros",
+        "calif", "capt", "ch", "chap", "cmdr", "co", "col", "colo", "comm", "conn",
+        "corp", "cpl", "ctr", "dec", "dept", "det", "dist", "div", "dr", "ens", "eq",
+        "esq", "est", "etc", "exec", "exhib", "feb", "fig", "fr", "fri", "gen", "gov",
+        "gysgt", "hon", "hwy", "ill", "inc", "insp", "intl", "jan", "jct", "jr", "jul",
+        "jun", "ln", "lt", "ltd", "mass",
         "m.d", "maj", "mar", "messrs", "mlle", "mon", "mr", "mrs", "ms", "msgr",
-        "mt", "mx", "no", "nov", "oct", "ofc", "pfc", "ph.d", "pkwy", "pl", "pp",
+        "msgt", "mt", "mx", "no", "nov", "oct", "ofc", "org", "penn", "pfc", "ph.d",
+        "pkwy", "pl", "pp",
         "pres", "prof", "pvt", "rd", "rep", "rev", "rte", "sat", "sec", "sen", "sep",
-        "sept", "sgt", "sq", "sr", "st", "ste", "sun", "supt", "terr", "thu", "tue",
-        "univ", "vol", "vs", "wed",
+        "sept", "sfc", "sgt", "spc", "sq", "sr", "ssgt", "st", "ste", "sun", "supt",
+        "tenn", "terr", "thu", "thur", "thurs", "tue", "univ", "vol", "vs", "wed",
+        "weds",
     ]
     static let contextualExclusions: Set<String> = [
         "content", "read", "live", "lives", "record", "records",
@@ -64,6 +67,167 @@ nonisolated enum UniversalPronunciationResolver {
         let candidatePackVersion: String
         let derivationBase: String?
         let derivationRuleID: String?
+    }
+
+    /// One immutable authored-to-display word map per resolver pass. Its link
+    /// recognizer mirrors `MisakiPronunciationMarkup.link`, but uses precomputed
+    /// next-delimiter indexes so malformed repeated brackets stay bounded.
+    private struct AuditSnapshot {
+        private struct Link {
+            let range: Range<String.Index>
+            let displayRange: Range<String.Index>
+        }
+
+        private static let contextRadius = 5
+
+        let displayUTF16OffsetBySourceIndex: [String.Index: Int]
+        let displayWordRanges: [NSRange]
+        let displayWords: [String]
+
+        init(source: String) {
+            var nextClosingSquareByIndex: [String.Index: String.Index] = [:]
+            var nextClosingParenthesisByIndex: [String.Index: String.Index] = [:]
+            var nextClosingSquare: String.Index?
+            var nextClosingParenthesis: String.Index?
+            var reverseIndex = source.endIndex
+            while reverseIndex > source.startIndex {
+                reverseIndex = source.index(before: reverseIndex)
+                if source[reverseIndex] == "]" {
+                    nextClosingSquare = reverseIndex
+                } else if source[reverseIndex] == ")" {
+                    nextClosingParenthesis = reverseIndex
+                }
+                if let nextClosingSquare {
+                    nextClosingSquareByIndex[reverseIndex] = nextClosingSquare
+                }
+                if let nextClosingParenthesis {
+                    nextClosingParenthesisByIndex[reverseIndex] =
+                        nextClosingParenthesis
+                }
+            }
+
+            func link(startingAt start: String.Index) -> Link? {
+                guard source[start] == "[" else { return nil }
+                let displayStart = source.index(after: start)
+                guard let displayEnd = nextClosingSquareByIndex[displayStart],
+                    displayStart < displayEnd
+                else {
+                    return nil
+                }
+                let openParenthesis = source.index(after: displayEnd)
+                guard openParenthesis < source.endIndex,
+                    source[openParenthesis] == "("
+                else {
+                    return nil
+                }
+                let openingSlash = source.index(after: openParenthesis)
+                guard openingSlash < source.endIndex,
+                    source[openingSlash] == "/"
+                else {
+                    return nil
+                }
+                let ipaStart = source.index(after: openingSlash)
+                guard let closeParenthesis =
+                    nextClosingParenthesisByIndex[ipaStart],
+                    ipaStart < closeParenthesis
+                else {
+                    return nil
+                }
+                let closingSlash = source.index(before: closeParenthesis)
+                guard closingSlash > openingSlash,
+                    source[closingSlash] == "/"
+                else {
+                    return nil
+                }
+                return Link(
+                    range: start..<source.index(after: closeParenthesis),
+                    displayRange: displayStart..<displayEnd)
+            }
+
+            var display = ""
+            display.reserveCapacity(source.utf8.count)
+            var offsets: [String.Index: Int] = [:]
+            var displayUTF16Offset = 0
+            var sourceIndex = source.startIndex
+            while sourceIndex < source.endIndex {
+                offsets[sourceIndex] = displayUTF16Offset
+                if let link = link(startingAt: sourceIndex) {
+                    let authoredDisplay = source[link.displayRange]
+                    display.append(contentsOf: authoredDisplay)
+                    displayUTF16Offset += authoredDisplay.utf16.count
+                    sourceIndex = link.range.upperBound
+                    offsets[sourceIndex] = displayUTF16Offset
+                    continue
+                }
+                let character = source[sourceIndex]
+                display.append(character)
+                displayUTF16Offset += String(character).utf16.count
+                sourceIndex = source.index(after: sourceIndex)
+            }
+            offsets[source.endIndex] = displayUTF16Offset
+
+            displayUTF16OffsetBySourceIndex = offsets
+            let ranges = WordTokenizer.wordRanges(in: display)
+            displayWordRanges = ranges.map { NSRange($0, in: display) }
+            displayWords = ranges.map { String(display[$0]) }
+        }
+
+        func wordSpan(
+            containing sourceRange: Range<String.Index>
+        ) -> ClosedRange<Int>? {
+            guard let lower = displayUTF16OffsetBySourceIndex[sourceRange.lowerBound],
+                let upper = displayUTF16OffsetBySourceIndex[sourceRange.upperBound],
+                upper > lower
+            else {
+                return nil
+            }
+            let matchRange = NSRange(location: lower, length: upper - lower)
+
+            var low = 0
+            var high = displayWordRanges.count
+            while low < high {
+                let middle = (low + high) / 2
+                if NSMaxRange(displayWordRanges[middle]) <= matchRange.location {
+                    low = middle + 1
+                } else {
+                    high = middle
+                }
+            }
+            let first = low
+            guard first < displayWordRanges.count,
+                displayWordRanges[first].location < NSMaxRange(matchRange)
+            else {
+                return nil
+            }
+
+            low = first
+            high = displayWordRanges.count
+            while low < high {
+                let middle = (low + high) / 2
+                if displayWordRanges[middle].location < NSMaxRange(matchRange) {
+                    low = middle + 1
+                } else {
+                    high = middle
+                }
+            }
+            return first...(low - 1)
+        }
+
+        func sourceContext(for wordSpan: ClosedRange<Int>) -> String {
+            guard !displayWords.isEmpty,
+                wordSpan.lowerBound >= 0,
+                wordSpan.upperBound >= wordSpan.lowerBound,
+                wordSpan.lowerBound < displayWords.count
+            else {
+                return ""
+            }
+            let boundedEnd = min(wordSpan.upperBound, displayWords.count - 1)
+            let lower = max(0, wordSpan.lowerBound - Self.contextRadius)
+            let upper = min(
+                displayWords.count - 1,
+                boundedEnd + Self.contextRadius)
+            return displayWords[lower...upper].joined(separator: " ")
+        }
     }
 
     private static let ordinaryBoundaryPunctuation: Set<Character> = [
@@ -127,18 +291,30 @@ nonisolated enum UniversalPronunciationResolver {
         to text: String,
         blockID: String,
         pack: EnglishPronunciationPack,
-        basePronunciation: (String) -> String?
+        basePronunciation: (String) -> String?,
+        parserInspectionCount: inout Int,
+        auditSnapshotConstructionCount: inout Int
     ) -> PronunciationRewriteResult {
         // `.empty` is the explicit low-level/test and load-failure sentinel.
         // Universal policy fails closed unless a semantic pack snapshot exists.
         guard pack != .empty else {
+            parserInspectionCount = 0
+            auditSnapshotConstructionCount = 0
             return PronunciationRewriteResult(text: text, decisionSeeds: [])
         }
-        let protectedRanges = NarrationTextChunker.pronunciationProtectedRanges(in: text)
+        let syntaxIndex = NarrationTextChunker.pronunciationSyntaxIndex(
+            in: text,
+            inspectionCount: &parserInspectionCount)
+        let protectedRanges = syntaxIndex.protectedRanges
             .map { NSRange($0, in: text) }
         let candidateRanges = lexicalTokenRanges(in: text).compactMap {
-            candidateRange(in: $0, source: text)
+            candidateRange(
+                in: $0,
+                source: text,
+                editorialRangeByIndex: syntaxIndex.editorialRangeByIndex)
         }
+        let auditSnapshot = AuditSnapshot(source: text)
+        auditSnapshotConstructionCount = 1
         var replacements:
             [(range: NSRange, sourceWord: String, resolution: Resolution,
               decisionSeed: PronunciationDecisionSeed)] = []
@@ -195,9 +371,7 @@ nonisolated enum UniversalPronunciationResolver {
             }
 
             guard let resolution,
-                let wordSpan = PronunciationAuditContext.wordSpan(
-                    containing: range,
-                    in: text)
+                let wordSpan = auditSnapshot.wordSpan(containing: range)
             else {
                 continue
             }
@@ -212,10 +386,7 @@ nonisolated enum UniversalPronunciationResolver {
                         wordEnd: wordSpan.upperBound,
                         normalizedWord: normalizedWord,
                         sourceWord: sourceWord,
-                        sourceContext: PronunciationAuditContext.sourceContext(
-                            in: text,
-                            wordStart: wordSpan.lowerBound,
-                            wordEnd: wordSpan.upperBound),
+                        sourceContext: auditSnapshot.sourceContext(for: wordSpan),
                         selectedIPA: resolution.ipa,
                         source: resolution.source,
                         ruleID: resolution.ruleID,
@@ -227,16 +398,42 @@ nonisolated enum UniversalPronunciationResolver {
                 ))
         }
 
-        var result = text
-        for replacement in replacements.reversed() {
-            guard let range = Range(replacement.range, in: result) else { continue }
-            result.replaceSubrange(
-                range,
-                with: "[\(replacement.sourceWord)](/\(replacement.resolution.ipa)/)")
+        var result = ""
+        result.reserveCapacity(text.utf8.count)
+        var cursor = text.startIndex
+        for replacement in replacements {
+            guard let range = Range(replacement.range, in: text),
+                cursor <= range.lowerBound
+            else {
+                continue
+            }
+            result.append(contentsOf: text[cursor..<range.lowerBound])
+            result.append(
+                contentsOf:
+                    "[\(replacement.sourceWord)](/\(replacement.resolution.ipa)/)")
+            cursor = range.upperBound
         }
+        result.append(contentsOf: text[cursor...])
         return PronunciationRewriteResult(
             text: result,
             decisionSeeds: replacements.map(\.decisionSeed))
+    }
+
+    static func rewrite(
+        to text: String,
+        blockID: String,
+        pack: EnglishPronunciationPack,
+        basePronunciation: (String) -> String?
+    ) -> PronunciationRewriteResult {
+        var parserInspectionCount = 0
+        var auditSnapshotConstructionCount = 0
+        return rewrite(
+            to: text,
+            blockID: blockID,
+            pack: pack,
+            basePronunciation: basePronunciation,
+            parserInspectionCount: &parserInspectionCount,
+            auditSnapshotConstructionCount: &auditSnapshotConstructionCount)
     }
 
     /// Produces at most one complete candidate from a whitespace-delimited
@@ -246,17 +443,19 @@ nonisolated enum UniversalPronunciationResolver {
     /// the candidate and must pass lexical validation unchanged.
     private static func candidateRange(
         in tokenRange: NSRange,
-        source: String
+        source: String,
+        editorialRangeByIndex: [String.Index: Range<String.Index>]
     ) -> Range<String.Index>? {
         guard var range = Range(tokenRange, in: source), !range.isEmpty else {
             return nil
         }
         let squareBrackets = source[range].filter { $0 == "[" || $0 == "]" }
-        guard squareBrackets.isEmpty
-            || squareBrackets == "[]"
-            || isInsideBalancedEditorialBrackets(range, in: source)
-        else {
-            return nil
+        if !squareBrackets.isEmpty {
+            guard let editorialRange = editorialRangeByIndex[range.lowerBound],
+                range.upperBound <= editorialRange.upperBound
+            else {
+                return nil
+            }
         }
 
         trimOrdinaryBoundaryPunctuation(from: &range, in: source)
@@ -288,47 +487,6 @@ nonisolated enum UniversalPronunciationResolver {
         {
             range = range.lowerBound..<source.index(before: range.upperBound)
         }
-    }
-
-    private static func isInsideBalancedEditorialBrackets(
-        _ candidateRange: Range<String.Index>,
-        in source: String
-    ) -> Bool {
-        var outerStart: String.Index?
-        var depth = 0
-        var index = source.startIndex
-
-        while index < source.endIndex {
-            if source[index] == "\\" {
-                let escaped = source.index(after: index)
-                index =
-                    escaped < source.endIndex
-                    ? source.index(after: escaped)
-                    : escaped
-                continue
-            }
-            if source[index] == "[" {
-                if depth == 0 { outerStart = index }
-                depth += 1
-            } else if source[index] == "]", depth > 0 {
-                depth -= 1
-                if depth == 0, let start = outerStart {
-                    let upperBound = source.index(after: index)
-                    let isConnectedMarkdown =
-                        upperBound < source.endIndex
-                        && (source[upperBound] == "[" || source[upperBound] == "(")
-                    if !isConnectedMarkdown,
-                        start <= candidateRange.lowerBound,
-                        candidateRange.upperBound <= upperBound
-                    {
-                        return true
-                    }
-                    outerStart = nil
-                }
-            }
-            index = source.index(after: index)
-        }
-        return false
     }
 
     /// Unicode-scalar whitespace bounds keep format controls attached to the

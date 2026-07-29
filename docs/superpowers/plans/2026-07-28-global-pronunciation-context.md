@@ -1096,7 +1096,7 @@ nonisolated enum UniversalPronunciationResolver {
     static let morphologyIdentitySchemaVersion = 1
     static let suffixIPA = "əbəl"
     static let minimumBaseLength = 3
-    static let properNamePolicyVersion = "proper-name-risk-v5"
+    static let properNamePolicyVersion = "proper-name-risk-v6"
     static let baseEvidencePolicyVersion = "kokoro-nonfallback-rating3-v1"
     static let contextualExclusions: Set<String> = [
         "content", "read", "live", "lives", "record", "records",
@@ -1140,7 +1140,7 @@ nonisolated enum UniversalPronunciationResolver {
   ],
   "suffixIPA": "əbəl",
   "minimumBaseLength": 3,
-  "properNamePolicyVersion": "proper-name-risk-v5",
+  "properNamePolicyVersion": "proper-name-risk-v6",
   "baseEvidencePolicyVersion": "kokoro-nonfallback-rating3-v1",
   "exceptionSetSHA256": "sha256:<canonical-sorted-exception-set-digest>",
   "pronunciationPackVersion": "<pack.packVersion>",
@@ -1158,16 +1158,31 @@ nonisolated enum UniversalPronunciationResolver {
   lowercase hex characters. Validate the normalized word and all input fields
   before hashing.
 
-- [ ] Reuse the repository's existing word-range and Misaki-link parsing conventions. Never rewrite inside `[word](/ipa/)`.
+- [ ] Reuse the repository's existing word-range and Misaki-link parsing
+  conventions. Never rewrite inside `[word](/ipa/)`. Build one escaped-aware
+  source index for bracket matching, line ends, reference normalization, and
+  editorial containment. Include every parser traversal in its deterministic
+  counter. Failed inline destination/title syntax protects and skips only the
+  current source line; a malformed next-line reference title protects only the
+  definition and that title line before parsing resumes.
+- [ ] Build one immutable authored-to-display audit snapshot per resolver pass.
+  Remove existing pronunciation markup and tokenize display words once, then
+  reuse indexed UTF-16 source offsets, word spans, and radius-5 contexts for
+  every seed. Assert snapshot construction count independently of wall-clock
+  timing.
 - [ ] Treat a capitalized token away from sentence start, all-capital tokens
   longer than one character, and apostrophe possessives as proper-name risk;
   abstain. A period after a versioned, categorized set of common honorific,
   military, professional, organizational, geographic, reference, or calendar
   abbreviations does not prove a new sentence. Fail closed for every
   alphabetic abbreviation of three letters or fewer without requiring an
-  exhaustive catalog; keep longer forms catalogued by category. Initials and
-  dotted initialisms remain ambiguous too. Preserve ordinary lexical sentence
-  endings such as `Done. Foobar` as true boundaries.
+  exhaustive catalog; keep longer forms in a reviewed category catalog because
+  no spelling-only rule separates forms such as `Mass.` and `Chap.` from all
+  ordinary sentence endings. Cover every longer-form category with
+  independently selected regressions rather than deriving the test matrix from
+  the implementation table. Initials and dotted initialisms remain ambiguous
+  too. Preserve ordinary lexical sentence endings such as `Done. Foobar` as
+  true boundaries.
 - [ ] Apply an exact pack candidate first only through
   `pack.automaticCandidate(for:)`: the entry must contain exactly one
   candidate, its status must be `validated-automatic`, and
