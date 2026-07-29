@@ -64,6 +64,62 @@ import Testing
         #expect(result.decisionSeeds.map(\.wordStart) == [0, 3])
     }
 
+    @Test func exactSupplementalCandidatesUseWholeHyphenAndApostropheTokens() {
+        let supplementalPack = pack(automaticEntries: [
+            "ad-hoc": ("cmudict.ad-hoc.fixture", "ˈædhˈɑk"),
+            "aujourd'hui": ("cmudict.aujourd'hui.fixture", "oʒuɹdɥˈi"),
+        ])
+
+        let result = UniversalPronunciationResolver.rewrite(
+            to: "An ad-hoc aujourd’hui and aujourd'hui test.",
+            blockID: "b1",
+            pack: supplementalPack,
+            basePronunciation: { _ in nil })
+
+        #expect(
+            result.text
+                == "An [ad-hoc](/ˈædhˈɑk/) [aujourd’hui](/oʒuɹdɥˈi/) and [aujourd'hui](/oʒuɹdɥˈi/) test.")
+        #expect(
+            result.decisionSeeds.map(\.normalizedWord)
+                == ["ad-hoc", "aujourd'hui", "aujourd'hui"])
+        #expect(
+            result.decisionSeeds.map(\.sourceWord)
+                == ["ad-hoc", "aujourd’hui", "aujourd'hui"])
+    }
+
+    @Test func ineligibleConnectedTokensNeverRewriteEligibleFragments() {
+        let supplementalPack = pack(automaticEntries: [
+            "ad": ("cmudict.ad.fixture", "ˈæd"),
+            "hoc": ("cmudict.hoc.fixture", "hˈɑk"),
+            "aujourd": ("cmudict.aujourd.fixture", "oʒˈuɹ"),
+            "hui": ("cmudict.hui.fixture", "hˈui"),
+        ])
+
+        let result = UniversalPronunciationResolver.rewrite(
+            to: "An ad‑hoc aujourd''hui example.",
+            blockID: "b1",
+            pack: supplementalPack,
+            basePronunciation: { _ in nil })
+
+        #expect(result.text == "An ad‑hoc aujourd''hui example.")
+        #expect(result.decisionSeeds.isEmpty)
+    }
+
+    @Test func bundledAutomaticHyphenCandidateIsReachableAsOneExactToken() async throws {
+        let bundledPack = await EnglishPronunciationPack.bundledOrEmpty()
+        let candidate = try #require(bundledPack.automaticCandidate(for: "ad-hoc"))
+
+        let result = UniversalPronunciationResolver.rewrite(
+            to: "An ad-hoc test.",
+            blockID: "b1",
+            pack: bundledPack,
+            basePronunciation: { _ in nil })
+
+        #expect(result.text == "An [ad-hoc](/\(candidate.ipa)/) test.")
+        #expect(result.decisionSeeds.map(\.candidateID) == [candidate.candidateID])
+        #expect(result.decisionSeeds.map(\.normalizedWord) == ["ad-hoc"])
+    }
+
     @Test func contextualFamiliesAmbiguousCandidatesAndProperNamesAbstain() {
         let supplementalPack = pack(
             automaticEntries: [
@@ -83,34 +139,104 @@ import Testing
         #expect(result.decisionSeeds.isEmpty)
     }
 
-    @Test func apostrophePossessiveAbstains() {
+    @Test func apostrophePossessivesAbstain() {
         let supplementalPack = pack(automaticEntries: [
-            "foobar": ("cmudict.foobar.fixture", "fˈubɑɹ")
+            "foobar": ("cmudict.foobar.fixture", "fˈubɑɹ"),
+            "teachers": ("cmudict.teachers.fixture", "tˈitʃɚz"),
         ])
 
         let result = UniversalPronunciationResolver.rewrite(
-            to: "The foobar's result.",
+            to: "The foobar's result, teachers' guide, and teachers’ lounge.",
             blockID: "b1",
             pack: supplementalPack,
             basePronunciation: { _ in nil })
 
-        #expect(result.text == "The foobar's result.")
+        #expect(result.text == "The foobar's result, teachers' guide, and teachers’ lounge.")
         #expect(result.decisionSeeds.isEmpty)
     }
 
-    @Test func openingQuoteStillCountsAsSentenceStartForCapitalizationRisk() {
+    @Test func sentenceStartPolicyDistinguishesTrueStartsFromClausePunctuation() {
         let supplementalPack = pack(automaticEntries: [
             "foobar": ("cmudict.foobar.fixture", "fˈubɑɹ")
         ])
 
-        let result = UniversalPronunciationResolver.rewrite(
-            to: "“Foobar begins.” Meet “Foobar again.”",
-            blockID: "b1",
-            pack: supplementalPack,
-            basePronunciation: { _ in nil })
+        let rewrittenCases = [
+            "Foobar begins.",
+            "“Foobar begins.”",
+            "[Foobar begins.]",
+            "Earlier. Foobar begins.",
+            "Earlier? “Foobar begins.”",
+            "Earlier! (Foobar begins.)",
+            "Earlier… [Foobar begins.]",
+            "Earlier\nFoobar begins.",
+        ]
+        for text in rewrittenCases {
+            let result = UniversalPronunciationResolver.rewrite(
+                to: text,
+                blockID: "b1",
+                pack: supplementalPack,
+                basePronunciation: { _ in nil })
+            #expect(result.decisionSeeds.map(\.normalizedWord) == ["foobar"])
+        }
 
-        #expect(result.text == "“[Foobar](/fˈubɑɹ/) begins.” Meet “Foobar again.”")
-        #expect(result.decisionSeeds.map(\.wordStart) == [0])
+        for text in ["A note; Foobar arrived.", "A note: Foobar arrived."] {
+            let result = UniversalPronunciationResolver.rewrite(
+                to: text,
+                blockID: "b1",
+                pack: supplementalPack,
+                basePronunciation: { _ in nil })
+            #expect(result.text == text)
+            #expect(result.decisionSeeds.isEmpty)
+        }
+    }
+
+    @Test func ordinaryWordsPerformNoMorphologyG2PLookups() {
+        var calls: [String] = []
+        let result = UniversalPronunciationResolver.rewrite(
+            to: "The widget uses unknown prose.",
+            blockID: "b1",
+            pack: pack(),
+            basePronunciation: { word in
+                calls.append(word)
+                return nil
+            })
+
+        #expect(result.text == "The widget uses unknown prose.")
+        #expect(result.decisionSeeds.isEmpty)
+        #expect(calls.isEmpty)
+    }
+
+    @Test func eligibleMorphologyPerformsOnlyBoundedWholeAndBaseLookups() {
+        var calls: [String] = []
+        let result = UniversalPronunciationResolver.rewrite(
+            to: "A startable digestible result.",
+            blockID: "b1",
+            pack: pack(),
+            basePronunciation: { word in
+                calls.append(word)
+                return ["start": "stˈɑɹt", "digest": "daIdʒˈɛst"][word]
+            })
+
+        #expect(
+            calls
+                == ["startable", "start", "starte", "digestible", "digest"])
+        #expect(result.decisionSeeds.map(\.normalizedWord) == ["startable", "digestible"])
+    }
+
+    @Test func knownEligibleWholeWordStopsBeforeBaseLookups() {
+        var calls: [String] = []
+        let result = UniversalPronunciationResolver.rewrite(
+            to: "A startable result.",
+            blockID: "b1",
+            pack: pack(),
+            basePronunciation: { word in
+                calls.append(word)
+                return word == "startable" ? "stˈɑɹtəbəl" : nil
+            })
+
+        #expect(result.text == "A startable result.")
+        #expect(result.decisionSeeds.isEmpty)
+        #expect(calls == ["startable"])
     }
 
     @Test func morphologySupportsExactSilentEAndIbleBases() {

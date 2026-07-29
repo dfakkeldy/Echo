@@ -274,6 +274,11 @@ nonisolated struct EnglishPronunciationPack: Equatable, Sendable {
         return entries[normalizedWord]?.isEmpty == false
     }
 
+    /// Shared validated-key grammar for runtime lookup boundaries.
+    static func isValidNormalizedKey(_ value: String) -> Bool {
+        isNormalizedWord(value)
+    }
+
     /// Controlled semantic fixture construction for pure resolver/cache tests.
     /// Production loading always goes through the fully validating `init(data:)`.
     static func emptyForTesting(
@@ -383,11 +388,18 @@ nonisolated struct EnglishPronunciationPack: Equatable, Sendable {
 }
 
 extension EnglishPronunciationPack {
+    static let contentDefaultPolicyVersion = "content-default-legacy-adjective-v1"
+
     var productionPolicySignature: String {
+        productionPolicySignature(
+            contentDefaultPolicyVersion: Self.contentDefaultPolicyVersion)
+    }
+
+    func productionPolicySignature(contentDefaultPolicyVersion: String) -> String {
         [
             packVersion,
             UniversalPronunciationResolver.morphologyCandidatePackVersion(for: self),
-            "content-default-v1",
+            contentDefaultPolicyVersion,
         ].joined(separator: "|")
     }
 }

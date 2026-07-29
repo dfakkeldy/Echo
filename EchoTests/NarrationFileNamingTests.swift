@@ -114,42 +114,50 @@ import Testing
             spokenBlocks: [block],
             renderedTexts: ["No rewritten text here."],
             includeLeadOutPad: false,
-            pronunciationPolicySignature: "pack-a|morphology-a|content-default-v1")
+            pronunciationPolicySignature:
+                "pack-a|morphology-a|content-default-legacy-adjective-v1")
         let changedNormalizedEntries = NarrationFileNaming.contentSignature(
             spokenBlocks: [block],
             renderedTexts: ["No rewritten text here."],
             includeLeadOutPad: false,
-            pronunciationPolicySignature: "pack-normalized-b|morphology-b|content-default-v1")
+            pronunciationPolicySignature:
+                "pack-normalized-b|morphology-b|content-default-legacy-adjective-v1")
         let changedSourceSnapshot = NarrationFileNaming.contentSignature(
             spokenBlocks: [block],
             renderedTexts: ["No rewritten text here."],
             includeLeadOutPad: false,
-            pronunciationPolicySignature: "pack-source-b|morphology-c|content-default-v1")
+            pronunciationPolicySignature:
+                "pack-source-b|morphology-c|content-default-legacy-adjective-v1")
         let changedGeneratorBehavior = NarrationFileNaming.contentSignature(
             spokenBlocks: [block],
             renderedTexts: ["No rewritten text here."],
             includeLeadOutPad: false,
-            pronunciationPolicySignature: "pack-generator-b|morphology-d|content-default-v1")
+            pronunciationPolicySignature:
+                "pack-generator-b|morphology-d|content-default-legacy-adjective-v1")
         let changedVocabulary = NarrationFileNaming.contentSignature(
             spokenBlocks: [block],
             renderedTexts: ["No rewritten text here."],
             includeLeadOutPad: false,
-            pronunciationPolicySignature: "pack-a|morphology-vocabulary-b|content-default-v1")
+            pronunciationPolicySignature:
+                "pack-a|morphology-vocabulary-b|content-default-legacy-adjective-v1")
         let changedMorphologyRule = NarrationFileNaming.contentSignature(
             spokenBlocks: [block],
             renderedTexts: ["No rewritten text here."],
             includeLeadOutPad: false,
-            pronunciationPolicySignature: "pack-a|morphology-rule-b|content-default-v1")
+            pronunciationPolicySignature:
+                "pack-a|morphology-rule-b|content-default-legacy-adjective-v1")
         let changedExceptionSet = NarrationFileNaming.contentSignature(
             spokenBlocks: [block],
             renderedTexts: ["No rewritten text here."],
             includeLeadOutPad: false,
-            pronunciationPolicySignature: "pack-a|morphology-exception-b|content-default-v1")
+            pronunciationPolicySignature:
+                "pack-a|morphology-exception-b|content-default-legacy-adjective-v1")
         let changedBaseEvidence = NarrationFileNaming.contentSignature(
             spokenBlocks: [block],
             renderedTexts: ["No rewritten text here."],
             includeLeadOutPad: false,
-            pronunciationPolicySignature: "pack-a|morphology-base-policy-b|content-default-v1")
+            pronunciationPolicySignature:
+                "pack-a|morphology-base-policy-b|content-default-legacy-adjective-v1")
 
         #expect(
             Set([
@@ -162,6 +170,32 @@ import Testing
                 changedExceptionSet,
                 changedBaseEvidence,
             ]).count == 8)
+    }
+
+    @Test func currentAndFutureContentDefaultPoliciesCannotShareCacheIdentity() {
+        let pack = EnglishPronunciationPack.emptyForTesting(
+            packVersion:
+                "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            kokoroVocabularyVersion:
+                "sha256:1111111111111111111111111111111111111111111111111111111111111111")
+        let block = block(id: "b0", text: "Content")
+        let currentPolicy = pack.productionPolicySignature
+        let futurePolicy = pack.productionPolicySignature(
+            contentDefaultPolicyVersion: "content-default-material-noun-v1")
+
+        #expect(currentPolicy.hasSuffix("|content-default-legacy-adjective-v1"))
+        #expect(futurePolicy.hasSuffix("|content-default-material-noun-v1"))
+        #expect(
+            NarrationFileNaming.contentSignature(
+                spokenBlocks: [block],
+                renderedTexts: ["Content"],
+                includeLeadOutPad: false,
+                pronunciationPolicySignature: currentPolicy)
+                != NarrationFileNaming.contentSignature(
+                    spokenBlocks: [block],
+                    renderedTexts: ["Content"],
+                    includeLeadOutPad: false,
+                    pronunciationPolicySignature: futurePolicy))
     }
 
     @Test func auditOnlyPackTimestampCannotChangeProductionPolicyOrContentSignature() {

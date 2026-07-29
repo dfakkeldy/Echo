@@ -49,9 +49,13 @@ nonisolated enum UniversalPronunciationResolver {
         let derivationRuleID: String?
     }
 
+    /// One broad source token for the validated ASCII key grammar plus common
+    /// authored apostrophe/hyphen variants. Boundary guards ensure malformed or
+    /// unsupported connected tokens are rejected as a unit, never re-tokenized
+    /// into independently eligible fragments.
     private static let wordRegex = try! NSRegularExpression(
-        pattern: #"\b[\p{L}]+(?:['’]s)?\b"#,
-        options: [.caseInsensitive])
+        pattern:
+            #"(?<![\p{L}\-‐‑‒–—'’])[\p{L}]+(?:[\-‐‑‒–—'’][\p{L}]+)*(?:['’])?(?![\p{L}\-‐‑‒–—'’])"#)
     private static let linkRegex = try! NSRegularExpression(
         pattern: #"\[[^\]]+\]\(/[^/]*/\)"#)
 
@@ -129,19 +133,22 @@ nonisolated enum UniversalPronunciationResolver {
                 continue
             }
             let sourceWord = String(text[range])
-            let possessive = sourceWord.hasSuffix("'s") || sourceWord.hasSuffix("’s")
-            let bareWord = possessive ? String(sourceWord.dropLast(2)) : sourceWord
-            let normalizedWord = bareWord.lowercased()
-            guard isNormalizedWord(normalizedWord),
-                !possessive,
-                !contextualExclusions.contains(normalizedWord),
+            let normalizedSpelling = sourceWord.lowercased()
+                .replacingOccurrences(of: "’", with: "'")
+            let isPossessive =
+                normalizedSpelling.hasSuffix("'s")
+                || normalizedSpelling.hasSuffix("'")
+            guard !isPossessive,
+                EnglishPronunciationPack.isValidNormalizedKey(normalizedSpelling),
+                !contextualExclusions.contains(normalizedSpelling),
                 !isProperNameRisk(
-                    sourceWord: bareWord,
+                    sourceWord: sourceWord,
                     sourceRange: range,
                     in: text)
             else {
                 continue
             }
+            let normalizedWord = normalizedSpelling
 
             let resolution: Resolution?
             if let candidate = pack.automaticCandidate(for: normalizedWord) {
@@ -150,7 +157,7 @@ nonisolated enum UniversalPronunciationResolver {
                     source: .supplementalLexicon,
                     ruleID: "supplemental-lexicon.exact.v1",
                     rationale:
-                        "Validated supplemental whole-word pronunciation selected for “\(bareWord)”.",
+                        "Validated supplemental whole-word pronunciation selected for “\(sourceWord)”.",
                     candidateID: candidate.candidateID,
                     candidatePackVersion: pack.packVersion,
                     derivationBase: nil,
@@ -213,33 +220,43 @@ nonisolated enum UniversalPronunciationResolver {
         basePronunciation: (String) -> String?
     ) -> Resolution? {
         guard !exceptionWords.contains(normalizedWord),
-            !pack.hasExplicitCandidate(for: normalizedWord),
+            !pack.hasExplicitCandidate(for: normalizedWord)
+        else {
+            return nil
+        }
+
+        var eligibleBases: [(DerivationRule, String)] = []
+        func appendEligible(_ rule: DerivationRule, base: String) {
+            guard base.count >= minimumBaseLength,
+                isNormalizedWord(base),
+                !exceptionWords.contains(base),
+                !contextualExclusions.contains(base)
+            else {
+                return
+            }
+            eligibleBases.append((rule, base))
+        }
+
+        if normalizedWord.hasSuffix("able") {
+            let stem = String(normalizedWord.dropLast(4))
+            appendEligible(.ableExactBase, base: stem)
+            appendEligible(.ableSilentE, base: stem + "e")
+        }
+        if normalizedWord.hasSuffix("ible") {
+            appendEligible(.ibleExactBase, base: String(normalizedWord.dropLast(4)))
+        }
+        guard !eligibleBases.isEmpty,
             basePronunciation(normalizedWord) == nil
         else {
             return nil
         }
 
         var candidates: [(DerivationRule, String, String)] = []
-        func append(_ rule: DerivationRule, base: String) {
-            guard base.count >= minimumBaseLength,
-                isNormalizedWord(base),
-                !exceptionWords.contains(base),
-                !contextualExclusions.contains(base),
-                let ipa = basePronunciation(base),
-                !ipa.isEmpty
-            else {
-                return
+        for eligible in eligibleBases {
+            guard let ipa = basePronunciation(eligible.1), !ipa.isEmpty else {
+                continue
             }
-            candidates.append((rule, base, ipa))
-        }
-
-        if normalizedWord.hasSuffix("able") {
-            let stem = String(normalizedWord.dropLast(4))
-            append(.ableExactBase, base: stem)
-            append(.ableSilentE, base: stem + "e")
-        }
-        if normalizedWord.hasSuffix("ible") {
-            append(.ibleExactBase, base: String(normalizedWord.dropLast(4)))
+            candidates.append((eligible.0, eligible.1, ipa))
         }
         guard candidates.count == 1, let candidate = candidates.first else {
             return nil
@@ -278,7 +295,7 @@ nonisolated enum UniversalPronunciationResolver {
         guard sourceWord.first?.isUppercase == true else { return false }
         let prefix = text[..<sourceRange.lowerBound]
         let sentenceTail =
-            prefix.lastIndex(where: { ".!?…;\n\r".contains($0) })
+            prefix.lastIndex(where: { ".!?…\n\r".contains($0) })
             .map { prefix[prefix.index(after: $0)...] }
             ?? prefix[prefix.startIndex...]
         return sentenceTail.contains { $0.isLetter || $0.isNumber }

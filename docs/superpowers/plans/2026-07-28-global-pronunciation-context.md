@@ -1232,12 +1232,15 @@ let homographResult = HomographPronunciationResolver.rewrite(
 
 ```swift
 extension EnglishPronunciationPack {
+    static let contentDefaultPolicyVersion =
+        "content-default-legacy-adjective-v1"
+
     var productionPolicySignature: String {
         [
             packVersion,
             UniversalPronunciationResolver
                 .morphologyCandidatePackVersion(for: self),
-            "content-default-v1",
+            Self.contentDefaultPolicyVersion,
         ].joined(separator: "|")
     }
 }
@@ -1297,15 +1300,21 @@ git commit -m "feat: apply universal pronunciation resolution"
 **Files:**
 
 - Modify: `EchoCore/Services/Narration/MisakiResources/us_gold.json`
+- Modify: `EchoCore/Services/Narration/EnglishPronunciationPack.swift`
 - Modify: `EchoTests/KokoroG2PTests.swift`
 - Modify: `EchoTests/HomographPronunciationResolverTests.swift`
 - Modify: `EchoTests/NarrationRenderPlanTests.swift`
+- Modify: `EchoTests/NarrationFileNamingTests.swift`
 
 ### 5.1 Write failing regressions
 
 - [ ] Add a G2P test requiring bare, context-free `content` to use the noun pronunciation.
 - [ ] Preserve tests that a satisfied/adjectival sentence uses the adjective and content/material sentences use the noun through deterministic homograph rules.
 - [ ] Add a fragment/heading regression proving the noun is the safe fallback when no rule fires.
+- [ ] Add a cache-signature regression proving Task 4's
+  `content-default-legacy-adjective-v1` identity cannot share a chapter or
+  headless capture identity with Task 5's
+  `content-default-material-noun-v1` identity.
 
 ```swift
 @Test func contentDefaultsToMaterialNounWithoutContext() throws {
@@ -1343,6 +1352,12 @@ Expected: the bare-word test fails before the lexicon edit.
 ```
 
 - [ ] Do not alter `HomographPronunciationResolver` candidate IPA or production rule logic.
+- [ ] In the same commit, change
+  `EnglishPronunciationPack.contentDefaultPolicyVersion` from
+  `content-default-legacy-adjective-v1` to
+  `content-default-material-noun-v1`. This cache-identity change is atomic with
+  the lexicon default; do not allow old adjective-default audio or headless
+  captures to resume under the noun-default behavior.
 - [ ] Regenerate the supplemental pack and verify it remains byte-identical because existing gold entries are excluded.
 
 Run:
@@ -1352,6 +1367,7 @@ make pronunciation-pack-test
 make test-only FILTER=EchoTests/KokoroG2PTests
 make test-only FILTER=EchoTests/HomographPronunciationResolverTests
 make test-only FILTER=EchoTests/NarrationRenderPlanTests
+make test-only FILTER=EchoTests/NarrationFileNamingTests
 ```
 
 ### 5.3 Commit
@@ -1360,9 +1376,11 @@ make test-only FILTER=EchoTests/NarrationRenderPlanTests
 
 ```bash
 git add EchoCore/Services/Narration/MisakiResources/us_gold.json \
+  EchoCore/Services/Narration/EnglishPronunciationPack.swift \
   EchoTests/KokoroG2PTests.swift \
   EchoTests/HomographPronunciationResolverTests.swift \
-  EchoTests/NarrationRenderPlanTests.swift
+  EchoTests/NarrationRenderPlanTests.swift \
+  EchoTests/NarrationFileNamingTests.swift
 git commit -m "fix: default content to material noun"
 ```
 
