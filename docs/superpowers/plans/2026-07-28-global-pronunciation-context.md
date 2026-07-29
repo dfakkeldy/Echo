@@ -404,15 +404,30 @@ LICENSE SHA-256:      bd4ce8e44170a5f9f481310ca85c51de3c4f851a65e679b40e603b143b
 ```
 
 - [ ] Record those hashes, upstream URL, commit, source dialect, and license path in `Tools/Pronunciation/cmudict.lock.json`.
+- [ ] Treat the lock as a receipt, not authority. Require the exact official
+  upstream URL `https://github.com/cmusphinx/cmudict`, source ID `cmudict`,
+  pinned commit, `en-US` dialect, repository paths, dictionary SHA-256, and
+  license SHA-256 above. Reject a self-consistent lock that names any other
+  bytes, URL, or paths.
 - [ ] Preserve the upstream license notice in `ThirdParty/CMUdict/LICENSE`. Do not add `wordfreq` to production inputs.
 - [ ] Add a CMUdict section to `THIRD_PARTY_NOTICES.md` containing its project name, upstream URL, pinned commit, copyright notice, disclaimer, and the complete redistribution terms from the pinned license.
 
 ### 2.2 Write failing generator and semantic-identity tests
 
 - [ ] Cover ARPAbet stress conversion, alternate-pronunciation suffix
-  normalization, stable candidate IDs, exact gold/silver exclusion, ambiguity
+  normalization, pinned inline `#` metadata on sole and alternate
+  pronunciations, stable candidate IDs, exact gold/silver exclusion, ambiguity
   suppression, Kokoro-vocabulary rejection, deterministic sorted output,
-  optional coarse frequency bands, and pinned-input hash failure.
+  optional coarse frequency bands, normalized-frequency-key collision
+  rejection in both input orders, and pinned-input hash failure.
+- [ ] Add a self-consistent malicious-lock negative and a controlled
+  swapped-read regression proving CMUdict, license, gold, silver, vocabulary,
+  and optional frequency bytes are each read once and that those same captured
+  bytes drive verification, hashing, UTF-8 decoding, and parsing.
+- [ ] Require every candidate field and status from design Section 6.2.
+  Unique compatible CMUdict candidates are `validated-automatic`; ambiguous
+  unlabeled variants are `report-only-missing-sense-label`, non-automatic, and
+  inert until genuine human-reviewed sense labels exist.
 - [ ] Require every manifest field from design Section 6.1: schema and semantic
   pack version, all source snapshot identities, generator version,
   entry/candidate counts, normalized-data SHA-256, Kokoro vocabulary version,
@@ -463,6 +478,9 @@ def test_existing_gold_word_is_report_only(self):
 ### 2.3 Implement deterministic CMUdict conversion
 
 - [ ] Normalize alternate forms such as `RECORD(2)` to lowercase `record`.
+- [ ] Before tokenizing ARPAbet, remove only the pinned CMUdict format's inline
+  metadata beginning at the first `#`. Do not pass the delimiter or metadata
+  words to ARPAbet conversion.
 - [ ] Accept only keys matching `[a-z]+(?:['-][a-z]+)*`.
 - [ ] Convert ARPAbet using this mapping:
 
@@ -486,7 +504,13 @@ STRESS = {"0": "", "1": "ˈ", "2": "ˌ"}
 - [ ] Use the unstressed form for stress `0` and the stressed form for stress `1` or `2`.
 - [ ] Validate every emitted scalar against `EchoCore/Services/Narration/_kokoro_vocab.json`; reject rather than partially importing an incompatible candidate.
 - [ ] Import a spelling only when it is absent from both `us_gold.json` and `us_silver.json`.
-- [ ] Deduplicate identical IPA variants. Set `automaticWithoutContext` to `true` only when exactly one compatible candidate remains.
+- [ ] Deduplicate identical IPA variants. Set `automaticWithoutContext` to
+  `true` only when exactly one compatible candidate remains and mark it
+  `validated-automatic`. When multiple compatible variants remain, keep every
+  candidate with `senseLabel: null`,
+  `validationStatus: "report-only-missing-sense-label"`, and
+  `automaticWithoutContext: false`. Do not invent lexical classes, sense
+  labels, or ordinal pseudo-senses.
 - [ ] Derive the candidate ID from source, normalized spelling, and IPA:
 
 ```python
@@ -495,7 +519,7 @@ candidate_id = "cmudict." + word + "." + hashlib.sha256(
 ).hexdigest()[:12]
 ```
 
-- [ ] Accept an optional reviewed JSON map from normalized word to one of `veryCommon`, `common`, `uncommon`, `rare`, or `unknown`. Default to `unknown`; never use the band to select among IPA candidates.
+- [ ] Accept an optional reviewed JSON map from normalized word to one of `veryCommon`, `common`, `uncommon`, `rare`, or `unknown`. Default to `unknown`; never use the band to select among IPA candidates. Reject duplicate raw JSON members before decoding can overwrite one, and reject any two distinct raw keys that normalize to the same spelling, even when the bands agree and regardless of object-key order.
 - [ ] Canonicalize JSON for hashing with UTF-8, `ensure_ascii=False`,
   `sort_keys=True`, compact separators, source snapshots sorted by `sourceID`,
   and no trailing newline in hashed bytes. The written file adds one final
@@ -508,16 +532,21 @@ candidate_id = "cmudict." + word + "." + hashlib.sha256(
   inputs. Record each stable `sourceID`, exact `snapshotID`, and SHA-256; the
   gold/silver hashes matter because exclusion behavior depends on them even if
   the final supplemental entries remain unchanged.
+- [ ] Read the pinned CMUdict and license and the supplied gold, silver,
+  Kokoro-vocabulary, and optional frequency inputs exactly once into bytes.
+  Verify/hash/decode/parse those captured bytes; never verify one read and
+  convert or exclude from another.
 - [ ] Define this exact generator behavior object. Any behavior change must bump
   the corresponding value and therefore `packVersion`:
 
 ```python
 generator_behavior = {
-    "generatorVersion": "echo-pronunciation-pack-generator-v1",
+    "generatorVersion": "echo-pronunciation-pack-generator-v2",
     "normalizationPolicyVersion": "english-key-normalization-v1",
-    "arpabetMappingVersion": "cmudict-arpabet-to-kokoro-v1",
+    "arpabetMappingVersion": "cmudict-arpabet-to-kokoro-v2",
     "sourcePrecedencePolicyVersion": "gold-silver-exclusion-v1",
-    "automaticSelectionPolicyVersion": "single-compatible-candidate-v1",
+    "automaticSelectionPolicyVersion": "single-validated-compatible-candidate-v2",
+    "candidateValidationPolicyVersion": "source-candidate-validation-v1",
 }
 
 sources = [
@@ -540,6 +569,35 @@ sources = [
         "sha256": silver_sha256,
     },
 ]
+```
+
+- [ ] Emit every candidate with this exact field shape so all validation and
+  provenance metadata participates in `normalizedDataSHA256` and
+  `packVersion`:
+
+```python
+candidate = {
+    "candidateID": candidate_id,
+    "ipa": ipa,
+    "lexicalClass": None,
+    "senseLabel": None,
+    "sourceID": "cmudict",
+    "sourceSnapshotID": f"cmudict@{commit}",
+    "sourceTier": "supplemental",
+    "kind": "explicit",
+    "automaticWithoutContext": is_automatic,
+    "frequencyBand": frequency_band,
+    "validationStatus": (
+        "validated-automatic"
+        if is_automatic
+        else "report-only-missing-sense-label"
+    ),
+    "ruleProvenance": {
+        "normalizationPolicyVersion": "english-key-normalization-v1",
+        "arpabetMappingVersion": "cmudict-arpabet-to-kokoro-v2",
+        "validationPolicyVersion": "source-candidate-validation-v1",
+    },
+}
 ```
 
 - [ ] Build this semantic-identity payload from actual canonical inputs:
@@ -743,18 +801,35 @@ nonisolated struct EnglishPronunciationPack: Equatable, Sendable {
         let licensePath: String
     }
 
+    struct RuleProvenance: Codable, Equatable, Sendable {
+        let normalizationPolicyVersion: String
+        let arpabetMappingVersion: String
+        let validationPolicyVersion: String
+    }
+
     struct Candidate: Codable, Equatable, Sendable {
         let candidateID: String
         let ipa: String
+        let lexicalClass: String?
+        let senseLabel: String?
         let sourceID: String
+        let sourceSnapshotID: String
         let sourceTier: String
         let kind: String
         let automaticWithoutContext: Bool
         let frequencyBand: FrequencyBand
+        let validationStatus: CandidateValidationStatus
+        let ruleProvenance: RuleProvenance
     }
 
     enum FrequencyBand: String, Codable, Equatable, Sendable {
         case veryCommon, common, uncommon, rare, unknown
+    }
+
+    enum CandidateValidationStatus: String, Codable, Equatable, Sendable {
+        case validatedAutomatic = "validated-automatic"
+        case reportOnlyMissingSenseLabel = "report-only-missing-sense-label"
+        case validatedHumanReviewed = "validated-human-reviewed"
     }
 
     let schemaVersion: Int
@@ -782,6 +857,18 @@ nonisolated struct EnglishPronunciationPack: Equatable, Sendable {
   identity-bearing fields optional or use `try?` fallbacks. Require schema `1`,
   dialect `en-US`, a lowercase normalized key, unique candidate IDs, non-empty
   IPA, and a `sha256:` pack version.
+- [ ] Require every candidate key in the Section 6.2 record, including the
+  nullable `lexicalClass` and `senseLabel` keys; a missing nullable key is
+  malformed rather than equivalent to explicit JSON null. Require
+  `sourceSnapshotID` to match the declared source snapshot and require all three
+  `ruleProvenance` versions to match the semantic generator behavior.
+- [ ] Enforce the closed validation-status invariants:
+  `validated-automatic` is allowed only for the sole candidate in an entry and
+  requires `automaticWithoutContext: true`;
+  `report-only-missing-sense-label` requires null `senseLabel` and
+  `automaticWithoutContext: false`; `validated-human-reviewed` requires a
+  nonempty short sense label and remains non-automatic. Reject every other
+  status/field combination.
 - [ ] Require `generatorVersion`, exact entry/candidate counts, a canonical
   entries hash equal to `normalizedDataSHA256`, a `sha256:` Kokoro vocabulary
   version, unique sorted source records with snapshot IDs and hashes, license
@@ -793,7 +880,12 @@ nonisolated struct EnglishPronunciationPack: Equatable, Sendable {
   generator version, normalized-data hash, Kokoro vocabulary version, and
   dialect to equal their payload counterparts. The timestamp, counts, licenses,
   acknowledgments, and report remain outside that hash.
-- [ ] `automaticCandidate` returns a candidate only when exactly one candidate is marked automatic.
+- [ ] `automaticCandidate` returns a candidate only when the entry contains
+  exactly one candidate and that candidate is both
+  `validationStatus == .validatedAutomatic` and
+  `automaticWithoutContext == true`. Report-only ambiguous candidates never
+  become automatic or model-selectable merely because another candidate is
+  malformed or filtered.
 - [ ] `bundledOrEmpty()` uses `NarrationResources.url(forResource:withExtension:)`; if the pack is absent or invalid, return a deterministic empty pack with version `unavailable-v1` so existing narration remains usable. Log only the error category, never source text.
 
 ### 3.3 Bump the audit contract to schema v4
@@ -1048,7 +1140,12 @@ nonisolated enum UniversalPronunciationResolver {
 
 - [ ] Reuse the repository's existing word-range and Misaki-link parsing conventions. Never rewrite inside `[word](/ipa/)`.
 - [ ] Treat a capitalized token away from sentence start, all-capital tokens longer than one character, and apostrophe possessives as proper-name risk; abstain.
-- [ ] Apply an exact pack candidate first.
+- [ ] Apply an exact pack candidate first only through
+  `pack.automaticCandidate(for:)`: the entry must contain exactly one
+  candidate, its status must be `validated-automatic`, and
+  `automaticWithoutContext` must be true. Never rewrite from
+  `report-only-missing-sense-label` or choose among ambiguous candidates by
+  source order, frequency, or IPA.
 - [ ] Attempt these morphology transformations in order and accept only when exactly one produces a validated base:
 
 ```swift
@@ -1938,6 +2035,20 @@ git commit -m "feat: record contextual pronunciation shadow evidence"
 - [ ] Prove supplemental rows preserve their source-derived `candidateID` and
   semantic pack `candidatePackVersion` exactly and never acquire morphology
   base/rule fields.
+- [ ] Validate every bundled candidate's required nullable lexical/sense keys,
+  source snapshot, closed validation status, and frozen
+  normalization/ARPAbet/validation provenance. Recompute the entries hash after
+  those fields so removing or changing any one of them invalidates the pack.
+- [ ] Prove an exact supplemental rewrite requires one and only one
+  `validated-automatic` candidate with `automaticWithoutContext: true`.
+  Require every multi-candidate CMUdict spelling with null labels to remain
+  `report-only-missing-sense-label`, non-automatic, absent from contextual
+  model candidate sets, and absent from automatic production decisions.
+- [ ] Admit `validated-human-reviewed` candidates to contextual model-selection
+  tests only when their nonempty sense labels are backed by the qualifying
+  independent human/source-verifiable fixture contract. Never promote an
+  ordinal, source order, spelling variant, model-authored label, or CMUdict
+  annotation to a sense label.
 - [ ] Prove the pack manifest contains and validates schema/semantic pack
   versions, every CMUdict/gold/silver source snapshot identity, generator
   version, exact entry/candidate counts, normalized-data SHA-256, Kokoro

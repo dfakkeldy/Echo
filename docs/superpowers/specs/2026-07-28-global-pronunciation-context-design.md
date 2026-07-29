@@ -244,11 +244,12 @@ hashed bytes. The semantic-identity payload is:
     {"sourceID": "<stable-id>", "snapshotID": "<stable-snapshot>", "sha256": "sha256:<digest>"}
   ],
   "generatorBehavior": {
-    "generatorVersion": "echo-pronunciation-pack-generator-v1",
+    "generatorVersion": "echo-pronunciation-pack-generator-v2",
     "normalizationPolicyVersion": "english-key-normalization-v1",
-    "arpabetMappingVersion": "cmudict-arpabet-to-kokoro-v1",
+    "arpabetMappingVersion": "cmudict-arpabet-to-kokoro-v2",
     "sourcePrecedencePolicyVersion": "gold-silver-exclusion-v1",
-    "automaticSelectionPolicyVersion": "single-compatible-candidate-v1"
+    "automaticSelectionPolicyVersion": "single-validated-compatible-candidate-v2",
+    "candidateValidationPolicyVersion": "source-candidate-validation-v1"
   },
   "kokoroVocabularyVersion": "sha256:<canonical-phoneme-vocabulary-digest>",
   "dialect": "en-US"
@@ -275,21 +276,54 @@ report-only until a human-reviewed fixture approves them.
 
 ### 6.2 Entry and candidate contract
 
-One normalized spelling may have one or more candidates. Each candidate carries:
+One normalized spelling may have one or more candidates. Every candidate has
+this exact semantic record shape:
 
-- stable candidate ID;
-- Kokoro-compatible IPA;
-- optional lexical class;
-- short, non-copyrighted sense label used for review and model selection;
-- source ID and source tier;
-- whether it is explicit, derived, or compatibility-only;
-- whether it may be selected automatically without context;
-- optional coarse frequency band for prioritization;
-- validation status and rule/version provenance.
+```json
+{
+  "candidateID": "cmudict.example.0123456789ab",
+  "ipa": "ɪɡzˈæmpəl",
+  "lexicalClass": null,
+  "senseLabel": null,
+  "sourceID": "cmudict",
+  "sourceSnapshotID": "cmudict@74790861f652b15e4ac49015a90074ad62a27690",
+  "sourceTier": "supplemental",
+  "kind": "explicit",
+  "automaticWithoutContext": true,
+  "frequencyBand": "unknown",
+  "validationStatus": "validated-automatic",
+  "ruleProvenance": {
+    "normalizationPolicyVersion": "english-key-normalization-v1",
+    "arpabetMappingVersion": "cmudict-arpabet-to-kokoro-v2",
+    "validationPolicyVersion": "source-candidate-validation-v1"
+  }
+}
+```
+
+`lexicalClass` and `senseLabel` are nullable, but the fields are never omitted.
+CMUdict is a pronunciation source, not sense-labelled evidence, so the
+generator must not fabricate labels or ordinal strings. The closed Phase 0–2
+`validationStatus` vocabulary and invariants are:
+
+- `validated-automatic`: the entry has exactly one compatible deduplicated
+  source candidate, `senseLabel` may be null, and
+  `automaticWithoutContext` is true;
+- `report-only-missing-sense-label`: the spelling has multiple compatible raw
+  candidates, `senseLabel` is null, and `automaticWithoutContext` is false;
+- `validated-human-reviewed`: a later reviewed pack supplies a nonempty short
+  non-copyrighted `senseLabel`; the candidate may participate in contextual
+  model selection but remains `automaticWithoutContext: false`.
+
+Task 2 emits only `validated-automatic` and
+`report-only-missing-sense-label`. An ambiguous unlabeled candidate is inert:
+it is neither an automatic fallback nor a model-selectable contextual
+candidate. It can leave report-only status only through genuine human-reviewed
+label evidence and a newly generated semantic pack.
 
 Candidate IDs are stable only within a declared candidate-pack version. They
 are identifiers, not semantic truth. A changed IPA, sense label, or candidate
-set changes the pack identity and invalidates dependent cached decisions.
+status, provenance field, or candidate set changes the canonical `entries`
+object, pack identity, and dependent cached decisions.
 
 All IPA is validated against the exact Kokoro phoneme vocabulary before pack
 generation succeeds. Unsupported symbols are build failures, never characters

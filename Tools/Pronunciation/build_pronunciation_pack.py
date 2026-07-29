@@ -16,17 +16,24 @@ from typing import Any, Iterable, Mapping, Sequence
 
 
 CMUDICT_COMMIT = "74790861f652b15e4ac49015a90074ad62a27690"
+CMUDICT_UPSTREAM_URL = "https://github.com/cmusphinx/cmudict"
+CMUDICT_DICTIONARY_PATH = "ThirdParty/CMUdict/cmudict.dict"
+CMUDICT_LICENSE_PATH = "ThirdParty/CMUdict/LICENSE"
 CMUDICT_SHA256 = (
     "sha256:81917843c7f44ce2b094ac63873c2c7a4cf802040792c455ba3ca406891c3d22"
+)
+CMUDICT_LICENSE_SHA256 = (
+    "sha256:bd4ce8e44170a5f9f481310ca85c51de3c4f851a65e679b40e603b143bd3542a"
 )
 DIALECT = "en-US"
 
 GENERATOR_BEHAVIOR = {
-    "generatorVersion": "echo-pronunciation-pack-generator-v1",
+    "generatorVersion": "echo-pronunciation-pack-generator-v2",
     "normalizationPolicyVersion": "english-key-normalization-v1",
-    "arpabetMappingVersion": "cmudict-arpabet-to-kokoro-v1",
+    "arpabetMappingVersion": "cmudict-arpabet-to-kokoro-v2",
     "sourcePrecedencePolicyVersion": "gold-silver-exclusion-v1",
-    "automaticSelectionPolicyVersion": "single-compatible-candidate-v1",
+    "automaticSelectionPolicyVersion": "single-validated-compatible-candidate-v2",
+    "candidateValidationPolicyVersion": "source-candidate-validation-v1",
 }
 
 VOWELS = {
@@ -290,6 +297,10 @@ def _validate_frequency_bands(
         word = _normalize_word(raw_word)
         if word is None or band not in FREQUENCY_BANDS:
             raise ValueError(f"invalid reviewed frequency band for {raw_word!r}")
+        if word in normalized:
+            raise ValueError(
+                f"frequency keys normalize to duplicate spelling: {word!r}"
+            )
         normalized[word] = band
     return normalized
 
@@ -323,10 +334,28 @@ def build_pack(
     reviewed_bands = _validate_frequency_bands(frequency_bands)
     gold_words = _normalized_existing_words(gold)
     silver_words = _normalized_existing_words(silver)
+    source_records = _validate_sources(
+        sources
+        if sources is not None
+        else _default_sources(
+            cmu_lines=lines,
+            gold=gold,
+            silver=silver,
+            commit=commit,
+            cmudict_sha256=cmudict_sha256,
+            gold_sha256=gold_sha256,
+            silver_sha256=silver_sha256,
+        )
+    )
+    cmudict_snapshot_id = next(
+        source["snapshotID"]
+        for source in source_records
+        if source["sourceID"] == "cmudict"
+    )
 
     pronunciations_by_word: dict[str, list[Sequence[str]]] = {}
     for line in lines:
-        stripped = line.strip()
+        stripped = line.partition("#")[0].strip()
         if not stripped or stripped.startswith(";;;"):
             continue
         fields = stripped.split()
@@ -369,6 +398,11 @@ def build_pack(
         is_automatic = len(compatible_ipa) == 1
         if not is_automatic:
             ambiguous_count += 1
+        validation_status = (
+            "validated-automatic"
+            if is_automatic
+            else "report-only-missing-sense-label"
+        )
         candidates: list[dict[str, Any]] = []
         for ipa in sorted(compatible_ipa):
             digest = hashlib.sha256(
@@ -378,30 +412,30 @@ def build_pack(
                 {
                     "candidateID": f"cmudict.{word}.{digest}",
                     "ipa": ipa,
+                    "lexicalClass": None,
+                    "senseLabel": None,
                     "sourceID": "cmudict",
+                    "sourceSnapshotID": cmudict_snapshot_id,
                     "sourceTier": "supplemental",
                     "kind": "explicit",
                     "automaticWithoutContext": is_automatic,
                     "frequencyBand": reviewed_bands.get(word, "unknown"),
+                    "validationStatus": validation_status,
+                    "ruleProvenance": {
+                        "normalizationPolicyVersion": behavior[
+                            "normalizationPolicyVersion"
+                        ],
+                        "arpabetMappingVersion": behavior["arpabetMappingVersion"],
+                        "validationPolicyVersion": behavior[
+                            "candidateValidationPolicyVersion"
+                        ],
+                    },
                 }
             )
         entries[word] = candidates
 
     normalized_data_sha256 = sha256_identity(canonical_json_bytes(entries))
     kokoro_vocabulary_version = sha256_identity(canonical_json_bytes(vocabulary))
-    source_records = _validate_sources(
-        sources
-        if sources is not None
-        else _default_sources(
-            cmu_lines=lines,
-            gold=gold,
-            silver=silver,
-            commit=commit,
-            cmudict_sha256=cmudict_sha256,
-            gold_sha256=gold_sha256,
-            silver_sha256=silver_sha256,
-        )
-    )
     semantic_identity_payload = {
         "identitySchemaVersion": 1,
         "normalizedDataSHA256": normalized_data_sha256,
@@ -454,7 +488,7 @@ def build_pack(
     }
 
 
-def verify_locked_file(path: Path, expected_sha256: str) -> None:
+def _verify_bytes(path: Path, data: bytes, expected_sha256: str) -> None:
     expected = (
         expected_sha256
         if expected_sha256.startswith("sha256:")
@@ -462,11 +496,15 @@ def verify_locked_file(path: Path, expected_sha256: str) -> None:
     )
     if not SHA256_PATTERN.fullmatch(expected):
         raise ValueError(f"invalid locked SHA-256 for {path}")
-    actual = sha256_identity(path.read_bytes())
+    actual = sha256_identity(data)
     if actual != expected:
         raise ValueError(
             f"SHA-256 mismatch for {path}: expected {expected}, found {actual}"
         )
+
+
+def verify_locked_file(path: Path, expected_sha256: str) -> None:
+    _verify_bytes(path, path.read_bytes(), expected_sha256)
 
 
 def _load_json(path: Path) -> Any:
@@ -476,10 +514,40 @@ def _load_json(path: Path) -> Any:
         raise ValueError(f"cannot load JSON from {path}: {error}") from error
 
 
-def _resolve_locked_path(value: Any) -> Path:
-    if not isinstance(value, str) or not value:
-        raise ValueError("locked path must be a nonempty string")
-    return Path(value)
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key!r}")
+        result[key] = value
+    return result
+
+
+def _load_json_bytes(path: Path, data: bytes) -> Any:
+    try:
+        return json.loads(
+            data.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"cannot load JSON from {path}: {error}") from error
+
+
+def _expected_lock() -> dict[str, Any]:
+    return {
+        "sourceID": "cmudict",
+        "upstreamURL": CMUDICT_UPSTREAM_URL,
+        "commit": CMUDICT_COMMIT,
+        "dialect": DIALECT,
+        "dictionary": {
+            "path": CMUDICT_DICTIONARY_PATH,
+            "sha256": CMUDICT_SHA256,
+        },
+        "license": {
+            "path": CMUDICT_LICENSE_PATH,
+            "sha256": CMUDICT_LICENSE_SHA256,
+        },
+    }
 
 
 def _load_inputs(
@@ -493,37 +561,38 @@ def _load_inputs(
     lock = _load_json(lock_path)
     if not isinstance(lock, Mapping):
         raise ValueError("CMUdict lock must be a JSON object")
-    for field in ("sourceID", "upstreamURL", "commit", "dialect", "dictionary", "license"):
-        if field not in lock:
-            raise ValueError(f"CMUdict lock is missing {field}")
-    if (
-        lock["sourceID"] != "cmudict"
-        or lock["commit"] != CMUDICT_COMMIT
-        or lock["dialect"] != DIALECT
-    ):
-        raise ValueError("CMUdict lock identity does not match the frozen source")
+    if lock != _expected_lock():
+        raise ValueError("lock does not match the frozen CMUdict source")
 
-    dictionary = lock["dictionary"]
-    license_record = lock["license"]
-    if not isinstance(dictionary, Mapping) or not isinstance(license_record, Mapping):
-        raise ValueError("CMUdict lock dictionary and license records are invalid")
-    cmudict_path = _resolve_locked_path(dictionary.get("path"))
-    cmudict_license_path = _resolve_locked_path(license_record.get("path"))
-    verify_locked_file(cmudict_path, str(dictionary.get("sha256", "")))
-    verify_locked_file(cmudict_license_path, str(license_record.get("sha256", "")))
-
+    cmudict_path = Path(CMUDICT_DICTIONARY_PATH)
+    cmudict_license_path = Path(CMUDICT_LICENSE_PATH)
     cmudict_bytes = cmudict_path.read_bytes()
-    try:
-        cmu_lines = cmudict_bytes.decode("utf-8").splitlines()
-    except UnicodeDecodeError as error:
-        raise ValueError("CMUdict input is not valid UTF-8") from error
-
+    cmudict_license_bytes = cmudict_license_path.read_bytes()
     gold_bytes = gold_path.read_bytes()
     silver_bytes = silver_path.read_bytes()
-    gold = _load_json(gold_path)
-    silver = _load_json(silver_path)
-    vocab = _load_json(vocab_path)
-    frequency_bands = _load_json(frequency_path) if frequency_path else None
+    vocab_bytes = vocab_path.read_bytes()
+    frequency_bytes = frequency_path.read_bytes() if frequency_path else None
+
+    _verify_bytes(cmudict_path, cmudict_bytes, CMUDICT_SHA256)
+    _verify_bytes(
+        cmudict_license_path,
+        cmudict_license_bytes,
+        CMUDICT_LICENSE_SHA256,
+    )
+    try:
+        cmu_lines = cmudict_bytes.decode("utf-8").splitlines()
+        cmudict_license_bytes.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError("CMUdict dictionary or license is not valid UTF-8") from error
+
+    gold = _load_json_bytes(gold_path, gold_bytes)
+    silver = _load_json_bytes(silver_path, silver_bytes)
+    vocab = _load_json_bytes(vocab_path, vocab_bytes)
+    frequency_bands = (
+        _load_json_bytes(frequency_path, frequency_bytes)
+        if frequency_path is not None and frequency_bytes is not None
+        else None
+    )
     if frequency_bands is not None and not isinstance(frequency_bands, Mapping):
         raise ValueError("frequency bands input must be a JSON object")
 
@@ -533,8 +602,8 @@ def _load_inputs(
         "silver": silver,
         "kokoro_vocab": vocab,
         "frequency_bands": frequency_bands,
-        "commit": lock["commit"],
-        "cmudict_sha256": str(dictionary["sha256"]),
+        "commit": CMUDICT_COMMIT,
+        "cmudict_sha256": CMUDICT_SHA256,
         "gold_sha256": sha256_identity(gold_bytes),
         "silver_sha256": sha256_identity(silver_bytes),
     }
