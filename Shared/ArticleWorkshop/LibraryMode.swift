@@ -73,6 +73,10 @@ nonisolated struct ArticleInboxItem: Equatable, Hashable, Identifiable, Sendable
     let isPossibleDuplicate: Bool
     let keepBothAvailable: Bool
 
+    var isAnthologyEligible: Bool {
+        state != .captureFailed
+    }
+
     var warningOccurrences: [ArticleWarningOccurrence] {
         warnings.enumerated().map { offset, warning in
             ArticleWarningOccurrence(id: offset, text: warning)

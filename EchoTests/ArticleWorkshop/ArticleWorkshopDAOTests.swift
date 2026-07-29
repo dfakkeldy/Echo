@@ -29,10 +29,11 @@ struct ArticleWorkshopDAOTests {
         #expect(try dao.capture(id: savedCapture.id)?.currentRevisionID == revision.id)
         var captureWithCurrentRevision = savedCapture
         captureWithCurrentRevision.currentRevisionID = revision.id
-        #expect(try dao.possibleDuplicates(
-            canonicalURL: savedCapture.canonicalURL,
-            digest: savedCapture.contentSHA256
-        ) == [captureWithCurrentRevision])
+        #expect(
+            try dao.possibleDuplicates(
+                canonicalURL: savedCapture.canonicalURL,
+                digest: savedCapture.contentSHA256
+            ) == [captureWithCurrentRevision])
     }
 
     @Test func conditionalRevisionPublicationIsAtomicAndRejectsStaleSibling() throws {
@@ -108,6 +109,24 @@ struct ArticleWorkshopDAOTests {
         }
     }
 
+    @Test func captureQueryExcludesOnlyPersistedCaptureFailureState() throws {
+        let service = try DatabaseService(inMemory: ())
+        let dao = ArticleCaptureDAO(db: service.writer)
+        var ready = capture("capture-ready", digest: "ready")
+        ready.contentState = ArticleContentState.ready.rawValue
+        var review = capture("capture-review", digest: "review")
+        review.contentState = ArticleContentState.reviewSuggested.rawValue
+        var failed = capture("capture-failed", digest: "failed")
+        failed.contentState = ArticleContentState.captureFailed.rawValue
+        try dao.saveCapture(ready)
+        try dao.saveCapture(review)
+        try dao.saveCapture(failed)
+
+        #expect(
+            Set(try dao.captures(includeFailures: false).map(\.id))
+                == [ready.id, review.id])
+    }
+
     @Test func anthologyAllocatesStableSlotsWithoutReusingRemovedSlots() throws {
         let service = try DatabaseService(inMemory: ())
         let captureDAO = ArticleCaptureDAO(db: service.writer)
@@ -161,6 +180,35 @@ struct ArticleWorkshopDAOTests {
         try dao.saveBuild(failedBuild)
 
         #expect(try dao.latestSuccessfulBuild(anthologyID: "anthology-1") == successfulBuild)
+    }
+
+    @Test func failedAttemptDoesNotBlockSuccessfulReceiptAtSameEditionRevision() throws {
+        let service = try DatabaseService(inMemory: ())
+        let dao = AnthologyDAO(db: service.writer)
+        try dao.save(anthology("anthology-1"))
+        let failed = build(id: "build-failed", revision: 1, status: "failed")
+        let succeeded = build(id: "build-succeeded", revision: 1, status: "succeeded")
+
+        try dao.saveBuild(failed)
+        try dao.saveBuild(succeeded)
+
+        #expect(try dao.latestSuccessfulBuild(anthologyID: "anthology-1") == succeeded)
+    }
+
+    @Test func buildReceiptIsInsertOnlyImmutableEvidence() throws {
+        let service = try DatabaseService(inMemory: ())
+        let dao = AnthologyDAO(db: service.writer)
+        try dao.save(anthology("anthology-1"))
+        let original = build(id: "build-immutable", revision: 1, status: "succeeded")
+        try dao.saveBuild(original)
+        var replacement = original
+        replacement.manifestJSON = #"{"title":"Replacement"}"#
+        replacement.manifestSHA256 = "replacement"
+
+        #expect(throws: (any Error).self) {
+            try dao.saveBuild(replacement)
+        }
+        #expect(try dao.latestSuccessfulBuild(anthologyID: "anthology-1") == original)
     }
 
     @Test func savingStaleAnthologyDoesNotRegressManagedCounters() throws {

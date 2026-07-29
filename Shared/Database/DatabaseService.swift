@@ -161,6 +161,9 @@ final class DatabaseService {
         migrator.registerMigration("v37_article_workshop") { db in
             try Schema_V37.migrate(db)
         }
+        migrator.registerMigration("v37_repair_anthology_build_attempt_receipts") { db in
+            try Schema_V37.repairBuildAttemptReceipts(db)
+        }
         try migrator.migrate(writer)
     }
 }

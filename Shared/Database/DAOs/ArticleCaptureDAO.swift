@@ -42,7 +42,8 @@ nonisolated struct ArticleCaptureDAO: Sendable {
         try db.read { db in
             var request = ArticleCaptureRecord.order(Column("captured_at").desc, Column("id"))
             if !includeFailures {
-                request = request.filter(Column("content_state") != "failed")
+                request = request.filter(
+                    Column("content_state") != ArticleContentState.captureFailed.rawValue)
             }
             return try request.fetchAll(db)
         }

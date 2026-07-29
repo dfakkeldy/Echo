@@ -96,6 +96,12 @@
                 .accessibilityValue(
                     viewModel.selectedIDs.contains(article.id) ? "Selected" : "Not selected"
                 )
+                .accessibilityHint(
+                    article.isAnthologyEligible
+                        ? "Adds or removes this article from the anthology selection"
+                        : "This article must be captured successfully before it can be added"
+                )
+                .disabled(article.isAnthologyEligible == false)
 
                 VStack(alignment: .leading, spacing: 8) {
                     NavigationLink(value: article) {

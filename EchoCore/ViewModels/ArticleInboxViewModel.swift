@@ -108,7 +108,8 @@ final class ArticleInboxViewModel {
             }
             articles = result.articles
             anthologies = result.anthologies
-            selectedIDs.formIntersection(result.articles.map(\.id))
+            selectedIDs.formIntersection(
+                result.articles.lazy.filter(\.isAnthologyEligible).map(\.id))
             errorMessage = nil
             isImporting = false
         } catch is CancellationError {
@@ -122,7 +123,10 @@ final class ArticleInboxViewModel {
     }
 
     func toggleSelection(_ id: String) {
-        guard articles.contains(where: { $0.id == id }) else { return }
+        guard articles.contains(where: { $0.id == id && $0.isAnthologyEligible }) else {
+            selectedIDs.remove(id)
+            return
+        }
         if selectedIDs.contains(id) {
             selectedIDs.remove(id)
         } else {
@@ -131,7 +135,7 @@ final class ArticleInboxViewModel {
     }
 
     func selectAll() {
-        let visibleIDs = Set(articles.map(\.id))
+        let visibleIDs = Set(articles.lazy.filter(\.isAnthologyEligible).map(\.id))
         if visibleIDs.isEmpty == false, selectedIDs == visibleIDs {
             selectedIDs.removeAll()
         } else {

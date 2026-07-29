@@ -13,6 +13,7 @@ nonisolated struct ArticleInboxService: Sendable {
         case captureNotFound(String)
         case emptySelection
         case invalidCaptureID(String)
+        case selectedArticlesUnavailable
         case captureIsReferenced([String])
         case unsafePackagePath(URL)
         case unsafeOwnedDirectory(URL)
@@ -28,6 +29,8 @@ nonisolated struct ArticleInboxService: Sendable {
                 return "Select at least one article for the anthology."
             case .invalidCaptureID:
                 return "This article has an invalid capture identifier."
+            case .selectedArticlesUnavailable:
+                return "One or more selected articles are not ready to add to an anthology."
             case .captureIsReferenced(let names):
                 return "This article is used by: \(names.joined(separator: ", "))."
             case .unsafePackagePath:
@@ -49,8 +52,8 @@ nonisolated struct ArticleInboxService: Sendable {
 
     private let captureDAO: ArticleCaptureDAO
     private let anthologyDAO: AnthologyDAO
+    private let anthologyService: AnthologyService
     private let fileStore: ArticleWorkshopFileStore
-    private let now: @Sendable () -> Date
     private let makeID: @Sendable () -> UUID
     private let deletionQuarantineLimit: Int
     private let deletionHook: (@Sendable (DeletionPoint, URL) throws -> Void)?
@@ -66,8 +69,13 @@ nonisolated struct ArticleInboxService: Sendable {
     ) {
         self.captureDAO = captureDAO
         self.anthologyDAO = anthologyDAO
+        self.anthologyService = AnthologyService(
+            captureDAO: captureDAO,
+            anthologyDAO: anthologyDAO,
+            fileStore: fileStore,
+            now: now,
+            makeID: makeID)
         self.fileStore = fileStore
-        self.now = now
         self.makeID = makeID
         self.deletionQuarantineLimit = deletionQuarantineLimit
         self.deletionHook = deletionHook
@@ -96,23 +104,17 @@ nonisolated struct ArticleInboxService: Sendable {
     func createAnthologySeed(title: String, captureIDs: [String]) throws -> AnthologyRecord {
         guard captureIDs.isEmpty == false else { throw Error.emptySelection }
 
-        let timestamp = now().ISO8601Format()
-        let anthology = AnthologyRecord(
-            id: makeID().uuidString,
-            title: title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? "New Anthology" : title.trimmingCharacters(in: .whitespacesAndNewlines),
-            subtitle: nil,
-            creator: "Echo",
-            coverPath: nil,
-            nextStableSlot: 0,
-            latestBuildRevision: 0,
-            createdAt: timestamp,
-            modifiedAt: timestamp
-        )
         do {
-            return try anthologyDAO.create(anthology, captureIDs: captureIDs)
-        } catch AnthologyDAOError.captureNotFound(let captureID) {
-            throw Error.captureNotFound(captureID)
+            return try anthologyService.createProject(
+                title: title,
+                captureIDs: captureIDs
+            ).anthology
+        } catch AnthologyService.Error.invalidSelection,
+            AnthologyService.Error.invalidStoredData
+        {
+            throw Error.selectedArticlesUnavailable
+        } catch is AnthologyDAOError {
+            throw Error.selectedArticlesUnavailable
         }
     }
 

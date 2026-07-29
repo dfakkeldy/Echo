@@ -225,12 +225,10 @@ import Testing
         defer { fixture.removeFiles() }
         let newest = "00000000-0000-0000-0000-000000000002"
         let oldest = "00000000-0000-0000-0000-000000000001"
-        try fixture.captureDAO.saveCapture(
-            fixture.capture(
-                id: oldest, capturedAt: "2026-07-28T12:01:00Z"))
-        try fixture.captureDAO.saveCapture(
-            fixture.capture(
-                id: newest, capturedAt: "2026-07-28T12:02:00Z"))
+        try fixture.saveBuildEligibleCapture(
+            id: oldest, capturedAt: "2026-07-28T12:01:00Z")
+        try fixture.saveBuildEligibleCapture(
+            id: newest, capturedAt: "2026-07-28T12:02:00Z")
         let viewModel = ArticleInboxViewModel(service: fixture.service, drainStaging: {})
         await viewModel.reload()
         viewModel.toggleSelection(oldest)
@@ -244,6 +242,25 @@ import Testing
             ])
         #expect(viewModel.selectedIDs.isEmpty)
         #expect(viewModel.anthologies.map(\.id) == [anthology.id])
+    }
+
+    @Test func failedInboxRowsCannotEnterAnthologySelection() async throws {
+        let fixture = try ViewModelFixture()
+        defer { fixture.removeFiles() }
+        let ready = "00000000-0000-0000-0000-000000000001"
+        let failed = "00000000-0000-0000-0000-000000000002"
+        try fixture.captureDAO.saveCapture(fixture.capture(id: ready))
+        var failedCapture = fixture.capture(id: failed)
+        failedCapture.contentState = ArticleContentState.captureFailed.rawValue
+        try fixture.captureDAO.saveCapture(failedCapture)
+        let viewModel = ArticleInboxViewModel(service: fixture.service, drainStaging: {})
+        await viewModel.reload()
+
+        viewModel.toggleSelection(failed)
+        #expect(viewModel.selectedIDs.isEmpty)
+
+        viewModel.selectAll()
+        #expect(viewModel.selectedIDs == [ready])
     }
 
     @Test func reloadFailureAfterLogicalDeleteDoesNotRestoreStaleArticleOrSelection() async throws {
@@ -301,7 +318,7 @@ private final class ViewModelFixture {
             anthologyDAO: anthologyDAO,
             fileStore: fileStore,
             now: { Date(timeIntervalSince1970: 1_775_000_000) },
-            makeID: { UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")! }
+            makeID: UUID.init
         )
     }
 
@@ -326,7 +343,7 @@ private final class ViewModelFixture {
             anthologyDAO: anthologyDAO,
             fileStore: fileStore,
             now: { Date(timeIntervalSince1970: 1_775_000_000) },
-            makeID: { UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")! },
+            makeID: UUID.init,
             deletionHook: deletionHook
         )
     }
@@ -350,7 +367,8 @@ private final class ViewModelFixture {
     func capture(
         id: String,
         capturedAt: String = "2026-07-28T12:01:00Z",
-        packagePath: String? = nil
+        packagePath: String? = nil,
+        contentSHA256: String? = nil
     ) -> ArticleCaptureRecord {
         ArticleCaptureRecord(
             id: id,
@@ -366,7 +384,7 @@ private final class ViewModelFixture {
             packagePath: packagePath
                 ?? fileStore.root
                 .appending(path: "Captures/\(id)", directoryHint: .isDirectory).path,
-            contentSHA256: "digest-\(id)",
+            contentSHA256: contentSHA256 ?? "digest-\(id)",
             extractorVersion: "1",
             contentState: "ready",
             warningsJSON: "[]",
@@ -374,6 +392,39 @@ private final class ViewModelFixture {
             createdAt: capturedAt,
             modifiedAt: capturedAt
         )
+    }
+
+    func saveBuildEligibleCapture(id: String, capturedAt: String) throws {
+        let captureID = try #require(UUID(uuidString: id))
+        let envelope = ArticleCaptureEnvelope(
+            schemaVersion: 1,
+            captureID: captureID,
+            capturedAt: Date(timeIntervalSince1970: 1_775_000_000),
+            method: .urlFetch,
+            sourceApplication: nil,
+            payload: ReadabilityCapturePayload(
+                sourceURL: "https://example.com/articles/\(id)",
+                canonicalURL: nil,
+                title: "Article \(id.suffix(4))",
+                byline: nil,
+                siteName: "Example",
+                language: "en",
+                publishedTime: nil,
+                excerpt: nil,
+                contentXHTML: "<article><p>Readable article.</p></article>",
+                textContent: "Readable article.",
+                imageURLs: []))
+        let staging = root.appending(
+            path: "Staging-\(id)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let imported = try fileStore.importEnvelope(
+            at: ArticleCaptureStagingWriter(root: staging).stage(envelope))
+        try captureDAO.saveCapture(
+            capture(
+                id: id,
+                capturedAt: capturedAt,
+                packagePath: imported.snapshotURL.deletingLastPathComponent().path,
+                contentSHA256: imported.sha256))
     }
 }
 

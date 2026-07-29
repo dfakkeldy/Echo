@@ -5,11 +5,13 @@
     struct LibraryView: View {
         @State private var vm: LibraryViewModel
         @State private var articleInboxViewModel: ArticleInboxViewModel
+        @State private var anthologyListViewModel: AnthologyListViewModel
         @State private var mode = LibraryMode.books
         @State private var showingManageRoots = false
         @State private var showingRecoveryFolderPicker = false
         let onAddFolder: () -> Void
         let onConnectServer: () -> Void
+        private let anthologyService: AnthologyService
 
         init(
             db: DatabaseService,
@@ -17,10 +19,21 @@
             onAddFolder: @escaping () -> Void,
             onConnectServer: @escaping () -> Void
         ) {
+            let articleFileStore = ArticleWorkshopFileStore()
+            let articleInboxViewModel = ArticleInboxViewModel(
+                db: db,
+                fileStore: articleFileStore)
+            let anthologyService = AnthologyService(
+                db: db,
+                fileStore: articleFileStore)
             _vm = State(initialValue: LibraryViewModel(db: db, openBook: openBook))
             _articleInboxViewModel = State(
-                initialValue: ArticleInboxViewModel(db: db)
+                initialValue: articleInboxViewModel
             )
+            _anthologyListViewModel = State(
+                initialValue: AnthologyListViewModel(service: anthologyService)
+            )
+            self.anthologyService = anthologyService
             self.onAddFolder = onAddFolder
             self.onConnectServer = onConnectServer
         }
@@ -100,8 +113,14 @@
                 vm.reload()
             }
             .task(id: mode) {
-                guard mode != .books else { return }
-                await articleInboxViewModel.reload()
+                switch mode {
+                case .books:
+                    return
+                case .inbox:
+                    await articleInboxViewModel.reload()
+                case .anthologies:
+                    return
+                }
             }
             .alert("Couldn't open book", isPresented: errorPresented) {
                 Button("OK") { vm.errorMessage = nil }
@@ -192,20 +211,10 @@
 
         @ViewBuilder
         private var anthologiesContent: some View {
-            if articleInboxViewModel.anthologies.isEmpty {
-                ContentUnavailableView(
-                    "No Anthologies",
-                    systemImage: "text.book.closed",
-                    description: Text(
-                        "Select articles in Inbox, then choose New Anthology."
-                    )
-                )
-            } else {
-                List(articleInboxViewModel.anthologies, id: \.id) { anthology in
-                    Label(anthology.title, systemImage: "text.book.closed")
-                        .accessibilityLabel("Anthology: \(anthology.title)")
-                }
-            }
+            AnthologyListView(
+                viewModel: anthologyListViewModel,
+                service: anthologyService,
+                cleanupContext: articleInboxViewModel.cleanupContext)
         }
     }
 

@@ -78,8 +78,13 @@ enum Schema_V37 {
             t.column("status", .text).notNull()
             t.column("error_code", .text)
             t.column("created_at", .text).notNull()
-            t.uniqueKey(["anthology_id", "revision"])
         }
+        try db.execute(
+            sql: """
+                CREATE UNIQUE INDEX idx_anthology_build_success_revision
+                ON anthology_build(anthology_id, revision)
+                WHERE status = 'succeeded'
+                """)
 
         try db.create(
             index: "idx_article_capture_captured_at",
@@ -111,5 +116,68 @@ enum Schema_V37 {
             columns: ["anthology_id", "revision"],
             ifNotExists: true
         )
+    }
+
+    nonisolated static func repairBuildAttemptReceipts(_ db: Database) throws {
+        guard
+            let tableSQL = try String.fetchOne(
+                db,
+                sql: """
+                    SELECT sql FROM sqlite_master
+                    WHERE type = 'table' AND name = 'anthology_build'
+                    """)
+        else {
+            return
+        }
+        if tableSQL.lowercased().contains("unique") {
+            try db.execute(sql: "DROP INDEX IF EXISTS idx_anthology_build_revision")
+            try db.execute(sql: "DROP INDEX IF EXISTS idx_anthology_build_success_revision")
+            try db.rename(
+                table: "anthology_build",
+                to: "anthology_build_legacy_attempt_unique")
+            try db.execute(
+                sql: """
+                    CREATE TABLE anthology_build (
+                        id TEXT PRIMARY KEY,
+                        anthology_id TEXT NOT NULL
+                            REFERENCES anthology(id) ON DELETE CASCADE,
+                        revision INTEGER NOT NULL,
+                        epub_identifier TEXT NOT NULL,
+                        manifest_json TEXT NOT NULL,
+                        manifest_sha256 TEXT NOT NULL,
+                        epub_path TEXT,
+                        epub_sha256 TEXT,
+                        audiobook_id TEXT,
+                        status TEXT NOT NULL,
+                        error_code TEXT,
+                        created_at TEXT NOT NULL
+                    )
+                    """)
+            try db.execute(
+                sql: """
+                    INSERT INTO anthology_build (
+                        id, anthology_id, revision, epub_identifier, manifest_json,
+                        manifest_sha256, epub_path, epub_sha256, audiobook_id,
+                        status, error_code, created_at
+                    )
+                    SELECT
+                        id, anthology_id, revision, epub_identifier, manifest_json,
+                        manifest_sha256, epub_path, epub_sha256, audiobook_id,
+                        status, error_code, created_at
+                    FROM anthology_build_legacy_attempt_unique
+                    """)
+            try db.drop(table: "anthology_build_legacy_attempt_unique")
+        }
+        try db.execute(
+            sql: """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_anthology_build_success_revision
+                ON anthology_build(anthology_id, revision)
+                WHERE status = 'succeeded'
+                """)
+        try db.create(
+            index: "idx_anthology_build_revision",
+            on: "anthology_build",
+            columns: ["anthology_id", "revision"],
+            ifNotExists: true)
     }
 }

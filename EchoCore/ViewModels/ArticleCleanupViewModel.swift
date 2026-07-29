@@ -69,31 +69,26 @@ actor ArticleCleanupLoader {
             throw Error.currentRevisionBelongsToAnotherCapture(current.id)
         }
 
-        let recipe: ArticleEditRecipe
-        let metadataOverrides: ArticleMetadataOverrides
+        let clean: CleanArticle
         do {
-            recipe = try JSONDecoder.articleWorkshop.decode(
-                ArticleEditRecipe.self,
-                from: Data(current.recipeJSON.utf8))
-            metadataOverrides = try JSONDecoder.articleWorkshop.decode(
-                ArticleMetadataOverrides.self,
-                from: Data(current.metadataOverridesJSON.utf8))
-        } catch {
+            clean = try ArticleRevisionMaterializer().materialize(
+                capture: capture,
+                revision: current,
+                source: source)
+        } catch ArticleRevisionMaterializer.Error.malformedRevision {
             throw Error.malformedCurrentRevision(current.id)
-        }
-        guard metadataOverrides == recipe.metadataOverrides else {
+        } catch ArticleRevisionMaterializer.Error.inconsistentMetadataOverrides {
             throw Error.inconsistentMetadataOverrides(current.id)
-        }
-        do {
-            _ = try ArticleRevisionService().apply(
-                snapshot: source,
-                recipe: recipe)
-        } catch {
+        } catch ArticleRevisionMaterializer.Error.revisionBelongsToAnotherCapture {
+            throw Error.currentRevisionBelongsToAnotherCapture(current.id)
+        } catch ArticleRevisionMaterializer.Error.invalidRecipe,
+            ArticleRevisionMaterializer.Error.readableContentDigestMismatch
+        {
             throw Error.invalidCurrentRecipe(current.id)
         }
         return ArticleCleanupLoadedState(
             source: source,
-            baselineRecipe: recipe,
+            baselineRecipe: clean.recipe,
             expectedBaseRevisionID: current.id)
     }
 }

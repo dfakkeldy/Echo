@@ -364,11 +364,15 @@ import Testing
         let recipe = ArticleEditRecipe(
             excludedBlockIDs: [source.blocks[1].id],
             metadataOverrides: .init(title: "Saved cleanup"))
+        let readableDigest = try ArticleRevisionService()
+            .apply(snapshot: source, recipe: recipe)
+            .readableContentSHA256
         try fixture.saveCurrentRevision(
             id: "revision-current",
             captureID: source.captureID.uuidString,
             recipeJSON: try canonicalJSONString(recipe),
-            metadataOverridesJSON: try canonicalJSONString(recipe.metadataOverrides))
+            metadataOverridesJSON: try canonicalJSONString(recipe.metadataOverrides),
+            readableContentSHA256: readableDigest)
 
         let loaded = try await fixture.loader.load(captureID: source.captureID.uuidString)
 
@@ -573,7 +577,8 @@ private struct CleanupLoaderFixture {
         id: String,
         captureID: String,
         recipeJSON: String,
-        metadataOverridesJSON: String
+        metadataOverridesJSON: String,
+        readableContentSHA256: String
     ) throws {
         try captureDAO.saveRevision(
             ArticleRevisionRecord(
@@ -582,7 +587,7 @@ private struct CleanupLoaderFixture {
                 parentRevisionID: nil,
                 metadataOverridesJSON: metadataOverridesJSON,
                 recipeJSON: recipeJSON,
-                readableContentSHA256: "fixture",
+                readableContentSHA256: readableContentSHA256,
                 createdAt: "2026-07-29T00:00:00Z",
                 deviceName: "Test"),
             makeCurrent: true)

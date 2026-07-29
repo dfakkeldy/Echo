@@ -124,8 +124,8 @@ import Testing
         defer { fixture.removeFiles() }
         let first = "00000000-0000-0000-0000-000000000001"
         let second = "00000000-0000-0000-0000-000000000002"
-        try fixture.captureDAO.saveCapture(fixture.capture(id: first))
-        try fixture.captureDAO.saveCapture(fixture.capture(id: second))
+        try fixture.saveBuildEligibleCapture(id: first)
+        try fixture.saveBuildEligibleCapture(id: second)
 
         let anthology = try fixture.service.createAnthologySeed(
             title: "Weekend Reading",
@@ -133,6 +133,7 @@ import Testing
         )
 
         #expect(anthology.title == "Weekend Reading")
+        #expect(anthology.creator == nil)
         #expect(anthology.latestBuildRevision == 0)
         #expect(anthology.nextStableSlot == 2)
         #expect(
@@ -151,7 +152,6 @@ import Testing
         defer { fixture.removeFiles() }
         let first = "00000000-0000-0000-0000-000000000001"
         let second = "00000000-0000-0000-0000-000000000002"
-        let anthologyID = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
         try fixture.captureDAO.saveCapture(fixture.capture(id: first))
         try fixture.captureDAO.saveCapture(fixture.capture(id: second))
 
@@ -162,8 +162,30 @@ import Testing
             )
         }
 
-        #expect(try fixture.anthologyDAO.anthology(id: anthologyID) == nil)
-        #expect(try fixture.anthologyDAO.entries(anthologyID: anthologyID).isEmpty)
+        #expect(try fixture.anthologyDAO.all().isEmpty)
+    }
+
+    @Test func failedOrMissingPackageCaptureCannotCreateAnthologySeed() throws {
+        let fixture = try Fixture()
+        defer { fixture.removeFiles() }
+        let failed = "00000000-0000-0000-0000-000000000001"
+        let missingPackage = "00000000-0000-0000-0000-000000000002"
+        try fixture.captureDAO.saveCapture(
+            fixture.capture(id: failed, state: ArticleContentState.captureFailed.rawValue))
+        try fixture.captureDAO.saveCapture(fixture.capture(id: missingPackage))
+
+        #expect(throws: ArticleInboxService.Error.self) {
+            try fixture.service.createAnthologySeed(
+                title: "Must Stay Empty",
+                captureIDs: [failed])
+        }
+        #expect(throws: ArticleInboxService.Error.self) {
+            try fixture.service.createAnthologySeed(
+                title: "Still Empty",
+                captureIDs: [missingPackage])
+        }
+
+        #expect(try fixture.anthologyDAO.all().isEmpty)
     }
 
     @Test func referencedArticleDeletionReturnsAffectedProjectNames() throws {
@@ -428,7 +450,7 @@ private final class Fixture {
             anthologyDAO: anthologyDAO,
             fileStore: fileStore,
             now: { Date(timeIntervalSince1970: 1_775_000_000) },
-            makeID: { UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")! }
+            makeID: UUID.init
         )
     }
 
@@ -478,7 +500,7 @@ private final class Fixture {
             anthologyDAO: anthologyDAO,
             fileStore: fileStore ?? self.fileStore,
             now: { Date(timeIntervalSince1970: 1_775_000_000) },
-            makeID: { UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")! },
+            makeID: UUID.init,
             deletionQuarantineLimit: deletionQuarantineLimit,
             deletionHook: deletionHook
         )
@@ -542,6 +564,38 @@ private final class Fixture {
             createdAt: capturedAt,
             modifiedAt: capturedAt
         )
+    }
+
+    func saveBuildEligibleCapture(id: String) throws {
+        let captureID = try #require(UUID(uuidString: id))
+        let envelope = ArticleCaptureEnvelope(
+            schemaVersion: 1,
+            captureID: captureID,
+            capturedAt: Date(timeIntervalSince1970: 1_775_000_000),
+            method: .urlFetch,
+            sourceApplication: nil,
+            payload: ReadabilityCapturePayload(
+                sourceURL: "https://example.com/articles/\(id)",
+                canonicalURL: nil,
+                title: "Article \(id.suffix(4))",
+                byline: "Example Author",
+                siteName: "Example",
+                language: "en",
+                publishedTime: nil,
+                excerpt: nil,
+                contentXHTML: "<article><p>Readable article.</p></article>",
+                textContent: "Readable article.",
+                imageURLs: []))
+        let staging = root.appending(
+            path: "Staging-\(id)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let imported = try fileStore.importEnvelope(
+            at: ArticleCaptureStagingWriter(root: staging).stage(envelope))
+        try captureDAO.saveCapture(
+            capture(
+                id: id,
+                digest: imported.sha256,
+                packagePath: imported.snapshotURL.deletingLastPathComponent().path))
     }
 }
 
