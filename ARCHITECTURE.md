@@ -882,17 +882,23 @@ queue. If publication is interrupted after that commit point, an exact replay
 of the complete command rebuilds the snapshot and publishes any required queue
 item without appending another event. A replay with different source, receipt,
 category, render, or outcome evidence fails closed. Terminal repeated-failure
-queue items are deduplicated by the authoritative ledger event's sequence and
-canonical hash, clip ID, and reason.
+queue items are derived from the full ledger and deduplicated by the
+authoritative event's sequence and canonical hash. A collision on either
+identity must match the same exact clip, category, and reason or recovery fails
+closed. Schema-valid evaluation queue items without ledger identities are
+preserved.
 
 The shipped `audio_judge.py recover` command exposes that recovery without
 re-entering evaluation. It accepts only the claimed run ID and an external
-output root, locks and strictly replays the existing ledger, republishes all
-derived state and required terminal queue entries, and emits a count-only local
-result. It never opens a manifest or audio file, constructs a request, reads a
-credential, reserves an API attempt, or invokes transport. Empty, malformed,
-conflicting, unclaimed, repository-contained, and unsafe-artifact runs fail
-closed.
+output root, strictly validates the existing ledger and complete morning queue,
+then repeats that validation under the ledger lock before changing derived
+artifacts. Only after the reconciliation plan succeeds does it republish state
+and required terminal queue entries and emit a count-only local result. It never
+opens a manifest or audio file, constructs a request, reads a credential,
+reserves an API attempt, or invokes transport. Empty, malformed, conflicting,
+unclaimed, repository-contained, and unsafe-artifact runs fail closed. Queue
+conflicts found by the outside-lock preflight do not change the snapshot,
+queue, ledger, receipt, or lock.
 
 The judge does not let its input manifest authorize its own provenance. Each
 run requires a separate absolute, single-link regular, non-symlink authority

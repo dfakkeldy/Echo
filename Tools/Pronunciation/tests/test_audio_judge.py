@@ -1482,6 +1482,48 @@ class AttemptLedgerTests(ManifestAdmissionTests):
             if path.is_file()
         }
 
+    def terminal_morning_run(self, *, run_id):
+        clip_id, output_root = self.failing_run(run_id=run_id)
+        record_attempt(
+            run_id=run_id,
+            clip_id=clip_id,
+            source_commit="d" * 40,
+            red_test_receipt="1" * 64,
+            green_test_receipt="2" * 64,
+            negative_guard_receipt="3" * 64,
+            implementation_review_receipt="4" * 64,
+            output_root=output_root,
+        )
+        record_rerender(
+            run_id=run_id,
+            clip_id=clip_id,
+            render_content_sha256="5" * 64,
+            audio_retest_receipt="6" * 64,
+            family_regression_receipt="7" * 64,
+            outcome="fail",
+            output_root=output_root,
+        )
+        record_attempt(
+            run_id=run_id,
+            clip_id=clip_id,
+            source_commit="e" * 40,
+            red_test_receipt="8" * 64,
+            green_test_receipt="9" * 64,
+            negative_guard_receipt="a" * 64,
+            implementation_review_receipt="b" * 64,
+            output_root=output_root,
+        )
+        record_rerender(
+            run_id=run_id,
+            clip_id=clip_id,
+            render_content_sha256="c" * 64,
+            audio_retest_receipt="d" * 64,
+            family_regression_receipt="e" * 64,
+            outcome="fail",
+            output_root=output_root,
+        )
+        return clip_id, output_root
+
     def test_recover_cli_restores_committed_proposal_without_media_or_transport(self):
         clip_id = generate_clip_id()
         audio_path = self.write_wav(clip_id)
@@ -1760,6 +1802,121 @@ class AttemptLedgerTests(ManifestAdmissionTests):
                 self.assertNotEqual(0, completed.returncode)
                 self.assertEqual("", completed.stdout)
                 self.assertEqual(before, self.run_file_bytes(run_directory))
+
+    def test_recover_cli_rejects_queue_collisions_before_any_mutation(self):
+        probes = (
+            "same-sequence-different-hash",
+            "same-hash-different-sequence",
+            "same-identity-conflicting-fields",
+            "malformed-queue",
+            "invalid-reasons",
+        )
+        for index, probe in enumerate(probes):
+            with self.subTest(probe=probe):
+                run_id = f"queue-preflight-{index}"
+                _clip_id, output_root = self.terminal_morning_run(
+                    run_id=run_id
+                )
+                run_directory = output_root / run_id
+                queue_path = run_directory / "morning-queue.json"
+                queue = json.loads(queue_path.read_text(encoding="utf-8"))
+                authoritative = next(
+                    item for item in queue if "ledgerEventSHA256" in item
+                )
+                if probe == "same-sequence-different-hash":
+                    queue_path.write_text(
+                        json.dumps(
+                            [{**authoritative, "ledgerEventSHA256": "0" * 64}],
+                            sort_keys=True,
+                        ),
+                        encoding="utf-8",
+                    )
+                elif probe == "same-hash-different-sequence":
+                    queue_path.write_text(
+                        json.dumps(
+                            [
+                                {
+                                    **authoritative,
+                                    "ledgerEventSequence":
+                                        authoritative["ledgerEventSequence"] + 1,
+                                }
+                            ],
+                            sort_keys=True,
+                        ),
+                        encoding="utf-8",
+                    )
+                elif probe == "same-identity-conflicting-fields":
+                    queue_path.write_text(
+                        json.dumps(
+                            [
+                                {
+                                    **authoritative,
+                                    "clipID": generate_clip_id(),
+                                    "queueCategory": "provisional_review",
+                                    "reasons": ["low_confidence"],
+                                }
+                            ],
+                            sort_keys=True,
+                        ),
+                        encoding="utf-8",
+                    )
+                elif probe == "malformed-queue":
+                    queue_path.write_bytes(b"{not-json\n")
+                else:
+                    queue_path.write_text(
+                        json.dumps(
+                            [
+                                {
+                                    "clipID": generate_clip_id(),
+                                    "queueCategory": "morning_review",
+                                    "reasons": [{}],
+                                }
+                            ],
+                            sort_keys=True,
+                        ),
+                        encoding="utf-8",
+                    )
+                (run_directory / "attempt-state.json").write_bytes(
+                    b"stale snapshot sentinel\n"
+                )
+                (run_directory / ".attempt-ledger.lock").unlink()
+                before = self.run_file_bytes(run_directory)
+
+                completed = self.run_recovery_cli(
+                    run_id=run_id,
+                    output_root=output_root,
+                )
+
+                self.assertNotEqual(0, completed.returncode)
+                self.assertEqual("", completed.stdout)
+                self.assertNotIn("Traceback", completed.stderr)
+                self.assertEqual(before, self.run_file_bytes(run_directory))
+                self.assertFalse(
+                    (run_directory / ".attempt-ledger.lock").exists()
+                )
+
+    def test_recover_cli_preserves_valid_evaluation_queue_rows(self):
+        _clip_id, output_root = self.terminal_morning_run(
+            run_id="queue-preservation"
+        )
+        run_directory = output_root / "queue-preservation"
+        queue_path = run_directory / "morning-queue.json"
+        queue_before = queue_path.read_bytes()
+        queue = json.loads(queue_before)
+        self.assertTrue(
+            any("ledgerEventSHA256" not in item for item in queue)
+        )
+        self.assertTrue(
+            any("ledgerEventSHA256" in item for item in queue)
+        )
+
+        completed = self.run_recovery_cli(
+            run_id="queue-preservation",
+            output_root=output_root,
+        )
+
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertEqual(queue_before, queue_path.read_bytes())
 
     def test_attempt_requires_reviewed_receipts_and_never_increments_while_pending(self):
         clip_id, output_root = self.failing_run()
@@ -2213,7 +2370,7 @@ class AttemptLedgerTests(ManifestAdmissionTests):
 
         with mock.patch.object(
             audio_judge,
-            "_append_repeated_failure_to_morning_queue",
+            "_publish_morning_queue_plan",
             side_effect=LedgerError("simulated queue publication failure"),
         ):
             with self.assertRaisesRegex(LedgerError, "simulated"):

@@ -1321,14 +1321,20 @@ def _recover_committed_event_locked(
         return None
     if committed != expected_event:
         raise LedgerError("committed transition has a conflicting replay")
+    queue_plan: tuple[list[dict[str, Any]], list[dict[str, Any]]] | None = None
+    if publish_morning_queue:
+        current_queue = _load_morning_queue(run_directory)
+        queue_plan = (
+            current_queue,
+            _plan_morning_queue(events, current_queue),
+        )
     _write_attempt_snapshot(run_directory, states)
     result = states[expected_event["clipID"]]
-    if publish_morning_queue:
-        _append_repeated_failure_to_morning_queue(
+    if queue_plan is not None:
+        _publish_morning_queue_plan(
             run_directory,
-            expected_event["clipID"],
-            ledger_event=committed,
-            ledger_event_sequence=len(events),
+            current_queue=queue_plan[0],
+            planned_queue=queue_plan[1],
         )
     return result
 
@@ -1533,27 +1539,10 @@ def record_attempt(
     return _with_ledger_lock(run_directory, operation)
 
 
-def _append_repeated_failure_to_morning_queue(
-    run_directory: Path,
-    clip_id: str,
-    *,
+def _terminal_morning_queue_entry(
     ledger_event: dict[str, Any],
     ledger_event_sequence: int,
-) -> None:
-    queue_path = run_directory / "morning-queue.json"
-    _validate_existing_mutable_file(
-        queue_path,
-        error_type=LedgerError,
-        name="morning queue",
-    )
-    try:
-        queue = json.loads(queue_path.read_text(encoding="utf-8")) if queue_path.exists() else []
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
-        raise LedgerError("morning queue is invalid") from error
-    if not isinstance(queue, list) or not all(
-        isinstance(item, dict) for item in queue
-    ):
-        raise LedgerError("morning queue is invalid")
+) -> dict[str, Any]:
     ledger_event_sha256 = hashlib.sha256(
         json.dumps(
             ledger_event,
@@ -1561,27 +1550,155 @@ def _append_repeated_failure_to_morning_queue(
             separators=(",", ":"),
         ).encode("utf-8")
     ).hexdigest()
-    entry = {
-        "clipID": clip_id,
+    return {
+        "clipID": ledger_event["clipID"],
         "queueCategory": "morning_review",
         "reasons": ["repeated_regression_failure"],
         "ledgerEventSequence": ledger_event_sequence,
         "ledgerEventSHA256": ledger_event_sha256,
     }
-    matching_identity = [
-        item
-        for item in queue
-        if item.get("ledgerEventSequence") == ledger_event_sequence
-        and item.get("ledgerEventSHA256") == ledger_event_sha256
+
+
+def _required_terminal_queue_entries(
+    events: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        _terminal_morning_queue_entry(event, sequence)
+        for sequence, event in enumerate(events, start=1)
+        if event.get("eventType") == "rerender_recorded"
+        and event.get("state") == "morning_review"
     ]
-    if matching_identity:
-        if len(matching_identity) == 1 and matching_identity[0] == entry:
-            return
-        raise LedgerError("morning queue has a conflicting ledger event")
-    queue.append(entry)
-    _atomic_write_json(
+
+
+def _load_morning_queue(run_directory: Path) -> list[dict[str, Any]]:
+    queue_path = run_directory / "morning-queue.json"
+    _validate_existing_mutable_file(
         queue_path,
-        queue,
+        error_type=LedgerError,
+        name="morning queue",
+    )
+    if not queue_path.exists():
+        return []
+    try:
+        queue = json.loads(
+            _read_unique_regular_bytes(
+                queue_path,
+                error_type=LedgerError,
+                name="morning queue",
+            ).decode("utf-8"),
+            object_pairs_hook=_strict_object,
+            parse_constant=lambda _value: (_ for _ in ()).throw(
+                LedgerError("morning queue is invalid")),
+        )
+    except (
+        OSError,
+        UnicodeError,
+        json.JSONDecodeError,
+        ManifestError,
+    ) as error:
+        raise LedgerError("morning queue is invalid") from error
+    if not isinstance(queue, list) or not all(
+        isinstance(item, dict) for item in queue
+    ):
+        raise LedgerError("morning queue is invalid")
+    return queue
+
+
+def _plan_morning_queue(
+    events: list[dict[str, Any]],
+    current_queue: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    evaluation_fields = {"clipID", "queueCategory", "reasons"}
+    ledger_fields = evaluation_fields | {
+        "ledgerEventSequence",
+        "ledgerEventSHA256",
+    }
+    evaluation_categories = {"provisional_review", "morning_review"}
+    evaluation_reasons = {
+        "transport_failure",
+        "model_refusal",
+        "malformed_output",
+        "low_confidence",
+        "uncertain",
+        "deterministic_disagreement",
+        "proposal_blocked_by_existing",
+    }
+    required = _required_terminal_queue_entries(events)
+    required_by_sequence = {
+        entry["ledgerEventSequence"]: entry for entry in required
+    }
+    required_by_hash = {
+        entry["ledgerEventSHA256"]: entry for entry in required
+    }
+    if len(required_by_sequence) != len(required) or len(required_by_hash) != len(
+        required
+    ):
+        raise LedgerError("morning queue authority is ambiguous")
+
+    planned: list[dict[str, Any]] = []
+    included_ledger_identities: set[tuple[int, str]] = set()
+    for item in current_queue:
+        if set(item) == evaluation_fields:
+            reasons = item.get("reasons")
+            if (
+                not validate_clip_id(item.get("clipID"))
+                or item.get("queueCategory") not in evaluation_categories
+                or not isinstance(reasons, list)
+                or not reasons
+                or not all(isinstance(reason, str) for reason in reasons)
+                or len(set(reasons)) != len(reasons)
+                or not all(reason in evaluation_reasons for reason in reasons)
+            ):
+                raise LedgerError("morning queue evaluation row is invalid")
+            planned.append(item)
+            continue
+        if set(item) != ledger_fields:
+            raise LedgerError("morning queue ledger row is invalid")
+        sequence = item.get("ledgerEventSequence")
+        event_hash = item.get("ledgerEventSHA256")
+        if (
+            not isinstance(sequence, int)
+            or isinstance(sequence, bool)
+            or not isinstance(event_hash, str)
+            or SHA256_PATTERN.fullmatch(event_hash) is None
+        ):
+            raise LedgerError("morning queue ledger identity is invalid")
+        sequence_match = required_by_sequence.get(sequence)
+        hash_match = required_by_hash.get(event_hash)
+        if (
+            sequence_match is None
+            or hash_match is None
+            or sequence_match is not hash_match
+            or item != sequence_match
+        ):
+            raise LedgerError("morning queue conflicts with attempt ledger")
+        identity = (sequence, event_hash)
+        if identity not in included_ledger_identities:
+            planned.append(sequence_match)
+            included_ledger_identities.add(identity)
+
+    for entry in required:
+        identity = (
+            entry["ledgerEventSequence"],
+            entry["ledgerEventSHA256"],
+        )
+        if identity not in included_ledger_identities:
+            planned.append(entry)
+            included_ledger_identities.add(identity)
+    return planned
+
+
+def _publish_morning_queue_plan(
+    run_directory: Path,
+    *,
+    current_queue: list[dict[str, Any]],
+    planned_queue: list[dict[str, Any]],
+) -> None:
+    if planned_queue == current_queue:
+        return
+    _atomic_write_json(
+        run_directory / "morning-queue.json",
+        planned_queue,
         error_type=LedgerError,
         artifact_name="morning queue",
     )
@@ -1672,11 +1789,11 @@ def record_rerender(
             event,
         )
         if state == "morning_review":
-            _append_repeated_failure_to_morning_queue(
+            current_queue = _load_morning_queue(run_directory)
+            _publish_morning_queue_plan(
                 run_directory,
-                clip_id,
-                ledger_event=event,
-                ledger_event_sequence=len(events),
+                current_queue=current_queue,
+                planned_queue=_plan_morning_queue(events, current_queue),
             )
         return result
 
@@ -1696,25 +1813,22 @@ def recover_run(
     if not preflight_events:
         raise LedgerError("attempt ledger is empty")
     _derive_attempt_states(preflight_events)
+    preflight_queue = _load_morning_queue(run_directory)
+    _plan_morning_queue(preflight_events, preflight_queue)
 
     def operation(events: list[dict[str, Any]]) -> dict[str, Any]:
         if not events:
             raise LedgerError("attempt ledger is empty")
         states = _derive_attempt_states(events)
-        terminal_queue_events = [
-            (sequence, event)
-            for sequence, event in enumerate(events, start=1)
-            if event.get("eventType") == "rerender_recorded"
-            and event.get("state") == "morning_review"
-        ]
+        current_queue = _load_morning_queue(run_directory)
+        planned_queue = _plan_morning_queue(events, current_queue)
+        terminal_queue_entries = _required_terminal_queue_entries(events)
         _write_attempt_snapshot(run_directory, states)
-        for sequence, event in terminal_queue_events:
-            _append_repeated_failure_to_morning_queue(
-                run_directory,
-                event["clipID"],
-                ledger_event=event,
-                ledger_event_sequence=sequence,
-            )
+        _publish_morning_queue_plan(
+            run_directory,
+            current_queue=current_queue,
+            planned_queue=planned_queue,
+        )
         return {
             "schemaVersion": 1,
             "runID": run_id,
@@ -1722,7 +1836,7 @@ def recover_run(
             "ledgerEventCount": len(events),
             "clipStateCount": len(states),
             "attemptStatePublished": True,
-            "morningQueueEntryCount": len(terminal_queue_events),
+            "morningQueueEntryCount": len(terminal_queue_entries),
             "requestCount": 0,
             "transportAttemptCount": 0,
         }
