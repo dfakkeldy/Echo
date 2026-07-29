@@ -312,28 +312,14 @@ enum NarrationRenderPlanner {
         for seed: PronunciationDecisionSeed
     ) throws {
         guard
-            let family = ContextualPronunciationFamilies.family(
-                for: seed.normalizedWord),
-            evidence.familyID == family.familyID,
-            evidence.candidatePackVersion
-                == ContextualPronunciationFamilies.candidatePackVersion,
-            evidence.submittedCandidateIDs == family.candidates.map(\.candidateID),
-            evidence.familyState == family.state,
-            evidence.promptSchemaVersion
-                == ContextualPronunciationFamilies.promptSchemaVersion
+            ContextualPronunciationEvidenceValidator.isValidPhaseTwo(
+                evidence,
+                blockID: seed.blockID,
+                wordStart: seed.wordStart,
+                wordEnd: seed.wordEnd,
+                normalizedWord: seed.normalizedWord)
         else {
             throw NarrationRenderPlanError.contextualEvidenceIdentityMismatch
-        }
-
-        let submittedCandidateIDs = Set(evidence.submittedCandidateIDs)
-        for candidateID in [
-            evidence.deterministicCandidateID,
-            evidence.modelCandidateID,
-            evidence.humanCandidateID,
-        ].compactMap({ $0 }) {
-            guard submittedCandidateIDs.contains(candidateID) else {
-                throw NarrationRenderPlanError.contextualEvidenceIdentityMismatch
-            }
         }
     }
 

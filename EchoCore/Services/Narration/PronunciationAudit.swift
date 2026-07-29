@@ -357,7 +357,7 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
         {
             effectiveCoverage = .incompleteLegacyCapture
         } else if !diagnostics.isEmpty
-            || Self.hasMissingCurrentContextualEvidence(decisions)
+            || Self.hasMissingOrInvalidCurrentContextualEvidence(decisions)
             || captureCoverage == .incompleteEvidence
         {
             effectiveCoverage = .incompleteEvidence
@@ -493,53 +493,36 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
                 break
             }
             if let evidence = decision.contextualEvidence {
-                try Self.validateContextualEvidence(
-                    evidence,
-                    for: decision.normalizedWord)
+                guard
+                    ContextualPronunciationEvidenceValidator.isValidPhaseTwo(
+                        evidence,
+                        blockID: decision.blockID,
+                        wordStart: decision.wordStart,
+                        wordEnd: decision.wordEnd,
+                        normalizedWord: decision.normalizedWord)
+                else {
+                    throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                        "contextual pronunciation evidence is incomplete")
+                }
             }
         }
     }
 
-    private static func hasMissingCurrentContextualEvidence(
+    private static func hasMissingOrInvalidCurrentContextualEvidence(
         _ decisions: [PronunciationAuditDecision]
     ) -> Bool {
         decisions.contains { decision in
-            decision.contextualEvidence == nil
-                && PronunciationAuditContext.requiresContextualEvidence(
-                    normalizedWord: decision.normalizedWord,
-                    source: decision.source)
-        }
-    }
-
-    private static func validateContextualEvidence(
-        _ evidence: ContextualPronunciationEvidence,
-        for normalizedWord: String
-    ) throws {
-        guard
-            let family = ContextualPronunciationFamilies.family(
-                for: normalizedWord),
-            evidence.familyID == family.familyID,
-            evidence.candidatePackVersion
-                == ContextualPronunciationFamilies.candidatePackVersion,
-            evidence.submittedCandidateIDs == family.candidates.map(\.candidateID),
-            evidence.familyState == family.state,
-            evidence.promptSchemaVersion
-                == ContextualPronunciationFamilies.promptSchemaVersion
-        else {
-            throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
-                "contextual pronunciation evidence is incomplete")
-        }
-
-        let submittedCandidateIDs = Set(evidence.submittedCandidateIDs)
-        for candidateID in [
-            evidence.deterministicCandidateID,
-            evidence.modelCandidateID,
-            evidence.humanCandidateID,
-        ].compactMap({ $0 }) {
-            guard submittedCandidateIDs.contains(candidateID) else {
-                throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
-                    "contextual pronunciation candidate is unknown")
+            if let evidence = decision.contextualEvidence {
+                return !ContextualPronunciationEvidenceValidator.isValidPhaseTwo(
+                    evidence,
+                    blockID: decision.blockID,
+                    wordStart: decision.wordStart,
+                    wordEnd: decision.wordEnd,
+                    normalizedWord: decision.normalizedWord)
             }
+            return PronunciationAuditContext.requiresContextualEvidence(
+                normalizedWord: decision.normalizedWord,
+                source: decision.source)
         }
     }
 
@@ -631,7 +614,7 @@ extension PronunciationAuditManifest {
             coverage = .incompleteLegacyCapture
         } else if schemaVersion == 3
             || !diagnostics.isEmpty
-            || Self.hasMissingCurrentContextualEvidence(decisions)
+            || Self.hasMissingOrInvalidCurrentContextualEvidence(decisions)
         {
             coverage = .incompleteEvidence
         } else {

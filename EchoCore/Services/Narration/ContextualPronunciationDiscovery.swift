@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import CryptoKit
 import Foundation
 import NaturalLanguage
 
@@ -84,8 +83,9 @@ nonisolated enum ContextualPronunciationDiscovery {
                 }
                 let ipaStart = source.index(after: openingSlash)
                 inspections += 1
-                guard let closeParenthesis =
-                    nextClosingParenthesisByIndex[ipaStart],
+                guard
+                    let closeParenthesis =
+                        nextClosingParenthesisByIndex[ipaStart],
                     ipaStart < closeParenthesis
                 else {
                     return nil
@@ -325,7 +325,7 @@ nonisolated enum ContextualPronunciationDiscovery {
                 atWordStart: wordSpan.lowerBound)
             occurrences.append(
                 ContextualPronunciationOccurrence(
-                    occurrenceID: occurrenceID(
+                    occurrenceID: ContextualPronunciationOccurrenceID.make(
                         blockID: blockID,
                         wordStart: wordSpan.lowerBound,
                         wordEnd: wordSpan.upperBound,
@@ -393,21 +393,4 @@ nonisolated enum ContextualPronunciationDiscovery {
             })
     }
 
-    private static func occurrenceID(
-        blockID: String,
-        wordStart: Int,
-        wordEnd: Int,
-        normalizedWord: String
-    ) -> String {
-        let payload = [
-            ContextualPronunciationFamilies.promptSchemaVersion,
-            blockID,
-            String(wordStart),
-            String(wordEnd),
-            normalizedWord,
-        ].joined(separator: "\0")
-        return SHA256.hash(data: Data(payload.utf8))
-            .map { String(format: "%02x", $0) }
-            .joined()
-    }
 }

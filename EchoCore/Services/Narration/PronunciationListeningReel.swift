@@ -200,7 +200,16 @@ nonisolated enum PronunciationListeningReel {
     private static func riskRank(
         _ decision: PronunciationAuditDecision
     ) -> Int {
-        let evidence = decision.contextualEvidence
+        let evidence = decision.contextualEvidence.flatMap { evidence in
+            ContextualPronunciationEvidenceValidator.isValidPhaseTwo(
+                evidence,
+                blockID: decision.blockID,
+                wordStart: decision.wordStart,
+                wordEnd: decision.wordEnd,
+                normalizedWord: decision.normalizedWord)
+                ? evidence
+                : nil
+        }
         if decision.source == .fallback || evidence?.isLimited == true {
             return 1
         }
@@ -210,6 +219,13 @@ nonisolated enum PronunciationListeningReel {
                 || humanCandidateID != evidence?.modelCandidateID
         {
             return 2
+        }
+
+        if evidence?.humanCandidateID == nil,
+            evidence?.acceptanceReason == .shadowNeedsReview
+                || evidence?.modelAbstained == true
+        {
+            return 3
         }
 
         if evidence?.humanCandidateID == nil,

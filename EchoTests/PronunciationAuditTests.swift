@@ -69,7 +69,7 @@ import Testing
         failure: ContextualModelFailure? = nil
     ) -> ContextualPronunciationEvidence {
         ContextualPronunciationEvidence(
-            occurrenceID: "occurrence-record",
+            occurrenceID: "9263c930876e89b6de947c09932eee9ccd281d3851c1c845cadc921e3ab916a5",
             familyID: "record",
             candidatePackVersion: ContextualPronunciationFamilies.candidatePackVersion,
             submittedCandidateIDs: ["record.noun", "record.verb"],
@@ -94,7 +94,7 @@ import Testing
             qualifiedRuntimeFamilyID: "test-runtime",
             humanCandidateID: nil,
             humanCorrectionScope: nil,
-            isLimited: availability != .available || failure != nil)
+            isLimited: false)
     }
 
     private func contextualDecision(
@@ -312,9 +312,18 @@ import Testing
                 == .init(start: 11, end: 11.2))
     }
 
-    @Test func unavailableEnvelopeIsCompleteButMissingCurrentEvidenceIsIncomplete() {
+    @Test func taskSevenOutcomeEnvelopesAreCompleteButMissingEvidenceIsIncomplete() throws {
+        let selected = contextualDecision(evidence: contextualEvidence())
+        let needsReview = contextualDecision(
+            evidence: replacingContextualEvidence(
+                contextualEvidence(),
+                modelCandidateID: .some(nil),
+                modelAbstained: true,
+                acceptanceReason: .shadowNeedsReview))
         let unavailable = contextualDecision(
             evidence: contextualEvidence(availability: .deviceNotEligible))
+        let failure = contextualDecision(
+            evidence: contextualEvidence(failure: .guardrail))
         let missing = contextualDecision(evidence: nil)
         func manifest(for decision: PronunciationAuditDecision) -> PronunciationAuditManifest {
             PronunciationAuditManifest.make(
@@ -331,8 +340,97 @@ import Testing
                 diagnostics: [])
         }
 
-        #expect(manifest(for: unavailable).coverage == .complete)
+        for decision in [selected, needsReview, unavailable, failure] {
+            let receipt = manifest(for: decision)
+            #expect(receipt.coverage == .complete)
+            let decoded = try JSONDecoder().decode(
+                PronunciationAuditManifest.self,
+                from: receipt.encoded())
+            #expect(decoded.coverage == .complete)
+            #expect(decoded.decisions.first?.contextualEvidence == decision.contextualEvidence)
+        }
         #expect(manifest(for: missing).coverage == .incompleteEvidence)
+    }
+
+    @Test func malformedPhaseTwoEvidenceFailsClosedForCoverageEncodingAndDecoding() throws {
+        let valid = contextualEvidence()
+        let malformed = [
+            replacingContextualEvidence(
+                valid,
+                occurrenceID: "unknown-occurrence"),
+            replacingContextualEvidence(
+                valid,
+                modelCandidateID: .some(nil)),
+            replacingContextualEvidence(
+                valid,
+                modelAbstained: true),
+            replacingContextualEvidence(
+                valid,
+                modelCandidateID: .some(nil),
+                modelAbstained: false,
+                acceptanceReason: .shadowNeedsReview),
+            replacingContextualEvidence(
+                valid,
+                modelAvailability: .deviceNotEligible,
+                acceptanceReason: .shadowModelUnavailable),
+            replacingContextualEvidence(
+                valid,
+                modelFailure: .some(.guardrail),
+                acceptanceReason: .shadowModelFailure),
+            replacingContextualEvidence(
+                valid,
+                modelCandidateID: "record.unknown"),
+            replacingContextualEvidence(
+                valid,
+                familyState: .graduated),
+            replacingContextualEvidence(
+                contextualEvidence(availability: .deviceNotEligible),
+                acceptanceReason: .shadowObserved),
+            replacingContextualEvidence(
+                valid,
+                humanCandidateID: .some("record.noun")),
+            replacingContextualEvidence(
+                valid,
+                humanCorrectionScope: .some("book")),
+            replacingContextualEvidence(
+                valid,
+                isLimited: true),
+            replacingContextualEvidence(
+                valid,
+                platform: ""),
+            replacingContextualEvidence(
+                valid,
+                osBuild: ""),
+            replacingContextualEvidence(
+                valid,
+                qualifiedRuntimeFamilyID: ""),
+        ]
+
+        for evidence in malformed {
+            let manifest = PronunciationAuditManifest.make(
+                renderVersion: NarrationFileNaming.renderVersion,
+                voice: VoiceID("af_heart"),
+                captureCoverage: .complete,
+                legacyChapterIndexes: [],
+                audiobookURL: URL(fileURLWithPath: "/tmp/context.m4b"),
+                reelURL: nil,
+                audiobookSHA256: String(repeating: "a", count: 64),
+                listeningReelSHA256: nil,
+                watchWords: [],
+                decisions: [contextualDecision(evidence: evidence)],
+                diagnostics: [])
+
+            #expect(manifest.coverage == .incompleteEvidence)
+            #expect(throws: (any Error).self) {
+                _ = try manifest.encoded()
+            }
+            let rawSchemaFour = try JSONEncoder().encode(manifest)
+            #expect(throws: (any Error).self) {
+                _ = try JSONDecoder().decode(
+                    PronunciationAuditManifest.self,
+                    from: rawSchemaFour)
+            }
+        }
     }
 
     @Test func legacyChapterListWinsOverOtherwiseCompleteOrDiagnosticCoverage() {
@@ -676,5 +774,45 @@ import Testing
             candidatePackVersion: candidatePackVersion ?? decision.candidatePackVersion,
             derivationBase: derivationBase ?? decision.derivationBase,
             derivationRuleID: derivationRuleID ?? decision.derivationRuleID)
+    }
+
+    private func replacingContextualEvidence(
+        _ evidence: ContextualPronunciationEvidence,
+        occurrenceID: String? = nil,
+        modelCandidateID: String?? = nil,
+        modelAbstained: Bool? = nil,
+        modelAvailability: ContextualModelAvailability? = nil,
+        modelFailure: ContextualModelFailure?? = nil,
+        familyState: ContextualFamilyState? = nil,
+        acceptanceReason: ContextualAcceptanceReason? = nil,
+        platform: String? = nil,
+        osBuild: String? = nil,
+        qualifiedRuntimeFamilyID: String? = nil,
+        humanCandidateID: String?? = nil,
+        humanCorrectionScope: String?? = nil,
+        isLimited: Bool? = nil
+    ) -> ContextualPronunciationEvidence {
+        ContextualPronunciationEvidence(
+            occurrenceID: occurrenceID ?? evidence.occurrenceID,
+            familyID: evidence.familyID,
+            candidatePackVersion: evidence.candidatePackVersion,
+            submittedCandidateIDs: evidence.submittedCandidateIDs,
+            deterministicCandidateID: evidence.deterministicCandidateID,
+            deterministicRuleID: evidence.deterministicRuleID,
+            deterministicStrength: evidence.deterministicStrength,
+            modelCandidateID: modelCandidateID ?? evidence.modelCandidateID,
+            modelAbstained: modelAbstained ?? evidence.modelAbstained,
+            modelAvailability: modelAvailability ?? evidence.modelAvailability,
+            modelFailure: modelFailure ?? evidence.modelFailure,
+            familyState: familyState ?? evidence.familyState,
+            acceptanceReason: acceptanceReason ?? evidence.acceptanceReason,
+            promptSchemaVersion: evidence.promptSchemaVersion,
+            platform: platform ?? evidence.platform,
+            osBuild: osBuild ?? evidence.osBuild,
+            qualifiedRuntimeFamilyID:
+                qualifiedRuntimeFamilyID ?? evidence.qualifiedRuntimeFamilyID,
+            humanCandidateID: humanCandidateID ?? evidence.humanCandidateID,
+            humanCorrectionScope: humanCorrectionScope ?? evidence.humanCorrectionScope,
+            isLimited: isLimited ?? evidence.isLimited)
     }
 }

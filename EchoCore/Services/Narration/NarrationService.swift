@@ -902,7 +902,10 @@ final class NarrationService {
         for envelope in evidence {
             guard
                 let occurrence = occurrencesByID.removeValue(
-                    forKey: envelope.occurrenceID)
+                    forKey: envelope.occurrenceID),
+                ContextualPronunciationEvidenceValidator.isValidPhaseTwo(
+                    envelope,
+                    for: occurrence)
             else {
                 throw NarrationRenderPlanError.contextualEvidenceIdentityMismatch
             }

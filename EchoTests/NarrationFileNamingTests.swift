@@ -91,17 +91,29 @@ import Testing
         #expect(plain != fmMode)
     }
 
-    @Test func shadowEvidenceCannotChangeContentSignature() {
-        func evidence(_ modelCandidateID: String) -> ContextualPronunciationEvidence {
-            ContextualPronunciationEvidence(
-                occurrenceID: "occurrence-record",
-                familyID: "record",
+    @Test func distinctShadowPlansProduceTheSameContentSignature() throws {
+        let sourceBlock = block(id: "b0", text: "Please record this.")
+        let occurrence = try #require(
+            ContextualPronunciationDiscovery.discover(
+                text: sourceBlock.text ?? "",
+                blockID: sourceBlock.id
+            ).first)
+        let key = ContextualPronunciationKey(
+            blockID: occurrence.blockID,
+            wordStart: occurrence.wordStart,
+            wordEnd: occurrence.wordEnd)
+        func artifact(
+            slot: ContextualCandidateSlot
+        ) throws -> (plan: NarrationRenderPlan, signature: String) {
+            let evidence = ContextualPronunciationEvidence(
+                occurrenceID: occurrence.occurrenceID,
+                familyID: occurrence.familyID,
                 candidatePackVersion: ContextualPronunciationFamilies.candidatePackVersion,
-                submittedCandidateIDs: ["record.noun", "record.verb"],
-                deterministicCandidateID: "record.noun",
-                deterministicRuleID: "record.noun.fixture",
-                deterministicStrength: .definitive,
-                modelCandidateID: modelCandidateID,
+                submittedCandidateIDs: occurrence.candidates.map(\.candidateID),
+                deterministicCandidateID: occurrence.deterministicCandidateID,
+                deterministicRuleID: occurrence.deterministicRuleID,
+                deterministicStrength: occurrence.deterministicStrength,
+                modelCandidateID: occurrence.candidates.first { $0.slot == slot }?.candidateID,
                 modelAbstained: false,
                 modelAvailability: .available,
                 modelFailure: nil,
@@ -114,26 +126,33 @@ import Testing
                 humanCandidateID: nil,
                 humanCorrectionScope: nil,
                 isLimited: false)
-        }
-        let sourceBlock = block(id: "b0", text: "Please record this.")
-        func signature(
-            shadowEvidence: ContextualPronunciationEvidence
-        ) -> String {
-            _ = shadowEvidence
-            return NarrationFileNaming.contentSignature(
-                spokenBlocks: [sourceBlock],
-                renderedTexts: ["Please [record](/ɹəkˈɔɹd/) this."],
+            let plan = try NarrationRenderPlanner.make(
+                blocks: [sourceBlock],
+                overrides: PronunciationOverrides(entries: [:]),
+                contextualEvidence: [key: evidence])
+            let renderedTexts = plan.blocks.map { plannedBlock in
+                plannedBlock.synthesisChunks.map(\.g2pInputText).joined(separator: " ")
+            }
+            let signature = NarrationFileNaming.contentSignature(
+                spokenBlocks: plan.blocks.map(\.originalBlock),
+                renderedTexts: renderedTexts,
                 includeLeadOutPad: false,
                 pronunciationPolicySignature:
                     EnglishPronunciationPack.empty.productionPolicySignature)
+            return (plan, signature)
         }
-        let nounEvidence = evidence("record.noun")
-        let verbEvidence = evidence("record.verb")
+        let nounArtifact = try artifact(slot: .a)
+        let verbArtifact = try artifact(slot: .b)
+        let nounEvidence = nounArtifact.plan.blocks
+            .flatMap(\.pronunciationDecisions)
+            .compactMap(\.contextualEvidence)
+        let verbEvidence = verbArtifact.plan.blocks
+            .flatMap(\.pronunciationDecisions)
+            .compactMap(\.contextualEvidence)
 
         #expect(nounEvidence != verbEvidence)
-        #expect(
-            signature(shadowEvidence: nounEvidence)
-                == signature(shadowEvidence: verbEvidence))
+        #expect(!nounEvidence.isEmpty)
+        #expect(nounArtifact.signature == verbArtifact.signature)
     }
 
     @Test func contentSignatureChangesWhenBlockKindChangesPlannedSilence() {

@@ -958,6 +958,86 @@ import Testing
         }
     }
 
+    @Test func contradictoryPhaseTwoContextualEvidenceFailsPlannerAttachment() throws {
+        let text = "Please record this."
+        let occurrence = try #require(
+            ContextualPronunciationDiscovery.discover(
+                text: text,
+                blockID: "context"
+            ).first)
+        let exactKey = ContextualPronunciationKey(
+            blockID: occurrence.blockID,
+            wordStart: occurrence.wordStart,
+            wordEnd: occurrence.wordEnd)
+        let exact = contextualEvidence(for: occurrence, slot: .a)
+        let malformed = [
+            replacingContextualEvidence(
+                exact,
+                occurrenceID: "unknown-occurrence"),
+            replacingContextualEvidence(
+                exact,
+                modelCandidateID: .some(nil)),
+            replacingContextualEvidence(
+                exact,
+                modelAbstained: true),
+            replacingContextualEvidence(
+                exact,
+                modelCandidateID: .some(nil),
+                modelAbstained: false,
+                acceptanceReason: .shadowNeedsReview),
+            replacingContextualEvidence(
+                exact,
+                modelAvailability: .deviceNotEligible,
+                acceptanceReason: .shadowModelUnavailable),
+            replacingContextualEvidence(
+                exact,
+                modelFailure: .some(.guardrail),
+                acceptanceReason: .shadowModelFailure),
+            replacingContextualEvidence(
+                exact,
+                modelCandidateID: "record.unknown"),
+            replacingContextualEvidence(
+                exact,
+                familyState: .graduated),
+            replacingContextualEvidence(
+                exact,
+                humanCandidateID: .some("record.noun")),
+            replacingContextualEvidence(
+                exact,
+                humanCorrectionScope: .some("book")),
+            replacingContextualEvidence(
+                exact,
+                isLimited: true),
+        ]
+
+        for evidence in malformed {
+            #expect(throws: NarrationRenderPlanError.self) {
+                _ = try NarrationRenderPlanner.make(
+                    blocks: [block(id: "context", text: text, index: 0)],
+                    overrides: PronunciationOverrides(entries: [:]),
+                    contextualEvidence: [exactKey: evidence])
+            }
+        }
+    }
+
+    @Test func sharedOccurrenceIdentityMatchesTheLockedDiscoveryVector() throws {
+        let expected = "de44ec502ca7aa3078c8822dd0964de52126c4e060f3178e3134a4f883a6d672"
+        let discovered = try #require(
+            ContextualPronunciationDiscovery.discover(
+                text: "read",
+                blockID: "b1"
+            ).first)
+
+        #expect(
+            ContextualPronunciationOccurrenceID.make(
+                blockID: "b1",
+                wordStart: 0,
+                wordEnd: 0,
+                normalizedWord: "read")
+                == expected)
+        #expect(discovered.occurrenceID == expected)
+    }
+
     @Test func evaluatedContextualDecisionWithoutEvidenceIsDiagnosed() throws {
         let plan = try NarrationRenderPlanner.make(
             blocks: [block(id: "missing", text: "Please record this.", index: 0)],
@@ -1053,30 +1133,40 @@ import Testing
 
     private func replacingContextualEvidence(
         _ evidence: ContextualPronunciationEvidence,
+        occurrenceID: String? = nil,
         familyID: String? = nil,
         candidatePackVersion: String? = nil,
-        submittedCandidateIDs: [String]? = nil
+        submittedCandidateIDs: [String]? = nil,
+        modelCandidateID: String?? = nil,
+        modelAbstained: Bool? = nil,
+        modelAvailability: ContextualModelAvailability? = nil,
+        modelFailure: ContextualModelFailure?? = nil,
+        familyState: ContextualFamilyState? = nil,
+        acceptanceReason: ContextualAcceptanceReason? = nil,
+        humanCandidateID: String?? = nil,
+        humanCorrectionScope: String?? = nil,
+        isLimited: Bool? = nil
     ) -> ContextualPronunciationEvidence {
         ContextualPronunciationEvidence(
-            occurrenceID: evidence.occurrenceID,
+            occurrenceID: occurrenceID ?? evidence.occurrenceID,
             familyID: familyID ?? evidence.familyID,
             candidatePackVersion: candidatePackVersion ?? evidence.candidatePackVersion,
             submittedCandidateIDs: submittedCandidateIDs ?? evidence.submittedCandidateIDs,
             deterministicCandidateID: evidence.deterministicCandidateID,
             deterministicRuleID: evidence.deterministicRuleID,
             deterministicStrength: evidence.deterministicStrength,
-            modelCandidateID: evidence.modelCandidateID,
-            modelAbstained: evidence.modelAbstained,
-            modelAvailability: evidence.modelAvailability,
-            modelFailure: evidence.modelFailure,
-            familyState: evidence.familyState,
-            acceptanceReason: evidence.acceptanceReason,
+            modelCandidateID: modelCandidateID ?? evidence.modelCandidateID,
+            modelAbstained: modelAbstained ?? evidence.modelAbstained,
+            modelAvailability: modelAvailability ?? evidence.modelAvailability,
+            modelFailure: modelFailure ?? evidence.modelFailure,
+            familyState: familyState ?? evidence.familyState,
+            acceptanceReason: acceptanceReason ?? evidence.acceptanceReason,
             promptSchemaVersion: evidence.promptSchemaVersion,
             platform: evidence.platform,
             osBuild: evidence.osBuild,
             qualifiedRuntimeFamilyID: evidence.qualifiedRuntimeFamilyID,
-            humanCandidateID: evidence.humanCandidateID,
-            humanCorrectionScope: evidence.humanCorrectionScope,
-            isLimited: evidence.isLimited)
+            humanCandidateID: humanCandidateID ?? evidence.humanCandidateID,
+            humanCorrectionScope: humanCorrectionScope ?? evidence.humanCorrectionScope,
+            isLimited: isLimited ?? evidence.isLimited)
     }
 }

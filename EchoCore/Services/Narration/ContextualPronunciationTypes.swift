@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import CryptoKit
+import Foundation
 
 nonisolated enum ContextualCandidateSlot: String, Codable, Equatable, Sendable {
     case a, b, c, d, needsReview
@@ -40,6 +42,26 @@ nonisolated struct ContextualPronunciationKey: Hashable, Sendable {
     let blockID: String
     let wordStart: Int
     let wordEnd: Int
+}
+
+nonisolated enum ContextualPronunciationOccurrenceID {
+    static func make(
+        blockID: String,
+        wordStart: Int,
+        wordEnd: Int,
+        normalizedWord: String
+    ) -> String {
+        let payload = [
+            ContextualPronunciationFamilies.promptSchemaVersion,
+            blockID,
+            String(wordStart),
+            String(wordEnd),
+            normalizedWord,
+        ].joined(separator: "\0")
+        return SHA256.hash(data: Data(payload.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
 }
 
 nonisolated enum ContextualModelAvailability: String, Codable, Equatable, Sendable {
@@ -131,6 +153,98 @@ nonisolated struct ContextualPronunciationEvidence: Codable, Equatable, Sendable
     let humanCandidateID: String?
     let humanCorrectionScope: String?
     let isLimited: Bool
+}
+
+nonisolated enum ContextualPronunciationEvidenceValidator {
+    static func isValidPhaseTwo(
+        _ evidence: ContextualPronunciationEvidence,
+        blockID: String,
+        wordStart: Int,
+        wordEnd: Int,
+        normalizedWord: String
+    ) -> Bool {
+        guard
+            let family = ContextualPronunciationFamilies.family(
+                for: normalizedWord),
+            evidence.occurrenceID
+                == ContextualPronunciationOccurrenceID.make(
+                    blockID: blockID,
+                    wordStart: wordStart,
+                    wordEnd: wordEnd,
+                    normalizedWord: normalizedWord),
+            evidence.familyID == family.familyID,
+            evidence.candidatePackVersion
+                == ContextualPronunciationFamilies.candidatePackVersion,
+            evidence.submittedCandidateIDs == family.candidates.map(\.candidateID),
+            family.state == .shadow,
+            evidence.familyState == .shadow,
+            evidence.promptSchemaVersion
+                == ContextualPronunciationFamilies.promptSchemaVersion,
+            evidence.humanCandidateID == nil,
+            evidence.humanCorrectionScope == nil,
+            !evidence.isLimited,
+            isPresent(evidence.platform),
+            isPresent(evidence.osBuild),
+            isPresent(evidence.qualifiedRuntimeFamilyID)
+        else {
+            return false
+        }
+
+        let candidateIDs = Set(evidence.submittedCandidateIDs)
+        guard
+            [
+                evidence.deterministicCandidateID,
+                evidence.modelCandidateID,
+            ].compactMap({ $0 }).allSatisfy(candidateIDs.contains)
+        else {
+            return false
+        }
+
+        switch evidence.acceptanceReason {
+        case .shadowObserved:
+            return evidence.modelAvailability == .available
+                && evidence.modelFailure == nil
+                && evidence.modelCandidateID != nil
+                && !evidence.modelAbstained
+        case .shadowNeedsReview:
+            return evidence.modelAvailability == .available
+                && evidence.modelFailure == nil
+                && evidence.modelCandidateID == nil
+                && evidence.modelAbstained
+        case .shadowModelUnavailable:
+            return evidence.modelAvailability != .available
+                && evidence.modelFailure == nil
+                && evidence.modelCandidateID == nil
+                && !evidence.modelAbstained
+        case .shadowModelFailure:
+            return evidence.modelAvailability == .available
+                && evidence.modelFailure != nil
+                && evidence.modelCandidateID == nil
+                && !evidence.modelAbstained
+        }
+    }
+
+    static func isValidPhaseTwo(
+        _ evidence: ContextualPronunciationEvidence,
+        for occurrence: ContextualPronunciationOccurrence
+    ) -> Bool {
+        isValidPhaseTwo(
+            evidence,
+            blockID: occurrence.blockID,
+            wordStart: occurrence.wordStart,
+            wordEnd: occurrence.wordEnd,
+            normalizedWord: PronunciationAuditContext.normalizedWord(
+                occurrence.targetWord))
+            && evidence.deterministicCandidateID
+                == occurrence.deterministicCandidateID
+            && evidence.deterministicRuleID == occurrence.deterministicRuleID
+            && evidence.deterministicStrength
+                == occurrence.deterministicStrength
+    }
+
+    private static func isPresent(_ value: String) -> Bool {
+        !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 }
 
 nonisolated enum ContextualAcceptanceReason: String, Codable, Equatable, Sendable {

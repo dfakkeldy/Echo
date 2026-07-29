@@ -38,7 +38,7 @@ import Testing
 
     private func shadowDisagreementEvidence() -> ContextualPronunciationEvidence {
         ContextualPronunciationEvidence(
-            occurrenceID: "occurrence-record",
+            occurrenceID: "9a34ace76be3632e6855dc05a2f77da70a3d9eaa1649dd84967601cd4ad31617",
             familyID: "record",
             candidatePackVersion: ContextualPronunciationFamilies.candidatePackVersion,
             submittedCandidateIDs: ["record.noun", "record.verb"],
@@ -55,6 +55,31 @@ import Testing
             platform: "test",
             osBuild: "test-build",
             qualifiedRuntimeFamilyID: "test-runtime",
+            humanCandidateID: nil,
+            humanCorrectionScope: nil,
+            isLimited: false)
+    }
+
+    private func shadowNeedsReviewEvidence() -> ContextualPronunciationEvidence {
+        let evidence = shadowDisagreementEvidence()
+        return ContextualPronunciationEvidence(
+            occurrenceID: evidence.occurrenceID,
+            familyID: evidence.familyID,
+            candidatePackVersion: evidence.candidatePackVersion,
+            submittedCandidateIDs: evidence.submittedCandidateIDs,
+            deterministicCandidateID: evidence.deterministicCandidateID,
+            deterministicRuleID: evidence.deterministicRuleID,
+            deterministicStrength: evidence.deterministicStrength,
+            modelCandidateID: nil,
+            modelAbstained: true,
+            modelAvailability: .available,
+            modelFailure: nil,
+            familyState: .shadow,
+            acceptanceReason: .shadowNeedsReview,
+            promptSchemaVersion: evidence.promptSchemaVersion,
+            platform: evidence.platform,
+            osBuild: evidence.osBuild,
+            qualifiedRuntimeFamilyID: evidence.qualifiedRuntimeFamilyID,
             humanCandidateID: nil,
             humanCorrectionScope: nil,
             isLimited: false)
@@ -134,6 +159,79 @@ import Testing
         #expect(items.count == 16)
         #expect(items.first?.title.contains("record") == true)
         #expect(items.contains { $0.title.contains("ordinary-15") } == false)
+    }
+
+    @Test func shadowNeedsReviewDisplacesMonitoredSampleAtSixteenItemCap() {
+        let monitored = (0..<16).map { index in
+            decision(
+                word: "ordinary-\(index)",
+                source: .monitoredLexicon,
+                range: .init(start: Double(index), end: Double(index) + 0.1),
+                precision: .blockAnchorFallback)
+        }
+        let needsReview = decision(
+            word: "record",
+            ipa: "ɹəkˈɔɹd",
+            ruleID: "homograph.record.verb",
+            source: .contextualHomograph,
+            contextualEvidence: shadowNeedsReviewEvidence(),
+            range: .init(start: 20, end: 20.2),
+            precision: .exactSynthesisWord)
+
+        let items = PronunciationListeningReel.exportItems(
+            decisions: monitored + [needsReview],
+            audiobookURL: sourceURL,
+            sourceDuration: CMTime(seconds: 30, preferredTimescale: 600))
+
+        #expect(items.count == 16)
+        #expect(items.first?.title.contains("record") == true)
+        #expect(items.contains { $0.title.contains("ordinary-15") } == false)
+    }
+
+    @Test func malformedShadowEvidenceCannotElevateListeningPriority() {
+        let monitored = (0..<16).map { index in
+            decision(
+                word: "ordinary-\(index)",
+                source: .monitoredLexicon,
+                range: .init(start: Double(index), end: Double(index) + 0.1),
+                precision: .blockAnchorFallback)
+        }
+        let valid = shadowDisagreementEvidence()
+        let malformed = ContextualPronunciationEvidence(
+            occurrenceID: valid.occurrenceID,
+            familyID: valid.familyID,
+            candidatePackVersion: valid.candidatePackVersion,
+            submittedCandidateIDs: valid.submittedCandidateIDs,
+            deterministicCandidateID: valid.deterministicCandidateID,
+            deterministicRuleID: valid.deterministicRuleID,
+            deterministicStrength: valid.deterministicStrength,
+            modelCandidateID: valid.modelCandidateID,
+            modelAbstained: valid.modelAbstained,
+            modelAvailability: valid.modelAvailability,
+            modelFailure: valid.modelFailure,
+            familyState: valid.familyState,
+            acceptanceReason: valid.acceptanceReason,
+            promptSchemaVersion: valid.promptSchemaVersion,
+            platform: valid.platform,
+            osBuild: valid.osBuild,
+            qualifiedRuntimeFamilyID: valid.qualifiedRuntimeFamilyID,
+            humanCandidateID: valid.humanCandidateID,
+            humanCorrectionScope: valid.humanCorrectionScope,
+            isLimited: true)
+        let contextual = decision(
+            word: "record",
+            source: .contextualHomograph,
+            contextualEvidence: malformed,
+            range: .init(start: 20, end: 20.2),
+            precision: .exactSynthesisWord)
+
+        let items = PronunciationListeningReel.exportItems(
+            decisions: monitored + [contextual],
+            audiobookURL: sourceURL,
+            sourceDuration: CMTime(seconds: 30, preferredTimescale: 600))
+
+        #expect(items.count == 16)
+        #expect(items.contains { $0.title.contains("record") } == false)
     }
 
     @Test func uniquenessRemainsPronunciationSpecificAfterRiskSorting() {
