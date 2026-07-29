@@ -13,6 +13,7 @@ struct ArticleInboxIngestionService {
         case unsafeStagingRoot(URL)
         case unsafeStagingPackage(URL)
         case unreconciledCleanupPackage(URL)
+        case missingCapture(UUID)
 
         var errorDescription: String? {
             switch self {
@@ -24,6 +25,8 @@ struct ArticleInboxIngestionService {
                 return "Article capture staging package is unsafe: \(url.path)"
             case .unreconciledCleanupPackage(let url):
                 return "Article capture cleanup package cannot be safely reconciled: \(url.path)"
+            case .missingCapture(let id):
+                return "The imported article capture \(id.uuidString) is missing."
             }
         }
     }
@@ -69,7 +72,7 @@ struct ArticleInboxIngestionService {
             let imported = try fileStore.importEnvelope(at: package)
             let expected = record(for: imported)
             if let existing = try captureDAO.capture(id: imported.envelope.captureID.uuidString) {
-                guard existing == expected else {
+                guard matchesImportedRecord(existing, expected: expected) else {
                     throw Error.conflictingExistingCapture(imported.envelope.captureID)
                 }
                 try cleanup(package: package, imported: imported, stagingRoot: normalizedRoot)
@@ -79,6 +82,28 @@ struct ArticleInboxIngestionService {
             try captureDAO.saveCapture(expected)
             try cleanup(package: package, imported: imported, stagingRoot: normalizedRoot)
         }
+    }
+
+    /// Imports first so the staged-envelope protocol remains recoverable, then records the
+    /// sanitized presentation state and non-fatal image-localization result for this capture.
+    func drainStaging(
+        snapshot: ArticleSnapshot,
+        imageLocalizationWarnings: [ArticleImageLocalizationWarning]
+    ) throws {
+        try drainStaging()
+        guard var record = try captureDAO.capture(id: snapshot.captureID.uuidString) else {
+            throw Error.missingCapture(snapshot.captureID)
+        }
+        let warnings = Array(Set(
+            snapshot.warnings.map { "sanitizer.\($0.rawValue)" }
+                + imageLocalizationWarnings.map { "image.\($0.rawValue)" }
+        )).sorted()
+        record.contentState = presentationState(
+            sanitizerState: snapshot.contentState,
+            hasImageWarnings: imageLocalizationWarnings.isEmpty == false
+        )
+        record.warningsJSON = String(decoding: try JSONEncoder().encode(warnings), as: UTF8.self)
+        try captureDAO.saveCapture(record)
     }
 
     private func reconcileQuarantinedPackages(
@@ -135,7 +160,9 @@ struct ArticleInboxIngestionService {
                 throw Error.unreconciledCleanupPackage(quarantined)
             }
             let expected = record(for: imported)
-            guard let existing = try captureDAO.capture(id: captureID.uuidString), existing == expected else {
+            guard let existing = try captureDAO.capture(id: captureID.uuidString),
+                  matchesImportedRecord(existing, expected: expected)
+            else {
                 throw Error.conflictingExistingCapture(captureID)
             }
 
@@ -243,5 +270,21 @@ struct ArticleInboxIngestionService {
             createdAt: timestamp,
             modifiedAt: timestamp
         )
+    }
+
+    private func matchesImportedRecord(_ existing: ArticleCaptureRecord, expected: ArticleCaptureRecord) -> Bool {
+        var normalized = existing
+        normalized.contentState = "ready"
+        normalized.warningsJSON = "[]"
+        return normalized == expected
+    }
+
+    private func presentationState(
+        sanitizerState: ArticleContentState,
+        hasImageWarnings: Bool
+    ) -> String {
+        if sanitizerState == .captureFailed { return ArticleContentState.captureFailed.rawValue }
+        if hasImageWarnings { return ArticleContentState.reviewSuggested.rawValue }
+        return sanitizerState.rawValue
     }
 }

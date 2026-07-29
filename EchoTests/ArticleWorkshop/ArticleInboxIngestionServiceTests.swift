@@ -39,6 +39,31 @@ struct ArticleInboxIngestionServiceTests {
         #expect(try fixture.dao.capture(id: envelope.captureID.uuidString)?.packagePath == snapshot.deletingLastPathComponent().path)
     }
 
+    @Test func readableContentSurvivesImageFailureAsReviewSuggestedWithDeterministicWarnings() async throws {
+        let fixture = try makeFixture()
+        defer { try! FileManager.default.removeItem(at: fixture.root) }
+        let envelope = articleWorkshopFixtureEnvelope()
+        _ = try fixture.writer.stage(envelope)
+        let snapshot = try ArticleBlockSanitizer().sanitize(envelope: envelope)
+        ArticleURLProtocol.install { _ in
+            .response(status: 200, mimeType: "image/png", data: Data("truncated".utf8))
+        }
+        defer { ArticleURLProtocol.reset() }
+        let imageResult = await ArticleImageDownloader(sessionConfiguration: articleURLProtocolConfiguration())
+            .localize(
+                candidates: [URL(string: "https://example.test/failed-image.png")!],
+                into: fixture.root)
+
+        try fixture.service.drainStaging(snapshot: snapshot, imageLocalizationWarnings: imageResult.warnings)
+
+        let record = try #require(try fixture.dao.capture(id: envelope.captureID.uuidString))
+        let warnings = try JSONDecoder().decode([String].self, from: #require(record.warningsJSON.data(using: .utf8)))
+        #expect(snapshot.blocks.compactMap(\.text) == ["Body."])
+        #expect(record.contentState == ArticleContentState.reviewSuggested.rawValue)
+        #expect(warnings == ["image.invalidImage"])
+        #expect(FileManager.default.fileExists(atPath: fixture.stagingRoot.appending(path: envelope.captureID.uuidString).path) == false)
+    }
+
     @Test func secondDrainOfSameCaptureUUIDDoesNotDuplicateRows() async throws {
         let fixture = try makeFixture()
         defer { try! FileManager.default.removeItem(at: fixture.root) }

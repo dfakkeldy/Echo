@@ -4,6 +4,35 @@ import Testing
 
 @testable import Echo
 
+#if canImport(WebKit)
+@MainActor
+@Suite struct ReadabilityWebExtractorPolicyTests {
+    @Test func blocksEveryDocumentAndSubresourceClassWithoutAllowingFollowupNavigation() {
+        let rule = ReadabilityWebExtractor.blockingRuleJSON
+
+        for resource in ["document", "image", "style-sheet", "script", "font", "media", "raw", "svg-document"] {
+            #expect(rule.contains("\"\(resource)\""))
+        }
+        #expect(ReadabilityWebExtractor.permitsNavigation(
+            isInitialNavigation: true, isMainFrame: true, hasPendingNavigation: true))
+        #expect(ReadabilityWebExtractor.permitsNavigation(
+            isInitialNavigation: false, isMainFrame: true, hasPendingNavigation: true) == false)
+        #expect(ReadabilityWebExtractor.permitsNavigation(
+            isInitialNavigation: true, isMainFrame: false, hasPendingNavigation: true) == false)
+    }
+
+    @Test func cancellationAndLateCallbackGatesAreOnceOnly() {
+        let active = UUID()
+
+        #expect(ReadabilityWebExtractor.shouldIssueCancellation(alreadyIssued: false))
+        #expect(ReadabilityWebExtractor.shouldIssueCancellation(alreadyIssued: true) == false)
+        #expect(ReadabilityWebExtractor.acceptsCallback(activeToken: active, callbackToken: active))
+        #expect(ReadabilityWebExtractor.acceptsCallback(activeToken: nil, callbackToken: active) == false)
+        #expect(ReadabilityWebExtractor.acceptsCallback(activeToken: UUID(), callbackToken: active) == false)
+    }
+}
+#endif
+
 @Suite(.serialized) struct ArticleURLCaptureServiceTests {
     @Test func followsAtMostFiveHTTPRedirects() async throws {
         ArticleURLProtocol.install { request in
@@ -107,6 +136,24 @@ import Testing
             payload: payload)
 
         _ = try ArticleBlockSanitizer().sanitize(envelope: envelope)
+        #expect(ArticleURLProtocol.requestCount == 1)
+    }
+
+    @Test func clearsInjectedCredentialHeadersAndKeepsReadableLoginMention() async throws {
+        var configuration = articleURLProtocolConfiguration()
+        configuration.httpAdditionalHeaders = ["Authorization": "Bearer secret", "Cookie": "session=secret", "X-Private": "secret"]
+        ArticleURLProtocol.install { request in
+            #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
+            #expect(request.value(forHTTPHeaderField: "Cookie") == nil)
+            #expect(request.value(forHTTPHeaderField: "X-Private") == nil)
+            return .response(
+                status: 200,
+                mimeType: "text/html",
+                data: Data("<article><h1>How sign in works</h1><p>Long readable text.</p><p>More readable text.</p><input type='password'></article>".utf8))
+        }
+        defer { ArticleURLProtocol.reset() }
+        let service = ArticleURLCaptureService(sessionConfiguration: configuration, extractor: fixtureExtractor)
+        _ = try await service.capture(url: URL(string: "https://example.test/author/article")!)
         #expect(ArticleURLProtocol.requestCount == 1)
     }
 

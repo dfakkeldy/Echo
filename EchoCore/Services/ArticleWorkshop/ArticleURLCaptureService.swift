@@ -78,6 +78,7 @@ struct ArticleURLCaptureService {
         configuration.httpShouldSetCookies = false
         configuration.urlCredentialStorage = nil
         configuration.urlCache = nil
+        configuration.httpAdditionalHeaders = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         return configuration
     }
@@ -95,15 +96,17 @@ struct ArticleURLCaptureService {
     }
 
     private static func requiresAuthentication(html: String, finalURL: URL) -> Bool {
-        let path = finalURL.path.lowercased()
-        if ["/login", "/signin", "/sign-in", "/auth"].contains(where: { path.contains($0) }) {
+        let pathComponents = finalURL.path.lowercased().split(separator: "/")
+        if pathComponents.contains(where: { ["login", "signin", "sign-in", "auth"].contains(String($0)) }) {
             return true
         }
         let lowercased = html.lowercased()
         let passwordInput = #"<input\b[^>]*\btype\s*=\s*[\"']?password\b"#
         let signInHeading = #"<h[1-6]\b[^>]*>\s*(sign\s*in|log\s*in|login)\b"#
-        return lowercased.range(of: passwordInput, options: .regularExpression) != nil
-            || lowercased.range(of: signInHeading, options: .regularExpression) != nil
+        let passwordCount = lowercased.matches(of: try! Regex(passwordInput)).count
+        let headingCount = lowercased.matches(of: try! Regex(signInHeading)).count
+        let articleSignals = lowercased.matches(of: try! Regex(#"<(p|article|main)\b"#)).count
+        return (passwordCount >= 2 || (passwordCount >= 1 && headingCount >= 1)) && articleSignals < 2
     }
 }
 
@@ -123,7 +126,10 @@ nonisolated enum ArticleNetworkURLPolicy {
     }
 }
 
-final class ArticleBoundedURLLoader: NSObject, URLSessionDataDelegate, URLSessionTaskDelegate, @unchecked Sendable {
+// All mutable delegate state is accessed only while `lock` is held. URLSession
+// callbacks may arrive on arbitrary queues, so this type is deliberately
+// nonisolated and its @unchecked Sendable conformance is limited to that invariant.
+nonisolated final class ArticleBoundedURLLoader: NSObject, URLSessionDataDelegate, URLSessionTaskDelegate, @unchecked Sendable {
     enum Error: Swift.Error {
         case unsupportedURL
         case tooManyRedirects
@@ -159,6 +165,7 @@ final class ArticleBoundedURLLoader: NSObject, URLSessionDataDelegate, URLSessio
         self.configuration.httpShouldSetCookies = false
         self.configuration.urlCredentialStorage = nil
         self.configuration.urlCache = nil
+        self.configuration.httpAdditionalHeaders = nil
         self.configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         self.acceptedMIMETypes = acceptedMIMETypes
         self.maximumBytes = maximumBytes
@@ -195,7 +202,7 @@ final class ArticleBoundedURLLoader: NSObject, URLSessionDataDelegate, URLSessio
         newRequest request: URLRequest,
         completionHandler: @escaping @Sendable (URLRequest?) -> Void
     ) {
-        guard let redirectedURL = request.url, ArticleNetworkURLPolicy.normalized(redirectedURL) != nil else {
+        guard let redirectedURL = request.url, let normalizedRedirectURL = ArticleNetworkURLPolicy.normalized(redirectedURL) else {
             finish(throwing: Error.unsupportedURL)
             completionHandler(nil)
             return
@@ -209,7 +216,9 @@ final class ArticleBoundedURLLoader: NSObject, URLSessionDataDelegate, URLSessio
             completionHandler(nil)
             return
         }
-        completionHandler(request)
+        var normalizedRequest = URLRequest(url: normalizedRedirectURL)
+        normalizedRequest.httpMethod = request.httpMethod
+        completionHandler(normalizedRequest)
     }
 
     func urlSession(
