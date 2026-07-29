@@ -136,8 +136,14 @@ def _contains_absolute_local_path(value: str) -> bool:
     override_slash_starts = {
         match.start() + 2
         for match in re.finditer(r"\]\(/([^/\s]+)/\)", value)
+        if any(
+            0x0250 <= ord(character) <= 0x02FF
+            or 0x1D00 <= ord(character) <= 0x1DBF
+            or 0x0300 <= ord(character) <= 0x036F
+            for character in match.group(1)
+        )
     }
-    for match in re.finditer(r"(?<![:/\w])/{1,2}(?!/)\S*", value):
+    for match in re.finditer(r"(?<![:/\w])/+\S*", value):
         fragment = match.group().rstrip(".,;:!?)}]>\"'")
         if match.start() in override_slash_starts:
             continue
