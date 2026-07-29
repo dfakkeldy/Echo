@@ -309,7 +309,13 @@ class PronunciationCorpusTests(unittest.TestCase):
         private_sentences = [
             "See file:///Users/example/private/context.txt for content.",
             "See /Users/example/private/context.txt for content.",
+            "Synthetic content [link](/Users/example/private/)",
+            "Synthetic content [private](/Users/example/)",
+            "Synthetic content references //server/share/private/",
             "Synthetic content points to /",
+            "Synthetic content points to C:\\",
+            "Synthetic content points to C:/",
+            "Synthetic content points to \\",
             r"See C:\Users\example\private\context.txt for content.",
             r"See \Users\example\private\context.txt for content.",
             r"See \\server\share\private\context.txt for content.",
@@ -319,6 +325,27 @@ class PronunciationCorpusTests(unittest.TestCase):
             with self.subTest(sentence=sentence):
                 with self.assertRaisesRegex(ValueError, "file://|absolute paths"):
                     validate_contract([contextual_case(targetSentence=sentence)])
+
+    def test_contract_preserves_committed_single_segment_override_markup(self):
+        overrides = [
+            ("content", "content", "Use [content](/kˈɑntɛnt/) here."),
+            ("read", "read", "Use [read](/ɹˈɛd/) here."),
+            ("live", "live", "Use [live](/lˈaIv/) here."),
+            ("record", "record", "Use [record](/ɹəkˈɔɹd/) here."),
+        ]
+
+        for family_id, target_word, sentence in overrides:
+            with self.subTest(familyID=family_id):
+                validate_contract(
+                    [
+                        contextual_case(
+                            caseID=f"override-{family_id}",
+                            familyID=family_id,
+                            targetWord=target_word,
+                            targetSentence=sentence,
+                        )
+                    ]
+                )
 
     def test_contract_rejects_source_metadata_on_synthetic_rows(self):
         malformed_metadata = [
@@ -374,6 +401,31 @@ class PronunciationCorpusTests(unittest.TestCase):
         self.assertEqual(1, result.sense_counts["content.material"])
         self.assertEqual(199, result.missing_family_counts["content"])
         self.assertEqual(49, result.missing_sense_counts["content.material"])
+
+    def test_qualification_rejects_lossy_contextual_case_input(self):
+        raw_case = test_only_human_case(
+            "permissive-direct-boundary",
+            "content.material",
+            labelEvidenceKind="source-verifiable",
+            provenance="permissive",
+            sourceURL="https://example.test/permissive-direct",
+            license="CC0-1.0",
+        )
+        parsed_case = validate_contract([raw_case])[0]
+        receipt = test_only_trusted_receipt(raw_case)
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "qualification_status requires raw contextual records",
+        ):
+            qualification_status([parsed_case], trusted_receipts=[receipt])
+
+        result = qualification_status(
+            [raw_case],
+            trusted_receipts=[receipt],
+        )
+        self.assertEqual(1, result.family_counts["content"])
+        self.assertEqual(1, result.sense_counts["content.material"])
 
     def test_qualification_rejects_duplicate_or_ambiguous_trusted_receipts(self):
         case = test_only_human_case("ambiguous-receipt", "content.material")

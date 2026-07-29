@@ -133,18 +133,19 @@ def _is_nonempty_string(value: Any) -> bool:
 
 
 def _contains_absolute_local_path(value: str) -> bool:
-    for match in re.finditer(r"(?<![:/\w])/(?!/)\S*", value):
+    override_slash_starts = {
+        match.start() + 2
+        for match in re.finditer(r"\]\(/([^/\s]+)/\)", value)
+    }
+    for match in re.finditer(r"(?<![:/\w])/{1,2}(?!/)\S*", value):
         fragment = match.group().rstrip(".,;:!?)}]>\"'")
-        if (
-            value[max(0, match.start() - 2) : match.start()] == "]("
-            and fragment.endswith("/")
-        ):
+        if match.start() in override_slash_starts:
             continue
         if PurePosixPath(fragment).is_absolute():
             return True
 
     windows_pattern = re.compile(
-        r"(?<!\w)(?:[A-Za-z]:[\\/]|\\\\|\\(?!\\))\S+"
+        r"(?<!\w)(?:[A-Za-z]:[\\/]|\\\\|\\(?!\\))\S*"
     )
     for match in windows_pattern.finditer(value):
         fragment = match.group().rstrip(".,;:!?)}]>\"'")
@@ -472,13 +473,19 @@ def _gold_label(case: ContextualCase) -> str:
 
 
 def qualification_status(
-    raw_cases: Iterable[dict[str, Any] | ContextualCase],
+    raw_cases: Iterable[dict[str, Any]],
     *,
     trusted_receipts: Iterable[
         dict[str, Any] | TrustedLabelReceipt
     ] | None = None,
 ) -> QualificationResult:
-    cases = validate_contract(raw_cases)
+    raw_records = list(raw_cases)
+    if any(isinstance(record, ContextualCase) for record in raw_records):
+        raise ValueError(
+            "qualification_status requires raw contextual records so "
+            "sourceURL and license metadata remain lossless"
+        )
+    cases = validate_contract(raw_records)
     receipts = validate_trusted_receipts(trusted_receipts or [])
     receipts_by_id = {receipt.receipt_id: receipt for receipt in receipts}
     receipt_claims: dict[str, str] = {}
