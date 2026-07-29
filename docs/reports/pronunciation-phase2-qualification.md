@@ -30,7 +30,7 @@ The following independent local gates passed on 2026-07-29:
 | --- | --- |
 | Pronunciation corpus tests | 47 passed |
 | Pronunciation pack tests and regeneration check | 38 passed; generated pack matched the committed pack |
-| Development audio-judge tests | 55 passed without an API request |
+| Development audio-judge tests | 58 passed without an API request |
 | Task 10 Swift acceptance suite | 6 passed |
 | Echo test-products build | Passed |
 | Complete Echo unit-test gate | Passed before this test/tool/documentation-only correction; not rerun because production/shared Swift did not change |
@@ -195,6 +195,15 @@ supplies no token estimates. Each real transport attempt, including a retry,
 must durably reserve its request number and conservative cost before sending.
 Run IDs are atomically claimed and cannot be reused or overwrite an earlier
 run.
+
+The append-and-fsync attempt ledger remains the correction workflow's commit
+point. Its state snapshot and terminal repeated-failure morning-queue entry are
+derived publications. If either publication is interrupted, replaying the
+exact complete command rebuilds the snapshot and publishes the queue entry
+without appending a duplicate event; any conflicting source, receipt, category,
+render, or outcome evidence is rejected. Queue deduplication binds the
+authoritative event's sequence and canonical SHA-256 to the clip and fixed
+repeated-failure reason.
 
 Admission also requires a separate absolute, single-link regular, non-symlink
 provenance authority file outside the repository. It binds every admitted

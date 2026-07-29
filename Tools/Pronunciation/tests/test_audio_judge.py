@@ -1508,6 +1508,123 @@ class AttemptLedgerTests(ManifestAdmissionTests):
                 output_root=output_root,
             )
 
+    def test_committed_attempt_recovers_snapshot_once_and_rejects_conflicting_replay(self):
+        clip_id, output_root = self.failing_run(run_id="attempt-recovery")
+        arguments = {
+            "run_id": "attempt-recovery",
+            "clip_id": clip_id,
+            "source_commit": "d" * 40,
+            "red_test_receipt": "1" * 64,
+            "green_test_receipt": "2" * 64,
+            "negative_guard_receipt": "3" * 64,
+            "implementation_review_receipt": "4" * 64,
+            "output_root": output_root,
+        }
+        run_directory = output_root / "attempt-recovery"
+
+        with mock.patch.object(
+            audio_judge,
+            "_write_attempt_snapshot",
+            side_effect=LedgerError("simulated snapshot publication failure"),
+        ):
+            with self.assertRaisesRegex(LedgerError, "simulated"):
+                record_attempt(**arguments)
+
+        ledger_before_recovery = (
+            run_directory / "attempt-ledger.jsonl"
+        ).read_bytes()
+        stale_snapshot = json.loads(
+            (run_directory / "attempt-state.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            "proposal_emitted",
+            stale_snapshot["clips"][clip_id]["state"],
+        )
+        with self.assertRaisesRegex(LedgerError, "conflicting replay"):
+            record_attempt(
+                **{
+                    **arguments,
+                    "source_commit": "e" * 40,
+                }
+            )
+
+        recovered = record_attempt(**arguments)
+
+        self.assertEqual("rerender_pending", recovered["state"])
+        self.assertEqual(1, recovered["attemptCount"])
+        self.assertEqual(
+            ledger_before_recovery,
+            (run_directory / "attempt-ledger.jsonl").read_bytes(),
+        )
+        repaired_snapshot = json.loads(
+            (run_directory / "attempt-state.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            "rerender_pending",
+            repaired_snapshot["clips"][clip_id]["state"],
+        )
+
+    def test_committed_proposal_recovers_snapshot_and_rejects_category_conflict(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest(
+            [self.manifest_row(clip_id, path, 0.25)]
+        )
+        output_root = self.directory / "runs"
+        run_evaluation(
+            manifest_path=manifest,
+            run_id="proposal-recovery",
+            dry_run=True,
+            output_root=output_root,
+        )
+        run_directory = output_root / "proposal-recovery"
+
+        with mock.patch.object(
+            audio_judge,
+            "_write_attempt_snapshot",
+            side_effect=LedgerError("simulated snapshot publication failure"),
+        ):
+            with self.assertRaisesRegex(LedgerError, "simulated"):
+                audio_judge._emit_proposal(
+                    run_id="proposal-recovery",
+                    clip_id=clip_id,
+                    category="wrong_sense",
+                    output_root=output_root,
+                )
+
+        ledger_before_recovery = (
+            run_directory / "attempt-ledger.jsonl"
+        ).read_bytes()
+        self.assertFalse((run_directory / "attempt-state.json").exists())
+        with self.assertRaisesRegex(LedgerError, "conflicting replay"):
+            audio_judge._emit_proposal(
+                run_id="proposal-recovery",
+                clip_id=clip_id,
+                category="stress",
+                output_root=output_root,
+            )
+
+        self.assertTrue(
+            audio_judge._emit_proposal(
+                run_id="proposal-recovery",
+                clip_id=clip_id,
+                category="wrong_sense",
+                output_root=output_root,
+            )
+        )
+
+        self.assertEqual(
+            ledger_before_recovery,
+            (run_directory / "attempt-ledger.jsonl").read_bytes(),
+        )
+        snapshot = json.loads(
+            (run_directory / "attempt-state.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            "proposal_emitted",
+            snapshot["clips"][clip_id]["state"],
+        )
+
     def test_record_workflow_requires_a_judge_owned_claim_before_creating_artifacts(self):
         output_root = self.directory / "runs"
         run_directory = output_root / "unclaimed"
@@ -1744,6 +1861,92 @@ class AttemptLedgerTests(ManifestAdmissionTests):
             output_root / "ledger" / "attempt-ledger.jsonl"
         ).read_text(encoding="utf-8").splitlines()
         self.assertEqual(5, len(ledger_lines))
+
+    def test_committed_morning_review_recovers_queue_exactly_once(self):
+        clip_id, output_root = self.failing_run(run_id="queue-recovery")
+        run_directory = output_root / "queue-recovery"
+        record_attempt(
+            run_id="queue-recovery",
+            clip_id=clip_id,
+            source_commit="d" * 40,
+            red_test_receipt="1" * 64,
+            green_test_receipt="2" * 64,
+            negative_guard_receipt="3" * 64,
+            implementation_review_receipt="4" * 64,
+            output_root=output_root,
+        )
+        record_rerender(
+            run_id="queue-recovery",
+            clip_id=clip_id,
+            render_content_sha256="5" * 64,
+            audio_retest_receipt="6" * 64,
+            family_regression_receipt="7" * 64,
+            outcome="fail",
+            output_root=output_root,
+        )
+        record_attempt(
+            run_id="queue-recovery",
+            clip_id=clip_id,
+            source_commit="e" * 40,
+            red_test_receipt="8" * 64,
+            green_test_receipt="9" * 64,
+            negative_guard_receipt="a" * 64,
+            implementation_review_receipt="b" * 64,
+            output_root=output_root,
+        )
+        arguments = {
+            "run_id": "queue-recovery",
+            "clip_id": clip_id,
+            "render_content_sha256": "c" * 64,
+            "audio_retest_receipt": "d" * 64,
+            "family_regression_receipt": "e" * 64,
+            "outcome": "fail",
+            "output_root": output_root,
+        }
+
+        with mock.patch.object(
+            audio_judge,
+            "_append_repeated_failure_to_morning_queue",
+            side_effect=LedgerError("simulated queue publication failure"),
+        ):
+            with self.assertRaisesRegex(LedgerError, "simulated"):
+                record_rerender(**arguments)
+
+        ledger_before_recovery = (
+            run_directory / "attempt-ledger.jsonl"
+        ).read_bytes()
+        with self.assertRaisesRegex(LedgerError, "conflicting replay"):
+            record_rerender(
+                **{
+                    **arguments,
+                    "family_regression_receipt": "f" * 64,
+                }
+            )
+
+        recovered = record_rerender(**arguments)
+        recovered_again = record_rerender(**arguments)
+
+        self.assertEqual("morning_review", recovered["state"])
+        self.assertEqual(recovered, recovered_again)
+        self.assertEqual(
+            ledger_before_recovery,
+            (run_directory / "attempt-ledger.jsonl").read_bytes(),
+        )
+        queue = json.loads(
+            (run_directory / "morning-queue.json").read_text(encoding="utf-8")
+        )
+        repeated_failures = [
+            item
+            for item in queue
+            if item.get("clipID") == clip_id
+            and item.get("reasons") == ["repeated_regression_failure"]
+        ]
+        self.assertEqual(1, len(repeated_failures))
+        self.assertEqual(5, repeated_failures[0]["ledgerEventSequence"])
+        self.assertRegex(
+            repeated_failures[0]["ledgerEventSHA256"],
+            r"^[0-9a-f]{64}$",
+        )
 
     def test_successful_rerender_resolves_without_graduating_the_family(self):
         clip_id, output_root = self.failing_run()

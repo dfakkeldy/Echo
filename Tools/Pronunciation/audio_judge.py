@@ -1303,6 +1303,36 @@ def _append_ledger_event_locked(
     return states[event["clipID"]]
 
 
+def _recover_committed_event_locked(
+    run_directory: Path,
+    events: list[dict[str, Any]],
+    states: dict[str, dict[str, Any]],
+    expected_event: dict[str, Any],
+    *,
+    publish_morning_queue: bool = False,
+) -> dict[str, Any] | None:
+    if not events:
+        return None
+    committed = events[-1]
+    if (
+        committed.get("eventType") != expected_event["eventType"]
+        or committed.get("clipID") != expected_event["clipID"]
+    ):
+        return None
+    if committed != expected_event:
+        raise LedgerError("committed transition has a conflicting replay")
+    _write_attempt_snapshot(run_directory, states)
+    result = states[expected_event["clipID"]]
+    if publish_morning_queue:
+        _append_repeated_failure_to_morning_queue(
+            run_directory,
+            expected_event["clipID"],
+            ledger_event=committed,
+            ledger_event_sequence=len(events),
+        )
+    return result
+
+
 def _with_ledger_lock(
     run_directory: Path,
     operation: Callable[[list[dict[str, Any]]], Any],
@@ -1352,9 +1382,28 @@ def _emit_proposal(
     if not validate_clip_id(clip_id) or category not in CATEGORIES:
         raise LedgerError("proposal evidence is invalid")
     run_directory = _run_directory(run_id, output_root)
+    event = {
+        "schemaVersion": 1,
+        "eventType": "proposal_emitted",
+        "clipID": clip_id,
+        "state": "proposal_emitted",
+        "attemptCount": 0,
+        "proposalCategory": category,
+        "productionMutationAuthorized": False,
+        "touchedFamilyGraduation": False,
+        "phase3Graduation": False,
+    }
 
     def operation(events: list[dict[str, Any]]) -> bool:
         states = _derive_attempt_states(events)
+        recovered = _recover_committed_event_locked(
+            run_directory,
+            events,
+            states,
+            event,
+        )
+        if recovered is not None:
+            return True
         if clip_id in states:
             return states[clip_id]["state"] in {
                 "proposal_emitted",
@@ -1368,17 +1417,7 @@ def _emit_proposal(
         _append_ledger_event_locked(
             run_directory,
             events,
-            {
-                "schemaVersion": 1,
-                "eventType": "proposal_emitted",
-                "clipID": clip_id,
-                "state": "proposal_emitted",
-                "attemptCount": 0,
-                "proposalCategory": category,
-                "productionMutationAuthorized": False,
-                "touchedFamilyGraduation": False,
-                "phase3Graduation": False,
-            },
+            event,
         )
         return True
 
@@ -1441,6 +1480,35 @@ def record_attempt(
 
     def operation(events: list[dict[str, Any]]) -> dict[str, Any]:
         states = _derive_attempt_states(events)
+
+        def event_for(attempt_count: int) -> dict[str, Any]:
+            return {
+                "schemaVersion": 1,
+                "eventType": "attempt_recorded",
+                "clipID": clip_id,
+                "state": "rerender_pending",
+                "attemptCount": attempt_count,
+                "sourceCommit": source_commit,
+                **receipts,
+                "productionMutationPerformedByJudge": False,
+                "touchedFamilyGraduation": False,
+                "phase3Graduation": False,
+            }
+
+        if (
+            events
+            and events[-1].get("eventType") == "attempt_recorded"
+            and events[-1].get("clipID") == clip_id
+        ):
+            recovered = _recover_committed_event_locked(
+                run_directory,
+                events,
+                states,
+                event_for(events[-1]["attemptCount"]),
+            )
+            if recovered is None:
+                raise LedgerError("committed transition replay is invalid")
+            return recovered
         current = states.get(clip_id)
         if (
             current is None
@@ -1459,18 +1527,7 @@ def record_attempt(
         return _append_ledger_event_locked(
             run_directory,
             events,
-            {
-                "schemaVersion": 1,
-                "eventType": "attempt_recorded",
-                "clipID": clip_id,
-                "state": "rerender_pending",
-                "attemptCount": current["attemptCount"] + 1,
-                "sourceCommit": source_commit,
-                **receipts,
-                "productionMutationPerformedByJudge": False,
-                "touchedFamilyGraduation": False,
-                "phase3Graduation": False,
-            },
+            event_for(current["attemptCount"] + 1),
         )
 
     return _with_ledger_lock(run_directory, operation)
@@ -1479,6 +1536,9 @@ def record_attempt(
 def _append_repeated_failure_to_morning_queue(
     run_directory: Path,
     clip_id: str,
+    *,
+    ledger_event: dict[str, Any],
+    ledger_event_sequence: int,
 ) -> None:
     queue_path = run_directory / "morning-queue.json"
     _validate_existing_mutable_file(
@@ -1490,15 +1550,35 @@ def _append_repeated_failure_to_morning_queue(
         queue = json.loads(queue_path.read_text(encoding="utf-8")) if queue_path.exists() else []
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise LedgerError("morning queue is invalid") from error
-    if not isinstance(queue, list):
+    if not isinstance(queue, list) or not all(
+        isinstance(item, dict) for item in queue
+    ):
         raise LedgerError("morning queue is invalid")
-    queue.append(
-        {
-            "clipID": clip_id,
-            "queueCategory": "morning_review",
-            "reasons": ["repeated_regression_failure"],
-        }
-    )
+    ledger_event_sha256 = hashlib.sha256(
+        json.dumps(
+            ledger_event,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    entry = {
+        "clipID": clip_id,
+        "queueCategory": "morning_review",
+        "reasons": ["repeated_regression_failure"],
+        "ledgerEventSequence": ledger_event_sequence,
+        "ledgerEventSHA256": ledger_event_sha256,
+    }
+    matching_identity = [
+        item
+        for item in queue
+        if item.get("ledgerEventSequence") == ledger_event_sequence
+        and item.get("ledgerEventSHA256") == ledger_event_sha256
+    ]
+    if matching_identity:
+        if len(matching_identity) == 1 and matching_identity[0] == entry:
+            return
+        raise LedgerError("morning queue has a conflicting ledger event")
+    queue.append(entry)
     _atomic_write_json(
         queue_path,
         queue,
@@ -1534,7 +1614,49 @@ def record_rerender(
     run_directory = _run_directory(run_id, output_root)
 
     def operation(events: list[dict[str, Any]]) -> dict[str, Any]:
-        current = _derive_attempt_states(events).get(clip_id)
+        states = _derive_attempt_states(events)
+
+        def event_for(
+            attempt_count: int,
+            state: str,
+        ) -> dict[str, Any]:
+            return {
+                "schemaVersion": 1,
+                "eventType": "rerender_recorded",
+                "clipID": clip_id,
+                "state": state,
+                "attemptCount": attempt_count,
+                "renderContentSHA256": render_content_sha256,
+                "audioRetestReceipt": audio_retest_receipt,
+                "familyRegressionReceipt": family_regression_receipt,
+                "outcome": outcome,
+                "productionMutationPerformedByJudge": False,
+                "touchedFamilyGraduation": False,
+                "phase3Graduation": False,
+            }
+
+        if (
+            events
+            and events[-1].get("eventType") == "rerender_recorded"
+            and events[-1].get("clipID") == clip_id
+        ):
+            expected_event = event_for(
+                events[-1]["attemptCount"],
+                events[-1]["state"],
+            )
+            recovered = _recover_committed_event_locked(
+                run_directory,
+                events,
+                states,
+                expected_event,
+                publish_morning_queue=(
+                    events[-1]["state"] == "morning_review"
+                ),
+            )
+            if recovered is None:
+                raise LedgerError("committed transition replay is invalid")
+            return recovered
+        current = states.get(clip_id)
         if current is None or current["state"] != "rerender_pending":
             raise LedgerError("clip is not waiting for a rerender result")
         if outcome == "pass":
@@ -1543,26 +1665,19 @@ def record_rerender(
             state = "morning_review"
         else:
             state = "proposal_emitted"
+        event = event_for(current["attemptCount"], state)
         result = _append_ledger_event_locked(
             run_directory,
             events,
-            {
-                "schemaVersion": 1,
-                "eventType": "rerender_recorded",
-                "clipID": clip_id,
-                "state": state,
-                "attemptCount": current["attemptCount"],
-                "renderContentSHA256": render_content_sha256,
-                "audioRetestReceipt": audio_retest_receipt,
-                "familyRegressionReceipt": family_regression_receipt,
-                "outcome": outcome,
-                "productionMutationPerformedByJudge": False,
-                "touchedFamilyGraduation": False,
-                "phase3Graduation": False,
-            },
+            event,
         )
         if state == "morning_review":
-            _append_repeated_failure_to_morning_queue(run_directory, clip_id)
+            _append_repeated_failure_to_morning_queue(
+                run_directory,
+                clip_id,
+                ledger_event=event,
+                ledger_event_sequence=len(events),
+            )
         return result
 
     return _with_ledger_lock(run_directory, operation)

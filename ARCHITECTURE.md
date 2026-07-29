@@ -876,6 +876,15 @@ verdicts have no production authority and cannot edit pronunciation data.
 Independent human-labelled qualification data and bounded human listening
 remain mandatory and separate.
 
+For the reviewed two-attempt correction workflow, the append-and-fsync ledger
+event is authoritative and precedes its derived state snapshot and morning
+queue. If publication is interrupted after that commit point, an exact replay
+of the complete command rebuilds the snapshot and publishes any required queue
+item without appending another event. A replay with different source, receipt,
+category, render, or outcome evidence fails closed. Terminal repeated-failure
+queue items are deduplicated by the authoritative ledger event's sequence and
+canonical hash, clip ID, and reason.
+
 The judge does not let its input manifest authorize its own provenance. Each
 run requires a separate absolute, single-link regular, non-symlink authority
 file outside the repository that binds the exact opaque clip ID, measured
