@@ -42,12 +42,6 @@ REQUIRED_NAMED_SHAPES = {
     "punctuation-adjacency",
     "quotation-dialogue",
 }
-DEFINITIVE_NAMED_REGRESSION_CASES = {
-    "named-content-capitalization",
-    "named-content-dialogue",
-    "named-content-long-distance",
-}
-
 ALLOWED_PROVENANCE = {"public-domain", "permissive", "synthetic"}
 HUMAN_EVIDENCE_FIELDS = {
     "labelA",
@@ -660,6 +654,8 @@ def validate_morphology(raw_rows: Iterable[dict[str, Any]]) -> list[dict[str, An
         "expectedBase",
         "expectedRuleID",
         "expectedIPA",
+        "expectedCandidateID",
+        "expectedCandidatePackVersion",
         "automatic",
     }
     seen_case_ids: set[str] = set()
@@ -673,9 +669,17 @@ def validate_morphology(raw_rows: Iterable[dict[str, Any]]) -> list[dict[str, An
             "expectedRuleID",
             "expectedIPA",
         } - raw_row.keys()
+        missing_identity_fields = {
+            "expectedCandidateID",
+            "expectedCandidatePackVersion",
+        } - raw_row.keys()
         if raw_row.get("automatic") is True and missing_derivation_fields:
             raise ValueError(
                 "automatic morphology row requires an expected derivation result"
+            )
+        if raw_row.get("automatic") is True and missing_identity_fields:
+            raise ValueError(
+                "automatic morphology row requires a frozen candidate identity"
             )
         _validate_fields(
             raw_row,
@@ -698,13 +702,36 @@ def validate_morphology(raw_rows: Iterable[dict[str, Any]]) -> list[dict[str, An
             raw_row["expectedRuleID"],
             raw_row["expectedIPA"],
         )
+        identity = (
+            raw_row["expectedCandidateID"],
+            raw_row["expectedCandidatePackVersion"],
+        )
         if raw_row["automatic"]:
             if not all(_is_nonempty_string(value) for value in derivation):
                 raise ValueError(
                     "automatic morphology row requires an expected derivation result"
                 )
-        elif any(value is not None for value in derivation):
-            raise ValueError("morphology negative guard cannot claim a derivation")
+            if not all(_is_nonempty_string(value) for value in identity):
+                raise ValueError(
+                    "automatic morphology row requires a frozen candidate identity"
+                )
+            if (
+                re.fullmatch(
+                    r"morphology\.[a-z][a-z'-]*\.[0-9a-f]{12}",
+                    raw_row["expectedCandidateID"],
+                )
+                is None
+                or re.fullmatch(
+                    r"morphology-v1:sha256:[0-9a-f]{64}",
+                    raw_row["expectedCandidatePackVersion"],
+                )
+                is None
+            ):
+                raise ValueError("morphology candidate identity is invalid")
+        elif any(value is not None for value in derivation + identity):
+            raise ValueError(
+                "morphology negative guard cannot claim a derivation or identity"
+            )
         rows.append(raw_row)
     return rows
 
@@ -721,7 +748,8 @@ def validate_named_regressions(
         "targetSentence",
         "followingSentence",
         "expectedCandidateID",
-        "expectedOutcome",
+        "expectedDiscoveryState",
+        "expectedAnalyzerState",
         "provenance",
     }
     allowed = required | {"sourceURL", "license"}
@@ -756,7 +784,8 @@ def validate_named_regressions(
             "shape",
             "targetSentence",
             "expectedCandidateID",
-            "expectedOutcome",
+            "expectedDiscoveryState",
+            "expectedAnalyzerState",
         ):
             if not _is_nonempty_string(raw_row[field]):
                 raise ValueError(f"named regression {field} must be nonempty")
@@ -793,8 +822,18 @@ def validate_named_regressions(
                 f"expectedCandidateID {raw_row['expectedCandidateID']} "
                 f"is not a candidate for targetWord {raw_row['targetWord']}"
             )
-        if raw_row["expectedOutcome"] not in {"automatic", "review"}:
-            raise ValueError("expectedOutcome must be automatic or review")
+        if raw_row["expectedDiscoveryState"] not in {"discovered", "excluded"}:
+            raise ValueError(
+                "expected discovery state must be discovered or excluded"
+            )
+        if raw_row["expectedAnalyzerState"] not in {
+            "definitive",
+            "advisory",
+            "abstained",
+        }:
+            raise ValueError(
+                "expected analyzer state must be definitive, advisory, or abstained"
+            )
         if raw_row["shape"] not in REQUIRED_NAMED_SHAPES:
             raise ValueError(f"unknown named regression shape {raw_row['shape']}")
         shapes_by_family[family_id].add(raw_row["shape"])
@@ -991,17 +1030,8 @@ def build_report(fixtures: Path | str, pack: Path | str) -> dict[str, Any]:
         row["expectedRuleID"] if row["automatic"] else "negative"
         for row in morphology_rows
     )
-    named_case_ids = {row["caseID"] for row in named_rows}
-    if not DEFINITIVE_NAMED_REGRESSION_CASES.issubset(named_case_ids):
-        raise ValueError("definitive named regression fixtures are incomplete")
     deterministic_counts = Counter(
-        "abstained"
-        if row["expectedOutcome"] == "review"
-        else (
-            "resolved"
-            if row["caseID"] in DEFINITIVE_NAMED_REGRESSION_CASES
-            else "advisory"
-        )
+        row["expectedAnalyzerState"]
         for row in named_rows
     )
 
@@ -1033,8 +1063,9 @@ def build_report(fixtures: Path | str, pack: Path | str) -> dict[str, Any]:
             },
         },
         "deterministicCounts": {
-            key: deterministic_counts[key]
-            for key in ("resolved", "advisory", "abstained")
+            "resolved": deterministic_counts["definitive"],
+            "advisory": deterministic_counts["advisory"],
+            "abstained": deterministic_counts["abstained"],
         },
         "evidenceCounts": {
             "provisionalCandidates": sum(

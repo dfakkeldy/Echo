@@ -865,11 +865,16 @@ narration requires a separate approval and is not authorized by Phase 2.
 The development-only audio judge accepts direct MP3/WAV files only from short
 public-domain or synthetic clips; private or copyrighted book material and
 metadata never leave the machine. It evaluates files directly with speakers
-muted, enforces strict structured-result validation plus 200-request/USD 10
-caps, and records `WAITING_FOR_USER` when no API credential exists. Its
-machine verdicts have no production authority and cannot edit pronunciation
-data. Independent human-labelled qualification data and bounded human
-listening remain mandatory and separate.
+muted, verifies the actual media container/codec before every attempt, and
+enforces strict structured-result validation plus durable 200-request/USD 10
+caps. Run IDs are atomically single-use; every transport attempt reserves its
+request number and a conservative estimate derived from the exact request,
+actual payload bytes, and probed duration before sending. Caller token
+estimates, model-authored diagnostic prose, and machine accuracy/human-evidence
+claims are excluded. Missing credentials record `WAITING_FOR_USER`. Machine
+verdicts have no production authority and cannot edit pronunciation data.
+Independent human-labelled qualification data and bounded human listening
+remain mandatory and separate.
 
 > **Phased rollout.** This documents **Plan 1 — the engine core**: schema, seams, state, text normalization, and the per-chapter render orchestration, all unit-tested behind a mock engine. The real on-device model (Kokoro CoreML/ANE) + grapheme-to-phoneme (MisakiSwift, Apache-licensed, no GPL espeak-ng), the one-time model download, the read-first "Listen" UI + voice picker, render-ahead scheduling, and `.m4b`/per-chapter export land in later plans. **No audible output ships yet.** Design spec: `docs/superpowers/specs/2026-06-13-epub-ai-narration-design.md`.
 

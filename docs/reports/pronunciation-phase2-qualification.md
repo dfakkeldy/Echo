@@ -28,14 +28,14 @@ The following independent local gates passed on 2026-07-29:
 
 | Gate | Result |
 | --- | --- |
-| Pronunciation corpus tests | 42 passed |
+| Pronunciation corpus tests | 44 passed |
 | Pronunciation pack tests and regeneration check | 38 passed; generated pack matched the committed pack |
-| Development audio-judge tests | 24 passed without an API request |
+| Development audio-judge tests | 38 passed without an API request |
 | Task 10 Swift acceptance suite | 6 passed |
 | Echo test-products build | Passed |
 | Complete Echo unit-test gate | Passed |
 | Release `echo-cli` build | Passed |
-| Deterministic program report | Two runs were byte-identical; SHA-256 `dbd9fda70f3bd64ca3b099739a461af13634f59b4bf680c4269be0a04899fbc3` |
+| Deterministic program report | Two runs were byte-identical; SHA-256 `12e0ad90053c066ccea016d489cc6bf5b191d44c1734b107740fc4012f24cc22` |
 
 A local test or build is not hosted CI, device execution, rendered-audio
 verification, human listening, installation, or release proof.
@@ -81,6 +81,19 @@ generator-behavior, and vocabulary mutations changed the semantic identity.
 Timestamp-only mutations did not change semantic, morphology, production-plan,
 or cache identity.
 
+The independent morphology fixture freezes policy identity
+`morphology-v1:sha256:58523e5570d98308c8f233be1e1cadb6c0f32079f54725f87ddabaa4151ca5d9`
+and exact candidate vectors for `startable`
+(`morphology.startable.14f4cfb4f8f1`), `testable`
+(`morphology.testable.57a53afaf83e`), `reusable`
+(`morphology.reusable.be1a57f13876`), `digestible`
+(`morphology.digestible.8a5b26d6f3a9`), and `deductible`
+(`morphology.deductible.f0169beb0e5d`). Acceptance tests separately mutate the
+rule set, exception set, base-evidence policy, semantic pack, Kokoro vocabulary,
+normalized word, derivation base/rule, and base/derived IPA. Each applicable
+identity changes, and every production-affecting policy mutation changes the
+reconstructed cache signature.
+
 ## Corpus contract, human-label status, and deterministic metrics
 
 Status: **`WAITING_FOR_HUMAN_LABELS`**.
@@ -98,7 +111,11 @@ family and 50 per sense for:
 - `live.adjective`, `live.verb`, `lives.noun`, `lives.verb`
 - `record.noun`, `record.verb`
 
-Deterministic metric counts were 3 resolved, 21 advisory, and 12 abstained.
+Deterministic metric counts were 0 definitive/resolved, 13 advisory, and 23
+abstained. Those values are an explicit frozen discovery/analyzer-state
+contract for all 36 named rows, and the Swift acceptance suite binds every row
+to the production discovery and analyzer result. They are not inferred from
+case names, intended labels, or a generic `automatic`/`review` assertion.
 Morphology fixtures contained two exact-base `-able`, one silent-e `-able`, two
 exact-base `-ible`, and nine negative cases. The pack report counted 76,125
 imported spellings, 3,982 ambiguous spellings, zero incompatible spellings,
@@ -122,7 +139,7 @@ excerpt, and not a production Echo pronunciation render.
 - Corpus identity:
   `sha256:70d359f4d696e5afb2219cc3efcaf21a58b0c03093bb494f1d3e27efe5a1c7fa`
 - Manifest content SHA-256:
-  `74476997cb66cc4bc5f880d9b1169d1e90703957b10faf617dc6ee031df8ee60`
+  `c3777da6145aef904aa33ddae1f7c9cd4a7865068782b57ddd4085de8f551b76`
 - Audio content and render identity:
   `sha256:be50f5a6c63045f14eb158c94377b2ed153f848bc21b4364727bbc83179c4e61`
 - Source commit:
@@ -133,16 +150,16 @@ excerpt, and not a production Echo pronunciation render.
 - API requests: 0
 - Transport attempts: 0
 - Per-request usage: none
-- Conservative estimated cost: USD 0.01515
+- Conservative estimated cost: USD 1.029561
 - Structured results: none
 - Validation outcome: the dry run admitted the clip and completed with no HTTP
   request; the credential-free run emitted `WAITING_FOR_USER`
 - Retry outcome: no retry was eligible or attempted
 - Morning queue count: 0
 - Dry-run receipt SHA-256:
-  `8cc853a80a4154faad515d765a5ba7a85e1055b78b4549941b74c3b2939db3d3`
+  `87d4ea680bbddde1fd3280c3f945ad9260d864036197fcf931057eb2bda7330d`
 - Credential-free receipt SHA-256:
-  `b654496cd29d2d8a43183e082897f2d1477d4beefa1eb21a88f5272253bb00eb`
+  `6ca48b76ef74b71cb2aa322cc83121d413a0abe61b648b6ef9512b1d11939b1a`
 
 Pricing was rechecked on 2026-07-29 and stored as
 `gpt-audio-1.5-pricing-2026-07-29`: USD 2.50 per million text-input tokens,
@@ -152,11 +169,21 @@ tokens, and USD 64.00 per million audio-output tokens. Sources:
 [model catalog](https://developers.openai.com/api/docs/models/all),
 [audio guide](https://developers.openai.com/api/docs/guides/audio), and
 [Chat Completions API](https://platform.openai.com/docs/api-reference/chat).
+The `exact-request-bytes-and-probed-audio-v2` rule derives its text bound from
+the exact minified request bytes with audio data removed, derives its audio
+bound from the greater of actual decoded payload bytes and 1,000 tokens per
+probed second, and fixes the maximum text output at 180 tokens. The manifest
+supplies no token estimates. Each real transport attempt, including a retry,
+must durably reserve its request number and conservative cost before sending.
+Run IDs are atomically claimed and cannot be reused or overwrite an earlier
+run.
 
 No raw text/audio, title, author, local path, user/book identifier, metadata,
 API key, or request header is present in the receipts or this report. The
 machine judge has no production authority, supplies no human label or human
-listening result, and cannot authorize Phase 3.
+listening result, never contributes to accuracy, and cannot authorize Phase 3.
+Optional model-authored `heard` and `note` values are validated but never
+persisted.
 
 ## Eligible-device Foundation Models shadow run
 

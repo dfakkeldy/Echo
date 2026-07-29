@@ -24,7 +24,8 @@ import Testing
         let shape: String
         let targetSentence: String
         let expectedCandidateID: String
-        let expectedOutcome: String
+        let expectedDiscoveryState: String
+        let expectedAnalyzerState: String
     }
 
     private struct MorphologyFixture: Decodable {
@@ -33,6 +34,8 @@ import Testing
         let expectedBase: String?
         let expectedRuleID: String?
         let expectedIPA: String?
+        let expectedCandidateID: String?
+        let expectedCandidatePackVersion: String?
         let automatic: Bool
     }
 
@@ -226,6 +229,8 @@ import Testing
         let rows = try jsonLines(
             NamedFixture.self,
             named: "named_regressions_v1.jsonl")
+        var discoveryCounts = ["discovered": 0, "excluded": 0]
+        var analyzerCounts = ["definitive": 0, "advisory": 0, "abstained": 0]
 
         for row in rows {
             let family = try #require(
@@ -248,22 +253,17 @@ import Testing
             let discovered = ContextualPronunciationDiscovery.discover(
                 text: row.targetSentence,
                 blockID: row.caseID)
-            let isExplicitlyExcluded =
-                row.shape == "override-markup"
-                || row.shape == "capitalization"
-                || row.shape == "heading-fragment"
+            let actualDiscoveryState =
+                discovered.isEmpty ? "excluded" : "discovered"
+            discoveryCounts[actualDiscoveryState, default: 0] += 1
+            #expect(
+                actualDiscoveryState == row.expectedDiscoveryState,
+                Comment(rawValue: row.caseID))
             if let occurrence = discovered.first {
-                #expect(
-                    !isExplicitlyExcluded,
-                    Comment(rawValue: row.caseID))
                 #expect(occurrence.familyID == row.familyID)
                 #expect(
                     occurrence.candidates.map(\.candidateID)
                         == family.candidates.map(\.candidateID))
-            } else {
-                #expect(
-                    isExplicitlyExcluded || targetWordStart == nil,
-                    Comment(rawValue: row.caseID))
             }
 
             let analysis: ContextualDeterministicAnalysis
@@ -277,18 +277,16 @@ import Testing
                     in: displayText,
                     wordStart: wordStart)
             }
+            analyzerCounts[analysis.strength.rawValue, default: 0] += 1
+            #expect(
+                analysis.strength.rawValue == row.expectedAnalyzerState,
+                Comment(rawValue: row.caseID))
             if analysis == .abstained {
                 #expect(analysis.candidateID == nil)
                 #expect(analysis.ruleID == nil)
             } else {
                 #expect(
                     analysis.candidateID == row.expectedCandidateID,
-                    Comment(rawValue: row.caseID))
-                #expect(
-                    analysis.strength
-                        == (row.familyID == "content"
-                            && analysis.candidateID == "content.satisfied"
-                            ? .definitive : .advisory),
                     Comment(rawValue: row.caseID))
             }
             if let occurrence = discovered.first {
@@ -297,6 +295,10 @@ import Testing
                 #expect(occurrence.deterministicStrength == analysis.strength)
             }
         }
+        #expect(discoveryCounts == ["discovered": 20, "excluded": 16])
+        #expect(
+            analyzerCounts
+                == ["definitive": 0, "advisory": 13, "abstained": 23])
     }
 
     @Test func everyMorphologyFixturePreservesFrozenProvenanceAcrossAuditCopies() throws {
@@ -307,6 +309,9 @@ import Testing
             "sha256:" + String(repeating: "0", count: 64)
         let vocabularyVersion =
             "sha256:" + String(repeating: "1", count: 64)
+        let frozenMorphologyPackVersion =
+            "morphology-v1:sha256:"
+            + "58523e5570d98308c8f233be1e1cadb6c0f32079f54725f87ddabaa4151ca5d9"
         let pack = EnglishPronunciationPack.emptyForTesting(
             packVersion: semanticPackVersion,
             kokoroVocabularyVersion: vocabularyVersion,
@@ -358,11 +363,11 @@ import Testing
             #expect(seed.selectedIPA == row.expectedIPA)
             #expect(seed.derivationBase == row.expectedBase)
             #expect(seed.derivationRuleID == row.expectedRuleID)
-            #expect(seed.candidateID?.isEmpty == false)
+            #expect(seed.candidateID == row.expectedCandidateID)
             #expect(
                 seed.candidatePackVersion
-                    == UniversalPronunciationResolver
-                    .morphologyCandidatePackVersion(for: pack))
+                    == row.expectedCandidatePackVersion)
+            #expect(seed.candidatePackVersion == frozenMorphologyPackVersion)
 
             let planned = try NarrationRenderPlanner.make(
                 preparedBlocks: [
@@ -422,6 +427,129 @@ import Testing
             #expect(copied.chapterRelativeAudioRange?.start == 1)
             #expect(copied.bookRelativeAudioRange?.start == 11)
         }
+
+        let baselinePolicy =
+            UniversalPronunciationResolver.morphologyCandidatePackVersion(
+                for: pack)
+        #expect(baselinePolicy == frozenMorphologyPackVersion)
+        let changedRule =
+            UniversalPronunciationResolver.morphologyCandidatePackVersion(
+                for: pack,
+                ruleIDs: [
+                    "morphology.able.exact-base.v2",
+                    "morphology.able.silent-e.v1",
+                    "morphology.ible.exact-base.v1",
+                ])
+        let changedException =
+            UniversalPronunciationResolver.morphologyCandidatePackVersion(
+                for: pack,
+                exceptionWords:
+                    UniversalPronunciationResolver.exceptionWords.union([
+                        "changeable"
+                    ]))
+        let changedBaseEvidence =
+            UniversalPronunciationResolver.morphologyCandidatePackVersion(
+                for: pack,
+                baseEvidencePolicyVersion: "kokoro-nonfallback-rating4-v2")
+        let changedSemanticPack = EnglishPronunciationPack.emptyForTesting(
+            packVersion: "sha256:" + String(repeating: "2", count: 64),
+            kokoroVocabularyVersion: vocabularyVersion)
+        let changedVocabularyPack = EnglishPronunciationPack.emptyForTesting(
+            packVersion: semanticPackVersion,
+            kokoroVocabularyVersion:
+                "sha256:" + String(repeating: "3", count: 64))
+        let changedSemanticIdentity =
+            UniversalPronunciationResolver.morphologyCandidatePackVersion(
+                for: changedSemanticPack)
+        let changedVocabularyIdentity =
+            UniversalPronunciationResolver.morphologyCandidatePackVersion(
+                for: changedVocabularyPack)
+        let policyIdentities = [
+            baselinePolicy,
+            changedRule,
+            changedException,
+            changedBaseEvidence,
+            changedSemanticIdentity,
+            changedVocabularyIdentity,
+        ]
+        #expect(Set(policyIdentities).count == policyIdentities.count)
+
+        func cacheSignature(
+            semanticPack: EnglishPronunciationPack,
+            morphologyPolicy: String
+        ) -> String {
+            [
+                semanticPack.packVersion,
+                morphologyPolicy,
+                EnglishPronunciationPack.contentDefaultPolicyVersion,
+            ].joined(separator: "|")
+        }
+        let cacheSignatures = [
+            cacheSignature(
+                semanticPack: pack,
+                morphologyPolicy: baselinePolicy),
+            cacheSignature(
+                semanticPack: pack,
+                morphologyPolicy: changedRule),
+            cacheSignature(
+                semanticPack: pack,
+                morphologyPolicy: changedException),
+            cacheSignature(
+                semanticPack: pack,
+                morphologyPolicy: changedBaseEvidence),
+            cacheSignature(
+                semanticPack: changedSemanticPack,
+                morphologyPolicy: changedSemanticIdentity),
+            cacheSignature(
+                semanticPack: changedVocabularyPack,
+                morphologyPolicy: changedVocabularyIdentity),
+        ]
+        #expect(Set(cacheSignatures).count == cacheSignatures.count)
+        #expect(
+            cacheSignatures[0]
+                == pack.productionPolicySignature)
+
+        let candidateInputs = [
+            (
+                "startable", "start", "morphology.able.exact-base.v1",
+                "stˈɑɹt", "stˈɑɹtəbəl", baselinePolicy
+            ),
+            (
+                "testable", "start", "morphology.able.exact-base.v1",
+                "stˈɑɹt", "stˈɑɹtəbəl", baselinePolicy
+            ),
+            (
+                "startable", "test", "morphology.able.exact-base.v1",
+                "stˈɑɹt", "stˈɑɹtəbəl", baselinePolicy
+            ),
+            (
+                "startable", "start", "morphology.able.silent-e.v1",
+                "stˈɑɹt", "stˈɑɹtəbəl", baselinePolicy
+            ),
+            (
+                "startable", "start", "morphology.able.exact-base.v1",
+                "stˈɑɹd", "stˈɑɹtəbəl", baselinePolicy
+            ),
+            (
+                "startable", "start", "morphology.able.exact-base.v1",
+                "stˈɑɹt", "stˈɑɹtIbəl", baselinePolicy
+            ),
+            (
+                "startable", "start", "morphology.able.exact-base.v1",
+                "stˈɑɹt", "stˈɑɹtəbəl", changedSemanticIdentity
+            ),
+        ]
+        let candidateIDs = candidateInputs.map {
+            UniversalPronunciationResolver.derivedCandidateID(
+                normalizedWord: $0.0,
+                derivationBase: $0.1,
+                derivationRuleID: $0.2,
+                baseIPA: $0.3,
+                derivedIPA: $0.4,
+                candidatePackVersion: $0.5)
+        }
+        #expect(candidateIDs[0] == "morphology.startable.14f4cfb4f8f1")
+        #expect(Set(candidateIDs).count == candidateIDs.count)
     }
 
     @Test func bundledPackHasClosedShapeAttributionAndIndependentIdentity() throws {

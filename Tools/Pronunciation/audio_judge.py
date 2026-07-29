@@ -29,11 +29,34 @@ SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
 SOURCE_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 RENDER_IDENTITY_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+RETURNED_MODEL_PATTERN = re.compile(
+    r"^gpt-audio-1\.5(?:-[0-9]{4}-[0-9]{2}-[0-9]{2})?$"
+)
 ALLOWED_PROVENANCE = {"public-domain", "synthetic"}
 ALLOWED_LABEL_STATUS = {"human-labelled", "provisional"}
+ALLOWED_EXPECTATIONS = {"pronunciation_acceptability"}
 MEDIA_TYPES = {
     "audio/mpeg": ("mp3", ".mp3"),
     "audio/wav": ("wav", ".wav"),
+}
+MEDIA_PROBE_CONTRACT = {
+    "mp3": {
+        "containers": {"mp3"},
+        "codecs": {"mp3"},
+    },
+    "wav": {
+        "containers": {"wav"},
+        "codecs": {
+            "pcm_alaw",
+            "pcm_f32le",
+            "pcm_f64le",
+            "pcm_mulaw",
+            "pcm_s16le",
+            "pcm_s24le",
+            "pcm_s32le",
+            "pcm_u8",
+        },
+    },
 }
 MANIFEST_FIELDS = {"schemaVersion", "corpusIdentity", "clips"}
 CLIP_FIELDS = {
@@ -43,18 +66,16 @@ CLIP_FIELDS = {
     "mediaType",
     "durationSeconds",
     "audioSHA256",
-    "corpusID",
     "deterministicExpectation",
     "sourceCommit",
     "renderIdentity",
-    "estimatedTextInputTokens",
-    "estimatedAudioInputTokens",
-    "maxTextOutputTokens",
 }
 MAXIMUM_CLIP_DURATION_SECONDS = 15.0
 _DURATION_TOLERANCE_SECONDS = 0.001
 MAXIMUM_REQUESTS = 200
 MAXIMUM_ESTIMATED_COST_USD = 10.0
+FIXED_MAX_TEXT_OUTPUT_TOKENS = 180
+MINIMUM_AUDIO_TOKENS_PER_SECOND = 1_000
 MODEL_ID = "gpt-audio-1.5"
 CONFIDENCE_REVIEW_THRESHOLD = 0.80
 DEFAULT_OUTPUT_ROOT = (
@@ -112,7 +133,18 @@ PRICING_CONFIG = {
         "audioInput": 32.00,
         "audioOutput": 64.00,
     },
-    "estimationRule": "declared-token-upper-bounds-v1",
+    "estimationRule": "exact-request-bytes-and-probed-audio-v2",
+    "estimationInputs": {
+        "textInput": (
+            "one token per UTF-8 byte of the exact minified request with "
+            "the audio data value removed"
+        ),
+        "audioInput": (
+            "the greater of decoded payload bytes and 1000 tokens per "
+            "probed second"
+        ),
+        "textOutput": FIXED_MAX_TEXT_OUTPUT_TOKENS,
+    },
 }
 
 
@@ -145,13 +177,9 @@ class AdmittedClip:
     media_type: str
     duration_seconds: float
     audio_sha256: str
-    corpus_id: str
     deterministic_expectation: str
     source_commit: str
     render_identity: str
-    estimated_text_input_tokens: int
-    estimated_audio_input_tokens: int
-    max_text_output_tokens: int
     _audio_path: Path
 
 
@@ -199,11 +227,7 @@ def _require_exact_fields(value: Any, fields: set[str], name: str) -> dict[str, 
     return value
 
 
-def _is_positive_bounded_integer(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and 0 < value <= 1_000_000
-
-
-def _probe_audio_duration(path: Path) -> float:
+def _probe_audio(path: Path, expected_format: str) -> float:
     ffprobe = shutil.which("ffprobe")
     if ffprobe is None:
         raise ManifestError("trusted media probe is unavailable")
@@ -214,9 +238,9 @@ def _probe_audio_duration(path: Path) -> float:
                 "-v",
                 "error",
                 "-show_entries",
-                "format=duration",
+                "format=duration,format_name:stream=codec_type,codec_name",
                 "-of",
-                "default=noprint_wrappers=1:nokey=1",
+                "json",
                 str(path),
             ],
             check=True,
@@ -224,12 +248,54 @@ def _probe_audio_duration(path: Path) -> float:
             text=True,
             timeout=30,
         )
-        duration = float(result.stdout.strip())
-    except (OSError, subprocess.SubprocessError, ValueError) as error:
-        raise ManifestError("trusted media duration probe failed") from error
+        decoded = json.loads(result.stdout)
+        format_record = decoded["format"]
+        streams = decoded["streams"]
+        duration = float(format_record["duration"])
+        containers = set(format_record["format_name"].split(","))
+    except (
+        OSError,
+        subprocess.SubprocessError,
+        ValueError,
+        json.JSONDecodeError,
+        KeyError,
+        TypeError,
+    ) as error:
+        raise ManifestError("trusted media probe failed") from error
     if not math.isfinite(duration) or duration <= 0:
         raise ManifestError("trusted media duration is invalid")
+    contract = MEDIA_PROBE_CONTRACT[expected_format]
+    if (
+        not containers.intersection(contract["containers"])
+        or not isinstance(streams, list)
+        or len(streams) != 1
+        or streams[0].get("codec_type") != "audio"
+        or streams[0].get("codec_name") not in contract["codecs"]
+    ):
+        raise ManifestError("media container or codec does not match its declaration")
     return duration
+
+
+def _verified_audio_bytes(clip: AdmittedClip) -> bytes:
+    """Rehash and reprobe the exact bytes immediately before request creation."""
+    try:
+        before_probe = clip._audio_path.read_bytes()
+    except OSError as error:
+        raise ManifestError("admitted audio file is unavailable") from error
+    if hashlib.sha256(before_probe).hexdigest() != clip.audio_sha256:
+        raise ManifestError("audio content changed after admission")
+    measured_duration = _probe_audio(clip._audio_path, clip.audio_format)
+    try:
+        after_probe = clip._audio_path.read_bytes()
+    except OSError as error:
+        raise ManifestError("admitted audio file is unavailable") from error
+    if after_probe != before_probe:
+        raise ManifestError("audio content changed while it was being verified")
+    if measured_duration > MAXIMUM_CLIP_DURATION_SECONDS:
+        raise ManifestError("measured clip duration exceeds the limit")
+    if abs(measured_duration - clip.duration_seconds) > _DURATION_TOLERANCE_SECONDS:
+        raise ManifestError("audio duration changed after admission")
+    return after_probe
 
 
 def _admit_clip(
@@ -266,15 +332,12 @@ def _admit_clip(
         raise ManifestError("declared clip duration is ineligible")
 
     audio_hash = clip["audioSHA256"]
-    corpus_id = clip["corpusID"]
     expectation = clip["deterministicExpectation"]
     source_commit = clip["sourceCommit"]
     render_identity = clip["renderIdentity"]
     if not isinstance(audio_hash, str) or SHA256_PATTERN.fullmatch(audio_hash) is None:
         raise ManifestError("audio content hash is invalid")
-    if not isinstance(corpus_id, str) or IDENTIFIER_PATTERN.fullmatch(corpus_id) is None:
-        raise ManifestError("corpus identifier is invalid")
-    if not isinstance(expectation, str) or IDENTIFIER_PATTERN.fullmatch(expectation) is None:
+    if expectation not in ALLOWED_EXPECTATIONS:
         raise ManifestError("deterministic expectation is invalid")
     if (
         not isinstance(source_commit, str)
@@ -287,14 +350,6 @@ def _admit_clip(
     ):
         raise ManifestError("render identity is invalid")
 
-    estimator_values = (
-        clip["estimatedTextInputTokens"],
-        clip["estimatedAudioInputTokens"],
-        clip["maxTextOutputTokens"],
-    )
-    if not all(_is_positive_bounded_integer(value) for value in estimator_values):
-        raise ManifestError("cost-estimator input is invalid")
-
     audio_path = manifest_directory / f"{clip_id}{suffix}"
     try:
         audio_bytes = audio_path.read_bytes()
@@ -302,7 +357,7 @@ def _admit_clip(
         raise ManifestError("admitted audio file is unavailable") from error
     if hashlib.sha256(audio_bytes).hexdigest() != audio_hash:
         raise ManifestError("audio content hash mismatch")
-    measured_duration = _probe_audio_duration(audio_path)
+    measured_duration = _probe_audio(audio_path, audio_format)
     if measured_duration > MAXIMUM_CLIP_DURATION_SECONDS:
         raise ManifestError("measured clip duration exceeds the limit")
     if abs(measured_duration - float(declared_duration)) > _DURATION_TOLERANCE_SECONDS:
@@ -316,13 +371,9 @@ def _admit_clip(
         media_type=media_type,
         duration_seconds=measured_duration,
         audio_sha256=audio_hash,
-        corpus_id=corpus_id,
         deterministic_expectation=expectation,
         source_commit=source_commit,
         render_identity=render_identity,
-        estimated_text_input_tokens=clip["estimatedTextInputTokens"],
-        estimated_audio_input_tokens=clip["estimatedAudioInputTokens"],
-        max_text_output_tokens=clip["maxTextOutputTokens"],
         _audio_path=audio_path,
     )
 
@@ -344,8 +395,8 @@ def admit_manifest(manifest_path: str | Path) -> list[AdmittedClip]:
     ):
         raise ManifestError("corpus identity is invalid")
     rows = manifest["clips"]
-    if not isinstance(rows, list):
-        raise ManifestError("manifest clips must be an array")
+    if not isinstance(rows, list) or not rows:
+        raise ManifestError("manifest clips must be a non-empty array")
     seen_clip_ids: set[str] = set()
     return [
         _admit_clip(
@@ -359,12 +410,7 @@ def admit_manifest(manifest_path: str | Path) -> list[AdmittedClip]:
 
 def encode_audio(clip: AdmittedClip) -> dict[str, str]:
     """Return direct base64 audio input without exposing a source path."""
-    try:
-        data = clip._audio_path.read_bytes()
-    except OSError as error:
-        raise ManifestError("admitted audio file is unavailable") from error
-    if hashlib.sha256(data).hexdigest() != clip.audio_sha256:
-        raise ManifestError("audio content changed after admission")
+    data = _verified_audio_bytes(clip)
     return {
         "format": clip.audio_format,
         "mediaType": clip.media_type,
@@ -422,14 +468,43 @@ def parse_verdict(payload: str, *, expected_clip_id: str) -> dict[str, Any]:
     return decoded
 
 
-def estimated_request_cost_usd(clip: AdmittedClip) -> float:
-    """Return a conservative prospective text/audio-input and text-output cost."""
+def _request_estimate(clip: AdmittedClip, body: dict[str, Any]) -> dict[str, Any]:
+    """Derive conservative tokens from exact request bytes and probed audio."""
+    stripped_body = json.loads(json.dumps(body))
+    encoded_audio = stripped_body["messages"][0]["content"][1]["input_audio"].pop(
+        "data"
+    )
+    serialized_text_request = json.dumps(
+        stripped_body,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    try:
+        audio_bytes = base64.b64decode(encoded_audio, validate=True)
+    except (ValueError, TypeError) as error:
+        raise ManifestError("request audio payload is invalid") from error
+    text_input_tokens = len(serialized_text_request)
+    audio_input_tokens = max(
+        len(audio_bytes),
+        math.ceil(clip.duration_seconds * MINIMUM_AUDIO_TOKENS_PER_SECOND),
+    )
+    components = {
+        "textInputTokens": text_input_tokens,
+        "audioInputTokens": audio_input_tokens,
+        "textOutputTokens": FIXED_MAX_TEXT_OUTPUT_TOKENS,
+    }
     rates = PRICING_CONFIG["usdPerMillionTokens"]
-    return (
-        clip.estimated_text_input_tokens * rates["textInput"]
-        + clip.estimated_audio_input_tokens * rates["audioInput"]
-        + clip.max_text_output_tokens * rates["textOutput"]
+    components["estimatedCostUSD"] = (
+        text_input_tokens * rates["textInput"]
+        + audio_input_tokens * rates["audioInput"]
+        + FIXED_MAX_TEXT_OUTPUT_TOKENS * rates["textOutput"]
     ) / 1_000_000
+    return components
+
+
+def estimated_request_cost_usd(clip: AdmittedClip) -> float:
+    """Return the versioned conservative estimate for the actual request."""
+    return _request_estimate(clip, build_request_body(clip))["estimatedCostUSD"]
 
 
 def enforce_prospective_cap(
@@ -450,9 +525,9 @@ def build_request_body(clip: AdmittedClip) -> dict[str, Any]:
     audio = encode_audio(clip)
     prompt = (
         "Judge only the pronunciation in this short public-domain or synthetic "
-        "audio clip. Compare it with deterministic candidate "
-        f"{clip.deterministic_expectation}. Return exactly one JSON object with "
-        "clipID, verdict, confidence, category, and optional heard/note. "
+        "audio clip under the closed pronunciation-acceptability contract. "
+        "Return exactly one JSON object with clipID, verdict, confidence, and "
+        "category. "
         f"The clipID must be {clip.clip_id}. Do not include markdown or prose."
     )
     return {
@@ -472,7 +547,8 @@ def build_request_body(clip: AdmittedClip) -> dict[str, Any]:
                 ],
             }
         ],
-        "max_completion_tokens": clip.max_text_output_tokens,
+        "modalities": ["text"],
+        "max_completion_tokens": FIXED_MAX_TEXT_OUTPUT_TOKENS,
     }
 
 
@@ -531,9 +607,8 @@ def _sanitized_usage(value: Any) -> dict[str, Any]:
 
     def valid_count(count: Any) -> bool:
         return (
-            isinstance(count, (int, float))
+            isinstance(count, int)
             and not isinstance(count, bool)
-            and math.isfinite(count)
             and count >= 0
         )
 
@@ -559,7 +634,7 @@ def _sanitized_usage(value: Any) -> dict[str, Any]:
 
 
 def _validated_returned_model_id(value: Any) -> str | None:
-    if isinstance(value, str) and IDENTIFIER_PATTERN.fullmatch(value) is not None:
+    if isinstance(value, str) and RETURNED_MODEL_PATTERN.fullmatch(value) is not None:
         return value
     return None
 
@@ -572,6 +647,94 @@ def _atomic_write_json(path: Path, value: Any) -> None:
         encoding="utf-8",
     )
     temporary.replace(path)
+
+
+def _exclusive_write_json(path: Path, value: Any) -> None:
+    """Durably create a JSON artifact without permitting replacement."""
+    serialized = (
+        json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
+    ).encode("utf-8")
+    try:
+        descriptor = os.open(
+            path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+        )
+    except FileExistsError as error:
+        raise ManifestError("run identifier is already claimed") from error
+    try:
+        with os.fdopen(descriptor, "wb") as output:
+            output.write(serialized)
+            output.flush()
+            os.fsync(output.fileno())
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+
+
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _claim_run(run_id: str, output_root: str | Path | None) -> Path:
+    """Atomically claim a never-reusable run directory."""
+    root = Path(output_root or DEFAULT_OUTPUT_ROOT)
+    root.mkdir(parents=True, exist_ok=True)
+    run_directory = root / run_id
+    try:
+        run_directory.mkdir(mode=0o700)
+    except FileExistsError as error:
+        raise ManifestError("run identifier is already claimed") from error
+    try:
+        _fsync_directory(root)
+        _exclusive_write_json(
+            run_directory / "run-claim.json",
+            {
+                "schemaVersion": 1,
+                "runID": run_id,
+                "state": "claimed",
+            },
+        )
+        _fsync_directory(run_directory)
+    except Exception:
+        try:
+            run_directory.rmdir()
+        except OSError:
+            pass
+        raise
+    return run_directory
+
+
+def _reserve_request(
+    *,
+    run_directory: Path,
+    request_number: int,
+    clip_id: str,
+    estimate: dict[str, Any],
+) -> None:
+    """Append and fsync the paid-attempt reservation before transport."""
+    event = {
+        "schemaVersion": 1,
+        "eventType": "request_reserved",
+        "requestNumber": request_number,
+        "clipID": clip_id,
+        "estimatedCostUSD": round(estimate["estimatedCostUSD"], 8),
+        "pricingVersion": PRICING_CONFIG["version"],
+        "estimate": {
+            "textInputTokens": estimate["textInputTokens"],
+            "audioInputTokens": estimate["audioInputTokens"],
+            "textOutputTokens": estimate["textOutputTokens"],
+        },
+    }
+    path = run_directory / "request-reservations.jsonl"
+    with path.open("a", encoding="utf-8") as output:
+        output.write(json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n")
+        output.flush()
+        os.fsync(output.fileno())
 
 
 def _run_directory(run_id: str, output_root: str | Path | None) -> Path:
@@ -598,25 +761,133 @@ def _load_ledger_events(ledger_path: Path) -> list[dict[str, Any]]:
 def _derive_attempt_states(
     events: list[dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
+    proposal_fields = {
+        "schemaVersion",
+        "eventType",
+        "clipID",
+        "state",
+        "attemptCount",
+        "proposalCategory",
+        "productionMutationAuthorized",
+        "touchedFamilyGraduation",
+        "phase3Graduation",
+    }
+    attempt_fields = {
+        "schemaVersion",
+        "eventType",
+        "clipID",
+        "state",
+        "attemptCount",
+        "sourceCommit",
+        "redTestReceipt",
+        "greenTestReceipt",
+        "negativeGuardReceipt",
+        "implementationReviewReceipt",
+        "productionMutationPerformedByJudge",
+        "touchedFamilyGraduation",
+        "phase3Graduation",
+    }
+    rerender_fields = {
+        "schemaVersion",
+        "eventType",
+        "clipID",
+        "state",
+        "attemptCount",
+        "renderContentSHA256",
+        "audioRetestReceipt",
+        "familyRegressionReceipt",
+        "outcome",
+        "productionMutationPerformedByJudge",
+        "touchedFamilyGraduation",
+        "phase3Graduation",
+    }
     states: dict[str, dict[str, Any]] = {}
+    used_receipts: set[str] = set()
     for sequence, event in enumerate(events, start=1):
         clip_id = event.get("clipID")
         state = event.get("state")
         attempt_count = event.get("attemptCount")
         if (
-            not validate_clip_id(clip_id)
-            or state
-            not in {
-                "proposal_emitted",
-                "rerender_pending",
-                "resolved",
-                "morning_review",
-            }
+            event.get("schemaVersion") != 1
+            or not validate_clip_id(clip_id)
             or not isinstance(attempt_count, int)
             or isinstance(attempt_count, bool)
             or not 0 <= attempt_count <= 2
         ):
             raise LedgerError("attempt ledger event is invalid")
+        previous = states.get(clip_id)
+        event_type = event.get("eventType")
+        if event_type == "proposal_emitted":
+            if (
+                set(event) != proposal_fields
+                or previous is not None
+                or state != "proposal_emitted"
+                or attempt_count != 0
+                or event.get("proposalCategory") not in CATEGORIES
+                or event.get("productionMutationAuthorized") is not False
+            ):
+                raise LedgerError("attempt ledger transition is invalid")
+        elif event_type == "attempt_recorded":
+            receipt_names = (
+                "redTestReceipt",
+                "greenTestReceipt",
+                "negativeGuardReceipt",
+                "implementationReviewReceipt",
+            )
+            receipts = [event.get(name) for name in receipt_names]
+            if (
+                set(event) != attempt_fields
+                or previous is None
+                or previous["state"] != "proposal_emitted"
+                or previous["attemptCount"] >= 2
+                or state != "rerender_pending"
+                or attempt_count != previous["attemptCount"] + 1
+                or SOURCE_COMMIT_PATTERN.fullmatch(
+                    event.get("sourceCommit", "")
+                )
+                is None
+                or not all(_valid_receipt_hash(value) for value in receipts)
+                or len(set(receipts)) != len(receipts)
+                or used_receipts.intersection(receipts)
+                or event.get("productionMutationPerformedByJudge") is not False
+            ):
+                raise LedgerError("attempt ledger transition is invalid")
+            used_receipts.update(receipts)
+        elif event_type == "rerender_recorded":
+            evidence = [
+                event.get("renderContentSHA256"),
+                event.get("audioRetestReceipt"),
+                event.get("familyRegressionReceipt"),
+            ]
+            outcome = event.get("outcome")
+            expected_state = (
+                "resolved"
+                if outcome == "pass"
+                else "morning_review"
+                if previous is not None and previous["attemptCount"] == 2
+                else "proposal_emitted"
+            )
+            if (
+                set(event) != rerender_fields
+                or previous is None
+                or previous["state"] != "rerender_pending"
+                or attempt_count != previous["attemptCount"]
+                or outcome not in {"pass", "fail"}
+                or state != expected_state
+                or not all(_valid_receipt_hash(value) for value in evidence)
+                or len(set(evidence)) != len(evidence)
+                or used_receipts.intersection(evidence[1:])
+                or event.get("productionMutationPerformedByJudge") is not False
+            ):
+                raise LedgerError("attempt ledger transition is invalid")
+            used_receipts.update(evidence[1:])
+        else:
+            raise LedgerError("attempt ledger event is invalid")
+        if (
+            event.get("touchedFamilyGraduation") is not False
+            or event.get("phase3Graduation") is not False
+        ):
+            raise LedgerError("attempt ledger proof boundary is invalid")
         states[clip_id] = {
             "clipID": clip_id,
             "state": state,
@@ -625,6 +896,13 @@ def _derive_attempt_states(
             "phase3Graduation": False,
             "lastEventSequence": sequence,
         }
+        unresolved = [
+            value
+            for value in states.values()
+            if value["state"] in {"proposal_emitted", "rerender_pending"}
+        ]
+        if len(unresolved) > 1:
+            raise LedgerError("only one unresolved proposal is permitted")
     return states
 
 
@@ -659,8 +937,8 @@ def _append_ledger_event_locked(
 
 def _with_ledger_lock(
     run_directory: Path,
-    operation: Callable[[list[dict[str, Any]]], dict[str, Any]],
-) -> dict[str, Any]:
+    operation: Callable[[list[dict[str, Any]]], Any],
+) -> Any:
     run_directory.mkdir(parents=True, exist_ok=True)
     lock_path = run_directory / ".attempt-ledger.lock"
     with lock_path.open("a+", encoding="utf-8") as lock:
@@ -678,16 +956,24 @@ def _emit_proposal(
     clip_id: str,
     category: str,
     output_root: str | Path | None,
-) -> dict[str, Any]:
+) -> bool:
     if not validate_clip_id(clip_id) or category not in CATEGORIES:
         raise LedgerError("proposal evidence is invalid")
     run_directory = _run_directory(run_id, output_root)
 
-    def operation(events: list[dict[str, Any]]) -> dict[str, Any]:
+    def operation(events: list[dict[str, Any]]) -> bool:
         states = _derive_attempt_states(events)
         if clip_id in states:
-            return states[clip_id]
-        return _append_ledger_event_locked(
+            return states[clip_id]["state"] in {
+                "proposal_emitted",
+                "rerender_pending",
+            }
+        if any(
+            state["state"] in {"proposal_emitted", "rerender_pending"}
+            for state in states.values()
+        ):
+            return False
+        _append_ledger_event_locked(
             run_directory,
             events,
             {
@@ -702,6 +988,7 @@ def _emit_proposal(
                 "phase3Graduation": False,
             },
         )
+        return True
 
     return _with_ledger_lock(run_directory, operation)
 
@@ -884,7 +1171,7 @@ def _result_proof_boundaries(label_status: str) -> dict[str, Any]:
     return {
         "evidenceCategory":
             "provisional_evidence" if provisional else "machine_evidence",
-        "accuracyContribution": False if provisional else True,
+        "accuracyContribution": False,
         "humanLabelContribution": False,
         "humanListeningContribution": False,
         "qualificationContribution": False,
@@ -909,17 +1196,20 @@ def run_evaluation(
     clips = admit_manifest(manifest_file)
     manifest = _load_strict_json(manifest_file)
     manifest_hash = hashlib.sha256(manifest_file.read_bytes()).hexdigest()
-    baseline_estimates = [estimated_request_cost_usd(clip) for clip in clips]
-    estimated_cost = 0.0
-    for request_count, next_estimate in enumerate(baseline_estimates):
+    baseline_estimates = [
+        _request_estimate(clip, build_request_body(clip))
+        for clip in clips
+    ]
+    prospective_corpus_cost = 0.0
+    for request_count, estimate in enumerate(baseline_estimates):
         enforce_prospective_cap(
             request_count=request_count,
-            estimated_cost_usd=estimated_cost,
-            next_request_estimate_usd=next_estimate,
+            estimated_cost_usd=prospective_corpus_cost,
+            next_request_estimate_usd=estimate["estimatedCostUSD"],
         )
-        estimated_cost += next_estimate
+        prospective_corpus_cost += estimate["estimatedCostUSD"]
 
-    run_directory = Path(output_root or DEFAULT_OUTPUT_ROOT) / run_id
+    run_directory = _claim_run(run_id, output_root)
     receipt: dict[str, Any] = {
         "schemaVersion": 1,
         "runID": run_id,
@@ -930,7 +1220,8 @@ def run_evaluation(
         "admittedClipCount": len(clips),
         "requestCount": 0,
         "transportAttemptCount": 0,
-        "estimatedCostUSD": round(estimated_cost, 8),
+        "estimatedCostUSD": round(prospective_corpus_cost, 8),
+        "prospectiveCorpusCostUSD": round(prospective_corpus_cost, 8),
         "pricing": PRICING_CONFIG,
         "corpusIdentity": manifest["corpusIdentity"],
         "manifestContentSHA256": manifest_hash,
@@ -939,33 +1230,38 @@ def run_evaluation(
         "proofBoundaries": {
             "machineEvidenceIsHumanLabel": False,
             "machineEvidenceIsHumanListening": False,
+            "machineEvidenceContributesAccuracy": False,
             "authorizesPhase3": False,
         },
     }
+    _atomic_write_json(run_directory / "receipt.json", receipt)
     if dry_run:
-        _atomic_write_json(run_directory / "receipt.json", receipt)
         return receipt
 
     current_environment = environment if environment is not None else os.environ
     api_key = current_environment.get("OPENAI_API_KEY")
     if not api_key:
-        _atomic_write_json(run_directory / "receipt.json", receipt)
         return receipt
 
-    receipt["status"] = "COMPLETED"
-    receipt["apiEvaluationStatus"] = "passed"
+    receipt["status"] = "RUNNING"
     actual_request_estimate = 0.0
+    receipt["estimatedCostUSD"] = 0.0
+    _atomic_write_json(run_directory / "receipt.json", receipt)
     for clip_index, clip in enumerate(clips):
-        next_estimate = baseline_estimates[clip_index]
         remaining_clip_count = len(clips) - clip_index - 1
-        remaining_baseline_estimate = sum(baseline_estimates[clip_index + 1:])
-        body = build_request_body(clip)
+        remaining_baseline_estimate = sum(
+            estimate["estimatedCostUSD"]
+            for estimate in baseline_estimates[clip_index + 1:]
+        )
         response: dict[str, Any] | None = None
         retry_attempted = False
         retry_blocked_by_cap = False
         failure: str | None = None
-        clip_request_count = 0
+        clip_estimated_cost = 0.0
         for attempt in range(2):
+            body = build_request_body(clip)
+            estimate = _request_estimate(clip, body)
+            next_estimated_cost = estimate["estimatedCostUSD"]
             if attempt == 1:
                 try:
                     # Reserve one baseline request for every admitted clip that
@@ -977,7 +1273,7 @@ def run_evaluation(
                         estimated_cost_usd=(
                             actual_request_estimate + remaining_baseline_estimate
                         ),
-                        next_request_estimate_usd=next_estimate,
+                        next_request_estimate_usd=next_estimated_cost,
                     )
                 except ManifestError:
                     retry_blocked_by_cap = True
@@ -987,12 +1283,21 @@ def run_evaluation(
             enforce_prospective_cap(
                 request_count=receipt["requestCount"],
                 estimated_cost_usd=actual_request_estimate,
-                next_request_estimate_usd=next_estimate,
+                next_request_estimate_usd=next_estimated_cost,
             )
-            receipt["requestCount"] += 1
-            receipt["transportAttemptCount"] += 1
-            actual_request_estimate += next_estimate
-            clip_request_count += 1
+            request_number = receipt["requestCount"] + 1
+            _reserve_request(
+                run_directory=run_directory,
+                request_number=request_number,
+                clip_id=clip.clip_id,
+                estimate=estimate,
+            )
+            receipt["requestCount"] = request_number
+            receipt["transportAttemptCount"] = request_number
+            actual_request_estimate += next_estimated_cost
+            clip_estimated_cost += next_estimated_cost
+            receipt["estimatedCostUSD"] = round(actual_request_estimate, 8)
+            _atomic_write_json(run_directory / "receipt.json", receipt)
             try:
                 response = transport(body, api_key)
                 break
@@ -1029,7 +1334,6 @@ def run_evaluation(
         reasons = _morning_reasons(verdict, failure=failure)
         result = {
             "clipID": clip.clip_id,
-            "corpusID": clip.corpus_id,
             "audioSHA256": clip.audio_sha256,
             "sourceCommit": clip.source_commit,
             "renderIdentity": clip.render_identity,
@@ -1039,7 +1343,7 @@ def run_evaluation(
                 if response
                 else None
             ),
-            "estimatedCostUSD": round(next_estimate * clip_request_count, 8),
+            "estimatedCostUSD": round(clip_estimated_cost, 8),
             "usage": _sanitized_usage(response.get("usage")) if response else {},
             "retryOutcome": (
                 "retry_blocked_by_cap"
@@ -1049,23 +1353,30 @@ def run_evaluation(
                 else "not_retried"
             ),
             "validationOutcome": validation_outcome,
-            "verdict": verdict,
+            "verdict": (
+                {
+                    key: verdict[key]
+                    for key in ("clipID", "verdict", "confidence", "category")
+                }
+                if verdict is not None
+                else None
+            ),
             **_result_proof_boundaries(clip.label_status),
         }
         receipt["results"].append(result)
         if verdict is not None and verdict["verdict"] == "fail":
-            _emit_proposal(
+            proposal_emitted = _emit_proposal(
                 run_id=run_id,
                 clip_id=clip.clip_id,
                 category=verdict["category"],
                 output_root=output_root,
             )
+            if not proposal_emitted:
+                reasons.append("proposal_blocked_by_existing")
         if reasons:
-            receipt["apiEvaluationStatus"] = "needs_review"
             receipt["morningQueue"].append(
                 {
                     "clipID": clip.clip_id,
-                    "corpusID": clip.corpus_id,
                     "queueCategory":
                         "provisional_review"
                         if clip.label_status == "provisional"
@@ -1073,9 +1384,15 @@ def run_evaluation(
                     "reasons": reasons,
                 }
             )
+        _atomic_write_json(run_directory / "morning-queue.json", receipt["morningQueue"])
+        _atomic_write_json(run_directory / "receipt.json", receipt)
 
     receipt["estimatedCostUSD"] = round(actual_request_estimate, 8)
     receipt["returnedModelIDs"] = sorted(set(receipt["returnedModelIDs"]))
+    receipt["status"] = "COMPLETED"
+    receipt["apiEvaluationStatus"] = (
+        "needs_review" if receipt["morningQueue"] else "passed"
+    )
     _atomic_write_json(run_directory / "morning-queue.json", receipt["morningQueue"])
     _atomic_write_json(run_directory / "receipt.json", receipt)
     return receipt

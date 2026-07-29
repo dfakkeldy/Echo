@@ -116,13 +116,9 @@ class ManifestAdmissionTests(unittest.TestCase):
             "mediaType": "audio/wav" if path.suffix == ".wav" else "audio/mpeg",
             "durationSeconds": duration_seconds,
             "audioSHA256": hashlib.sha256(path.read_bytes()).hexdigest(),
-            "corpusID": "public-synthetic-v1",
-            "deterministicExpectation": "record.verb",
+            "deterministicExpectation": "pronunciation_acceptability",
             "sourceCommit": "a" * 40,
             "renderIdentity": f"sha256:{'b' * 64}",
-            "estimatedTextInputTokens": 220,
-            "estimatedAudioInputTokens": 400,
-            "maxTextOutputTokens": 180,
         }
         row.update(overrides)
         return row
@@ -199,6 +195,65 @@ class ManifestAdmissionTests(unittest.TestCase):
         invalid_row = self.manifest_row(invalid_id, invalid_path, 0.25)
         with self.assertRaises(ManifestError):
             admit_manifest(self.write_manifest([invalid_row]))
+
+    def test_rejects_empty_corpus_caller_cost_estimates_and_tainted_identifiers(self):
+        with self.assertRaises(ManifestError):
+            admit_manifest(self.write_manifest([]))
+
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        valid = self.manifest_row(clip_id, path, 0.25)
+        invalid_rows = [
+            {**valid, "estimatedTextInputTokens": 1},
+            {**valid, "estimatedAudioInputTokens": 1},
+            {**valid, "maxTextOutputTokens": 1},
+            {**valid, "corpusID": "book-title-or-caller-label"},
+            {**valid, "deterministicExpectation": "record.verb"},
+            {**valid, "deterministicExpectation": "/private/book.m4b"},
+            {**valid, "deterministicExpectation": ""},
+        ]
+        for row in invalid_rows:
+            with self.subTest(row=row):
+                with self.assertRaises(ManifestError):
+                    admit_manifest(self.write_manifest([row]))
+
+    def test_rejects_extension_and_media_type_that_do_not_match_container_and_codec(self):
+        wav_id = generate_clip_id()
+        wav_path = self.write_wav(wav_id)
+        fake_mp3_id = generate_clip_id()
+        fake_mp3 = self.directory / f"{fake_mp3_id}.mp3"
+        shutil.copyfile(wav_path, fake_mp3)
+
+        with self.assertRaises(ManifestError):
+            admit_manifest(
+                self.write_manifest(
+                    [
+                        self.manifest_row(
+                            fake_mp3_id,
+                            fake_mp3,
+                            self.measured_duration(fake_mp3),
+                        )
+                    ]
+                )
+            )
+
+        mp3_id = generate_clip_id()
+        mp3_path = self.transcode_mp3(wav_path, mp3_id)
+        fake_wav_id = generate_clip_id()
+        fake_wav = self.directory / f"{fake_wav_id}.wav"
+        shutil.copyfile(mp3_path, fake_wav)
+        with self.assertRaises(ManifestError):
+            admit_manifest(
+                self.write_manifest(
+                    [
+                        self.manifest_row(
+                            fake_wav_id,
+                            fake_wav,
+                            self.measured_duration(fake_wav),
+                        )
+                    ]
+                )
+            )
 
 
 class ResponseValidationTests(unittest.TestCase):
@@ -316,6 +371,8 @@ class EvaluationGateTests(ManifestAdmissionTests):
 
         serialized = json.dumps(body, sort_keys=True)
         self.assertEqual("gpt-audio-1.5", body["model"])
+        self.assertEqual(["text"], body["modalities"])
+        self.assertEqual(180, body["max_completion_tokens"])
         audio_item = body["messages"][0]["content"][1]
         self.assertEqual("input_audio", audio_item["type"])
         self.assertEqual("wav", audio_item["input_audio"]["format"])
@@ -333,6 +390,98 @@ class EvaluationGateTests(ManifestAdmissionTests):
             "OPENAI_API_KEY",
         ):
             self.assertNotIn(forbidden, serialized)
+        self.assertNotIn("heard/note", serialized)
+
+    def test_run_claim_and_request_reservation_are_durable_before_transport(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest([self.manifest_row(clip_id, path, 0.25)])
+        output_root = self.directory / "runs"
+        observations = {}
+
+        def transport(_body, _key):
+            run_directory = output_root / "durable"
+            observations["claim"] = json.loads(
+                (run_directory / "run-claim.json").read_text(encoding="utf-8")
+            )
+            observations["reservations"] = [
+                json.loads(line)
+                for line in (
+                    run_directory / "request-reservations.jsonl"
+                ).read_text(encoding="utf-8").splitlines()
+            ]
+            observations["receipt"] = json.loads(
+                (run_directory / "receipt.json").read_text(encoding="utf-8")
+            )
+            return {
+                "model": "gpt-audio-1.5",
+                "content": json.dumps(
+                    {
+                        "clipID": clip_id,
+                        "verdict": "pass",
+                        "confidence": 0.9,
+                        "category": "correct",
+                    }
+                ),
+                "usage": {},
+            }
+
+        receipt = run_evaluation(
+            manifest_path=manifest,
+            run_id="durable",
+            dry_run=False,
+            output_root=output_root,
+            environment={"OPENAI_API_KEY": "test-only-key"},
+            transport=transport,
+        )
+
+        self.assertEqual("durable", observations["claim"]["runID"])
+        self.assertEqual(1, len(observations["reservations"]))
+        self.assertEqual(1, observations["receipt"]["requestCount"])
+        self.assertEqual("RUNNING", observations["receipt"]["status"])
+        original_receipt_bytes = (
+            output_root / "durable" / "receipt.json"
+        ).read_bytes()
+        with self.assertRaises(ManifestError):
+            run_evaluation(
+                manifest_path=manifest,
+                run_id="durable",
+                dry_run=False,
+                output_root=output_root,
+                environment={"OPENAI_API_KEY": "test-only-key"},
+                transport=mock.Mock(side_effect=AssertionError("must not run")),
+            )
+        self.assertEqual(
+            original_receipt_bytes,
+            (output_root / "durable" / "receipt.json").read_bytes(),
+        )
+        self.assertEqual(1, receipt["requestCount"])
+
+    def test_preexisting_run_artifact_fails_closed_before_transport(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest([self.manifest_row(clip_id, path, 0.25)])
+        output_root = self.directory / "runs"
+        preexisting = output_root / "claimed"
+        preexisting.mkdir(parents=True)
+        (preexisting / "receipt.json").write_text("do not overwrite", encoding="utf-8")
+        transport = mock.Mock(side_effect=AssertionError("must not run"))
+
+        with self.assertRaises(ManifestError):
+            run_evaluation(
+                manifest_path=manifest,
+                run_id="claimed",
+                dry_run=False,
+                output_root=output_root,
+                environment={"OPENAI_API_KEY": "test-only-key"},
+                transport=transport,
+            )
+
+        transport.assert_not_called()
+        self.assertEqual(
+            "do not overwrite",
+            (preexisting / "receipt.json").read_text(encoding="utf-8"),
+        )
 
     def test_dry_run_and_missing_credential_never_construct_a_request(self):
         clip_id = generate_clip_id()
@@ -417,6 +566,17 @@ class EvaluationGateTests(ManifestAdmissionTests):
         self.assertEqual(2, receipt["requestCount"])
         self.assertEqual(2, receipt["transportAttemptCount"])
         self.assertEqual("validated_after_retry", receipt["results"][0]["validationOutcome"])
+        reservations = [
+            json.loads(line)
+            for line in (
+                output_root / "retry" / "request-reservations.jsonl"
+            ).read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual([1, 2], [row["requestNumber"] for row in reservations])
+        self.assertEqual(
+            receipt["estimatedCostUSD"],
+            round(sum(row["estimatedCostUSD"] for row in reservations), 8),
+        )
 
         malformed_transport = mock.Mock(
             return_value={
@@ -450,22 +610,23 @@ class EvaluationGateTests(ManifestAdmissionTests):
                     path,
                     0.25,
                     labelStatus="human-labelled",
-                    estimatedTextInputTokens=1,
-                    estimatedAudioInputTokens=200_000,
-                    maxTextOutputTokens=1,
                 )
             ]
         )
         transport = mock.Mock(side_effect=TransientTransportError())
 
-        receipt = run_evaluation(
-            manifest_path=manifest,
-            run_id="retry-cost-cap",
-            dry_run=False,
-            output_root=self.directory / "runs",
-            environment={"OPENAI_API_KEY": "test-only-key"},
-            transport=transport,
-        )
+        with mock.patch(
+            "Tools.Pronunciation.audio_judge.MAXIMUM_ESTIMATED_COST_USD",
+            0.14,
+        ):
+            receipt = run_evaluation(
+                manifest_path=manifest,
+                run_id="retry-cost-cap",
+                dry_run=False,
+                output_root=self.directory / "runs",
+                environment={"OPENAI_API_KEY": "test-only-key"},
+                transport=transport,
+            )
 
         self.assertEqual(1, transport.call_count)
         self.assertEqual(1, receipt["requestCount"])
@@ -530,6 +691,127 @@ class EvaluationGateTests(ManifestAdmissionTests):
             "phase3Graduation",
         ):
             self.assertFalse(result[key])
+
+    def test_human_labelled_machine_verdict_never_contributes_accuracy_or_human_proof(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest(
+            [
+                self.manifest_row(
+                    clip_id,
+                    path,
+                    0.25,
+                    labelStatus="human-labelled",
+                )
+            ]
+        )
+        response = {
+            "model": "gpt-audio-1.5",
+            "content": json.dumps(
+                {
+                    "clipID": clip_id,
+                    "verdict": "pass",
+                    "confidence": 1.0,
+                    "category": "correct",
+                }
+            ),
+            "usage": {},
+        }
+
+        result = run_evaluation(
+            manifest_path=manifest,
+            run_id="human-labelled-boundary",
+            dry_run=False,
+            output_root=self.directory / "runs",
+            environment={"OPENAI_API_KEY": "test-only-key"},
+            transport=mock.Mock(return_value=response),
+        )["results"][0]
+
+        self.assertEqual("machine_evidence", result["evidenceCategory"])
+        for key in (
+            "accuracyContribution",
+            "humanLabelContribution",
+            "humanListeningContribution",
+            "qualificationContribution",
+            "touchedFamilyGraduation",
+            "phase3Graduation",
+        ):
+            self.assertFalse(result[key])
+
+    def test_optional_diagnostic_text_is_validated_but_never_persisted(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest([self.manifest_row(clip_id, path, 0.25)])
+        secret_heard = "private-heard-marker"
+        secret_note = "private-note-marker"
+        response = {
+            "model": "gpt-audio-1.5",
+            "content": json.dumps(
+                {
+                    "clipID": clip_id,
+                    "verdict": "pass",
+                    "confidence": 0.9,
+                    "category": "correct",
+                    "heard": secret_heard,
+                    "note": secret_note,
+                }
+            ),
+            "usage": {},
+        }
+        output_root = self.directory / "runs"
+
+        receipt = run_evaluation(
+            manifest_path=manifest,
+            run_id="diagnostic-redaction",
+            dry_run=False,
+            output_root=output_root,
+            environment={"OPENAI_API_KEY": "test-only-key"},
+            transport=mock.Mock(return_value=response),
+        )
+
+        self.assertEqual(
+            {"clipID", "verdict", "confidence", "category"},
+            set(receipt["results"][0]["verdict"]),
+        )
+        for artifact in output_root.joinpath("diagnostic-redaction").iterdir():
+            if artifact.is_file():
+                persisted = artifact.read_text(encoding="utf-8", errors="ignore")
+                self.assertNotIn(secret_heard, persisted)
+                self.assertNotIn(secret_note, persisted)
+
+    def test_revalidates_content_container_and_duration_before_each_transport_attempt(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest([self.manifest_row(clip_id, path, 0.25)])
+        transport_calls = 0
+
+        def mutate_then_retry(_body, _key):
+            nonlocal transport_calls
+            transport_calls += 1
+            self.write_wav(clip_id, duration_seconds=0.20)
+            raise TransientTransportError()
+
+        with self.assertRaises(ManifestError):
+            run_evaluation(
+                manifest_path=manifest,
+                run_id="toctou",
+                dry_run=False,
+                output_root=self.directory / "runs",
+                environment={"OPENAI_API_KEY": "test-only-key"},
+                transport=mutate_then_retry,
+            )
+
+        self.assertEqual(1, transport_calls)
+        durable = json.loads(
+            (
+                self.directory
+                / "runs"
+                / "toctou"
+                / "receipt.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertEqual("RUNNING", durable["status"])
+        self.assertEqual(1, durable["requestCount"])
 
     def test_routes_refusal_transport_failure_and_redacts_exception_details(self):
         clip_id = generate_clip_id()
@@ -650,6 +932,61 @@ class EvaluationGateTests(ManifestAdmissionTests):
         self.assertNotIn("/private/source", json.dumps(receipt))
         self.assertEqual("validated", result["validationOutcome"])
         self.assertGreater(result["estimatedCostUSD"], 0)
+        self.assertNotIn("corpusID", result)
+
+    def test_tainted_model_and_non_integer_usage_are_not_persisted(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest([self.manifest_row(clip_id, path, 0.25)])
+        response = {
+            "model": "gpt-audio-1.5-private-book",
+            "content": json.dumps(
+                {
+                    "clipID": clip_id,
+                    "verdict": "pass",
+                    "confidence": 0.9,
+                    "category": "correct",
+                }
+            ),
+            "usage": {
+                "prompt_tokens": 12.5,
+                "completion_tokens": -1,
+                "total_tokens": True,
+                "prompt_tokens_details": {
+                    "audio_tokens": 4,
+                    "cached_tokens": "private-marker",
+                },
+                "completion_tokens_details": {
+                    "audio_tokens": 0,
+                    "reasoning_tokens": 3,
+                    "tainted": "private-marker",
+                },
+            },
+        }
+
+        receipt = run_evaluation(
+            manifest_path=manifest,
+            run_id="sanitized-api-evidence",
+            dry_run=False,
+            output_root=self.directory / "runs",
+            environment={"OPENAI_API_KEY": "test-only-key"},
+            transport=mock.Mock(return_value=response),
+        )
+
+        self.assertEqual([], receipt["returnedModelIDs"])
+        result = receipt["results"][0]
+        self.assertIsNone(result["returnedModelID"])
+        self.assertEqual(
+            {
+                "prompt_tokens_details": {"audio_tokens": 4},
+                "completion_tokens_details": {
+                    "audio_tokens": 0,
+                    "reasoning_tokens": 3,
+                },
+            },
+            result["usage"],
+        )
+        self.assertNotIn("private-marker", json.dumps(receipt))
 
 
 class AttemptLedgerTests(ManifestAdmissionTests):
@@ -853,6 +1190,145 @@ class AttemptLedgerTests(ManifestAdmissionTests):
         self.assertFalse(state["touchedFamilyGraduation"])
         self.assertFalse(state["phase3Graduation"])
 
+    def test_ledger_is_authoritative_and_rejects_impossible_or_malformed_transitions(self):
+        output_root = self.directory / "runs"
+        run_directory = output_root / "invalid-ledger"
+        run_directory.mkdir(parents=True)
+        clip_id = generate_clip_id()
+        invalid_events = [
+            {
+                "schemaVersion": 1,
+                "eventType": "rerender_recorded",
+                "clipID": clip_id,
+                "state": "resolved",
+                "attemptCount": 1,
+                "renderContentSHA256": "1" * 64,
+                "audioRetestReceipt": "2" * 64,
+                "familyRegressionReceipt": "3" * 64,
+                "outcome": "pass",
+                "productionMutationPerformedByJudge": False,
+                "touchedFamilyGraduation": False,
+                "phase3Graduation": False,
+            }
+        ]
+        (run_directory / "attempt-ledger.jsonl").write_text(
+            "\n".join(json.dumps(event) for event in invalid_events) + "\n",
+            encoding="utf-8",
+        )
+        (run_directory / "attempt-state.json").write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "clips": {
+                        clip_id: {
+                            "clipID": clip_id,
+                            "state": "resolved",
+                            "attemptCount": 1,
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(LedgerError):
+            read_attempt_state(
+                run_id="invalid-ledger",
+                clip_id=clip_id,
+                output_root=output_root,
+            )
+
+        invalid_events[0] = {
+            "schemaVersion": 1,
+            "eventType": "proposal_emitted",
+            "clipID": clip_id,
+            "state": "proposal_emitted",
+            "attemptCount": 0,
+            "proposalCategory": "wrong_sense",
+            "productionMutationAuthorized": False,
+            "touchedFamilyGraduation": False,
+            "phase3Graduation": False,
+            "unexpected": "must fail closed",
+        }
+        (run_directory / "attempt-ledger.jsonl").write_text(
+            json.dumps(invalid_events[0]) + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaises(LedgerError):
+            read_attempt_state(
+                run_id="invalid-ledger",
+                clip_id=clip_id,
+                output_root=output_root,
+            )
+
+    def test_only_one_unresolved_proposal_exists_globally_per_run(self):
+        first_id = generate_clip_id()
+        first_path = self.write_wav(first_id)
+        second_id = generate_clip_id()
+        second_path = self.write_wav(second_id)
+        manifest = self.write_manifest(
+            [
+                self.manifest_row(
+                    first_id,
+                    first_path,
+                    0.25,
+                    labelStatus="human-labelled",
+                ),
+                self.manifest_row(
+                    second_id,
+                    second_path,
+                    0.25,
+                    labelStatus="human-labelled",
+                ),
+            ]
+        )
+
+        def failing_response(body, _key):
+            prompt = body["messages"][0]["content"][0]["text"]
+            matched = re.search(r"clip_[0-9a-f-]{36}", prompt)
+            self.assertIsNotNone(matched)
+            return {
+                "model": "gpt-audio-1.5",
+                "content": json.dumps(
+                    {
+                        "clipID": matched.group(0),
+                        "verdict": "fail",
+                        "confidence": 0.95,
+                        "category": "wrong_sense",
+                    }
+                ),
+                "usage": {},
+            }
+
+        output_root = self.directory / "runs"
+        receipt = run_evaluation(
+            manifest_path=manifest,
+            run_id="one-proposal",
+            dry_run=False,
+            output_root=output_root,
+            environment={"OPENAI_API_KEY": "test-only-key"},
+            transport=failing_response,
+        )
+
+        events = [
+            json.loads(line)
+            for line in (
+                output_root / "one-proposal" / "attempt-ledger.jsonl"
+            ).read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(1, len(events))
+        self.assertEqual(first_id, events[0]["clipID"])
+        self.assertEqual(
+            ["deterministic_disagreement", "proposal_blocked_by_existing"],
+            receipt["morningQueue"][1]["reasons"],
+        )
+        with self.assertRaises(LedgerError):
+            read_attempt_state(
+                run_id="one-proposal",
+                clip_id=second_id,
+                output_root=output_root,
+            )
+
     def test_cli_missing_credential_records_waiting_without_secret_or_path(self):
         clip_id = generate_clip_id()
         path = self.write_wav(clip_id)
@@ -890,6 +1366,28 @@ class AttemptLedgerTests(ManifestAdmissionTests):
         self.assertTrue(
             (output_root / "cli-waiting" / "receipt.json").is_file()
         )
+
+        repeated = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "evaluate",
+                "--manifest",
+                str(manifest),
+                "--run-id",
+                "cli-waiting",
+                "--output-root",
+                str(output_root),
+            ],
+            cwd=REPOSITORY_ROOT,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(0, repeated.returncode)
+        self.assertIn("run identifier is already claimed", repeated.stderr)
+        self.assertNotIn(str(manifest), repeated.stderr)
 
 
 if __name__ == "__main__":

@@ -136,7 +136,8 @@ def named_regression_matrix():
                     "targetSentence": f"Synthetic {target_word} context.",
                     "followingSentence": None,
                     "expectedCandidateID": candidate,
-                    "expectedOutcome": "review",
+                    "expectedDiscoveryState": "discovered",
+                    "expectedAnalyzerState": "abstained",
                     "provenance": "synthetic",
                 }
             )
@@ -600,6 +601,19 @@ class PronunciationCorpusTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "expected derivation result"):
             validate_morphology([row])
 
+    def test_morphology_requires_frozen_candidate_identity_vectors(self):
+        row = {
+            "caseID": "morph-able-001",
+            "word": "startable",
+            "expectedBase": "start",
+            "expectedRuleID": "morphology.able.exact-base.v1",
+            "expectedIPA": "stˈɑɹtəbəl",
+            "automatic": True,
+        }
+
+        with self.assertRaisesRegex(ValueError, "candidate identity"):
+            validate_morphology([row])
+
     def test_morphology_negative_guards_cannot_claim_a_derivation(self):
         row = {
             "caseID": "morph-negative-001",
@@ -607,6 +621,8 @@ class PronunciationCorpusTests(unittest.TestCase):
             "expectedBase": "Mira",
             "expectedRuleID": None,
             "expectedIPA": None,
+            "expectedCandidateID": None,
+            "expectedCandidatePackVersion": None,
             "automatic": False,
         }
 
@@ -618,6 +634,13 @@ class PronunciationCorpusTests(unittest.TestCase):
         rows.pop()
 
         with self.assertRaisesRegex(ValueError, "missing named regression shapes"):
+            validate_named_regressions(rows)
+
+    def test_named_regressions_require_explicit_discovery_and_analyzer_states(self):
+        rows = named_regression_matrix()
+        rows[0].pop("expectedAnalyzerState")
+
+        with self.assertRaisesRegex(ValueError, "expectedAnalyzerState"):
             validate_named_regressions(rows)
 
     def test_named_regressions_enforce_live_spelling_candidate_mapping(self):
@@ -854,7 +877,7 @@ class PronunciationCorpusTests(unittest.TestCase):
         self.assertEqual(0, report["evidenceCounts"]["qualifyingHumanLabelled"])
         self.assertEqual(0, report["evidenceCounts"]["adjudicated"])
         self.assertEqual(
-            {"resolved": 3, "advisory": 21, "abstained": 12},
+            {"resolved": 0, "advisory": 13, "abstained": 23},
             report["deterministicCounts"],
         )
         self.assertEqual(
