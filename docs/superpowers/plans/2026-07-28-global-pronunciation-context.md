@@ -852,7 +852,7 @@ nonisolated struct EnglishPronunciationPack: Equatable, Sendable {
 
     init(data: Data) throws
     static let empty: EnglishPronunciationPack
-    static func bundledOrEmpty() -> EnglishPronunciationPack
+    @concurrent static func bundledOrEmpty() async -> EnglishPronunciationPack
     func automaticCandidate(for normalizedWord: String) -> Candidate?
 }
 ```
@@ -900,7 +900,13 @@ nonisolated struct EnglishPronunciationPack: Equatable, Sendable {
   `automaticWithoutContext == true`. Report-only ambiguous candidates never
   become automatic or model-selectable merely because another candidate is
   malformed or filtered.
-- [ ] `bundledOrEmpty()` uses `NarrationResources.url(forResource:withExtension:)`; if the pack is absent or invalid, return a deterministic empty pack with version `unavailable-v1` so existing narration remains usable. Log only the error category, never source text.
+- [ ] `bundledOrEmpty()` uses
+  `NarrationResources.url(forResource:withExtension:)`, is explicitly
+  `@concurrent async`, checks a fixed 32 MiB ceiling from file metadata before
+  mapping and again before decoding, and performs parsing/hashing off the
+  caller actor. If the pack is absent or invalid, return a deterministic empty
+  pack with version `unavailable-v1` so existing narration remains usable. Log
+  only the error category, never source text.
 
 ### 3.3 Bump the audit contract to schema v4
 
@@ -1209,8 +1215,16 @@ let homographResult = HomographPronunciationResolver.rewrite(
 
 - [ ] Combine decision seeds in precedence order and continue using the existing first-seed-per-span deduplication.
 - [ ] Add `pronunciationPack: EnglishPronunciationPack = .empty` to both `NarrationRenderPlanner.make` overloads so low-level callers remain deterministic.
-- [ ] Store one `EnglishPronunciationPack` in `NarrationService`, initialized with `.bundledOrEmpty()`, and pass the same immutable value to every plan in that service.
-- [ ] In `HeadlessNarrationRunner`, snapshot one pack at run start and pass it to every chapter render; never allow a run to observe two pack versions.
+- [ ] Store one injected `EnglishPronunciationPack` in `NarrationService` and
+  pass the same immutable value to every plan in that service. Keep the
+  initializer default `.empty` for deterministic low-level/test callers.
+  Production composition must first
+  `await EnglishPronunciationPack.bundledOrEmpty()` and then inject the
+  validated value; loading/parsing must never occur synchronously in a
+  MainActor initializer.
+- [ ] In `HeadlessNarrationRunner`, await and snapshot one pack at run start,
+  then pass it to every chapter render; never allow a run to observe two pack
+  versions.
 
 ### 4.5 Put production-affecting policy in cache identity
 
@@ -1932,12 +1946,17 @@ private let contextualPronunciationEvaluator: ContextualPronunciationBatchEvalua
 - [ ] Add initializer defaults:
 
 ```swift
-pronunciationPack: EnglishPronunciationPack = .bundledOrEmpty(),
+pronunciationPack: EnglishPronunciationPack = .empty,
 contextualPronunciationEvaluator: @escaping ContextualPronunciationBatchEvaluator =
     FoundationModelsContextualPronunciationEvaluator.makeBatchEvaluator()
 ```
 
-- [ ] Preserve the existing `fmEnabled` preference for FM text normalization. Contextual shadowing has its own program state and runs whenever one of the four families is discovered; do not silently couple it to the QA classifier preference.
+- [ ] Production composition awaits
+  `EnglishPronunciationPack.bundledOrEmpty()` off the caller actor and injects
+  the resulting immutable value. Preserve the existing `fmEnabled` preference
+  for FM text normalization. Contextual shadowing has its own program state and
+  runs whenever one of the four families is discovered; do not silently couple
+  it to the QA classifier preference.
 
 ### 9.3 Run discovery after overrides and before synthesis
 

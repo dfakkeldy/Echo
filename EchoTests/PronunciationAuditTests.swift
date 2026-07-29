@@ -140,10 +140,12 @@ import Testing
         ] {
             var object = validObject
             object["chapterVoices"] = malformedVoices
-            let decoded = try JSONDecoder().decode(
-                PronunciationAuditManifest.self,
-                from: JSONSerialization.data(withJSONObject: object))
-            #expect(throws: (any Error).self) { _ = try decoded.encoded() }
+            let data = try JSONSerialization.data(withJSONObject: object)
+            #expect(throws: (any Error).self) {
+                _ = try JSONDecoder().decode(
+                    PronunciationAuditManifest.self,
+                    from: data)
+            }
         }
     }
 
@@ -447,7 +449,7 @@ import Testing
         #expect(decision.derivationRuleID == nil)
     }
 
-    @Test func universalDecisionsRejectIncompleteProvenanceCombinations() {
+    @Test func universalDecisionsRejectIncompleteProvenanceCombinations() throws {
         let validSupplemental = PronunciationAuditDecision(
             blockID: "b1",
             wordStart: 0,
@@ -504,6 +506,12 @@ import Testing
                 decisions: [decision],
                 diagnostics: [])
             #expect(throws: (any Error).self) { _ = try manifest.encoded() }
+            let rawSchemaFour = try JSONEncoder().encode(manifest)
+            #expect(throws: (any Error).self) {
+                _ = try JSONDecoder().decode(
+                    PronunciationAuditManifest.self,
+                    from: rawSchemaFour)
+            }
         }
     }
 

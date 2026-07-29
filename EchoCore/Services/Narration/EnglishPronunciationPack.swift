@@ -7,6 +7,18 @@ import os.log
 /// pronunciation data. No candidate is exposed until the complete manifest,
 /// canonical entries digest, and semantic pack identity have been verified.
 nonisolated struct EnglishPronunciationPack: Equatable, Sendable {
+    /// The generated pack is currently about 22.9 MB. A fixed 32 MiB ceiling
+    /// leaves controlled growth room while bounding mapped input, decoding,
+    /// and canonical re-encoding work.
+    static let maximumPackByteCount = 32 * 1_024 * 1_024
+    fileprivate static let maximumEntryCount = 100_000
+    fileprivate static let maximumCandidateCount = 120_000
+    fileprivate static let maximumCandidatesPerEntry = 32
+    fileprivate static let maximumSourceCount = 16
+    fileprivate static let maximumLicenseCount = 16
+    fileprivate static let maximumAcknowledgmentCount = 32
+    fileprivate static let maximumNormalizedWordByteCount = 128
+
     struct SourceSnapshot: Codable, Equatable, Sendable {
         let sourceID: String
         let snapshotID: String
@@ -135,6 +147,10 @@ nonisolated struct EnglishPronunciationPack: Equatable, Sendable {
     private let entries: [String: [Candidate]]
 
     init(data: Data) throws {
+        guard data.count <= Self.maximumPackByteCount else {
+            throw ValidationError.invalid("input size")
+        }
+        try StrictPackJSONValidator.validate(data)
         let manifest = try JSONDecoder().decode(Manifest.self, from: data)
         try Self.validate(manifest)
 
@@ -177,7 +193,10 @@ nonisolated struct EnglishPronunciationPack: Equatable, Sendable {
         generationTimestamp: "1970-01-01T00:00:00Z",
         entries: [:])
 
-    static func bundledOrEmpty() -> EnglishPronunciationPack {
+    /// Resolves, maps, parses, and hashes the bundled pack on the global
+    /// concurrent executor even when called by a MainActor owner.
+    @concurrent
+    static func bundledOrEmpty() async -> EnglishPronunciationPack {
         guard let url = NarrationResources.url(
             forResource: "us_pronunciation_pack",
             withExtension: "json")
@@ -188,7 +207,20 @@ nonisolated struct EnglishPronunciationPack: Equatable, Sendable {
         }
 
         do {
-            return try EnglishPronunciationPack(data: Data(contentsOf: url))
+            let values = try url.resourceValues(
+                forKeys: [.fileSizeKey, .isRegularFileKey])
+            guard values.isRegularFile == true,
+                let fileSize = values.fileSize,
+                fileSize >= 0,
+                fileSize <= Self.maximumPackByteCount
+            else {
+                throw ValidationError.invalid("resource size")
+            }
+            let data = try Data(contentsOf: url, options: .mappedIfSafe)
+            guard data.count <= Self.maximumPackByteCount else {
+                throw ValidationError.invalid("resource size")
+            }
+            return try EnglishPronunciationPack(data: data)
         } catch {
             Logger(category: "PronunciationPack").error(
                 "Bundled pronunciation pack unavailable: invalid")
@@ -302,6 +334,8 @@ private extension EnglishPronunciationPack {
         guard isVersionIdentifier(manifest.generatorVersion),
             manifest.entryCount >= 0,
             manifest.candidateCount >= 0,
+            manifest.entryCount <= maximumEntryCount,
+            manifest.candidateCount <= maximumCandidateCount,
             isWholeSecondUTCTimestamp(manifest.generationTimestamp)
         else {
             throw ValidationError.invalid("manifest identity")
@@ -309,6 +343,13 @@ private extension EnglishPronunciationPack {
         try validateGeneratorBehavior(manifest.semanticIdentityPayload.generatorBehavior)
         guard manifest.semanticIdentityPayload.identitySchemaVersion == 1 else {
             throw ValidationError.invalid("semantic identity schema")
+        }
+
+        guard manifest.sources.count <= maximumSourceCount,
+            manifest.licenses.count <= maximumLicenseCount,
+            manifest.requiredAcknowledgments.count <= maximumAcknowledgmentCount
+        else {
+            throw ValidationError.invalid("aggregate count")
         }
 
         let sourceIDs = manifest.sources.map(\.sourceID)
@@ -346,21 +387,33 @@ private extension EnglishPronunciationPack {
         guard let cmudictLicense = manifest.licenses.first(where: {
             $0.sourceID == "cmudict"
         }),
-            cmudictLicense.licensePath == "ThirdParty/CMUdict/LICENSE"
+            cmudictLicense.licenseID == "CMUdict-BSD-style",
+            cmudictLicense.licensePath == "ThirdParty/CMUdict/LICENSE",
+            manifest.requiredAcknowledgments == [
+                "CMUdict notice bundled from THIRD_PARTY_NOTICES.md",
+            ]
         else {
             throw ValidationError.invalid("CMUdict attribution")
         }
 
-        guard manifest.entryCount == manifest.entries.count else {
+        guard manifest.entries.count <= maximumEntryCount,
+            manifest.entryCount == manifest.entries.count
+        else {
             throw ValidationError.invalid("entry count")
         }
         var seenCandidateIDs = Set<String>()
         var actualCandidateCount = 0
         for (word, candidates) in manifest.entries {
-            guard isNormalizedWord(word), !candidates.isEmpty else {
+            guard isNormalizedWord(word),
+                !candidates.isEmpty,
+                candidates.count <= maximumCandidatesPerEntry
+            else {
                 throw ValidationError.invalid("entry")
             }
             actualCandidateCount += candidates.count
+            guard actualCandidateCount <= maximumCandidateCount else {
+                throw ValidationError.invalid("candidate count")
+            }
             for candidate in candidates {
                 guard isNonemptyBounded(candidate.candidateID, maximum: 256),
                     !candidate.candidateID.contains(where: \.isWhitespace),
@@ -434,7 +487,10 @@ private extension EnglishPronunciationPack {
                 }
             }
         case .reportOnlyMissingSenseLabel:
-            guard candidate.senseLabel == nil, !candidate.automaticWithoutContext else {
+            guard entryCandidateCount > 1,
+                candidate.senseLabel == nil,
+                !candidate.automaticWithoutContext
+            else {
                 throw ValidationError.invalid("report-only candidate")
             }
         case .validatedHumanReviewed:
@@ -480,7 +536,11 @@ private extension EnglishPronunciationPack {
     }
 
     nonisolated static func isNormalizedWord(_ value: String) -> Bool {
-        guard !value.isEmpty else { return false }
+        guard !value.isEmpty,
+            value.utf8.count <= maximumNormalizedWordByteCount
+        else {
+            return false
+        }
         var requiresLetter = true
         for scalar in value.unicodeScalars {
             switch scalar.value {
@@ -545,5 +605,539 @@ private extension EnglishPronunciationPack {
         formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"
         guard let date = formatter.date(from: value) else { return false }
         return formatter.string(from: date) == value
+    }
+}
+
+/// A bounded, recursive JSON grammar walk performed before `JSONDecoder`.
+///
+/// Foundation keyed decoding is intentionally lossy for duplicate and unknown
+/// object members. This scanner retains no value graph, but decodes each object
+/// key (including escapes and surrogate pairs), rejects duplicates at every
+/// nesting level, and enforces the exact object shapes that define pack
+/// authority.
+private nonisolated struct StrictPackJSONValidator {
+    private enum Expectation {
+        case any
+        case manifest
+        case sources
+        case source
+        case licenses
+        case license
+        case acknowledgments
+        case semanticIdentity
+        case sourceSnapshots
+        case sourceSnapshot
+        case generatorBehavior
+        case entries
+        case candidates
+        case candidate
+        case report
+    }
+
+    private enum StructuralError: Error {
+        case invalid
+    }
+
+    private static let maximumDepth = 64
+    private static let maximumObjectKeyByteCount = 512
+
+    private static let manifestKeys: Set<String> = [
+        "schemaVersion",
+        "packVersion",
+        "generatorVersion",
+        "entryCount",
+        "candidateCount",
+        "normalizedDataSHA256",
+        "kokoroVocabularyVersion",
+        "dialect",
+        "sources",
+        "licenses",
+        "requiredAcknowledgments",
+        "generationTimestamp",
+        "semanticIdentityPayload",
+        "entries",
+        "report",
+    ]
+    private static let sourceKeys: Set<String> = [
+        "sourceID", "snapshotID", "role", "sha256",
+    ]
+    private static let licenseKeys: Set<String> = [
+        "sourceID", "licenseID", "licensePath",
+    ]
+    private static let semanticIdentityKeys: Set<String> = [
+        "identitySchemaVersion",
+        "normalizedDataSHA256",
+        "sourceSnapshots",
+        "generatorBehavior",
+        "kokoroVocabularyVersion",
+        "dialect",
+    ]
+    private static let sourceSnapshotKeys: Set<String> = [
+        "sourceID", "snapshotID", "sha256",
+    ]
+    private static let generatorBehaviorKeys: Set<String> = [
+        "generatorVersion",
+        "normalizationPolicyVersion",
+        "arpabetMappingVersion",
+        "sourcePrecedencePolicyVersion",
+        "automaticSelectionPolicyVersion",
+        "candidateValidationPolicyVersion",
+    ]
+    private static let candidateKeys: Set<String> = [
+        "candidateID",
+        "ipa",
+        "lexicalClass",
+        "senseLabel",
+        "sourceID",
+        "sourceTier",
+        "kind",
+        "automaticWithoutContext",
+        "frequencyBand",
+        "validationStatus",
+    ]
+    private static let reportKeys: Set<String> = [
+        "existingGold", "existingSilver", "ambiguous", "incompatible", "imported",
+    ]
+
+    private let data: Data
+    private var index: Data.Index
+    private var scannedEntryCount = 0
+    private var scannedCandidateCount = 0
+
+    private init(data: Data) {
+        self.data = data
+        index = data.startIndex
+    }
+
+    static func validate(_ data: Data) throws {
+        var scanner = StrictPackJSONValidator(data: data)
+        try scanner.parseValue(expecting: .manifest, depth: 0)
+        scanner.skipWhitespace()
+        guard scanner.index == data.endIndex else {
+            throw StructuralError.invalid
+        }
+    }
+
+    private mutating func parseValue(
+        expecting expectation: Expectation,
+        depth: Int
+    ) throws {
+        guard depth <= Self.maximumDepth else {
+            throw StructuralError.invalid
+        }
+        skipWhitespace()
+        guard let byte = peek() else {
+            throw StructuralError.invalid
+        }
+        switch byte {
+        case 0x7B:
+            try parseObject(expecting: expectation, depth: depth)
+        case 0x5B:
+            try parseArray(expecting: expectation, depth: depth)
+        case 0x22:
+            guard expectation == .any else {
+                throw StructuralError.invalid
+            }
+            _ = try parseString(decoding: false)
+        case 0x74:
+            guard expectation == .any else {
+                throw StructuralError.invalid
+            }
+            try consumeLiteral("true")
+        case 0x66:
+            guard expectation == .any else {
+                throw StructuralError.invalid
+            }
+            try consumeLiteral("false")
+        case 0x6E:
+            guard expectation == .any else {
+                throw StructuralError.invalid
+            }
+            try consumeLiteral("null")
+        case 0x2D, 0x30...0x39:
+            guard expectation == .any else {
+                throw StructuralError.invalid
+            }
+            try parseNumber()
+        default:
+            throw StructuralError.invalid
+        }
+    }
+
+    private mutating func parseObject(
+        expecting expectation: Expectation,
+        depth: Int
+    ) throws {
+        guard Self.isObjectExpectation(expectation) else {
+            throw StructuralError.invalid
+        }
+        try consume(0x7B)
+        skipWhitespace()
+        var keys = Set<String>()
+        if consumeIfPresent(0x7D) {
+            try validate(keys: keys, for: expectation)
+            return
+        }
+
+        while true {
+            skipWhitespace()
+            let key = try parseString(decoding: true)
+            guard keys.insert(key).inserted else {
+                throw StructuralError.invalid
+            }
+            if expectation == .entries {
+                scannedEntryCount += 1
+                guard scannedEntryCount <= EnglishPronunciationPack.maximumEntryCount
+                else {
+                    throw StructuralError.invalid
+                }
+            }
+            guard Self.allowedKeys(for: expectation)?.contains(key) ?? true else {
+                throw StructuralError.invalid
+            }
+
+            skipWhitespace()
+            try consume(0x3A)
+            try parseValue(
+                expecting: Self.childExpectation(for: key, in: expectation),
+                depth: depth + 1)
+            skipWhitespace()
+            if consumeIfPresent(0x7D) {
+                break
+            }
+            try consume(0x2C)
+        }
+        try validate(keys: keys, for: expectation)
+    }
+
+    private mutating func parseArray(
+        expecting expectation: Expectation,
+        depth: Int
+    ) throws {
+        guard Self.isArrayExpectation(expectation) else {
+            throw StructuralError.invalid
+        }
+        try consume(0x5B)
+        skipWhitespace()
+        var count = 0
+        if consumeIfPresent(0x5D) {
+            return
+        }
+
+        while true {
+            count += 1
+            try validateArrayCount(count, for: expectation)
+            try parseValue(
+                expecting: Self.elementExpectation(for: expectation),
+                depth: depth + 1)
+            skipWhitespace()
+            if consumeIfPresent(0x5D) {
+                return
+            }
+            try consume(0x2C)
+        }
+    }
+
+    private mutating func validateArrayCount(
+        _ count: Int,
+        for expectation: Expectation
+    ) throws {
+        switch expectation {
+        case .sources, .sourceSnapshots:
+            guard count <= EnglishPronunciationPack.maximumSourceCount else {
+                throw StructuralError.invalid
+            }
+        case .licenses:
+            guard count <= EnglishPronunciationPack.maximumLicenseCount else {
+                throw StructuralError.invalid
+            }
+        case .acknowledgments:
+            guard count <= EnglishPronunciationPack.maximumAcknowledgmentCount else {
+                throw StructuralError.invalid
+            }
+        case .candidates:
+            guard count <= EnglishPronunciationPack.maximumCandidatesPerEntry else {
+                throw StructuralError.invalid
+            }
+            scannedCandidateCount += 1
+            guard scannedCandidateCount
+                <= EnglishPronunciationPack.maximumCandidateCount
+            else {
+                throw StructuralError.invalid
+            }
+        default:
+            break
+        }
+    }
+
+    private mutating func parseString(decoding: Bool) throws -> String {
+        try consume(0x22)
+        var output: [UInt8] = []
+
+        while let byte = peek() {
+            advance()
+            switch byte {
+            case 0x22:
+                guard !decoding
+                    || output.count <= Self.maximumObjectKeyByteCount,
+                    let result = decoding
+                        ? String(data: Data(output), encoding: .utf8)
+                        : ""
+                else {
+                    throw StructuralError.invalid
+                }
+                return result
+            case 0x00...0x1F:
+                throw StructuralError.invalid
+            case 0x5C:
+                guard let escaped = peek() else {
+                    throw StructuralError.invalid
+                }
+                advance()
+                switch escaped {
+                case 0x22, 0x5C, 0x2F:
+                    if decoding { output.append(escaped) }
+                case 0x62:
+                    if decoding { output.append(0x08) }
+                case 0x66:
+                    if decoding { output.append(0x0C) }
+                case 0x6E:
+                    if decoding { output.append(0x0A) }
+                case 0x72:
+                    if decoding { output.append(0x0D) }
+                case 0x74:
+                    if decoding { output.append(0x09) }
+                case 0x75:
+                    let scalar = try parseUnicodeEscape()
+                    if decoding {
+                        output.append(contentsOf: String(scalar).utf8)
+                    }
+                default:
+                    throw StructuralError.invalid
+                }
+            default:
+                if decoding { output.append(byte) }
+            }
+            if decoding, output.count > Self.maximumObjectKeyByteCount {
+                throw StructuralError.invalid
+            }
+        }
+        throw StructuralError.invalid
+    }
+
+    private mutating func parseUnicodeEscape() throws -> UnicodeScalar {
+        let first = try parseHexQuad()
+        let scalarValue: UInt32
+        if (0xD800...0xDBFF).contains(first) {
+            try consume(0x5C)
+            try consume(0x75)
+            let second = try parseHexQuad()
+            guard (0xDC00...0xDFFF).contains(second) else {
+                throw StructuralError.invalid
+            }
+            scalarValue = 0x10000
+                + (UInt32(first - 0xD800) << 10)
+                + UInt32(second - 0xDC00)
+        } else {
+            guard !(0xDC00...0xDFFF).contains(first) else {
+                throw StructuralError.invalid
+            }
+            scalarValue = UInt32(first)
+        }
+        guard let scalar = UnicodeScalar(scalarValue) else {
+            throw StructuralError.invalid
+        }
+        return scalar
+    }
+
+    private mutating func parseHexQuad() throws -> UInt16 {
+        var value: UInt16 = 0
+        for _ in 0..<4 {
+            guard let byte = peek(), let digit = Self.hexValue(byte) else {
+                throw StructuralError.invalid
+            }
+            advance()
+            value = value * 16 + UInt16(digit)
+        }
+        return value
+    }
+
+    private mutating func parseNumber() throws {
+        _ = consumeIfPresent(0x2D)
+        guard let first = peek() else {
+            throw StructuralError.invalid
+        }
+        if first == 0x30 {
+            advance()
+            if let next = peek(), (0x30...0x39).contains(next) {
+                throw StructuralError.invalid
+            }
+        } else if (0x31...0x39).contains(first) {
+            repeat { advance() } while peek().map {
+                (0x30...0x39).contains($0)
+            } == true
+        } else {
+            throw StructuralError.invalid
+        }
+
+        if consumeIfPresent(0x2E) {
+            try consumeDigits()
+        }
+        if let byte = peek(), byte == 0x65 || byte == 0x45 {
+            advance()
+            if let sign = peek(), sign == 0x2B || sign == 0x2D {
+                advance()
+            }
+            try consumeDigits()
+        }
+        if let byte = peek(),
+            !Self.isWhitespace(byte),
+            byte != 0x2C,
+            byte != 0x5D,
+            byte != 0x7D
+        {
+            throw StructuralError.invalid
+        }
+    }
+
+    private mutating func consumeDigits() throws {
+        var consumed = false
+        while let byte = peek(), (0x30...0x39).contains(byte) {
+            consumed = true
+            advance()
+        }
+        guard consumed else {
+            throw StructuralError.invalid
+        }
+    }
+
+    private mutating func consumeLiteral(_ literal: String) throws {
+        for byte in literal.utf8 {
+            try consume(byte)
+        }
+        if let byte = peek(),
+            !Self.isWhitespace(byte),
+            byte != 0x2C,
+            byte != 0x5D,
+            byte != 0x7D
+        {
+            throw StructuralError.invalid
+        }
+    }
+
+    private mutating func validate(
+        keys: Set<String>,
+        for expectation: Expectation
+    ) throws {
+        if let allowed = Self.allowedKeys(for: expectation), keys != allowed {
+            throw StructuralError.invalid
+        }
+    }
+
+    private static func allowedKeys(
+        for expectation: Expectation
+    ) -> Set<String>? {
+        switch expectation {
+        case .manifest: manifestKeys
+        case .source: sourceKeys
+        case .license: licenseKeys
+        case .semanticIdentity: semanticIdentityKeys
+        case .sourceSnapshot: sourceSnapshotKeys
+        case .generatorBehavior: generatorBehaviorKeys
+        case .candidate: candidateKeys
+        case .report: reportKeys
+        default: nil
+        }
+    }
+
+    private static func childExpectation(
+        for key: String,
+        in expectation: Expectation
+    ) -> Expectation {
+        switch (expectation, key) {
+        case (.manifest, "sources"): .sources
+        case (.manifest, "licenses"): .licenses
+        case (.manifest, "requiredAcknowledgments"): .acknowledgments
+        case (.manifest, "semanticIdentityPayload"): .semanticIdentity
+        case (.manifest, "entries"): .entries
+        case (.manifest, "report"): .report
+        case (.semanticIdentity, "sourceSnapshots"): .sourceSnapshots
+        case (.semanticIdentity, "generatorBehavior"): .generatorBehavior
+        case (.entries, _): .candidates
+        default: .any
+        }
+    }
+
+    private static func elementExpectation(
+        for expectation: Expectation
+    ) -> Expectation {
+        switch expectation {
+        case .sources: .source
+        case .licenses: .license
+        case .sourceSnapshots: .sourceSnapshot
+        case .candidates: .candidate
+        default: .any
+        }
+    }
+
+    private static func isObjectExpectation(_ expectation: Expectation) -> Bool {
+        switch expectation {
+        case .any, .manifest, .source, .license, .semanticIdentity,
+            .sourceSnapshot, .generatorBehavior, .entries, .candidate, .report:
+            true
+        default:
+            false
+        }
+    }
+
+    private static func isArrayExpectation(_ expectation: Expectation) -> Bool {
+        switch expectation {
+        case .any, .sources, .licenses, .acknowledgments, .sourceSnapshots,
+            .candidates:
+            true
+        default:
+            false
+        }
+    }
+
+    private mutating func skipWhitespace() {
+        while let byte = peek(), Self.isWhitespace(byte) {
+            advance()
+        }
+    }
+
+    private static func isWhitespace(_ byte: UInt8) -> Bool {
+        byte == 0x20 || byte == 0x09 || byte == 0x0A || byte == 0x0D
+    }
+
+    private static func hexValue(_ byte: UInt8) -> UInt8? {
+        switch byte {
+        case 0x30...0x39: byte - 0x30
+        case 0x41...0x46: byte - 0x41 + 10
+        case 0x61...0x66: byte - 0x61 + 10
+        default: nil
+        }
+    }
+
+    private func peek() -> UInt8? {
+        guard index < data.endIndex else { return nil }
+        return data[index]
+    }
+
+    private mutating func advance() {
+        data.formIndex(after: &index)
+    }
+
+    private mutating func consume(_ expected: UInt8) throws {
+        guard peek() == expected else {
+            throw StructuralError.invalid
+        }
+        advance()
+    }
+
+    private mutating func consumeIfPresent(_ expected: UInt8) -> Bool {
+        guard peek() == expected else { return false }
+        advance()
+        return true
     }
 }

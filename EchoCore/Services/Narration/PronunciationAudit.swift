@@ -576,6 +576,7 @@ extension PronunciationAuditManifest {
         diagnostics = try container.decode(
             [PronunciationAuditDiagnostic].self,
             forKey: .diagnostics)
+        try validateFields()
     }
 
     nonisolated func encode(to encoder: Encoder) throws {

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import CryptoKit
 import Foundation
 import Testing
 
@@ -23,8 +24,8 @@ import Testing
         #expect(pack.automaticCandidate(for: "missing") == nil)
     }
 
-    @Test func bundledPackLoadsThroughNarrationResources() {
-        let pack = EnglishPronunciationPack.bundledOrEmpty()
+    @Test func bundledPackLoadsThroughNarrationResources() async {
+        let pack = await EnglishPronunciationPack.bundledOrEmpty()
 
         #expect(pack.packVersion.hasPrefix("sha256:"))
         #expect(pack.packVersion != EnglishPronunciationPack.empty.packVersion)
@@ -40,7 +41,7 @@ import Testing
         #expect(EnglishPronunciationPack.empty.automaticCandidate(for: "example") == nil)
     }
 
-    @Test func bundledInvalidPackFallsBackToDeterministicEmptyValue() throws {
+    @Test func bundledInvalidPackFallsBackToDeterministicEmptyValue() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(
@@ -60,7 +61,7 @@ import Testing
             }
         }
 
-        #expect(EnglishPronunciationPack.bundledOrEmpty() == .empty)
+        #expect(await EnglishPronunciationPack.bundledOrEmpty() == .empty)
     }
 
     @Test func missingOrMalformedIdentityFieldsAreRejected() throws {
@@ -127,6 +128,134 @@ import Testing
         }
     }
 
+    @Test func duplicateObjectMembersAreRejectedAtEveryRelevantDepth() throws {
+        let duplicateMembers = [
+            Self.replacingFirst(
+                #"{"candidateCount":3"#,
+                with: #"{"candidateCount":3,"candidateCount":3"#),
+            Self.replacingFirst(
+                #""entries":{"example":["#,
+                with: #""entries":{"example":[],"example":["#),
+            Self.replacingFirst(
+                #""candidateID":"cmudict.example.63ea23914424""#,
+                with: #""candidateID":"cmudict.example.63ea23914424","candidateID":"cmudict.example.63ea23914424""#),
+            Self.replacingFirst(
+                #""candidateID":"cmudict.example.63ea23914424""#,
+                with: #""candidateID":"cmudict.example.63ea23914424","candidate\u0049D":"cmudict.example.63ea23914424""#),
+            Self.replacingFirst(
+                #""identitySchemaVersion":1"#,
+                with: #""identitySchemaVersion":1,"identitySchemaVersion":1"#),
+            Self.replacingFirst(
+                #""report":{"ambiguous":1"#,
+                with: #""report":{"ambiguous":1,"ambiguous":1"#),
+        ]
+
+        for data in duplicateMembers {
+            #expect(throws: (any Error).self) {
+                _ = try EnglishPronunciationPack(data: data)
+            }
+        }
+    }
+
+    @Test func unknownMembersCannotEscapeCanonicalIdentity() throws {
+        let unknownMembers = [
+            Self.replacingFirst(
+                #"{"candidateCount":3"#,
+                with: #"{"candidateCount":3,"unknownManifestAuthority":true"#),
+            Self.replacingFirst(
+                #""candidateID":"cmudict.example.63ea23914424""#,
+                with: #""candidateID":"cmudict.example.63ea23914424","unhashedCandidateAuthority":"quote\\\" slash\\\\ unicode\\uD83D\\uDE00 } ]""#),
+            Self.replacingFirst(
+                #""sources":[{"role":"supplemental-candidates""#,
+                with: #""sources":[{"unknownSourceAuthority":"unhashed","role":"supplemental-candidates""#),
+            Self.replacingFirst(
+                #""licenses":[{"licenseID":"CMUdict-BSD-style""#,
+                with: #""licenses":[{"unknownLicenseAuthority":"unhashed","licenseID":"CMUdict-BSD-style""#),
+            Self.replacingFirst(
+                #""semanticIdentityPayload":{"dialect":"en-US""#,
+                with: #""semanticIdentityPayload":{"unknownIdentityAuthority":"unhashed","dialect":"en-US""#),
+            Self.replacingFirst(
+                #""generatorBehavior":{"arpabetMappingVersion""#,
+                with: #""generatorBehavior":{"unknownPolicyAuthority":"unhashed","arpabetMappingVersion""#),
+            Self.replacingFirst(
+                #""sourceSnapshots":[{"sha256""#,
+                with: #""sourceSnapshots":[{"unknownSnapshotAuthority":"unhashed","sha256""#),
+            Self.replacingFirst(
+                #""report":{"ambiguous":1"#,
+                with: #""report":{"unknownReportField":0,"ambiguous":1"#),
+        ]
+
+        for data in unknownMembers {
+            #expect(throws: (any Error).self) {
+                _ = try EnglishPronunciationPack(data: data)
+            }
+        }
+    }
+
+    @Test func malformedStringsAndNestingFailBeforeTypedDecoding() {
+        let malformed = [
+            Data(#"{"candidateCount":3,"broken":"unterminated}"#.utf8),
+            Data(#"{"candidateCount":3,"broken":"bad\q"}"#.utf8),
+            Data(#"{"candidateCount":3,"broken":"bad\uD800"}"#.utf8),
+            Data(#"{"candidateCount":3,"broken":[1,2}}"#.utf8),
+        ]
+
+        for data in malformed {
+            #expect(throws: (any Error).self) {
+                _ = try EnglishPronunciationPack(data: data)
+            }
+        }
+    }
+
+    @Test func structuralValidationAcceptsEscapesAndUnicodeInValues() throws {
+        let escaped = try Self.rehashed { root in
+            Self.mutateFirstRecordCandidate(in: &root) {
+                $0["validationStatus"] = "validated-human-reviewed"
+                $0["senseLabel"] = "noun \"quoted\" \\ solidus / 😀"
+            }
+        }
+
+        _ = try EnglishPronunciationPack(data: escaped)
+    }
+
+    @Test func oversizedDataIsRejectedBeforeStructuralDecoding() {
+        #expect(EnglishPronunciationPack.maximumPackByteCount == 32 * 1_024 * 1_024)
+        let oversized = Data(
+            count: EnglishPronunciationPack.maximumPackByteCount + 1)
+
+        #expect(throws: (any Error).self) {
+            _ = try EnglishPronunciationPack(data: oversized)
+        }
+    }
+
+    @Test func oversizedBundledResourceFailsClosedFromFileMetadata() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: temporaryDirectory,
+            withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let resourceURL = temporaryDirectory
+            .appendingPathComponent("us_pronunciation_pack.json")
+        try Data().write(to: resourceURL)
+        let file = try FileHandle(forWritingTo: resourceURL)
+        try file.truncate(
+            atOffset: UInt64(EnglishPronunciationPack.maximumPackByteCount + 1))
+        try file.close()
+
+        let original = ProcessInfo.processInfo.environment["ECHO_RESOURCE_DIR"]
+        setenv("ECHO_RESOURCE_DIR", temporaryDirectory.path, 1)
+        defer {
+            if let original {
+                setenv("ECHO_RESOURCE_DIR", original, 1)
+            } else {
+                unsetenv("ECHO_RESOURCE_DIR")
+            }
+        }
+
+        #expect(await EnglishPronunciationPack.bundledOrEmpty() == .empty)
+    }
+
     @Test func duplicateCandidateIDAndUnresolvedSourceAreRejected() throws {
         let duplicateID = try Self.mutated { root in
             var entries = root["entries"] as! [String: Any]
@@ -184,6 +313,40 @@ import Testing
         ]
 
         for mutate in invalidMutations {
+            #expect(throws: (any Error).self) {
+                _ = try EnglishPronunciationPack(data: Self.mutated(mutate))
+            }
+        }
+    }
+
+    @Test func reportOnlyStatusRequiresGenuineAmbiguity() throws {
+        let singletonReportOnly = try Self.rehashed { root in
+            Self.mutateFirstCandidate(in: &root) {
+                $0["validationStatus"] = "report-only-missing-sense-label"
+                $0["automaticWithoutContext"] = false
+            }
+        }
+
+        #expect(throws: (any Error).self) {
+            _ = try EnglishPronunciationPack(data: singletonReportOnly)
+        }
+    }
+
+    @Test func exactCMUdictAttributionIsRequiredOutsidePackIdentity() throws {
+        let mutations: [(inout [String: Any]) -> Void] = [
+            { root in
+                var licenses = root["licenses"] as! [[String: Any]]
+                licenses[0]["licenseID"] = "not-the-cmudict-license"
+                root["licenses"] = licenses
+            },
+            {
+                $0["requiredAcknowledgments"] = [
+                    "not a CMUdict acknowledgment",
+                ]
+            },
+        ]
+
+        for mutate in mutations {
             #expect(throws: (any Error).self) {
                 _ = try EnglishPronunciationPack(data: Self.mutated(mutate))
             }
@@ -282,6 +445,52 @@ import Testing
         return try JSONSerialization.data(
             withJSONObject: root,
             options: [.sortedKeys, .withoutEscapingSlashes])
+    }
+
+    private static func rehashed(
+        _ mutate: (inout [String: Any]) -> Void
+    ) throws -> Data {
+        var root = try #require(
+            JSONSerialization.jsonObject(with: Data(validPackJSON.utf8))
+                as? [String: Any])
+        mutate(&root)
+
+        let entries = try #require(root["entries"])
+        let entriesData = try JSONSerialization.data(
+            withJSONObject: entries,
+            options: [.sortedKeys, .withoutEscapingSlashes])
+        let entriesIdentity = "sha256:" + SHA256.hash(data: entriesData)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        root["normalizedDataSHA256"] = entriesIdentity
+
+        var payload = try #require(
+            root["semanticIdentityPayload"] as? [String: Any])
+        payload["normalizedDataSHA256"] = entriesIdentity
+        root["semanticIdentityPayload"] = payload
+        let payloadData = try JSONSerialization.data(
+            withJSONObject: payload,
+            options: [.sortedKeys, .withoutEscapingSlashes])
+        root["packVersion"] = "sha256:" + SHA256.hash(data: payloadData)
+            .map { String(format: "%02x", $0) }
+            .joined()
+
+        return try JSONSerialization.data(
+            withJSONObject: root,
+            options: [.sortedKeys, .withoutEscapingSlashes])
+    }
+
+    private static func replacingFirst(
+        _ target: String,
+        with replacement: String
+    ) -> Data {
+        guard let range = validPackJSON.range(of: target) else {
+            Issue.record("Missing fixture marker: \(target)")
+            return Data()
+        }
+        var result = validPackJSON
+        result.replaceSubrange(range, with: replacement)
+        return Data(result.utf8)
     }
 
     private static func mutateFirstCandidate(
