@@ -134,6 +134,37 @@ nonisolated enum ArticleSyncZoneDeletionPolicy {
     }
 }
 
+nonisolated enum ArticleSyncZoneRecoveryResult: Equatable, Sendable {
+    case noAction
+    case rebuild([ArticlePendingCloudChange])
+    case quarantine
+    case failed(ArticleSyncFailureCode)
+}
+
+nonisolated struct ArticleSyncZoneRecoveryHandler: Sendable {
+    let syncDAO: ArticleSyncDAO
+
+    func handle(
+        deletionReasons: [CKDatabase.DatabaseChange.Deletion.Reason],
+        updatedAt: String,
+        fetchProgress: inout ArticleSyncFetchProgress
+    ) -> ArticleSyncZoneRecoveryResult {
+        guard deletionReasons.isEmpty == false else { return .noAction }
+        if deletionReasons.contains(where: {
+            ArticleSyncZoneDeletionPolicy.action(for: $0) == .quarantineLane
+        }) {
+            return .quarantine
+        }
+        do {
+            return .rebuild(
+                try syncDAO.recoverMissingZone(updatedAt: updatedAt))
+        } catch {
+            fetchProgress.recordApplyFailure(.localPersistence)
+            return .failed(.localPersistence)
+        }
+    }
+}
+
 nonisolated struct ArticleSyncFetchProgress: Sendable {
     enum Error: Swift.Error, Equatable, Sendable {
         case applyFailed(ArticleSyncFailureCode)
@@ -178,20 +209,20 @@ nonisolated struct ArticleSyncAccountEventHandler: Sendable {
     ) throws -> Result {
         switch changeType {
         case .signIn(let currentUser):
-            try syncDAO.bindAccountOwner(
+            let binding = try syncDAO.bindAccountOwner(
                 currentUser.recordName,
                 updatedAt: updatedAt)
-            return Result(shouldSchedulePendingChanges: true)
+            return Result(shouldSchedulePendingChanges: binding == .available)
         case .signOut:
             try syncDAO.unbindAccountOwner(
                 status: .signedOut,
                 updatedAt: updatedAt)
             return Result(shouldSchedulePendingChanges: false)
         case .switchAccounts(_, let currentUser):
-            try syncDAO.bindAccountOwner(
+            let binding = try syncDAO.bindAccountOwner(
                 currentUser.recordName,
                 updatedAt: updatedAt)
-            return Result(shouldSchedulePendingChanges: true)
+            return Result(shouldSchedulePendingChanges: binding == .available)
         @unknown default:
             try syncDAO.unbindAccountOwner(
                 status: .unknown,
@@ -316,8 +347,16 @@ nonisolated struct ArticleFetchedCloudBatchApplier: Sendable {
                 databaseChanges.append(.revision(payload.revision))
             case .anthology(let payload):
                 var manifest = payload.manifest
+                let disposition = try syncDAO.anthologyDisposition(for: manifest)
                 if let coverURL = payload.coverURL {
-                    let targetID = try coverTargetID(for: manifest)
+                    guard
+                        let targetID = UUID(
+                            uuidString: disposition.targetAnthologyID),
+                        targetID.uuidString == disposition.targetAnthologyID
+                    else {
+                        throw ArticleCloudRecordCodec.Error.invalidEntityID(
+                            disposition.targetAnthologyID)
+                    }
                     let anthologyDirectory =
                         workshopRootDirectory
                         .appending(path: "Anthologies", directoryHint: .isDirectory)
@@ -334,7 +373,10 @@ nonisolated struct ArticleFetchedCloudBatchApplier: Sendable {
                             anthologyDirectory.appending(path: coverPath))
                     }
                 }
-                databaseChanges.append(.anthology(manifest))
+                databaseChanges.append(
+                    .anthology(
+                        manifest,
+                        disposition: disposition))
             }
         }
 
@@ -374,6 +416,12 @@ nonisolated struct ArticleFetchedCloudBatchApplier: Sendable {
             uniqueKeysWithValues: fetchedRevisions.map { ($0.id, $0) })
         let fileStore = ArticleWorkshopFileStore(root: workshopRootDirectory)
         for revision in fetchedRevisions {
+            if let existing = try syncDAO.revision(id: revision.id),
+                existing != revision
+            {
+                throw ArticleCloudRecordCodec.Error.invalidField(
+                    "revisionIdentityCollision")
+            }
             let capture: ArticleCaptureRecord
             if let fetched = fetchedCaptures[revision.captureID] {
                 capture = fetched
@@ -404,34 +452,6 @@ nonisolated struct ArticleFetchedCloudBatchApplier: Sendable {
         }
     }
 
-    private func coverTargetID(
-        for incoming: ArticleCloudAnthologyManifest
-    ) throws -> UUID {
-        guard let incomingID = UUID(uuidString: incoming.anthology.id),
-            incomingID.uuidString == incoming.anthology.id
-        else {
-            throw ArticleCloudRecordCodec.Error.invalidEntityID(incoming.anthology.id)
-        }
-        guard let existing = try syncDAO.anthologyManifest(id: incoming.anthology.id)
-        else {
-            return incomingID
-        }
-        if cloudComparable(existing) == cloudComparable(incoming) {
-            return incomingID
-        }
-        return ArticleSyncConflictIdentity.recoveredAnthologyID(
-            incoming: incoming,
-            existing: existing)
-    }
-
-    private func cloudComparable(
-        _ manifest: ArticleCloudAnthologyManifest
-    ) -> ArticleCloudAnthologyManifest {
-        var result = manifest
-        result.anthology.coverPath = nil
-        result.anthology.latestBuildRevision = 0
-        return result
-    }
 }
 
 /// Offline-first coordinator. Its initializer is CloudKit-free; production
@@ -538,7 +558,10 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
 
     func start() throws {
         guard engine == nil else { return }
-        let storedState = try syncDAO.engineState()
+        let restricted =
+            try syncDAO.activeAccountOwnerIsQuarantined()
+            || syncDAO.state()?.accountStatus == .restricted
+        let storedState = restricted ? nil : try syncDAO.engineState()
         var configuration = CKSyncEngine.Configuration(
             database: CKContainer(identifier: Self.containerIdentifier)
                 .privateCloudDatabase,
@@ -548,12 +571,14 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
         let engine = CKSyncEngine(configuration)
         self.engine = engine
         fetchProgress.resetForNewEngineEpoch()
-        engine.state.add(pendingDatabaseChanges: [
-            .saveZone(CKRecordZone(zoneID: zoneID))
-        ])
-        let changes = try syncDAO.pendingChanges()
-        engine.state.add(
-            pendingRecordZoneChanges: changes.map(pendingEngineChange))
+        if restricted == false {
+            engine.state.add(pendingDatabaseChanges: [
+                .saveZone(CKRecordZone(zoneID: zoneID))
+            ])
+            let changes = try syncDAO.pendingChanges()
+            engine.state.add(
+                pendingRecordZoneChanges: changes.map(pendingEngineChange))
+        }
     }
 
     func schedule(_ changes: [ArticlePendingCloudChange]) async {
@@ -743,6 +768,10 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
                 let changes = try syncDAO.pendingChanges()
                 syncEngine.state.add(
                     pendingRecordZoneChanges: changes.map(pendingEngineChange))
+            } else if ArticleSyncAccountEventPolicy.startsNewEngineEpoch(
+                event.changeType)
+            {
+                fetchProgress.recordApplyFailure(.authentication)
             }
         } catch {
             // Local workshop data is deliberately preserved even when its sync
@@ -755,24 +784,24 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
         syncEngine: CKSyncEngine
     ) {
         let workshopDeletions = event.deletions.filter { $0.zoneID == zoneID }
-        guard workshopDeletions.isEmpty == false else { return }
-        if workshopDeletions.contains(where: {
-            ArticleSyncZoneDeletionPolicy.action(for: $0.reason) == .quarantineLane
-        }) {
-            quarantineActiveLane(syncEngine: syncEngine)
+        let result = ArticleSyncZoneRecoveryHandler(syncDAO: syncDAO).handle(
+            deletionReasons: workshopDeletions.map(\.reason),
+            updatedAt: Date().ISO8601Format(),
+            fetchProgress: &fetchProgress)
+        switch result {
+        case .noAction:
             return
-        }
-        do {
-            let changes = try syncDAO.recoverMissingZone(
-                updatedAt: Date().ISO8601Format())
+        case .quarantine:
+            quarantineActiveLane(syncEngine: syncEngine)
+        case .rebuild(let changes):
             syncEngine.state.add(pendingDatabaseChanges: [
                 .saveZone(CKRecordZone(zoneID: zoneID))
             ])
             syncEngine.state.add(
                 pendingRecordZoneChanges: changes.map(pendingEngineChange))
             persist(stableCode: .missingZone)
-        } catch {
-            persist(stableCode: .localPersistence)
+        case .failed(let code):
+            persist(stableCode: code)
         }
     }
 
@@ -785,8 +814,8 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
         inFlightChanges.removeAll()
         fetchProgress.recordApplyFailure(.authentication)
         do {
-            try syncDAO.unbindAccountOwner(
-                status: .restricted,
+            try syncDAO.quarantineActiveAccountOwner(
+                reason: "zoneResetOrPurge",
                 updatedAt: Date().ISO8601Format())
         } catch {
             persist(stableCode: .localPersistence)

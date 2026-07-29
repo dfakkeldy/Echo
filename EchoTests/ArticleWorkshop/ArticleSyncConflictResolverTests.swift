@@ -166,7 +166,7 @@ import Testing
     }
 
     @MainActor
-    @Test func sequentialRemoteAnthologyUpdateReplacesAuthoringStateButKeepsLocalProducts() throws {
+    @Test func sequentialRemoteAnthologyUpdateReplacesCoverButKeepsLocalBuildRevision() throws {
         let database = try DatabaseService(inMemory: ())
         let dao = ArticleSyncDAO(db: database.writer)
         let local = anthologyManifest(
@@ -186,8 +186,53 @@ import Testing
 
         let updated = try #require(try dao.anthologyManifest(id: stored.id))
         #expect(updated.anthology.title == "New remote title")
-        #expect(updated.anthology.coverPath == "cover-local.png")
+        #expect(updated.anthology.coverPath == nil)
         #expect(updated.anthology.latestBuildRevision == 7)
+        #expect(
+            try database.read {
+                try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM anthology")
+            } == 1)
+    }
+
+    @MainActor
+    @Test func actualCodecFingerprintRecognizesPendingSequentialAnthologyUpdate() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        let base = anthologyManifest(
+            title: "Server base",
+            modifiedAt: "2026-07-29T12:00:00Z",
+            captureIDs: [])
+        try database.write { db in
+            var anthology = base.anthology
+            try anthology.insert(db)
+        }
+        let codec = ArticleCloudRecordCodec()
+        let baseRecord = try codec.anthologyRecord(base, coverURL: nil)
+        try dao.storeFetchedCloudRecord(
+            recordName: baseRecord.recordID.recordName,
+            recordType: .anthology,
+            entityID: base.anthology.id,
+            systemFields: Data("base-fields".utf8),
+            contentFingerprint: try codec.contentFingerprint(for: baseRecord),
+            updatedAt: "2026-07-29T12:00:00Z")
+        _ = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: baseRecord.recordID.recordName,
+                recordType: .anthology,
+                entityID: base.anthology.id,
+                operation: .save,
+                queuedAt: "2026-07-29T12:00:01Z"))
+        let incoming = anthologyManifest(
+            title: "Sequential remote update",
+            modifiedAt: "2026-07-29T12:00:02Z",
+            captureIDs: [])
+
+        try dao.applyFetchedChanges([.anthology(incoming)])
+
+        #expect(
+            try dao.anthologyManifest(id: base.anthology.id)?.anthology.title
+                == "Sequential remote update")
         #expect(
             try database.read {
                 try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM anthology")
@@ -311,6 +356,128 @@ import Testing
         #expect(progress.shouldPersistState == false)
         progress.resetForNewEngineEpoch()
         #expect(progress.shouldPersistState)
+    }
+
+    @MainActor
+    @Test func deletedZoneRecoveryFailurePoisonsLaterStateCheckpoint() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        let handler = ArticleSyncZoneRecoveryHandler(syncDAO: dao)
+        var progress = ArticleSyncFetchProgress()
+
+        let result = handler.handle(
+            deletionReasons: [.deleted],
+            updatedAt: "2026-07-29T12:00:00Z",
+            fetchProgress: &progress)
+
+        #expect(result == .failed(.localPersistence))
+        #expect(progress.shouldPersistState == false)
+        #expect(throws: ArticleSyncFetchProgress.Error.applyFailed(.localPersistence)) {
+            try progress.throwIfFailed()
+        }
+    }
+
+    @MainActor
+    @Test func parentRevisionDeletionRefusesRetainedOrPendingDescendants() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        let captureDAO = ArticleCaptureDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        let capture = fetchedCapture(id: "00000000-0000-0000-0000-000000000370")
+        let parent = revision(
+            id: "00000000-0000-0000-0000-000000000371",
+            parentID: nil,
+            recipe: "{}")
+        var ownedParent = parent
+        ownedParent.captureID = capture.id
+        let child = ArticleRevisionRecord(
+            id: "00000000-0000-0000-0000-000000000372",
+            captureID: capture.id,
+            parentRevisionID: ownedParent.id,
+            metadataOverridesJSON: "{}",
+            recipeJSON: "{}",
+            readableContentSHA256: String(repeating: "d", count: 64),
+            createdAt: "2026-07-29T12:00:02Z",
+            deviceName: nil)
+        try captureDAO.saveCapture(capture)
+        try captureDAO.saveRevision(ownedParent, makeCurrent: false)
+        try captureDAO.saveRevision(child, makeCurrent: true)
+        let parentRecordName = "revision.\(ownedParent.id)"
+        try dao.storeFetchedCloudRecord(
+            recordName: parentRecordName,
+            recordType: .revision,
+            entityID: ownedParent.id,
+            systemFields: Data("parent-fields".utf8),
+            contentFingerprint: "parent",
+            updatedAt: "2026-07-29T12:00:03Z")
+        let pendingChild = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: "revision.\(child.id)",
+                recordType: .revision,
+                entityID: child.id,
+                operation: .save,
+                queuedAt: "2026-07-29T12:00:04Z"))
+
+        #expect(throws: (any Error).self) {
+            try dao.applyFetchedChanges(
+                [
+                    .delete(recordType: .revision, entityID: ownedParent.id),
+                    .delete(recordType: .revision, entityID: child.id),
+                ],
+                deletedRecordNames: [
+                    parentRecordName,
+                    "revision.\(child.id)",
+                ])
+        }
+
+        #expect(try dao.revision(id: ownedParent.id) == ownedParent)
+        #expect(try dao.revision(id: child.id) == child)
+        #expect(try dao.capture(id: capture.id)?.currentRevisionID == child.id)
+        #expect(try dao.pendingChanges() == [pendingChild])
+        #expect(try dao.cloudRecord(recordName: parentRecordName) != nil)
+    }
+
+    @MainActor
+    @Test func leafRevisionDeletionFallsCurrentRevisionBackToParent() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        let captureDAO = ArticleCaptureDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        let capture = fetchedCapture(id: "00000000-0000-0000-0000-000000000373")
+        var parent = revision(
+            id: "00000000-0000-0000-0000-000000000374",
+            parentID: nil,
+            recipe: "{}")
+        parent.captureID = capture.id
+        let leaf = ArticleRevisionRecord(
+            id: "00000000-0000-0000-0000-000000000375",
+            captureID: capture.id,
+            parentRevisionID: parent.id,
+            metadataOverridesJSON: "{}",
+            recipeJSON: "{}",
+            readableContentSHA256: String(repeating: "e", count: 64),
+            createdAt: "2026-07-29T12:00:02Z",
+            deviceName: nil)
+        try captureDAO.saveCapture(capture)
+        try captureDAO.saveRevision(parent, makeCurrent: false)
+        try captureDAO.saveRevision(leaf, makeCurrent: true)
+        let leafRecordName = "revision.\(leaf.id)"
+        try dao.storeFetchedCloudRecord(
+            recordName: leafRecordName,
+            recordType: .revision,
+            entityID: leaf.id,
+            systemFields: Data("leaf-fields".utf8),
+            contentFingerprint: "leaf",
+            updatedAt: "2026-07-29T12:00:03Z")
+
+        try dao.applyFetchedChanges(
+            [.delete(recordType: .revision, entityID: leaf.id)],
+            deletedRecordNames: [leafRecordName])
+
+        #expect(try dao.revision(id: leaf.id) == nil)
+        #expect(try dao.revision(id: parent.id) == parent)
+        #expect(try dao.capture(id: capture.id)?.currentRevisionID == parent.id)
+        #expect(try dao.cloudRecord(recordName: leafRecordName) == nil)
     }
 
     @MainActor

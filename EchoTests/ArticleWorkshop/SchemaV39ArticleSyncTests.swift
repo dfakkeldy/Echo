@@ -50,6 +50,15 @@ import Testing
                         "account_owner_id",
                         "updated_at",
                     ])
+
+            let guardColumns = try db.columns(in: "article_sync_account_guard").map(\.name)
+            #expect(
+                guardColumns
+                    == [
+                        "account_owner_id",
+                        "reason",
+                        "updated_at",
+                    ])
         }
     }
 
@@ -261,7 +270,8 @@ import Testing
                 systemFields: Data("v2-fields".utf8),
                 contentFingerprint: "v2")
         ])
-        _ = try dao.enqueueReturning(seed)
+        let v3 = try dao.enqueueReturning(seed)
+        #expect(v3.generation > v2.generation)
 
         try dao.acknowledgeSaved([
             .init(
@@ -275,6 +285,7 @@ import Testing
         #expect(stored.systemFields == Data("v2-fields".utf8))
         #expect(stored.contentFingerprint == "v2")
         #expect(stored.acknowledgedGeneration == v2.generation)
+        #expect(try dao.pendingChanges() == [v3])
     }
 
     @MainActor
@@ -385,6 +396,63 @@ import Testing
             #expect(accountAReceiptCount == 1)
             #expect(captureCount == 4)
         }
+    }
+
+    @MainActor
+    @Test func quarantinedAccountRemainsRestrictedAcrossSignInSwitchAndRestart() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        let zone = CKRecordZone.ID(
+            zoneName: "_defaultZone",
+            ownerName: CKCurrentUserDefaultName)
+        let accountA = CKRecord.ID(recordName: "account-A", zoneID: zone)
+        let accountB = CKRecord.ID(recordName: "account-B", zoneID: zone)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        let pendingA = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: "capture.00000000-0000-0000-0000-000000000134",
+                recordType: .capture,
+                entityID: "00000000-0000-0000-0000-000000000134",
+                operation: .save,
+                queuedAt: "2026-07-29T12:00:01Z"))
+        try dao.quarantineActiveAccountOwner(
+            reason: "encryptedDataReset",
+            updatedAt: "2026-07-29T12:00:02Z")
+
+        let restartedDAO = ArticleSyncDAO(db: database.writer)
+        let restartedHandler = ArticleSyncAccountEventHandler(syncDAO: restartedDAO)
+        let sameAccount = try restartedHandler.handle(
+            .signIn(currentUser: accountA),
+            updatedAt: "2026-07-29T12:01:00Z")
+        #expect(sameAccount.shouldSchedulePendingChanges == false)
+        #expect(try restartedDAO.state()?.accountOwnerID == "account-A")
+        #expect(try restartedDAO.state()?.accountStatus == .restricted)
+        #expect(try restartedDAO.pendingChanges().isEmpty)
+        #expect(
+            try restartedDAO.pendingChanges(accountOwnerID: "account-A") == [pendingA])
+        try restartedDAO.updateStatus(
+            .unknown,
+            lastErrorCode: "late-event",
+            updatedAt: "2026-07-29T12:01:01Z")
+        #expect(try restartedDAO.state()?.accountStatus == .restricted)
+        #expect(try restartedDAO.pendingChanges().isEmpty)
+
+        let switchedToB = try restartedHandler.handle(
+            .switchAccounts(previousUser: accountA, currentUser: accountB),
+            updatedAt: "2026-07-29T12:02:00Z")
+        #expect(switchedToB.shouldSchedulePendingChanges)
+        #expect(try restartedDAO.state()?.accountOwnerID == "account-B")
+        #expect(try restartedDAO.state()?.accountStatus == .switchedAccount)
+
+        let switchedBackToA = try restartedHandler.handle(
+            .switchAccounts(previousUser: accountB, currentUser: accountA),
+            updatedAt: "2026-07-29T12:03:00Z")
+        #expect(switchedBackToA.shouldSchedulePendingChanges == false)
+        #expect(try restartedDAO.state()?.accountOwnerID == "account-A")
+        #expect(try restartedDAO.state()?.accountStatus == .restricted)
+        #expect(try restartedDAO.pendingChanges().isEmpty)
+        #expect(
+            try restartedDAO.pendingChanges(accountOwnerID: "account-A") == [pendingA])
     }
 
     @MainActor

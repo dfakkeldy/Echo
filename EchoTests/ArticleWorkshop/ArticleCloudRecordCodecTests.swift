@@ -2,6 +2,7 @@
 import CloudKit
 import CryptoKit
 import Foundation
+import GRDB
 import Testing
 import ZIPFoundation
 
@@ -383,6 +384,49 @@ import ZIPFoundation
         }
         #expect(try dao.revision(id: crossCaptureChild.id) == nil)
         #expect(try dao.capture(id: fixture.capture.id)?.currentRevisionID == nil)
+
+        let validRevision = ArticleRevisionRecord(
+            id: "00000000-0000-0000-0000-000000000225",
+            captureID: fixture.capture.id,
+            parentRevisionID: nil,
+            metadataOverridesJSON: String(
+                decoding: try encoder.encode(validRecipe.metadataOverrides),
+                as: UTF8.self),
+            recipeJSON: String(
+                decoding: try encoder.encode(validRecipe),
+                as: UTF8.self),
+            readableContentSHA256: clean.readableContentSHA256,
+            createdAt: "2026-07-29T12:00:03Z",
+            deviceName: nil)
+        let validRecord = try fixture.codec.revisionRecord(validRevision)
+        try applier.apply(modifications: [validRecord], deletions: [])
+        try applier.apply(modifications: [validRecord], deletions: [])
+        #expect(try dao.revision(id: validRevision.id) == validRevision)
+        #expect(try dao.capture(id: fixture.capture.id)?.currentRevisionID == validRevision.id)
+        let receiptBeforeCollision = try #require(
+            try dao.cloudRecord(recordName: validRecord.recordID.recordName))
+
+        var conflictingRevision = validRevision
+        conflictingRevision.deviceName = "Different remote device"
+        let conflictingRecord = try fixture.codec.revisionRecord(conflictingRevision)
+        let unrelatedAnthology = cloudAnthologyManifest(
+            id: "00000000-0000-0000-0000-000000000219",
+            title: "Must roll back",
+            modifiedAt: "2026-07-29T12:00:04Z")
+        let unrelatedRecord = try fixture.codec.anthologyRecord(
+            unrelatedAnthology,
+            coverURL: nil)
+        #expect(throws: (any Error).self) {
+            try applier.apply(
+                modifications: [conflictingRecord, unrelatedRecord],
+                deletions: [])
+        }
+        #expect(try dao.revision(id: validRevision.id) == validRevision)
+        #expect(try dao.capture(id: fixture.capture.id)?.currentRevisionID == validRevision.id)
+        #expect(
+            try dao.cloudRecord(recordName: validRecord.recordID.recordName)
+                == receiptBeforeCollision)
+        #expect(try dao.anthologyManifest(id: unrelatedAnthology.anthology.id) == nil)
     }
 
     @Test func anthologyRecordOmitsLocalCoverPathAndGeneratedBuildState() throws {
@@ -415,6 +459,208 @@ import ZIPFoundation
         #expect(record["generatedEPUB"] == nil)
         #expect(record["narration"] == nil)
         #expect(record["m4b"] == nil)
+    }
+
+    @MainActor
+    @Test func sameManifestRemoteCoverUpdatesOriginalAnthology() throws {
+        let fixture = try ArticleCloudCodecFixture()
+        defer { fixture.remove() }
+        try FileManager.default.createDirectory(
+            at: fixture.managedDirectory,
+            withIntermediateDirectories: true)
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        let local = cloudAnthologyManifest(
+            title: "Same manifest",
+            modifiedAt: "2026-07-29T12:00:00Z")
+        try insertAnthology(local, into: database)
+        let coverURL = fixture.root.appending(path: "same-manifest.png")
+        try cloudCoverPNGData().write(to: coverURL)
+        let record = try fixture.codec.anthologyRecord(local, coverURL: coverURL)
+        let applier = ArticleFetchedCloudBatchApplier(
+            syncDAO: dao,
+            codec: fixture.codec,
+            workshopRootDirectory: fixture.managedDirectory,
+            incomingDirectory: fixture.incomingDirectory)
+
+        try applier.apply(modifications: [record], deletions: [])
+
+        let stored = try #require(try dao.anthologyManifest(id: local.anthology.id))
+        let coverPath = try #require(stored.anthology.coverPath)
+        let cover = fixture.managedDirectory
+            .appending(path: "Anthologies", directoryHint: .isDirectory)
+            .appending(path: local.anthology.id, directoryHint: .isDirectory)
+            .appending(path: coverPath)
+        #expect(FileManager.default.fileExists(atPath: cover.path))
+    }
+
+    @MainActor
+    @Test func oneSidedRemoteManifestAndCoverUpdateUsesOriginalAnthology() throws {
+        let fixture = try ArticleCloudCodecFixture()
+        defer { fixture.remove() }
+        try FileManager.default.createDirectory(
+            at: fixture.managedDirectory,
+            withIntermediateDirectories: true)
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        var local = cloudAnthologyManifest(
+            title: "Old title",
+            modifiedAt: "2026-07-29T12:00:00Z")
+        local.anthology.latestBuildRevision = 7
+        try insertAnthology(local, into: database)
+        let incoming = cloudAnthologyManifest(
+            title: "Remote title",
+            modifiedAt: "2026-07-29T12:00:01Z")
+        let coverURL = fixture.root.appending(path: "one-sided.png")
+        try cloudCoverPNGData().write(to: coverURL)
+        let record = try fixture.codec.anthologyRecord(incoming, coverURL: coverURL)
+        let applier = ArticleFetchedCloudBatchApplier(
+            syncDAO: dao,
+            codec: fixture.codec,
+            workshopRootDirectory: fixture.managedDirectory,
+            incomingDirectory: fixture.incomingDirectory)
+
+        try applier.apply(modifications: [record], deletions: [])
+
+        let stored = try #require(try dao.anthologyManifest(id: local.anthology.id))
+        let coverPath = try #require(stored.anthology.coverPath)
+        #expect(stored.anthology.title == "Remote title")
+        #expect(stored.anthology.latestBuildRevision == 7)
+        let anthologyRoot = fixture.managedDirectory
+            .appending(path: "Anthologies", directoryHint: .isDirectory)
+        #expect(
+            FileManager.default.fileExists(
+                atPath:
+                    anthologyRoot
+                    .appending(path: local.anthology.id, directoryHint: .isDirectory)
+                    .appending(path: coverPath).path))
+        #expect(
+            (try FileManager.default.contentsOfDirectory(atPath: anthologyRoot.path))
+                == [local.anthology.id])
+    }
+
+    @MainActor
+    @Test func concurrentRemoteCoverIsReferencedByStableRecoveredAnthology() throws {
+        let fixture = try ArticleCloudCodecFixture()
+        defer { fixture.remove() }
+        try FileManager.default.createDirectory(
+            at: fixture.managedDirectory,
+            withIntermediateDirectories: true)
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        let base = cloudAnthologyManifest(
+            title: "Shared title",
+            modifiedAt: "2026-07-29T12:00:00Z")
+        try insertAnthology(base, into: database)
+        let baseRecord = try fixture.codec.anthologyRecord(base, coverURL: nil)
+        try dao.storeFetchedCloudRecord(
+            recordName: baseRecord.recordID.recordName,
+            recordType: .anthology,
+            entityID: base.anthology.id,
+            systemFields: Data("base-fields".utf8),
+            contentFingerprint: try fixture.codec.contentFingerprint(for: baseRecord),
+            updatedAt: "2026-07-29T12:00:00Z")
+        try database.write { db in
+            try db.execute(
+                sql: "UPDATE anthology SET title = ?, modified_at = ? WHERE id = ?",
+                arguments: [
+                    "Local edit",
+                    "2026-07-29T12:00:01Z",
+                    base.anthology.id,
+                ])
+        }
+        _ = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: baseRecord.recordID.recordName,
+                recordType: .anthology,
+                entityID: base.anthology.id,
+                operation: .save,
+                queuedAt: "2026-07-29T12:00:01Z"))
+        let incoming = cloudAnthologyManifest(
+            title: "Remote edit",
+            modifiedAt: "2026-07-29T12:00:02Z")
+        let local = try #require(try dao.anthologyManifest(id: base.anthology.id))
+        let recoveredID = ArticleSyncConflictIdentity.recoveredAnthologyID(
+            incoming: incoming,
+            existing: local)
+        let coverURL = fixture.root.appending(path: "conflict.png")
+        try cloudCoverPNGData().write(to: coverURL)
+        let record = try fixture.codec.anthologyRecord(incoming, coverURL: coverURL)
+        let applier = ArticleFetchedCloudBatchApplier(
+            syncDAO: dao,
+            codec: fixture.codec,
+            workshopRootDirectory: fixture.managedDirectory,
+            incomingDirectory: fixture.incomingDirectory)
+
+        try applier.apply(modifications: [record], deletions: [])
+
+        #expect(
+            try dao.anthologyManifest(id: base.anthology.id)?.anthology.title
+                == "Local edit")
+        let recovered = try #require(
+            try dao.anthologyManifest(id: recoveredID.uuidString))
+        let coverPath = try #require(recovered.anthology.coverPath)
+        #expect(
+            FileManager.default.fileExists(
+                atPath: fixture.managedDirectory
+                    .appending(path: "Anthologies", directoryHint: .isDirectory)
+                    .appending(path: recoveredID.uuidString, directoryHint: .isDirectory)
+                    .appending(path: coverPath).path))
+    }
+
+    @MainActor
+    @Test func anthologyStateChangeBeforeCommitFailsClosedAndRemovesNewCover() throws {
+        let fixture = try ArticleCloudCodecFixture()
+        defer { fixture.remove() }
+        try FileManager.default.createDirectory(
+            at: fixture.managedDirectory,
+            withIntermediateDirectories: true)
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        let local = cloudAnthologyManifest(
+            title: "Original",
+            modifiedAt: "2026-07-29T12:00:00Z")
+        try insertAnthology(local, into: database)
+        let incoming = cloudAnthologyManifest(
+            title: "Incoming",
+            modifiedAt: "2026-07-29T12:00:01Z")
+        let intervening = cloudAnthologyManifest(
+            title: "Intervening",
+            modifiedAt: "2026-07-29T12:00:02Z")
+        let coverData = cloudCoverPNGData()
+        let coverURL = fixture.root.appending(path: "state-change.png")
+        try coverData.write(to: coverURL)
+        let record = try fixture.codec.anthologyRecord(incoming, coverURL: coverURL)
+        let applier = ArticleFetchedCloudBatchApplier(
+            syncDAO: dao,
+            codec: fixture.codec,
+            workshopRootDirectory: fixture.managedDirectory,
+            incomingDirectory: fixture.incomingDirectory,
+            beforeDatabaseCommit: {
+                try dao.applyFetchedChanges([.anthology(intervening)])
+            })
+
+        #expect(throws: (any Error).self) {
+            try applier.apply(modifications: [record], deletions: [])
+        }
+
+        #expect(
+            try dao.anthologyManifest(id: local.anthology.id)?.anthology.title
+                == "Intervening")
+        let coverName =
+            "cover-"
+            + SHA256.hash(data: coverData).map { String(format: "%02x", $0) }.joined()
+            + ".png"
+        #expect(
+            FileManager.default.fileExists(
+                atPath: fixture.managedDirectory
+                    .appending(path: "Anthologies", directoryHint: .isDirectory)
+                    .appending(path: local.anthology.id, directoryHint: .isDirectory)
+                    .appending(path: coverName).path) == false)
     }
 
     @Test func capturePackageRequiresRealMatchingEnvelopeAndSanitizerSemantics() throws {
@@ -502,6 +748,44 @@ import ZIPFoundation
 
 private enum InjectedApplyFailure: Swift.Error {
     case failed
+}
+
+private func cloudAnthologyManifest(
+    id: String = "00000000-0000-0000-0000-000000000210",
+    title: String,
+    modifiedAt: String
+) -> ArticleCloudAnthologyManifest {
+    ArticleCloudAnthologyManifest(
+        schemaVersion: 1,
+        anthology: AnthologyRecord(
+            id: id,
+            title: title,
+            subtitle: nil,
+            creator: nil,
+            coverPath: nil,
+            nextStableSlot: 0,
+            latestBuildRevision: 0,
+            createdAt: "2026-07-29T12:00:00Z",
+            modifiedAt: modifiedAt),
+        entries: [])
+}
+
+@MainActor
+private func insertAnthology(
+    _ manifest: ArticleCloudAnthologyManifest,
+    into database: DatabaseService
+) throws {
+    try database.write { db in
+        var anthology = manifest.anthology
+        try anthology.insert(db)
+    }
+}
+
+private func cloudCoverPNGData() -> Data {
+    Data(
+        base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABAQMAAAAl21bKAAAAIGNIUk0AAHomAACAhAAA+gAAAIDoAAB1MAAA6mAAADqYAAAXcJy6UTwAAAAGUExURTNmmf////ENxh0AAAABYktHRAH/Ai3eAAAAB3RJTUUH6gcdBwQUEKHG6gAAACV0RVh0ZGF0ZTpjcmVhdGUAMjAyNi0wNy0yOVQwNzowNDoyMCswMDowMAupiH8AAAAldEVYdGRhdGU6bW9kaWZ5ADIwMjYtMDctMjlUMDc6MDQ6MjArMDA6MDB69DDDAAAAKHRFWHRkYXRlOnRpbWVzdGFtcAAyMDI2LTA3LTI5VDA3OjA0OjIwKzAwOjAwLeERHAAAAApJREFUCNdjYAAAAAIAAeIhvDMAAAAASUVORK5CYII="
+    )!
 }
 
 private struct ArticleCloudCodecFixture {

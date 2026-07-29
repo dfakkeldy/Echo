@@ -35,5 +35,11 @@ enum Schema_V39 {
             t.column("updated_at", .text).notNull()
             t.primaryKey(["record_name", "account_owner_id"])
         }
+
+        try db.create(table: "article_sync_account_guard") { t in
+            t.column("account_owner_id", .text).primaryKey()
+            t.column("reason", .text).notNull()
+            t.column("updated_at", .text).notNull()
+        }
     }
 }

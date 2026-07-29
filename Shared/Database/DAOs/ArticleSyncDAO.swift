@@ -32,6 +32,11 @@ nonisolated enum ArticleSyncAccountStatus: String, Codable, Sendable {
     case temporarilyUnavailable
 }
 
+nonisolated enum ArticleSyncAccountBindingResult: Equatable, Sendable {
+    case available
+    case quarantined
+}
+
 nonisolated struct ArticlePendingCloudChange: Codable, Equatable, Hashable, Sendable {
     var recordName: String
     var recordType: ArticleCloudRecordType
@@ -106,9 +111,18 @@ nonisolated enum ArticleSyncFingerprint {
         cloud.anthology.latestBuildRevision = 0
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        return SHA256.hash(data: try encoder.encode(cloud))
-            .map { String(format: "%02x", $0) }
-            .joined()
+        let manifestJSON = String(
+            decoding: try encoder.encode(cloud),
+            as: UTF8.self)
+        let scalarFields = [
+            "entityID\u{0}\(cloud.anthology.id)",
+            "manifestJSON\u{0}\(manifestJSON)",
+        ]
+        return SHA256.hash(
+            data: Data(scalarFields.joined(separator: "\u{1}").utf8)
+        )
+        .map { String(format: "%02x", $0) }
+        .joined()
     }
 }
 
@@ -187,10 +201,25 @@ nonisolated struct ArticleCloudAnthologyManifest: Codable, Equatable, Sendable {
     }
 }
 
+nonisolated struct ArticleFetchedAnthologyDisposition: Equatable, Sendable {
+    enum Action: Equatable, Sendable {
+        case insert
+        case replace
+        case recover
+    }
+
+    let action: Action
+    let sourceAnthologyID: String
+    let targetAnthologyID: String
+    let stateToken: String
+}
+
 nonisolated enum ArticleFetchedDatabaseChange: Equatable, Sendable {
     case capture(ArticleCaptureRecord)
     case revision(ArticleRevisionRecord)
-    case anthology(ArticleCloudAnthologyManifest)
+    case anthology(
+        ArticleCloudAnthologyManifest,
+        disposition: ArticleFetchedAnthologyDisposition? = nil)
     case delete(recordType: ArticleCloudRecordType, entityID: String)
 }
 
@@ -255,6 +284,10 @@ nonisolated struct ArticleSyncDAO: Sendable {
         case invalidEngineState
         case missingAccountOwner
         case invalidGeneration
+        case accountOwnerQuarantined
+        case anthologyStateChanged
+        case revisionIdentityCollision(String)
+        case revisionHasDescendants(String)
     }
 
     private let db: DatabaseWriter
@@ -277,15 +310,20 @@ nonisolated struct ArticleSyncDAO: Sendable {
             let row = try Row.fetchOne(
                 db,
                 sql: """
-                    SELECT account_status, last_error_code
+                    SELECT account_owner_id, account_status, last_error_code
                     FROM article_sync_state WHERE id = 'default'
                     """)
+            let owner: String? = row?["account_owner_id"]
             let storedStatus: String? = row?["account_status"]
             let storedError: String? = row?["last_error_code"]
+            let quarantined =
+                try owner.map { try accountOwnerIsQuarantined($0, db: db) } ?? false
             let currentStatus =
-                accountStatus?.rawValue
-                ?? storedStatus
-                ?? ArticleSyncAccountStatus.unknown.rawValue
+                quarantined
+                ? ArticleSyncAccountStatus.restricted.rawValue
+                : accountStatus?.rawValue
+                    ?? storedStatus
+                    ?? ArticleSyncAccountStatus.unknown.rawValue
             let currentError =
                 clearLastError ? nil : (lastErrorCode ?? storedError)
             try db.execute(
@@ -300,7 +338,12 @@ nonisolated struct ArticleSyncDAO: Sendable {
                         last_error_code = excluded.last_error_code,
                         updated_at = excluded.updated_at
                     """,
-                arguments: [data, currentStatus, currentError, updatedAt])
+                arguments: [
+                    quarantined ? nil : data,
+                    currentStatus,
+                    currentError,
+                    updatedAt,
+                ])
         }
     }
 
@@ -330,9 +373,18 @@ nonisolated struct ArticleSyncDAO: Sendable {
         updatedAt: String
     ) throws {
         try db.write { db in
-            let storedError = try String.fetchOne(
+            let row = try Row.fetchOne(
                 db,
-                sql: "SELECT last_error_code FROM article_sync_state WHERE id = 'default'")
+                sql: """
+                    SELECT account_owner_id, last_error_code
+                    FROM article_sync_state WHERE id = 'default'
+                    """)
+            let owner: String? = row?["account_owner_id"]
+            let storedError: String? = row?["last_error_code"]
+            let quarantined =
+                try owner.map { try accountOwnerIsQuarantined($0, db: db) } ?? false
+            let currentStatus =
+                quarantined ? ArticleSyncAccountStatus.restricted : accountStatus
             let currentError =
                 clearLastError ? nil : (lastErrorCode ?? storedError)
             try db.execute(
@@ -346,7 +398,23 @@ nonisolated struct ArticleSyncDAO: Sendable {
                         last_error_code = excluded.last_error_code,
                         updated_at = excluded.updated_at
                     """,
-                arguments: [accountStatus.rawValue, currentError, updatedAt])
+                arguments: [currentStatus.rawValue, currentError, updatedAt])
+        }
+    }
+
+    func activeAccountOwnerIsQuarantined() throws -> Bool {
+        try db.read { db in
+            guard
+                let owner = try String.fetchOne(
+                    db,
+                    sql: """
+                        SELECT account_owner_id FROM article_sync_state
+                        WHERE id = 'default'
+                        """)
+            else {
+                return false
+            }
+            return try accountOwnerIsQuarantined(owner, db: db)
         }
     }
 
@@ -372,13 +440,27 @@ nonisolated struct ArticleSyncDAO: Sendable {
 
     /// Selects the active private-sync lane without deleting local workshop
     /// data or pending rows owned by another iCloud account.
-    func bindAccountOwner(_ ownerID: String, updatedAt: String) throws {
+    @discardableResult
+    func bindAccountOwner(
+        _ ownerID: String,
+        updatedAt: String
+    ) throws -> ArticleSyncAccountBindingResult {
         guard ownerID.isEmpty == false else { throw Error.missingAccountOwner }
-        try db.write { db in
+        return try db.write { db in
             let previous = try String.fetchOne(
                 db,
                 sql: "SELECT account_owner_id FROM article_sync_state WHERE id = 'default'")
             let switched = previous != nil && previous != ownerID
+            let quarantined =
+                try Bool.fetchOne(
+                    db,
+                    sql: """
+                        SELECT EXISTS(
+                            SELECT 1 FROM article_sync_account_guard
+                            WHERE account_owner_id = ?
+                        )
+                        """,
+                    arguments: [ownerID]) ?? false
             try db.execute(
                 sql: """
                     INSERT INTO article_sync_state (
@@ -403,15 +485,17 @@ nonisolated struct ArticleSyncDAO: Sendable {
                     """,
                 arguments: [
                     ownerID,
-                    switched
-                        ? ArticleSyncAccountStatus.switchedAccount.rawValue
-                        : ArticleSyncAccountStatus.available.rawValue,
+                    quarantined
+                        ? ArticleSyncAccountStatus.restricted.rawValue
+                        : switched
+                            ? ArticleSyncAccountStatus.switchedAccount.rawValue
+                            : ArticleSyncAccountStatus.available.rawValue,
                     updatedAt,
                 ])
 
             // Changes created before an account was known become owned by the
             // first account only. Rows from a previous owner remain quarantined.
-            if previous == nil {
+            if previous == nil && quarantined == false {
                 try db.execute(
                     sql: """
                         UPDATE article_sync_outbox
@@ -420,6 +504,41 @@ nonisolated struct ArticleSyncDAO: Sendable {
                         """,
                     arguments: [ownerID])
             }
+            return quarantined ? .quarantined : .available
+        }
+    }
+
+    func quarantineActiveAccountOwner(
+        reason: String,
+        updatedAt: String
+    ) throws {
+        guard reason.isEmpty == false else { throw Error.accountOwnerQuarantined }
+        try db.write { db in
+            let owner = try requireActiveOwner(db)
+            try db.execute(
+                sql: """
+                    INSERT INTO article_sync_account_guard (
+                        account_owner_id, reason, updated_at
+                    )
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(account_owner_id) DO UPDATE SET
+                        reason = excluded.reason,
+                        updated_at = excluded.updated_at
+                    """,
+                arguments: [owner, reason, updatedAt])
+            try db.execute(
+                sql: """
+                    UPDATE article_sync_state
+                    SET engine_state = NULL,
+                        account_status = ?,
+                        updated_at = ?
+                    WHERE id = 'default' AND account_owner_id = ?
+                    """,
+                arguments: [
+                    ArticleSyncAccountStatus.restricted.rawValue,
+                    updatedAt,
+                    owner,
+                ])
         }
     }
 
@@ -501,7 +620,19 @@ nonisolated struct ArticleSyncDAO: Sendable {
                         WHERE record_name = ? AND account_owner_id = ?
                         """,
                     arguments: [change.recordName, ownerKey]) ?? 0
-            let generation = max(previousGeneration + 1, change.generation)
+            let acknowledgedGeneration =
+                try Int64.fetchOne(
+                    db,
+                    sql: """
+                        SELECT acknowledged_generation FROM article_sync_record
+                        WHERE record_name = ? AND account_owner_id = ?
+                        """,
+                    arguments: [change.recordName, ownerKey]) ?? 0
+            let durableGeneration = max(previousGeneration, acknowledgedGeneration)
+            guard durableGeneration < Int64.max else {
+                throw Error.invalidGeneration
+            }
+            let generation = max(durableGeneration + 1, change.generation)
             guard generation > 0 else { throw Error.invalidGeneration }
             try db.execute(
                 sql: """
@@ -542,9 +673,22 @@ nonisolated struct ArticleSyncDAO: Sendable {
         accountOwnerID explicitOwner: String? = nil
     ) throws -> [ArticlePendingCloudChange] {
         try db.read { db in
-            let stateOwner = try String.fetchOne(
+            let state = try Row.fetchOne(
                 db,
-                sql: "SELECT account_owner_id FROM article_sync_state WHERE id = 'default'")
+                sql: """
+                    SELECT account_owner_id, account_status
+                    FROM article_sync_state WHERE id = 'default'
+                    """)
+            let stateOwner: String? = state?["account_owner_id"]
+            let rawStatus: String? = state?["account_status"]
+            let quarantined =
+                try stateOwner.map { try accountOwnerIsQuarantined($0, db: db) } ?? false
+            if explicitOwner == nil,
+                quarantined
+                    || rawStatus == ArticleSyncAccountStatus.restricted.rawValue
+            {
+                return []
+            }
             let owner = explicitOwner ?? stateOwner
             let ownerKey = owner ?? ""
             let sql =
@@ -771,6 +915,19 @@ nonisolated struct ArticleSyncDAO: Sendable {
     func recoverMissingZone(updatedAt: String) throws -> [ArticlePendingCloudChange] {
         try db.write { db in
             let owner = try requireActiveOwner(db)
+            let quarantined =
+                try Bool.fetchOne(
+                    db,
+                    sql: """
+                        SELECT EXISTS(
+                            SELECT 1 FROM article_sync_account_guard
+                            WHERE account_owner_id = ?
+                        )
+                        """,
+                    arguments: [owner]) ?? false
+            guard quarantined == false else {
+                throw Error.accountOwnerQuarantined
+            }
             var identities:
                 [String: (
                     recordType: ArticleCloudRecordType,
@@ -898,20 +1055,13 @@ nonisolated struct ArticleSyncDAO: Sendable {
     }
 
     func anthologyManifest(id: String) throws -> ArticleCloudAnthologyManifest? {
-        try db.read { db in
-            guard let anthology = try AnthologyRecord.fetchOne(db, key: id) else {
-                return nil
-            }
-            let entries =
-                try AnthologyEntryRecord
-                .filter(Column("anthology_id") == id)
-                .order(Column("sort_order"), Column("stable_slot"), Column("id"))
-                .fetchAll(db)
-            return ArticleCloudAnthologyManifest(
-                schemaVersion: 1,
-                anthology: anthology,
-                entries: entries)
-        }
+        try db.read { try anthologyManifest(id: id, db: $0) }
+    }
+
+    func anthologyDisposition(
+        for incoming: ArticleCloudAnthologyManifest
+    ) throws -> ArticleFetchedAnthologyDisposition {
+        try db.read { try anthologyDisposition(for: incoming, db: $0) }
     }
 
     /// Applies one fetched CloudKit event in a single SQLite transaction.
@@ -938,7 +1088,10 @@ nonisolated struct ArticleSyncDAO: Sendable {
 
             for change in changes {
                 guard case .revision(var revision) = change else { continue }
-                guard try ArticleRevisionRecord.fetchOne(db, key: revision.id) == nil else {
+                if let existing = try ArticleRevisionRecord.fetchOne(db, key: revision.id) {
+                    guard existing == revision else {
+                        throw Error.revisionIdentityCollision(revision.id)
+                    }
                     continue
                 }
                 try revision.insert(db)
@@ -958,27 +1111,33 @@ nonisolated struct ArticleSyncDAO: Sendable {
             }
 
             for change in changes {
-                guard case .anthology(let manifest) = change else { continue }
-                try applyFetchedAnthology(manifest, db: db)
+                guard case .anthology(let manifest, let disposition) = change else {
+                    continue
+                }
+                try applyFetchedAnthology(
+                    manifest,
+                    expectedDisposition: disposition,
+                    db: db)
             }
 
-            for recordType in [
-                ArticleCloudRecordType.anthology,
-                .revision,
-                .capture,
-            ] {
-                for change in changes {
-                    guard
-                        case .delete(let deletedType, let entityID) = change,
-                        deletedType == recordType
-                    else {
-                        continue
-                    }
-                    try applyFetchedDeletion(
-                        recordType: deletedType,
-                        entityID: entityID,
-                        db: db)
+            for change in changes {
+                guard case .delete(.anthology, let entityID) = change else {
+                    continue
                 }
+                try applyFetchedDeletion(
+                    recordType: .anthology,
+                    entityID: entityID,
+                    db: db)
+            }
+            try applyFetchedRevisionDeletions(changes, db: db)
+            for change in changes {
+                guard case .delete(.capture, let entityID) = change else {
+                    continue
+                }
+                try applyFetchedDeletion(
+                    recordType: .capture,
+                    entityID: entityID,
+                    db: db)
             }
 
             if cloudRecords.isEmpty == false || deletedRecordNames.isEmpty == false {
@@ -1023,52 +1182,44 @@ nonisolated struct ArticleSyncDAO: Sendable {
         }
     }
 
-    private func applyFetchedAnthology(
-        _ incoming: ArticleCloudAnthologyManifest,
+    private func anthologyDisposition(
+        for incoming: ArticleCloudAnthologyManifest,
         db: Database
-    ) throws {
-        guard let existingAnthology = try AnthologyRecord.fetchOne(db, key: incoming.anthology.id)
+    ) throws -> ArticleFetchedAnthologyDisposition {
+        guard let sourceID = UUID(uuidString: incoming.anthology.id),
+            sourceID.uuidString == incoming.anthology.id
         else {
-            try insertAnthologyManifest(incoming, db: db)
-            return
+            throw Error.anthologyStateChanged
         }
-        let existingEntries =
-            try AnthologyEntryRecord
-            .filter(Column("anthology_id") == existingAnthology.id)
-            .order(Column("sort_order"), Column("stable_slot"), Column("id"))
-            .fetchAll(db)
-        let existing = ArticleCloudAnthologyManifest(
-            schemaVersion: incoming.schemaVersion,
-            anthology: existingAnthology,
-            entries: existingEntries)
-        let existingComparable = cloudComparable(existing)
-        let incomingComparable = cloudComparable(incoming)
-        if existingComparable == incomingComparable {
-            return
-        }
-
-        let owner =
-            try String.fetchOne(
-                db,
-                sql: "SELECT account_owner_id FROM article_sync_state WHERE id = 'default'")
-            ?? ""
+        let state = try Row.fetchOne(
+            db,
+            sql: """
+                SELECT account_owner_id, account_status
+                FROM article_sync_state WHERE id = 'default'
+                """)
+        let owner: String = state?["account_owner_id"] ?? ""
+        let status: String = state?["account_status"] ?? ""
         let recordName =
-            "\(ArticleCloudRecordType.anthology.recordNamePrefix).\(incoming.anthology.id)"
-        let hasPendingLocalChange =
-            try Bool.fetchOne(
-                db,
-                sql: """
-                    SELECT EXISTS(
-                        SELECT 1 FROM article_sync_outbox
-                        WHERE record_name = ? AND account_owner_id = ?
-                              AND operation = ?
-                    )
-                    """,
-                arguments: [
-                    recordName,
-                    owner,
-                    ArticleSyncOperation.save.rawValue,
-                ]) ?? false
+            "\(ArticleCloudRecordType.anthology.recordNamePrefix).\(sourceID.uuidString)"
+        let pending = try Row.fetchOne(
+            db,
+            sql: """
+                SELECT record_type, entity_id, operation, generation, queued_at
+                FROM article_sync_outbox
+                WHERE record_name = ? AND account_owner_id = ?
+                """,
+            arguments: [recordName, owner])
+        if let pending {
+            let rawType: String = pending["record_type"]
+            let pendingEntityID: String = pending["entity_id"]
+            let rawOperation: String = pending["operation"]
+            guard rawType == ArticleCloudRecordType.anthology.rawValue,
+                pendingEntityID == sourceID.uuidString,
+                ArticleSyncOperation(rawValue: rawOperation) != nil
+            else {
+                throw Error.anthologyStateChanged
+            }
+        }
         let baseFingerprint = try String.fetchOne(
             db,
             sql: """
@@ -1076,72 +1227,150 @@ nonisolated struct ArticleSyncDAO: Sendable {
                 WHERE record_name = ? AND account_owner_id = ?
                 """,
             arguments: [recordName, owner])
-        let existingFingerprint = try ArticleSyncFingerprint.anthology(existingComparable)
-        let incomingFingerprint = try ArticleSyncFingerprint.anthology(incomingComparable)
-        let localDiverged =
-            hasPendingLocalChange
-            && (baseFingerprint == nil || existingFingerprint != baseFingerprint)
+        let existing = try anthologyManifest(id: sourceID.uuidString, db: db)
 
-        if localDiverged == false || existingFingerprint == incomingFingerprint {
+        let action: ArticleFetchedAnthologyDisposition.Action
+        let targetID: String
+        if let existing {
+            let existingFingerprint = try ArticleSyncFingerprint.anthology(existing)
+            let incomingFingerprint = try ArticleSyncFingerprint.anthology(incoming)
+            let pendingOperation: String? = pending?["operation"]
+            let hasPendingSave =
+                pendingOperation == ArticleSyncOperation.save.rawValue
+            let localDiverged =
+                hasPendingSave
+                && (baseFingerprint == nil || existingFingerprint != baseFingerprint)
+            if localDiverged && existingFingerprint != incomingFingerprint {
+                action = .recover
+                targetID =
+                    ArticleSyncConflictIdentity.recoveredAnthologyID(
+                        incoming: incoming,
+                        existing: existing
+                    ).uuidString
+            } else {
+                action = .replace
+                targetID = sourceID.uuidString
+            }
+        } else {
+            action = .insert
+            targetID = sourceID.uuidString
+        }
+
+        let target = try anthologyManifest(id: targetID, db: db)
+        let token = anthologyStateToken(
+            owner: owner,
+            status: status,
+            source: existing,
+            target: target,
+            pending: pending,
+            baseFingerprint: baseFingerprint)
+        return ArticleFetchedAnthologyDisposition(
+            action: action,
+            sourceAnthologyID: sourceID.uuidString,
+            targetAnthologyID: targetID,
+            stateToken: token)
+    }
+
+    private func applyFetchedAnthology(
+        _ incoming: ArticleCloudAnthologyManifest,
+        expectedDisposition: ArticleFetchedAnthologyDisposition?,
+        db: Database
+    ) throws {
+        let currentDisposition = try anthologyDisposition(for: incoming, db: db)
+        if let expectedDisposition,
+            expectedDisposition != currentDisposition
+        {
+            throw Error.anthologyStateChanged
+        }
+        let disposition = expectedDisposition ?? currentDisposition
+        switch disposition.action {
+        case .insert:
+            guard
+                try AnthologyRecord.fetchOne(
+                    db,
+                    key: disposition.sourceAnthologyID) == nil
+            else {
+                throw Error.anthologyStateChanged
+            }
+            try insertAnthologyManifest(incoming, db: db)
+        case .replace:
+            guard
+                try AnthologyRecord.fetchOne(
+                    db,
+                    key: disposition.sourceAnthologyID) != nil
+            else {
+                throw Error.anthologyStateChanged
+            }
             try replaceAnthologyAuthoringState(
                 incoming,
-                preserving: existingAnthology,
                 db: db)
-            return
+        case .recover:
+            try applyRecoveredAnthology(
+                incoming,
+                disposition: disposition,
+                db: db)
         }
+    }
 
-        let recoveredID = ArticleSyncConflictIdentity.recoveredAnthologyID(
-            incoming: incoming,
-            existing: existing)
-        guard try AnthologyRecord.fetchOne(db, key: recoveredID.uuidString) == nil else {
-            return
+    private func applyRecoveredAnthology(
+        _ incoming: ArticleCloudAnthologyManifest,
+        disposition: ArticleFetchedAnthologyDisposition,
+        db: Database
+    ) throws {
+        guard let recoveredID = UUID(uuidString: disposition.targetAnthologyID),
+            recoveredID.uuidString == disposition.targetAnthologyID
+        else {
+            throw Error.anthologyStateChanged
         }
-        var recoveredAnthology = incoming.anthology
-        recoveredAnthology.id = recoveredID.uuidString
-        if recoveredAnthology.title.hasSuffix(" (Recovered)") == false {
-            recoveredAnthology.title += " (Recovered)"
+        let owner =
+            try String.fetchOne(
+                db,
+                sql: "SELECT account_owner_id FROM article_sync_state WHERE id = 'default'")
+            ?? ""
+        if try AnthologyRecord.fetchOne(db, key: recoveredID.uuidString) != nil {
+            try db.execute(
+                sql: """
+                    UPDATE anthology
+                    SET cover_path = ?
+                    WHERE id = ?
+                    """,
+                arguments: [
+                    incoming.anthology.coverPath,
+                    recoveredID.uuidString,
+                ])
+        } else {
+            var recoveredAnthology = incoming.anthology
+            recoveredAnthology.id = recoveredID.uuidString
+            if recoveredAnthology.title.hasSuffix(" (Recovered)") == false {
+                recoveredAnthology.title += " (Recovered)"
+            }
+            recoveredAnthology.createdAt = incoming.anthology.modifiedAt
+            let recoveredEntries = incoming.entries.map { entry in
+                var copy = entry
+                copy.id =
+                    ArticleSyncConflictIdentity.recoveredEntryID(
+                        recoveredAnthologyID: recoveredID,
+                        entryID: entry.id
+                    ).uuidString
+                copy.anthologyID = recoveredID.uuidString
+                return copy
+            }
+            try insertAnthologyManifest(
+                ArticleCloudAnthologyManifest(
+                    schemaVersion: incoming.schemaVersion,
+                    anthology: recoveredAnthology,
+                    entries: recoveredEntries),
+                db: db)
         }
-        recoveredAnthology.createdAt = incoming.anthology.modifiedAt
-        let recoveredEntries = incoming.entries.map { entry in
-            var copy = entry
-            copy.id =
-                ArticleSyncConflictIdentity.recoveredEntryID(
-                    recoveredAnthologyID: recoveredID,
-                    entryID: entry.id
-                ).uuidString
-            copy.anthologyID = recoveredID.uuidString
-            return copy
-        }
-        try insertAnthologyManifest(
-            ArticleCloudAnthologyManifest(
-                schemaVersion: incoming.schemaVersion,
-                anthology: recoveredAnthology,
-                entries: recoveredEntries),
+        try enqueueRecoveredAnthology(
+            id: recoveredID.uuidString,
+            owner: owner,
+            queuedAt: incoming.anthology.modifiedAt,
             db: db)
-        let recoveredRecordName =
-            "\(ArticleCloudRecordType.anthology.recordNamePrefix).\(recoveredID.uuidString)"
-        try db.execute(
-            sql: """
-                INSERT INTO article_sync_outbox (
-                    record_name, record_type, entity_id, operation,
-                    generation, account_owner_id, queued_at
-                )
-                VALUES (?, ?, ?, ?, 1, ?, ?)
-                ON CONFLICT(record_name, account_owner_id) DO NOTHING
-                """,
-            arguments: [
-                recoveredRecordName,
-                ArticleCloudRecordType.anthology.rawValue,
-                recoveredID.uuidString,
-                ArticleSyncOperation.save.rawValue,
-                owner,
-                incoming.anthology.modifiedAt,
-            ])
     }
 
     private func replaceAnthologyAuthoringState(
         _ incoming: ArticleCloudAnthologyManifest,
-        preserving local: AnthologyRecord,
         db: Database
     ) throws {
         try db.execute(
@@ -1151,13 +1380,15 @@ nonisolated struct ArticleSyncDAO: Sendable {
             sql: """
                 UPDATE anthology
                 SET title = ?, subtitle = ?, creator = ?,
-                    next_stable_slot = ?, created_at = ?, modified_at = ?
+                    cover_path = ?, next_stable_slot = ?,
+                    created_at = ?, modified_at = ?
                 WHERE id = ?
                 """,
             arguments: [
                 incoming.anthology.title,
                 incoming.anthology.subtitle,
                 incoming.anthology.creator,
+                incoming.anthology.coverPath,
                 incoming.anthology.nextStableSlot,
                 incoming.anthology.createdAt,
                 incoming.anthology.modifiedAt,
@@ -1167,18 +1398,154 @@ nonisolated struct ArticleSyncDAO: Sendable {
             var entry = entry
             try entry.insert(db)
         }
-        // `cover_path` and `latest_build_revision` are intentionally omitted:
-        // they describe products owned by this device, not cloud authoring state.
-        _ = local
+        // The optional cover asset is synced authoring state. Its managed path
+        // is device-local, while `latest_build_revision` remains local-only.
     }
 
-    private func cloudComparable(
+    private func anthologyManifest(
+        id: String,
+        db: Database
+    ) throws -> ArticleCloudAnthologyManifest? {
+        guard let anthology = try AnthologyRecord.fetchOne(db, key: id) else {
+            return nil
+        }
+        let entries =
+            try AnthologyEntryRecord
+            .filter(Column("anthology_id") == id)
+            .order(Column("sort_order"), Column("stable_slot"), Column("id"))
+            .fetchAll(db)
+        return ArticleCloudAnthologyManifest(
+            schemaVersion: 1,
+            anthology: anthology,
+            entries: entries)
+    }
+
+    private func anthologyStateToken(
+        owner: String,
+        status: String,
+        source: ArticleCloudAnthologyManifest?,
+        target: ArticleCloudAnthologyManifest?,
+        pending: Row?,
+        baseFingerprint: String?
+    ) -> String {
+        var values = [
+            owner,
+            status,
+            baseFingerprint ?? "<none>",
+            source.map(anthologyState) ?? "<missing-source>",
+            target.map(anthologyState) ?? "<missing-target>",
+        ]
+        if let pending {
+            let recordType: String = pending["record_type"]
+            let entityID: String = pending["entity_id"]
+            let operation: String = pending["operation"]
+            let generation: Int64 = pending["generation"]
+            let queuedAt: String = pending["queued_at"]
+            values += [
+                recordType,
+                entityID,
+                operation,
+                String(generation),
+                queuedAt,
+            ]
+        } else {
+            values.append("<no-pending-change>")
+        }
+        let framed = values.map { "\($0.utf8.count):\($0)" }.joined()
+        return SHA256.hash(data: Data(framed.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    private func anthologyState(
         _ manifest: ArticleCloudAnthologyManifest
-    ) -> ArticleCloudAnthologyManifest {
-        var result = manifest
-        result.anthology.coverPath = nil
-        result.anthology.latestBuildRevision = 0
-        return result
+    ) -> String {
+        let anthology = manifest.anthology
+        var values = [
+            String(manifest.schemaVersion),
+            anthology.id,
+            anthology.title,
+            anthology.subtitle ?? "<nil>",
+            anthology.creator ?? "<nil>",
+            anthology.coverPath ?? "<nil>",
+            String(anthology.nextStableSlot),
+            String(anthology.latestBuildRevision),
+            anthology.createdAt,
+            anthology.modifiedAt,
+        ]
+        for entry in manifest.entries.sorted(by: {
+            if $0.sortOrder != $1.sortOrder {
+                return $0.sortOrder < $1.sortOrder
+            }
+            if $0.stableSlot != $1.stableSlot {
+                return $0.stableSlot < $1.stableSlot
+            }
+            return $0.id < $1.id
+        }) {
+            values += [
+                entry.id,
+                entry.anthologyID,
+                entry.captureID,
+                String(entry.sortOrder),
+                String(entry.stableSlot),
+                entry.chapterTitleOverride ?? "<nil>",
+                entry.narrationVoiceID ?? "<nil>",
+            ]
+        }
+        return values.map { "\($0.utf8.count):\($0)" }.joined()
+    }
+
+    private func enqueueRecoveredAnthology(
+        id: String,
+        owner: String,
+        queuedAt: String,
+        db: Database
+    ) throws {
+        let recordName =
+            "\(ArticleCloudRecordType.anthology.recordNamePrefix).\(id)"
+        let outboxGeneration =
+            try Int64.fetchOne(
+                db,
+                sql: """
+                    SELECT generation FROM article_sync_outbox
+                    WHERE record_name = ? AND account_owner_id = ?
+                    """,
+                arguments: [recordName, owner]) ?? 0
+        let acknowledgedGeneration =
+            try Int64.fetchOne(
+                db,
+                sql: """
+                    SELECT acknowledged_generation FROM article_sync_record
+                    WHERE record_name = ? AND account_owner_id = ?
+                    """,
+                arguments: [recordName, owner]) ?? 0
+        let durableGeneration = max(outboxGeneration, acknowledgedGeneration)
+        guard durableGeneration < Int64.max else {
+            throw Error.invalidGeneration
+        }
+        try db.execute(
+            sql: """
+                INSERT INTO article_sync_outbox (
+                    record_name, record_type, entity_id, operation,
+                    generation, account_owner_id, queued_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(record_name, account_owner_id) DO UPDATE SET
+                    record_type = excluded.record_type,
+                    entity_id = excluded.entity_id,
+                    operation = excluded.operation,
+                    generation = excluded.generation,
+                    queued_at = excluded.queued_at
+                """,
+            arguments: [
+                recordName,
+                ArticleCloudRecordType.anthology.rawValue,
+                id,
+                ArticleSyncOperation.save.rawValue,
+                durableGeneration + 1,
+                owner,
+                queuedAt,
+            ])
     }
 
     private func insertAnthologyManifest(
@@ -1232,6 +1599,19 @@ nonisolated struct ArticleSyncDAO: Sendable {
             }
         case .revision:
             if let revision = try ArticleRevisionRecord.fetchOne(db, key: entityID) {
+                let hasRetainedChild =
+                    try Bool.fetchOne(
+                        db,
+                        sql: """
+                            SELECT EXISTS(
+                                SELECT 1 FROM article_revision
+                                WHERE parent_revision_id = ?
+                            )
+                            """,
+                        arguments: [entityID]) ?? false
+                guard hasRetainedChild == false else {
+                    throw Error.revisionHasDescendants(entityID)
+                }
                 try db.execute(
                     sql: """
                         UPDATE article_capture
@@ -1250,6 +1630,40 @@ nonisolated struct ArticleSyncDAO: Sendable {
         }
     }
 
+    private func applyFetchedRevisionDeletions(
+        _ changes: [ArticleFetchedDatabaseChange],
+        db: Database
+    ) throws {
+        var remaining = Set(
+            changes.compactMap { change -> String? in
+                guard case .delete(let type, let entityID) = change,
+                    type == .revision
+                else {
+                    return nil
+                }
+                return entityID
+            })
+        guard remaining.isEmpty == false else { return }
+        let revisions = try ArticleRevisionRecord.fetchAll(db)
+        while remaining.isEmpty == false {
+            let leaves = remaining.filter { candidate in
+                revisions.contains {
+                    $0.parentRevisionID == candidate && remaining.contains($0.id)
+                } == false
+            }.sorted()
+            guard leaves.isEmpty == false else {
+                throw Error.revisionHasDescendants(remaining.sorted()[0])
+            }
+            for entityID in leaves {
+                try applyFetchedDeletion(
+                    recordType: .revision,
+                    entityID: entityID,
+                    db: db)
+                remaining.remove(entityID)
+            }
+        }
+    }
+
     private func requireActiveOwner(_ db: Database) throws -> String {
         guard
             let owner = try String.fetchOne(
@@ -1263,6 +1677,21 @@ nonisolated struct ArticleSyncDAO: Sendable {
             throw Error.missingAccountOwner
         }
         return owner
+    }
+
+    private func accountOwnerIsQuarantined(
+        _ owner: String,
+        db: Database
+    ) throws -> Bool {
+        try Bool.fetchOne(
+            db,
+            sql: """
+                SELECT EXISTS(
+                    SELECT 1 FROM article_sync_account_guard
+                    WHERE account_owner_id = ?
+                )
+                """,
+            arguments: [owner]) ?? false
     }
 
     private func cloudRecord(from row: Row) throws -> ArticleCloudRecordState {
