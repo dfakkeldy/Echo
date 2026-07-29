@@ -1,0 +1,14 @@
+{"caseID":"morph-able-exact-startable","word":"startable","expectedBase":"start","expectedRuleID":"morphology.able.exact-base.v1","expectedIPA":"stˈɑɹtəbəl","automatic":true}
+{"caseID":"morph-able-exact-testable","word":"testable","expectedBase":"test","expectedRuleID":"morphology.able.exact-base.v1","expectedIPA":"tˈɛstəbəl","automatic":true}
+{"caseID":"morph-able-silent-e-reusable","word":"reusable","expectedBase":"reuse","expectedRuleID":"morphology.able.silent-e.v1","expectedIPA":"ɹiːjˈuːzəbəl","automatic":true}
+{"caseID":"morph-ible-exact-digestible","word":"digestible","expectedBase":"digest","expectedRuleID":"morphology.ible.exact-base.v1","expectedIPA":"daIdʒˈɛstəbəl","automatic":true}
+{"caseID":"morph-ible-exact-deductible","word":"deductible","expectedBase":"deduct","expectedRuleID":"morphology.ible.exact-base.v1","expectedIPA":"dɪdˈʌktəbəl","automatic":true}
+{"caseID":"morph-negative-proper-noun","word":"Mirable","expectedBase":null,"expectedRuleID":null,"expectedIPA":null,"automatic":false}
+{"caseID":"morph-negative-multiple-bases","word":"rateable","expectedBase":null,"expectedRuleID":null,"expectedIPA":null,"automatic":false}
+{"caseID":"morph-negative-exception-able","word":"comfortable","expectedBase":null,"expectedRuleID":null,"expectedIPA":null,"automatic":false}
+{"caseID":"morph-negative-already-explicit","word":"available","expectedBase":null,"expectedRuleID":null,"expectedIPA":null,"automatic":false}
+{"caseID":"morph-negative-contextual-live","word":"livable","expectedBase":null,"expectedRuleID":null,"expectedIPA":null,"automatic":false}
+{"caseID":"morph-negative-contextual-read","word":"readable","expectedBase":null,"expectedRuleID":null,"expectedIPA":null,"automatic":false}
+{"caseID":"morph-negative-contextual-record","word":"recordable","expectedBase":null,"expectedRuleID":null,"expectedIPA":null,"automatic":false}
+{"caseID":"morph-negative-false-segmentation","word":"table","expectedBase":null,"expectedRuleID":null,"expectedIPA":null,"automatic":false}
+{"caseID":"morph-negative-exception-ible","word":"responsible","expectedBase":null,"expectedRuleID":null,"expectedIPA":null,"automatic":false}

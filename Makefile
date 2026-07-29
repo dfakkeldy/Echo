@@ -1,4 +1,4 @@
-.PHONY: help docs architecture whats-new devlog-update devlog-pr-body doc-automation-test test build-tests test-only hooks-test echo-cli renderer-install-test install-renderer verify-renderer promote-renderer repair-renderer
+.PHONY: help docs architecture whats-new devlog-update devlog-pr-body doc-automation-test pronunciation-corpus-test pronunciation-corpus-qualification test build-tests test-only hooks-test echo-cli renderer-install-test install-renderer verify-renderer promote-renderer repair-renderer
 
 help: ## List available targets
 	@echo "Echo: Audiobook Study Player — available targets:"
@@ -37,6 +37,15 @@ devlog-pr-body: ## Generate the review checklist and AI-assisted draft for the w
 
 doc-automation-test: ## Run the doc-automation Python unit tests
 	@PYTHONPATH=Scripts python3 -m unittest discover -s Scripts/doc_automation/tests -t Scripts -v
+
+pronunciation-corpus-test: ## Validate pronunciation corpus tests and fixture contracts
+	python3 -m unittest discover -s Tools/Pronunciation/tests -p 'test_pronunciation_corpus.py'
+	python3 Tools/Pronunciation/pronunciation_corpus.py validate-contract \
+		--fixtures EchoTests/Fixtures/Pronunciation
+
+pronunciation-corpus-qualification: ## Report independent-label corpus qualification
+	python3 Tools/Pronunciation/pronunciation_corpus.py qualification-status \
+		--fixtures EchoTests/Fixtures/Pronunciation
 
 SIM_DEST = platform=iOS Simulator,name=iPhone 17
 
