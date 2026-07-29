@@ -690,8 +690,8 @@ git commit -m "feat: add reproducible pronunciation pack"
   generator/vocabulary/content/source mutation without the corresponding new
   `packVersion`.
 - [ ] Prove two otherwise identical manifests with different valid
-  `generationTimestamp` values load with the same `packVersion` and production
-  policy signature.
+  `generationTimestamp` values load with identical validated semantic-identity
+  payloads and the same recomputed `packVersion`.
 - [ ] Add a checked-in schema-v3 JSON fixture inside the test source and require it to decode with `.incompleteEvidence`.
 
 ```swift
