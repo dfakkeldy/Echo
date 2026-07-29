@@ -224,6 +224,28 @@ import Testing
                 .allSatisfy { $0 == link })
     }
 
+    @Test func markdownReferencesRemainAtomic() {
+        let nested = #"[ad-hoc [guide]](https://example.com/a(b)c)"#
+        let escaped = #"[ad-hoc \[guide\]](https://example.com/a(b)c)"#
+        let fullReference = "[display label][ad-hoc]"
+        let collapsedReference = "[ad-hoc][]"
+        let shortcutReference = "[ad-hoc]"
+        let source = """
+            [ad-hoc]: https://example.com/ad-hoc
+
+            See \(nested), \(escaped), \(fullReference), \(collapsedReference), and \(shortcutReference).
+            """
+        let pieces = NarrationTextChunker.splitResolved(source, maxPhonemes: 12) {
+            $0.count
+        }
+
+        for protectedSyntax in [
+            nested, escaped, fullReference, collapsedReference, shortcutReference,
+        ] {
+            #expect(pieces.contains { $0.contains(protectedSyntax) })
+        }
+    }
+
     @Test func editorialSquareBracketsDoNotDisableSentenceSplitting() {
         // `[sic]`/footnote brackets are not pronunciation links: sentence
         // terminators after them must still split.

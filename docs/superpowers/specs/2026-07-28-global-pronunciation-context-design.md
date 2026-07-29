@@ -421,6 +421,12 @@ irregularities and false segmentations become exceptions. A derived result
 retains its deterministic candidate ID, candidate-pack/policy version, base
 entry, and transformation rule in the audit evidence.
 
+Capitalization safety fails closed after a versioned, categorized set of
+common honorific, military, professional, organizational, geographic,
+reference, and calendar abbreviations. Initials and dotted initialisms are
+also ambiguous. Ordinary lexical sentence endings such as `Done. Foobar`
+remain true boundaries.
+
 The morphology policy identity is canonical JSON using the same encoding rules:
 
 ```json
@@ -434,7 +440,7 @@ The morphology policy identity is canonical JSON using the same encoding rules:
   ],
   "suffixIPA": "əbəl",
   "minimumBaseLength": 3,
-  "properNamePolicyVersion": "proper-name-risk-v3",
+  "properNamePolicyVersion": "proper-name-risk-v4",
   "baseEvidencePolicyVersion": "kokoro-nonfallback-rating3-v1",
   "exceptionSetSHA256": "sha256:<canonical-sorted-exception-set-digest>",
   "pronunciationPackVersion": "sha256:<semantic-pack-digest>",

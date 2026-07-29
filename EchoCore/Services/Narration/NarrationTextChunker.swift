@@ -188,6 +188,7 @@ enum NarrationTextChunker {
         var normalized = ""
         var index = text.startIndex
         var needsSpace = false
+        let markdownRanges = markdownProtectedRangesByStart(in: text)
 
         while index < text.endIndex {
             if let link = MisakiPronunciationMarkup.link(in: text, startingAt: index) {
@@ -197,7 +198,7 @@ enum NarrationTextChunker {
                 index = link.range.upperBound
                 continue
             }
-            if let linkRange = markdownInlineLinkRange(in: text, startingAt: index) {
+            if let linkRange = markdownRanges[index] {
                 if needsSpace, !normalized.isEmpty { normalized.append(" ") }
                 normalized.append(contentsOf: text[linkRange])
                 needsSpace = false
@@ -229,6 +230,7 @@ enum NarrationTextChunker {
         var characterIndex = 0
         var boundaryPending = false
         let characters = Array(text)
+        let markdownRanges = markdownProtectedRangesByStart(in: text)
 
         func flush() {
             let trimmed = current.trimmingCharacters(in: .whitespaces)
@@ -243,7 +245,7 @@ enum NarrationTextChunker {
                 textIndex = link.range.upperBound
                 continue
             }
-            if let linkRange = markdownInlineLinkRange(in: text, startingAt: textIndex) {
+            if let linkRange = markdownRanges[textIndex] {
                 current.append(contentsOf: text[linkRange])
                 characterIndex += text[linkRange].count
                 textIndex = linkRange.upperBound
@@ -270,57 +272,43 @@ enum NarrationTextChunker {
         return units
     }
 
-    /// Returns one complete inline Markdown link, including balanced
-    /// parentheses in the destination. Generic links are not pronunciation
-    /// overrides, but they must still remain byte-for-byte atomic while the
-    /// resolved chunker scans URL punctuation for sentence boundaries.
+    private struct MarkdownLabel {
+        let range: Range<String.Index>
+        let contentRange: Range<String.Index>
+    }
+
+    /// Returns one complete inline Markdown link. Both label brackets and
+    /// destination parentheses are balanced, and escaped delimiters do not
+    /// affect nesting.
     nonisolated static func markdownInlineLinkRange(
         in source: String,
         startingAt start: String.Index
     ) -> Range<String.Index>? {
-        guard source[start] == "[" else { return nil }
-        let labelStart = source.index(after: start)
-        guard let labelEnd = source[labelStart...].firstIndex(of: "]") else { return nil }
-        let openParenthesis = source.index(after: labelEnd)
+        guard let label = markdownLabel(in: source, startingAt: start) else {
+            return nil
+        }
+        let openParenthesis = label.range.upperBound
         guard openParenthesis < source.endIndex, source[openParenthesis] == "(" else {
             return nil
         }
 
-        var depth = 1
-        var index = source.index(after: openParenthesis)
-        while index < source.endIndex {
-            switch source[index] {
-            case "(":
-                depth += 1
-            case ")":
-                depth -= 1
-                if depth == 0 {
-                    return start..<source.index(after: index)
-                }
-            default:
-                break
-            }
-            index = source.index(after: index)
-        }
-        return nil
+        guard let destination = balancedRange(
+            in: source,
+            startingAt: openParenthesis,
+            opening: "(",
+            closing: ")")
+        else { return nil }
+        return start..<destination.upperBound
     }
 
     /// Complete source spans that pronunciation rewriters must never alter.
-    /// Markdown parsing owns balanced destination parentheses; Foundation link
-    /// detection conservatively covers scheme and scheme-less plain URLs.
+    /// Markdown parsing owns inline links and definition-aware reference forms;
+    /// Foundation link detection conservatively covers scheme and scheme-less
+    /// plain URLs.
     nonisolated static func pronunciationProtectedRanges(
         in source: String
     ) -> [Range<String.Index>] {
-        var ranges: [Range<String.Index>] = []
-        var index = source.startIndex
-        while index < source.endIndex {
-            if let markdownRange = markdownInlineLinkRange(in: source, startingAt: index) {
-                ranges.append(markdownRange)
-                index = markdownRange.upperBound
-            } else {
-                index = source.index(after: index)
-            }
-        }
+        var ranges = markdownProtectedRanges(in: source)
 
         if let linkDetector {
             let fullRange = NSRange(source.startIndex..., in: source)
@@ -332,6 +320,191 @@ enum NarrationTextChunker {
                 })
         }
         return ranges
+    }
+
+    /// Markdown syntax that must stay atomic during both pronunciation
+    /// resolution and resolved-text chunking. Shortcut references are protected
+    /// only when a matching definition exists in the same source.
+    nonisolated static func markdownProtectedRanges(
+        in source: String
+    ) -> [Range<String.Index>] {
+        let definitions = markdownReferenceDefinitions(in: source)
+        let definitionRanges = Dictionary(
+            uniqueKeysWithValues: definitions.ranges.map {
+                ($0.lowerBound, $0)
+            })
+        var ranges = definitions.ranges
+        var index = source.startIndex
+
+        while index < source.endIndex {
+            if let definition = definitionRanges[index] {
+                index = definition.upperBound
+                continue
+            }
+            guard source[index] == "[",
+                let label = markdownLabel(in: source, startingAt: index)
+            else {
+                index = source.index(after: index)
+                continue
+            }
+
+            if let inlineRange = markdownInlineLinkRange(in: source, startingAt: index) {
+                ranges.append(inlineRange)
+                index = inlineRange.upperBound
+                continue
+            }
+
+            let next = label.range.upperBound
+            if next < source.endIndex, source[next] == "[",
+                let reference = markdownLabel(in: source, startingAt: next)
+            {
+                let referenceID =
+                    reference.contentRange.isEmpty
+                    ? normalizedMarkdownReference(
+                        source[label.contentRange])
+                    : normalizedMarkdownReference(
+                        source[reference.contentRange])
+                if definitions.ids.contains(referenceID) {
+                    let range = index..<reference.range.upperBound
+                    ranges.append(range)
+                    index = range.upperBound
+                    continue
+                }
+            } else {
+                let shortcutID = normalizedMarkdownReference(
+                    source[label.contentRange])
+                if definitions.ids.contains(shortcutID) {
+                    ranges.append(label.range)
+                    index = label.range.upperBound
+                    continue
+                }
+            }
+            index = source.index(after: index)
+        }
+
+        return ranges.sorted { $0.lowerBound < $1.lowerBound }
+    }
+
+    private nonisolated static func markdownProtectedRangesByStart(
+        in source: String
+    ) -> [String.Index: Range<String.Index>] {
+        Dictionary(
+            uniqueKeysWithValues: markdownProtectedRanges(in: source).map {
+                ($0.lowerBound, $0)
+            })
+    }
+
+    private nonisolated static func markdownReferenceDefinitions(
+        in source: String
+    ) -> (ids: Set<String>, ranges: [Range<String.Index>]) {
+        var ids: Set<String> = []
+        var ranges: [Range<String.Index>] = []
+        var lineStart = source.startIndex
+
+        while lineStart < source.endIndex {
+            let lineEnd =
+                source[lineStart...].firstIndex(where: { $0.isNewline })
+                ?? source.endIndex
+            var contentStart = lineStart
+            var indentation = 0
+            while contentStart < lineEnd,
+                source[contentStart] == " ",
+                indentation < 3
+            {
+                indentation += 1
+                contentStart = source.index(after: contentStart)
+            }
+
+            if contentStart < lineEnd,
+                let label = markdownLabel(in: source, startingAt: contentStart),
+                label.range.upperBound < lineEnd,
+                source[label.range.upperBound] == ":"
+            {
+                let referenceID = normalizedMarkdownReference(
+                    source[label.contentRange])
+                if !referenceID.isEmpty {
+                    ids.insert(referenceID)
+                    ranges.append(lineStart..<lineEnd)
+                }
+            }
+
+            guard lineEnd < source.endIndex else { break }
+            lineStart = source.index(after: lineEnd)
+        }
+        return (ids, ranges)
+    }
+
+    private nonisolated static func markdownLabel(
+        in source: String,
+        startingAt start: String.Index
+    ) -> MarkdownLabel? {
+        guard start < source.endIndex, source[start] == "[",
+            let range = balancedRange(
+                in: source,
+                startingAt: start,
+                opening: "[",
+                closing: "]")
+        else { return nil }
+        let contentStart = source.index(after: range.lowerBound)
+        let contentEnd = source.index(before: range.upperBound)
+        return MarkdownLabel(
+            range: range,
+            contentRange: contentStart..<contentEnd)
+    }
+
+    private nonisolated static func balancedRange(
+        in source: String,
+        startingAt start: String.Index,
+        opening: Character,
+        closing: Character
+    ) -> Range<String.Index>? {
+        guard start < source.endIndex, source[start] == opening else {
+            return nil
+        }
+        var depth = 1
+        var index = source.index(after: start)
+        while index < source.endIndex {
+            if source[index] == "\\" {
+                let escaped = source.index(after: index)
+                index =
+                    escaped < source.endIndex
+                    ? source.index(after: escaped)
+                    : escaped
+                continue
+            }
+            if source[index] == opening {
+                depth += 1
+            } else if source[index] == closing {
+                depth -= 1
+                if depth == 0 {
+                    return start..<source.index(after: index)
+                }
+            }
+            index = source.index(after: index)
+        }
+        return nil
+    }
+
+    private nonisolated static func normalizedMarkdownReference(
+        _ source: Substring
+    ) -> String {
+        var unescaped = ""
+        var index = source.startIndex
+        while index < source.endIndex {
+            if source[index] == "\\" {
+                let escaped = source.index(after: index)
+                if escaped < source.endIndex {
+                    unescaped.append(source[escaped])
+                    index = source.index(after: escaped)
+                    continue
+                }
+            }
+            unescaped.append(source[index])
+            index = source.index(after: index)
+        }
+        return unescaped.split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+            .lowercased()
     }
 
     private static func mergeByPhonemeBudget(
@@ -470,6 +643,7 @@ enum NarrationTextChunker {
         var words: [String] = []
         var current = ""
         var index = text.startIndex
+        let markdownRanges = markdownProtectedRangesByStart(in: text)
 
         func flush() {
             if !current.isEmpty { words.append(current) }
@@ -482,7 +656,7 @@ enum NarrationTextChunker {
                 index = link.range.upperBound
                 continue
             }
-            if let linkRange = markdownInlineLinkRange(in: text, startingAt: index) {
+            if let linkRange = markdownRanges[index] {
                 current.append(contentsOf: text[linkRange])
                 index = linkRange.upperBound
                 continue

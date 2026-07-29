@@ -9,13 +9,22 @@ nonisolated enum UniversalPronunciationResolver {
     static let morphologyIdentitySchemaVersion = 1
     static let suffixIPA = "əbəl"
     static let minimumBaseLength = 3
-    static let properNamePolicyVersion = "proper-name-risk-v3"
+    static let properNamePolicyVersion = "proper-name-risk-v4"
     static let baseEvidencePolicyVersion = "kokoro-nonfallback-rating3-v1"
+    /// Common honorific, military, professional, organizational, geographic,
+    /// reference, and calendar abbreviations. A period after one of these is
+    /// not sufficient evidence that the following capitalized token begins a
+    /// new sentence.
     static let ambiguousPeriodAbbreviations: Set<String> = [
-        "adm", "approx", "capt", "cmdr", "co", "col", "corp", "dept", "dr",
-        "est", "etc", "fig", "fr", "gen", "gov", "hon", "inc", "jr", "lt",
-        "ltd", "m.d", "maj", "mr", "mrs", "ms", "msgr", "mx", "no", "ph.d",
-        "pres", "prof", "rep", "rev", "sen", "sgt", "sr", "st", "vs",
+        "adm", "adv", "apr", "approx", "assoc", "asst", "atty", "aug", "ave",
+        "blvd", "br", "brig", "bros", "capt", "ch", "cmdr", "co", "col",
+        "corp", "cpl", "ctr", "dec", "dept", "det", "dist", "dr", "ens", "eq",
+        "est", "etc", "exec", "feb", "fig", "fr", "gen", "gov", "hon", "hwy",
+        "inc", "insp", "jan", "jr", "jul", "jun", "jct", "ln", "lt", "ltd",
+        "m.d", "maj", "mar", "messrs", "mr", "mrs", "ms", "msgr", "mt", "mx",
+        "no", "nov", "oct", "ofc", "ph.d", "pkwy", "pl", "pp", "pres", "prof",
+        "pvt", "rd", "rep", "rev", "rte", "sec", "sen", "sep", "sept", "sgt",
+        "sq", "sr", "st", "ste", "supt", "terr", "vol", "vs",
     ]
     static let contextualExclusions: Set<String> = [
         "content", "read", "live", "lives", "record", "records",
@@ -55,14 +64,6 @@ nonisolated enum UniversalPronunciationResolver {
         let derivationRuleID: String?
     }
 
-    /// Captures each complete lexically connected run before validated-key
-    /// filtering. Unsupported letters, marks, numbers, connector punctuation,
-    /// dash punctuation, format controls, and middle dots therefore make the
-    /// whole source run ineligible instead of exposing eligible pieces.
-    /// Ordinary punctuation remains a separator between runs.
-    private static let wordRegex = try! NSRegularExpression(
-        pattern:
-            #"[\p{L}\p{M}\p{N}\p{Pc}\p{Pd}\p{Cf}'’\x{00B7}]+"#)
     private static let ordinaryBoundaryPunctuation: Set<Character> = [
         "\"", "“", "”", "(", ")", "[", "]", "{", "}", ",", ".", ";", ":",
         "!", "?",
@@ -128,28 +129,21 @@ nonisolated enum UniversalPronunciationResolver {
         guard pack != .empty else {
             return PronunciationRewriteResult(text: text, decisionSeeds: [])
         }
-        let nsText = text as NSString
         let protectedRanges = NarrationTextChunker.pronunciationProtectedRanges(in: text)
             .map { NSRange($0, in: text) }
-        let matches = lexicalTokenRanges(in: text).flatMap { tokenRange in
-            wordRegex.matches(in: text, range: tokenRange).map {
-                (match: $0, tokenRange: tokenRange)
-            }
+        let candidateRanges = lexicalTokenRanges(in: text).compactMap {
+            candidateRange(in: $0, source: text)
         }
         var replacements:
             [(range: NSRange, sourceWord: String, resolution: Resolution,
               decisionSeed: PronunciationDecisionSeed)] = []
 
-        for matchedToken in matches {
-            let match = matchedToken.match
+        for range in candidateRanges {
+            let candidateRange = NSRange(range, in: text)
             guard !protectedRanges.contains(where: {
-                NSIntersectionRange(match.range, $0).length > 0
+                NSIntersectionRange(candidateRange, $0).length > 0
             }),
-                isAtomicCandidateRange(
-                    match.range,
-                    in: matchedToken.tokenRange,
-                    source: nsText),
-                let range = Range(match.range, in: text)
+                !range.isEmpty
             else {
                 continue
             }
@@ -200,7 +194,7 @@ nonisolated enum UniversalPronunciationResolver {
             }
             replacements.append(
                 (
-                    range: match.range,
+                    range: candidateRange,
                     sourceWord: sourceWord,
                     resolution: resolution,
                     decisionSeed: PronunciationDecisionSeed(
@@ -236,27 +230,87 @@ nonisolated enum UniversalPronunciationResolver {
             decisionSeeds: replacements.map(\.decisionSeed))
     }
 
-    private static func isAtomicCandidateRange(
-        _ candidateRange: NSRange,
+    /// Produces at most one complete candidate from a whitespace-delimited
+    /// authored token. Ordinary punctuation may envelope the candidate. One
+    /// balanced straight or typographic single-quote pair is also an envelope;
+    /// unmatched, doubled, mismatched, or internal apostrophes remain part of
+    /// the candidate and must pass lexical validation unchanged.
+    private static func candidateRange(
         in tokenRange: NSRange,
-        source: NSString
-    ) -> Bool {
-        guard candidateRange.location >= tokenRange.location,
-            NSMaxRange(candidateRange) <= NSMaxRange(tokenRange)
+        source: String
+    ) -> Range<String.Index>? {
+        guard var range = Range(tokenRange, in: source), !range.isEmpty else {
+            return nil
+        }
+        let squareBrackets = source[range].filter { $0 == "[" || $0 == "]" }
+        guard squareBrackets.isEmpty
+            || squareBrackets == "[]"
+            || isInsideBalancedEditorialBrackets(range, in: source)
         else {
-            return false
+            return nil
         }
-        let leadingRange = NSRange(
-            location: tokenRange.location,
-            length: candidateRange.location - tokenRange.location)
-        let trailingRange = NSRange(
-            location: NSMaxRange(candidateRange),
-            length: NSMaxRange(tokenRange) - NSMaxRange(candidateRange))
-        return source.substring(with: leadingRange).allSatisfy {
-            ordinaryBoundaryPunctuation.contains($0)
-        } && source.substring(with: trailingRange).allSatisfy {
-            ordinaryBoundaryPunctuation.contains($0)
+
+        while let first = source[range].first,
+            ordinaryBoundaryPunctuation.contains(first)
+        {
+            range = source.index(after: range.lowerBound)..<range.upperBound
         }
+        while let last = source[range].last,
+            ordinaryBoundaryPunctuation.contains(last)
+        {
+            range = range.lowerBound..<source.index(before: range.upperBound)
+        }
+        guard !range.isEmpty else { return nil }
+
+        let first = source[range].first
+        let last = source[range].last
+        if (first == "'" && last == "'") || (first == "‘" && last == "’") {
+            let quoteStart = source.index(after: range.lowerBound)
+            let quoteEnd = source.index(before: range.upperBound)
+            range = quoteStart..<quoteEnd
+        }
+        return range.isEmpty ? nil : range
+    }
+
+    private static func isInsideBalancedEditorialBrackets(
+        _ candidateRange: Range<String.Index>,
+        in source: String
+    ) -> Bool {
+        var outerStart: String.Index?
+        var depth = 0
+        var index = source.startIndex
+
+        while index < source.endIndex {
+            if source[index] == "\\" {
+                let escaped = source.index(after: index)
+                index =
+                    escaped < source.endIndex
+                    ? source.index(after: escaped)
+                    : escaped
+                continue
+            }
+            if source[index] == "[" {
+                if depth == 0 { outerStart = index }
+                depth += 1
+            } else if source[index] == "]", depth > 0 {
+                depth -= 1
+                if depth == 0, let start = outerStart {
+                    let upperBound = source.index(after: index)
+                    let isConnectedMarkdown =
+                        upperBound < source.endIndex
+                        && (source[upperBound] == "[" || source[upperBound] == "(")
+                    if !isConnectedMarkdown,
+                        start <= candidateRange.lowerBound,
+                        candidateRange.upperBound <= upperBound
+                    {
+                        return true
+                    }
+                    outerStart = nil
+                }
+            }
+            index = source.index(after: index)
+        }
+        return false
     }
 
     /// Unicode-scalar whitespace bounds keep format controls attached to the

@@ -150,6 +150,57 @@ import Testing
         #expect(result.decisionSeeds.map(\.sourceWord) == ["ad-hoc", "aujourd’hui"])
     }
 
+    @Test func balancedSingleQuotedWordsResolveWithoutAbsorbingTheirQuotes() {
+        let supplementalPack = pack(automaticEntries: [
+            "ad-hoc": ("cmudict.ad-hoc.fixture", "ˈædhˈɑk")
+        ])
+        let result = UniversalPronunciationResolver.rewrite(
+            to: "An 'ad-hoc' and ‘ad-hoc’ example.",
+            blockID: "b1",
+            pack: supplementalPack,
+            basePronunciation: { _ in nil })
+
+        #expect(
+            result.text
+                == "An '[ad-hoc](/ˈædhˈɑk/)' and ‘[ad-hoc](/ˈædhˈɑk/)’ example.")
+        #expect(result.decisionSeeds.map(\.wordStart) == [1, 3])
+        #expect(result.decisionSeeds.map(\.wordEnd) == [1, 3])
+        #expect(result.decisionSeeds.map(\.sourceWord) == ["ad-hoc", "ad-hoc"])
+        #expect(result.decisionSeeds.map(\.normalizedWord) == ["ad-hoc", "ad-hoc"])
+        #expect(result.decisionSeeds.map(\.selectedIPA) == ["ˈædhˈɑk", "ˈædhˈɑk"])
+        #expect(
+            result.decisionSeeds.map(\.candidateID)
+                == ["cmudict.ad-hoc.fixture", "cmudict.ad-hoc.fixture"])
+        #expect(result.decisionSeeds.allSatisfy { $0.source == .supplementalLexicon })
+    }
+
+    @Test func malformedAndLexicalApostrophesRemainIneligible() {
+        let supplementalPack = pack(automaticEntries: [
+            "ad-hoc": ("cmudict.ad-hoc.fixture", "ˈædhˈɑk"),
+            "today": ("cmudict.today.fixture", "tədˈeɪ"),
+            "dogs": ("cmudict.dogs.fixture", "dˈɑɡz"),
+        ])
+        let sources = [
+            "It is today's example.",
+            "The dogs' example.",
+            "An 'ad-hoc example.",
+            "An ad-hoc’ example.",
+            "An ‘’ad-hoc’’ example.",
+            "An ‘ad-hoc' example.",
+            "An aujourd‘hui example.",
+        ]
+
+        for source in sources {
+            let result = UniversalPronunciationResolver.rewrite(
+                to: source,
+                blockID: "b1",
+                pack: supplementalPack,
+                basePronunciation: { _ in nil })
+            #expect(result.text == source)
+            #expect(result.decisionSeeds.isEmpty)
+        }
+    }
+
     @Test func ordinaryBoundaryPunctuationAndExistingLinksRemainSeparate() {
         let supplementalPack = pack(automaticEntries: [
             "foobar": ("cmudict.foobar.fixture", "fˈubɑɹ")
@@ -185,6 +236,97 @@ import Testing
 
         #expect(result.text == source)
         #expect(result.decisionSeeds.isEmpty)
+    }
+
+    @Test func nestedAndEscapedMarkdownInlineLabelsRemainProtected() {
+        let supplementalPack = pack(automaticEntries: [
+            "ad-hoc": ("cmudict.ad-hoc.fixture", "ˈædhˈɑk"),
+            "reference": ("cmudict.reference.fixture", "ɹˈɛfɚəns"),
+        ])
+        let sources = [
+            #"Read [ad-hoc [reference]](https://example.com/a(b)c) now."#,
+            #"Read [ad-hoc \[reference\]](https://example.com/a(b)c) now."#,
+        ]
+
+        for source in sources {
+            let result = UniversalPronunciationResolver.rewrite(
+                to: source,
+                blockID: "b1",
+                pack: supplementalPack,
+                basePronunciation: { _ in nil })
+            #expect(result.text == source)
+            #expect(result.decisionSeeds.isEmpty)
+        }
+    }
+
+    @Test func referenceDefinitionsAndUsesRemainProtectedWhenDefinitionAware() {
+        let supplementalPack = pack(automaticEntries: [
+            "ad-hoc": ("cmudict.ad-hoc.fixture", "ˈædhˈɑk"),
+            "display": ("cmudict.display.fixture", "dɪsplˈeɪ"),
+        ])
+        let source = """
+            [ad-hoc]: https://example.com/dictionary/ad-hoc
+
+            See [ad-hoc][], [display][ad-hoc], and [ad-hoc].
+            """
+
+        let result = UniversalPronunciationResolver.rewrite(
+            to: source,
+            blockID: "b1",
+            pack: supplementalPack,
+            basePronunciation: { _ in nil })
+
+        #expect(result.text == source)
+        #expect(result.decisionSeeds.isEmpty)
+    }
+
+    @Test func editorialBracketsResolveButUnrecognizedConnectedReferencesFailClosed() {
+        let supplementalPack = pack(automaticEntries: [
+            "ad-hoc": ("cmudict.ad-hoc.fixture", "ˈædhˈɑk")
+        ])
+        let editorial = UniversalPronunciationResolver.rewrite(
+            to: "An [ad-hoc] note.",
+            blockID: "b1",
+            pack: supplementalPack,
+            basePronunciation: { _ in nil })
+        #expect(editorial.text == "An [[ad-hoc](/ˈædhˈɑk/)] note.")
+        #expect(editorial.decisionSeeds.map(\.wordStart) == [1])
+        #expect(editorial.decisionSeeds.map(\.sourceWord) == ["ad-hoc"])
+
+        for source in [
+            "An [ad-hoc][] note.",
+            "An [ad-hoc][missing] note.",
+            "An [ad-hoc label][missing] note.",
+        ] {
+            let unresolvedReference = UniversalPronunciationResolver.rewrite(
+                to: source,
+                blockID: "b1",
+                pack: supplementalPack,
+                basePronunciation: { _ in nil })
+            #expect(unresolvedReference.text == source)
+            #expect(unresolvedReference.decisionSeeds.isEmpty)
+        }
+    }
+
+    @Test func malformedSquareBracketEnvelopesFailClosed() {
+        let supplementalPack = pack(automaticEntries: [
+            "ad-hoc": ("cmudict.ad-hoc.fixture", "ˈædhˈɑk")
+        ])
+
+        for source in [
+            "An [ad-hoc note.",
+            "An ad-hoc] note.",
+            "An [[ad-hoc note.",
+            "An [ad-hoc[ note.",
+        ] {
+            let result = UniversalPronunciationResolver.rewrite(
+                to: source,
+                blockID: "b1",
+                pack: supplementalPack,
+                basePronunciation: { _ in nil })
+            #expect(result.text == source)
+            #expect(result.decisionSeeds.isEmpty)
+        }
     }
 
     @Test func plainURLHostsPathsAndDictionaryKeysRemainProtected() {
@@ -311,6 +453,20 @@ import Testing
             "Adm. Foobar arrived.",
             "Mx. Foobar arrived.",
             "Msgr. Foobar arrived.",
+            "Cpl. Foobar arrived.",
+            "Pvt. Foobar arrived.",
+            "Brig. Foobar arrived.",
+            "Supt. Foobar arrived.",
+            "Det. Foobar arrived.",
+            "Messrs. Foobar arrived.",
+            "Mt. Foobar arrived.",
+            "Ens. Foobar arrived.",
+            "Atty. Foobar arrived.",
+            "Assoc. Foobar arrived.",
+            "Exec. Foobar arrived.",
+            "Ave. Foobar arrived.",
+            "Blvd. Foobar arrived.",
+            "Sept. Foobar arrived.",
             "A. Foobar arrived.",
             "U.S. Foobar arrived.",
             "e.g. Foobar arrived.",
@@ -483,8 +639,8 @@ import Testing
 
         #expect(
             policyVersion
-                == "morphology-v1:sha256:594f598b55d0328a08f7b24015ae594bf2d32815782d73b968d70b471e732b9c")
-        #expect(candidateID == "morphology.startable.296cadc8b10e")
+                == "morphology-v1:sha256:f06b13ae68baa4d10f6af74bcbd822d71374a0dffb9315a11b1cf16eddcdc349")
+        #expect(candidateID == "morphology.startable.4499e5dbd898")
         #expect(
             UniversalPronunciationResolver.morphologyCandidatePackVersion(for: fixturePack)
                 == policyVersion)
@@ -519,7 +675,7 @@ import Testing
         let changedProperNamePolicy =
             UniversalPronunciationResolver.morphologyCandidatePackVersion(
                 for: fixturePack,
-                properNamePolicyVersion: "proper-name-risk-v2")
+                properNamePolicyVersion: "proper-name-risk-v3")
         let changedPack = UniversalPronunciationResolver.morphologyCandidatePackVersion(
             for: pack(packVersion: "sha256:" + String(repeating: "2", count: 64)))
         let changedVocabulary = UniversalPronunciationResolver.morphologyCandidatePackVersion(
