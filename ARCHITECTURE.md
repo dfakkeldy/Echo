@@ -911,12 +911,17 @@ artifact. If a malicious same-UID actor swaps the pathname after the final
 check, the descriptor still prevents redirection to the replacement, but this
 is not claimed as protection from mutation of the already-open original.
 
-Run claims, ledger events, queue rows, and model response fields require their
-exact JSON scalar types before any equality, set membership, or
-regular-expression check. A boolean is not an integer schema version, and
-structured category, outcome, source-commit, verdict, or response-category
-values produce controlled validation errors rather than tracebacks. Invalid
-model response values are never persisted.
+Run claims, ledger events, queue rows, model response fields, input manifests,
+and provenance-authority bindings require their exact JSON scalar types before
+any equality, set membership, or regular-expression check. A boolean is not an
+integer schema version; closed vocabularies are strings; and bounded numbers
+are exact integers or finite floats. Bounds are checked without converting
+unbounded integers to floats. Structured category, outcome, source-commit,
+verdict, response-category, provenance, label-status, media-type, or
+expectation values produce controlled validation errors rather than
+tracebacks. Invalid admission data cannot claim a run or reach transport, and
+invalid model response values are routed to morning review without being
+persisted as verdicts.
 
 The judge does not let its input manifest authorize its own provenance. Each
 run requires a separate absolute, single-link regular, non-symlink authority

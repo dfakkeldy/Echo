@@ -232,6 +232,25 @@ def _is_exact_string_choice(value: Any, choices: set[str]) -> bool:
     return _has_exact_json_type(value, str) and value in choices
 
 
+def _is_exact_bounded_number(
+    value: Any,
+    *,
+    minimum: int | float,
+    maximum: int | float,
+    include_minimum: bool,
+) -> bool:
+    if _has_exact_json_type(value, int):
+        pass
+    elif _has_exact_json_type(value, float):
+        if not math.isfinite(value):
+            return False
+    else:
+        return False
+    if include_minimum:
+        return minimum <= value <= maximum
+    return minimum < value <= maximum
+
+
 def _strict_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -453,34 +472,41 @@ def _load_provenance_authority(
         )
     except (OSError, UnicodeError, json.JSONDecodeError, ManifestError) as error:
         raise ManifestError("provenance authority is invalid") from error
-    if not isinstance(value, dict) or set(value) != PROVENANCE_AUTHORITY_FIELDS:
+    if (
+        not _has_exact_json_type(value, dict)
+        or set(value) != PROVENANCE_AUTHORITY_FIELDS
+    ):
         raise ManifestError("provenance authority fields are invalid")
     if (
-        value["schemaVersion"] != 1
+        not _has_exact_json_type(value["schemaVersion"], int)
+        or value["schemaVersion"] != 1
+        or not _has_exact_json_type(value["authorizationPurpose"], str)
         or value["authorizationPurpose"] != PROVENANCE_AUTHORITY_PURPOSE
-        or not isinstance(value["clips"], list)
+        or not _has_exact_json_type(value["clips"], list)
         or not value["clips"]
     ):
         raise ManifestError("provenance authority is invalid")
     bindings: dict[str, dict[str, Any]] = {}
     for row in value["clips"]:
         if (
-            not isinstance(row, dict)
+            not _has_exact_json_type(row, dict)
             or set(row) != PROVENANCE_AUTHORITY_CLIP_FIELDS
             or not validate_clip_id(row.get("clipID"))
             or row["clipID"] in bindings
-            or row.get("provenance") not in ALLOWED_PROVENANCE
-            or not isinstance(row.get("audioSHA256"), str)
+            or not _is_exact_string_choice(
+                row.get("provenance"),
+                ALLOWED_PROVENANCE,
+            )
+            or not _has_exact_json_type(row.get("audioSHA256"), str)
             or SHA256_PATTERN.fullmatch(row["audioSHA256"]) is None
         ):
             raise ManifestError("provenance authority clip binding is invalid")
         duration = row.get("durationSeconds")
-        if (
-            not isinstance(duration, (int, float))
-            or isinstance(duration, bool)
-            or not math.isfinite(duration)
-            or duration <= 0
-            or duration > MAXIMUM_CLIP_DURATION_SECONDS
+        if not _is_exact_bounded_number(
+            duration,
+            minimum=0,
+            maximum=MAXIMUM_CLIP_DURATION_SECONDS,
+            include_minimum=False,
         ):
             raise ManifestError("provenance authority clip binding is invalid")
         bindings[row["clipID"]] = row
@@ -488,7 +514,7 @@ def _load_provenance_authority(
 
 
 def _require_exact_fields(value: Any, fields: set[str], name: str) -> dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != fields:
+    if not _has_exact_json_type(value, dict) or set(value) != fields:
         raise ManifestError(f"{name} fields do not match the contract")
     return value
 
@@ -579,21 +605,20 @@ def _admit_clip(
     provenance = clip["provenance"]
     label_status = clip["labelStatus"]
     media_type = clip["mediaType"]
-    if provenance not in ALLOWED_PROVENANCE:
+    if not _is_exact_string_choice(provenance, ALLOWED_PROVENANCE):
         raise ManifestError("clip provenance is ineligible")
-    if label_status not in ALLOWED_LABEL_STATUS:
+    if not _is_exact_string_choice(label_status, ALLOWED_LABEL_STATUS):
         raise ManifestError("clip label status is ineligible")
-    if media_type not in MEDIA_TYPES:
+    if not _is_exact_string_choice(media_type, set(MEDIA_TYPES)):
         raise ManifestError("clip media type is ineligible")
     audio_format, suffix = MEDIA_TYPES[media_type]
 
     declared_duration = clip["durationSeconds"]
-    if (
-        not isinstance(declared_duration, (int, float))
-        or isinstance(declared_duration, bool)
-        or not math.isfinite(declared_duration)
-        or declared_duration <= 0
-        or declared_duration > MAXIMUM_CLIP_DURATION_SECONDS
+    if not _is_exact_bounded_number(
+        declared_duration,
+        minimum=0,
+        maximum=MAXIMUM_CLIP_DURATION_SECONDS,
+        include_minimum=False,
     ):
         raise ManifestError("declared clip duration is ineligible")
 
@@ -601,17 +626,20 @@ def _admit_clip(
     expectation = clip["deterministicExpectation"]
     source_commit = clip["sourceCommit"]
     render_identity = clip["renderIdentity"]
-    if not isinstance(audio_hash, str) or SHA256_PATTERN.fullmatch(audio_hash) is None:
+    if (
+        not _has_exact_json_type(audio_hash, str)
+        or SHA256_PATTERN.fullmatch(audio_hash) is None
+    ):
         raise ManifestError("audio content hash is invalid")
-    if expectation not in ALLOWED_EXPECTATIONS:
+    if not _is_exact_string_choice(expectation, ALLOWED_EXPECTATIONS):
         raise ManifestError("deterministic expectation is invalid")
     if (
-        not isinstance(source_commit, str)
+        not _has_exact_json_type(source_commit, str)
         or SOURCE_COMMIT_PATTERN.fullmatch(source_commit) is None
     ):
         raise ManifestError("source commit is invalid")
     if (
-        not isinstance(render_identity, str)
+        not _has_exact_json_type(render_identity, str)
         or RENDER_IDENTITY_PATTERN.fullmatch(render_identity) is None
     ):
         raise ManifestError("render identity is invalid")
@@ -664,16 +692,19 @@ def _admit_manifest_with_authority(
         MANIFEST_FIELDS,
         "manifest",
     )
-    if manifest["schemaVersion"] != 1:
+    if (
+        not _has_exact_json_type(manifest["schemaVersion"], int)
+        or manifest["schemaVersion"] != 1
+    ):
         raise ManifestError("unsupported manifest schema")
     corpus_identity = manifest["corpusIdentity"]
     if (
-        not isinstance(corpus_identity, str)
+        not _has_exact_json_type(corpus_identity, str)
         or RENDER_IDENTITY_PATTERN.fullmatch(corpus_identity) is None
     ):
         raise ManifestError("corpus identity is invalid")
     rows = manifest["clips"]
-    if not isinstance(rows, list) or not rows:
+    if not _has_exact_json_type(rows, list) or not rows:
         raise ManifestError("manifest clips must be a non-empty array")
     seen_clip_ids: set[str] = set()
     clips = tuple(
@@ -767,13 +798,11 @@ def parse_verdict(payload: str, *, expected_clip_id: str) -> dict[str, Any]:
     if not _is_exact_string_choice(decoded["verdict"], VERDICTS):
         raise ResponseValidationError("result verdict is invalid")
     confidence = decoded["confidence"]
-    if (
-        not (
-            _has_exact_json_type(confidence, int)
-            or _has_exact_json_type(confidence, float)
-        )
-        or not math.isfinite(confidence)
-        or not 0.0 <= confidence <= 1.0
+    if not _is_exact_bounded_number(
+        confidence,
+        minimum=0,
+        maximum=1,
+        include_minimum=True,
     ):
         raise ResponseValidationError("result confidence is invalid")
     if not _is_exact_string_choice(decoded["category"], CATEGORIES):

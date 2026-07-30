@@ -30,7 +30,7 @@ The following independent local gates passed on 2026-07-29:
 | --- | --- |
 | Pronunciation corpus tests | 47 passed |
 | Pronunciation pack tests and regeneration check | 38 passed; generated pack matched the committed pack |
-| Development audio-judge tests | 69 passed without an API request |
+| Development audio-judge tests | 77 passed without an API request |
 | Task 10 Swift acceptance suite | 6 passed |
 | Echo test-products build | Passed |
 | Complete Echo unit-test gate | Passed before this test/tool/documentation-only correction; not rerun because production/shared Swift did not change |
@@ -179,6 +179,10 @@ excerpt, and not a production Echo pronunciation render.
 - Credential-free receipt SHA-256:
   `76d16ffe7eac03add142db012ab341b60b6bfc4f2879be8192dbc648b2d59211`
 
+The scalar-validation correction did not regenerate or replace either valid
+authority-v3 artifact. The run IDs and receipt hashes above remain the exact
+recorded evidence; no new API or transport claim is implied.
+
 Pricing was rechecked on 2026-07-29 and stored as
 `gpt-audio-1.5-pricing-2026-07-29`: USD 2.50 per million text-input tokens,
 USD 10.00 per million text-output tokens, USD 32.00 per million audio-input
@@ -228,11 +232,14 @@ replacement artifact. The descriptor prevents an after-check swap from
 redirecting writes to the replacement, but no stronger claim is made against a
 malicious same-UID actor mutating or renaming the already-open original.
 
-Claims, ledger events, queue rows, and model responses require exact JSON scalar
-types. Boolean schema versions and structured queue category, proposal
-category, rerender outcome, source-commit, verdict, or response-category values
-fail as controlled validation errors without a traceback. Invalid model
-response fields are not persisted.
+Claims, ledger events, queue rows, model responses, input manifests, and
+provenance-authority bindings require exact JSON scalar types before equality,
+membership, regular-expression, finiteness, or bounds checks. Boolean schema
+versions, structured closed-vocabulary values, and unbounded integer durations
+or confidence values fail as controlled validation errors without a traceback.
+Invalid admission data creates no run receipt and reaches no transport.
+Invalid model response fields route to `malformed_output` morning review and
+are not persisted as verdicts.
 
 Admission also requires a separate absolute, single-link regular, non-symlink
 provenance authority file outside the repository. It binds every admitted

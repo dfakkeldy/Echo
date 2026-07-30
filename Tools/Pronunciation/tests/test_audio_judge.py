@@ -326,6 +326,106 @@ class ManifestAdmissionTests(unittest.TestCase):
             admit_manifest(manifest)
         self.assertEqual(authority_before, authority_target.read_bytes())
 
+    def test_admission_rejects_non_exact_manifest_scalars_before_request_or_receipt(self):
+        clip_id = generate_clip_id()
+        audio_path = self.write_wav(clip_id)
+        row = self.manifest_row(clip_id, audio_path, 0.25)
+        invalid_values = (["nested"], {"nested": "invalid"}, True, 10**1000)
+        probes = (
+            ("manifest", "schemaVersion"),
+            ("manifest", "corpusIdentity"),
+            ("clip", "clipID"),
+            ("clip", "provenance"),
+            ("clip", "labelStatus"),
+            ("clip", "mediaType"),
+            ("clip", "durationSeconds"),
+            ("clip", "audioSHA256"),
+            ("clip", "deterministicExpectation"),
+            ("clip", "sourceCommit"),
+            ("clip", "renderIdentity"),
+        )
+        output_root = self.directory / "runs"
+        transport = mock.Mock()
+
+        for probe_index, (scope, field) in enumerate(probes):
+            for value_index, value in enumerate(invalid_values):
+                with self.subTest(scope=scope, field=field, value=value):
+                    manifest_path = self.write_manifest([row])
+                    manifest = json.loads(
+                        manifest_path.read_text(encoding="utf-8")
+                    )
+                    target = manifest if scope == "manifest" else manifest["clips"][0]
+                    target[field] = value
+                    manifest_path.write_text(
+                        json.dumps(manifest),
+                        encoding="utf-8",
+                    )
+                    run_id = f"invalid-manifest-{probe_index}-{value_index}"
+
+                    with self.assertRaises(ManifestError):
+                        run_evaluation(
+                            manifest_path=manifest_path,
+                            run_id=run_id,
+                            dry_run=False,
+                            output_root=output_root,
+                            environment={"OPENAI_API_KEY": "test-only-key"},
+                            transport=transport,
+                        )
+
+                    self.assertFalse((output_root / run_id).exists())
+
+        transport.assert_not_called()
+
+    def test_admission_rejects_non_exact_authority_scalars_before_request_or_receipt(self):
+        clip_id = generate_clip_id()
+        audio_path = self.write_wav(clip_id)
+        row = self.manifest_row(clip_id, audio_path, 0.25)
+        invalid_values = (["nested"], {"nested": "invalid"}, True, 10**1000)
+        probes = (
+            ("authority", "schemaVersion"),
+            ("authority", "authorizationPurpose"),
+            ("binding", "clipID"),
+            ("binding", "audioSHA256"),
+            ("binding", "durationSeconds"),
+            ("binding", "provenance"),
+        )
+        output_root = self.directory / "runs"
+        transport = mock.Mock()
+
+        for probe_index, (scope, field) in enumerate(probes):
+            for value_index, value in enumerate(invalid_values):
+                with self.subTest(scope=scope, field=field, value=value):
+                    manifest_path = self.write_manifest([row])
+                    authority_path = self.provenance_authority_path
+                    authority = json.loads(
+                        authority_path.read_text(encoding="utf-8")
+                    )
+                    target = (
+                        authority
+                        if scope == "authority"
+                        else authority["clips"][0]
+                    )
+                    target[field] = value
+                    authority_path.write_text(
+                        json.dumps(authority),
+                        encoding="utf-8",
+                    )
+                    run_id = f"invalid-authority-{probe_index}-{value_index}"
+
+                    with self.assertRaises(ManifestError):
+                        run_evaluation(
+                            manifest_path=manifest_path,
+                            run_id=run_id,
+                            dry_run=False,
+                            output_root=output_root,
+                            environment={"OPENAI_API_KEY": "test-only-key"},
+                            transport=transport,
+                        )
+
+                    self.assertFalse((output_root / run_id).exists())
+
+        transport.assert_not_called()
+
 
 class ResponseValidationTests(unittest.TestCase):
     def setUp(self):
@@ -429,6 +529,18 @@ class ResponseValidationTests(unittest.TestCase):
                         json.dumps(payload),
                         expected_clip_id=self.clip_id,
                     )
+
+    def test_unbounded_integer_confidence_raises_a_controlled_validation_error(self):
+        payload = {
+            **self.valid,
+            "confidence": 10**1000,
+        }
+
+        with self.assertRaises(ResponseValidationError):
+            parse_verdict(
+                json.dumps(payload),
+                expected_clip_id=self.clip_id,
+            )
 
 
 class EvaluationGateTests(ManifestAdmissionTests):
@@ -851,6 +963,46 @@ class EvaluationGateTests(ManifestAdmissionTests):
             ["malformed_output"],
             malformed_receipt["morningQueue"][0]["reasons"],
         )
+
+    def test_unbounded_integer_confidence_routes_to_malformed_morning_review(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest(
+            [self.manifest_row(clip_id, path, 0.25)]
+        )
+        huge_confidence = 10**1000
+        transport = mock.Mock(
+            return_value={
+                "model": "gpt-audio-1.5",
+                "content": json.dumps(
+                    {
+                        "clipID": clip_id,
+                        "verdict": "pass",
+                        "confidence": huge_confidence,
+                        "category": "correct",
+                    }
+                ),
+                "usage": {},
+            }
+        )
+
+        receipt = run_evaluation(
+            manifest_path=manifest,
+            run_id="huge-confidence",
+            dry_run=False,
+            output_root=self.directory / "runs",
+            environment={"OPENAI_API_KEY": "test-only-key"},
+            transport=transport,
+        )
+
+        self.assertEqual(1, transport.call_count)
+        self.assertEqual("needs_review", receipt["apiEvaluationStatus"])
+        self.assertEqual(
+            ["malformed_output"],
+            receipt["morningQueue"][0]["reasons"],
+        )
+        self.assertIsNone(receipt["results"][0]["verdict"])
+        self.assertNotIn(str(huge_confidence), json.dumps(receipt))
 
     def test_retry_is_blocked_before_it_would_exceed_the_hard_cost_cap(self):
         clip_id = generate_clip_id()
