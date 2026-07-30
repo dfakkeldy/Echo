@@ -48,14 +48,16 @@ import Testing
                 "00000000-0000-0000-0000-000000000312",
                 "00000000-0000-0000-0000-000000000311",
             ])
+        var incomingWithCover = incoming
+        incomingWithCover.coverContentVersion = "cover-version-remote"
         let recoveredID = UUID(uuidString: "00000000-0000-0000-0000-000000000399")!
 
         let result = resolver.resolveAnthology(
-            incoming: incoming,
+            incoming: incomingWithCover,
             existing: local,
             makeRecoveredID: { recoveredID })
         let repeated = resolver.resolveAnthology(
-            incoming: incoming,
+            incoming: incomingWithCover,
             existing: local,
             makeRecoveredID: { recoveredID })
 
@@ -65,6 +67,7 @@ import Testing
         #expect(result.active.entries.map(\.captureID) == local.entries.map(\.captureID))
         #expect(result.recovered.entries.map(\.captureID) == incoming.entries.map(\.captureID))
         #expect(result.recovered.entries.map(\.id) == repeated.recovered.entries.map(\.id))
+        #expect(result.recovered.coverContentVersion == "cover-version-remote")
     }
 
     @MainActor
@@ -147,6 +150,13 @@ import Testing
         let database = try DatabaseService(inMemory: ())
         let dao = ArticleSyncDAO(db: database.writer)
         try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        let preserved = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: "capture.00000000-0000-0000-0000-000000000326",
+                recordType: .capture,
+                entityID: "00000000-0000-0000-0000-000000000326",
+                operation: .save,
+                queuedAt: "2026-07-29T12:00:00Z"))
         try dao.bindAccountOwner("account-B", updatedAt: "2026-07-29T12:00:01Z")
         let driver = DeterministicArticleSyncEngineDriver()
         let engine = ArticleWorkshopCloudSyncEngine(syncDAO: dao, driver: driver)
@@ -168,10 +178,50 @@ import Testing
         await engine.schedule([staleSave, staleDelete])
 
         #expect(try dao.pendingChanges().isEmpty)
-        #expect(
-            try dao.pendingChanges(accountOwnerID: "account-A").map(\.operation)
-                == [.save, .delete])
+        #expect(try dao.pendingChanges(accountOwnerID: "account-A") == [preserved])
         #expect(await driver.scheduledChanges().isEmpty)
+    }
+
+    @MainActor
+    @Test func returningToOwnerWithPreservedOutboxFailsClosedUntilReconciled() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        let pendingA = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: "capture.00000000-0000-0000-0000-000000000327",
+                recordType: .capture,
+                entityID: "00000000-0000-0000-0000-000000000327",
+                operation: .save,
+                queuedAt: "2026-07-29T12:00:01Z"))
+
+        try dao.bindAccountOwner("account-B", updatedAt: "2026-07-29T12:01:00Z")
+        let result = try dao.bindAccountOwner(
+            "account-A",
+            updatedAt: "2026-07-29T12:02:00Z")
+
+        #expect(result == .quarantined)
+        #expect(try dao.activeAccountLaneIsRestricted())
+        #expect(try dao.pendingChanges().isEmpty)
+        #expect(try dao.pendingChanges(accountOwnerID: "account-A") == [pendingA])
+    }
+
+    @Test func staleEngineEpochGateRejectsCallbacksAfterReplacementAndCancellation() throws {
+        let first = NSObject()
+        let second = NSObject()
+        var gate = ArticleSyncEngineEpochGate()
+
+        gate.activate(first)
+        let firstAccountEpoch = try #require(gate.epoch(for: first))
+        #expect(gate.accepts(first))
+        gate.activate(first)
+        #expect(gate.accepts(epoch: firstAccountEpoch) == false)
+        #expect(gate.accepts(first, epoch: firstAccountEpoch) == false)
+        gate.activate(second)
+        #expect(gate.accepts(first) == false)
+        #expect(gate.accepts(second))
+        gate.deactivate(second)
+        #expect(gate.accepts(second) == false)
     }
 
     @MainActor
@@ -238,6 +288,13 @@ import Testing
         stored.coverPath = "cover-local.png"
         stored.latestBuildRevision = 7
         try database.write { db in try stored.insert(db) }
+        try dao.storeFetchedCloudRecord(
+            recordName: "anthology.\(local.anthology.id)",
+            recordType: .anthology,
+            entityID: local.anthology.id,
+            systemFields: Data("base-fields".utf8),
+            contentFingerprint: try ArticleSyncFingerprint.anthology(local),
+            updatedAt: "2026-07-29T12:00:00Z")
         let incoming = anthologyManifest(
             title: "New remote title",
             modifiedAt: "2026-07-29T12:01:00Z",
@@ -253,6 +310,35 @@ import Testing
             try database.read {
                 try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM anthology")
             } == 1)
+    }
+
+    @MainActor
+    @Test func existingAnthologyWithoutCurrentOwnerBaseRecoversInsteadOfReplacing() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        let local = anthologyManifest(
+            title: "Local state with unknown base",
+            modifiedAt: "2026-07-29T12:00:00Z",
+            captureIDs: [])
+        try database.write { db in
+            var anthology = local.anthology
+            try anthology.insert(db)
+        }
+        let incoming = anthologyManifest(
+            title: "Remote state",
+            modifiedAt: "2026-07-29T12:01:00Z",
+            captureIDs: [])
+
+        try dao.applyFetchedChanges([.anthology(incoming)])
+
+        #expect(
+            try dao.anthologyManifest(id: local.anthology.id)?.anthology.title
+                == "Local state with unknown base")
+        #expect(
+            try database.read {
+                try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM anthology")
+            } == 2)
     }
 
     @MainActor
@@ -734,9 +820,43 @@ import Testing
 
         #expect(
             committer.commit(saved: [acknowledgement], deleted: [])
-                == .failed(currentChanges: [current]))
+                == .failed(
+                    currentChanges: [current],
+                    unresolvedRecordNames: []))
         #expect(try dao.pendingChanges() == [current])
         #expect(try dao.cloudRecord(recordName: recordName) == nil)
+    }
+
+    @Test func acknowledgementFailureAndFollowUpReadFailureRetainsAffectedIdentity() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner(
+            "account-A",
+            updatedAt: "2026-07-29T12:00:00Z")
+        let current = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: "revision.00000000-0000-0000-0000-000000000371",
+                recordType: .revision,
+                entityID: "00000000-0000-0000-0000-000000000371",
+                operation: .delete,
+                queuedAt: "2026-07-29T12:00:00Z"))
+        let committer = ArticleSentAcknowledgementCommitter(
+            syncDAO: dao,
+            beforeCommit: { throw InjectedSentAcknowledgementFailure.failed },
+            loadPendingChanges: { throw InjectedSentAcknowledgementFailure.failed })
+
+        #expect(
+            committer.commit(
+                saved: [],
+                deleted: [
+                    ArticleCloudDeleteAcknowledgement(
+                        recordName: current.recordName,
+                        generation: current.generation)
+                ])
+                == .failed(
+                    currentChanges: [],
+                    unresolvedRecordNames: [current.recordName]))
+        #expect(try dao.pendingChanges() == [current])
     }
 
     @Test func cloudFailuresUseStablePrivacySafeClassifications() {

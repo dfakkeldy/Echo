@@ -295,6 +295,7 @@ nonisolated struct ArticleSyncDAO: Sendable {
         case invalidAccountStatus(String)
         case invalidEngineState
         case missingAccountOwner
+        case accountOwnerMismatch
         case invalidGeneration
         case accountOwnerQuarantined
         case anthologyStateChanged
@@ -474,6 +475,13 @@ nonisolated struct ArticleSyncDAO: Sendable {
                 db,
                 sql: "SELECT account_owner_id FROM article_sync_state WHERE id = 'default'")
             let switched = previous != nil && previous != ownerID
+            if switched, let previous {
+                try guardOwnerWithPendingSave(
+                    previous,
+                    reason: "accountSwitchWithPendingSave",
+                    updatedAt: updatedAt,
+                    db: db)
+            }
             let quarantined =
                 try Bool.fetchOne(
                     db,
@@ -570,6 +578,19 @@ nonisolated struct ArticleSyncDAO: Sendable {
         updatedAt: String
     ) throws {
         try db.write { db in
+            if let owner = try String.fetchOne(
+                db,
+                sql: """
+                    SELECT account_owner_id FROM article_sync_state
+                    WHERE id = 'default'
+                    """)
+            {
+                try guardOwnerWithPendingSave(
+                    owner,
+                    reason: "accountSignOutWithPendingSave",
+                    updatedAt: updatedAt,
+                    db: db)
+            }
             try db.execute(
                 sql: """
                     UPDATE article_sync_state
@@ -626,14 +647,18 @@ nonisolated struct ArticleSyncDAO: Sendable {
         -> ArticlePendingCloudChange
     {
         try db.write { db in
-            let activeOwner =
-                try change.accountOwnerID
-                ?? String.fetchOne(
-                    db,
-                    sql: """
-                        SELECT account_owner_id
-                        FROM article_sync_state WHERE id = 'default'
-                        """)
+            let boundOwner = try String.fetchOne(
+                db,
+                sql: """
+                    SELECT account_owner_id
+                    FROM article_sync_state WHERE id = 'default'
+                    """)
+            if let explicitOwner = change.accountOwnerID,
+                explicitOwner != boundOwner
+            {
+                throw Error.accountOwnerMismatch
+            }
+            let activeOwner = change.accountOwnerID ?? boundOwner
             let ownerKey = activeOwner ?? ""
             let previousGeneration =
                 try Int64.fetchOne(
@@ -1336,7 +1361,9 @@ nonisolated struct ArticleSyncDAO: Sendable {
             let localDiverged =
                 hasPendingSave
                 && (baseFingerprint == nil || existingFingerprint != baseFingerprint)
-            if localDiverged && existingFingerprint != incomingFingerprint {
+            if existingFingerprint != incomingFingerprint
+                && (baseFingerprint == nil || localDiverged)
+            {
                 action = .recover
                 targetID =
                     ArticleSyncConflictIdentity.recoveredAnthologyID(
@@ -1815,6 +1842,36 @@ nonisolated struct ArticleSyncDAO: Sendable {
                 )
                 """,
             arguments: [owner]) ?? false
+    }
+
+    private func guardOwnerWithPendingSave(
+        _ owner: String,
+        reason: String,
+        updatedAt: String,
+        db: Database
+    ) throws {
+        let hasPendingSave =
+            try Bool.fetchOne(
+                db,
+                sql: """
+                    SELECT EXISTS(
+                        SELECT 1 FROM article_sync_outbox
+                        WHERE account_owner_id = ? AND operation = ?
+                    )
+                    """,
+                arguments: [owner, ArticleSyncOperation.save.rawValue]) ?? false
+        guard hasPendingSave else { return }
+        try db.execute(
+            sql: """
+                INSERT INTO article_sync_account_guard (
+                    account_owner_id, reason, updated_at
+                )
+                VALUES (?, ?, ?)
+                ON CONFLICT(account_owner_id) DO UPDATE SET
+                    reason = excluded.reason,
+                    updated_at = excluded.updated_at
+                """,
+            arguments: [owner, reason, updatedAt])
     }
 
     private func activeAccountLaneIsRestricted(_ db: Database) throws -> Bool {

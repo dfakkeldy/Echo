@@ -71,7 +71,8 @@ nonisolated struct ArticleSyncConflictResolver: Sendable {
             recovered: ArticleCloudAnthologyManifest(
                 schemaVersion: incoming.schemaVersion,
                 anthology: recoveredAnthology,
-                entries: recoveredEntries))
+                entries: recoveredEntries,
+                coverContentVersion: incoming.coverContentVersion))
     }
 
     func recoveredAnthologyID(

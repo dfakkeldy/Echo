@@ -736,7 +736,10 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         sensitiveValueMarkers: [String]
     ) -> Bool {
         for item in components.queryItems ?? [] {
-            let name = normalizedQueryName(item.name)
+            guard let decodedName = repeatedlyPercentDecoded(item.name) else {
+                return true
+            }
+            let name = normalizedQueryName(decodedName)
             let tokens = name.split(separator: "_").map(String.init)
             if sensitiveNames.contains(name)
                 || tokens.contains(where: sensitiveTokens.contains)
@@ -744,11 +747,14 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
                 return true
             }
             guard let itemValue = item.value else { continue }
-            let lowercasedValue = itemValue.lowercased()
+            guard let decodedValue = repeatedlyPercentDecoded(itemValue) else {
+                return true
+            }
+            let lowercasedValue = decodedValue.lowercased()
             if sensitiveValueMarkers.contains(where: lowercasedValue.contains) {
                 return true
             }
-            guard let nested = URLComponents(string: itemValue),
+            guard let nested = URLComponents(string: decodedValue),
                 let scheme = nested.scheme?.lowercased(),
                 ["http", "https"].contains(scheme),
                 nested.host?.isEmpty == false
@@ -770,6 +776,139 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
             }
         }
         return false
+    }
+
+    /// URLComponents decodes query components once. Repeat a small, bounded
+    /// number of passes so credentials cannot be hidden behind nested escapes;
+    /// values requiring more passes fail closed.
+    private func repeatedlyPercentDecoded(
+        _ value: String,
+        maximumPasses: Int = 4
+    ) -> String? {
+        var current = value
+        for _ in 0..<maximumPasses {
+            guard let decoded = current.removingPercentEncoding else {
+                return nil
+            }
+            if decoded == current {
+                return current
+            }
+            current = decoded
+        }
+        guard let next = current.removingPercentEncoding,
+            next == current
+        else {
+            return nil
+        }
+        return current
+    }
+
+    private func validateSnapshotURLAttributes(
+        _ contentXHTML: String,
+        sourceURL: String
+    ) throws {
+        guard let baseURL = URL(string: sourceURL) else {
+            throw Error.invalidPackage
+        }
+        let collector = SnapshotURLAttributeCollector()
+        let parser = XMLParser(data: Data(contentXHTML.utf8))
+        parser.delegate = collector
+        guard parser.parse() else { throw Error.invalidPackage }
+
+        for attribute in collector.attributes {
+            let candidates: [String]
+            switch attribute.name {
+            case "srcset":
+                candidates = attribute.value.split(separator: ",").compactMap {
+                    $0.split(whereSeparator: \.isWhitespace).first.map(String.init)
+                }
+            case "style":
+                candidates = styleURLCandidates(attribute.value)
+            default:
+                candidates = [attribute.value]
+            }
+            for candidate in candidates {
+                try validateSnapshotURLCandidate(candidate, relativeTo: baseURL)
+            }
+        }
+    }
+
+    private func styleURLCandidates(_ style: String) -> [String] {
+        var candidates: [String] = []
+        var remainder = style[...]
+        while let start = remainder.range(
+            of: "url(",
+            options: [.caseInsensitive])
+        {
+            let afterStart = remainder[start.upperBound...]
+            guard let end = afterStart.firstIndex(of: ")") else {
+                return candidates + [String(afterStart)]
+            }
+            candidates.append(
+                String(afterStart[..<end])
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "\"' ")))
+            remainder = afterStart[afterStart.index(after: end)...]
+        }
+        return candidates
+    }
+
+    private func validateSnapshotURLCandidate(
+        _ rawValue: String,
+        relativeTo baseURL: URL
+    ) throws {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let decoded = repeatedlyPercentDecoded(value),
+            let resolved = URL(string: decoded, relativeTo: baseURL)?.absoluteURL,
+            let components = URLComponents(
+                url: resolved,
+                resolvingAgainstBaseURL: true),
+            let scheme = components.scheme?.lowercased(),
+            ["http", "https"].contains(scheme),
+            components.host?.isEmpty == false,
+            components.user == nil,
+            components.password == nil
+        else {
+            throw Error.invalidPackage
+        }
+        let sensitiveNames: Set<String> = [
+            "access_key", "access_token", "accesskey", "accesstoken", "api_key",
+            "apikey", "authorization", "auth", "bearer", "client_secret", "code",
+            "credential", "credentials", "cookie", "jwt", "key", "password",
+            "passwd", "secret", "session", "sessionid", "sig", "signature", "token",
+        ]
+        let sensitiveTokens: Set<String> = [
+            "auth", "authorization", "bearer", "code", "credential", "credentials",
+            "cookie", "jwt", "key", "password", "passwd", "secret", "session",
+            "sessionid", "sig", "signature", "token",
+        ]
+        let sensitiveValueMarkers: [String] = [
+            "access_token", "api_key", "apikey", "authorization", "bearer ",
+            "credential", "jwt", "password", "secret", "session=", "token=",
+        ]
+        guard
+            queryContainsCredentials(
+                components,
+                depth: 0,
+                sensitiveNames: sensitiveNames,
+                sensitiveTokens: sensitiveTokens,
+                sensitiveValueMarkers: sensitiveValueMarkers) == false
+        else {
+            throw Error.invalidPackage
+        }
+        if let fragment = components.fragment {
+            guard let decodedFragment = repeatedlyPercentDecoded(fragment) else {
+                throw Error.invalidPackage
+            }
+            let normalized = normalizedQueryName(decodedFragment)
+            let tokens = normalized.split(separator: "_").map(String.init)
+            let lowercased = decodedFragment.lowercased()
+            guard sensitiveNames.contains(normalized) == false,
+                tokens.contains(where: sensitiveTokens.contains) == false,
+                sensitiveValueMarkers.contains(where: lowercased.contains) == false
+            else {
+                throw Error.invalidPackage
+            }
+        }
     }
 
     private func normalizedQueryName(_ value: String) -> String {
@@ -1230,6 +1369,8 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         } catch {
             throw Error.invalidPackage
         }
+        try validateSnapshotJSONSchema(data)
+        try validateTrustedSnapshotEncoding(envelope, originalData: data)
         guard envelope.schemaVersion == 1,
             envelope.captureID.uuidString == capture.id,
             envelope.method == capture.captureMethod,
@@ -1250,6 +1391,9 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         if let canonicalURL = envelope.payload.canonicalURL {
             try validateProvenanceURL(canonicalURL, field: Field.canonicalURL)
         }
+        try validateSnapshotURLAttributes(
+            envelope.payload.contentXHTML,
+            sourceURL: envelope.payload.sourceURL)
         let sanitized: ArticleSnapshot
         do {
             sanitized = try ArticleBlockSanitizer().sanitize(envelope: envelope)
@@ -1288,6 +1432,53 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
                     && $0 != ".."
                     && $0.utf8.count <= 255
             }
+    }
+
+    private func validateSnapshotJSONSchema(_ data: Data) throws {
+        let allowedRoot: Set<String> = [
+            "schemaVersion", "captureID", "capturedAt", "method",
+            "sourceApplication", "payload",
+        ]
+        let requiredRoot: Set<String> = [
+            "schemaVersion", "captureID", "capturedAt", "method", "payload",
+        ]
+        let allowedPayload: Set<String> = [
+            "sourceURL", "canonicalURL", "title", "byline", "siteName",
+            "language", "publishedTime", "excerpt", "contentXHTML",
+            "textContent", "imageURLs",
+        ]
+        let requiredPayload: Set<String> = [
+            "sourceURL", "contentXHTML", "textContent", "imageURLs",
+        ]
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            Set(root.keys).isSubset(of: allowedRoot),
+            requiredRoot.isSubset(of: Set(root.keys)),
+            let payload = root["payload"] as? [String: Any],
+            Set(payload.keys).isSubset(of: allowedPayload),
+            requiredPayload.isSubset(of: Set(payload.keys))
+        else {
+            throw Error.invalidPackage
+        }
+    }
+
+    private func validateTrustedSnapshotEncoding(
+        _ envelope: ArticleCaptureEnvelope,
+        originalData: Data
+    ) throws {
+        let formats: [JSONEncoder.OutputFormatting] = [
+            [],
+            [.sortedKeys],
+            [.withoutEscapingSlashes],
+            [.sortedKeys, .withoutEscapingSlashes],
+        ]
+        for format in formats {
+            let encoder = JSONEncoder.articleWorkshop
+            encoder.outputFormatting = format
+            if try encoder.encode(envelope) == originalData {
+                return
+            }
+        }
+        throw Error.invalidPackage
     }
 
     private func isBoundedRelativePath(_ path: String) -> Bool {
@@ -1429,6 +1620,37 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         }
         if let unknown = record.allKeys().first(where: { allowed.contains($0) == false }) {
             throw Error.prohibitedField(unknown)
+        }
+    }
+}
+
+nonisolated private final class SnapshotURLAttributeCollector:
+    NSObject, XMLParserDelegate
+{
+    struct Attribute {
+        let name: String
+        let value: String
+    }
+
+    private static let urlBearingNames: Set<String> = [
+        "action", "background", "cite", "data", "formaction", "href",
+        "longdesc", "poster", "src", "srcset", "style", "xlink:href",
+    ]
+
+    private(set) var attributes: [Attribute] = []
+
+    func parser(
+        _ parser: XMLParser,
+        didStartElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?,
+        attributes attributeDict: [String: String] = [:]
+    ) {
+        for (rawName, value) in attributeDict {
+            let name = rawName.lowercased()
+            if Self.urlBearingNames.contains(name) {
+                attributes.append(Attribute(name: name, value: value))
+            }
         }
     }
 }

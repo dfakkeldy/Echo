@@ -62,6 +62,9 @@ import ZIPFoundation
             "https://example.test/article?access-key=private",
             "https://example.test/article?authToken=private",
             "https://example.test/article?sessionToken=private",
+            "https://example.test/article?%2561uth%2554oken=private",
+            "https://example.test/article?%252561uth%252554oken=private",
+            "https://example.test/article?redirect=https%253A%252F%252Freader%253Ahunter2%2540example.test%252Fprivate",
             "https://example.test/article?redirect=https%3A%2F%2Freader%3Ahunter2%40example.test%2Fprivate",
             "https://example.test/article?redirect=https%3A%2F%2Fexample.test%2Fprivate%3FrefreshToken%3Dprivate",
             "https://example.test/article#session=private",
@@ -87,6 +90,110 @@ import ZIPFoundation
             _ = try fixture.codec.decode(
                 encoded,
                 assetCopyDirectory: fixture.incomingDirectory)
+        }
+    }
+
+    @Test func snapshotXHTMLCredentialURLsFailUploadAndInstall() throws {
+        let credentialAttributes = [
+            #"<a href="https://example.test/?auth%2554oken=private">body</a>"#,
+            #"<img srcset="https://example.test/safe.png 1x, https://reader:secret@example.test/private.png 2x" />"#,
+            #"<form action="https://example.test/?refresh%2554oken=private"><p>body</p></form>"#,
+            #"<div style="background:url(https://reader:secret@example.test/private.png)">body</div>"#,
+            #"<img src="data:image/png;base64,cHJpdmF0ZQ==" />"#,
+            #"<a href="/article#auth%2554oken=private">body</a>"#,
+        ]
+        for attribute in credentialAttributes {
+            let fixture = try ArticleCloudCodecFixture(
+                contentXHTML:
+                    #"<html xmlns="http://www.w3.org/1999/xhtml"><body>\#(attribute)</body></html>"#
+            )
+            defer { fixture.remove() }
+
+            #expect(throws: ArticleCloudRecordCodec.Error.self) {
+                _ = try fixture.codec.captureRecord(
+                    fixture.capture,
+                    packageDirectory: fixture.packageDirectory)
+            }
+
+            let snapshotURL = fixture.packageDirectory.appending(path: "snapshot.json")
+            let archiveURL = fixture.root.appending(path: "credential-snapshot.zip")
+            try makeCaptureArchive(
+                at: archiveURL,
+                members: [("snapshot.json", try Data(contentsOf: snapshotURL))])
+            let payload = ArticleCloudCapturePayload(
+                capture: fixture.capture,
+                packageArchiveURL: archiveURL,
+                packageAssets: [])
+            #expect(throws: ArticleCloudRecordCodec.Error.self) {
+                _ = try fixture.codec.installCapturePackage(
+                    payload,
+                    workshopRootDirectory: fixture.managedDirectory)
+            }
+        }
+    }
+
+    @Test func unknownSnapshotEnvelopeAndPayloadFieldsFailClosed() throws {
+        for insertion in [
+            #"{"unknownRoot":"must-not-persist","#,
+            #"{"unknownPayload":"must-not-persist","#,
+        ].enumerated() {
+            let fixture = try ArticleCloudCodecFixture()
+            defer { fixture.remove() }
+            let snapshotURL = fixture.packageDirectory.appending(path: "snapshot.json")
+            let original = try String(
+                decoding: Data(contentsOf: snapshotURL),
+                as: UTF8.self)
+            let mutated: String
+            if insertion.offset == 0 {
+                mutated = insertion.element + original.dropFirst()
+            } else {
+                mutated = original.replacingOccurrences(
+                    of: #""payload":{"#,
+                    with: #""payload":\#(insertion.element)"#)
+            }
+            let data = Data(mutated.utf8)
+            try data.write(to: snapshotURL, options: .atomic)
+            var capture = fixture.capture
+            capture.contentSHA256 = SHA256.hash(data: data)
+                .map { String(format: "%02x", $0) }
+                .joined()
+
+            #expect(throws: ArticleCloudRecordCodec.Error.self) {
+                _ = try fixture.codec.captureRecord(
+                    capture,
+                    packageDirectory: fixture.packageDirectory)
+            }
+        }
+    }
+
+    @Test func duplicateKnownSnapshotKeysFailClosed() throws {
+        for payloadDuplicate in [false, true] {
+            let fixture = try ArticleCloudCodecFixture()
+            defer { fixture.remove() }
+            let snapshotURL = fixture.packageDirectory.appending(path: "snapshot.json")
+            let original = try String(
+                decoding: Data(contentsOf: snapshotURL),
+                as: UTF8.self)
+            let mutated: String
+            if payloadDuplicate {
+                mutated = original.replacingOccurrences(
+                    of: #""payload":{"#,
+                    with: #""payload":{"title":"hidden","#)
+            } else {
+                mutated = #"{"schemaVersion":999,"# + original.dropFirst()
+            }
+            let data = Data(mutated.utf8)
+            try data.write(to: snapshotURL, options: .atomic)
+            var capture = fixture.capture
+            capture.contentSHA256 = SHA256.hash(data: data)
+                .map { String(format: "%02x", $0) }
+                .joined()
+
+            #expect(throws: ArticleCloudRecordCodec.Error.self) {
+                _ = try fixture.codec.captureRecord(
+                    capture,
+                    packageDirectory: fixture.packageDirectory)
+            }
         }
     }
 
@@ -673,6 +780,14 @@ import ZIPFoundation
             title: "Same manifest",
             modifiedAt: "2026-07-29T12:00:00Z")
         try insertAnthology(local, into: database)
+        let baseRecord = try fixture.codec.anthologyRecord(local, coverURL: nil)
+        try dao.storeFetchedCloudRecord(
+            recordName: baseRecord.recordID.recordName,
+            recordType: .anthology,
+            entityID: local.anthology.id,
+            systemFields: Data("same-manifest-base".utf8),
+            contentFingerprint: try fixture.codec.contentFingerprint(for: baseRecord),
+            updatedAt: "2026-07-29T12:00:00Z")
         let coverURL = fixture.root.appending(path: "same-manifest.png")
         try cloudCoverPNGData().write(to: coverURL)
         let record = try fixture.codec.anthologyRecord(local, coverURL: coverURL)
@@ -708,6 +823,14 @@ import ZIPFoundation
             modifiedAt: "2026-07-29T12:00:00Z")
         local.anthology.latestBuildRevision = 7
         try insertAnthology(local, into: database)
+        let baseRecord = try fixture.codec.anthologyRecord(local, coverURL: nil)
+        try dao.storeFetchedCloudRecord(
+            recordName: baseRecord.recordID.recordName,
+            recordType: .anthology,
+            entityID: local.anthology.id,
+            systemFields: Data("one-sided-base".utf8),
+            contentFingerprint: try fixture.codec.contentFingerprint(for: baseRecord),
+            updatedAt: "2026-07-29T12:00:00Z")
         let incoming = cloudAnthologyManifest(
             title: "Remote title",
             modifiedAt: "2026-07-29T12:00:01Z")
@@ -933,6 +1056,14 @@ import ZIPFoundation
             title: "Original",
             modifiedAt: "2026-07-29T12:00:00Z")
         try insertAnthology(local, into: database)
+        let baseRecord = try fixture.codec.anthologyRecord(local, coverURL: nil)
+        try dao.storeFetchedCloudRecord(
+            recordName: baseRecord.recordID.recordName,
+            recordType: .anthology,
+            entityID: local.anthology.id,
+            systemFields: Data("state-change-base".utf8),
+            contentFingerprint: try fixture.codec.contentFingerprint(for: baseRecord),
+            updatedAt: "2026-07-29T12:00:00Z")
         let incoming = cloudAnthologyManifest(
             title: "Incoming",
             modifiedAt: "2026-07-29T12:00:01Z")
@@ -1252,7 +1383,9 @@ private struct ArticleCloudCodecFixture {
 
     init(
         limits: ArticleCloudRecordCodec.Limits = .production,
-        sourceURL: String = "https://example.test/source"
+        sourceURL: String = "https://example.test/source",
+        contentXHTML: String =
+            #"<html xmlns="http://www.w3.org/1999/xhtml"><body><p>private body</p></body></html>"#
     ) throws {
         root = FileManager.default.temporaryDirectory.appending(
             path: "ArticleCloudRecordCodecTests-\(UUID().uuidString)",
@@ -1285,11 +1418,12 @@ private struct ArticleCloudCodecFixture {
                 language: "en",
                 publishedTime: "2026-07-28T12:00:00Z",
                 excerpt: "Private body",
-                contentXHTML:
-                    #"<html xmlns="http://www.w3.org/1999/xhtml"><body><p>private body</p></body></html>"#,
+                contentXHTML: contentXHTML,
                 textContent: "private body",
                 imageURLs: []))
-        let snapshotData = try JSONEncoder.articleWorkshop.encode(envelope)
+        let encoder = JSONEncoder.articleWorkshop
+        encoder.outputFormatting = [.sortedKeys]
+        let snapshotData = try encoder.encode(envelope)
         try snapshotData.write(to: packageDirectory.appending(path: "snapshot.json"))
         codec = ArticleCloudRecordCodec(
             temporaryDirectory: outgoing,

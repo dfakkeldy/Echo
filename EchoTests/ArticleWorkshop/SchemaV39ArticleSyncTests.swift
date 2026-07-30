@@ -312,6 +312,82 @@ import Testing
         #expect(try dao.pendingChanges().isEmpty)
         #expect(try dao.pendingChanges(accountOwnerID: "account-A") == [pendingA])
         #expect(try dao.state()?.accountOwnerID == "account-B")
+
+        let returned = try dao.bindAccountOwner(
+            "account-A",
+            updatedAt: "2026-07-29T12:02:00Z")
+        #expect(returned == .quarantined)
+        #expect(try dao.activeAccountLaneIsRestricted())
+        #expect(try dao.pendingChanges().isEmpty)
+    }
+
+    @MainActor
+    @Test func explicitStaleOwnerEnqueueIsRejectedWithoutMutation() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        try dao.bindAccountOwner("account-B", updatedAt: "2026-07-29T12:01:00Z")
+        let stale = ArticlePendingCloudChange(
+            recordName: "capture.00000000-0000-0000-0000-000000000124",
+            recordType: .capture,
+            entityID: "00000000-0000-0000-0000-000000000124",
+            operation: .save,
+            accountOwnerID: "account-A",
+            queuedAt: "2026-07-29T12:01:01Z")
+
+        #expect(throws: ArticleSyncDAO.Error.accountOwnerMismatch) {
+            _ = try dao.enqueueReturning(stale)
+        }
+        #expect(try dao.pendingChanges().isEmpty)
+        #expect(try dao.pendingChanges(accountOwnerID: "account-A").isEmpty)
+    }
+
+    @MainActor
+    @Test func deleteOnlyPriorOwnerLaneMayResumeWithoutSerializingContent() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        let deletion = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: "capture.00000000-0000-0000-0000-000000000125",
+                recordType: .capture,
+                entityID: "00000000-0000-0000-0000-000000000125",
+                operation: .delete,
+                queuedAt: "2026-07-29T12:00:01Z"))
+
+        try dao.bindAccountOwner("account-B", updatedAt: "2026-07-29T12:01:00Z")
+        let returned = try dao.bindAccountOwner(
+            "account-A",
+            updatedAt: "2026-07-29T12:02:00Z")
+
+        #expect(returned == .available)
+        #expect(try dao.activeAccountLaneIsRestricted() == false)
+        #expect(try dao.pendingChanges() == [deletion])
+    }
+
+    @MainActor
+    @Test func signOutWithPendingSaveGuardsOwnerBeforeStateIsCleared() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        let pending = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: "capture.00000000-0000-0000-0000-000000000126",
+                recordType: .capture,
+                entityID: "00000000-0000-0000-0000-000000000126",
+                operation: .save,
+                queuedAt: "2026-07-29T12:00:01Z"))
+
+        try dao.unbindAccountOwner(
+            status: .signedOut,
+            updatedAt: "2026-07-29T12:01:00Z")
+        let returned = try dao.bindAccountOwner(
+            "account-A",
+            updatedAt: "2026-07-29T12:02:00Z")
+
+        #expect(returned == .quarantined)
+        #expect(try dao.pendingChanges().isEmpty)
+        #expect(try dao.pendingChanges(accountOwnerID: "account-A") == [pending])
     }
 
     @MainActor
