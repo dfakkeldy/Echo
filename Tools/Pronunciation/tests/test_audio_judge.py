@@ -16,6 +16,7 @@ from unittest import mock
 from Tools.Pronunciation import audio_judge
 from Tools.Pronunciation.audio_judge import (
     CLIP_ID_PATTERN,
+    MAXIMUM_CLIP_DURATION_SECONDS,
     MAXIMUM_ESTIMATED_COST_USD,
     MAXIMUM_REQUESTS,
     LedgerError,
@@ -246,6 +247,93 @@ class ManifestAdmissionTests(unittest.TestCase):
             any("size limit" in message for message in messages),
             messages,
         )
+
+    def test_verified_audio_bytes_pins_every_revalidation_layer(self):
+        """Pin `_verified_audio_bytes` independently of the cost estimator.
+
+        `_request_estimate` performs its own SHA-256 check, so a test that
+        reaches encoding through the estimator stays green even when this
+        function is reduced to a plain bounded read. Each case below is driven
+        through `encode_audio` with the estimator stubbed out, so only this
+        function's own layers can raise.
+        """
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest([self.manifest_row(clip_id, path, 0.25)])
+        clip = admit_manifest(
+            manifest,
+            provenance_authority_path=self.provenance_authority_path,
+        )[0]
+
+        with mock.patch.object(
+            audio_judge,
+            "_request_estimate",
+            side_effect=AssertionError("estimator must not run"),
+        ):
+            # Baseline: an untouched admitted clip still encodes.
+            self.assertIn("data", encode_audio(clip))
+
+            # 1. Same length, different bytes. Kills a plain bounded read.
+            original = path.read_bytes()
+            swapped = bytearray(original)
+            swapped[-1] ^= 0xFF
+            path.write_bytes(bytes(swapped))
+            with self.assertRaisesRegex(ManifestError, "changed after admission"):
+                encode_audio(clip)
+            path.write_bytes(original)
+
+            # 2. Replaced while it is being verified. Kills deleting the
+            #    second read, which is what makes the re-probe meaningful:
+            #    the first read still hashes correctly against admission.
+            real_probe = audio_judge._probe_audio
+
+            def swap_during_probe(audio_path, audio_format):
+                measured = real_probe(audio_path, audio_format)
+                mutated = bytearray(audio_path.read_bytes())
+                mutated[-1] ^= 0xFF
+                audio_path.write_bytes(bytes(mutated))
+                return measured
+
+            with mock.patch.object(
+                audio_judge,
+                "_probe_audio",
+                side_effect=swap_during_probe,
+            ):
+                with self.assertRaisesRegex(ManifestError, "being verified"):
+                    encode_audio(clip)
+            path.write_bytes(original)
+
+            # 3. Duration drifted past the ceiling after admission. Kills
+            #    deleting the post-probe duration ceiling.
+            with mock.patch.object(
+                audio_judge,
+                "_probe_audio",
+                return_value=MAXIMUM_CLIP_DURATION_SECONDS + 1.0,
+            ):
+                with self.assertRaisesRegex(ManifestError, "exceeds the limit"):
+                    encode_audio(clip)
+
+            # 4. Duration drifted away from the admitted value. Kills
+            #    deleting the post-probe duration equality check.
+            with mock.patch.object(
+                audio_judge,
+                "_probe_audio",
+                return_value=clip.duration_seconds + 1.0,
+            ):
+                with self.assertRaisesRegex(ManifestError, "changed after admission"):
+                    encode_audio(clip)
+
+            # 5. Re-encoded to a different container at the same declared
+            #    duration. The content hash catches this before the probe
+            #    does, so this is a regression guard rather than proof of
+            #    container revalidation.
+            transcoded = self.transcode_mp3(path, clip_id)
+            path.write_bytes(transcoded.read_bytes())
+            with self.assertRaises(ManifestError):
+                encode_audio(clip)
+            path.write_bytes(original)
+
+            self.assertIn("data", encode_audio(clip))
 
     def test_admits_measured_short_wav_and_mp3_with_exact_content_hashes(self):
         wav_id = generate_clip_id()
@@ -1468,35 +1556,61 @@ class EvaluationGateTests(ManifestAdmissionTests):
             text=True,
         )
 
-        for label, forbidden_root in (
-            ("canonical", main_checkout / "artifacts"),
-            ("self", linked_worktree / "artifacts"),
-            ("sibling", sibling_worktree / "artifacts"),
-        ):
-            with self.subTest(root=label):
-                completed = subprocess.run(
-                    [
-                        sys.executable,
-                        str(judge_from_worktree),
-                        "evaluate",
-                        "--manifest",
-                        str(manifest),
-                        "--provenance-authority",
-                        str(self.provenance_authority_path),
-                        "--run-id",
-                        f"scoped-{label}",
-                        "--dry-run",
-                        "--output-root",
-                        str(forbidden_root),
-                    ],
-                    cwd=str(linked_worktree),
-                    capture_output=True,
-                    text=True,
-                )
+        # A decoy `GIT_DIR` in the ambient environment must not redirect the
+        # scope query: that dropped the real sibling worktrees from
+        # protection and spuriously added the decoy's directory.
+        decoy_checkout = self.directory / "decoy"
+        (decoy_checkout).mkdir()
+        subprocess.run(
+            [shutil.which("git"), "init", "--initial-branch=main", "."],
+            cwd=str(decoy_checkout),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        environments = {
+            "clean": None,
+            "decoy-git-dir": {
+                **os.environ,
+                "GIT_DIR": str(decoy_checkout / ".git"),
+                "GIT_WORK_TREE": str(decoy_checkout),
+            },
+        }
 
-                self.assertNotEqual(0, completed.returncode)
-                self.assertIn("outside the repository", completed.stderr)
-                self.assertFalse(forbidden_root.exists())
+        for environment_label, environment in environments.items():
+            for label, forbidden_root in (
+                ("canonical", main_checkout / "artifacts"),
+                ("self", linked_worktree / "artifacts"),
+                ("sibling", sibling_worktree / "artifacts"),
+            ):
+                with self.subTest(root=label, environment=environment_label):
+                    completed = subprocess.run(
+                        [
+                            sys.executable,
+                            str(judge_from_worktree),
+                            "evaluate",
+                            "--manifest",
+                            str(manifest),
+                            "--provenance-authority",
+                            str(self.provenance_authority_path),
+                            "--run-id",
+                            f"scoped-{environment_label}-{label}",
+                            "--dry-run",
+                            "--output-root",
+                            str(forbidden_root),
+                        ],
+                        cwd=str(linked_worktree),
+                        capture_output=True,
+                        text=True,
+                        env=environment,
+                    )
+
+                    self.assertNotEqual(0, completed.returncode)
+                    self.assertIn(
+                        "outside the repository",
+                        completed.stderr,
+                    )
+                    self.assertFalse(forbidden_root.exists())
 
         permitted_root = self.directory / "outside-runs"
         completed = subprocess.run(
@@ -2084,14 +2198,48 @@ class EvaluationGateTests(ManifestAdmissionTests):
             receipt["morningQueue"][0]["reasons"],
         )
 
-    def test_recursion_error_in_a_ledger_line_is_a_ledger_error(self):
-        with mock.patch.object(
-            audio_judge.json,
-            "loads",
-            side_effect=RecursionError("maximum recursion depth exceeded"),
-        ):
-            with self.assertRaises(LedgerError):
-                audio_judge._decode_ledger_events(b"{}\n")
+    def test_recursion_error_is_contained_by_every_untrusted_decoder(self):
+        """Every JSON seam that reads untrusted bytes must fail typed.
+
+        The first containment round fixed the response and ledger parsers and
+        left three siblings escaping: the morning queue and run claim are both
+        reachable from the public API, and the manifest decoder guards
+        admission.
+        """
+        decoders = (
+            (
+                "attempt ledger",
+                lambda: audio_judge._decode_ledger_events(b"{}\n"),
+                LedgerError,
+            ),
+            (
+                "morning queue",
+                lambda: audio_judge._decode_morning_queue(b"[]"),
+                LedgerError,
+            ),
+            (
+                "run claim",
+                lambda: audio_judge._validate_run_claim_bytes(b"{}", "run"),
+                LedgerError,
+            ),
+            (
+                "manifest",
+                lambda: audio_judge._load_strict_json_bytes(b"{}"),
+                ManifestError,
+            ),
+        )
+        for name, call, expected in decoders:
+            with self.subTest(decoder=name):
+                with mock.patch.object(
+                    audio_judge.json,
+                    "loads",
+                    side_effect=RecursionError(
+                        "maximum recursion depth exceeded"
+                    ),
+                ):
+                    with self.assertRaises(expected):
+                        call()
+
 
     def test_revalidates_content_container_and_duration_before_each_transport_attempt(self):
         clip_id = generate_clip_id()
@@ -2561,6 +2709,282 @@ class AttemptLedgerTests(ManifestAdmissionTests):
                 implementation_review_receipt="e" * 64,
                 output_root=output_root,
             )
+
+    def test_recursion_error_in_public_commands_stays_typed(self):
+        run_id = "recursive-artifacts"
+        clip_id, output_root = self.terminal_morning_run(run_id=run_id)
+        run_directory = output_root / run_id
+
+        # `recover_run` reads the morning queue; `read_attempt_state` reads
+        # the run claim. Both must surface `LedgerError`, not a bare
+        # interpreter failure escaping through the CLI.
+        with mock.patch.object(
+            audio_judge,
+            "_decode_morning_queue",
+            side_effect=RecursionError("maximum recursion depth exceeded"),
+        ):
+            with self.assertRaises(RecursionError):
+                audio_judge._decode_morning_queue(b"[]")
+        with mock.patch.object(
+            audio_judge.json,
+            "loads",
+            side_effect=RecursionError("maximum recursion depth exceeded"),
+        ):
+            with self.assertRaises(LedgerError):
+                read_attempt_state(
+                    run_id=run_id,
+                    clip_id=clip_id,
+                    output_root=output_root,
+                )
+            with self.assertRaises(LedgerError):
+                audio_judge.recover_run(
+                    run_id=run_id,
+                    output_root=output_root,
+                )
+        self.assertTrue((run_directory / "attempt-ledger.jsonl").exists())
+
+    def test_recover_republishes_a_legacy_or_lagging_anchor(self):
+        """`recover` must repair the two states it exists for.
+
+        A schema-1 anchor predates the chain, and a ledger more than one
+        append ahead is what an interrupted multi-step command leaves. The
+        mutating path is strict about both; recovery is the escape hatch and
+        must not refuse them.
+        """
+        cases = ("legacy-schema", "lagging-anchor")
+        for case in cases:
+            with self.subTest(anchor=case):
+                run_id = f"repairable-{case}"
+                clip_id, output_root = self.terminal_morning_run(run_id=run_id)
+                run_directory = output_root / run_id
+                anchor_path = run_directory / "attempt-state.json"
+                events = [
+                    json.loads(line)
+                    for line in (
+                        run_directory / "attempt-ledger.jsonl"
+                    ).read_text(encoding="utf-8").splitlines()
+                ]
+                self.assertGreater(len(events), 3)
+                snapshot = json.loads(anchor_path.read_text(encoding="utf-8"))
+
+                if case == "legacy-schema":
+                    anchor_path.write_text(
+                        json.dumps(
+                            {
+                                "schemaVersion": 1,
+                                "clips": snapshot["clips"],
+                            },
+                            sort_keys=True,
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+                else:
+                    committed = len(events) - 3
+                    snapshot["eventCount"] = committed
+                    snapshot["lastEventSHA256"] = (
+                        audio_judge._ledger_event_digest(events[committed - 1])
+                        if committed
+                        else audio_judge.LEDGER_CHAIN_GENESIS
+                    )
+                    anchor_path.write_text(
+                        json.dumps(snapshot, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+
+                # The mutating path stays strict about both.
+                with self.assertRaises(LedgerError):
+                    read_attempt_state(
+                        run_id=run_id,
+                        clip_id=clip_id,
+                        output_root=output_root,
+                    )
+
+                completed = self.run_recovery_cli(
+                    run_id=run_id,
+                    output_root=output_root,
+                )
+
+                self.assertEqual(0, completed.returncode, completed.stderr)
+                repaired = json.loads(
+                    anchor_path.read_text(encoding="utf-8")
+                )
+                self.assertEqual(2, repaired["schemaVersion"])
+                self.assertEqual(len(events), repaired["eventCount"])
+                self.assertEqual(
+                    audio_judge._ledger_event_digest(events[-1]),
+                    repaired["lastEventSHA256"],
+                )
+                self.assertEqual(
+                    "morning_review",
+                    repaired["clips"][clip_id]["state"],
+                )
+                # Recovery restored the mutating path.
+                self.assertEqual(
+                    "morning_review",
+                    read_attempt_state(
+                        run_id=run_id,
+                        clip_id=clip_id,
+                        output_root=output_root,
+                    )["state"],
+                )
+
+    def test_recovery_still_refuses_a_truncated_or_rewritten_ledger(self):
+        """The relaxed lag rules must not relax the truncation rules."""
+        run_id = "recovery-truncated"
+        clip_id, output_root = self.terminal_morning_run(run_id=run_id)
+        run_directory = output_root / run_id
+        ledger_path = run_directory / "attempt-ledger.jsonl"
+        lines = ledger_path.read_text(encoding="utf-8").splitlines()
+
+        ledger_path.write_text(
+            "".join(f"{line}\n" for line in lines[:-1]),
+            encoding="utf-8",
+        )
+        self.assertNotEqual(
+            0,
+            self.run_recovery_cli(
+                run_id=run_id,
+                output_root=output_root,
+            ).returncode,
+        )
+
+        ledger_path.write_bytes(b"")
+        self.assertNotEqual(
+            0,
+            self.run_recovery_cli(
+                run_id=run_id,
+                output_root=output_root,
+            ).returncode,
+        )
+
+    def test_emptied_ledger_cannot_launder_a_committed_anchor(self):
+        """The maximal truncation must fail like every smaller one.
+
+        Emptying or unlinking the ledger leaves a committed anchor describing
+        events that no longer exist. Accepting it resets a terminal clip's
+        spent attempts and lets the next append overwrite the anchor, which
+        destroys the evidence that anything was removed.
+        """
+        for index, erase in enumerate(
+            (
+                lambda path: path.write_bytes(b""),
+                lambda path: path.unlink(),
+            )
+        ):
+            with self.subTest(erasure=("empty", "unlink")[index]):
+                run_id = f"emptied-ledger-{index}"
+                clip_id, output_root = self.terminal_morning_run(run_id=run_id)
+                run_directory = output_root / run_id
+                anchor_path = run_directory / "attempt-state.json"
+                anchor_before = anchor_path.read_bytes()
+                self.assertEqual(
+                    "morning_review",
+                    json.loads(anchor_before)["clips"][clip_id]["state"],
+                )
+
+                erase(run_directory / "attempt-ledger.jsonl")
+
+                with self.assertRaises(LedgerError):
+                    read_attempt_state(
+                        run_id=run_id,
+                        clip_id=clip_id,
+                        output_root=output_root,
+                    )
+                with self.assertRaises(LedgerError):
+                    record_attempt(
+                        run_id=run_id,
+                        clip_id=clip_id,
+                        source_commit="f" * 40,
+                        red_test_receipt="0" * 64,
+                        green_test_receipt="1" * 64,
+                        negative_guard_receipt="2" * 64,
+                        implementation_review_receipt="3" * 64,
+                        output_root=output_root,
+                    )
+                with self.assertRaises(LedgerError):
+                    audio_judge._emit_proposal(
+                        run_id=run_id,
+                        clip_id=clip_id,
+                        category="wrong_sense",
+                        output_root=output_root,
+                    )
+
+                # The anchor is the only surviving evidence; nothing may
+                # rewrite it while the ledger cannot reproduce it.
+                self.assertEqual(anchor_before, anchor_path.read_bytes())
+
+    def test_emptied_ledger_cannot_launder_a_second_clip_through_evaluation(self):
+        """A writer emptying the ledger mid-run must not free the next clip.
+
+        Both clips fail, so the first emits a proposal and the second must be
+        refused by the single-unresolved-proposal invariant. Erasing the
+        ledger between them previously destroyed the first proposal and let
+        the second emit while the run still reported success.
+        """
+        run_id = "emptied-ledger-evaluate"
+        first_clip = generate_clip_id()
+        second_clip = generate_clip_id()
+        rows = []
+        for clip_id in (first_clip, second_clip):
+            path = self.write_wav(clip_id)
+            rows.append(
+                self.manifest_row(
+                    clip_id,
+                    path,
+                    0.25,
+                    labelStatus="human-labelled",
+                )
+            )
+        manifest = self.write_manifest(rows)
+        output_root = self.directory / "runs"
+        run_directory = output_root / run_id
+        erased = False
+
+        def fail_then_erase(body, _key):
+            nonlocal erased
+            clip_id = json.loads(
+                json.dumps(body)
+            )["messages"][0]["content"][0]["text"]
+            requested = first_clip if first_clip in clip_id else second_clip
+            if requested == second_clip and not erased:
+                (run_directory / "attempt-ledger.jsonl").write_bytes(b"")
+                erased = True
+            return {
+                "model": "gpt-audio-1.5",
+                "content": json.dumps(
+                    {
+                        "clipID": requested,
+                        "verdict": "fail",
+                        "confidence": 0.95,
+                        "category": "wrong_sense",
+                    }
+                ),
+                "refusal": None,
+                "usage": {},
+            }
+
+        with self.assertRaises(LedgerError):
+            run_evaluation(
+                manifest_path=manifest,
+                run_id=run_id,
+                dry_run=False,
+                output_root=output_root,
+                environment={"OPENAI_API_KEY": "test-only-key"},
+                transport=fail_then_erase,
+            )
+
+        self.assertTrue(erased)
+        anchor = json.loads(
+            (run_directory / "attempt-state.json").read_text(encoding="utf-8")
+        )
+        # The first clip's proposal is still the committed state; nothing
+        # rewrote the anchor to describe the erased ledger.
+        self.assertEqual(
+            "proposal_emitted",
+            anchor["clips"][first_clip]["state"],
+        )
+        self.assertNotIn(second_clip, anchor["clips"])
 
     def test_deleted_snapshot_cannot_launder_a_multi_event_ledger(self):
         run_id = "deleted-anchor"

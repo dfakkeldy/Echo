@@ -61,6 +61,22 @@ def protected_repository_roots() -> tuple[Path, ...]:
     roots = {REPOSITORY_ROOT}
 
     def _run_git(*arguments: str) -> list[str]:
+        # An ambient `GIT_DIR` (or the related overrides) silently redirects
+        # these queries at a decoy repository, which both drops the real
+        # sibling worktrees from protection and adds unrelated directories to
+        # it. The scope must follow this file's location, not the caller's
+        # environment.
+        environment = {
+            key: value
+            for key, value in os.environ.items()
+            if key
+            not in {
+                "GIT_DIR",
+                "GIT_COMMON_DIR",
+                "GIT_WORK_TREE",
+                "GIT_CEILING_DIRECTORIES",
+            }
+        }
         try:
             completed = subprocess.run(
                 ("git", "-C", str(REPOSITORY_ROOT), *arguments),
@@ -68,6 +84,7 @@ def protected_repository_roots() -> tuple[Path, ...]:
                 text=True,
                 check=True,
                 timeout=_GIT_QUERY_TIMEOUT_SECONDS,
+                env=environment,
             )
         except (OSError, subprocess.SubprocessError):
             return []
@@ -335,7 +352,12 @@ def _load_strict_json_bytes(content: bytes) -> Any:
             parse_constant=lambda _value: (_ for _ in ()).throw(
                 ManifestError("non-finite JSON number")),
         )
-    except (UnicodeError, json.JSONDecodeError, ValueError) as error:
+    except (
+        UnicodeError,
+        json.JSONDecodeError,
+        ValueError,
+        RecursionError,
+    ) as error:
         raise ManifestError("manifest is not readable strict JSON") from error
 
 
@@ -1586,6 +1608,7 @@ def _validate_run_claim_bytes(content: bytes, run_id: str) -> None:
         json.JSONDecodeError,
         ValueError,
         ManifestError,
+        RecursionError,
     ) as error:
         raise LedgerError("judge-owned run claim is invalid") from error
     if (
@@ -1643,7 +1666,12 @@ def _decode_ledger_events(content: bytes) -> list[dict[str, Any]]:
     try:
         raw_ledger = content.decode("utf-8")
         for line in raw_ledger.splitlines():
-            decoded = json.loads(line, object_pairs_hook=_strict_object)
+            decoded = json.loads(
+                line,
+                object_pairs_hook=_strict_object,
+                parse_constant=lambda _value: (_ for _ in ()).throw(
+                    LedgerError("attempt ledger is invalid")),
+            )
             if not isinstance(decoded, dict):
                 raise LedgerError("attempt ledger event is invalid")
             events.append(decoded)
@@ -1662,6 +1690,8 @@ def _decode_ledger_events(content: bytes) -> list[dict[str, Any]]:
 def _verify_ledger_head_against_snapshot(
     snapshot_bytes: bytes | None,
     events: list[dict[str, Any]],
+    *,
+    for_recovery: bool = False,
 ) -> None:
     """Refuse a ledger that no longer reproduces its committed head.
 
@@ -1675,9 +1705,21 @@ def _verify_ledger_head_against_snapshot(
     leaves the ledger one event ahead and recovery repairs it. A ledger that
     is *shorter* than the committed count, or that no longer reproduces the
     committed head, is refused.
+
+    An emptied or unlinked ledger is the maximal truncation, not an exemption
+    from it. Returning early on `not events` let that one case through while
+    every smaller truncation was caught, and the next append then overwrote
+    the anchor and destroyed the evidence. The committed count is therefore
+    compared against the surviving events before any emptiness shortcut.
+
+    `for_recovery` relaxes only the lag rules, never the truncation rules.
+    Recovery exists to republish a stale anchor, so refusing every anchor it
+    is meant to repair made the command useless for a schema-1 anchor written
+    before the chain existed, and for a ledger more than one append ahead. In
+    that mode a legacy anchor is migrated and any lag is accepted, but the
+    committed prefix must still reproduce exactly: a shorter ledger or a
+    rewritten committed event is refused in both modes.
     """
-    if not events:
-        return
     if snapshot_bytes is None:
         # Only the very first append can precede the first snapshot.
         if len(events) > 1:
@@ -1692,25 +1734,40 @@ def _verify_ledger_head_against_snapshot(
         RecursionError,
     ) as error:
         raise LedgerError("attempt state is invalid") from error
+    if not _has_exact_json_type(snapshot, dict) or not _has_exact_json_type(
+        snapshot.get("schemaVersion"), int
+    ):
+        raise LedgerError("attempt state is invalid")
+    if snapshot["schemaVersion"] == 1:
+        # A pre-chain anchor carries no head to verify against. Recovery
+        # migrates it; the mutating path refuses it so a schema downgrade
+        # cannot be used to shed the chain evidence.
+        if for_recovery and set(snapshot) == {"schemaVersion", "clips"}:
+            return
+        raise LedgerError("attempt state is invalid")
     if (
-        not _has_exact_json_type(snapshot, dict)
-        or not _has_exact_json_type(snapshot.get("schemaVersion"), int)
-        or snapshot["schemaVersion"] != 2
+        snapshot["schemaVersion"] != 2
         or not _has_exact_json_type(snapshot.get("eventCount"), int)
         or not _valid_receipt_hash(snapshot.get("lastEventSHA256"))
     ):
         raise LedgerError("attempt state is invalid")
     committed_count = snapshot["eventCount"]
     committed_head = snapshot["lastEventSHA256"]
-    if (
-        len(events) == committed_count
-        and committed_head == _ledger_chain_head(events)
-    ):
+    # Checked before anything else so an emptied or unlinked ledger, which is
+    # simply `len(events) == 0`, is refused by the same rule as a one-line
+    # truncation instead of slipping past on an emptiness shortcut.
+    if committed_count < 0 or committed_count > len(events):
+        raise LedgerError("attempt ledger does not match its committed head")
+    # The committed prefix must reproduce exactly in both modes. This is the
+    # rule that refuses truncation and interior rewriting; only how far the
+    # ledger may run ahead of it differs.
+    if committed_head != _ledger_chain_head(events[:committed_count]):
+        raise LedgerError("attempt ledger does not match its committed head")
+    if not events:
         return
-    if (
-        len(events) == committed_count + 1
-        and committed_head == _ledger_chain_head(events[:-1])
-    ):
+    if for_recovery:
+        return
+    if len(events) - committed_count <= 1:
         return
     raise LedgerError("attempt ledger does not match its committed head")
 
@@ -2122,10 +2179,13 @@ def _with_ledger_lock(
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         try:
             events = _load_ledger_events(run_directory / "attempt-ledger.jsonl")
-            _verify_ledger_head_against_snapshot(
-                _read_optional_snapshot_bytes(run_directory),
-                events,
-            )
+            snapshot_bytes = _read_optional_snapshot_bytes(run_directory)
+            # `_with_recovery_ledger_lock` and `recover_run` both refuse an
+            # empty ledger; the mutating path must not be the one seam that
+            # accepts one over a run that has already committed state.
+            if not events and snapshot_bytes is not None:
+                raise LedgerError("attempt ledger is empty")
+            _verify_ledger_head_against_snapshot(snapshot_bytes, events)
             return operation(events)
         finally:
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
@@ -2337,6 +2397,7 @@ def _decode_morning_queue(content: bytes) -> list[dict[str, Any]]:
         json.JSONDecodeError,
         ValueError,
         ManifestError,
+        RecursionError,
     ) as error:
         raise LedgerError("morning queue is invalid") from error
     if not isinstance(queue, list) or not all(
@@ -2693,6 +2754,7 @@ def _with_recovery_ledger_lock(
                 _verify_ledger_head_against_snapshot(
                     _read_optional_snapshot_bytes_at(directory_descriptor),
                     events,
+                    for_recovery=True,
                 )
                 states = _derive_attempt_states(events)
                 current_queue = _load_morning_queue_at(directory_descriptor)
@@ -2739,6 +2801,7 @@ def recover_run(
         _verify_ledger_head_against_snapshot(
             _read_optional_snapshot_bytes_at(directory_descriptor),
             preflight_events,
+            for_recovery=True,
         )
         _derive_attempt_states(preflight_events)
         preflight_queue = _load_morning_queue_at(directory_descriptor)
