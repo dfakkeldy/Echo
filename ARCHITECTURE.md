@@ -901,11 +901,38 @@ conflicts found by the outside-lock preflight do not change the snapshot,
 queue, ledger, receipt, or lock.
 
 The durable run-claim, JSONL attempt-ledger, and morning-queue decoders
-translate duplicate keys, malformed JSON, non-finite constants, and parser
-`ValueError`s such as oversized integers into their closed `LedgerError`
-boundary. Recovery reports those errors without a traceback or raw artifact
-content, and preflight rejection cannot create the missing lock or mutate run
-files.
+translate duplicate keys, malformed JSON, non-finite constants, interpreter
+`RecursionError`s from deeply nested input, and parser `ValueError`s such as
+oversized integers into their closed `LedgerError` boundary. The response and
+API-envelope decoders route the same nesting failure to `malformed_output` and
+the morning queue rather than aborting a reserved, already-paid request.
+Recovery reports those errors without a traceback or raw artifact content, and
+preflight rejection cannot create the missing lock or mutate run files.
+
+Every attempt-ledger event carries `previousEventSHA256`, the SHA-256 of the
+canonical serialization of its predecessor, with a zero genesis for the first
+event. Reading the ledger verifies that linkage before any transition rule
+runs, so a rewritten or reordered interior event is refused rather than
+replayed. Chaining alone cannot detect a dropped final line, because the
+shortened chain still verifies, so the atomically written `attempt-state.json`
+records the committed `eventCount` and `lastEventSHA256`. A ledger that is
+shorter than the committed count, that no longer reproduces the committed head,
+or whose anchor is missing or unparseable over a multi-event ledger fails
+closed. A ledger exactly one fsynced append ahead of its snapshot is the sole
+tolerated inconsistency, because that is the only state an interrupted commit
+can produce, and recovery republishes it. This is tamper evidence, not tamper
+proofing: a same-UID actor who consistently forges both artifacts is still
+outside the model.
+
+Manifest, audio, and judge-owned artifact reads are bounded before allocation,
+and a manifest whose clip count exceeds the 200-request cap is refused before
+any per-row hash or `ffprobe` pass rather than after two full probe sweeps.
+
+Both pronunciation tools derive their protected repository scope from
+`git rev-parse --git-common-dir` and `git worktree list` rather than from the
+loading checkout alone, so a run root or external evidence path inside the
+canonical checkout or any sibling worktree is refused even when the tool runs
+from a linked worktree. Without git the loading checkout is still protected.
 
 Recovery opens the claimed run directory with `O_DIRECTORY | O_NOFOLLOW` and
 pins the descriptor's device/inode identity. Claim, ledger, and queue preflight;

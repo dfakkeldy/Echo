@@ -28,17 +28,31 @@ The following independent local gates passed on 2026-07-29:
 
 | Gate | Result |
 | --- | --- |
-| Pronunciation corpus tests | 47 passed |
+| Pronunciation corpus tests | 50 distinct test methods, 50 executed, all passed |
 | Pronunciation pack tests and regeneration check | 38 passed; generated pack matched the committed pack |
-| Development audio-judge tests | 90 passed without an API request |
+| Development audio-judge tests | 89 distinct test methods, 111 executed, all passed without an API request |
 | Task 10 Swift acceptance suite | 6 passed |
 | Echo test-products build | Passed |
 | Complete Echo unit-test gate | Passed before this test/tool/documentation-only correction; not rerun because production/shared Swift did not change |
 | Release `echo-cli` build | Passed before this test/tool/documentation-only correction; not rerun because production/shared Swift did not change |
 | Deterministic program report | Two runs were byte-identical; SHA-256 `12e0ad90053c066ccea016d489cc6bf5b191d44c1734b107740fc4012f24cc22` |
 
+Distinct and executed test counts are stated separately because both
+audio-judge gate classes inherit from `ManifestAdmissionTests`. Eleven methods
+defined on that base class therefore execute three times — once in the base
+class and once in each of `EvaluationGateTests` and `AttemptLedgerTests` —
+so 89 distinct methods produce 111 executed tests. An earlier revision of this
+report stated only the executed figure.
+
+The pronunciation corpus and audio-judge suites now run in hosted CI as
+dedicated pre-Xcode steps, with an explicit `ffmpeg`/`ffprobe` install step.
+The suites keep their hard `assertIsNotNone`/`check=True` media requirement
+rather than a skip condition, so an absent media toolchain fails the gate
+instead of silently reporting a pass.
+
 A local test or build is not hosted CI, device execution, rendered-audio
-verification, human listening, installation, or release proof.
+verification, human listening, installation, or release proof. No hosted CI run
+has yet executed these gates on this branch.
 
 ## Pack reproducibility and attribution
 
@@ -115,7 +129,34 @@ Deterministic metric counts were 0 definitive/resolved, 13 advisory, and 23
 abstained. Those values are an explicit frozen discovery/analyzer-state
 contract for all 36 named rows, and the Swift acceptance suite binds every row
 to the production discovery and analyzer result. They are not inferred from
-case names, intended labels, or a generic `automatic`/`review` assertion.
+case names or intended labels.
+
+Every named row also carries the spec §13.1 `expectedOutcome`, restored as a
+required field alongside — not in place of — the discovery and analyzer-state
+fields. Analyzer strength is deterministic evidence; the outcome is the
+§9.1/§9.2 decision that evidence produces, and the two axes are asserted
+separately. The Swift suite derives each row's outcome from production
+evidence rather than restating the fixture: a valid Misaki override, a
+definitive deterministic rule, or one explicit unambiguous lexicon candidate
+is `automatic` (§9.1), and everything else is `review` (§9.2). Phase 2 keeps
+every contextual family shadow-only, so §9.2's closing rule applies and the
+model is not acceptance evidence. The suite additionally proves the premise
+that makes the remaining rows review decisions: no contextual family spelling
+resolves to an automatic context-free candidate in the committed pack. The
+result is 4 `automatic` rows — exactly the four `override-markup` rows — and
+32 `review` rows.
+
+Named rows are now evaluated over their full authored three-sentence window.
+`precedingSentence` and `followingSentence` are decoded and composed before
+discovery and analysis, and the target's word index is resolved inside the
+target sentence and then offset, because a preceding sentence may contain the
+same spelling. The four `misleading-adjacent-cue` rows therefore actually
+present their misleading adjacent sentence for the first time; discovery and
+analyzer counts were unchanged by the correction, and each row still resolves
+to its expected candidate. `override-markup` rows now run the production
+analyzer instead of being assigned a literal `.abstained`; the analyzer
+abstains on all four, so the override-authority invariant is proven by
+production code rather than by a self-fulfilling assertion.
 Morphology fixtures contained two exact-base `-able`, one silent-e `-able`, two
 exact-base `-ible`, and nine negative cases. The pack report counted 76,125
 imported spellings, 3,982 ambiguous spellings, zero incompatible spellings,
@@ -349,6 +390,30 @@ evidence and are never described as human listening or human labels.
 
 Status: **NOT RUN** for the Task 10 source state at the time this receipt was
 written. Local tests and builds are not hosted CI.
+
+## Known limitations recorded rather than closed
+
+- **The USD 10 / 200-request cap is per run ID, not cumulative.** Concurrent
+  runs, or a fresh run ID, each get their own budget, so N runs can spend
+  N × USD 10. The spec scopes the cap per run, so a root-level cumulative
+  accumulator is a design change beyond Task 10 and is deferred.
+- **The cost estimator is byte-count-floored, which makes WAV effectively
+  inadmissible.** `audioInputTokens` is `max(payload bytes, duration ×
+  1,000)`, so a 15 s 16 kHz mono WAV estimates about USD 15.36 and a 15 s
+  44.1 kHz stereo WAV about USD 84.68 — both above the hard USD 10 cap. A 15 s
+  128 kbps MP3 estimates low enough to admit roughly one clip per run. The cap
+  is a hard user constraint and is not raised. In practice this lane accepts
+  short MP3 clips, and WAV only at very small sizes or durations; a rate-based
+  estimator is a deferred follow-up.
+- **`frequencyBandReport` has no conditional branch.** It always reports
+  `unavailable-no-approved-source`. This is fail-closed and harmless, but it is
+  a constant rather than a computed result.
+- **A chained `CalledProcessError` carries the probed audio path in
+  `__cause__`.** Redaction covers persisted artifacts and reported messages;
+  the interpreter's exception chain is not redacted.
+- **`ffprobe` and `ffmpeg` are newly required external binaries.** Per the
+  repository dependency rule they are noted here explicitly: the audio-judge
+  gate cannot run without them, and CI installs them rather than skipping.
 
 ## Explicitly unproven
 
