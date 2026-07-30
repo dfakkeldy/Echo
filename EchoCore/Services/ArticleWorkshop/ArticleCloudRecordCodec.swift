@@ -4,9 +4,18 @@ import CryptoKit
 import Foundation
 import ZIPFoundation
 
+nonisolated struct ArticleCloudCaptureAssetDescriptor:
+    Codable, Equatable, Sendable
+{
+    let path: String
+    let sha256: String
+    let mediaType: String
+}
+
 nonisolated struct ArticleCloudCapturePayload: Sendable {
     let capture: ArticleCaptureRecord
     let packageArchiveURL: URL
+    let packageAssets: [ArticleCloudCaptureAssetDescriptor]
 }
 
 nonisolated struct ArticleCloudRevisionPayload: Sendable {
@@ -72,6 +81,7 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         static let capturedAt = "capturedAt"
         static let captureMethod = "captureMethod"
         static let package = "package"
+        static let packageAssetsJSON = "packageAssetsJSON"
         static let contentSHA256 = "contentSHA256"
         static let extractorVersion = "extractorVersion"
         static let contentState = "contentState"
@@ -89,6 +99,7 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
 
         static let manifestJSON = "manifestJSON"
         static let cover = "cover"
+        static let coverContentVersion = "coverContentVersion"
     }
 
     private let temporaryDirectory: URL
@@ -153,9 +164,14 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         try set(capture.createdAt, field: Field.createdAt, on: record)
         try set(capture.modifiedAt, field: Field.modifiedAt, on: record)
 
+        let packageAssets = try validatePackageDirectory(packageDirectory)
         try validateInstalledCapture(
             at: packageDirectory,
             expected: capture)
+        try set(
+            canonicalJSONString(packageAssets, field: Field.packageAssetsJSON),
+            field: Field.packageAssetsJSON,
+            on: record)
         let archiveURL = try makePackageArchive(
             packageDirectory: packageDirectory,
             recordName: record.recordID.recordName)
@@ -231,6 +247,17 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
             on: record)
         if let coverURL {
             try validateRegularFile(coverURL, maximumBytes: limits.maxPackageBytes)
+            let coverContentVersion = try AnthologyCoverStore()
+                .contentVersion(for: coverURL)
+            if let expected = manifest.coverContentVersion,
+                expected != coverContentVersion
+            {
+                throw Error.invalidField(Field.coverContentVersion)
+            }
+            try set(
+                coverContentVersion,
+                field: Field.coverContentVersion,
+                on: record)
             let staged = try copyAsset(
                 from: coverURL,
                 into: temporaryDirectory.appending(
@@ -238,6 +265,8 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
                     directoryHint: .isDirectory),
                 fileName: "\(record.recordID.recordName)-cover-\(UUID().uuidString)")
             record[Field.cover] = CKAsset(fileURL: staged)
+        } else if manifest.coverContentVersion != nil {
+            throw Error.missingAsset(Field.cover)
         }
         return record
     }
@@ -303,7 +332,7 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
     }
 
     func validateCaptureArchive(at url: URL) throws {
-        try validatePackageArchive(url)
+        _ = try validatePackageArchive(url)
     }
 
     /// Installs a validated downloaded capture archive into the managed
@@ -317,7 +346,10 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         try validateSHA256(
             payload.capture.contentSHA256,
             field: Field.contentSHA256)
-        try validatePackageArchive(payload.packageArchiveURL)
+        let packageAssets = try validatePackageArchive(payload.packageArchiveURL)
+        guard packageAssets == payload.packageAssets else {
+            throw Error.invalidPackage
+        }
 
         let capturesRoot = workshopRootDirectory.appending(
             path: "Captures",
@@ -343,6 +375,9 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
                 at: partial,
                 withIntermediateDirectories: false)
             try extractPackageArchive(payload.packageArchiveURL, to: partial)
+            guard try validatePackageDirectory(partial) == payload.packageAssets else {
+                throw Error.invalidPackage
+            }
             try validateInstalledCapture(
                 at: partial,
                 expected: payload.capture)
@@ -394,14 +429,38 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         }
         let createdAt = try requiredString(Field.createdAt, from: record)
         let modifiedAt = try requiredString(Field.modifiedAt, from: record)
+        let packageAssetsJSON = try canonicalJSONString(
+            requiredString(Field.packageAssetsJSON, from: record),
+            field: Field.packageAssetsJSON)
+        let packageAssets: [ArticleCloudCaptureAssetDescriptor]
+        do {
+            packageAssets = try JSONDecoder().decode(
+                [ArticleCloudCaptureAssetDescriptor].self,
+                from: Data(packageAssetsJSON.utf8))
+        } catch {
+            throw Error.invalidJSON(Field.packageAssetsJSON)
+        }
+        guard
+            try canonicalJSONString(
+                packageAssets,
+                field: Field.packageAssetsJSON) == packageAssetsJSON
+        else {
+            throw Error.invalidJSON(Field.packageAssetsJSON)
+        }
         guard let asset = record[Field.package] as? CKAsset, let source = asset.fileURL else {
             throw Error.missingAsset(Field.package)
         }
-        try validatePackageArchive(source)
+        guard try validatePackageArchive(source) == packageAssets else {
+            throw Error.invalidPackage
+        }
         let copied = try copyAsset(
             from: source,
             into: assetCopyDirectory,
             fileName: "\(record.recordID.recordName)-\(UUID().uuidString).zip")
+        guard try validatePackageArchive(copied) == packageAssets else {
+            try? FileManager.default.removeItem(at: copied)
+            throw Error.invalidPackage
+        }
         let capture = ArticleCaptureRecord(
             id: entityID,
             sourceURL: sourceURL,
@@ -423,7 +482,8 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
             modifiedAt: modifiedAt)
         return ArticleCloudCapturePayload(
             capture: capture,
-            packageArchiveURL: copied)
+            packageArchiveURL: copied,
+            packageAssets: packageAssets)
     }
 
     private func decodeRevision(_ record: CKRecord) throws -> ArticleCloudRevisionPayload {
@@ -483,22 +543,39 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
             throw Error.invalidJSON(Field.manifestJSON)
         }
         let coverURL: URL?
+        let coverContentVersion = try optionalString(
+            Field.coverContentVersion,
+            from: record)
         if let asset = record[Field.cover] as? CKAsset {
+            guard let coverContentVersion else {
+                throw Error.missingField(Field.coverContentVersion)
+            }
+            try validateCoverContentVersion(coverContentVersion)
             guard let source = asset.fileURL else {
                 throw Error.missingAsset(Field.cover)
             }
             try validateRegularFile(source, maximumBytes: limits.maxPackageBytes)
+            guard
+                try AnthologyCoverStore().contentVersion(for: source)
+                    == coverContentVersion
+            else {
+                throw Error.invalidField(Field.coverContentVersion)
+            }
             coverURL = try copyAsset(
                 from: source,
                 into: assetCopyDirectory,
                 fileName: "\(record.recordID.recordName)-cover-\(UUID().uuidString)")
         } else if record[Field.cover] != nil {
             throw Error.invalidField(Field.cover)
+        } else if coverContentVersion != nil {
+            throw Error.missingAsset(Field.cover)
         } else {
             coverURL = nil
         }
+        var syncedManifest = manifest
+        syncedManifest.coverContentVersion = coverContentVersion
         return ArticleCloudAnthologyPayload(
-            manifest: manifest,
+            manifest: syncedManifest,
             coverURL: coverURL)
     }
 
@@ -624,30 +701,104 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         else {
             throw Error.invalidProvenance(field)
         }
-        let sensitiveNames = [
+        let sensitiveNames: Set<String> = [
             "access_key", "access_token", "accesskey", "accesstoken", "api_key",
             "apikey", "authorization", "auth", "bearer", "client_secret", "code",
             "credential", "credentials", "cookie", "jwt", "key", "password",
             "passwd", "secret", "session", "sessionid", "sig", "signature", "token",
         ]
-        let sensitiveValueMarkers = [
+        let sensitiveTokens: Set<String> = [
+            "auth", "authorization", "bearer", "code", "credential", "credentials",
+            "cookie", "jwt", "key", "password", "passwd", "secret", "session",
+            "sessionid", "sig", "signature", "token",
+        ]
+        let sensitiveValueMarkers: [String] = [
             "access_token", "api_key", "apikey", "authorization", "bearer ",
             "credential", "jwt", "password", "secret", "session=", "token=",
         ]
+        guard
+            queryContainsCredentials(
+                components,
+                depth: 0,
+                sensitiveNames: sensitiveNames,
+                sensitiveTokens: sensitiveTokens,
+                sensitiveValueMarkers: sensitiveValueMarkers) == false
+        else {
+            throw Error.invalidProvenance(field)
+        }
+    }
+
+    private func queryContainsCredentials(
+        _ components: URLComponents,
+        depth: Int,
+        sensitiveNames: Set<String>,
+        sensitiveTokens: Set<String>,
+        sensitiveValueMarkers: [String]
+    ) -> Bool {
         for item in components.queryItems ?? [] {
-            let name = item.name.lowercased()
-                .replacingOccurrences(of: "-", with: "_")
-            if sensitiveNames.contains(where: {
-                name == $0 || name.hasSuffix("_\($0)") || name.hasPrefix("\($0)_")
-            }) {
-                throw Error.invalidProvenance(field)
-            }
-            if let value = item.value?.lowercased(),
-                sensitiveValueMarkers.contains(where: value.contains)
+            let name = normalizedQueryName(item.name)
+            let tokens = name.split(separator: "_").map(String.init)
+            if sensitiveNames.contains(name)
+                || tokens.contains(where: sensitiveTokens.contains)
             {
-                throw Error.invalidProvenance(field)
+                return true
+            }
+            guard let itemValue = item.value else { continue }
+            let lowercasedValue = itemValue.lowercased()
+            if sensitiveValueMarkers.contains(where: lowercasedValue.contains) {
+                return true
+            }
+            guard let nested = URLComponents(string: itemValue),
+                let scheme = nested.scheme?.lowercased(),
+                ["http", "https"].contains(scheme),
+                nested.host?.isEmpty == false
+            else {
+                continue
+            }
+            guard depth < 3 else { return true }
+            if nested.user != nil || nested.password != nil || nested.fragment != nil {
+                return true
+            }
+            if queryContainsCredentials(
+                nested,
+                depth: depth + 1,
+                sensitiveNames: sensitiveNames,
+                sensitiveTokens: sensitiveTokens,
+                sensitiveValueMarkers: sensitiveValueMarkers)
+            {
+                return true
             }
         }
+        return false
+    }
+
+    private func normalizedQueryName(_ value: String) -> String {
+        var result = ""
+        var previousWasLowercaseOrDigit = false
+        var previousWasSeparator = true
+        for scalar in value.unicodeScalars {
+            let code = scalar.value
+            let isUppercase = (65...90).contains(code)
+            let isLowercase = (97...122).contains(code)
+            let isDigit = (48...57).contains(code)
+            if isUppercase {
+                if previousWasLowercaseOrDigit && previousWasSeparator == false {
+                    result.append("_")
+                }
+                result.unicodeScalars.append(UnicodeScalar(code + 32)!)
+                previousWasLowercaseOrDigit = false
+                previousWasSeparator = false
+            } else if isLowercase || isDigit {
+                result.unicodeScalars.append(scalar)
+                previousWasLowercaseOrDigit = true
+                previousWasSeparator = false
+            } else if previousWasSeparator == false {
+                result.append("_")
+                previousWasLowercaseOrDigit = false
+                previousWasSeparator = true
+            }
+        }
+        return result.trimmingCharacters(in: CharacterSet(charactersIn: "_"))
     }
 
     private func validateRevisionJSON(_ revision: ArticleRevisionRecord) throws {
@@ -693,6 +844,21 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         else {
             throw Error.invalidField(field)
         }
+    }
+
+    private func validateCoverContentVersion(_ value: String) throws {
+        guard value.hasPrefix("sha256:") else {
+            throw Error.invalidField(Field.coverContentVersion)
+        }
+        try validateSHA256(
+            String(value.dropFirst("sha256:".count)),
+            field: Field.coverContentVersion)
+    }
+
+    private func sha256(_ data: Data) -> String {
+        SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 
     private func validateEntityID(
@@ -794,7 +960,7 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         packageDirectory: URL,
         recordName: String
     ) throws -> URL {
-        try validatePackageDirectory(packageDirectory)
+        _ = try validatePackageDirectory(packageDirectory)
         let outgoing = temporaryDirectory.appending(
             path: "Outgoing",
             directoryHint: .isDirectory)
@@ -807,7 +973,7 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
             shouldKeepParent: false,
             compressionMethod: .deflate)
         do {
-            try validatePackageArchive(destination)
+            _ = try validatePackageArchive(destination)
             return destination
         } catch {
             try? FileManager.default.removeItem(at: destination)
@@ -815,7 +981,9 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         }
     }
 
-    private func validatePackageDirectory(_ directory: URL) throws {
+    private func validatePackageDirectory(
+        _ directory: URL
+    ) throws -> [ArticleCloudCaptureAssetDescriptor] {
         let normalized = directory.standardizedFileURL
         guard normalized == directory,
             try isDirectoryWithoutSymlink(directory)
@@ -836,12 +1004,14 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
             throw Error.unsafeDirectory
         }
         var total = 0
-        var count = 0
-        var sawSnapshot = false
+        var imageBytes = 0
+        var paths: [String] = []
+        var packageAssets: [ArticleCloudCaptureAssetDescriptor] = []
         for case let url as URL in enumerator {
+            let relativePath =
+                String(url.path.dropFirst(directory.path.count + 1))
             guard
-                isBoundedRelativePath(
-                    String(url.path.dropFirst(directory.path.count + 1)))
+                isBoundedRelativePath(relativePath)
             else {
                 throw Error.invalidPackage
             }
@@ -853,11 +1023,7 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
                     .fileSizeKey,
                 ])
             guard values.isSymbolicLink != true else { throw Error.unsafeFile }
-            count += 1
-            guard count <= ArticleWorkshopLimits.maxImages + 2 else {
-                throw Error.packageTooLarge
-            }
-            if values.isDirectory == true { continue }
+            guard values.isDirectory != true else { throw Error.invalidPackage }
             guard values.isRegularFile == true, let size = values.fileSize, size >= 0 else {
                 throw Error.unsafeFile
             }
@@ -866,14 +1032,36 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
                 throw Error.packageTooLarge
             }
             total += size
-            if url.lastPathComponent == "snapshot.json" {
-                sawSnapshot = true
+            paths.append(relativePath)
+            if let image = try captureImageMember(for: relativePath) {
+                guard size <= ArticleWorkshopLimits.maxSingleImageBytes,
+                    imageBytes <= ArticleWorkshopLimits.maxTotalImageBytes - size
+                else {
+                    throw Error.packageTooLarge
+                }
+                imageBytes += size
+                let data = try Data(contentsOf: url, options: [.mappedIfSafe])
+                guard
+                    ArticleImageDownloader.validatedImageType(
+                        data: data,
+                        mimeType: image.mimeType) != nil
+                else {
+                    throw Error.invalidPackage
+                }
+                packageAssets.append(
+                    ArticleCloudCaptureAssetDescriptor(
+                        path: relativePath,
+                        sha256: sha256(data),
+                        mediaType: image.mimeType))
             }
         }
-        guard sawSnapshot else { throw Error.invalidPackage }
+        try validateCapturePackageMembers(paths)
+        return packageAssets.sorted { $0.path < $1.path }
     }
 
-    private func validatePackageArchive(_ url: URL) throws {
+    private func validatePackageArchive(
+        _ url: URL
+    ) throws -> [ArticleCloudCaptureAssetDescriptor] {
         try validateRegularFile(url, maximumBytes: limits.maxPackageBytes)
         let archive: Archive
         do {
@@ -882,19 +1070,14 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
             throw Error.invalidPackage
         }
         var total: UInt64 = 0
-        var count = 0
-        var sawSnapshot = false
+        var imageBytes: UInt64 = 0
         var paths: Set<String> = []
+        var packageAssets: [ArticleCloudCaptureAssetDescriptor] = []
         for entry in archive {
             guard isSafeArchivePath(entry.path) else {
                 throw Error.invalidPackage
             }
             guard paths.insert(entry.path).inserted else { throw Error.invalidPackage }
-            count += 1
-            guard count <= ArticleWorkshopLimits.maxImages + 2 else {
-                throw Error.packageTooLarge
-            }
-            if entry.type == .directory { continue }
             guard entry.type == .file else { throw Error.invalidPackage }
             guard
                 entry.uncompressedSize <= UInt64(limits.maxPackageBytes),
@@ -903,14 +1086,45 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
                 throw Error.packageTooLarge
             }
             total += entry.uncompressedSize
-            if entry.path == "snapshot.json" {
-                sawSnapshot = true
+            if let image = try captureImageMember(for: entry.path) {
+                guard
+                    entry.uncompressedSize
+                        <= UInt64(ArticleWorkshopLimits.maxSingleImageBytes),
+                    imageBytes
+                        <= UInt64(ArticleWorkshopLimits.maxTotalImageBytes)
+                        - entry.uncompressedSize
+                else {
+                    throw Error.packageTooLarge
+                }
+                imageBytes += entry.uncompressedSize
+                var data = Data()
+                do {
+                    _ = try archive.extract(entry) { chunk in
+                        data.append(chunk)
+                    }
+                } catch {
+                    throw Error.invalidPackage
+                }
+                guard
+                    ArticleImageDownloader.validatedImageType(
+                        data: data,
+                        mimeType: image.mimeType) != nil
+                else {
+                    throw Error.invalidPackage
+                }
+                packageAssets.append(
+                    ArticleCloudCaptureAssetDescriptor(
+                        path: entry.path,
+                        sha256: sha256(data),
+                        mediaType: image.mimeType))
             }
         }
-        guard sawSnapshot else { throw Error.invalidPackage }
+        try validateCapturePackageMembers(Array(paths))
+        return packageAssets.sorted { $0.path < $1.path }
     }
 
     private func extractPackageArchive(_ url: URL, to directory: URL) throws {
+        _ = try validatePackageArchive(url)
         let archive: Archive
         do {
             archive = try Archive(url: url, accessMode: .read)
@@ -919,25 +1133,79 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         }
         for entry in archive {
             guard isSafeArchivePath(entry.path) else { throw Error.invalidPackage }
-            if entry.type == .directory { continue }
             guard entry.type == .file else { throw Error.invalidPackage }
-            let destination = directory.appending(path: entry.path).standardizedFileURL
+            let destination = directory.appending(path: entry.path)
             let root = directory.standardizedFileURL
-            guard destination.path.hasPrefix(root.path + "/") else {
+            guard destination.standardizedFileURL.deletingLastPathComponent() == root else {
                 throw Error.invalidPackage
             }
-            try FileManager.default.createDirectory(
-                at: destination.deletingLastPathComponent(),
-                withIntermediateDirectories: true)
             _ = try archive.extract(entry, to: destination)
         }
+    }
+
+    /// Capture package v1 associates the producer's flat, contiguous image
+    /// files with snapshot.json by directory membership. The snapshot does not
+    /// yet carry explicit local-asset descriptors, so no other path is
+    /// authorized by inference.
+    private func validateCapturePackageMembers(_ paths: [String]) throws {
+        guard paths.count <= ArticleWorkshopLimits.maxImages + 1,
+            paths.filter({ $0 == "snapshot.json" }).count == 1
+        else {
+            throw Error.invalidPackage
+        }
+        var imageIndices: Set<Int> = []
+        for path in paths where path != "snapshot.json" {
+            guard let image = try captureImageMember(for: path),
+                imageIndices.insert(image.index).inserted
+            else {
+                throw Error.invalidPackage
+            }
+        }
+        guard imageIndices == Set(0..<imageIndices.count) else {
+            throw Error.invalidPackage
+        }
+    }
+
+    private func captureImageMember(
+        for path: String
+    ) throws -> (index: Int, mimeType: String)? {
+        if path == "snapshot.json" { return nil }
+        guard path.hasPrefix("image-"),
+            path.contains("/") == false
+        else {
+            throw Error.invalidPackage
+        }
+        let fileExtension: String
+        let mimeType: String
+        if path.hasSuffix(".jpg") {
+            fileExtension = "jpg"
+            mimeType = "image/jpeg"
+        } else if path.hasSuffix(".png") {
+            fileExtension = "png"
+            mimeType = "image/png"
+        } else {
+            throw Error.invalidPackage
+        }
+        let rawIndex =
+            path
+            .dropFirst("image-".count)
+            .dropLast(fileExtension.count + 1)
+        guard let index = Int(rawIndex),
+            String(index) == rawIndex,
+            index >= 0,
+            index < ArticleWorkshopLimits.maxImages,
+            path == "image-\(index).\(fileExtension)"
+        else {
+            throw Error.invalidPackage
+        }
+        return (index, mimeType)
     }
 
     private func validateInstalledCapture(
         at directory: URL,
         expected capture: ArticleCaptureRecord
     ) throws {
-        try validatePackageDirectory(directory)
+        _ = try validatePackageDirectory(directory)
         let snapshot = directory.appending(path: "snapshot.json")
         try validateRegularFile(
             snapshot,
@@ -1131,6 +1399,7 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
                 Field.capturedAt,
                 Field.captureMethod,
                 Field.package,
+                Field.packageAssetsJSON,
                 Field.contentSHA256,
                 Field.extractorVersion,
                 Field.contentState,
@@ -1155,6 +1424,7 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
                 Field.entityID,
                 Field.manifestJSON,
                 Field.cover,
+                Field.coverContentVersion,
             ]
         }
         if let unknown = record.allKeys().first(where: { allowed.contains($0) == false }) {

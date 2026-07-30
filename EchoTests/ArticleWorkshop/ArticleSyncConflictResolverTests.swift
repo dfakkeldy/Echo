@@ -117,9 +117,68 @@ import Testing
     }
 
     @MainActor
+    @Test func guardedLocalEditStaysDurableWithoutReachingDriver() async throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        try dao.quarantineActiveAccountOwner(
+            reason: "encryptedDataReset",
+            updatedAt: "2026-07-29T12:00:01Z")
+        let driver = DeterministicArticleSyncEngineDriver()
+        let engine = ArticleWorkshopCloudSyncEngine(syncDAO: dao, driver: driver)
+        let proposed = ArticlePendingCloudChange(
+            recordName: "capture.00000000-0000-0000-0000-000000000323",
+            recordType: .capture,
+            entityID: "00000000-0000-0000-0000-000000000323",
+            operation: .save,
+            queuedAt: "2026-07-29T12:00:02Z")
+
+        await engine.schedule([proposed])
+
+        #expect(try dao.pendingChanges().isEmpty)
+        let quarantined = try dao.pendingChanges(accountOwnerID: "account-A")
+        #expect(quarantined.count == 1)
+        #expect(quarantined[0].recordName == proposed.recordName)
+        #expect(await driver.scheduledChanges().isEmpty)
+    }
+
+    @MainActor
+    @Test func priorOwnerSaveAndDeleteNeverReachCurrentAccountDriver() async throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        try dao.bindAccountOwner("account-B", updatedAt: "2026-07-29T12:00:01Z")
+        let driver = DeterministicArticleSyncEngineDriver()
+        let engine = ArticleWorkshopCloudSyncEngine(syncDAO: dao, driver: driver)
+        let staleSave = ArticlePendingCloudChange(
+            recordName: "capture.00000000-0000-0000-0000-000000000324",
+            recordType: .capture,
+            entityID: "00000000-0000-0000-0000-000000000324",
+            operation: .save,
+            accountOwnerID: "account-A",
+            queuedAt: "2026-07-29T12:00:02Z")
+        let staleDelete = ArticlePendingCloudChange(
+            recordName: "anthology.00000000-0000-0000-0000-000000000325",
+            recordType: .anthology,
+            entityID: "00000000-0000-0000-0000-000000000325",
+            operation: .delete,
+            accountOwnerID: "account-A",
+            queuedAt: "2026-07-29T12:00:03Z")
+
+        await engine.schedule([staleSave, staleDelete])
+
+        #expect(try dao.pendingChanges().isEmpty)
+        #expect(
+            try dao.pendingChanges(accountOwnerID: "account-A").map(\.operation)
+                == [.save, .delete])
+        #expect(await driver.scheduledChanges().isEmpty)
+    }
+
+    @MainActor
     @Test func fetchedRecordBatchCommitsCaptureAndRevisionTogether() throws {
         let database = try DatabaseService(inMemory: ())
         let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
         let capture = fetchedCapture(id: "00000000-0000-0000-0000-000000000330")
         let incomingRevision = ArticleRevisionRecord(
             id: "00000000-0000-0000-0000-000000000331",
@@ -145,6 +204,7 @@ import Testing
     @Test func failedFetchedRecordBatchRollsBackEveryDatabaseChange() throws {
         let database = try DatabaseService(inMemory: ())
         let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
         let capture = fetchedCapture(id: "00000000-0000-0000-0000-000000000340")
         let invalidRevision = ArticleRevisionRecord(
             id: "00000000-0000-0000-0000-000000000341",
@@ -169,6 +229,7 @@ import Testing
     @Test func sequentialRemoteAnthologyUpdateReplacesCoverButKeepsLocalBuildRevision() throws {
         let database = try DatabaseService(inMemory: ())
         let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
         let local = anthologyManifest(
             title: "Old remote title",
             modifiedAt: "2026-07-29T12:00:00Z",
@@ -529,6 +590,56 @@ import Testing
         #expect(try dao.pendingChanges().count == 1)
     }
 
+    @MainActor
+    @Test func accountBindingFailureBlocksEpochUntilAvailableBindingSucceeds() throws {
+        var gate = ArticleSyncAccountEpochGate()
+        #expect(gate.isBlocked == false)
+        gate.recordBindingFailure()
+        #expect(gate.isBlocked)
+        gate.recordBindingSuccess(shouldSchedulePendingChanges: false)
+        #expect(gate.isBlocked)
+        gate.recordBindingSuccess(shouldSchedulePendingChanges: true)
+        #expect(gate.isBlocked == false)
+
+        let unmigratedDatabase = try DatabaseQueue()
+        let handler = ArticleSyncAccountEventHandler(
+            syncDAO: ArticleSyncDAO(db: unmigratedDatabase))
+        let zone = CKRecordZone.ID(
+            zoneName: "_defaultZone",
+            ownerName: CKCurrentUserDefaultName)
+        let validAccount = CKRecord.ID(recordName: "account-A", zoneID: zone)
+        #expect(throws: (any Error).self) {
+            _ = try handler.handle(
+                .signIn(currentUser: validAccount),
+                updatedAt: "2026-07-29T12:00:00Z")
+        }
+    }
+
+    @MainActor
+    @Test func unboundAndSignedOutLanesRejectCloudIOUntilAccountBinds() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+
+        #expect(try dao.activeAccountLaneIsRestricted())
+        #expect(throws: ArticleSyncDAO.Error.accountOwnerQuarantined) {
+            try dao.requireActiveAccountLaneAllowsCloudIO()
+        }
+
+        try dao.bindAccountOwner(
+            "account-A",
+            updatedAt: "2026-07-29T12:00:00Z")
+        #expect(try dao.activeAccountLaneIsRestricted() == false)
+        try dao.requireActiveAccountLaneAllowsCloudIO()
+
+        try dao.unbindAccountOwner(
+            status: .signedOut,
+            updatedAt: "2026-07-29T12:01:00Z")
+        #expect(try dao.activeAccountLaneIsRestricted())
+        #expect(throws: ArticleSyncDAO.Error.accountOwnerQuarantined) {
+            try dao.requireActiveAccountLaneAllowsCloudIO()
+        }
+    }
+
     @Test func failurePolicyRequeuesOnlyAppActionableChanges() {
         #expect(
             ArticleSyncFailurePolicy.action(for: .serverRecordChanged, operation: .save)
@@ -590,6 +701,44 @@ import Testing
                     generation: 17))
     }
 
+    @Test func failedSentAcknowledgementRequeuesOnlyCurrentDurableGeneration() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner(
+            "account-A",
+            updatedAt: "2026-07-29T12:00:00Z")
+        let recordName =
+            "revision.00000000-0000-0000-0000-000000000370"
+        let first = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: recordName,
+                recordType: .revision,
+                entityID: "00000000-0000-0000-0000-000000000370",
+                operation: .save,
+                queuedAt: "2026-07-29T12:00:00Z"))
+        let acknowledgement = ArticleCloudSaveAcknowledgement(
+            recordName: recordName,
+            generation: first.generation,
+            systemFields: Data("server-fields".utf8),
+            contentFingerprint: "server-fingerprint")
+        let current = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: recordName,
+                recordType: .revision,
+                entityID: "00000000-0000-0000-0000-000000000370",
+                operation: .save,
+                queuedAt: "2026-07-29T12:00:01Z"))
+        let committer = ArticleSentAcknowledgementCommitter(
+            syncDAO: dao,
+            beforeCommit: { throw InjectedSentAcknowledgementFailure.failed })
+
+        #expect(
+            committer.commit(saved: [acknowledgement], deleted: [])
+                == .failed(currentChanges: [current]))
+        #expect(try dao.pendingChanges() == [current])
+        #expect(try dao.cloudRecord(recordName: recordName) == nil)
+    }
+
     @Test func cloudFailuresUseStablePrivacySafeClassifications() {
         let cases: [(CKError.Code, ArticleSyncFailureCode)] = [
             (.quotaExceeded, .quota),
@@ -608,6 +757,10 @@ import Testing
             #expect(ArticleSyncFailureCode.classify(error) == expected)
         }
     }
+}
+
+private enum InjectedSentAcknowledgementFailure: Swift.Error {
+    case failed
 }
 
 private actor DeterministicArticleSyncEngineDriver: ArticleSyncEngineDriver {

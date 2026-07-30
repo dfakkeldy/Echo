@@ -43,6 +43,7 @@ nonisolated enum ArticleSyncFailureCode: String, Equatable, Sendable {
 
 nonisolated enum ArticleSyncEngineError: Swift.Error, Equatable, Sendable {
     case notStarted
+    case restrictedAccountLane
 }
 
 nonisolated enum ArticleSyncFailureAction: Equatable, Sendable {
@@ -111,6 +112,43 @@ nonisolated struct ArticleSyncFailedChangePlan: Equatable, Sendable {
                     recordName: change.recordName,
                     generation: change.generation)
                 : nil)
+    }
+}
+
+nonisolated enum ArticleSentAcknowledgementCommitResult: Equatable, Sendable {
+    case committed
+    case failed(currentChanges: [ArticlePendingCloudChange])
+}
+
+nonisolated struct ArticleSentAcknowledgementCommitter: Sendable {
+    private let syncDAO: ArticleSyncDAO
+    private let beforeCommit: @Sendable () throws -> Void
+
+    init(
+        syncDAO: ArticleSyncDAO,
+        beforeCommit: @escaping @Sendable () throws -> Void = {}
+    ) {
+        self.syncDAO = syncDAO
+        self.beforeCommit = beforeCommit
+    }
+
+    func commit(
+        saved: [ArticleCloudSaveAcknowledgement],
+        deleted: [ArticleCloudDeleteAcknowledgement]
+    ) -> ArticleSentAcknowledgementCommitResult {
+        do {
+            try beforeCommit()
+            try syncDAO.acknowledgeSent(saved: saved, deleted: deleted)
+            return .committed
+        } catch {
+            let affected = Set(
+                saved.map(\.recordName) + deleted.map(\.recordName))
+            let current =
+                (try? syncDAO.pendingChanges().filter {
+                    affected.contains($0.recordName)
+                }) ?? []
+            return .failed(currentChanges: current)
+        }
     }
 }
 
@@ -247,6 +285,18 @@ nonisolated enum ArticleSyncAccountEventPolicy {
     }
 }
 
+nonisolated struct ArticleSyncAccountEpochGate: Equatable, Sendable {
+    private(set) var isBlocked = false
+
+    mutating func recordBindingFailure() {
+        isBlocked = true
+    }
+
+    mutating func recordBindingSuccess(shouldSchedulePendingChanges: Bool) {
+        isBlocked = shouldSchedulePendingChanges == false
+    }
+}
+
 nonisolated struct ArticleFetchedCloudDeletion: Sendable {
     let recordID: CKRecord.ID
     let recordType: String
@@ -282,6 +332,7 @@ nonisolated struct ArticleFetchedCloudBatchApplier: Sendable {
         modifications: [CKRecord],
         deletions: [ArticleFetchedCloudDeletion]
     ) throws {
+        try syncDAO.requireActiveAccountLaneAllowsCloudIO()
         var decoded: [ArticleDecodedCloudRecord] = []
         var cloudReceipts: [ArticleFetchedCloudRecordReceipt] = []
         var copiedAssetURLs: [URL] = []
@@ -303,7 +354,6 @@ nonisolated struct ArticleFetchedCloudBatchApplier: Sendable {
             let value = try codec.decode(
                 record,
                 assetCopyDirectory: incomingDirectory)
-            decoded.append(value)
             let identity: (ArticleCloudRecordType, String)
             switch value {
             case .capture(let payload):
@@ -317,6 +367,13 @@ nonisolated struct ArticleFetchedCloudBatchApplier: Sendable {
                     copiedAssetURLs.append(coverURL)
                 }
             }
+            if try syncDAO.hasActivePendingDelete(
+                recordType: identity.0,
+                entityID: identity.1)
+            {
+                continue
+            }
+            decoded.append(value)
             cloudReceipts.append(
                 ArticleFetchedCloudRecordReceipt(
                     recordName: record.recordID.recordName,
@@ -330,6 +387,13 @@ nonisolated struct ArticleFetchedCloudBatchApplier: Sendable {
         for value in decoded {
             switch value {
             case .capture(let payload):
+                guard
+                    try syncDAO.hasActivePendingDelete(
+                        recordType: .capture,
+                        entityID: payload.capture.id) == false
+                else {
+                    throw ArticleSyncDAO.Error.remoteModificationTombstoned
+                }
                 let destination =
                     workshopRootDirectory
                     .appending(path: "Captures", directoryHint: .isDirectory)
@@ -344,8 +408,22 @@ nonisolated struct ArticleFetchedCloudBatchApplier: Sendable {
                     newlyInstalledURLs.append(destination)
                 }
             case .revision(let payload):
+                guard
+                    try syncDAO.hasActivePendingDelete(
+                        recordType: .revision,
+                        entityID: payload.revision.id) == false
+                else {
+                    throw ArticleSyncDAO.Error.remoteModificationTombstoned
+                }
                 databaseChanges.append(.revision(payload.revision))
             case .anthology(let payload):
+                guard
+                    try syncDAO.hasActivePendingDelete(
+                        recordType: .anthology,
+                        entityID: payload.manifest.anthology.id) == false
+                else {
+                    throw ArticleSyncDAO.Error.remoteModificationTombstoned
+                }
                 var manifest = payload.manifest
                 let disposition = try syncDAO.anthologyDisposition(for: manifest)
                 if let coverURL = payload.coverURL {
@@ -391,6 +469,27 @@ nonisolated struct ArticleFetchedCloudBatchApplier: Sendable {
         }
         try validateFetchedRevisions(in: databaseChanges)
         try beforeDatabaseCommit()
+        try syncDAO.requireActiveAccountLaneAllowsCloudIO()
+        for change in databaseChanges {
+            let identity: (ArticleCloudRecordType, String)?
+            switch change {
+            case .capture(let capture):
+                identity = (.capture, capture.id)
+            case .revision(let revision):
+                identity = (.revision, revision.id)
+            case .anthology(let manifest, _):
+                identity = (.anthology, manifest.anthology.id)
+            case .delete:
+                identity = nil
+            }
+            if let identity,
+                try syncDAO.hasActivePendingDelete(
+                    recordType: identity.0,
+                    entityID: identity.1)
+            {
+                throw ArticleSyncDAO.Error.remoteModificationTombstoned
+            }
+        }
         try syncDAO.applyFetchedChanges(
             databaseChanges,
             cloudRecords: cloudReceipts,
@@ -505,8 +604,16 @@ nonisolated final class ArticleWorkshopCloudSyncEngine: Sendable {
 
     func schedule(_ changes: [ArticlePendingCloudChange]) async {
         let persistedChanges: [ArticlePendingCloudChange]
+        let schedulableChanges: [ArticlePendingCloudChange]
         do {
             persistedChanges = try changes.map { try syncDAO.enqueueReturning($0) }
+            guard try syncDAO.activeAccountLaneIsRestricted() == false else {
+                return
+            }
+            let activeChanges = try syncDAO.pendingChanges()
+            schedulableChanges = persistedChanges.filter {
+                $0.accountOwnerID != nil && activeChanges.contains($0)
+            }
         } catch {
             do {
                 try syncDAO.updateStatus(
@@ -519,7 +626,7 @@ nonisolated final class ArticleWorkshopCloudSyncEngine: Sendable {
             }
             return
         }
-        await driver.schedule(persistedChanges)
+        await driver.schedule(schedulableChanges)
     }
 
     func fetchChanges() async throws {
@@ -546,6 +653,7 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
     private var stagedAssets: [String: [URL]] = [:]
     private var inFlightChanges: [String: ArticlePendingCloudChange] = [:]
     private var fetchProgress = ArticleSyncFetchProgress()
+    private var accountEpochGate = ArticleSyncAccountEpochGate()
 
     init(syncDAO: ArticleSyncDAO, codec: ArticleCloudRecordCodec) {
         self.syncDAO = syncDAO
@@ -558,9 +666,8 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
 
     func start() throws {
         guard engine == nil else { return }
-        let restricted =
-            try syncDAO.activeAccountOwnerIsQuarantined()
-            || syncDAO.state()?.accountStatus == .restricted
+        let laneRestricted = try syncDAO.activeAccountLaneIsRestricted()
+        let restricted = accountEpochGate.isBlocked || laneRestricted
         let storedState = restricted ? nil : try syncDAO.engineState()
         var configuration = CKSyncEngine.Configuration(
             database: CKContainer(identifier: Self.containerIdentifier)
@@ -578,17 +685,33 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
             let changes = try syncDAO.pendingChanges()
             engine.state.add(
                 pendingRecordZoneChanges: changes.map(pendingEngineChange))
+        } else {
+            fetchProgress.recordApplyFailure(.authentication)
         }
     }
 
     func schedule(_ changes: [ArticlePendingCloudChange]) async {
         guard let engine else { return }
+        guard accountEpochGate.isBlocked == false,
+            (try? syncDAO.activeAccountLaneIsRestricted()) == false
+        else {
+            return
+        }
+        guard let durable = try? syncDAO.pendingChanges() else { return }
+        let schedulable = changes.filter {
+            $0.accountOwnerID != nil && durable.contains($0)
+        }
         engine.state.add(
-            pendingRecordZoneChanges: changes.map(pendingEngineChange))
+            pendingRecordZoneChanges: schedulable.map(pendingEngineChange))
     }
 
     func fetchChanges() async throws {
         guard let engine else { throw ArticleSyncEngineError.notStarted }
+        guard accountEpochGate.isBlocked == false,
+            try syncDAO.activeAccountLaneIsRestricted() == false
+        else {
+            throw ArticleSyncEngineError.restrictedAccountLane
+        }
         try await engine.fetchChanges()
         do {
             try fetchProgress.throwIfFailed()
@@ -605,6 +728,11 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
 
     func sendChanges() async throws {
         guard let engine else { throw ArticleSyncEngineError.notStarted }
+        guard accountEpochGate.isBlocked == false,
+            try syncDAO.activeAccountLaneIsRestricted() == false
+        else {
+            throw ArticleSyncEngineError.restrictedAccountLane
+        }
         try await engine.sendChanges()
     }
 
@@ -621,7 +749,7 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
                 persistState(update.stateSerialization)
             }
         case .accountChange(let change):
-            handleAccountChange(change, syncEngine: syncEngine)
+            await handleAccountChange(change, syncEngine: syncEngine)
         case .fetchedDatabaseChanges(let changes):
             handleFetchedDatabaseChanges(changes, syncEngine: syncEngine)
         case .fetchedRecordZoneChanges(let changes):
@@ -646,20 +774,51 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
         _ context: CKSyncEngine.SendChangesContext,
         syncEngine: CKSyncEngine
     ) async -> CKSyncEngine.RecordZoneChangeBatch? {
-        let pending = syncEngine.state.pendingRecordZoneChanges.filter {
-            context.options.scope.contains($0)
+        guard accountEpochGate.isBlocked == false,
+            (try? syncDAO.activeAccountLaneIsRestricted()) == false
+        else {
+            let pending = syncEngine.state.pendingRecordZoneChanges
+            syncEngine.state.remove(pendingRecordZoneChanges: pending)
+            cleanupAllStagedAssets()
+            inFlightChanges.removeAll()
+            return nil
         }
-        if let durable = try? syncDAO.pendingChanges() {
-            for change in durable
-            where context.options.scope.contains(pendingEngineChange(change)) {
-                inFlightChanges[change.recordName] = change
-            }
+        guard let durable = try? syncDAO.pendingChanges() else {
+            let pending = syncEngine.state.pendingRecordZoneChanges
+            syncEngine.state.remove(pendingRecordZoneChanges: pending)
+            cleanupAllStagedAssets()
+            inFlightChanges.removeAll()
+            return nil
         }
-        return await CKSyncEngine.RecordZoneChangeBatch(
+        let durableChanges = durable.filter { $0.accountOwnerID != nil }
+        let durableEngineChanges = durableChanges.map(pendingEngineChange)
+        let enginePending = syncEngine.state.pendingRecordZoneChanges
+        let unauthorized = enginePending.filter {
+            durableEngineChanges.contains($0) == false
+        }
+        syncEngine.state.remove(pendingRecordZoneChanges: unauthorized)
+        let pending = durableEngineChanges.filter {
+            enginePending.contains($0) && context.options.scope.contains($0)
+        }
+        for change in durableChanges
+        where pending.contains(pendingEngineChange(change)) {
+            inFlightChanges[change.recordName] = change
+        }
+        let batch = await CKSyncEngine.RecordZoneChangeBatch(
             pendingChanges: pending,
             recordProvider: { recordID in
                 await self.recordToSave(recordID)
             })
+        guard accountEpochGate.isBlocked == false,
+            (try? syncDAO.activeAccountLaneIsRestricted()) == false
+        else {
+            let pending = syncEngine.state.pendingRecordZoneChanges
+            syncEngine.state.remove(pendingRecordZoneChanges: pending)
+            cleanupAllStagedAssets()
+            inFlightChanges.removeAll()
+            return nil
+        }
+        return batch
     }
 
     private var zoneID: CKRecordZone.ID {
@@ -682,6 +841,11 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
 
     private func recordToSave(_ recordID: CKRecord.ID) -> CKRecord? {
         guard recordID.zoneID == zoneID else { return nil }
+        guard accountEpochGate.isBlocked == false,
+            (try? syncDAO.activeAccountLaneIsRestricted()) == false
+        else {
+            return nil
+        }
         do {
             guard let change = try syncDAO.pendingChange(recordName: recordID.recordName),
                 change.operation == .save
@@ -732,6 +896,13 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
                 (record[$0] as? CKAsset)?.fileURL
             }
             inFlightChanges[recordID.recordName] = change
+            guard accountEpochGate.isBlocked == false,
+                (try? syncDAO.activeAccountLaneIsRestricted()) == false
+            else {
+                cleanupStagedAssets(recordName: recordID.recordName)
+                inFlightChanges.removeValue(forKey: recordID.recordName)
+                return nil
+            }
             return record
         } catch {
             persist(stableCode: .localPersistence)
@@ -752,7 +923,7 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
     private func handleAccountChange(
         _ event: CKSyncEngine.Event.AccountChange,
         syncEngine: CKSyncEngine
-    ) {
+    ) async {
         do {
             cleanupAllStagedAssets()
             inFlightChanges.removeAll()
@@ -764,8 +935,13 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
             let result = try accountEventHandler.handle(
                 event.changeType,
                 updatedAt: Date().ISO8601Format())
+            accountEpochGate.recordBindingSuccess(
+                shouldSchedulePendingChanges: result.shouldSchedulePendingChanges)
             if result.shouldSchedulePendingChanges {
                 let changes = try syncDAO.pendingChanges()
+                syncEngine.state.add(pendingDatabaseChanges: [
+                    .saveZone(CKRecordZone(zoneID: zoneID))
+                ])
                 syncEngine.state.add(
                     pendingRecordZoneChanges: changes.map(pendingEngineChange))
             } else if ArticleSyncAccountEventPolicy.startsNewEngineEpoch(
@@ -774,8 +950,18 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
                 fetchProgress.recordApplyFailure(.authentication)
             }
         } catch {
-            // Local workshop data is deliberately preserved even when its sync
-            // status receipt cannot be updated.
+            accountEpochGate.recordBindingFailure()
+            let recordChanges = syncEngine.state.pendingRecordZoneChanges
+            let databaseChanges = syncEngine.state.pendingDatabaseChanges
+            syncEngine.state.remove(pendingRecordZoneChanges: recordChanges)
+            syncEngine.state.remove(pendingDatabaseChanges: databaseChanges)
+            cleanupAllStagedAssets()
+            inFlightChanges.removeAll()
+            fetchProgress.recordApplyFailure(.authentication)
+            await syncEngine.cancelOperations()
+            // Retain the cancelled engine as an account-event observer. It
+            // remains I/O-blocked by the epoch gate until a later successful
+            // binding event recreates the zone/pending schedule.
         }
     }
 
@@ -783,6 +969,10 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
         _ event: CKSyncEngine.Event.FetchedDatabaseChanges,
         syncEngine: CKSyncEngine
     ) {
+        guard accountEpochGate.isBlocked == false else {
+            fetchProgress.recordApplyFailure(.authentication)
+            return
+        }
         let workshopDeletions = event.deletions.filter { $0.zoneID == zoneID }
         let result = ArticleSyncZoneRecoveryHandler(syncDAO: syncDAO).handle(
             deletionReasons: workshopDeletions.map(\.reason),
@@ -825,6 +1015,12 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
     private func handleFetchedRecordZoneChanges(
         _ event: CKSyncEngine.Event.FetchedRecordZoneChanges
     ) {
+        guard accountEpochGate.isBlocked == false,
+            (try? syncDAO.activeAccountLaneIsRestricted()) == false
+        else {
+            fetchProgress.recordApplyFailure(.authentication)
+            return
+        }
         do {
             try batchApplier.apply(
                 modifications: event.modifications.map(\.record),
@@ -843,6 +1039,10 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
     private func handleSentDatabaseChanges(
         _ event: CKSyncEngine.Event.SentDatabaseChanges
     ) {
+        guard accountEpochGate.isBlocked == false else {
+            fetchProgress.recordApplyFailure(.authentication)
+            return
+        }
         if let failure = event.failedZoneSaves.first {
             persist(error: failure.error)
         } else if let error = event.failedZoneDeletes.values.first {
@@ -854,12 +1054,29 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
         _ event: CKSyncEngine.Event.SentRecordZoneChanges,
         syncEngine: CKSyncEngine
     ) {
+        guard accountEpochGate.isBlocked == false,
+            (try? syncDAO.activeAccountLaneIsRestricted()) == false
+        else {
+            for name in event.savedRecords.map(\.recordID.recordName)
+                + event.deletedRecordIDs.map(\.recordName)
+                + event.failedRecordSaves.map(\.record.recordID.recordName)
+                + event.failedRecordDeletes.keys.map(\.recordName)
+            {
+                cleanupStagedAssets(recordName: name)
+                inFlightChanges.removeValue(forKey: name)
+            }
+            fetchProgress.recordApplyFailure(.authentication)
+            return
+        }
+        let acknowledgedNames = Set(
+            event.savedRecords.map(\.recordID.recordName)
+                + event.deletedRecordIDs.map(\.recordName))
         do {
             let saved = try event.savedRecords.compactMap {
                 record
                     -> ArticleCloudSaveAcknowledgement? in
                 let name = record.recordID.recordName
-                guard let change = inFlightChanges.removeValue(forKey: name) else {
+                guard let change = inFlightChanges[name] else {
                     return nil
                 }
                 return ArticleCloudSaveAcknowledgement(
@@ -872,8 +1089,7 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
                 recordID
                     -> ArticleCloudDeleteAcknowledgement? in
                 guard
-                    let change = inFlightChanges.removeValue(
-                        forKey: recordID.recordName)
+                    let change = inFlightChanges[recordID.recordName]
                 else {
                     return nil
                 }
@@ -881,14 +1097,25 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
                     recordName: recordID.recordName,
                     generation: change.generation)
             }
-            try syncDAO.acknowledgeSaved(saved)
-            try syncDAO.acknowledgeDeleted(deleted)
+            switch ArticleSentAcknowledgementCommitter(syncDAO: syncDAO)
+                .commit(saved: saved, deleted: deleted)
+            {
+            case .committed:
+                removeCommittedInFlight(saved: saved, deleted: deleted)
+            case .failed(let currentChanges):
+                requeueCurrentChanges(
+                    currentChanges,
+                    affectedNames: acknowledgedNames,
+                    syncEngine: syncEngine)
+                persist(stableCode: .localPersistence)
+            }
         } catch {
+            requeueCurrentChanges(
+                affectedNames: acknowledgedNames,
+                syncEngine: syncEngine)
             persist(stableCode: .localPersistence)
         }
-        for name in event.savedRecords.map(\.recordID.recordName)
-            + event.deletedRecordIDs.map(\.recordName)
-        {
+        for name in acknowledgedNames {
             cleanupStagedAssets(recordName: name)
         }
 
@@ -909,6 +1136,46 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
                 failures.count > 1 ? .partialFailure : .classify(failures[0])
             persist(stableCode: code)
         }
+    }
+
+    private func removeCommittedInFlight(
+        saved: [ArticleCloudSaveAcknowledgement],
+        deleted: [ArticleCloudDeleteAcknowledgement]
+    ) {
+        for acknowledgement in saved {
+            if inFlightChanges[acknowledgement.recordName]?.generation
+                == acknowledgement.generation
+            {
+                inFlightChanges.removeValue(forKey: acknowledgement.recordName)
+            }
+        }
+        for acknowledgement in deleted {
+            if inFlightChanges[acknowledgement.recordName]?.generation
+                == acknowledgement.generation
+            {
+                inFlightChanges.removeValue(forKey: acknowledgement.recordName)
+            }
+        }
+    }
+
+    private func requeueCurrentChanges(
+        _ currentChanges: [ArticlePendingCloudChange]? = nil,
+        affectedNames: Set<String>,
+        syncEngine: CKSyncEngine
+    ) {
+        let current =
+            currentChanges
+            ?? ((try? syncDAO.pendingChanges().filter {
+                affectedNames.contains($0.recordName)
+            }) ?? [])
+        for name in affectedNames {
+            inFlightChanges.removeValue(forKey: name)
+        }
+        for change in current {
+            inFlightChanges[change.recordName] = change
+        }
+        syncEngine.state.add(
+            pendingRecordZoneChanges: current.map(pendingEngineChange))
     }
 
     private func handleFailedSave(

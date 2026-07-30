@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import CloudKit
+import CoreGraphics
 import CryptoKit
 import Foundation
 import GRDB
+import ImageIO
 import Testing
+import UniformTypeIdentifiers
 import ZIPFoundation
 
 @testable import Echo
@@ -57,6 +60,10 @@ import ZIPFoundation
             "https://example.test/article?%6b%65%79=private",
             "https://example.test/article?sig=private",
             "https://example.test/article?access-key=private",
+            "https://example.test/article?authToken=private",
+            "https://example.test/article?sessionToken=private",
+            "https://example.test/article?redirect=https%3A%2F%2Freader%3Ahunter2%40example.test%2Fprivate",
+            "https://example.test/article?redirect=https%3A%2F%2Fexample.test%2Fprivate%3FrefreshToken%3Dprivate",
             "https://example.test/article#session=private",
             "file:///private/article.html",
         ] {
@@ -197,6 +204,145 @@ import ZIPFoundation
             FileManager.default.fileExists(
                 atPath: URL(fileURLWithPath: stored.packagePath)
                     .appending(path: "snapshot.json").path))
+    }
+
+    @MainActor
+    @Test func guardedFetchedCaptureCannotInstallOrCommit() throws {
+        let fixture = try ArticleCloudCodecFixture()
+        defer { fixture.remove() }
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        try dao.quarantineActiveAccountOwner(
+            reason: "zoneResetOrPurge",
+            updatedAt: "2026-07-29T12:00:01Z")
+        let record = try fixture.codec.captureRecord(
+            fixture.capture,
+            packageDirectory: fixture.packageDirectory)
+        let applier = ArticleFetchedCloudBatchApplier(
+            syncDAO: dao,
+            codec: fixture.codec,
+            workshopRootDirectory: fixture.managedDirectory,
+            incomingDirectory: fixture.incomingDirectory)
+
+        #expect(throws: ArticleSyncDAO.Error.accountOwnerQuarantined) {
+            try applier.apply(modifications: [record], deletions: [])
+        }
+
+        #expect(try dao.capture(id: fixture.capture.id) == nil)
+        #expect(
+            FileManager.default.fileExists(
+                atPath: fixture.managedDirectory
+                    .appending(path: "Captures", directoryHint: .isDirectory)
+                    .appending(path: fixture.capture.id, directoryHint: .isDirectory)
+                    .path) == false)
+    }
+
+    @MainActor
+    @Test func quarantineDuringFetchedCaptureApplyRollsBackFilesAndDatabase() throws {
+        let fixture = try ArticleCloudCodecFixture()
+        defer { fixture.remove() }
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        let record = try fixture.codec.captureRecord(
+            fixture.capture,
+            packageDirectory: fixture.packageDirectory)
+        let applier = ArticleFetchedCloudBatchApplier(
+            syncDAO: dao,
+            codec: fixture.codec,
+            workshopRootDirectory: fixture.managedDirectory,
+            incomingDirectory: fixture.incomingDirectory,
+            beforeDatabaseCommit: {
+                try dao.quarantineActiveAccountOwner(
+                    reason: "encryptedDataReset",
+                    updatedAt: "2026-07-29T12:00:01Z")
+            })
+
+        #expect(throws: ArticleSyncDAO.Error.accountOwnerQuarantined) {
+            try applier.apply(modifications: [record], deletions: [])
+        }
+
+        #expect(try dao.capture(id: fixture.capture.id) == nil)
+        #expect(
+            FileManager.default.fileExists(
+                atPath: fixture.managedDirectory
+                    .appending(path: "Captures", directoryHint: .isDirectory)
+                    .appending(path: fixture.capture.id, directoryHint: .isDirectory)
+                    .path) == false)
+    }
+
+    @MainActor
+    @Test func pendingDeleteTombstonesPreventFetchedEntityResurrection() throws {
+        let fixture = try ArticleCloudCodecFixture()
+        defer { fixture.remove() }
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        let revision = ArticleRevisionRecord(
+            id: "00000000-0000-0000-0000-000000000202",
+            captureID: fixture.capture.id,
+            parentRevisionID: nil,
+            metadataOverridesJSON: "{}",
+            recipeJSON: #"{"excludedBlockIDs":[],"metadataOverrides":{}}"#,
+            readableContentSHA256: String(repeating: "a", count: 64),
+            createdAt: "2026-07-29T12:00:00Z",
+            deviceName: nil)
+        let anthology = cloudAnthologyManifest(
+            title: "Deleted locally",
+            modifiedAt: "2026-07-29T12:00:00Z")
+        let identities: [(CKRecord, ArticleCloudRecordType, String)] = [
+            (
+                try fixture.codec.captureRecord(
+                    fixture.capture,
+                    packageDirectory: fixture.packageDirectory),
+                .capture,
+                fixture.capture.id
+            ),
+            (
+                try fixture.codec.revisionRecord(revision),
+                .revision,
+                revision.id
+            ),
+            (
+                try fixture.codec.anthologyRecord(anthology, coverURL: nil),
+                .anthology,
+                anthology.anthology.id
+            ),
+        ]
+        var tombstones: [ArticlePendingCloudChange] = []
+        for (record, type, entityID) in identities {
+            tombstones.append(
+                try dao.enqueueReturning(
+                    ArticlePendingCloudChange(
+                        recordName: record.recordID.recordName,
+                        recordType: type,
+                        entityID: entityID,
+                        operation: .delete,
+                        queuedAt: "2026-07-29T12:00:01Z")))
+        }
+        let applier = ArticleFetchedCloudBatchApplier(
+            syncDAO: dao,
+            codec: fixture.codec,
+            workshopRootDirectory: fixture.managedDirectory,
+            incomingDirectory: fixture.incomingDirectory)
+
+        try applier.apply(modifications: identities.map(\.0), deletions: [])
+
+        #expect(try dao.capture(id: fixture.capture.id) == nil)
+        #expect(try dao.revision(id: revision.id) == nil)
+        #expect(try dao.anthologyManifest(id: anthology.anthology.id) == nil)
+        #expect(try Set(dao.pendingChanges()) == Set(tombstones))
+        try dao.acknowledgeDeleted(
+            tombstones.map {
+                ArticleCloudDeleteAcknowledgement(
+                    recordName: $0.recordName,
+                    generation: $0.generation)
+            })
+        #expect(try dao.pendingChanges().isEmpty)
+        #expect(try dao.capture(id: fixture.capture.id) == nil)
+        #expect(try dao.revision(id: revision.id) == nil)
+        #expect(try dao.anthologyManifest(id: anthology.anthology.id) == nil)
     }
 
     @MainActor
@@ -461,6 +607,58 @@ import ZIPFoundation
         #expect(record["m4b"] == nil)
     }
 
+    @Test func anthologyCoverVersionPairsWithAssetAndEntersStableFingerprint() throws {
+        let fixture = try ArticleCloudCodecFixture()
+        defer { fixture.remove() }
+        let data = try generatedCloudCoverPNGData(width: 2)
+        let coverURL = fixture.root.appending(path: "cover.png")
+        try data.write(to: coverURL)
+        let version = cloudCoverContentVersion(data)
+        var manifest = cloudAnthologyManifest(
+            title: "Cover identity",
+            modifiedAt: "2026-07-29T12:00:00Z")
+        manifest.coverContentVersion = version
+
+        let record = try fixture.codec.anthologyRecord(
+            manifest,
+            coverURL: coverURL)
+        let json = try #require(record["manifestJSON"] as? String)
+        #expect(record["coverContentVersion"] as? String == version)
+        #expect(json.contains("coverContentVersion") == false)
+        #expect(
+            try fixture.codec.contentFingerprint(for: record)
+                == ArticleSyncFingerprint.anthology(manifest))
+
+        let decoded = try fixture.codec.decode(
+            record,
+            assetCopyDirectory: fixture.incomingDirectory)
+        guard case .anthology(let payload) = decoded else {
+            Issue.record("Expected anthology")
+            return
+        }
+        #expect(payload.manifest.coverContentVersion == version)
+
+        record["coverContentVersion"] = nil
+        #expect(throws: ArticleCloudRecordCodec.Error.self) {
+            _ = try fixture.codec.decode(
+                record,
+                assetCopyDirectory: fixture.incomingDirectory)
+        }
+        record["coverContentVersion"] =
+            "sha256:\(String(repeating: "0", count: 64))" as CKRecordValue
+        #expect(throws: ArticleCloudRecordCodec.Error.self) {
+            _ = try fixture.codec.decode(
+                record,
+                assetCopyDirectory: fixture.incomingDirectory)
+        }
+        record["cover"] = nil
+        #expect(throws: ArticleCloudRecordCodec.Error.self) {
+            _ = try fixture.codec.decode(
+                record,
+                assetCopyDirectory: fixture.incomingDirectory)
+        }
+    }
+
     @MainActor
     @Test func sameManifestRemoteCoverUpdatesOriginalAnthology() throws {
         let fixture = try ArticleCloudCodecFixture()
@@ -579,15 +777,17 @@ import ZIPFoundation
                 entityID: base.anthology.id,
                 operation: .save,
                 queuedAt: "2026-07-29T12:00:01Z"))
-        let incoming = cloudAnthologyManifest(
+        var incoming = cloudAnthologyManifest(
             title: "Remote edit",
             modifiedAt: "2026-07-29T12:00:02Z")
+        let coverData = cloudCoverPNGData()
+        incoming.coverContentVersion = cloudCoverContentVersion(coverData)
         let local = try #require(try dao.anthologyManifest(id: base.anthology.id))
         let recoveredID = ArticleSyncConflictIdentity.recoveredAnthologyID(
             incoming: incoming,
             existing: local)
         let coverURL = fixture.root.appending(path: "conflict.png")
-        try cloudCoverPNGData().write(to: coverURL)
+        try coverData.write(to: coverURL)
         let record = try fixture.codec.anthologyRecord(incoming, coverURL: coverURL)
         let applier = ArticleFetchedCloudBatchApplier(
             syncDAO: dao,
@@ -609,6 +809,114 @@ import ZIPFoundation
                     .appending(path: "Anthologies", directoryHint: .isDirectory)
                     .appending(path: recoveredID.uuidString, directoryHint: .isDirectory)
                     .appending(path: coverPath).path))
+    }
+
+    @MainActor
+    @Test func concurrentCoverOnlyEditsPreserveLocalAndRecoveredCoverBytes() throws {
+        let fixture = try ArticleCloudCodecFixture()
+        defer { fixture.remove() }
+        try FileManager.default.createDirectory(
+            at: fixture.managedDirectory,
+            withIntermediateDirectories: true)
+        let anthologyID = try #require(
+            UUID(uuidString: "00000000-0000-0000-0000-000000000210"))
+        let baseData = try generatedCloudCoverPNGData(width: 2)
+        let localData = try generatedCloudCoverPNGData(width: 3)
+        let remoteData = try generatedCloudCoverPNGData(width: 4)
+        let baseSource = fixture.root.appending(path: "base.png")
+        let localSource = fixture.root.appending(path: "local.png")
+        let remoteSource = fixture.root.appending(path: "remote.png")
+        try baseData.write(to: baseSource)
+        try localData.write(to: localSource)
+        try remoteData.write(to: remoteSource)
+        let coverStore = AnthologyCoverStore(root: fixture.managedDirectory)
+        let basePath = try coverStore.importCover(
+            from: baseSource,
+            anthologyID: anthologyID)
+        let localPath = try coverStore.importCover(
+            from: localSource,
+            anthologyID: anthologyID)
+
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        var base = cloudAnthologyManifest(
+            title: "Cover-only conflict",
+            modifiedAt: "2026-07-29T12:00:00Z")
+        base.anthology.coverPath = basePath
+        base.coverContentVersion = cloudCoverContentVersion(baseData)
+        try insertAnthology(base, into: database)
+        let baseRecord = try fixture.codec.anthologyRecord(
+            base,
+            coverURL: baseSource)
+        try dao.storeFetchedCloudRecord(
+            recordName: baseRecord.recordID.recordName,
+            recordType: .anthology,
+            entityID: base.anthology.id,
+            systemFields: Data("base-fields".utf8),
+            contentFingerprint: try fixture.codec.contentFingerprint(for: baseRecord),
+            updatedAt: "2026-07-29T12:00:00Z")
+        try database.write { db in
+            try db.execute(
+                sql: "UPDATE anthology SET cover_path = ? WHERE id = ?",
+                arguments: [localPath, base.anthology.id])
+        }
+        _ = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: baseRecord.recordID.recordName,
+                recordType: .anthology,
+                entityID: base.anthology.id,
+                operation: .save,
+                queuedAt: "2026-07-29T12:00:01Z"))
+
+        var incoming = cloudAnthologyManifest(
+            title: "Cover-only conflict",
+            modifiedAt: "2026-07-29T12:00:00Z")
+        incoming.coverContentVersion = cloudCoverContentVersion(remoteData)
+        let local = try #require(try dao.anthologyManifest(id: base.anthology.id))
+        let recoveredID = ArticleSyncConflictIdentity.recoveredAnthologyID(
+            incoming: incoming,
+            existing: local)
+        let record = try fixture.codec.anthologyRecord(
+            incoming,
+            coverURL: remoteSource)
+        let applier = ArticleFetchedCloudBatchApplier(
+            syncDAO: dao,
+            codec: fixture.codec,
+            workshopRootDirectory: fixture.managedDirectory,
+            incomingDirectory: fixture.incomingDirectory)
+
+        try applier.apply(modifications: [record], deletions: [])
+
+        let original = try #require(
+            try dao.anthologyManifest(id: anthologyID.uuidString))
+        let recovered = try #require(
+            try dao.anthologyManifest(id: recoveredID.uuidString))
+        #expect(original.anthology.coverPath == localPath)
+        let recoveredPath = try #require(recovered.anthology.coverPath)
+        let anthologyRoot = fixture.managedDirectory.appending(
+            path: "Anthologies",
+            directoryHint: .isDirectory)
+        #expect(
+            try Data(
+                contentsOf:
+                    anthologyRoot
+                    .appending(path: anthologyID.uuidString, directoryHint: .isDirectory)
+                    .appending(path: localPath)) == localData)
+        #expect(
+            try Data(
+                contentsOf:
+                    anthologyRoot
+                    .appending(path: recoveredID.uuidString, directoryHint: .isDirectory)
+                    .appending(path: recoveredPath)) == remoteData)
+        // Managed cover files are immutable because completed build manifests
+        // may retain historical paths; Task 17 owns reference-aware reclamation.
+        #expect(
+            FileManager.default.fileExists(
+                atPath:
+                    anthologyRoot
+                    .appending(path: anthologyID.uuidString, directoryHint: .isDirectory)
+                    .appending(path: basePath).path))
     }
 
     @MainActor
@@ -744,6 +1052,98 @@ import ZIPFoundation
             try fixture.codec.validateCaptureArchive(at: archiveURL)
         }
     }
+
+    @Test func capturePackageAllowsOnlyValidatedFlatContiguousProducerImages() throws {
+        let fixture = try ArticleCloudCodecFixture()
+        defer { fixture.remove() }
+        let imageData = cloudCoverPNGData()
+        let imageZero = fixture.packageDirectory.appending(path: "image-0.png")
+        try imageData.write(to: imageZero)
+        let record = try fixture.codec.captureRecord(
+            fixture.capture,
+            packageDirectory: fixture.packageDirectory)
+        let assetManifest = try #require(record["packageAssetsJSON"] as? String)
+        #expect(assetManifest.contains(#""path":"image-0.png""#))
+        #expect(assetManifest.contains(#""mediaType":"image/png""#))
+        _ = try fixture.codec.decode(
+            record,
+            assetCopyDirectory: fixture.incomingDirectory)
+        record["packageAssetsJSON"] = "[]" as CKRecordValue
+        #expect(throws: ArticleCloudRecordCodec.Error.self) {
+            _ = try fixture.codec.decode(
+                record,
+                assetCopyDirectory: fixture.incomingDirectory)
+        }
+
+        for invalidName in [
+            "secret.txt",
+            ".DS_Store",
+            "image-00.png",
+            "image-0.extra.png",
+            "image-2.png",
+        ] {
+            let invalidURL = fixture.packageDirectory.appending(path: invalidName)
+            try imageData.write(to: invalidURL)
+            #expect(throws: ArticleCloudRecordCodec.Error.self) {
+                _ = try fixture.codec.captureRecord(
+                    fixture.capture,
+                    packageDirectory: fixture.packageDirectory)
+            }
+            try FileManager.default.removeItem(at: invalidURL)
+        }
+
+        let nested = fixture.packageDirectory.appending(
+            path: "nested",
+            directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: nested,
+            withIntermediateDirectories: false)
+        #expect(throws: ArticleCloudRecordCodec.Error.self) {
+            _ = try fixture.codec.captureRecord(
+                fixture.capture,
+                packageDirectory: fixture.packageDirectory)
+        }
+        try FileManager.default.removeItem(at: nested)
+
+        try Data("not-an-image".utf8).write(to: imageZero, options: .atomic)
+        #expect(throws: ArticleCloudRecordCodec.Error.self) {
+            _ = try fixture.codec.captureRecord(
+                fixture.capture,
+                packageDirectory: fixture.packageDirectory)
+        }
+    }
+
+    @Test func downloadedCaptureArchiveUsesSameExactMemberGrammar() throws {
+        let fixture = try ArticleCloudCodecFixture()
+        defer { fixture.remove() }
+        let snapshot = try Data(
+            contentsOf: fixture.packageDirectory.appending(path: "snapshot.json"))
+        let image = cloudCoverPNGData()
+
+        let valid = fixture.root.appending(path: "valid-members.zip")
+        try makeCaptureArchive(
+            at: valid,
+            members: [
+                ("snapshot.json", snapshot),
+                ("image-0.png", image),
+            ])
+        try fixture.codec.validateCaptureArchive(at: valid)
+
+        for invalidMembers in [
+            [("snapshot.json", snapshot), ("notes.txt", image)],
+            [("snapshot.json", snapshot), ("image-1.png", image)],
+            [("snapshot.json", snapshot), ("image-00.png", image)],
+            [("snapshot.json", snapshot), ("image-0.extra.png", image)],
+            [("nested/snapshot.json", snapshot)],
+        ] {
+            let archiveURL = fixture.root.appending(
+                path: "invalid-\(UUID().uuidString).zip")
+            try makeCaptureArchive(at: archiveURL, members: invalidMembers)
+            #expect(throws: ArticleCloudRecordCodec.Error.self) {
+                try fixture.codec.validateCaptureArchive(at: archiveURL)
+            }
+        }
+    }
 }
 
 private enum InjectedApplyFailure: Swift.Error {
@@ -786,6 +1186,60 @@ private func cloudCoverPNGData() -> Data {
         base64Encoded:
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABAQMAAAAl21bKAAAAIGNIUk0AAHomAACAhAAA+gAAAIDoAAB1MAAA6mAAADqYAAAXcJy6UTwAAAAGUExURTNmmf////ENxh0AAAABYktHRAH/Ai3eAAAAB3RJTUUH6gcdBwQUEKHG6gAAACV0RVh0ZGF0ZTpjcmVhdGUAMjAyNi0wNy0yOVQwNzowNDoyMCswMDowMAupiH8AAAAldEVYdGRhdGU6bW9kaWZ5ADIwMjYtMDctMjlUMDc6MDQ6MjArMDA6MDB69DDDAAAAKHRFWHRkYXRlOnRpbWVzdGFtcAAyMDI2LTA3LTI5VDA3OjA0OjIwKzAwOjAwLeERHAAAAApJREFUCNdjYAAAAAIAAeIhvDMAAAAASUVORK5CYII="
     )!
+}
+
+private func cloudCoverContentVersion(_ data: Data) -> String {
+    "sha256:"
+        + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+}
+
+private func generatedCloudCoverPNGData(width: Int) throws -> Data {
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
+    let context = try #require(
+        CGContext(
+            data: nil,
+            width: width,
+            height: width,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    context.setFillColor(
+        CGColor(
+            red: CGFloat(width) / 10,
+            green: 0.4,
+            blue: 0.8,
+            alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: width, height: width))
+    let image = try #require(context.makeImage())
+    let data = NSMutableData()
+    let destination = try #require(
+        CGImageDestinationCreateWithData(
+            data,
+            UTType.png.identifier as CFString,
+            1,
+            nil))
+    CGImageDestinationAddImage(destination, image, nil)
+    #expect(CGImageDestinationFinalize(destination))
+    return data as Data
+}
+
+private func makeCaptureArchive(
+    at url: URL,
+    members: [(String, Data)]
+) throws {
+    let archive = try Archive(url: url, accessMode: .create)
+    for (path, data) in members {
+        try archive.addEntry(
+            with: path,
+            type: .file,
+            uncompressedSize: Int64(data.count),
+            compressionMethod: .none
+        ) { position, size in
+            data.subdata(
+                in: Int(position)..<min(Int(position) + size, data.count))
+        }
+    }
 }
 
 private struct ArticleCloudCodecFixture {

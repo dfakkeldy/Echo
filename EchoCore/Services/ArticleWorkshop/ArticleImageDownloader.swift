@@ -18,7 +18,7 @@ nonisolated struct ArticleImageLocalization: Sendable {
     let warnings: [ArticleImageLocalizationWarning]
 }
 
-private nonisolated enum ArticleImageType: Sendable {
+nonisolated enum ArticleImageType: Sendable {
     case jpeg
     case png
 
@@ -33,7 +33,8 @@ struct ArticleImageDownloader {
     private let maximumTotalImageBytes: Int
 
     init(
-        sessionConfiguration: URLSessionConfiguration = ArticleURLCaptureService.ephemeralConfiguration(),
+        sessionConfiguration: URLSessionConfiguration =
+            ArticleURLCaptureService.ephemeralConfiguration(),
         maximumImages: Int = ArticleWorkshopLimits.maxImages,
         maximumSingleImageBytes: Int = ArticleWorkshopLimits.maxSingleImageBytes,
         maximumTotalImageBytes: Int = ArticleWorkshopLimits.maxTotalImageBytes
@@ -84,10 +85,11 @@ struct ArticleImageDownloader {
                 warnings.append(.invalidImage)
                 continue
             }
-            let destination = root.appending(path: "image-\(localURLs.count).\(imageType.fileExtension)")
+            let destination = root.appending(
+                path: "image-\(localURLs.count).\(imageType.fileExtension)")
             guard destination.standardizedFileURL.deletingLastPathComponent() == root,
-                  FileManager.default.fileExists(atPath: destination.path) == false,
-                  Self.isSafeDirectory(root)
+                FileManager.default.fileExists(atPath: destination.path) == false,
+                Self.isSafeDirectory(root)
             else {
                 warnings.append(.unsafeDestination)
                 continue
@@ -97,9 +99,9 @@ struct ArticleImageDownloader {
                 try response.data.write(to: temporary, options: .withoutOverwriting)
                 defer { try? FileManager.default.removeItem(at: temporary) }
                 guard temporary.standardizedFileURL.deletingLastPathComponent() == root,
-                      destination.standardizedFileURL.deletingLastPathComponent() == root,
-                      Self.isSafeDirectory(root),
-                      FileManager.default.fileExists(atPath: destination.path) == false
+                    destination.standardizedFileURL.deletingLastPathComponent() == root,
+                    Self.isSafeDirectory(root),
+                    FileManager.default.fileExists(atPath: destination.path) == false
                 else { throw CocoaError(.fileWriteFileExists) }
                 try FileManager.default.moveItem(at: temporary, to: destination)
                 localURLs.append(destination)
@@ -112,11 +114,14 @@ struct ArticleImageDownloader {
     }
 
     private static func isSafeDirectory(_ url: URL) -> Bool {
-        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]) else { return false }
+        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        else { return false }
         return values.isDirectory == true && values.isSymbolicLink != true
     }
 
-    private static func warning(for error: ArticleBoundedURLLoader.Error) -> ArticleImageLocalizationWarning {
+    private static func warning(for error: ArticleBoundedURLLoader.Error)
+        -> ArticleImageLocalizationWarning
+    {
         switch error {
         case .unsupportedURL: .invalidURL
         case .unsupportedContentType: .invalidContentType
@@ -125,27 +130,33 @@ struct ArticleImageDownloader {
         }
     }
 
-    private nonisolated static func validatedImageType(data: Data, mimeType: String) -> ArticleImageType? {
+    nonisolated static func validatedImageType(
+        data: Data,
+        mimeType: String
+    ) -> ArticleImageType? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              CGImageSourceGetCount(source) == 1,
-              CGImageSourceGetStatus(source) == .statusComplete,
-              CGImageSourceGetStatusAtIndex(source, 0) == .statusComplete,
-              let type = CGImageSourceGetType(source) as String?
+            CGImageSourceGetCount(source) == 1,
+            CGImageSourceGetStatus(source) == .statusComplete,
+            CGImageSourceGetStatusAtIndex(source, 0) == .statusComplete,
+            let type = CGImageSourceGetType(source) as String?
         else { return nil }
         let imageType: ArticleImageType
         switch (mimeType, type) {
         case ("image/jpeg", "public.jpeg"):
-            guard data.starts(with: [0xFF, 0xD8]), data.suffix(2) == Data([0xFF, 0xD9]) else { return nil }
+            guard data.starts(with: [0xFF, 0xD8]), data.suffix(2) == Data([0xFF, 0xD9]) else {
+                return nil
+            }
             imageType = .jpeg
         case ("image/png", "public.png"):
             guard PNGIntegrity.isValid(data) else { return nil }
             imageType = .png
         default: return nil
         }
-        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-              let width = properties[kCGImagePropertyPixelWidth] as? Int,
-              let height = properties[kCGImagePropertyPixelHeight] as? Int,
-              width > 0, height > 0, width <= 16_384, height <= 16_384
+        guard
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+            let width = properties[kCGImagePropertyPixelWidth] as? Int,
+            let height = properties[kCGImagePropertyPixelHeight] as? Int,
+            width > 0, height > 0, width <= 16_384, height <= 16_384
         else { return nil }
         let product = width.multipliedReportingOverflow(by: height)
         guard product.overflow == false, product.partialValue <= 100_000_000 else { return nil }
@@ -154,8 +165,10 @@ struct ArticleImageDownloader {
             kCGImageSourceThumbnailMaxPixelSize: 512,
             kCGImageSourceShouldCacheImmediately: true,
         ]
-        guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, rasterOptions as CFDictionary),
-              let context = CGContext(
+        guard
+            let thumbnail = CGImageSourceCreateThumbnailAtIndex(
+                source, 0, rasterOptions as CFDictionary),
+            let context = CGContext(
                 data: nil,
                 width: 1,
                 height: 1,
@@ -163,7 +176,7 @@ struct ArticleImageDownloader {
                 bytesPerRow: 4,
                 space: CGColorSpaceCreateDeviceRGB(),
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-              )
+            )
         else {
             return nil
         }
@@ -184,16 +197,20 @@ private nonisolated enum PNGIntegrity {
         var compressedImageData = Data()
         while offset < bytes.count {
             guard offset + 12 <= bytes.count else { return false }
-            let length = Int(bytes[offset]) << 24 | Int(bytes[offset + 1]) << 16 | Int(bytes[offset + 2]) << 8 | Int(bytes[offset + 3])
+            let length =
+                Int(bytes[offset]) << 24 | Int(bytes[offset + 1]) << 16 | Int(bytes[offset + 2])
+                << 8 | Int(bytes[offset + 3])
             let typeStart = offset + 4
             let dataStart = offset + 8
             let crcStart = dataStart + length
             guard length >= 0, crcStart + 4 <= bytes.count else { return false }
             let type = String(bytes: bytes[typeStart..<(typeStart + 4)], encoding: .ascii) ?? ""
-            guard crc32(bytes[typeStart..<crcStart]) == readUInt32(bytes, at: crcStart) else { return false }
+            guard crc32(bytes[typeStart..<crcStart]) == readUInt32(bytes, at: crcStart) else {
+                return false
+            }
             if type == "IHDR" {
                 guard !sawIHDR, offset == 8, length == 13,
-                      let parsedHeader = Header(bytes: bytes[dataStart..<crcStart])
+                    let parsedHeader = Header(bytes: bytes[dataStart..<crcStart])
                 else { return false }
                 sawIHDR = true
                 header = parsedHeader
@@ -207,7 +224,8 @@ private nonisolated enum PNGIntegrity {
             }
             if type == "IEND" {
                 return sawIHDR && sawIDAT && length == 0 && crcStart + 4 == bytes.count
-                    && header.map { validatesCompressedPixels(compressedImageData, header: $0) } == true
+                    && header.map { validatesCompressedPixels(compressedImageData, header: $0) }
+                        == true
             }
             offset = crcStart + 4
         }
@@ -215,7 +233,8 @@ private nonisolated enum PNGIntegrity {
     }
 
     private static func readUInt32(_ bytes: [UInt8], at offset: Int) -> UInt32 {
-        UInt32(bytes[offset]) << 24 | UInt32(bytes[offset + 1]) << 16 | UInt32(bytes[offset + 2]) << 8 | UInt32(bytes[offset + 3])
+        UInt32(bytes[offset]) << 24 | UInt32(bytes[offset + 1]) << 16 | UInt32(bytes[offset + 2])
+            << 8 | UInt32(bytes[offset + 3])
     }
 
     private static func crc32(_ bytes: ArraySlice<UInt8>) -> UInt32 {
@@ -234,26 +253,30 @@ private nonisolated enum PNGIntegrity {
 
     private static func validatesCompressedPixels(_ compressed: Data, header: Header) -> Bool {
         guard header.compressionMethod == 0,
-              header.filterMethod == 0,
-              [0, 1].contains(header.interlaceMethod),
-              let channels = header.channels,
-              [1, 2, 4, 8, 16].contains(header.bitDepth)
+            header.filterMethod == 0,
+            [0, 1].contains(header.interlaceMethod),
+            let channels = header.channels,
+            [1, 2, 4, 8, 16].contains(header.bitDepth)
         else { return false }
         guard let expectedOutputBytes = header.expectedOutputBytes(channels: channels),
-              expectedOutputBytes > 0,
-              expectedOutputBytes <= 100_000_000
+            expectedOutputBytes > 0,
+            expectedOutputBytes <= 100_000_000
         else { return false }
         return hasCompleteZlibStream(compressed, expectedOutputBytes: expectedOutputBytes)
     }
 
-    private static func hasCompleteZlibStream(_ compressed: Data, expectedOutputBytes: Int) -> Bool {
+    private static func hasCompleteZlibStream(_ compressed: Data, expectedOutputBytes: Int) -> Bool
+    {
         guard compressed.isEmpty == false else { return false }
         return compressed.withUnsafeBytes { sourceBuffer in
-            guard let source = sourceBuffer.bindMemory(to: UInt8.self).baseAddress else { return false }
+            guard let source = sourceBuffer.bindMemory(to: UInt8.self).baseAddress else {
+                return false
+            }
             var stream = z_stream()
             stream.next_in = UnsafeMutablePointer(mutating: source)
             stream.avail_in = uInt(sourceBuffer.count)
-            guard inflateInit_(&stream, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK else { return false }
+            guard inflateInit_(&stream, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK
+            else { return false }
             defer { inflateEnd(&stream) }
             var totalOutput = 0
             while true {
@@ -266,7 +289,9 @@ private nonisolated enum PNGIntegrity {
                 }
                 let emitted = output.count - Int(stream.avail_out)
                 let total = totalOutput.addingReportingOverflow(emitted)
-                guard total.overflow == false, total.partialValue <= expectedOutputBytes else { return false }
+                guard total.overflow == false, total.partialValue <= expectedOutputBytes else {
+                    return false
+                }
                 totalOutput = total.partialValue
                 if status == Z_STREAM_END {
                     return stream.avail_in == 0 && totalOutput == expectedOutputBytes
@@ -312,13 +337,17 @@ private nonisolated enum PNGIntegrity {
         }
 
         func expectedOutputBytes(channels: Int) -> Int? {
-            let passes: [(Int, Int, Int, Int)] = interlaceMethod == 1
-                ? [(0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2)]
+            let passes: [(Int, Int, Int, Int)] =
+                interlaceMethod == 1
+                ? [
+                    (0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4),
+                    (1, 0, 2, 2), (0, 1, 1, 2),
+                ]
                 : [(0, 0, 1, 1)]
             var total = 0
             for (originX, originY, stepX, stepY) in passes {
                 guard let passWidth = passDimension(length: width, origin: originX, step: stepX),
-                      let passHeight = passDimension(length: height, origin: originY, step: stepY)
+                    let passHeight = passDimension(length: height, origin: originY, step: stepY)
                 else { return nil }
                 guard passWidth > 0, passHeight > 0 else { continue }
                 let samples = passWidth.multipliedReportingOverflow(by: channels)

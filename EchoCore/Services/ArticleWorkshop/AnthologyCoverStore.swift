@@ -94,6 +94,12 @@ nonisolated struct AnthologyCoverStore: Sendable {
         return filename
     }
 
+    func contentVersion(for source: URL) throws -> String {
+        let data = try boundedRegularFileData(at: source)
+        _ = try validatedImageExtension(for: data)
+        return "sha256:\(Self.sha256(data))"
+    }
+
     func validateManagedCover(named filename: String, anthologyID: UUID) throws -> String {
         guard filename == URL(fileURLWithPath: filename).lastPathComponent,
             filename != ".",
