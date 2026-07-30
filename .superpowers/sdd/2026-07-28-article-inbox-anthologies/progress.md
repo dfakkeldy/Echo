@@ -1,0 +1,126 @@
+# SDD ledger — plan: docs/superpowers/plans/2026-07-28-article-inbox-anthologies.md
+Execution worktree: /Users/dfakkeldy/.codex/worktrees/article-anthology-design/Echo
+Merge base: 33c17fda
+Preflight: clean — no plan/global-constraint contradiction found.
+Dependency: Global Pronunciation owns NarrationService.swift, NarrationFileNaming.swift, NarrationFileNamingTests.swift, project.pbxproj, and ARCHITECTURE.md in sibling worktree /Users/dfakkeldy/.codex/worktrees/9f8d/Echo. Recheck read-only before Task 14; no merge/rebase/cherry-pick without explicit coordination.
+Dependency: GeoPDF owns iPhone Mirroring and foreground browser control. Headless/local/simulator work is allowed; physical Safari and cross-device acceptance wait for release.
+Safety: Mac output muted by default; any later playback probe is capped at 6%, and human listening remains a separate receipt.
+Baseline: `make test` on e2dc8bf4 compiled and ran but FAILED (Xcode 65): result bundle reported 1,666 passed, 2 skipped, and 2 failures. `PlayerModelStudyCheckpointTests/remoteSkipBecomesAGradeOnlyWhileACheckpointIsActive()` and its test host were killed before completion; two pre-existing PNG IDAT CRC diagnostics also appeared.
+Baseline follow-up: focused `test-without-building` was stopped after 178 seconds without materializing a test worker. Xcode repeatedly probed a connected passcode-locked physical device and the simulator launch ended with NSMachError -308 after interruption. No Article Workshop production code existed during either run. Treat full-suite baseline as failing/environmentally unstable; require task-focused RED/GREEN evidence and do not reinterpret the baseline as passed.
+Task 1: base e2dc8bf4
+Task 1: review clean — spec compliant and task quality approved; no Critical, Important, or Minor findings.
+Task 1: reviewer execution ⚠️ resolved from task-1-report.md: TEST BUILD SUCCEEDED, focused suite 2/2 passed, vendor pin verified, and git diff check passed.
+Task 1: complete (commits e2dc8bf4..b68e039c, review clean)
+Task 2: base b68e039c
+Task 2: review Important — `AnthologyDAO.save(_:)` can overwrite DAO-owned `next_stable_slot` and `latest_build_revision` counters from a stale record, breaking monotonic stable slots and build revision bookkeeping.
+Task 2: minor (deferred) — SchemaV37 tests do not introspect every required default, unique key, index, and cascade; final review must triage broader immutable-schema coverage.
+Task 2: fix round 1/5 (1 addressed, 0 open — stale saves now preserve DAO-owned counters; commits 105a03da..b7793161)
+Task 2: complete (commits b68e039c..b7793161, review clean; 1 deferred minor)
+Task 3: base b7793161
+Task 3: review Critical — staging uses process-local Application Support instead of the App Group, so extension captures are invisible to the host.
+Task 3: review Important — digest-only recovery can accept conflicting row metadata or package paths and delete the retry copy.
+Task 3: review Important — interrupted partial or published-without-marker packages permanently block same-UUID retry.
+Task 3: review Important — untrusted envelope bytes are fully allocated before the size limit is applied.
+Task 3: review Important — staging enumeration/import/deletion do not reject symlink substitution or prove direct-child containment.
+Task 3: review Minor — tests need deterministic interruption, collision, metadata-conflict, oversized-input, malformed-marker, and symlink coverage.
+Task 3: fix round 1/5 (0 addressed, 5 open)
+Task 3: fix round 1/5 (4 addressed, 1 open — final cleanup validation does not compare the replacement package digest to the imported digest or quarantine the deletion target)
+Task 3: fix round 2/5 (0 addressed, 1 open)
+Task 3: fix round 2/5 (1 addressed, 1 new open — quarantined packages are not reconciled after a crash between quarantine and deletion)
+Task 3: fix round 3/5 (0 addressed, 1 open)
+Task 3: fix round 3/5 (1 addressed, 0 open — quarantine recovery now requires matching staged bytes, durable snapshot, and deterministic row)
+Task 3: complete (commits b7793161..cd2ff5e9, review clean; ingestion runtime 13/13 passed; FileStore runtime receipt remains environment-limited)
+Task 4: base cd2ff5e9
+Task 4: review Important — namespace-prefixed and unlisted active subtrees can leak text into spoken output.
+Task 4: review Important — rejected images consume the retained-image limit and emit empty blocks.
+Task 4: review Important — caption-only readable content is misclassified as capture failed.
+Task 4: review Minor — entity reference, DOM-element limit, invalid-image exhaustion, and semantic hash tests need stronger proof.
+Task 4: fix round 1/5 (0 addressed, 3 open)
+Task 4: fix round 1/5 (3 addressed, 0 open — namespace allowlist, retained-image accounting, and caption readiness corrected; proof gaps closed)
+Task 4: complete (commits cd2ff5e9..f3226d42, review clean; sanitizer 11/11 and revision 5/5 runtime receipts)
+Task 5: WAITING_FOR_DEPENDENCY — `Echo.xcodeproj/project.pbxproj` is required for extension target/host embedding and is owned by the active Global Pronunciation first-integration branch. Read-only check: sibling HEAD f1484dad has committed project-file changes but the sibling remains actively dirty in pronunciation tests, so there is no completed commit/PR handoff safe to reconcile. No sibling state was modified.
+Task 6: base f3226d42
+Task 6: review Critical — WebKit permits document navigation/subresource paths beyond the supplied HTML.
+Task 6: review Critical — URLSession delegate isolation is unsafe under default Main Actor isolation.
+Task 6: review Important — script-evaluation cancellation can leave continuations pending.
+Task 6: review Important — remaining total image budget does not bound the next network request.
+Task 6: review Important — image publication can overwrite via a check/write race.
+Task 6: review Important — ImageIO metadata is accepted without proving complete bounded decode.
+Task 6: review Important — authentication classification has `/auth` false positives and is not dominance-based.
+Task 6: review Important — injected additional headers are not cleared.
+Task 6: review Important — localization warnings/state are not durably integrated into ingestion.
+Task 6: review Minor — normalized redirect URL is validated but not used for the followed request.
+Task 6: fix round 1/5 (0 addressed, 9 open; Task 5 bundled-source dependency remains separate)
+Task 6: fix round 1/5 (6 addressed, 3 partial, 1 Important recovery gap; Task 5 bundled-source dependency remains separate)
+Task 6: fix round 2/5 (0 addressed, 4 open — full WebKit cancellation/reuse, forced bounded image decode, form-local login dominance, pre-cleanup warning persistence/retry)
+Task 6: fix round 2/5 (4 partial, 4 open — stale cancellation token race, image validation DoS/IDAT structure, independent login signal, plain/quarantine presentation downgrade)
+Task 6: fix round 3/5 (0 addressed, 4 open)
+Task 6: fix round 3/5 (2 addressed, 3 new P1 open — multi-buffer zlib, independent submit semantics, Adam7 PNG support)
+Task 6: fix round 4/5 (0 addressed, 3 open)
+Task 6: fix round 4/5 (2 addressed, 1 Important open — semantic form action/control/text scoping)
+Task 6: fix round 5/5 (0 addressed, 1 open)
+Task 6: fix round 5/5 review (3 addressed, 2 Important open — arbitrary-attribute semantic spoofing and entity/hidden-text visibility)
+Task 6: BLOCKED after maximum 5 fix rounds. Local implementation commit daf7e4ea and focused suites are green, but specification review is not clean. Task 5 bundled-source dependency remains separate. Do not represent Task 6 as complete.
+Task 7: base daf7e4ea
+Task 7: specification review Minor — source URL omitted from duplicate-warning evidence
+Task 7: fix round 1/5 (0 addressed, 1 open)
+Task 7: fix round 1/5 implementation (1 addressed, 0 open; pending specification re-review)
+Task 7: specification review PASS at 3a1c8dae; quality review pending
+Task 7: quality review — 3 Important open (seed atomicity, MainActor-blocking reload, deletion commit/residue/UI consistency); 2 Minor open (warning identity, Dynamic Type mode picker)
+Task 7: fix round 2/5 (0 addressed, 5 open)
+Task 7: fix round 2/5 implementation (5 addressed; build green; service 14/14, VM 6/6, ingestion 16/16, DAO 5/5, Library VM 13/13, presentation policy 2/2; pending re-review)
+Task 7: fix round 2 specification regression review PASS; quality re-review pending
+Task 7: fix round 2 quality re-review (3 addressed, 2 partial; 2 Important open — overlapping reload stale-result race, insufficient root validation/unbounded reconciliation)
+Task 7: fix round 3/5 (0 addressed, 2 open)
+Task 7: fix round 3/5 implementation (2 addressed; build green; 62 focused tests passed; pending re-review)
+Task 7: fix round 3 specification regression review PASS; quality re-review pending
+Task 7: complete at 403924f6 (specification PASS; quality clean; build green; 62 focused tests; local/simulator only)
+Task 9: base 403924f6
+Task 9: specification review Important — loaded excluded IDs can remain duplicated/out of source order and be republished
+Task 9: fix round 1/5 (0 addressed, 1 open)
+Task 9: fix round 1/5 implementation (1 addressed; build green; 41 focused tests; pending specification re-review)
+Task 9: specification review PASS at a9c433a3; quality review pending
+Task 9: quality review — 3 Important open (same-size snapshot race, invisible trim state, raw errors/no retry)
+Task 9: fix round 2/5 (0 addressed, 3 open)
+Task 9: fix round 2/5 implementation (3 addressed; build green; 48 focused tests; pending re-review)
+Task 9: fix round 2 specification regression review PASS; quality re-review pending
+Task 9: complete at 3855c662 (specification PASS; quality clean; build green; 48 focused tests; local/simulator only)
+Task 10: base 3855c662
+Task 10: fix round 1/5 — adversarial review confirmed persistence ordering, semantic manifest validation, cover ownership/immutability, legacy build uniqueness, stale snapshot, picker eligibility, list generation, and compound-operation commit-boundary issues; implementer added deterministic regressions and addressed every confirmed Important finding.
+Task 10: complete at 9fa50389664cb0f0b14bccefdcefb623b8110a7a (specification PASS; implementation PASS; clean worktree; formatted test build green; 115 focused + 63 wider Article Workshop tests = 178/178 across 17 suites).
+Task 10: repository-wide all-EchoTests lane UNAVAILABLE/FAILED — 0 tests executed because the simulator test host received SIGKILL before bootstrap. Do not reinterpret as passing.
+Task 10: protected narration, project, and ARCHITECTURE files untouched. Physical-device, hosted CI, EPUB/EPUBCheck, external readers, import, narration, M4B, human listening, merge, install, and release remain pending.
+Task 11: base 9fa50389664cb0f0b14bccefdcefb623b8110a7a
+Task 11: review fix round 1/5 — exact generated-resource comparison, OPF/XHTML root/namespace/structure enforcement, remote/undeclared reference rejection, stylesheet closure, and immediate bounded extraction overflow addressed.
+Task 11: implementation PASS at 387130c7274643b05288bf8f1b6ac22a93343828; clean worktree; build-tests warning-free; builder 6/6; preflight 5/5; tamper matrix 20/20; affected regressions 63/63; deterministic byte/SHA double-build passed.
+Task 11: WAITING_FOR_DEPENDENCY by specification review — frozen manifest lacks a managed local article-image path, safe archive path, media type, and digest. Image blocks fail closed with missingImageAssetMapping; no refetching, guessing, or silent dropping. EPUBCheck unavailable locally and external-reader compatibility pending.
+Task 12: base 387130c7274643b05288bf8f1b6ac22a93343828
+Task 12: fix round 1/5 — repaired real-import rollback backup deletion, added explicit network-silent import/finalizer policy with executable zero-request proof, gated Build on unsaved retry state, rechecked UI generation after awaits, and refreshed Books mode.
+Task 12: fix round 2/5 — made post-rename sync/reverse-swap compensation retain mutation state, added fallback restoration, and proved exact 7 prior / 6 candidate / 7 restored semantic block state through the real coordinator.
+Task 12: fix round 3/5 — surfaced compensation directory-sync uncertainty as publicationRecoveryFailed while preserving restored live state.
+Task 12: complete at final report SHA 8fed45ee5343565d3bd4060c6808bee601d1bd62 (reviewed code SHA 0ccfaec26566df2187bd034d1385cac553908a67; specification PASS; implementation PASS; clean worktree; build green; service 18 declared/33 expanded; real integration 2/2; combined 118/10; importer regressions 32/3; format/diff/privacy/protected checks green).
+Task 12: VERIFY-only — partial second fallback-rename failure, pathname TOCTOU hardening, and crash/late-cleanup recovery. Physical, hosted CI, external reader/EPUBCheck, merge/install/release remain pending.
+Task 13: base 8fed45ee5343565d3bd4060c6808bee601d1bd62
+Task 13: review fix round 1/5 — real generated code blocks with nonnil language were rejected because trusted parser ignored data-code-language; fixed with trusted-only capture while generic external attributes remain inert.
+Task 13: complete at 132f38a21857643455a545f654d44c74b4b97fe3 (base feature commit deb22537e84201a36dc6d776d27173b593afe756; specification PASS; adversarial PASS; no confirmed defects; clean worktree; build green; focused 47/7; generic parser/import 9/2; affected 134/21; 183 expanded executions in preserved result bundle; format/diff/privacy/protected gates green).
+Task 13: verified V37→V38 preservation, stable generated IDs/sourceChapterKey, hostile evidence rejection, transactional reconcile, cross-book protection, user note/bookmark/color/hidden preservation, bounded 32 MiB rollback snapshot, 7→6→7 trusted recovery, and generic importer parity.
+Task 13: VERIFY-only — pre-Task13 development-state transition compatibility and independent archive caps for any future direct generated import caller that bypasses Task11 preflight. Task11 image mapping and physical/external/human/hosted/merge/install/release gates remain pending.
+Task 14 boundary: WAITING_FOR_DEPENDENCY. Required read-only check found Global Pronunciation sibling clean at live HEAD 20ef150c, 36 commits ahead of origin/nightly. Its ledger has terminal approvals through Task 8, while live HEAD contains Task 9 changes and the Task 9 report does not establish a terminal reviewed integration verdict. Article worktree remains clean at 132f38a2. No narration/project/ARCHITECTURE file or sibling state was modified; no merge, cherry-pick, rebase, reset, or clean was attempted.
+Task 16: base 132f38a21857643455a545f654d44c74b4b97fe3
+Task 16: initial implementation frozen at 6fc253538f70f0e54249905fec5298e8cbcb7050; report/review artifacts committed at 16aa78418efcec4a00b2598a5838fec2ea045baf.
+Task 16: exact-SHA specification and adversarial reviews FAIL at 6fc253538f70f0e54249905fec5298e8cbcb7050 — confirmed credential-bearing URL, failed-change retry, CloudKit system-field/change-tag, in-flight generation, sequential-update/conflict, fetched-checkpoint, snapshot/revision semantic, zone-loss, account-owner, and managed-file cleanup gaps.
+Task 16: fix round 1/5 implementation frozen at 14171503d3fed5d1115ca8b9679d4659a55205b4 — generation-blind acknowledgment APIs removed; durable exact-generation scheduling/acknowledgment, active-owner desired-state zone recovery, secure system fields, checkpoint poisoning, validated snapshots/revisions, safe file rollback, failure matrix, and account quarantine implemented.
+Task 16: fix round 1/5 local receipts — dedicated EchoTest-iPhone-17 test build green; 39/39 schema+codec+conflict tests; Echo macOS build green; strict format/diff/privacy/protected-file checks green. Fresh exact-SHA specification and adversarial re-reviews pending; live CloudKit, physical/cross-device, hosted CI, merge, install, and release remain pending.
+Task 16: fix rounds for commits 6ded2859, f1f75337, and d1d5f4a2 recorded retroactively on 2026-07-30. Those commit bodies are empty; the finding attribution below is reconstructed from file scope and live symbol inspection, not from commit messages. Finding IDs are A1..A11 (adversarial) and S1..S8 (specification) as numbered in task-16-adversarial-review.md and task-16-spec-review.md.
+Task 16: 6ded2859 "fix: close article sync review gaps" — outbox generation and acknowledgment rework across ArticleSyncDAO, the engine, and Schema_V39. Addresses A3 (older in-flight success can delete a newer save) through exact-generation scheduling and `acknowledged_generation` receipts, and A7/S5 (fetched-apply failure advancing the durable checkpoint) through epoch poisoning after any apply failure.
+Task 16: f1f75337 "fix: close remaining article sync trust boundaries" — codec, image downloader, and cover-store hardening. Addresses A5/S3 (credential-bearing provenance URLs) with provenance URL validation, A8/S6 (semantically invalid revision JSON and unvalidated capture snapshots) with envelope schemaVersion/captureID/method/source/canonical/title/byline/siteName equality checks and `maxEnvelopeBytes`, and A11 (directory entries bypassing the ZIP entry-count limit) with `entry.type == .file`.
+Task 16: d1d5f4a2 "fix: fence article sync engine and account epochs" — `engineEpochGate` fencing across account switch and driver cancellation. Addresses A6 (durable sync state not scoped to an iCloud account) at the engine layer and S8 (routine state updates erasing `last_error_code`).
+Task 16: fix round 2/5 implementation — six-file working repair (diff sha256 bd8e9bd377ad8f426fee33799dd31aa44d35e1634191ce35a54ecd83e638a576 over HEAD d1d5f4a2) plus the A10 closure below. Closes A2/S2 via `ArticleCurrentChangeRequeueResolver` and `recoverFailedSave`; A4/S4 via the new `.keepLocal` disposition and the `remoteDiverged` test, so a one-sided remote update no longer forces a recovered copy; the remainder of A5/S3 via `imageURLs` validation, a 35-entry attribute semantics table, srcset/CSS/image-set candidate parsers, `<style>` text and CDATA collection, `meta http-equiv=refresh` and `xml-stylesheet` rejection, and a recursive fragment credential scan; A6 at the DAO layer via `adoptOwnerlessChanges` and `syncIdentityOwners`, so an ownerless change with ambiguous history is never claimed; A8/S6 via `requireCanonicalJSONString` over five inbound JSON fields, which rejects duplicate and reordered keys; A9/S7 via `shouldPreserveZoneSaveIntent` re-queuing `saveZone` when zone rebuild itself fails.
+Task 16: A10 closed (managed package/cover orphans after failed fetched transactions). Derived acceptance: an orphan is a managed artifact that a fetched transaction materialized on disk and that, after the transaction fails and its database changes roll back, no durable row references; the failure boundary is rollback of the fetched-record batch; reclamation is immediate on the rollback path. Confirmed remaining gap was the managed collection directories, not the files: `ArticleFetchedCloudBatchApplier` tracked `Captures/<id>` and the cover file but never the `Captures/`, `Anthologies/`, and `Anthologies/<id>/` directories it created, so a rolled-back batch left empty unreferenced directories. Fix records those directories before creation and reclaims them on rollback, deepest first, only when provably empty; a directory whose contents cannot be read is left alone. RED first: `fetchedDatabaseFailureRemovesOnlyNewManagedCoverDirectories()` failed only on the two directory-existence expectations (ArticleCloudRecordCodecTests.swift:724 and :726) before any production edit.
+Task 16: DEFERRED FOLLOW-UP — deterministic event seam. Both reviews' verify-only notes ask for an injectable, observable seam covering engine state updates, partial send failure, zone loss, staged-asset cleanup, and account switch/reset. Ordering is presently enforced by `engineEpochGate` but is not externally observable, so those behaviours can only be proven indirectly through database and filesystem effects. This is a design change rather than a defect fix and is out of Task 16's remit; assign it to a later task before any live-CloudKit acceptance work.
+Task 16: evidence limits — the 88/88 focused matrix in test_sim_2026-07-30T02-10-14-862Z_pid25142_da4ee02d.log is focused-simulator evidence only. It is not a commit review, not a full-suite result, not hosted CI, and not publication. That log records no SHA and no diff fingerprint; its attribution to HEAD plus the working diff rests only on file mtimes preceding the build start time.
+Task 16: EVIDENCE DURABILITY — this ledger and everything else under `.superpowers/` is IGNORED BY GIT (.gitignore line 9: `.superpowers/`) and exists only on this filesystem. It is not recoverable from the repository if this worktree is removed. Git-recoverable Task 16 artifacts: the commits themselves and the four historically force-added report files (task-11-report.md, task-12-report.md, task-13-report.md, task-16-report.md). Filesystem-only, NOT recoverable: this progress.md ledger, task-16-brief.md, task-16-review-package.md, task-16-adversarial-review.md, task-16-spec-review.md, every task-N-brief/dispatch/report for the other tasks, and every review .diff snapshot in this directory. Test logs and result bundles under /tmp and /Users/dfakkeldy/Library/Developer/XcodeBuildMCP/ are likewise filesystem-only and additionally subject to /tmp cleanup. A sibling project in the same session lost its entire acceptance-evidence tree and its handoff checkpoint exactly this way — the worktree was cleaned up and only the commits survived. Decision recorded on 2026-07-30: do NOT `git add -f` this ledger; whether to track `.superpowers/` is a repo-convention decision being raised with the user separately, and the four force-added reports are not a strong enough precedent to generalize from. Until that decision is made, treat commit messages as the only durable record and back up this directory before any worktree cleanup.
+Task 16: CORRECTION to the Task 10 entry "repository-wide all-EchoTests lane UNAVAILABLE/FAILED — 0 tests executed because the simulator test host received SIGKILL before bootstrap." That lane is NOT broken. At f234aa4e it passed on the FIRST attempt with no retry: `Test run with 2903 tests in 465 suites passed after 140.804 seconds`, plus the XCTest shim lane `Executed 138 tests, with 0 failures (0 unexpected)`, ending `** TEST EXECUTE SUCCEEDED **` (log: /tmp/echo-task16-a10/full-2026-07-30T19-45.log, run 2026-07-30 19:44:21-0300, destination iOS Simulator 4774318C-1444-4660-BF3E-EA00025AEAFA). The Task 10 observation was environment-specific and must not be inherited as a standing belief that the full lane is unusable.
+Task 16: full-suite skips are environment-gated opt-ins, not masked failures. Exactly three, by name: `synthesizeEmitsMonotonicWordTimings()` (requires ECHO_RUN_KOKORO_TIMING_IT=1), `narratePDFBatch()` (requires ECHO_NARRATE_PDF), `detectorIsStableAcrossCorpus()` (requires ECHO_REGRESSION_CORPUS_DIR pointing at a public-domain fixture directory). Each is skipped by explicit opt-in guard and reports its own reason string.
+Task 16: FINDING — this repository defines NO privacy gate and NO protected-file gate. AGENTS.md states the policy ("Keep secrets, private book content, transcripts, and generated study material out of commits and public artifacts") but nothing enforces it: there is no Makefile target, no .claude hook, and no CI step for either category. The gates the repo actually defines are the .swift-format config plus the swift-format edit hook, `make hooks-test` (xcodebuild guard and swift-format hook suites), and the CI "Build gate + tests" job (renderer installer tests, build-for-testing, EchoTests, Echo macOS build, echo-cli build). Diff hygiene likewise has no repo-defined gate; `git diff --check` is the git built-in. Privacy, protected-file, and diff-hygiene checks recorded in this ledger for Task 16 are agent convention scans, not enforced gates, and should be read as unenforced policy compliance rather than gate results.
+Task 16: style commit — `swift format --in-place` applied to ArticleCloudRecordCodec.swift and ArticleSyncDAO.swift plus the lint-only rename of the `foundCDATA` internal parameter CDATABlock to cdataBlock. HEAD d1d5f4a2 held a zero-violation invariant across all four affected files; the six-file repair introduced 20 violations (codec 18, DAO 2) which `swift format lint --strict` flagged. Formatter scope was exactly the predicted 39 + 5 changed lines and touched no other file. No logic change: with whitespace stripped and the rename normalized, both files are byte-identical to their f234aa4e content.
