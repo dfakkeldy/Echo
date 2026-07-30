@@ -132,6 +132,7 @@ USAGE_DETAIL_FIELDS = {
         "rejected_prediction_tokens",
     },
 }
+MAXIMUM_REPORTED_USAGE_TOKENS = 10_000_000
 PRICING_CONFIG = {
     "version": "gpt-audio-1.5-pricing-2026-07-29",
     "checkDate": "2026-07-29",
@@ -268,7 +269,7 @@ def _load_strict_json_bytes(content: bytes) -> Any:
             parse_constant=lambda _value: (_ for _ in ()).throw(
                 ManifestError("non-finite JSON number")),
         )
-    except (UnicodeError, json.JSONDecodeError) as error:
+    except (UnicodeError, json.JSONDecodeError, ValueError) as error:
         raise ManifestError("manifest is not readable strict JSON") from error
 
 
@@ -470,7 +471,13 @@ def _load_provenance_authority(
             parse_constant=lambda _value: (_ for _ in ()).throw(
                 ManifestError("provenance authority is invalid")),
         )
-    except (OSError, UnicodeError, json.JSONDecodeError, ManifestError) as error:
+    except (
+        OSError,
+        UnicodeError,
+        json.JSONDecodeError,
+        ValueError,
+        ManifestError,
+    ) as error:
         raise ManifestError("provenance authority is invalid") from error
     if (
         not _has_exact_json_type(value, dict)
@@ -778,7 +785,7 @@ def parse_verdict(payload: str, *, expected_clip_id: str) -> dict[str, Any]:
             parse_constant=lambda _value: (_ for _ in ()).throw(
                 ResponseValidationError("non-finite result number")),
         )
-    except (json.JSONDecodeError, UnicodeError) as error:
+    except (json.JSONDecodeError, UnicodeError, ValueError) as error:
         raise ResponseValidationError("result is not one JSON object") from error
     if not isinstance(decoded, dict):
         raise ResponseValidationError("result is not one JSON object")
@@ -922,15 +929,51 @@ def _post_chat_completion(body: dict[str, Any], api_key: str) -> dict[str, Any]:
     except (urllib.error.URLError, TimeoutError):
         raise TransientTransportError() from None
     try:
-        decoded = json.loads(response_body)
-        message = decoded["choices"][0]["message"]
+        decoded = json.loads(
+            response_body,
+            object_pairs_hook=_strict_object,
+            parse_constant=lambda _value: (_ for _ in ()).throw(
+                ValueError("non-finite API number")),
+        )
+        if not _has_exact_json_type(decoded, dict):
+            raise ValueError("API root is not an object")
+        choices = decoded.get("choices")
+        if not _has_exact_json_type(choices, list) or not choices:
+            raise ValueError("API choices are invalid")
+        choice = choices[0]
+        if not _has_exact_json_type(choice, dict):
+            raise ValueError("API choice is invalid")
+        message = choice.get("message")
+        if not _has_exact_json_type(message, dict):
+            raise ValueError("API message is invalid")
+        if (
+            "content" not in message
+            or (
+                message["content"] is not None
+                and not _has_exact_json_type(message["content"], str)
+            )
+            or "refusal" not in message
+            or (
+                message["refusal"] is not None
+                and not _has_exact_json_type(message["refusal"], str)
+            )
+            or not _has_exact_json_type(decoded.get("model"), str)
+            or not _usage_is_valid(decoded.get("usage"))
+        ):
+            raise ValueError("API response envelope is invalid")
         return {
-            "model": decoded.get("model"),
-            "content": message.get("content"),
-            "refusal": message.get("refusal"),
-            "usage": decoded.get("usage") or {},
+            "model": decoded["model"],
+            "content": message["content"],
+            "refusal": message["refusal"],
+            "usage": decoded["usage"],
         }
-    except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+    except (
+        json.JSONDecodeError,
+        ValueError,
+        KeyError,
+        IndexError,
+        TypeError,
+    ):
         raise PermanentTransportError() from None
 
 
@@ -952,31 +995,74 @@ def _morning_reasons(
     return reasons
 
 
+def _is_valid_usage_count(value: Any) -> bool:
+    return (
+        _has_exact_json_type(value, int)
+        and 0 <= value <= MAXIMUM_REPORTED_USAGE_TOKENS
+    )
+
+
+def _usage_is_valid(value: Any) -> bool:
+    """Validate exact bounded counts and relationships in one usage object."""
+    if not _has_exact_json_type(value, dict):
+        return False
+    for key in USAGE_NUMERIC_FIELDS:
+        if key in value and not _is_valid_usage_count(value[key]):
+            return False
+    prompt_count = value.get("prompt_tokens")
+    completion_count = value.get("completion_tokens")
+    total_count = value.get("total_tokens")
+    if total_count is not None:
+        if prompt_count is not None and total_count < prompt_count:
+            return False
+        if completion_count is not None and total_count < completion_count:
+            return False
+        if (
+            prompt_count is not None
+            and completion_count is not None
+            and total_count != prompt_count + completion_count
+        ):
+            return False
+    detail_parents = {
+        "prompt_tokens_details": prompt_count,
+        "completion_tokens_details": completion_count,
+    }
+    for outer_key, allowed_inner_keys in USAGE_DETAIL_FIELDS.items():
+        if outer_key not in value:
+            continue
+        details = value[outer_key]
+        if not _has_exact_json_type(details, dict):
+            return False
+        parent_count = detail_parents[outer_key]
+        for key in allowed_inner_keys:
+            if key not in details:
+                continue
+            count = details[key]
+            if (
+                not _is_valid_usage_count(count)
+                or (parent_count is not None and count > parent_count)
+            ):
+                return False
+    return True
+
+
 def _sanitized_usage(value: Any) -> dict[str, Any]:
-    """Keep only documented finite token counts from an API usage object."""
-
-    def valid_count(count: Any) -> bool:
-        return (
-            isinstance(count, int)
-            and not isinstance(count, bool)
-            and count >= 0
-        )
-
-    if not isinstance(value, dict):
+    """Keep only documented counts from one fully validated usage object."""
+    if not _usage_is_valid(value):
         return {}
     result = {
         key: value[key]
         for key in USAGE_NUMERIC_FIELDS
-        if key in value and valid_count(value[key])
+        if key in value
     }
     for outer_key, allowed_inner_keys in USAGE_DETAIL_FIELDS.items():
         details = value.get(outer_key)
-        if not isinstance(details, dict):
+        if not _has_exact_json_type(details, dict):
             continue
         sanitized_details = {
             key: details[key]
             for key in allowed_inner_keys
-            if key in details and valid_count(details[key])
+            if key in details
         }
         if sanitized_details:
             result[outer_key] = sanitized_details
@@ -984,9 +1070,27 @@ def _sanitized_usage(value: Any) -> dict[str, Any]:
 
 
 def _validated_returned_model_id(value: Any) -> str | None:
-    if isinstance(value, str) and RETURNED_MODEL_PATTERN.fullmatch(value) is not None:
+    if (
+        _has_exact_json_type(value, str)
+        and RETURNED_MODEL_PATTERN.fullmatch(value) is not None
+    ):
         return value
     return None
+
+
+def _response_envelope_is_valid(value: Any) -> bool:
+    if not _has_exact_json_type(value, dict):
+        return False
+    if not {"model", "content", "usage"}.issubset(value):
+        return False
+    content = value["content"]
+    refusal = value.get("refusal")
+    return (
+        _has_exact_json_type(value["model"], str)
+        and (content is None or _has_exact_json_type(content, str))
+        and (refusal is None or _has_exact_json_type(refusal, str))
+        and _usage_is_valid(value["usage"])
+    )
 
 
 def _atomic_write_json(
@@ -1292,7 +1396,10 @@ def _run_directory_path(
     run_id: str,
     output_root: str | Path | None,
 ) -> Path:
-    if RUN_ID_PATTERN.fullmatch(run_id) is None:
+    if (
+        not _has_exact_json_type(run_id, str)
+        or RUN_ID_PATTERN.fullmatch(run_id) is None
+    ):
         raise LedgerError("run identifier is invalid")
     root = _validated_run_root(
         output_root,
@@ -2339,7 +2446,10 @@ def run_evaluation(
     transport: Callable[[dict[str, Any], str], dict[str, Any]] = _post_chat_completion,
 ) -> dict[str, Any]:
     """Admit, cap, optionally evaluate, and persist a redacted run receipt."""
-    if RUN_ID_PATTERN.fullmatch(run_id) is None:
+    if (
+        not _has_exact_json_type(run_id, str)
+        or RUN_ID_PATTERN.fullmatch(run_id) is None
+    ):
         raise ManifestError("run identifier is invalid")
     admission = _admit_manifest_with_authority(
         manifest_path,
@@ -2464,14 +2574,23 @@ def run_evaluation(
         verdict: dict[str, Any] | None = None
         validation_outcome = "not_validated"
         if failure is None and response is not None:
-            returned_model = _validated_returned_model_id(response.get("model"))
+            if not _response_envelope_is_valid(response):
+                failure = "malformed_output"
+            returned_model = (
+                _validated_returned_model_id(response["model"])
+                if failure is None
+                else None
+            )
             if returned_model is None:
                 failure = "malformed_output"
             else:
                 receipt["returnedModelIDs"].append(returned_model)
-            if failure is None and response.get("refusal"):
+            if failure is None and response.get("refusal") is not None:
                 failure = "model_refusal"
-            elif failure is None and not isinstance(response.get("content"), str):
+            elif (
+                failure is None
+                and not _has_exact_json_type(response.get("content"), str)
+            ):
                 failure = "malformed_output"
             elif failure is None:
                 try:
@@ -2486,19 +2605,25 @@ def run_evaluation(
                     failure = "malformed_output"
 
         reasons = _morning_reasons(verdict, failure=failure)
+        response_model = (
+            response.get("model")
+            if _has_exact_json_type(response, dict)
+            else None
+        )
+        response_usage = (
+            response.get("usage")
+            if _has_exact_json_type(response, dict)
+            else None
+        )
         result = {
             "clipID": clip.clip_id,
             "audioSHA256": clip.audio_sha256,
             "sourceCommit": clip.source_commit,
             "renderIdentity": clip.render_identity,
             "requestedModelID": MODEL_ID,
-            "returnedModelID": (
-                _validated_returned_model_id(response.get("model"))
-                if response
-                else None
-            ),
+            "returnedModelID": _validated_returned_model_id(response_model),
             "estimatedCostUSD": round(clip_estimated_cost, 8),
-            "usage": _sanitized_usage(response.get("usage")) if response else {},
+            "usage": _sanitized_usage(response_usage),
             "retryOutcome": (
                 "retry_blocked_by_cap"
                 if retry_blocked_by_cap

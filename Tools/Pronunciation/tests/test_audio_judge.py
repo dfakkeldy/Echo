@@ -544,6 +544,218 @@ class ResponseValidationTests(unittest.TestCase):
 
 
 class EvaluationGateTests(ManifestAdmissionTests):
+    def test_api_message_array_is_controlled_and_never_leaves_running_receipt(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest(
+            [self.manifest_row(clip_id, path, 0.25)]
+        )
+        output_root = self.directory / "runs"
+        api_response = mock.MagicMock()
+        api_response.__enter__.return_value.read.return_value = json.dumps(
+            {
+                "model": "gpt-audio-1.5",
+                "choices": [{"message": []}],
+                "usage": {},
+            }
+        ).encode("utf-8")
+
+        with mock.patch.object(
+            audio_judge.urllib.request,
+            "urlopen",
+            return_value=api_response,
+        ):
+            receipt = run_evaluation(
+                manifest_path=manifest,
+                run_id="message-array",
+                dry_run=False,
+                output_root=output_root,
+                environment={"OPENAI_API_KEY": "test-only-key"},
+                transport=audio_judge._post_chat_completion,
+            )
+
+        self.assertEqual("COMPLETED", receipt["status"])
+        self.assertEqual("needs_review", receipt["apiEvaluationStatus"])
+        self.assertEqual(
+            ["transport_failure"],
+            receipt["morningQueue"][0]["reasons"],
+        )
+        durable = json.loads(
+            (output_root / "message-array" / "receipt.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual("COMPLETED", durable["status"])
+
+    def test_falsey_non_null_refusal_scalars_are_malformed_and_never_pass(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest(
+            [self.manifest_row(clip_id, path, 0.25)]
+        )
+        content = json.dumps(
+            {
+                "clipID": clip_id,
+                "verdict": "pass",
+                "confidence": 0.95,
+                "category": "correct",
+            }
+        )
+
+        for index, refusal in enumerate((False, [], {}, 0)):
+            with self.subTest(refusal=refusal):
+                receipt = run_evaluation(
+                    manifest_path=manifest,
+                    run_id=f"falsey-refusal-{index}",
+                    dry_run=False,
+                    output_root=self.directory / "runs",
+                    environment={"OPENAI_API_KEY": "test-only-key"},
+                    transport=mock.Mock(
+                        return_value={
+                            "model": "gpt-audio-1.5",
+                            "content": content,
+                            "refusal": refusal,
+                            "usage": {},
+                        }
+                    ),
+                )
+
+                self.assertEqual(
+                    "needs_review",
+                    receipt["apiEvaluationStatus"],
+                )
+                self.assertEqual(
+                    ["malformed_output"],
+                    receipt["morningQueue"][0]["reasons"],
+                )
+                self.assertIsNone(receipt["results"][0]["verdict"])
+
+    def test_unbounded_api_usage_integer_is_rejected_and_never_persisted(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest(
+            [self.manifest_row(clip_id, path, 0.25)]
+        )
+        huge_count = 10**1000
+        receipt = run_evaluation(
+            manifest_path=manifest,
+            run_id="unbounded-usage",
+            dry_run=False,
+            output_root=self.directory / "runs",
+            environment={"OPENAI_API_KEY": "test-only-key"},
+            transport=mock.Mock(
+                return_value={
+                    "model": "gpt-audio-1.5",
+                    "content": json.dumps(
+                        {
+                            "clipID": clip_id,
+                            "verdict": "pass",
+                            "confidence": 0.95,
+                            "category": "correct",
+                        }
+                    ),
+                    "usage": {"prompt_tokens": huge_count},
+                }
+            ),
+        )
+
+        self.assertEqual("needs_review", receipt["apiEvaluationStatus"])
+        self.assertEqual(
+            ["malformed_output"],
+            receipt["morningQueue"][0]["reasons"],
+        )
+        self.assertEqual({}, receipt["results"][0]["usage"])
+        self.assertNotIn(str(huge_count), json.dumps(receipt))
+
+    def test_oversized_json_integers_translate_at_every_parse_boundary(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest(
+            [self.manifest_row(clip_id, path, 0.25)]
+        )
+        authority = self.provenance_authority_path
+        huge_digits = "9" * 5000
+        original_manifest = manifest.read_text(encoding="utf-8")
+        original_authority = authority.read_text(encoding="utf-8")
+
+        manifest.write_text(
+            original_manifest.replace(
+                '"schemaVersion": 1',
+                f'"schemaVersion": {huge_digits}',
+                1,
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaises(ManifestError):
+            admit_manifest(manifest)
+        manifest.write_text(original_manifest, encoding="utf-8")
+
+        authority.write_text(
+            original_authority.replace(
+                '"schemaVersion": 1',
+                f'"schemaVersion": {huge_digits}',
+                1,
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaises(ManifestError):
+            admit_manifest(manifest)
+        authority.write_text(original_authority, encoding="utf-8")
+
+        with self.assertRaises(ResponseValidationError):
+            parse_verdict(
+                (
+                    f'{{"clipID":"{clip_id}","verdict":"pass",'
+                    f'"confidence":{huge_digits},"category":"correct"}}'
+                ),
+                expected_clip_id=clip_id,
+            )
+
+        api_response = mock.MagicMock()
+        api_response.__enter__.return_value.read.return_value = (
+            (
+                '{"model":"gpt-audio-1.5","choices":[{"message":'
+                '{"content":"{}","refusal":null}}],"usage":'
+                f'{{"prompt_tokens":{huge_digits}}}}}'
+            ).encode("utf-8")
+        )
+        with (
+            mock.patch.object(
+                audio_judge.urllib.request,
+                "urlopen",
+                return_value=api_response,
+            ),
+            self.assertRaises(PermanentTransportError),
+        ):
+            audio_judge._post_chat_completion({}, "test-only-key")
+
+    def test_non_string_run_identifiers_fail_controlled_before_regex_or_io(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest(
+            [self.manifest_row(clip_id, path, 0.25)]
+        )
+        output_root = self.directory / "runs"
+        transport = mock.Mock(side_effect=AssertionError("must not be called"))
+
+        for run_id in ([], True, {}):
+            with self.subTest(run_id=run_id):
+                with self.assertRaisesRegex(
+                    ManifestError,
+                    "run identifier is invalid",
+                ):
+                    run_evaluation(
+                        manifest_path=manifest,
+                        run_id=run_id,
+                        dry_run=False,
+                        output_root=output_root,
+                        environment={"OPENAI_API_KEY": "test-only-key"},
+                        transport=transport,
+                    )
+
+        transport.assert_not_called()
+        self.assertFalse(output_root.exists())
+
     def test_receipt_binds_the_single_manifest_snapshot_admitted_before_replacement(self):
         clip_id = generate_clip_id()
         path = self.write_wav(clip_id)
@@ -1589,16 +1801,7 @@ class EvaluationGateTests(ManifestAdmissionTests):
         self.assertIsNone(result["returnedModelID"])
         self.assertIsNone(result["verdict"])
         self.assertEqual("not_validated", result["validationOutcome"])
-        self.assertEqual(
-            {
-                "prompt_tokens_details": {"audio_tokens": 4},
-                "completion_tokens_details": {
-                    "audio_tokens": 0,
-                    "reasoning_tokens": 3,
-                },
-            },
-            result["usage"],
-        )
+        self.assertEqual({}, result["usage"])
         self.assertNotIn("private-marker", json.dumps(receipt))
 
     def test_missing_returned_model_cannot_produce_a_pass(self):

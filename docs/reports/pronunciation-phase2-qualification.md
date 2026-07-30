@@ -30,7 +30,7 @@ The following independent local gates passed on 2026-07-29:
 | --- | --- |
 | Pronunciation corpus tests | 47 passed |
 | Pronunciation pack tests and regeneration check | 38 passed; generated pack matched the committed pack |
-| Development audio-judge tests | 77 passed without an API request |
+| Development audio-judge tests | 82 passed without an API request |
 | Task 10 Swift acceptance suite | 6 passed |
 | Echo test-products build | Passed |
 | Complete Echo unit-test gate | Passed before this test/tool/documentation-only correction; not rerun because production/shared Swift did not change |
@@ -179,9 +179,9 @@ excerpt, and not a production Echo pronunciation render.
 - Credential-free receipt SHA-256:
   `76d16ffe7eac03add142db012ab341b60b6bfc4f2879be8192dbc648b2d59211`
 
-The scalar-validation correction did not regenerate or replace either valid
-authority-v3 artifact. The run IDs and receipt hashes above remain the exact
-recorded evidence; no new API or transport claim is implied.
+The scalar- and envelope-validation corrections did not regenerate or replace
+either valid authority-v3 artifact. The run IDs and receipt hashes above remain
+the exact recorded evidence; no new API or transport claim is implied.
 
 Pricing was rechecked on 2026-07-29 and stored as
 `gpt-audio-1.5-pricing-2026-07-29`: USD 2.50 per million text-input tokens,
@@ -240,6 +240,18 @@ or confidence values fail as controlled validation errors without a traceback.
 Invalid admission data creates no run receipt and reaches no transport.
 Invalid model response fields route to `malformed_output` morning review and
 are not persisted as verdicts.
+
+The raw API parser also validates every response-envelope layer before
+extraction: object root, non-empty choices array, object choice and message,
+string-or-null content/refusal, string model ID, and object usage. Malformed
+transport JSON, including a decoder `ValueError` for an oversized integer,
+becomes a controlled permanent transport failure rather than leaving a
+`RUNNING` receipt. Recognized usage counts must be exact non-boolean integers
+between zero and 10,000,000. Reported totals must be consistent with prompt and
+completion counts when all are present, and recognized detail counts cannot
+exceed their parent. Any invalid recognized count rejects the entire usage
+envelope; no selected detail fields are salvaged or persisted. Run IDs are
+required to be strings before regular-expression validation.
 
 Admission also requires a separate absolute, single-link regular, non-symlink
 provenance authority file outside the repository. It binds every admitted

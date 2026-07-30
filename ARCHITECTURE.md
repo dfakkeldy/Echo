@@ -923,6 +923,17 @@ tracebacks. Invalid admission data cannot claim a run or reach transport, and
 invalid model response values are routed to morning review without being
 persisted as verdicts.
 
+The API response parser likewise requires an object root, a non-empty choices
+array, object choice and message envelopes, string-or-null content and refusal,
+a string model ID, and an object usage envelope. JSON decoder failures,
+including the parser's oversized-integer `ValueError`, become controlled
+boundary errors. Usage counts are exact non-boolean integers from zero through
+10,000,000; totals must agree with prompt plus completion counts when all three
+are present, and recognized detail counts cannot exceed their parent count.
+One invalid recognized usage value rejects the whole usage envelope, so no
+partial token evidence is retained. Run IDs must be strings before regex
+validation.
+
 The judge does not let its input manifest authorize its own provenance. Each
 run requires a separate absolute, single-link regular, non-symlink authority
 file outside the repository that binds the exact opaque clip ID, measured
