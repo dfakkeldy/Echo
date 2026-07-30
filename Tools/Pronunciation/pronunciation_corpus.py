@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
 import json
 import os
 import re
 import stat
+import subprocess
 import unicodedata
 from collections import Counter
 from dataclasses import asdict, dataclass
@@ -68,7 +70,62 @@ PRONUNCIATION_OVERRIDE_SIGNAL_CHARACTERS = frozenset(
 MINIMUM_FAMILY_CASES = 200
 MINIMUM_SENSE_CASES = 50
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+_GIT_QUERY_TIMEOUT_SECONDS = 30
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+
+
+@functools.lru_cache(maxsize=1)
+def protected_repository_roots() -> tuple[Path, ...]:
+    """Return every checkout that shares this repository's history.
+
+    ``REPOSITORY_ROOT`` alone only names the checkout this file was loaded
+    from, so running from a linked worktree left the canonical checkout and
+    every sibling worktree writable. Ask git for the shared object store and
+    for every registered worktree, and fall back to the loading checkout when
+    git is unavailable.
+    """
+    roots = {REPOSITORY_ROOT}
+
+    def _run_git(*arguments: str) -> list[str]:
+        try:
+            completed = subprocess.run(
+                ("git", "-C", str(REPOSITORY_ROOT), *arguments),
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=_GIT_QUERY_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return []
+        return completed.stdout.splitlines()
+
+    for line in _run_git("rev-parse", "--git-common-dir"):
+        common_directory = Path(line.strip())
+        if not common_directory.is_absolute():
+            common_directory = REPOSITORY_ROOT / common_directory
+        _add_resolved_root(roots, common_directory.parent)
+
+    for line in _run_git("worktree", "list", "--porcelain"):
+        if line.startswith("worktree "):
+            _add_resolved_root(roots, Path(line[len("worktree "):].strip()))
+
+    return tuple(sorted(roots))
+
+
+def _add_resolved_root(roots: set[Path], candidate: Path) -> None:
+    try:
+        resolved = candidate.resolve(strict=True)
+    except OSError:
+        return
+    if resolved.is_dir():
+        roots.add(resolved)
+
+
+def _is_inside_a_repository(resolved: Path) -> bool:
+    return any(
+        resolved == root or resolved.is_relative_to(root)
+        for root in protected_repository_roots()
+    )
 HUMAN_EVIDENCE_AUTHORITY_PURPOSE = (
     "pronunciation-human-evidence-qualification"
 )
@@ -806,6 +863,11 @@ def validate_named_regressions(
         "targetSentence",
         "followingSentence",
         "expectedCandidateID",
+        # Spec §13.1 requires the expected automatic/review outcome on every
+        # named row. It is a separate axis from the analyzer-strength fields
+        # below: strength is deterministic evidence, outcome is the §9.1/§9.2
+        # decision that evidence produces.
+        "expectedOutcome",
         "expectedDiscoveryState",
         "expectedAnalyzerState",
         "provenance",
@@ -842,6 +904,7 @@ def validate_named_regressions(
             "shape",
             "targetSentence",
             "expectedCandidateID",
+            "expectedOutcome",
             "expectedDiscoveryState",
             "expectedAnalyzerState",
         ):
@@ -879,6 +942,10 @@ def validate_named_regressions(
             raise ValueError(
                 f"expectedCandidateID {raw_row['expectedCandidateID']} "
                 f"is not a candidate for targetWord {raw_row['targetWord']}"
+            )
+        if raw_row["expectedOutcome"] not in {"automatic", "review"}:
+            raise ValueError(
+                "expected outcome must be automatic or review"
             )
         if raw_row["expectedDiscoveryState"] not in {"discovered", "excluded"}:
             raise ValueError(
@@ -979,7 +1046,7 @@ def _external_regular_file(path: Path, *, name: str) -> Path:
         raise ValueError(f"{name} must be a regular file")
     if metadata.st_nlink != 1:
         raise ValueError(f"{name} cannot be a hardlink")
-    if resolved == REPOSITORY_ROOT or resolved.is_relative_to(REPOSITORY_ROOT):
+    if _is_inside_a_repository(resolved):
         raise ValueError(f"{name} must be outside the repository")
     return resolved
 

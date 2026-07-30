@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from Tools.Pronunciation import pronunciation_corpus
 from Tools.Pronunciation.pronunciation_corpus import (
     CONTEXTUAL_FAMILIES,
     REQUIRED_NAMED_SHAPES,
@@ -155,6 +156,7 @@ def named_regression_matrix():
                     "targetSentence": f"Synthetic {target_word} context.",
                     "followingSentence": None,
                     "expectedCandidateID": candidate,
+                    "expectedOutcome": "review",
                     "expectedDiscoveryState": "discovered",
                     "expectedAnalyzerState": "abstained",
                     "provenance": "synthetic",
@@ -164,6 +166,29 @@ def named_regression_matrix():
 
 
 class PronunciationCorpusTests(unittest.TestCase):
+    def test_external_evidence_is_refused_in_every_shared_checkout(self):
+        roots = pronunciation_corpus.protected_repository_roots()
+
+        self.assertIn(REPOSITORY_ROOT.resolve(), roots)
+        git = shutil.which("git")
+        if git is not None:
+            completed = subprocess.run(
+                [git, "-C", str(REPOSITORY_ROOT), "rev-parse", "--git-common-dir"],
+                capture_output=True,
+                text=True,
+            )
+            if completed.returncode == 0:
+                common_directory = Path(completed.stdout.strip())
+                if not common_directory.is_absolute():
+                    common_directory = REPOSITORY_ROOT / common_directory
+                # The canonical checkout must be protected even when this
+                # file is loaded from a linked worktree.
+                self.assertIn(common_directory.parent.resolve(), roots)
+        for root in roots:
+            self.assertTrue(
+                pronunciation_corpus._is_inside_a_repository(root / "artifacts")
+            )
+
     def test_contextual_case_uses_the_frozen_contract_fields(self):
         parsed = validate_contract([contextual_case()])[0]
 
@@ -718,6 +743,54 @@ class PronunciationCorpusTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "expectedAnalyzerState"):
             validate_named_regressions(rows)
+
+    def test_named_regressions_require_a_valid_expected_outcome(self):
+        rows = named_regression_matrix()
+        rows[0].pop("expectedOutcome")
+
+        with self.assertRaisesRegex(ValueError, "expectedOutcome"):
+            validate_named_regressions(rows)
+
+        for invalid in ("", "Automatic", "auto", "needs-review", None, 1, True):
+            with self.subTest(value=invalid):
+                rows = named_regression_matrix()
+                rows[0]["expectedOutcome"] = invalid
+                with self.assertRaises(ValueError):
+                    validate_named_regressions(rows)
+
+    def test_committed_named_regressions_carry_every_expected_outcome(self):
+        rows = validate_named_regressions(
+            [
+                json.loads(line)
+                for line in (
+                    FIXTURES / "named_regressions_v1.jsonl"
+                ).read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+        )
+
+        self.assertEqual(36, len(rows))
+        for row in rows:
+            self.assertIn(
+                row["expectedOutcome"],
+                {"automatic", "review"},
+                row["caseID"],
+            )
+        # Only a valid override is automatically accepted in Phase 2
+        # (spec §9.1); every other named row lacks a definitive rule, an
+        # unambiguous lexicon candidate, and any usable model evidence.
+        self.assertEqual(
+            {
+                row["caseID"]
+                for row in rows
+                if row["expectedOutcome"] == "automatic"
+            },
+            {
+                row["caseID"]
+                for row in rows
+                if row["shape"] == "override-markup"
+            },
+        )
 
     def test_named_regressions_enforce_live_spelling_candidate_mapping(self):
         probes = [

@@ -22,10 +22,101 @@ import Testing
         let familyID: String
         let targetWord: String
         let shape: String
+        let precedingSentence: String?
         let targetSentence: String
+        let followingSentence: String?
         let expectedCandidateID: String
+        let expectedOutcome: String
         let expectedDiscoveryState: String
         let expectedAnalyzerState: String
+    }
+
+    /// The three-sentence context a named row is authored to exercise.
+    ///
+    /// `misleading-adjacent-cue` rows exist to prove an adjacent sentence
+    /// does not fool resolution, so the adjacent sentences must actually
+    /// reach discovery and the analyzer. The target's word index is resolved
+    /// inside the target sentence and then offset, because a preceding
+    /// sentence may legitimately contain the same spelling.
+    private struct NamedWindow {
+        let source: String
+        let displayText: String
+        let words: [String]
+        let targetWordStart: Int?
+    }
+
+    private func namedWindow(for row: NamedFixture) -> NamedWindow {
+        let sentences = [
+            row.precedingSentence,
+            row.targetSentence,
+            row.followingSentence,
+        ].compactMap { $0 }
+        let source = sentences.joined(separator: " ")
+        let displayText = MisakiPronunciationMarkup.displayText(from: source)
+        let words = WordTokenizer.words(in: displayText).map(String.init)
+        let precedingWordCount = row.precedingSentence.map {
+            WordTokenizer.words(
+                in: MisakiPronunciationMarkup.displayText(from: $0)
+            ).count
+        } ?? 0
+        let targetDisplay = MisakiPronunciationMarkup.displayText(
+            from: row.targetSentence)
+        let normalizedTarget = row.targetWord.lowercased()
+        let indexInTarget = WordTokenizer.words(in: targetDisplay)
+            .map(String.init)
+            .firstIndex {
+                PronunciationAuditContext.normalizedWord($0) == normalizedTarget
+            }
+        return NamedWindow(
+            source: source,
+            displayText: displayText,
+            words: words,
+            targetWordStart: indexInTarget.map { $0 + precedingWordCount })
+    }
+
+    /// True when the row carries Misaki override markup on the target word.
+    private func overrideApplies(to row: NamedFixture) -> Bool {
+        let source = row.targetSentence
+        let normalizedTarget = row.targetWord.lowercased()
+        var index = source.startIndex
+        while index < source.endIndex {
+            if let link = MisakiPronunciationMarkup.link(
+                in: source,
+                startingAt: index)
+            {
+                let display = String(link.displayText)
+                if PronunciationAuditContext.normalizedWord(display)
+                    == normalizedTarget
+                {
+                    return true
+                }
+                index = link.range.upperBound
+            } else {
+                index = source.index(after: index)
+            }
+        }
+        return false
+    }
+
+    /// Spec §9.1/§9.2 evaluated against Phase 2 shadow evidence.
+    ///
+    /// Phase 2 keeps every contextual family shadow-only, so §9.2's closing
+    /// rule applies: the model is not acceptance evidence and Echo follows
+    /// the deterministic-only policy. That leaves exactly three automatic
+    /// routes from §9.1 — a valid override, a definitive deterministic rule,
+    /// and one explicit unambiguous lexicon candidate. Everything else is a
+    /// review decision.
+    private func hypotheticalAcceptanceOutcome(
+        overrideApplies: Bool,
+        strength: DeterministicRuleStrength,
+        hasUnambiguousLexiconCandidate: Bool
+    ) -> String {
+        if overrideApplies || strength == .definitive
+            || hasUnambiguousLexiconCandidate
+        {
+            return "automatic"
+        }
+        return "review"
     }
 
     private struct MorphologyFixture: Decodable {
@@ -251,76 +342,115 @@ import Testing
         let rows = try jsonLines(
             NamedFixture.self,
             named: "named_regressions_v1.jsonl")
+        let pack = try EnglishPronunciationPack(
+            data: try Data(contentsOf: packURL))
         var discoveryCounts = ["discovered": 0, "excluded": 0]
         var analyzerCounts = ["definitive": 0, "advisory": 0, "abstained": 0]
+        var outcomeCounts = ["automatic": 0, "review": 0]
 
         for row in rows {
+            let normalizedTarget = row.targetWord.lowercased()
             let family = try #require(
-                ContextualPronunciationFamilies.family(
-                    for: row.targetWord.lowercased()))
+                ContextualPronunciationFamilies.family(for: normalizedTarget))
             #expect(family.familyID == row.familyID, Comment(rawValue: row.caseID))
             #expect(
                 family.candidates.map(\.candidateID).contains(
                     row.expectedCandidateID),
                 Comment(rawValue: row.caseID))
 
-            let displayText = MisakiPronunciationMarkup.displayText(
-                from: row.targetSentence)
-            let displayWords =
-                WordTokenizer.words(in: displayText).map(String.init)
-            let targetWordStart = displayWords.firstIndex {
-                PronunciationAuditContext.normalizedWord($0)
-                    == row.targetWord.lowercased()
+            let window = namedWindow(for: row)
+            if let wordStart = window.targetWordStart {
+                // The offset index must still name the target inside the
+                // composed window, otherwise the analyzer would be handed an
+                // unrelated word.
+                #expect(
+                    PronunciationAuditContext.normalizedWord(
+                        window.words[wordStart]) == normalizedTarget,
+                    Comment(rawValue: "\(row.caseID): window index"))
             }
+
             let discovered = ContextualPronunciationDiscovery.discover(
-                text: row.targetSentence,
+                text: window.source,
                 blockID: row.caseID)
+            let targetOccurrence = window.targetWordStart.flatMap { start in
+                discovered.first { $0.wordStart == start }
+            }
             let actualDiscoveryState =
-                discovered.isEmpty ? "excluded" : "discovered"
+                targetOccurrence == nil ? "excluded" : "discovered"
             discoveryCounts[actualDiscoveryState, default: 0] += 1
             #expect(
                 actualDiscoveryState == row.expectedDiscoveryState,
-                Comment(rawValue: row.caseID))
-            if let occurrence = discovered.first {
+                Comment(
+                    rawValue:
+                        "\(row.caseID): discovery \(actualDiscoveryState)"))
+            if let occurrence = targetOccurrence {
                 #expect(occurrence.familyID == row.familyID)
                 #expect(
                     occurrence.candidates.map(\.candidateID)
                         == family.candidates.map(\.candidateID))
             }
 
+            // Production analysis runs on every row, including
+            // `override-markup`. Asserting a literal `.abstained` there
+            // proved nothing about the override-authority invariant.
             let analysis: ContextualDeterministicAnalysis
-            if row.shape == "override-markup" || targetWordStart == nil {
-                analysis = .abstained
-            } else {
-                let wordStart = try #require(
-                    targetWordStart,
-                    Comment(rawValue: row.caseID))
+            if let wordStart = window.targetWordStart {
                 analysis = HomographPronunciationResolver.contextualAnalysis(
-                    in: displayText,
+                    in: window.displayText,
                     wordStart: wordStart)
+            } else {
+                analysis = .abstained
             }
             analyzerCounts[analysis.strength.rawValue, default: 0] += 1
             #expect(
                 analysis.strength.rawValue == row.expectedAnalyzerState,
-                Comment(rawValue: row.caseID))
+                Comment(
+                    rawValue:
+                        "\(row.caseID): analyzer \(analysis.strength.rawValue)"))
             if analysis == .abstained {
                 #expect(analysis.candidateID == nil)
                 #expect(analysis.ruleID == nil)
             } else {
                 #expect(
                     analysis.candidateID == row.expectedCandidateID,
-                    Comment(rawValue: row.caseID))
+                    Comment(
+                        rawValue:
+                            "\(row.caseID): candidate "
+                            + (analysis.candidateID ?? "nil")))
             }
-            if let occurrence = discovered.first {
+            if let occurrence = targetOccurrence {
                 #expect(occurrence.deterministicCandidateID == analysis.candidateID)
                 #expect(occurrence.deterministicRuleID == analysis.ruleID)
                 #expect(occurrence.deterministicStrength == analysis.strength)
             }
+
+            let overrideApplies = overrideApplies(to: row)
+            #expect(
+                overrideApplies == (row.shape == "override-markup"),
+                Comment(rawValue: "\(row.caseID): override \(overrideApplies)"))
+            // No contextual family spelling may carry an automatic
+            // context-free lexicon candidate; that premise is what makes
+            // every non-override row a review decision.
+            let unambiguousLexiconCandidate =
+                pack.automaticCandidate(for: normalizedTarget) != nil
+            #expect(
+                !unambiguousLexiconCandidate,
+                Comment(rawValue: "\(row.caseID): lexicon candidate"))
+
+            let outcome = hypotheticalAcceptanceOutcome(
+                overrideApplies: overrideApplies,
+                strength: analysis.strength,
+                hasUnambiguousLexiconCandidate: unambiguousLexiconCandidate)
+            outcomeCounts[outcome, default: 0] += 1
+            #expect(
+                outcome == row.expectedOutcome,
+                Comment(rawValue: "\(row.caseID): outcome \(outcome)"))
         }
         #expect(discoveryCounts == ["discovered": 20, "excluded": 16])
         #expect(
             analyzerCounts
                 == ["definitive": 0, "advisory": 13, "abstained": 23])
+        #expect(outcomeCounts == ["automatic": 4, "review": 32])
     }
 
     @Test func everyMorphologyFixturePreservesFrozenProvenanceAcrossAuditCopies() throws {

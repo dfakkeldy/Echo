@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import base64
 import fcntl
+import functools
 import hashlib
 import json
 import math
@@ -42,6 +43,65 @@ MEDIA_TYPES = {
 }
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 PROVENANCE_AUTHORITY_PURPOSE = "openai-pronunciation-audio-evaluation"
+_GIT_QUERY_TIMEOUT_SECONDS = 30
+
+
+@functools.lru_cache(maxsize=1)
+def protected_repository_roots() -> tuple[Path, ...]:
+    """Return every checkout that shares this repository's history.
+
+    ``REPOSITORY_ROOT`` alone only names the checkout this file was loaded
+    from. When the script runs inside a linked worktree, the canonical
+    checkout and every sibling worktree stayed writable through
+    ``--output-root``, so a run root could land inside a live git working
+    tree. Ask git for the shared object store and for every registered
+    worktree so all of them are refused. Fall back to the loading checkout
+    when git is unavailable or this file is not inside a repository.
+    """
+    roots = {REPOSITORY_ROOT}
+
+    def _run_git(*arguments: str) -> list[str]:
+        try:
+            completed = subprocess.run(
+                ("git", "-C", str(REPOSITORY_ROOT), *arguments),
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=_GIT_QUERY_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return []
+        return completed.stdout.splitlines()
+
+    for line in _run_git("rev-parse", "--git-common-dir"):
+        common_directory = Path(line.strip())
+        if not common_directory.is_absolute():
+            common_directory = REPOSITORY_ROOT / common_directory
+        _add_resolved_root(roots, common_directory.parent)
+
+    for line in _run_git("worktree", "list", "--porcelain"):
+        if line.startswith("worktree "):
+            _add_resolved_root(roots, Path(line[len("worktree "):].strip()))
+
+    return tuple(sorted(roots))
+
+
+def _add_resolved_root(roots: set[Path], candidate: Path) -> None:
+    try:
+        resolved = candidate.resolve(strict=True)
+    except OSError:
+        return
+    if resolved.is_dir():
+        roots.add(resolved)
+
+
+def _is_inside_a_repository(resolved: Path) -> bool:
+    return any(
+        resolved == root or resolved.is_relative_to(root)
+        for root in protected_repository_roots()
+    )
+
+
 PROVENANCE_AUTHORITY_FIELDS = {
     "schemaVersion",
     "authorizationPurpose",
@@ -88,6 +148,12 @@ MAXIMUM_CLIP_DURATION_SECONDS = 15.0
 _DURATION_TOLERANCE_SECONDS = 0.001
 MAXIMUM_REQUESTS = 200
 MAXIMUM_ESTIMATED_COST_USD = 10.0
+# A 15.0 s clip is the admission ceiling; 16 MiB is far above any legitimate
+# 15 s WAV or MP3 and far below a read that could exhaust memory.
+MAXIMUM_AUDIO_BYTES = 16 * 1024 * 1024
+# 200 clips of a few hundred bytes each; 4 MiB leaves ample headroom.
+MAXIMUM_MANIFEST_BYTES = 4 * 1024 * 1024
+MAXIMUM_JUDGE_ARTIFACT_BYTES = 4 * 1024 * 1024
 FIXED_MAX_TEXT_OUTPUT_TOKENS = 180
 MINIMUM_AUDIO_TOKENS_PER_SECOND = 1_000
 MODEL_ID = "gpt-audio-1.5"
@@ -287,7 +353,7 @@ def _external_regular_file(path: Path, *, name: str) -> Path:
         raise ManifestError(f"{name} must be a regular file")
     if metadata.st_nlink != 1:
         raise ManifestError(f"{name} cannot be a hardlink")
-    if resolved == REPOSITORY_ROOT or resolved.is_relative_to(REPOSITORY_ROOT):
+    if _is_inside_a_repository(resolved):
         raise ManifestError(f"{name} must be outside the repository")
     return resolved
 
@@ -392,12 +458,33 @@ def _open_run_directory_descriptor(
         raise
 
 
+class _SizeLimitExceeded(Exception):
+    """A bounded read refused a file larger than its contract allows."""
+
+
+def _read_bounded_bytes(path: Path, limit: int) -> bytes:
+    """Read at most ``limit`` bytes without materializing a larger file."""
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(path, flags)
+    with os.fdopen(descriptor, "rb") as source:
+        value = source.read(limit + 1)
+    if len(value) > limit:
+        raise _SizeLimitExceeded()
+    return value
+
+
 def _read_unique_regular_bytes(
     path: Path,
     *,
     error_type: type[ManifestError] | type[LedgerError],
     name: str,
+    limit: int | None = None,
 ) -> bytes:
+    # Resolved per call so the bound stays patchable and cannot be frozen
+    # into a default argument at import time.
+    limit = MAXIMUM_JUDGE_ARTIFACT_BYTES if limit is None else limit
     flags = os.O_RDONLY
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
@@ -409,7 +496,9 @@ def _read_unique_regular_bytes(
                 error_type=error_type,
                 name=name,
             )
-            value = source.read()
+            value = source.read(limit + 1)
+            if len(value) > limit:
+                raise error_type(f"{name} exceeds the size limit")
             _require_unique_regular_descriptor(
                 source.fileno(),
                 error_type=error_type,
@@ -428,7 +517,9 @@ def _read_unique_regular_bytes_at(
     *,
     error_type: type[ManifestError] | type[LedgerError],
     name: str,
+    limit: int | None = None,
 ) -> bytes:
+    limit = MAXIMUM_JUDGE_ARTIFACT_BYTES if limit is None else limit
     flags = os.O_RDONLY | os.O_NOFOLLOW
     try:
         descriptor = os.open(
@@ -442,7 +533,9 @@ def _read_unique_regular_bytes_at(
                 error_type=error_type,
                 name=name,
             )
-            value = source.read()
+            value = source.read(limit + 1)
+            if len(value) > limit:
+                raise error_type(f"{name} exceeds the size limit")
             _require_unique_regular_descriptor(
                 source.fileno(),
                 error_type=error_type,
@@ -578,16 +671,26 @@ def _probe_audio(path: Path, expected_format: str) -> float:
 def _verified_audio_bytes(clip: AdmittedClip) -> bytes:
     """Rehash and reprobe the exact bytes immediately before request creation."""
     try:
-        before_probe = clip._audio_path.read_bytes()
+        before_probe = _read_bounded_bytes(
+            clip._audio_path,
+            MAXIMUM_AUDIO_BYTES,
+        )
     except OSError as error:
         raise ManifestError("admitted audio file is unavailable") from error
+    except _SizeLimitExceeded as error:
+        raise ManifestError("admitted audio file exceeds the size limit") from error
     if hashlib.sha256(before_probe).hexdigest() != clip.audio_sha256:
         raise ManifestError("audio content changed after admission")
     measured_duration = _probe_audio(clip._audio_path, clip.audio_format)
     try:
-        after_probe = clip._audio_path.read_bytes()
+        after_probe = _read_bounded_bytes(
+            clip._audio_path,
+            MAXIMUM_AUDIO_BYTES,
+        )
     except OSError as error:
         raise ManifestError("admitted audio file is unavailable") from error
+    except _SizeLimitExceeded as error:
+        raise ManifestError("admitted audio file exceeds the size limit") from error
     if after_probe != before_probe:
         raise ManifestError("audio content changed while it was being verified")
     if measured_duration > MAXIMUM_CLIP_DURATION_SECONDS:
@@ -653,9 +756,11 @@ def _admit_clip(
 
     audio_path = manifest_directory / f"{clip_id}{suffix}"
     try:
-        audio_bytes = audio_path.read_bytes()
+        audio_bytes = _read_bounded_bytes(audio_path, MAXIMUM_AUDIO_BYTES)
     except OSError as error:
         raise ManifestError("admitted audio file is unavailable") from error
+    except _SizeLimitExceeded as error:
+        raise ManifestError("admitted audio file exceeds the size limit") from error
     if hashlib.sha256(audio_bytes).hexdigest() != audio_hash:
         raise ManifestError("audio content hash mismatch")
     measured_duration = _probe_audio(audio_path, audio_format)
@@ -691,9 +796,11 @@ def _admit_manifest_with_authority(
     )
     authority, authority_sha256 = _load_provenance_authority(authority_path)
     try:
-        manifest_bytes = path.read_bytes()
+        manifest_bytes = _read_bounded_bytes(path, MAXIMUM_MANIFEST_BYTES)
     except OSError as error:
         raise ManifestError("manifest is not readable strict JSON") from error
+    except _SizeLimitExceeded as error:
+        raise ManifestError("manifest exceeds the size limit") from error
     manifest = _require_exact_fields(
         _load_strict_json_bytes(manifest_bytes),
         MANIFEST_FIELDS,
@@ -713,6 +820,11 @@ def _admit_manifest_with_authority(
     rows = manifest["clips"]
     if not _has_exact_json_type(rows, list) or not rows:
         raise ManifestError("manifest clips must be a non-empty array")
+    # Refuse an over-cap manifest before `_admit_clip` reads and ffprobes
+    # every row. The per-request cap below would reject the run anyway, but
+    # only after paying for a full probe pass over rows that can never run.
+    if len(rows) > MAXIMUM_REQUESTS:
+        raise ManifestError("manifest clip count exceeds the request cap")
     seen_clip_ids: set[str] = set()
     clips = tuple(
         _admit_clip(
@@ -785,7 +897,12 @@ def parse_verdict(payload: str, *, expected_clip_id: str) -> dict[str, Any]:
             parse_constant=lambda _value: (_ for _ in ()).throw(
                 ResponseValidationError("non-finite result number")),
         )
-    except (json.JSONDecodeError, UnicodeError, ValueError) as error:
+    except (
+        json.JSONDecodeError,
+        UnicodeError,
+        ValueError,
+        RecursionError,
+    ) as error:
         raise ResponseValidationError("result is not one JSON object") from error
     if not isinstance(decoded, dict):
         raise ResponseValidationError("result is not one JSON object")
@@ -1059,6 +1176,7 @@ def _post_chat_completion(body: dict[str, Any], api_key: str) -> dict[str, Any]:
         KeyError,
         IndexError,
         TypeError,
+        RecursionError,
     ):
         raise PermanentTransportError() from None
 
@@ -1446,7 +1564,7 @@ def _validated_run_root(
         resolved = root.resolve(strict=require_exists)
     except OSError as error:
         raise error_type("run root is unavailable") from error
-    if resolved == REPOSITORY_ROOT or resolved.is_relative_to(REPOSITORY_ROOT):
+    if _is_inside_a_repository(resolved):
         raise error_type("run root must be outside the repository")
     if require_exists and (not root.exists() or not root.is_dir()):
         raise error_type("run root is unavailable")
@@ -1535,9 +1653,95 @@ def _decode_ledger_events(content: bytes) -> list[dict[str, Any]]:
         json.JSONDecodeError,
         ValueError,
         ManifestError,
+        RecursionError,
     ) as error:
         raise LedgerError("attempt ledger is invalid") from error
     return events
+
+
+def _verify_ledger_head_against_snapshot(
+    snapshot_bytes: bytes | None,
+    events: list[dict[str, Any]],
+) -> None:
+    """Refuse a ledger that no longer reproduces its committed head.
+
+    Hash chaining catches rewritten and reordered interior events, but a
+    truncated tail leaves a shorter chain that still verifies. The snapshot
+    is written after every append and records the head plus the event count,
+    so a dropped final line is detected here.
+
+    One ledger event ahead of the snapshot is legitimate: an append is
+    fsynced before the snapshot is republished, so a crash in that window
+    leaves the ledger one event ahead and recovery repairs it. A ledger that
+    is *shorter* than the committed count, or that no longer reproduces the
+    committed head, is refused.
+    """
+    if not events:
+        return
+    if snapshot_bytes is None:
+        # Only the very first append can precede the first snapshot.
+        if len(events) > 1:
+            raise LedgerError("attempt ledger does not match its committed head")
+        return
+    try:
+        snapshot = json.loads(snapshot_bytes, object_pairs_hook=_strict_object)
+    except (
+        UnicodeError,
+        json.JSONDecodeError,
+        ValueError,
+        RecursionError,
+    ) as error:
+        raise LedgerError("attempt state is invalid") from error
+    if (
+        not _has_exact_json_type(snapshot, dict)
+        or not _has_exact_json_type(snapshot.get("schemaVersion"), int)
+        or snapshot["schemaVersion"] != 2
+        or not _has_exact_json_type(snapshot.get("eventCount"), int)
+        or not _valid_receipt_hash(snapshot.get("lastEventSHA256"))
+    ):
+        raise LedgerError("attempt state is invalid")
+    committed_count = snapshot["eventCount"]
+    committed_head = snapshot["lastEventSHA256"]
+    if (
+        len(events) == committed_count
+        and committed_head == _ledger_chain_head(events)
+    ):
+        return
+    if (
+        len(events) == committed_count + 1
+        and committed_head == _ledger_chain_head(events[:-1])
+    ):
+        return
+    raise LedgerError("attempt ledger does not match its committed head")
+
+
+def _read_optional_snapshot_bytes(run_directory: Path) -> bytes | None:
+    snapshot_path = run_directory / "attempt-state.json"
+    if not snapshot_path.exists():
+        return None
+    return _read_unique_regular_bytes(
+        snapshot_path,
+        error_type=LedgerError,
+        name="attempt state",
+    )
+
+
+def _read_optional_snapshot_bytes_at(
+    directory_descriptor: int,
+) -> bytes | None:
+    if not _validate_existing_mutable_file_at(
+        directory_descriptor,
+        "attempt-state.json",
+        error_type=LedgerError,
+        name="attempt state",
+    ):
+        return None
+    return _read_unique_regular_bytes_at(
+        directory_descriptor,
+        "attempt-state.json",
+        error_type=LedgerError,
+        name="attempt state",
+    )
 
 
 def _load_ledger_events(ledger_path: Path) -> list[dict[str, Any]]:
@@ -1572,9 +1776,30 @@ def _load_ledger_events_at(
     )
 
 
+LEDGER_CHAIN_GENESIS = "0" * 64
+
+
+def _canonical_ledger_bytes(event: Mapping[str, Any]) -> bytes:
+    return json.dumps(event, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+
+
+def _ledger_event_digest(event: Mapping[str, Any]) -> str:
+    return hashlib.sha256(_canonical_ledger_bytes(event)).hexdigest()
+
+
+def _ledger_chain_head(events: list[dict[str, Any]]) -> str:
+    """Return the digest every next event must name as its predecessor."""
+    if not events:
+        return LEDGER_CHAIN_GENESIS
+    return _ledger_event_digest(events[-1])
+
+
 def _derive_attempt_states(
     events: list[dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
+    chain_field = {"previousEventSHA256"}
     proposal_fields = {
         "schemaVersion",
         "eventType",
@@ -1585,7 +1810,7 @@ def _derive_attempt_states(
         "productionMutationAuthorized",
         "touchedFamilyGraduation",
         "phase3Graduation",
-    }
+    } | chain_field
     attempt_fields = {
         "schemaVersion",
         "eventType",
@@ -1600,7 +1825,7 @@ def _derive_attempt_states(
         "productionMutationPerformedByJudge",
         "touchedFamilyGraduation",
         "phase3Graduation",
-    }
+    } | chain_field
     rerender_fields = {
         "schemaVersion",
         "eventType",
@@ -1614,10 +1839,18 @@ def _derive_attempt_states(
         "productionMutationPerformedByJudge",
         "touchedFamilyGraduation",
         "phase3Graduation",
-    }
+    } | chain_field
     states: dict[str, dict[str, Any]] = {}
     used_receipts: set[str] = set()
+    expected_previous = LEDGER_CHAIN_GENESIS
     for sequence, event in enumerate(events, start=1):
+        # Verify linkage before any transition rule runs, so a rewritten or
+        # reordered interior event is refused rather than replayed.
+        if not _valid_receipt_hash(event.get("previousEventSHA256")):
+            raise LedgerError("attempt ledger event is invalid")
+        if event["previousEventSHA256"] != expected_previous:
+            raise LedgerError("attempt ledger chain is broken")
+        expected_previous = _ledger_event_digest(event)
         clip_id = event.get("clipID")
         state = event.get("state")
         attempt_count = event.get("attemptCount")
@@ -1727,16 +1960,34 @@ def _derive_attempt_states(
     return states
 
 
+def _attempt_snapshot_document(
+    states: dict[str, dict[str, Any]],
+    events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Snapshot the derived state together with the ledger chain head.
+
+    Chaining alone cannot detect a truncated tail: dropping the final line
+    leaves a shorter but internally consistent chain. Recording the head and
+    the event count in the separately written snapshot makes truncation
+    evident, because the shortened ledger no longer reproduces the head the
+    judge last committed.
+    """
+    return {
+        "schemaVersion": 2,
+        "clips": {key: states[key] for key in sorted(states)},
+        "eventCount": len(events),
+        "lastEventSHA256": _ledger_chain_head(events),
+    }
+
+
 def _write_attempt_snapshot(
     run_directory: Path,
     states: dict[str, dict[str, Any]],
+    events: list[dict[str, Any]],
 ) -> None:
     _atomic_write_json(
         run_directory / "attempt-state.json",
-        {
-            "schemaVersion": 1,
-            "clips": {key: states[key] for key in sorted(states)},
-        },
+        _attempt_snapshot_document(states, events),
         error_type=LedgerError,
         artifact_name="attempt state",
     )
@@ -1747,16 +1998,14 @@ def _write_attempt_snapshot_at(
     run_directory: Path,
     expected_run_identity: tuple[int, int],
     states: dict[str, dict[str, Any]],
+    events: list[dict[str, Any]],
 ) -> None:
     _atomic_write_json_at(
         directory_descriptor,
         run_directory,
         expected_run_identity,
         "attempt-state.json",
-        {
-            "schemaVersion": 1,
-            "clips": {key: states[key] for key in sorted(states)},
-        },
+        _attempt_snapshot_document(states, events),
         artifact_name="attempt state",
     )
 
@@ -1767,6 +2016,7 @@ def _append_ledger_event_locked(
     event: dict[str, Any],
 ) -> dict[str, Any]:
     ledger_path = run_directory / "attempt-ledger.jsonl"
+    event = {**event, "previousEventSHA256": _ledger_chain_head(events)}
     flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
@@ -1794,7 +2044,7 @@ def _append_ledger_event_locked(
         raise LedgerError("attempt ledger is invalid") from error
     events.append(event)
     states = _derive_attempt_states(events)
-    _write_attempt_snapshot(run_directory, states)
+    _write_attempt_snapshot(run_directory, states, events)
     return states[event["clipID"]]
 
 
@@ -1814,7 +2064,11 @@ def _recover_committed_event_locked(
         or committed.get("clipID") != expected_event["clipID"]
     ):
         return None
-    if committed != expected_event:
+    expected_with_chain = {
+        **expected_event,
+        "previousEventSHA256": _ledger_chain_head(events[:-1]),
+    }
+    if committed != expected_with_chain:
         raise LedgerError("committed transition has a conflicting replay")
     queue_plan: tuple[list[dict[str, Any]], list[dict[str, Any]]] | None = None
     if publish_morning_queue:
@@ -1823,7 +2077,7 @@ def _recover_committed_event_locked(
             current_queue,
             _plan_morning_queue(events, current_queue),
         )
-    _write_attempt_snapshot(run_directory, states)
+    _write_attempt_snapshot(run_directory, states, events)
     result = states[expected_event["clipID"]]
     if queue_plan is not None:
         _publish_morning_queue_plan(
@@ -1868,6 +2122,10 @@ def _with_ledger_lock(
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         try:
             events = _load_ledger_events(run_directory / "attempt-ledger.jsonl")
+            _verify_ledger_head_against_snapshot(
+                _read_optional_snapshot_bytes(run_directory),
+                events,
+            )
             return operation(events)
         finally:
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
@@ -2430,6 +2688,12 @@ def _with_recovery_ledger_lock(
                 events = _load_ledger_events_at(directory_descriptor)
                 if not events:
                     raise LedgerError("attempt ledger is empty")
+                # Recovery exists to republish a missing snapshot, so a
+                # absent anchor is tolerated here; a present one must match.
+                _verify_ledger_head_against_snapshot(
+                    _read_optional_snapshot_bytes_at(directory_descriptor),
+                    events,
+                )
                 states = _derive_attempt_states(events)
                 current_queue = _load_morning_queue_at(directory_descriptor)
                 planned_queue = _plan_morning_queue(events, current_queue)
@@ -2472,6 +2736,10 @@ def recover_run(
         preflight_events = _load_ledger_events_at(directory_descriptor)
         if not preflight_events:
             raise LedgerError("attempt ledger is empty")
+        _verify_ledger_head_against_snapshot(
+            _read_optional_snapshot_bytes_at(directory_descriptor),
+            preflight_events,
+        )
         _derive_attempt_states(preflight_events)
         preflight_queue = _load_morning_queue_at(directory_descriptor)
         _plan_morning_queue(preflight_events, preflight_queue)
@@ -2488,6 +2756,7 @@ def recover_run(
                 run_directory,
                 run_identity,
                 states,
+                events,
             )
             _publish_morning_queue_plan_at(
                 directory_descriptor,
@@ -2701,7 +2970,7 @@ def run_evaluation(
                     validation_outcome = (
                         "validated_after_retry" if retry_attempted else "validated"
                     )
-                except ResponseValidationError:
+                except (ResponseValidationError, RecursionError):
                     failure = "malformed_output"
 
         reasons = _morning_reasons(verdict, failure=failure)
@@ -2855,6 +3124,8 @@ def main(arguments: list[str] | None = None) -> int:
             )
     except (ManifestError, ResponseValidationError, LedgerError) as error:
         parser.error(str(error))
+    except RecursionError:
+        parser.error("input nesting is too deep")
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
     return 0
 

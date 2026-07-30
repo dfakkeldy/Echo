@@ -161,6 +161,92 @@ class ManifestAdmissionTests(unittest.TestCase):
         )
         return path
 
+    def test_over_cap_manifest_is_refused_before_any_media_probe(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        template = self.manifest_row(clip_id, path, 0.25)
+        rows = []
+        for _ in range(MAXIMUM_REQUESTS + 1):
+            row = dict(template)
+            row["clipID"] = generate_clip_id()
+            rows.append(row)
+        manifest = self.write_manifest(rows)
+        probe_count = 0
+        original_probe = audio_judge._probe_audio
+
+        def counting_probe(*arguments, **keywords):
+            nonlocal probe_count
+            probe_count += 1
+            return original_probe(*arguments, **keywords)
+
+        with mock.patch.object(audio_judge, "_probe_audio", counting_probe):
+            with self.assertRaisesRegex(ManifestError, "request cap"):
+                admit_manifest(
+                    manifest,
+                    provenance_authority_path=self.provenance_authority_path,
+                )
+
+        self.assertEqual(0, probe_count)
+
+    def test_exactly_capped_manifest_still_reaches_admission(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        template = self.manifest_row(clip_id, path, 0.25)
+        rows = []
+        for _ in range(MAXIMUM_REQUESTS):
+            row = dict(template)
+            row["clipID"] = generate_clip_id()
+            rows.append(row)
+        manifest = self.write_manifest(rows)
+
+        # The cap check must not reject a manifest at exactly the limit; it
+        # fails later on the missing per-clip media instead.
+        with self.assertRaises(ManifestError) as caught:
+            admit_manifest(
+                manifest,
+                provenance_authority_path=self.provenance_authority_path,
+            )
+
+        self.assertNotIn("request cap", str(caught.exception))
+
+    def test_oversized_audio_and_manifest_reads_are_bounded(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest([self.manifest_row(clip_id, path, 0.25)])
+
+        with mock.patch.object(audio_judge, "MAXIMUM_AUDIO_BYTES", 8):
+            with self.assertRaisesRegex(ManifestError, "size limit"):
+                admit_manifest(
+                    manifest,
+                    provenance_authority_path=self.provenance_authority_path,
+                )
+
+        with mock.patch.object(audio_judge, "MAXIMUM_MANIFEST_BYTES", 8):
+            with self.assertRaisesRegex(ManifestError, "size limit"):
+                admit_manifest(
+                    manifest,
+                    provenance_authority_path=self.provenance_authority_path,
+                )
+
+        # The provenance-authority reader normalizes its message, so assert
+        # the bound fired by walking the exception chain.
+        with mock.patch.object(audio_judge, "MAXIMUM_JUDGE_ARTIFACT_BYTES", 8):
+            with self.assertRaises(ManifestError) as caught:
+                admit_manifest(
+                    manifest,
+                    provenance_authority_path=self.provenance_authority_path,
+                )
+
+        messages = []
+        error = caught.exception
+        while error is not None:
+            messages.append(str(error))
+            error = error.__cause__
+        self.assertTrue(
+            any("size limit" in message for message in messages),
+            messages,
+        )
+
     def test_admits_measured_short_wav_and_mp3_with_exact_content_hashes(self):
         wav_id = generate_clip_id()
         wav_path = self.write_wav(wav_id)
@@ -1307,6 +1393,135 @@ class EvaluationGateTests(ManifestAdmissionTests):
             events,
         )
 
+    def build_linked_worktree_checkout(self, name):
+        """Create an isolated main checkout plus one linked worktree.
+
+        The judge is copied to the same `Tools/Pronunciation/` position it
+        occupies in Echo so `parents[2]` resolves to each checkout root.
+        """
+        git = shutil.which("git")
+        self.assertIsNotNone(git, "git is required for the worktree scope test")
+        main_checkout = self.directory / name
+        tools = main_checkout / "Tools" / "Pronunciation"
+        tools.mkdir(parents=True)
+        shutil.copy2(SCRIPT, tools / "audio_judge.py")
+
+        def git_run(*arguments, cwd):
+            subprocess.run(
+                [git, *arguments],
+                cwd=str(cwd),
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+        git_run("init", "--initial-branch=main", ".", cwd=main_checkout)
+        git_run("config", "user.email", "test@example.invalid", cwd=main_checkout)
+        git_run("config", "user.name", "Test", cwd=main_checkout)
+        git_run("add", "-A", cwd=main_checkout)
+        git_run(
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-m",
+            "seed",
+            cwd=main_checkout,
+        )
+        linked_worktree = self.directory / f"{name}-linked"
+        git_run(
+            "worktree",
+            "add",
+            str(linked_worktree),
+            "-b",
+            "linked",
+            cwd=main_checkout,
+        )
+        return main_checkout, linked_worktree
+
+    def test_run_root_rejects_every_checkout_sharing_the_repository(self):
+        main_checkout, linked_worktree = self.build_linked_worktree_checkout(
+            "scoped"
+        )
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest([self.manifest_row(clip_id, path, 0.25)])
+        judge_from_worktree = (
+            linked_worktree / "Tools" / "Pronunciation" / "audio_judge.py"
+        )
+
+        # Running inside the linked worktree must still refuse a run root in
+        # the canonical checkout, in the linked worktree itself, and in a
+        # sibling worktree.
+        sibling_worktree = self.directory / "scoped-sibling"
+        subprocess.run(
+            [
+                shutil.which("git"),
+                "worktree",
+                "add",
+                str(sibling_worktree),
+                "-b",
+                "sibling",
+            ],
+            cwd=str(main_checkout),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        for label, forbidden_root in (
+            ("canonical", main_checkout / "artifacts"),
+            ("self", linked_worktree / "artifacts"),
+            ("sibling", sibling_worktree / "artifacts"),
+        ):
+            with self.subTest(root=label):
+                completed = subprocess.run(
+                    [
+                        sys.executable,
+                        str(judge_from_worktree),
+                        "evaluate",
+                        "--manifest",
+                        str(manifest),
+                        "--provenance-authority",
+                        str(self.provenance_authority_path),
+                        "--run-id",
+                        f"scoped-{label}",
+                        "--dry-run",
+                        "--output-root",
+                        str(forbidden_root),
+                    ],
+                    cwd=str(linked_worktree),
+                    capture_output=True,
+                    text=True,
+                )
+
+                self.assertNotEqual(0, completed.returncode)
+                self.assertIn("outside the repository", completed.stderr)
+                self.assertFalse(forbidden_root.exists())
+
+        permitted_root = self.directory / "outside-runs"
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(judge_from_worktree),
+                "evaluate",
+                "--manifest",
+                str(manifest),
+                "--provenance-authority",
+                str(self.provenance_authority_path),
+                "--run-id",
+                "scoped-permitted",
+                "--dry-run",
+                "--output-root",
+                str(permitted_root),
+            ],
+            cwd=str(linked_worktree),
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertTrue(permitted_root.exists())
+
     def test_run_root_rejects_repository_and_symlink_paths_before_mutation(self):
         clip_id = generate_clip_id()
         path = self.write_wav(clip_id)
@@ -1758,6 +1973,126 @@ class EvaluationGateTests(ManifestAdmissionTests):
                 )
                 self.assertNotIn(b"nested-response-marker", persisted)
 
+    def test_recursive_response_json_routes_to_the_morning_queue(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest([self.manifest_row(clip_id, path, 0.25)])
+        output_root = self.directory / "runs"
+
+        receipt = run_evaluation(
+            manifest_path=manifest,
+            run_id="recursive-response",
+            dry_run=False,
+            output_root=output_root,
+            environment={"OPENAI_API_KEY": "test-only-key"},
+            transport=lambda _body, _key: {
+                "model": "gpt-audio-1.5",
+                "content": "[" * 2000 + "]" * 2000,
+                "refusal": None,
+                "usage": {},
+            },
+        )
+
+        self.assertEqual(
+            ["malformed_output"],
+            receipt["morningQueue"][0]["reasons"],
+        )
+
+    def test_parse_verdict_contains_recursive_payloads(self):
+        clip_id = generate_clip_id()
+        for depth in (1_000, 2_000, 20_000):
+            with self.subTest(depth=depth):
+                with self.assertRaises(ResponseValidationError):
+                    parse_verdict(
+                        "[" * depth + "]" * depth,
+                        expected_clip_id=clip_id,
+                    )
+
+    def test_parse_verdict_contains_an_interpreter_recursion_error(self):
+        # CPython 3.14 decodes deeply nested JSON iteratively, so a literal
+        # payload cannot force RecursionError on every supported interpreter.
+        # Inject it directly so the contract is proven independently of the
+        # interpreter running the suite.
+        with mock.patch.object(
+            audio_judge.json,
+            "loads",
+            side_effect=RecursionError("maximum recursion depth exceeded"),
+        ):
+            with self.assertRaises(ResponseValidationError):
+                parse_verdict("{}", expected_clip_id=generate_clip_id())
+
+    def test_recursive_api_body_becomes_a_permanent_transport_error(self):
+        class RecursiveResponse:
+            def __enter__(self_inner):
+                return self_inner
+
+            def __exit__(self_inner, *_exception):
+                return False
+
+            def read(self_inner):
+                return ("[" * 20_000 + "]" * 20_000).encode("utf-8")
+
+        with mock.patch.object(
+            audio_judge.urllib.request,
+            "urlopen",
+            return_value=RecursiveResponse(),
+        ):
+            with self.assertRaises(PermanentTransportError):
+                audio_judge._post_chat_completion({}, "test-only-key")
+
+            with mock.patch.object(
+                audio_judge.json,
+                "loads",
+                side_effect=RecursionError("maximum recursion depth exceeded"),
+            ):
+                with self.assertRaises(PermanentTransportError):
+                    audio_judge._post_chat_completion({}, "test-only-key")
+
+    def test_recursion_error_from_the_parser_reaches_the_morning_queue(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest([self.manifest_row(clip_id, path, 0.25)])
+
+        with mock.patch.object(
+            audio_judge,
+            "parse_verdict",
+            side_effect=RecursionError("maximum recursion depth exceeded"),
+        ):
+            receipt = run_evaluation(
+                manifest_path=manifest,
+                run_id="recursive-parser",
+                dry_run=False,
+                output_root=self.directory / "runs",
+                environment={"OPENAI_API_KEY": "test-only-key"},
+                transport=lambda _body, _key: {
+                    "model": "gpt-audio-1.5",
+                    "content": json.dumps(
+                        {
+                            "clipID": clip_id,
+                            "verdict": "pass",
+                            "confidence": 0.95,
+                            "category": "correct",
+                        }
+                    ),
+                    "refusal": None,
+                    "usage": {},
+                },
+            )
+
+        self.assertEqual(
+            ["malformed_output"],
+            receipt["morningQueue"][0]["reasons"],
+        )
+
+    def test_recursion_error_in_a_ledger_line_is_a_ledger_error(self):
+        with mock.patch.object(
+            audio_judge.json,
+            "loads",
+            side_effect=RecursionError("maximum recursion depth exceeded"),
+        ):
+            with self.assertRaises(LedgerError):
+                audio_judge._decode_ledger_events(b"{}\n")
+
     def test_revalidates_content_container_and_duration_before_each_transport_attempt(self):
         clip_id = generate_clip_id()
         path = self.write_wav(clip_id)
@@ -2160,6 +2495,191 @@ class EvaluationGateTests(ManifestAdmissionTests):
 
 
 class AttemptLedgerTests(ManifestAdmissionTests):
+    def test_truncated_ledger_cannot_replay_a_spent_attempt(self):
+        run_id = "truncated-ledger"
+        clip_id, output_root = self.failing_run(run_id=run_id)
+        run_directory = output_root / run_id
+        ledger_path = run_directory / "attempt-ledger.jsonl"
+        record_attempt(
+            run_id=run_id,
+            clip_id=clip_id,
+            source_commit="d" * 40,
+            red_test_receipt="1" * 64,
+            green_test_receipt="2" * 64,
+            negative_guard_receipt="3" * 64,
+            implementation_review_receipt="4" * 64,
+            output_root=output_root,
+        )
+        record_rerender(
+            run_id=run_id,
+            clip_id=clip_id,
+            render_content_sha256="c" * 64,
+            audio_retest_receipt="5" * 64,
+            family_regression_receipt="6" * 64,
+            outcome="fail",
+            output_root=output_root,
+        )
+        record_attempt(
+            run_id=run_id,
+            clip_id=clip_id,
+            source_commit="e" * 40,
+            red_test_receipt="7" * 64,
+            green_test_receipt="8" * 64,
+            negative_guard_receipt="9" * 64,
+            implementation_review_receipt="a" * 64,
+            output_root=output_root,
+        )
+        spent = read_attempt_state(
+            run_id=run_id,
+            clip_id=clip_id,
+            output_root=output_root,
+        )
+        self.assertEqual(2, spent["attemptCount"])
+
+        # Drop the final line. Every remaining event still chains, so only
+        # the separately committed head reveals the truncation.
+        lines = ledger_path.read_text(encoding="utf-8").splitlines()
+        ledger_path.write_text(
+            "".join(f"{line}\n" for line in lines[:-1]),
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(LedgerError):
+            read_attempt_state(
+                run_id=run_id,
+                clip_id=clip_id,
+                output_root=output_root,
+            )
+        with self.assertRaises(LedgerError):
+            record_attempt(
+                run_id=run_id,
+                clip_id=clip_id,
+                source_commit="f" * 40,
+                red_test_receipt="b" * 64,
+                green_test_receipt="c" * 64,
+                negative_guard_receipt="d" * 64,
+                implementation_review_receipt="e" * 64,
+                output_root=output_root,
+            )
+
+    def test_deleted_snapshot_cannot_launder_a_multi_event_ledger(self):
+        run_id = "deleted-anchor"
+        clip_id, output_root = self.failing_run(run_id=run_id)
+        run_directory = output_root / run_id
+        record_attempt(
+            run_id=run_id,
+            clip_id=clip_id,
+            source_commit="d" * 40,
+            red_test_receipt="1" * 64,
+            green_test_receipt="2" * 64,
+            negative_guard_receipt="3" * 64,
+            implementation_review_receipt="4" * 64,
+            output_root=output_root,
+        )
+        # The judge never unlinks its snapshot, so a missing anchor over a
+        # multi-event ledger is tampering rather than a crash. Refusing it
+        # closes the "delete the anchor, then truncate" bypass.
+        (run_directory / "attempt-state.json").unlink()
+
+        with self.assertRaises(LedgerError):
+            read_attempt_state(
+                run_id=run_id,
+                clip_id=clip_id,
+                output_root=output_root,
+            )
+        completed = self.run_recovery_cli(
+            run_id=run_id,
+            output_root=output_root,
+        )
+        self.assertNotEqual(0, completed.returncode)
+
+    def test_corrupted_snapshot_is_refused_rather_than_republished(self):
+        run_id = "corrupt-anchor"
+        clip_id, output_root = self.failing_run(run_id=run_id)
+        run_directory = output_root / run_id
+        (run_directory / "attempt-state.json").write_bytes(b"not json\n")
+
+        with self.assertRaises(LedgerError):
+            read_attempt_state(
+                run_id=run_id,
+                clip_id=clip_id,
+                output_root=output_root,
+            )
+
+    def test_rewritten_interior_ledger_event_breaks_the_chain(self):
+        run_id = "rewritten-ledger"
+        clip_id, output_root = self.failing_run(run_id=run_id)
+        run_directory = output_root / run_id
+        ledger_path = run_directory / "attempt-ledger.jsonl"
+        record_attempt(
+            run_id=run_id,
+            clip_id=clip_id,
+            source_commit="d" * 40,
+            red_test_receipt="1" * 64,
+            green_test_receipt="2" * 64,
+            negative_guard_receipt="3" * 64,
+            implementation_review_receipt="4" * 64,
+            output_root=output_root,
+        )
+        lines = ledger_path.read_text(encoding="utf-8").splitlines()
+        first = json.loads(lines[0])
+        first["proposalCategory"] = next(
+            category
+            for category in audio_judge.CATEGORIES
+            if category != first["proposalCategory"]
+        )
+        lines[0] = json.dumps(first, sort_keys=True, separators=(",", ":"))
+        ledger_path.write_text(
+            "".join(f"{line}\n" for line in lines),
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(LedgerError):
+            read_attempt_state(
+                run_id=run_id,
+                clip_id=clip_id,
+                output_root=output_root,
+            )
+
+    def test_every_committed_ledger_event_names_its_predecessor(self):
+        run_id = "chained-ledger"
+        clip_id, output_root = self.failing_run(run_id=run_id)
+        ledger_path = output_root / run_id / "attempt-ledger.jsonl"
+        record_attempt(
+            run_id=run_id,
+            clip_id=clip_id,
+            source_commit="d" * 40,
+            red_test_receipt="1" * 64,
+            green_test_receipt="2" * 64,
+            negative_guard_receipt="3" * 64,
+            implementation_review_receipt="4" * 64,
+            output_root=output_root,
+        )
+        events = [
+            json.loads(line)
+            for line in ledger_path.read_text(encoding="utf-8").splitlines()
+        ]
+
+        self.assertEqual(
+            audio_judge.LEDGER_CHAIN_GENESIS,
+            events[0]["previousEventSHA256"],
+        )
+        for previous, event in zip(events, events[1:]):
+            self.assertEqual(
+                audio_judge._ledger_event_digest(previous),
+                event["previousEventSHA256"],
+            )
+        snapshot = json.loads(
+            (output_root / run_id / "attempt-state.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(len(events), snapshot["eventCount"])
+        self.assertEqual(
+            audio_judge._ledger_event_digest(events[-1]),
+            snapshot["lastEventSHA256"],
+        )
+
     def failing_run(self, *, run_id="ledger"):
         clip_id = generate_clip_id()
         path = self.write_wav(clip_id)
@@ -2459,6 +2979,32 @@ class AttemptLedgerTests(ManifestAdmissionTests):
         )
         self.assertEqual("rerender_pending", state["state"])
 
+    def rewind_snapshot_to_the_crash_window(self, run_directory):
+        """Model the only crash state the judge can leave behind.
+
+        `attempt-state.json` is written atomically and never unlinked by the
+        judge, so the sole recoverable inconsistency is a ledger that is one
+        fsynced append ahead of the last published snapshot.
+        """
+        events = [
+            json.loads(line)
+            for line in (
+                run_directory / "attempt-ledger.jsonl"
+            ).read_text(encoding="utf-8").splitlines()
+        ]
+        snapshot_path = run_directory / "attempt-state.json"
+        snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        snapshot["eventCount"] = len(events) - 1
+        snapshot["lastEventSHA256"] = (
+            audio_judge._ledger_event_digest(events[-2])
+            if len(events) > 1
+            else audio_judge.LEDGER_CHAIN_GENESIS
+        )
+        snapshot_path.write_text(
+            json.dumps(snapshot, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
     def test_recover_cli_restores_attempt_snapshot_and_terminal_queue_once(self):
         clip_id, output_root = self.failing_run(run_id="cli-recover-workflow")
         run_directory = output_root / "cli-recover-workflow"
@@ -2472,7 +3018,7 @@ class AttemptLedgerTests(ManifestAdmissionTests):
             implementation_review_receipt="4" * 64,
             output_root=output_root,
         )
-        (run_directory / "attempt-state.json").unlink()
+        self.rewind_snapshot_to_the_crash_window(run_directory)
 
         attempt_recovery = self.run_recovery_cli(
             run_id="cli-recover-workflow",
@@ -2519,7 +3065,7 @@ class AttemptLedgerTests(ManifestAdmissionTests):
         reservations_before = (
             run_directory / "request-reservations.jsonl"
         ).read_bytes()
-        (run_directory / "attempt-state.json").unlink()
+        self.rewind_snapshot_to_the_crash_window(run_directory)
         (run_directory / "morning-queue.json").unlink()
 
         first = self.run_recovery_cli(
@@ -2654,6 +3200,17 @@ class AttemptLedgerTests(ManifestAdmissionTests):
                 self.assertEqual("", completed.stdout)
                 self.assertEqual(before, self.run_file_bytes(run_directory))
 
+    def write_stale_but_valid_snapshot(self, run_directory, clips=None):
+        """Write a parseable snapshot that recovery must still republish."""
+        snapshot_path = run_directory / "attempt-state.json"
+        existing = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        existing["clips"] = (
+            existing["clips"] if clips is None else clips
+        )
+        snapshot_path.write_bytes(
+            (json.dumps(existing, sort_keys=True) + "\n").encode("utf-8")
+        )
+
     def test_recover_lock_open_is_anchored_against_pathname_swap(self):
         run_id = "directory-lock-swap"
         _clip_id, output_root = self.failing_run(run_id=run_id)
@@ -2662,11 +3219,13 @@ class AttemptLedgerTests(ManifestAdmissionTests):
         replacement_root.mkdir()
         replacement_directory = replacement_root / run_id
         shutil.copytree(run_directory, replacement_directory)
-        (run_directory / "attempt-state.json").write_bytes(
-            b"original stale snapshot\n"
-        )
-        (replacement_directory / "attempt-state.json").write_bytes(
-            b"replacement stale snapshot\n"
+        # Both snapshots stay valid anchors so the swap, not snapshot
+        # corruption, is what this test exercises. They differ in the clip
+        # payload recovery is expected to republish.
+        self.write_stale_but_valid_snapshot(run_directory)
+        self.write_stale_but_valid_snapshot(
+            replacement_directory,
+            clips={},
         )
         (replacement_directory / ".attempt-ledger.lock").unlink()
         original_before = self.run_file_bytes(run_directory)
@@ -2732,11 +3291,13 @@ class AttemptLedgerTests(ManifestAdmissionTests):
         replacement_root.mkdir()
         replacement_directory = replacement_root / run_id
         shutil.copytree(run_directory, replacement_directory)
-        (run_directory / "attempt-state.json").write_bytes(
-            b"original stale snapshot\n"
-        )
-        (replacement_directory / "attempt-state.json").write_bytes(
-            b"replacement stale snapshot\n"
+        # Both snapshots stay valid anchors so the swap, not snapshot
+        # corruption, is what this test exercises. They differ in the clip
+        # payload recovery is expected to republish.
+        self.write_stale_but_valid_snapshot(run_directory)
+        self.write_stale_but_valid_snapshot(
+            replacement_directory,
+            clips={},
         )
         original_before = self.run_file_bytes(run_directory)
         replacement_before = self.run_file_bytes(replacement_directory)
