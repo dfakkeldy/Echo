@@ -900,6 +900,13 @@ unclaimed, repository-contained, and unsafe-artifact runs fail closed. Queue
 conflicts found by the outside-lock preflight do not change the snapshot,
 queue, ledger, receipt, or lock.
 
+The durable run-claim, JSONL attempt-ledger, and morning-queue decoders
+translate duplicate keys, malformed JSON, non-finite constants, and parser
+`ValueError`s such as oversized integers into their closed `LedgerError`
+boundary. Recovery reports those errors without a traceback or raw artifact
+content, and preflight rejection cannot create the missing lock or mutate run
+files.
+
 Recovery opens the claimed run directory with `O_DIRECTORY | O_NOFOLLOW` and
 pins the descriptor's device/inode identity. Claim, ledger, and queue preflight;
 the required existing ledger lock; the under-lock replay; temporary files; and

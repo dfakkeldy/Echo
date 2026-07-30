@@ -1377,7 +1377,12 @@ def _validate_run_claim_bytes(content: bytes, run_id: str) -> None:
             parse_constant=lambda _value: (_ for _ in ()).throw(
                 LedgerError("judge-owned run claim is invalid")),
         )
-    except (UnicodeError, json.JSONDecodeError, ManifestError) as error:
+    except (
+        UnicodeError,
+        json.JSONDecodeError,
+        ValueError,
+        ManifestError,
+    ) as error:
         raise LedgerError("judge-owned run claim is invalid") from error
     if (
         not isinstance(claim, dict)
@@ -1438,7 +1443,13 @@ def _decode_ledger_events(content: bytes) -> list[dict[str, Any]]:
             if not isinstance(decoded, dict):
                 raise LedgerError("attempt ledger event is invalid")
             events.append(decoded)
-    except (OSError, UnicodeError, json.JSONDecodeError, ManifestError) as error:
+    except (
+        OSError,
+        UnicodeError,
+        json.JSONDecodeError,
+        ValueError,
+        ManifestError,
+    ) as error:
         raise LedgerError("attempt ledger is invalid") from error
     return events
 
@@ -1980,6 +1991,7 @@ def _decode_morning_queue(content: bytes) -> list[dict[str, Any]]:
         OSError,
         UnicodeError,
         json.JSONDecodeError,
+        ValueError,
         ManifestError,
     ) as error:
         raise LedgerError("morning queue is invalid") from error

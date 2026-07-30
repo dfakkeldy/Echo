@@ -1996,6 +1996,114 @@ class AttemptLedgerTests(ManifestAdmissionTests):
         )
         return clip_id, output_root
 
+    def test_oversized_run_claim_integer_is_controlled_without_cli_mutation(self):
+        run_id = "oversized-claim-integer"
+        _clip_id, output_root = self.failing_run(run_id=run_id)
+        run_directory = output_root / run_id
+        claim_path = run_directory / "run-claim.json"
+        huge_digits = "9" * 5000
+        claim_path.write_text(
+            (
+                f'{{"schemaVersion":{huge_digits},"runID":"{run_id}",'
+                '"state":"claimed"}'
+            ),
+            encoding="utf-8",
+        )
+        (run_directory / ".attempt-ledger.lock").unlink()
+        before = self.run_file_bytes(run_directory)
+
+        caught = None
+        try:
+            audio_judge._validate_run_claim_bytes(
+                claim_path.read_bytes(),
+                run_id,
+            )
+        except Exception as error:
+            caught = error
+        completed = self.run_recovery_cli(
+            run_id=run_id,
+            output_root=output_root,
+        )
+
+        self.assertIsInstance(caught, LedgerError)
+        self.assertEqual("judge-owned run claim is invalid", str(caught))
+        self.assertNotEqual(0, completed.returncode)
+        self.assertEqual("", completed.stdout)
+        self.assertNotIn("Traceback", completed.stderr)
+        self.assertNotIn(huge_digits, completed.stderr)
+        self.assertEqual(before, self.run_file_bytes(run_directory))
+        self.assertFalse(
+            (run_directory / ".attempt-ledger.lock").exists()
+        )
+
+    def test_oversized_ledger_integer_is_controlled_without_cli_mutation(self):
+        run_id = "oversized-ledger-integer"
+        _clip_id, output_root = self.failing_run(run_id=run_id)
+        run_directory = output_root / run_id
+        ledger_path = run_directory / "attempt-ledger.jsonl"
+        huge_digits = "9" * 5000
+        ledger_path.write_text(
+            f'{{"schemaVersion":{huge_digits}}}\n',
+            encoding="utf-8",
+        )
+        (run_directory / ".attempt-ledger.lock").unlink()
+        before = self.run_file_bytes(run_directory)
+
+        caught = None
+        try:
+            audio_judge._decode_ledger_events(ledger_path.read_bytes())
+        except Exception as error:
+            caught = error
+        completed = self.run_recovery_cli(
+            run_id=run_id,
+            output_root=output_root,
+        )
+
+        self.assertIsInstance(caught, LedgerError)
+        self.assertEqual("attempt ledger is invalid", str(caught))
+        self.assertNotEqual(0, completed.returncode)
+        self.assertEqual("", completed.stdout)
+        self.assertNotIn("Traceback", completed.stderr)
+        self.assertNotIn(huge_digits, completed.stderr)
+        self.assertEqual(before, self.run_file_bytes(run_directory))
+        self.assertFalse(
+            (run_directory / ".attempt-ledger.lock").exists()
+        )
+
+    def test_oversized_queue_integer_is_controlled_without_cli_mutation(self):
+        run_id = "oversized-queue-integer"
+        _clip_id, output_root = self.terminal_morning_run(run_id=run_id)
+        run_directory = output_root / run_id
+        queue_path = run_directory / "morning-queue.json"
+        huge_digits = "9" * 5000
+        queue_path.write_text(
+            f'[{{"ledgerEventSequence":{huge_digits}}}]',
+            encoding="utf-8",
+        )
+        (run_directory / ".attempt-ledger.lock").unlink()
+        before = self.run_file_bytes(run_directory)
+
+        caught = None
+        try:
+            audio_judge._decode_morning_queue(queue_path.read_bytes())
+        except Exception as error:
+            caught = error
+        completed = self.run_recovery_cli(
+            run_id=run_id,
+            output_root=output_root,
+        )
+
+        self.assertIsInstance(caught, LedgerError)
+        self.assertEqual("morning queue is invalid", str(caught))
+        self.assertNotEqual(0, completed.returncode)
+        self.assertEqual("", completed.stdout)
+        self.assertNotIn("Traceback", completed.stderr)
+        self.assertNotIn(huge_digits, completed.stderr)
+        self.assertEqual(before, self.run_file_bytes(run_directory))
+        self.assertFalse(
+            (run_directory / ".attempt-ledger.lock").exists()
+        )
+
     def test_recover_cli_restores_committed_proposal_without_media_or_transport(self):
         clip_id = generate_clip_id()
         audio_path = self.write_wav(clip_id)

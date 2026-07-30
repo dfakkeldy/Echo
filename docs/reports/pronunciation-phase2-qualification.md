@@ -30,7 +30,7 @@ The following independent local gates passed on 2026-07-29:
 | --- | --- |
 | Pronunciation corpus tests | 47 passed |
 | Pronunciation pack tests and regeneration check | 38 passed; generated pack matched the committed pack |
-| Development audio-judge tests | 83 passed without an API request |
+| Development audio-judge tests | 86 passed without an API request |
 | Task 10 Swift acceptance suite | 6 passed |
 | Echo test-products build | Passed |
 | Complete Echo unit-test gate | Passed before this test/tool/documentation-only correction; not rerun because production/shared Swift did not change |
@@ -231,6 +231,12 @@ check-to-publication swaps preserve both directory byte snapshots and create no
 replacement artifact. The descriptor prevents an after-check swap from
 redirecting writes to the replacement, but no stronger claim is made against a
 malicious same-UID actor mutating or renaming the already-open original.
+
+Run-claim, JSONL attempt-ledger, and morning-queue decoding translates
+duplicate keys, malformed JSON, non-finite constants, and parser
+`ValueError`s such as 5,000-digit integers into controlled `LedgerError`s.
+Both direct and shipped-recovery tests confirm no traceback or raw content,
+file mutation, or lock creation on those failures.
 
 Claims, ledger events, queue rows, model responses, input manifests, and
 provenance-authority bindings require exact JSON scalar types before equality,
