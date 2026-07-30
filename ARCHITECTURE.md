@@ -915,14 +915,22 @@ event. Reading the ledger verifies that linkage before any transition rule
 runs, so a rewritten or reordered interior event is refused rather than
 replayed. Chaining alone cannot detect a dropped final line, because the
 shortened chain still verifies, so the atomically written `attempt-state.json`
-records the committed `eventCount` and `lastEventSHA256`. A ledger that is
-shorter than the committed count, that no longer reproduces the committed head,
-or whose anchor is missing or unparseable over a multi-event ledger fails
-closed. A ledger exactly one fsynced append ahead of its snapshot is the sole
-tolerated inconsistency, because that is the only state an interrupted commit
-can produce, and recovery republishes it. This is tamper evidence, not tamper
-proofing: a same-UID actor who consistently forges both artifacts is still
-outside the model.
+records the committed `eventCount` and `lastEventSHA256`.
+
+The committed count is compared against the surviving events before any other
+rule, including before any emptiness shortcut: an emptied or unlinked ledger is
+the maximal truncation, not an exemption from it. A ledger shorter than the
+committed count, one whose committed prefix no longer reproduces the committed
+head, and an anchor that is missing or unparseable over a multi-event ledger
+all fail closed, and the mutating path refuses an empty ledger whenever an
+anchor exists. On the mutating path a ledger at most one fsynced append ahead
+of its snapshot is tolerated, because that is the only state an interrupted
+commit can produce. Recovery relaxes only that lag rule — it accepts any lag
+and migrates a pre-chain schema-1 anchor, since republishing a stale anchor is
+what the command exists for — while applying the same committed-prefix rule, so
+recovery is not a laundering path for a truncated ledger. This is tamper
+evidence, not tamper proofing: a same-UID actor who consistently forges both
+artifacts is still outside the model.
 
 Manifest, audio, and judge-owned artifact reads are bounded before allocation,
 and a manifest whose clip count exceeds the 200-request cap is refused before
@@ -932,7 +940,11 @@ Both pronunciation tools derive their protected repository scope from
 `git rev-parse --git-common-dir` and `git worktree list` rather than from the
 loading checkout alone, so a run root or external evidence path inside the
 canonical checkout or any sibling worktree is refused even when the tool runs
-from a linked worktree. Without git the loading checkout is still protected.
+from a linked worktree. Those queries run with `GIT_DIR`, `GIT_COMMON_DIR`,
+`GIT_WORK_TREE`, and `GIT_CEILING_DIRECTORIES` removed from the environment,
+because an ambient override silently redirected the scope at a decoy
+repository, dropping the real sibling worktrees from protection. Without git
+the loading checkout is still protected.
 
 Recovery opens the claimed run directory with `O_DIRECTORY | O_NOFOLLOW` and
 pins the descriptor's device/inode identity. Claim, ledger, and queue preflight;

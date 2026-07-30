@@ -2122,6 +2122,26 @@ git commit -m "feat: record contextual pronunciation shadow evidence"
 - Modify: `Makefile`
 - Modify: `Tools/Pronunciation/pronunciation_corpus.py`
 - Modify: `ARCHITECTURE.md`
+- Modify: `.github/workflows/ci.yml`
+
+**Amendment (2026-07-30, authorized by the user).** `.github/workflows/ci.yml`
+was not in this list when Task 10 was written, and the delivered change set
+included it. The user authorized keeping it inside Task 10, so it is recorded
+here rather than deferred.
+
+Rationale: the pronunciation corpus and audio-judge suites enforce privacy
+projection, prospective cap arithmetic, hardlink and symlink refusal,
+request/audio binding, and attempt-ledger tamper evidence. Before this change
+those guarantees held only when a human typed the Make target, so every
+guarantee the reviews confirmed was unenforced on every push and pull request.
+The `Build gate + tests` job is the gate that protects `main`, `weekly`, and
+`nightly`, which makes it the correct place to enforce them.
+
+Scope is bounded to the two existing test targets plus the media setup they
+require. The `ffmpeg`/`ffprobe` install is pinned rather than floating, and the
+suites keep their hard media requirement instead of a skip condition, because a
+silently skipped safety suite reports a false pass. No other job, target, or
+branch behavior is changed.
 
 ### 10.1 Write the program-level acceptance tests
 

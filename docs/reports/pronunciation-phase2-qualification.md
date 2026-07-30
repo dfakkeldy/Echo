@@ -1,6 +1,6 @@
 # Pronunciation Phases 0–2 Qualification
 
-Date: 2026-07-29
+Date: 2026-07-30 (second consolidated repair round)
 
 Overall status: **PENDING**. The independent local implementation gates listed
 below are complete, but corpus-dependent qualification is
@@ -13,42 +13,54 @@ separately.
 
 - Branch: `codex/global-pronunciation-context-design`, based on
   `origin/nightly`.
-- Last committed implementation before this correction:
-  `de922b7ea4f1928c5a78e0ce3819a99522a78dd8`.
-- The source state qualified by this report is that commit plus the Task 10
-  commit that contains this receipt. The final Task 10 identity is therefore
-  the commit containing this file; no circular placeholder hash is embedded
-  here.
+- Last committed implementation before this correction round:
+  `cd94cdcd9cbe64dc2c4b4d240a86418e21f28098`.
+- The source state qualified by this report is that commit plus the commits of
+  this repair round, ending with the commit that contains this receipt. The
+  final Task 10 identity is therefore the commit containing this file; no
+  circular placeholder hash is embedded here.
+- Every gate in the table below was run at the corrected state of this round.
+  An earlier revision of this table recorded the complete Echo unit-test gate
+  and the Release `echo-cli` build as "not rerun" while `progress.md` recorded
+  that both had run. That contradiction is resolved here in favour of what was
+  actually executed: both ran, and this table is the authoritative record.
 - The canonical Echo checkout and the separate Article Anthologies worktree
   were not modified by this work.
 
 ## Local unit and build gates
 
-The following independent local gates passed on 2026-07-29:
+The following independent local gates were each run separately and passed at
+the corrected state of this round on 2026-07-30. Nothing in this table is
+carried forward from an earlier state; a gate that was not rerun would be
+recorded as not rerun and would not count as a pass.
 
 | Gate | Result |
 | --- | --- |
-| Pronunciation corpus tests | 50 distinct test methods, 50 executed, all passed |
-| Pronunciation pack tests and regeneration check | 38 passed; generated pack matched the committed pack |
-| Development audio-judge tests | 89 distinct test methods, 111 executed, all passed without an API request |
+| Pronunciation corpus tests (`make pronunciation-corpus-test`) | 51 distinct test methods, 51 executed, all passed; contract `CONTRACT_VALID` with 37 named regressions |
+| Corpus qualification (`make pronunciation-corpus-qualification`) | Ran; reports `WAITING_FOR_HUMAN_LABELS` with zero qualifying rows, which is the truthful state and not a pass of qualification |
+| Development audio-judge tests (`make pronunciation-audio-judge-test`) | 95 distinct test methods, 119 executed, all passed without an API request |
+| Deterministic program report (`make pronunciation-program-report`, twice) | Two runs byte-identical; SHA-256 `f592456769e35628573415be183a5d9e37138ce84ed4c34391e36fd229bb0343`. This differs from the previous receipt's `12e0ad90…` because the named fixture gained one row and one field |
 | Task 10 Swift acceptance suite | 6 passed |
-| Echo test-products build | Passed |
-| Complete Echo unit-test gate | Passed before this test/tool/documentation-only correction; not rerun because production/shared Swift did not change |
-| Release `echo-cli` build | Passed before this test/tool/documentation-only correction; not rerun because production/shared Swift did not change |
-| Deterministic program report | Two runs were byte-identical; SHA-256 `12e0ad90053c066ccea016d489cc6bf5b191d44c1734b107740fc4012f24cc22` |
+| Complete Echo unit-test gate (`make test`) | Ran at the corrected state; `** TEST SUCCEEDED **`, zero recorded issues |
+| Release `echo-cli` build (`make echo-cli`) | Ran at the corrected state and completed successfully. No production or CLI-linked Swift changed this round — the only Swift change is a test file — so no relink was required and the Release product was already current |
+| Python compilation | `compileall` clean on both tools and both test modules |
+| Diff hygiene | `git diff --check` and `git diff --cached --check` both clean |
 
 Distinct and executed test counts are stated separately because both
-audio-judge gate classes inherit from `ManifestAdmissionTests`. Eleven methods
+audio-judge gate classes inherit from `ManifestAdmissionTests`. Twelve methods
 defined on that base class therefore execute three times — once in the base
 class and once in each of `EvaluationGateTests` and `AttemptLedgerTests` —
-so 89 distinct methods produce 111 executed tests. An earlier revision of this
+so 95 distinct methods produce 119 executed tests. An earlier revision of this
 report stated only the executed figure.
 
 The pronunciation corpus and audio-judge suites now run in hosted CI as
-dedicated pre-Xcode steps, with an explicit `ffmpeg`/`ffprobe` install step.
-The suites keep their hard `assertIsNotNone`/`check=True` media requirement
-rather than a skip condition, so an absent media toolchain fails the gate
-instead of silently reporting a pass.
+dedicated pre-Xcode steps, with a pinned and cached `ffmpeg`/`ffprobe` install
+step. The suites keep their hard `assertIsNotNone`/`check=True` media
+requirement rather than a skip condition, so an absent media toolchain fails
+the gate instead of silently reporting a pass. `.github/workflows/ci.yml` was
+not in the Task 10 Files list when the task was written; the user authorized
+keeping it inside Task 10, and the implementation plan now records it with its
+rationale.
 
 A local test or build is not hosted CI, device execution, rendered-audio
 verification, human listening, installation, or release proof. No hosted CI run
@@ -125,11 +137,18 @@ family and 50 per sense for:
 - `live.adjective`, `live.verb`, `lives.noun`, `lives.verb`
 - `record.noun`, `record.verb`
 
-Deterministic metric counts were 0 definitive/resolved, 13 advisory, and 23
-abstained. Those values are an explicit frozen discovery/analyzer-state
-contract for all 36 named rows, and the Swift acceptance suite binds every row
-to the production discovery and analyzer result. They are not inferred from
-case names or intended labels.
+Deterministic metric counts were 1 definitive/resolved, 13 advisory, and 23
+abstained across 37 named rows. Those values are an explicit frozen
+discovery/analyzer-state contract, and the Swift acceptance suite binds every
+row to the production discovery and analyzer result. They are not inferred
+from case names or intended labels.
+
+The single definitive row was added in this round. The matrix previously froze
+the definitive count at zero, which meant `homograph.content.adjective.copula`
+— the only promoted definitive rule in the system — had no named coverage, the
+`content` family could have passed its §13.3 named gate without ever running
+its own rule, and the definitive branch of the outcome derivation was dead with
+respect to this matrix. `named-content-definitive-copula` now exercises it.
 
 Every named row also carries the spec §13.1 `expectedOutcome`, restored as a
 required field alongside — not in place of — the discovery and analyzer-state
@@ -138,13 +157,44 @@ fields. Analyzer strength is deterministic evidence; the outcome is the
 separately. The Swift suite derives each row's outcome from production
 evidence rather than restating the fixture: a valid Misaki override, a
 definitive deterministic rule, or one explicit unambiguous lexicon candidate
-is `automatic` (§9.1), and everything else is `review` (§9.2). Phase 2 keeps
-every contextual family shadow-only, so §9.2's closing rule applies and the
-model is not acceptance evidence. The suite additionally proves the premise
-that makes the remaining rows review decisions: no contextual family spelling
-resolves to an automatic context-free candidate in the committed pack. The
-result is 4 `automatic` rows — exactly the four `override-markup` rows — and
-32 `review` rows.
+is `automatic` (§9.1), and everything else is `review` (§9.2). The result is 5
+`automatic` rows — the four `override-markup` rows plus the definitive copula
+row — and 32 `review` rows.
+
+The premise that makes the remaining rows review decisions is the resolver's
+`UniversalPronunciationResolver.contextualExclusions` set, which refuses these
+spellings *before* the pronunciation pack is consulted. An earlier revision of
+this receipt cited the pack's silence on those spellings instead. That premise
+was incidental — the pack is supplemental and already excludes 36,966 gold
+spellings — so it proved the wrong thing even though the behavior was
+fail-closed. The suite now asserts the exclusion set for every named row and
+feeds that into the outcome derivation.
+
+Every named row also declares
+`expectedOutcomePolicyMode: phase2-shadow-deterministic-only`, and the suite
+asserts the declared mode equals the mode it evaluates. The outcome column
+encodes one policy mode: §9.1's fifth clause — deterministic and model
+agreement on a graduated family — is inert while every family is shadow-only
+and goes live at Phase 3, which would otherwise silently invalidate the frozen
+column at exactly the moment §13.3 uses it to gate graduation. Adding a second
+mode is now an explicit, testable change rather than a silent reinterpretation.
+
+### Phase 0 contract amendment
+
+§14 Phase 0 froze the named-regression and morphology corpus contracts, and
+Task 10 materially rewrote the named contract: `expectedDiscoveryState` and
+`expectedAnalyzerState` were added, `expectedOutcome` was removed and then
+restored, `expectedOutcomePolicyMode` was added, and one row was appended. This
+is the explicit amendment record.
+
+The pre-removal `expectedOutcome` column was a per-shape constant, identical
+across all four families, that marked `misleading-adjacent-cue`,
+`heading-fragment`, and `malformed-fragment` as `review` and everything else as
+`automatic`. That assignment is unsatisfiable under §9.1: it marked rows
+`automatic` that have no override, no definitive rule, and no unambiguous
+lexicon candidate. It is superseded by the derived column described above,
+which is bound to production evidence. The morphology contract changes are
+recorded in the Task 10 report and commit history.
 
 Named rows are now evaluated over their full authored three-sentence window.
 `precedingSentence` and `followingSentence` are decoded and composed before
@@ -411,9 +461,48 @@ written. Local tests and builds are not hosted CI.
 - **A chained `CalledProcessError` carries the probed audio path in
   `__cause__`.** Redaction covers persisted artifacts and reported messages;
   the interpreter's exception chain is not redacted.
-- **`ffprobe` and `ffmpeg` are newly required external binaries.** Per the
-  repository dependency rule they are noted here explicitly: the audio-judge
-  gate cannot run without them, and CI installs them rather than skipping.
+- **`ffprobe` and `ffmpeg` are required external binaries for this gate.**
+  They are *not* newly required by Task 10, which an earlier revision of this
+  receipt stated incorrectly: `Tools/transcription_generator.py` already
+  required `ffmpeg` at `273cc88d` and documents `brew install ffmpeg`. What is
+  new is that a CI job now depends on them, so the install is pinned to a
+  formula version and its download cached rather than floating.
+
+## Named risk to check before the first paid request
+
+**The API refusal-field requirement may reject every real response.**
+`_post_chat_completion` requires `"refusal" in message` and treats its absence
+as an invalid envelope, which becomes a `PermanentTransportError`. The live
+Chat Completions API frequently omits `refusal` entirely. If it does, every
+real response fails closed and the paid lane cannot complete. This was found by
+code reading only. The paid lane is `WAITING_FOR_USER` and no outbound call was
+made to check, so this is recorded rather than tested. **Verify the actual
+response envelope against a single cheap request before running the corpus.**
+
+## Follow-ups recorded from the second review round, not implemented
+
+- **`_with_ledger_lock` does not pin the run directory's `(st_dev, st_ino)` or
+  re-validate the run claim under the lock**, unlike
+  `_with_recovery_ledger_lock`. Found by code reading; not reproduced. Closing
+  it changes the locking design on the mutating path, which is wider than a
+  repair round should take unreviewed.
+- **`run_evaluation` writes `morning-queue.json` outside the ledger lock**,
+  where `record_rerender` writes it under the lock, so a concurrent rerender's
+  rows could be clobbered. Found by code reading; not reproduced. Also a
+  concurrency design change.
+- **`REPOSITORY_ROOT` resolves to `/` if the tool is relocated to a shallow
+  path**, which makes every path "inside the repository" with a message that
+  does not explain why. Fail-closed but confusing. Not fixed, because skipping
+  a filesystem-root result would remove protection rather than add it.
+- **A repository rooted at `$HOME` would blanket-protect the home directory**,
+  since the protected root is the parent of the shared git directory. This is
+  correct behavior for a repository that really is rooted there, so adding a
+  `$HOME` exception would be a security regression rather than a fix.
+- **`git worktree list --porcelain` output is split with `splitlines()`**, so a
+  worktree path containing a newline would drop out of protection. Not fixed,
+  because a parsing rewrite for that input carries more risk than the case
+  warrants; the shared-git-directory query still protects the canonical
+  checkout.
 
 ## Explicitly unproven
 
