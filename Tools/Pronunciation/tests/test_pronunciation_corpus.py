@@ -157,6 +157,8 @@ def named_regression_matrix():
                     "followingSentence": None,
                     "expectedCandidateID": candidate,
                     "expectedOutcome": "review",
+                    "expectedOutcomePolicyMode":
+                        "phase2-shadow-deterministic-only",
                     "expectedDiscoveryState": "discovered",
                     "expectedAnalyzerState": "abstained",
                     "provenance": "synthetic",
@@ -769,7 +771,7 @@ class PronunciationCorpusTests(unittest.TestCase):
             ]
         )
 
-        self.assertEqual(36, len(rows))
+        self.assertEqual(37, len(rows))
         for row in rows:
             self.assertIn(
                 row["expectedOutcome"],
@@ -789,8 +791,39 @@ class PronunciationCorpusTests(unittest.TestCase):
                 row["caseID"]
                 for row in rows
                 if row["shape"] == "override-markup"
+                or row["expectedAnalyzerState"] == "definitive"
             },
         )
+        # One row must exercise the only promoted definitive rule, otherwise
+        # the family can pass its named gate without ever running it.
+        self.assertEqual(
+            1,
+            sum(
+                1
+                for row in rows
+                if row["expectedAnalyzerState"] == "definitive"
+            ),
+        )
+        for row in rows:
+            self.assertEqual(
+                "phase2-shadow-deterministic-only",
+                row["expectedOutcomePolicyMode"],
+                row["caseID"],
+            )
+
+    def test_named_regressions_require_a_known_outcome_policy_mode(self):
+        rows = named_regression_matrix()
+        rows[0].pop("expectedOutcomePolicyMode")
+
+        with self.assertRaisesRegex(ValueError, "expectedOutcomePolicyMode"):
+            validate_named_regressions(rows)
+
+        for invalid in ("", "phase3", "deterministic-only", None, 1):
+            with self.subTest(value=invalid):
+                rows = named_regression_matrix()
+                rows[0]["expectedOutcomePolicyMode"] = invalid
+                with self.assertRaises(ValueError):
+                    validate_named_regressions(rows)
 
     def test_named_regressions_enforce_live_spelling_candidate_mapping(self):
         probes = [
@@ -855,7 +888,7 @@ class PronunciationCorpusTests(unittest.TestCase):
         summary = validate_fixture_directory(FIXTURES)
 
         self.assertEqual("CONTRACT_VALID", summary["status"])
-        self.assertEqual(36, summary["namedRegressions"])
+        self.assertEqual(37, summary["namedRegressions"])
         self.assertEqual(12, summary["contextualCandidates"])
         self.assertEqual(0, summary["humanLabelledCases"])
         self.assertFalse(summary["humanLabelledFixturePresent"])
@@ -1198,7 +1231,7 @@ class PronunciationCorpusTests(unittest.TestCase):
         self.assertEqual(0, report["evidenceCounts"]["qualifyingHumanLabelled"])
         self.assertEqual(0, report["evidenceCounts"]["adjudicated"])
         self.assertEqual(
-            {"resolved": 0, "advisory": 13, "abstained": 23},
+            {"resolved": 1, "advisory": 13, "abstained": 23},
             report["deterministicCounts"],
         )
         self.assertEqual(

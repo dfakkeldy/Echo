@@ -67,6 +67,11 @@ ENGLISH_PRONUNCIATION_OVERRIDE_CHARACTERS = frozenset(
 PRONUNCIATION_OVERRIDE_SIGNAL_CHARACTERS = frozenset(
     "æɑɒɔəɛɜɪʊʌᵻðŋɡɹɾʃʒʤʧθˌˈː"
 )
+# Closed set of acceptance-policy modes a named row may declare.
+# `phase2-shadow-deterministic-only`: every contextual family is shadow-only,
+# so §9.2's closing rule applies, the model is not acceptance evidence, and
+# §9.1's fifth clause cannot fire.
+OUTCOME_POLICY_MODES = {"phase2-shadow-deterministic-only"}
 MINIMUM_FAMILY_CASES = 200
 MINIMUM_SENSE_CASES = 50
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -87,6 +92,22 @@ def protected_repository_roots() -> tuple[Path, ...]:
     roots = {REPOSITORY_ROOT}
 
     def _run_git(*arguments: str) -> list[str]:
+        # An ambient `GIT_DIR` (or the related overrides) silently redirects
+        # these queries at a decoy repository, which both drops the real
+        # sibling worktrees from protection and adds unrelated directories to
+        # it. The scope must follow this file's location, not the caller's
+        # environment.
+        environment = {
+            key: value
+            for key, value in os.environ.items()
+            if key
+            not in {
+                "GIT_DIR",
+                "GIT_COMMON_DIR",
+                "GIT_WORK_TREE",
+                "GIT_CEILING_DIRECTORIES",
+            }
+        }
         try:
             completed = subprocess.run(
                 ("git", "-C", str(REPOSITORY_ROOT), *arguments),
@@ -94,6 +115,7 @@ def protected_repository_roots() -> tuple[Path, ...]:
                 text=True,
                 check=True,
                 timeout=_GIT_QUERY_TIMEOUT_SECONDS,
+                env=environment,
             )
         except (OSError, subprocess.SubprocessError):
             return []
@@ -126,6 +148,8 @@ def _is_inside_a_repository(resolved: Path) -> bool:
         resolved == root or resolved.is_relative_to(root)
         for root in protected_repository_roots()
     )
+
+
 HUMAN_EVIDENCE_AUTHORITY_PURPOSE = (
     "pronunciation-human-evidence-qualification"
 )
@@ -868,6 +892,12 @@ def validate_named_regressions(
         # below: strength is deterministic evidence, outcome is the §9.1/§9.2
         # decision that evidence produces.
         "expectedOutcome",
+        # The outcome column encodes one policy mode. §9.1's fifth clause is
+        # inert while every family is shadow-only, and goes live at Phase 3,
+        # which would silently invalidate the frozen values exactly when
+        # §13.3 uses them to gate graduation. Naming the mode per row makes
+        # that transition an explicit, testable change.
+        "expectedOutcomePolicyMode",
         "expectedDiscoveryState",
         "expectedAnalyzerState",
         "provenance",
@@ -905,6 +935,7 @@ def validate_named_regressions(
             "targetSentence",
             "expectedCandidateID",
             "expectedOutcome",
+            "expectedOutcomePolicyMode",
             "expectedDiscoveryState",
             "expectedAnalyzerState",
         ):
@@ -946,6 +977,10 @@ def validate_named_regressions(
         if raw_row["expectedOutcome"] not in {"automatic", "review"}:
             raise ValueError(
                 "expected outcome must be automatic or review"
+            )
+        if raw_row["expectedOutcomePolicyMode"] not in OUTCOME_POLICY_MODES:
+            raise ValueError(
+                "expected outcome policy mode is not a known mode"
             )
         if raw_row["expectedDiscoveryState"] not in {"discovered", "excluded"}:
             raise ValueError(

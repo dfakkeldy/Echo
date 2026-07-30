@@ -27,8 +27,20 @@ import Testing
         let followingSentence: String?
         let expectedCandidateID: String
         let expectedOutcome: String
+        let expectedOutcomePolicyMode: String
         let expectedDiscoveryState: String
         let expectedAnalyzerState: String
+    }
+
+    /// The acceptance-policy mode the frozen outcome column encodes.
+    ///
+    /// §9.1's fifth clause — deterministic and model agreement on a graduated
+    /// family — is inert while every family is shadow-only, and goes live at
+    /// Phase 3. Without naming the mode, the frozen values would silently
+    /// become wrong exactly when §13.3 uses them to gate graduation.
+    private enum OutcomePolicyMode: String {
+        case phaseTwoShadowDeterministicOnly =
+            "phase2-shadow-deterministic-only"
     }
 
     /// The three-sentence context a named row is authored to exercise.
@@ -98,25 +110,39 @@ import Testing
         return false
     }
 
-    /// Spec §9.1/§9.2 evaluated against Phase 2 shadow evidence.
+    /// Spec §9.1/§9.2 evaluated in one named acceptance-policy mode.
     ///
-    /// Phase 2 keeps every contextual family shadow-only, so §9.2's closing
-    /// rule applies: the model is not acceptance evidence and Echo follows
-    /// the deterministic-only policy. That leaves exactly three automatic
-    /// routes from §9.1 — a valid override, a definitive deterministic rule,
-    /// and one explicit unambiguous lexicon candidate. Everything else is a
-    /// review decision.
+    /// §9.1 lists five automatic routes. In
+    /// `phase2-shadow-deterministic-only` two of them cannot fire and are
+    /// therefore not parameters here:
+    ///
+    /// - "one graduated, validated morphology candidate" cannot apply,
+    ///   because every target is a contextual homograph rather than a
+    ///   derived form, and morphology abstains on any spelling with an
+    ///   explicit source candidate.
+    /// - "deterministic and model agreement for a graduated contextual
+    ///   family on a qualified runtime" cannot apply, because no family is
+    ///   graduated and §9.2's closing rule makes the model non-acceptance
+    ///   evidence while a family is shadow-only.
+    ///
+    /// The three that can fire are passed in. Everything else is §9.2 review.
+    /// A different mode must be added explicitly rather than by reusing this
+    /// evaluation.
     private func hypotheticalAcceptanceOutcome(
+        mode: OutcomePolicyMode,
         overrideApplies: Bool,
         strength: DeterministicRuleStrength,
         hasUnambiguousLexiconCandidate: Bool
     ) -> String {
-        if overrideApplies || strength == .definitive
-            || hasUnambiguousLexiconCandidate
-        {
-            return "automatic"
+        switch mode {
+        case .phaseTwoShadowDeterministicOnly:
+            if overrideApplies || strength == .definitive
+                || hasUnambiguousLexiconCandidate
+            {
+                return "automatic"
+            }
+            return "review"
         }
-        return "review"
     }
 
     private struct MorphologyFixture: Decodable {
@@ -301,7 +327,7 @@ import Testing
                 as? [String: Any])
 
         #expect(contextual.count == 12)
-        #expect(named.count == 36)
+        #expect(named.count == 37)
         #expect(morphology.count == 14)
         #expect((distribution as? [Any])?.count == 10)
         #expect((research["sources"] as? [Any])?.count == 5)
@@ -428,16 +454,31 @@ import Testing
             #expect(
                 overrideApplies == (row.shape == "override-markup"),
                 Comment(rawValue: "\(row.caseID): override \(overrideApplies)"))
-            // No contextual family spelling may carry an automatic
-            // context-free lexicon candidate; that premise is what makes
-            // every non-override row a review decision.
+            // The production invariant is the resolver's exclusion set, which
+            // refuses these spellings *before* the pack is consulted. The
+            // pack's silence on them is incidental — it is supplemental and
+            // excludes tens of thousands of gold spellings — so asserting
+            // only the pack would prove the wrong thing.
+            #expect(
+                UniversalPronunciationResolver.contextualExclusions.contains(
+                    normalizedTarget),
+                Comment(rawValue: "\(row.caseID): contextual exclusion"))
             let unambiguousLexiconCandidate =
-                pack.automaticCandidate(for: normalizedTarget) != nil
+                !UniversalPronunciationResolver.contextualExclusions.contains(
+                    normalizedTarget)
+                && pack.automaticCandidate(for: normalizedTarget) != nil
             #expect(
                 !unambiguousLexiconCandidate,
                 Comment(rawValue: "\(row.caseID): lexicon candidate"))
 
+            let mode = try #require(
+                OutcomePolicyMode(rawValue: row.expectedOutcomePolicyMode),
+                Comment(rawValue: "\(row.caseID): unknown policy mode"))
+            #expect(
+                mode == .phaseTwoShadowDeterministicOnly,
+                Comment(rawValue: "\(row.caseID): evaluated mode"))
             let outcome = hypotheticalAcceptanceOutcome(
+                mode: mode,
                 overrideApplies: overrideApplies,
                 strength: analysis.strength,
                 hasUnambiguousLexiconCandidate: unambiguousLexiconCandidate)
@@ -446,11 +487,16 @@ import Testing
                 outcome == row.expectedOutcome,
                 Comment(rawValue: "\(row.caseID): outcome \(outcome)"))
         }
-        #expect(discoveryCounts == ["discovered": 20, "excluded": 16])
+        #expect(discoveryCounts == ["discovered": 21, "excluded": 16])
+        // Exactly one row exercises the only promoted definitive rule
+        // (`homograph.content.adjective.copula`). Freezing that count at zero
+        // let the `content` family pass its §13.3 named gate without ever
+        // running its own rule, and left the `.definitive` branch of the
+        // outcome derivation dead with respect to this matrix.
         #expect(
             analyzerCounts
-                == ["definitive": 0, "advisory": 13, "abstained": 23])
-        #expect(outcomeCounts == ["automatic": 4, "review": 32])
+                == ["definitive": 1, "advisory": 13, "abstained": 23])
+        #expect(outcomeCounts == ["automatic": 5, "review": 32])
     }
 
     @Test func everyMorphologyFixturePreservesFrozenProvenanceAcrossAuditCopies() throws {
