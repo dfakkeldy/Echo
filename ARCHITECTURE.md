@@ -900,16 +900,23 @@ unclaimed, repository-contained, and unsafe-artifact runs fail closed. Queue
 conflicts found by the outside-lock preflight do not change the snapshot,
 queue, ledger, receipt, or lock.
 
-Recovery pins the claimed run directory's no-symlink device/inode identity
-after preflight claim validation. The same exact identity is required before
-lock creation, again under the lock before ledger replay and queue planning,
-and before each derived snapshot or queue publication. Replacing the pathname
-with a second same-ID claimed directory therefore fails without writing either
-directory or creating a replacement lock. Run claims, ledger events, and queue
-rows also require their exact JSON scalar types before any equality, set
-membership, or regular-expression check: in particular, a boolean is not an
-integer schema version, and structured category, outcome, or source-commit
-values produce a controlled ledger error rather than a traceback.
+Recovery opens the claimed run directory with `O_DIRECTORY | O_NOFOLLOW` and
+pins the descriptor's device/inode identity. Claim, ledger, and queue preflight;
+the required existing ledger lock; the under-lock replay; temporary files; and
+atomic snapshot/queue replacements are all relative to that one descriptor.
+Recovery never creates a missing lock. The public pathname is revalidated
+before opening the lock and before each publication, so deterministic pathname
+replacement fails without changing either directory or creating a replacement
+artifact. If a malicious same-UID actor swaps the pathname after the final
+check, the descriptor still prevents redirection to the replacement, but this
+is not claimed as protection from mutation of the already-open original.
+
+Run claims, ledger events, queue rows, and model response fields require their
+exact JSON scalar types before any equality, set membership, or
+regular-expression check. A boolean is not an integer schema version, and
+structured category, outcome, source-commit, verdict, or response-category
+values produce controlled validation errors rather than tracebacks. Invalid
+model response values are never persisted.
 
 The judge does not let its input manifest authorize its own provenance. Each
 run requires a separate absolute, single-link regular, non-symlink authority

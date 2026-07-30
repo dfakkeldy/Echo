@@ -410,6 +410,26 @@ class ResponseValidationTests(unittest.TestCase):
                         ),
                     )
 
+    def test_nested_response_field_types_raise_controlled_validation_errors(self):
+        for field in (
+            "clipID",
+            "verdict",
+            "confidence",
+            "category",
+            "heard",
+            "note",
+        ):
+            with self.subTest(field=field):
+                payload = {
+                    **self.valid,
+                    field: {"nested-response-marker": "invalid"},
+                }
+                with self.assertRaises(ResponseValidationError):
+                    parse_verdict(
+                        json.dumps(payload),
+                        expected_clip_id=self.clip_id,
+                    )
+
 
 class EvaluationGateTests(ManifestAdmissionTests):
     def test_receipt_binds_the_single_manifest_snapshot_admitted_before_replacement(self):
@@ -1010,6 +1030,52 @@ class EvaluationGateTests(ManifestAdmissionTests):
                 persisted = artifact.read_text(encoding="utf-8", errors="ignore")
                 self.assertNotIn(secret_heard, persisted)
                 self.assertNotIn(secret_note, persisted)
+
+    def test_nested_verdict_vocabularies_never_escape_or_persist(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest(
+            [self.manifest_row(clip_id, path, 0.25)]
+        )
+        output_root = self.directory / "runs"
+        for field_index, field in enumerate(("verdict", "category")):
+            with self.subTest(field=field):
+                verdict = {
+                    "clipID": clip_id,
+                    "verdict": "pass",
+                    "confidence": 0.95,
+                    "category": "correct",
+                }
+                verdict[field] = {
+                    "nested-response-marker": "must-not-persist"
+                }
+                receipt = run_evaluation(
+                    manifest_path=manifest,
+                    run_id=f"nested-response-{field_index}",
+                    dry_run=False,
+                    output_root=output_root,
+                    environment={"OPENAI_API_KEY": "test-only-key"},
+                    transport=mock.Mock(
+                        return_value={
+                            "model": "gpt-audio-1.5",
+                            "content": json.dumps(verdict),
+                            "usage": {},
+                        }
+                    ),
+                )
+
+                self.assertEqual(
+                    "malformed_output",
+                    receipt["morningQueue"][0]["reasons"][0],
+                )
+                persisted = b"".join(
+                    path.read_bytes()
+                    for path in (
+                        output_root / f"nested-response-{field_index}"
+                    ).iterdir()
+                    if path.is_file()
+                )
+                self.assertNotIn(b"nested-response-marker", persisted)
 
     def test_revalidates_content_container_and_duration_before_each_transport_attempt(self):
         clip_id = generate_clip_id()
@@ -1803,8 +1869,8 @@ class AttemptLedgerTests(ManifestAdmissionTests):
                 self.assertEqual("", completed.stdout)
                 self.assertEqual(before, self.run_file_bytes(run_directory))
 
-    def test_recover_rejects_run_directory_swap_without_writing_replacement(self):
-        run_id = "directory-identity-swap"
+    def test_recover_lock_open_is_anchored_against_pathname_swap(self):
+        run_id = "directory-lock-swap"
         _clip_id, output_root = self.failing_run(run_id=run_id)
         run_directory = output_root / run_id
         replacement_root = self.directory / "replacement-runs"
@@ -1817,32 +1883,40 @@ class AttemptLedgerTests(ManifestAdmissionTests):
         (replacement_directory / "attempt-state.json").write_bytes(
             b"replacement stale snapshot\n"
         )
-        (run_directory / ".attempt-ledger.lock").unlink()
         (replacement_directory / ".attempt-ledger.lock").unlink()
         original_before = self.run_file_bytes(run_directory)
         replacement_before = self.run_file_bytes(replacement_directory)
         displaced_directory = output_root / f"{run_id}-displaced"
-        real_with_ledger_lock = audio_judge._with_ledger_lock
+        real_open = audio_judge.os.open
+        swapped = False
 
-        def swap_before_lock(
+        def swap_during_lock_open(
             path,
-            operation,
+            flags,
+            mode=0o777,
             *,
-            expected_run_identity=None,
+            dir_fd=None,
         ):
-            path.rename(displaced_directory)
-            replacement_directory.rename(path)
-            return real_with_ledger_lock(
+            nonlocal swapped
+            if (
+                not swapped
+                and Path(path).name == ".attempt-ledger.lock"
+            ):
+                run_directory.rename(displaced_directory)
+                replacement_directory.rename(run_directory)
+                swapped = True
+            return real_open(
                 path,
-                operation,
-                expected_run_identity=expected_run_identity,
+                flags,
+                mode,
+                dir_fd=dir_fd,
             )
 
         caught = None
         with mock.patch.object(
-            audio_judge,
-            "_with_ledger_lock",
-            side_effect=swap_before_lock,
+            audio_judge.os,
+            "open",
+            side_effect=swap_during_lock_open,
         ):
             try:
                 audio_judge.recover_run(
@@ -1864,6 +1938,93 @@ class AttemptLedgerTests(ManifestAdmissionTests):
         self.assertFalse(
             (run_directory / ".attempt-ledger.lock").exists()
         )
+
+    def test_recover_snapshot_publish_is_anchored_against_pathname_swap(self):
+        run_id = "directory-publish-swap"
+        _clip_id, output_root = self.failing_run(run_id=run_id)
+        run_directory = output_root / run_id
+        replacement_root = self.directory / "publish-replacement-runs"
+        replacement_root.mkdir()
+        replacement_directory = replacement_root / run_id
+        shutil.copytree(run_directory, replacement_directory)
+        (run_directory / "attempt-state.json").write_bytes(
+            b"original stale snapshot\n"
+        )
+        (replacement_directory / "attempt-state.json").write_bytes(
+            b"replacement stale snapshot\n"
+        )
+        original_before = self.run_file_bytes(run_directory)
+        replacement_before = self.run_file_bytes(replacement_directory)
+        displaced_directory = output_root / f"{run_id}-displaced"
+        real_open = audio_judge.os.open
+        swapped = False
+
+        def swap_during_snapshot_temp_open(
+            path,
+            flags,
+            mode=0o777,
+            *,
+            dir_fd=None,
+        ):
+            nonlocal swapped
+            name = Path(path).name
+            if (
+                not swapped
+                and name.startswith(".attempt-state.json.")
+                and name.endswith(".tmp")
+            ):
+                run_directory.rename(displaced_directory)
+                replacement_directory.rename(run_directory)
+                swapped = True
+            return real_open(
+                path,
+                flags,
+                mode,
+                dir_fd=dir_fd,
+            )
+
+        caught = None
+        with mock.patch.object(
+            audio_judge.os,
+            "open",
+            side_effect=swap_during_snapshot_temp_open,
+        ):
+            try:
+                audio_judge.recover_run(
+                    run_id=run_id,
+                    output_root=output_root,
+                )
+            except Exception as error:
+                caught = error
+
+        self.assertIsInstance(caught, LedgerError)
+        self.assertEqual(
+            original_before,
+            self.run_file_bytes(displaced_directory),
+        )
+        self.assertEqual(
+            replacement_before,
+            self.run_file_bytes(run_directory),
+        )
+
+    def test_recover_requires_existing_lock_without_creating_one(self):
+        run_id = "missing-recovery-lock"
+        _clip_id, output_root = self.failing_run(run_id=run_id)
+        run_directory = output_root / run_id
+        lock_path = run_directory / ".attempt-ledger.lock"
+        lock_path.unlink()
+        before = self.run_file_bytes(run_directory)
+
+        completed = self.run_recovery_cli(
+            run_id=run_id,
+            output_root=output_root,
+        )
+
+        self.assertNotEqual(0, completed.returncode)
+        self.assertEqual("", completed.stdout)
+        self.assertNotIn("Traceback", completed.stderr)
+        self.assertEqual(before, self.run_file_bytes(run_directory))
+        self.assertFalse(lock_path.exists())
 
     def test_recover_rejects_non_exact_json_types_without_mutation_or_traceback(self):
         probes = (

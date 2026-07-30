@@ -308,6 +308,30 @@ def _validate_existing_mutable_file(
         raise error_type(f"{name} cannot be a hardlink")
 
 
+def _validate_existing_mutable_file_at(
+    directory_descriptor: int,
+    filename: str,
+    *,
+    error_type: type[ManifestError] | type[LedgerError],
+    name: str,
+) -> bool:
+    try:
+        metadata = os.stat(
+            filename,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+    except FileNotFoundError:
+        return False
+    except OSError as error:
+        raise error_type(f"{name} is invalid") from error
+    if not stat.S_ISREG(metadata.st_mode):
+        raise error_type(f"{name} is not a regular file")
+    if metadata.st_nlink != 1:
+        raise error_type(f"{name} cannot be a hardlink")
+    return True
+
+
 def _run_directory_identity(run_directory: Path) -> tuple[int, int]:
     try:
         metadata = run_directory.lstat()
@@ -326,6 +350,28 @@ def _require_run_directory_identity(
         raise LedgerError("judge-owned run directory identity changed")
 
 
+def _open_run_directory_descriptor(
+    run_directory: Path,
+    expected_identity: tuple[int, int],
+) -> int:
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    try:
+        descriptor = os.open(run_directory, flags)
+    except OSError as error:
+        raise LedgerError("judge-owned run directory is invalid") from error
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISDIR(metadata.st_mode)
+            or (metadata.st_dev, metadata.st_ino) != expected_identity
+        ):
+            raise LedgerError("judge-owned run directory identity changed")
+        return descriptor
+    except Exception:
+        os.close(descriptor)
+        raise
+
+
 def _read_unique_regular_bytes(
     path: Path,
     *,
@@ -337,6 +383,39 @@ def _read_unique_regular_bytes(
         flags |= os.O_NOFOLLOW
     try:
         descriptor = os.open(path, flags)
+        with os.fdopen(descriptor, "rb") as source:
+            _require_unique_regular_descriptor(
+                source.fileno(),
+                error_type=error_type,
+                name=name,
+            )
+            value = source.read()
+            _require_unique_regular_descriptor(
+                source.fileno(),
+                error_type=error_type,
+                name=name,
+            )
+            return value
+    except error_type:
+        raise
+    except OSError as error:
+        raise error_type(f"{name} is invalid") from error
+
+
+def _read_unique_regular_bytes_at(
+    directory_descriptor: int,
+    filename: str,
+    *,
+    error_type: type[ManifestError] | type[LedgerError],
+    name: str,
+) -> bytes:
+    flags = os.O_RDONLY | os.O_NOFOLLOW
+    try:
+        descriptor = os.open(
+            filename,
+            flags,
+            dir_fd=directory_descriptor,
+        )
         with os.fdopen(descriptor, "rb") as source:
             _require_unique_regular_descriptor(
                 source.fileno(),
@@ -659,6 +738,8 @@ def parse_verdict(payload: str, *, expected_clip_id: str) -> dict[str, Any]:
             result[key] = value
         return result
 
+    if not _has_exact_json_type(payload, str):
+        raise ResponseValidationError("result is not one JSON object")
     try:
         decoded = json.loads(
             payload,
@@ -676,23 +757,31 @@ def parse_verdict(payload: str, *, expected_clip_id: str) -> dict[str, Any]:
         or not fields.issubset(VERDICT_REQUIRED_FIELDS | VERDICT_OPTIONAL_FIELDS)
     ):
         raise ResponseValidationError("result fields do not match the contract")
-    if decoded["clipID"] != expected_clip_id or not validate_clip_id(decoded["clipID"]):
+    clip_id = decoded["clipID"]
+    if (
+        not _has_exact_json_type(clip_id, str)
+        or clip_id != expected_clip_id
+        or not validate_clip_id(clip_id)
+    ):
         raise ResponseValidationError("result clipID does not match")
-    if decoded["verdict"] not in VERDICTS:
+    if not _is_exact_string_choice(decoded["verdict"], VERDICTS):
         raise ResponseValidationError("result verdict is invalid")
     confidence = decoded["confidence"]
     if (
-        not isinstance(confidence, (int, float))
-        or isinstance(confidence, bool)
+        not (
+            _has_exact_json_type(confidence, int)
+            or _has_exact_json_type(confidence, float)
+        )
         or not math.isfinite(confidence)
         or not 0.0 <= confidence <= 1.0
     ):
         raise ResponseValidationError("result confidence is invalid")
-    if decoded["category"] not in CATEGORIES:
+    if not _is_exact_string_choice(decoded["category"], CATEGORIES):
         raise ResponseValidationError("result category is invalid")
     for name, limit in (("heard", 160), ("note", 400)):
         if name in decoded and (
-            not isinstance(decoded[name], str) or len(decoded[name]) > limit
+            not _has_exact_json_type(decoded[name], str)
+            or len(decoded[name]) > limit
         ):
             raise ResponseValidationError(f"result {name} is invalid")
     return decoded
@@ -918,6 +1007,82 @@ def _atomic_write_json(
         raise
 
 
+def _atomic_write_json_at(
+    directory_descriptor: int,
+    run_directory: Path,
+    expected_run_identity: tuple[int, int],
+    filename: str,
+    value: Any,
+    *,
+    artifact_name: str,
+) -> None:
+    _require_run_directory_identity(
+        run_directory,
+        expected_run_identity,
+    )
+    _validate_existing_mutable_file_at(
+        directory_descriptor,
+        filename,
+        error_type=LedgerError,
+        name=artifact_name,
+    )
+    temporary = f".{filename}.{uuid.uuid4().hex}.tmp"
+    serialized = (
+        json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
+    ).encode("utf-8")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+    try:
+        descriptor = os.open(
+            temporary,
+            flags,
+            0o600,
+            dir_fd=directory_descriptor,
+        )
+        with os.fdopen(descriptor, "wb") as output:
+            _require_unique_regular_descriptor(
+                output.fileno(),
+                error_type=LedgerError,
+                name="temporary run artifact",
+            )
+            output.write(serialized)
+            output.flush()
+            os.fsync(output.fileno())
+            _require_unique_regular_descriptor(
+                output.fileno(),
+                error_type=LedgerError,
+                name="temporary run artifact",
+            )
+        _require_run_directory_identity(
+            run_directory,
+            expected_run_identity,
+        )
+        _validate_existing_mutable_file_at(
+            directory_descriptor,
+            filename,
+            error_type=LedgerError,
+            name=artifact_name,
+        )
+        os.replace(
+            temporary,
+            filename,
+            src_dir_fd=directory_descriptor,
+            dst_dir_fd=directory_descriptor,
+        )
+        os.fsync(directory_descriptor)
+    except Exception as error:
+        try:
+            os.unlink(temporary, dir_fd=directory_descriptor)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
+        if isinstance(error, LedgerError):
+            raise
+        if isinstance(error, OSError):
+            raise LedgerError(f"{artifact_name} is invalid") from error
+        raise
+
+
 def _exclusive_write_json(path: Path, value: Any) -> None:
     """Durably create a JSON artifact without permitting replacement."""
     serialized = (
@@ -1071,28 +1236,10 @@ def _validated_run_root(
     return resolved
 
 
-def _run_directory(run_id: str, output_root: str | Path | None) -> Path:
-    if RUN_ID_PATTERN.fullmatch(run_id) is None:
-        raise LedgerError("run identifier is invalid")
-    root = _validated_run_root(
-        output_root,
-        error_type=LedgerError,
-        require_exists=True,
-    )
-    run_directory = root / run_id
-    if (
-        not run_directory.is_dir()
-        or run_directory.is_symlink()
-    ):
-        raise LedgerError("judge-owned run claim is unavailable")
-    claim_path = run_directory / "run-claim.json"
+def _validate_run_claim_bytes(content: bytes, run_id: str) -> None:
     try:
         claim = json.loads(
-            _read_unique_regular_bytes(
-                claim_path,
-                error_type=LedgerError,
-                name="judge-owned run claim",
-            ).decode("utf-8"),
+            content.decode("utf-8"),
             object_pairs_hook=_strict_object,
             parse_constant=lambda _value: (_ for _ in ()).throw(
                 LedgerError("judge-owned run claim is invalid")),
@@ -1110,19 +1257,46 @@ def _run_directory(run_id: str, output_root: str | Path | None) -> Path:
         or claim["state"] != "claimed"
     ):
         raise LedgerError("judge-owned run claim is invalid")
+
+
+def _run_directory_path(
+    run_id: str,
+    output_root: str | Path | None,
+) -> Path:
+    if RUN_ID_PATTERN.fullmatch(run_id) is None:
+        raise LedgerError("run identifier is invalid")
+    root = _validated_run_root(
+        output_root,
+        error_type=LedgerError,
+        require_exists=True,
+    )
+    run_directory = root / run_id
+    if (
+        not run_directory.is_dir()
+        or run_directory.is_symlink()
+    ):
+        raise LedgerError("judge-owned run claim is unavailable")
     return run_directory
 
 
-def _load_ledger_events(ledger_path: Path) -> list[dict[str, Any]]:
-    if not ledger_path.exists():
-        return []
+def _run_directory(run_id: str, output_root: str | Path | None) -> Path:
+    run_directory = _run_directory_path(run_id, output_root)
+    claim_path = run_directory / "run-claim.json"
+    _validate_run_claim_bytes(
+        _read_unique_regular_bytes(
+            claim_path,
+            error_type=LedgerError,
+            name="judge-owned run claim",
+        ),
+        run_id,
+    )
+    return run_directory
+
+
+def _decode_ledger_events(content: bytes) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     try:
-        raw_ledger = _read_unique_regular_bytes(
-            ledger_path,
-            error_type=LedgerError,
-            name="attempt ledger",
-        ).decode("utf-8")
+        raw_ledger = content.decode("utf-8")
         for line in raw_ledger.splitlines():
             decoded = json.loads(line, object_pairs_hook=_strict_object)
             if not isinstance(decoded, dict):
@@ -1131,6 +1305,38 @@ def _load_ledger_events(ledger_path: Path) -> list[dict[str, Any]]:
     except (OSError, UnicodeError, json.JSONDecodeError, ManifestError) as error:
         raise LedgerError("attempt ledger is invalid") from error
     return events
+
+
+def _load_ledger_events(ledger_path: Path) -> list[dict[str, Any]]:
+    if not ledger_path.exists():
+        return []
+    return _decode_ledger_events(
+        _read_unique_regular_bytes(
+            ledger_path,
+            error_type=LedgerError,
+            name="attempt ledger",
+        )
+    )
+
+
+def _load_ledger_events_at(
+    directory_descriptor: int,
+) -> list[dict[str, Any]]:
+    if not _validate_existing_mutable_file_at(
+        directory_descriptor,
+        "attempt-ledger.jsonl",
+        error_type=LedgerError,
+        name="attempt ledger",
+    ):
+        return []
+    return _decode_ledger_events(
+        _read_unique_regular_bytes_at(
+            directory_descriptor,
+            "attempt-ledger.jsonl",
+            error_type=LedgerError,
+            name="attempt ledger",
+        )
+    )
 
 
 def _derive_attempt_states(
@@ -1303,6 +1509,25 @@ def _write_attempt_snapshot(
     )
 
 
+def _write_attempt_snapshot_at(
+    directory_descriptor: int,
+    run_directory: Path,
+    expected_run_identity: tuple[int, int],
+    states: dict[str, dict[str, Any]],
+) -> None:
+    _atomic_write_json_at(
+        directory_descriptor,
+        run_directory,
+        expected_run_identity,
+        "attempt-state.json",
+        {
+            "schemaVersion": 1,
+            "clips": {key: states[key] for key in sorted(states)},
+        },
+        artifact_name="attempt state",
+    )
+
+
 def _append_ledger_event_locked(
     run_directory: Path,
     events: list[dict[str, Any]],
@@ -1379,14 +1604,7 @@ def _recover_committed_event_locked(
 def _with_ledger_lock(
     run_directory: Path,
     operation: Callable[[list[dict[str, Any]]], Any],
-    *,
-    expected_run_identity: tuple[int, int] | None = None,
 ) -> Any:
-    if expected_run_identity is not None:
-        _require_run_directory_identity(
-            run_directory,
-            expected_run_identity,
-        )
     lock_path = run_directory / ".attempt-ledger.lock"
     for artifact_path, artifact_name in (
         (lock_path, "attempt ledger lock"),
@@ -1416,11 +1634,6 @@ def _with_ledger_lock(
     with os.fdopen(descriptor, "a+", encoding="utf-8") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         try:
-            if expected_run_identity is not None:
-                _require_run_directory_identity(
-                    run_directory,
-                    expected_run_identity,
-                )
             events = _load_ledger_events(run_directory / "attempt-ledger.jsonl")
             return operation(events)
         finally:
@@ -1619,22 +1832,10 @@ def _required_terminal_queue_entries(
     ]
 
 
-def _load_morning_queue(run_directory: Path) -> list[dict[str, Any]]:
-    queue_path = run_directory / "morning-queue.json"
-    _validate_existing_mutable_file(
-        queue_path,
-        error_type=LedgerError,
-        name="morning queue",
-    )
-    if not queue_path.exists():
-        return []
+def _decode_morning_queue(content: bytes) -> list[dict[str, Any]]:
     try:
         queue = json.loads(
-            _read_unique_regular_bytes(
-                queue_path,
-                error_type=LedgerError,
-                name="morning queue",
-            ).decode("utf-8"),
+            content.decode("utf-8"),
             object_pairs_hook=_strict_object,
             parse_constant=lambda _value: (_ for _ in ()).throw(
                 LedgerError("morning queue is invalid")),
@@ -1651,6 +1852,44 @@ def _load_morning_queue(run_directory: Path) -> list[dict[str, Any]]:
     ):
         raise LedgerError("morning queue is invalid")
     return queue
+
+
+def _load_morning_queue(run_directory: Path) -> list[dict[str, Any]]:
+    queue_path = run_directory / "morning-queue.json"
+    _validate_existing_mutable_file(
+        queue_path,
+        error_type=LedgerError,
+        name="morning queue",
+    )
+    if not queue_path.exists():
+        return []
+    return _decode_morning_queue(
+        _read_unique_regular_bytes(
+            queue_path,
+            error_type=LedgerError,
+            name="morning queue",
+        )
+    )
+
+
+def _load_morning_queue_at(
+    directory_descriptor: int,
+) -> list[dict[str, Any]]:
+    if not _validate_existing_mutable_file_at(
+        directory_descriptor,
+        "morning-queue.json",
+        error_type=LedgerError,
+        name="morning queue",
+    ):
+        return []
+    return _decode_morning_queue(
+        _read_unique_regular_bytes_at(
+            directory_descriptor,
+            "morning-queue.json",
+            error_type=LedgerError,
+            name="morning queue",
+        )
+    )
 
 
 def _plan_morning_queue(
@@ -1758,6 +1997,26 @@ def _publish_morning_queue_plan(
     )
 
 
+def _publish_morning_queue_plan_at(
+    directory_descriptor: int,
+    run_directory: Path,
+    expected_run_identity: tuple[int, int],
+    *,
+    current_queue: list[dict[str, Any]],
+    planned_queue: list[dict[str, Any]],
+) -> None:
+    if planned_queue == current_queue:
+        return
+    _atomic_write_json_at(
+        directory_descriptor,
+        run_directory,
+        expected_run_identity,
+        "morning-queue.json",
+        planned_queue,
+        artifact_name="morning queue",
+    )
+
+
 def record_rerender(
     *,
     run_id: str,
@@ -1854,56 +2113,176 @@ def record_rerender(
     return _with_ledger_lock(run_directory, operation)
 
 
+def _with_recovery_ledger_lock(
+    run_directory: Path,
+    directory_descriptor: int,
+    expected_run_identity: tuple[int, int],
+    run_id: str,
+    operation: Callable[
+        [
+            list[dict[str, Any]],
+            dict[str, dict[str, Any]],
+            list[dict[str, Any]],
+            list[dict[str, Any]],
+        ],
+        Any,
+    ],
+) -> Any:
+    _require_run_directory_identity(
+        run_directory,
+        expected_run_identity,
+    )
+    for filename, artifact_name in (
+        ("attempt-ledger.jsonl", "attempt ledger"),
+        ("attempt-state.json", "attempt state"),
+        ("morning-queue.json", "morning queue"),
+    ):
+        _validate_existing_mutable_file_at(
+            directory_descriptor,
+            filename,
+            error_type=LedgerError,
+            name=artifact_name,
+        )
+    if not _validate_existing_mutable_file_at(
+        directory_descriptor,
+        ".attempt-ledger.lock",
+        error_type=LedgerError,
+        name="attempt ledger lock",
+    ):
+        raise LedgerError("attempt ledger lock is unavailable")
+    flags = os.O_RDWR | os.O_NOFOLLOW
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(
+            ".attempt-ledger.lock",
+            flags,
+            dir_fd=directory_descriptor,
+        )
+        _require_unique_regular_descriptor(
+            descriptor,
+            error_type=LedgerError,
+            name="attempt ledger lock",
+        )
+    except LedgerError:
+        if descriptor is not None:
+            os.close(descriptor)
+        raise
+    except OSError as error:
+        if descriptor is not None:
+            os.close(descriptor)
+        raise LedgerError("attempt ledger lock is invalid") from error
+    try:
+        with os.fdopen(descriptor, "a+", encoding="utf-8") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            try:
+                _require_unique_regular_descriptor(
+                    lock.fileno(),
+                    error_type=LedgerError,
+                    name="attempt ledger lock",
+                )
+                _require_run_directory_identity(
+                    run_directory,
+                    expected_run_identity,
+                )
+                _validate_run_claim_bytes(
+                    _read_unique_regular_bytes_at(
+                        directory_descriptor,
+                        "run-claim.json",
+                        error_type=LedgerError,
+                        name="judge-owned run claim",
+                    ),
+                    run_id,
+                )
+                events = _load_ledger_events_at(directory_descriptor)
+                if not events:
+                    raise LedgerError("attempt ledger is empty")
+                states = _derive_attempt_states(events)
+                current_queue = _load_morning_queue_at(directory_descriptor)
+                planned_queue = _plan_morning_queue(events, current_queue)
+                return operation(
+                    events,
+                    states,
+                    current_queue,
+                    planned_queue,
+                )
+            finally:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+    except LedgerError:
+        raise
+    except OSError as error:
+        raise LedgerError("attempt ledger lock is invalid") from error
+
+
 def recover_run(
     *,
     run_id: str,
     output_root: str | Path | None = None,
 ) -> dict[str, Any]:
     """Republish ledger-derived local artifacts without evaluating audio."""
-    run_directory = _run_directory(run_id, output_root)
+    run_directory = _run_directory_path(run_id, output_root)
     run_identity = _run_directory_identity(run_directory)
-    preflight_events = _load_ledger_events(
-        run_directory / "attempt-ledger.jsonl"
-    )
-    if not preflight_events:
-        raise LedgerError("attempt ledger is empty")
-    _derive_attempt_states(preflight_events)
-    preflight_queue = _load_morning_queue(run_directory)
-    _plan_morning_queue(preflight_events, preflight_queue)
-
-    def operation(events: list[dict[str, Any]]) -> dict[str, Any]:
-        _require_run_directory_identity(run_directory, run_identity)
-        if not events:
-            raise LedgerError("attempt ledger is empty")
-        states = _derive_attempt_states(events)
-        current_queue = _load_morning_queue(run_directory)
-        planned_queue = _plan_morning_queue(events, current_queue)
-        terminal_queue_entries = _required_terminal_queue_entries(events)
-        _require_run_directory_identity(run_directory, run_identity)
-        _write_attempt_snapshot(run_directory, states)
-        _require_run_directory_identity(run_directory, run_identity)
-        _publish_morning_queue_plan(
-            run_directory,
-            current_queue=current_queue,
-            planned_queue=planned_queue,
-        )
-        return {
-            "schemaVersion": 1,
-            "runID": run_id,
-            "status": "RECOVERED",
-            "ledgerEventCount": len(events),
-            "clipStateCount": len(states),
-            "attemptStatePublished": True,
-            "morningQueueEntryCount": len(terminal_queue_entries),
-            "requestCount": 0,
-            "transportAttemptCount": 0,
-        }
-
-    return _with_ledger_lock(
+    directory_descriptor = _open_run_directory_descriptor(
         run_directory,
-        operation,
-        expected_run_identity=run_identity,
+        run_identity,
     )
+    try:
+        _validate_run_claim_bytes(
+            _read_unique_regular_bytes_at(
+                directory_descriptor,
+                "run-claim.json",
+                error_type=LedgerError,
+                name="judge-owned run claim",
+            ),
+            run_id,
+        )
+        preflight_events = _load_ledger_events_at(directory_descriptor)
+        if not preflight_events:
+            raise LedgerError("attempt ledger is empty")
+        _derive_attempt_states(preflight_events)
+        preflight_queue = _load_morning_queue_at(directory_descriptor)
+        _plan_morning_queue(preflight_events, preflight_queue)
+
+        def operation(
+            events: list[dict[str, Any]],
+            states: dict[str, dict[str, Any]],
+            current_queue: list[dict[str, Any]],
+            planned_queue: list[dict[str, Any]],
+        ) -> dict[str, Any]:
+            terminal_queue_entries = _required_terminal_queue_entries(events)
+            _write_attempt_snapshot_at(
+                directory_descriptor,
+                run_directory,
+                run_identity,
+                states,
+            )
+            _publish_morning_queue_plan_at(
+                directory_descriptor,
+                run_directory,
+                run_identity,
+                current_queue=current_queue,
+                planned_queue=planned_queue,
+            )
+            return {
+                "schemaVersion": 1,
+                "runID": run_id,
+                "status": "RECOVERED",
+                "ledgerEventCount": len(events),
+                "clipStateCount": len(states),
+                "attemptStatePublished": True,
+                "morningQueueEntryCount": len(terminal_queue_entries),
+                "requestCount": 0,
+                "transportAttemptCount": 0,
+            }
+
+        return _with_recovery_ledger_lock(
+            run_directory,
+            directory_descriptor,
+            run_identity,
+            run_id,
+            operation,
+        )
+    finally:
+        os.close(directory_descriptor)
 
 
 def _result_proof_boundaries(label_status: str) -> dict[str, Any]:
