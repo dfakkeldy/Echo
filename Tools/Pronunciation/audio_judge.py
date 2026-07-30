@@ -823,6 +823,18 @@ def parse_verdict(payload: str, *, expected_clip_id: str) -> dict[str, Any]:
     return decoded
 
 
+def _request_prompt(clip_id: str) -> str:
+    return (
+        "Judge only the pronunciation in this short public-domain or synthetic "
+        "audio clip under the closed pronunciation-acceptability contract. "
+        "Return exactly one JSON object with clipID, verdict, confidence, and "
+        "category. verdict must be exactly one of: pass, fail, uncertain. "
+        "category must be exactly one of: correct, wrong_word, wrong_sense, "
+        "stress, vowel, consonant, timing, artifact, inaudible, other. "
+        f"The clipID must be {clip_id}. Do not include markdown or prose."
+    )
+
+
 def _request_estimate(clip: AdmittedClip, body: dict[str, Any]) -> dict[str, Any]:
     """Derive conservative tokens from exact request bytes and probed audio."""
     try:
@@ -832,23 +844,71 @@ def _request_estimate(clip: AdmittedClip, body: dict[str, Any]) -> dict[str, Any
             parse_constant=lambda _value: (_ for _ in ()).throw(
                 ManifestError("request body is invalid")),
         )
-        if not _has_exact_json_type(stripped_body, dict):
-            raise ManifestError("request body is invalid")
-        messages = stripped_body.get("messages")
-        if not _has_exact_json_type(messages, list) or not messages:
-            raise ManifestError("request body is invalid")
-        message = messages[0]
-        if not _has_exact_json_type(message, dict):
-            raise ManifestError("request body is invalid")
-        content = message.get("content")
         if (
-            not _has_exact_json_type(content, list)
-            or len(content) < 2
-            or not _has_exact_json_type(content[1], dict)
+            not _has_exact_json_type(stripped_body, dict)
+            or set(stripped_body)
+            != {
+                "model",
+                "messages",
+                "modalities",
+                "max_completion_tokens",
+            }
+            or not _has_exact_json_type(stripped_body["model"], str)
+            or stripped_body["model"] != MODEL_ID
+            or stripped_body["modalities"] != ["text"]
+            or not _has_exact_json_type(
+                stripped_body["max_completion_tokens"],
+                int,
+            )
+            or (
+                stripped_body["max_completion_tokens"]
+                != FIXED_MAX_TEXT_OUTPUT_TOKENS
+            )
         ):
             raise ManifestError("request body is invalid")
-        input_audio = content[1].get("input_audio")
-        if not _has_exact_json_type(input_audio, dict):
+        messages = stripped_body["messages"]
+        if (
+            not _has_exact_json_type(messages, list)
+            or len(messages) != 1
+        ):
+            raise ManifestError("request body is invalid")
+        message = messages[0]
+        if (
+            not _has_exact_json_type(message, dict)
+            or set(message) != {"role", "content"}
+            or not _has_exact_json_type(message["role"], str)
+            or message["role"] != "user"
+        ):
+            raise ManifestError("request body is invalid")
+        content = message["content"]
+        if (
+            not _has_exact_json_type(content, list)
+            or len(content) != 2
+        ):
+            raise ManifestError("request body is invalid")
+        text_item, audio_item = content
+        if (
+            not _has_exact_json_type(text_item, dict)
+            or set(text_item) != {"type", "text"}
+            or not _has_exact_json_type(text_item["type"], str)
+            or text_item["type"] != "text"
+            or not _has_exact_json_type(text_item["text"], str)
+            or text_item["text"] != _request_prompt(clip.clip_id)
+            or not _has_exact_json_type(audio_item, dict)
+            or set(audio_item) != {"type", "input_audio"}
+            or not _has_exact_json_type(audio_item["type"], str)
+            or audio_item["type"] != "input_audio"
+        ):
+            raise ManifestError("request body is invalid")
+        input_audio = audio_item["input_audio"]
+        if (
+            not _has_exact_json_type(input_audio, dict)
+            or set(input_audio) != {"data", "format"}
+            or not _has_exact_json_type(input_audio["data"], str)
+            or not _has_exact_json_type(input_audio["format"], str)
+            or input_audio["format"] != clip.audio_format
+            or input_audio["format"] not in {"wav", "mp3"}
+        ):
             raise ManifestError("request body is invalid")
         encoded_audio = input_audio.pop("data")
         serialized_text_request = json.dumps(
@@ -908,22 +968,13 @@ def enforce_prospective_cap(
 def build_request_body(clip: AdmittedClip) -> dict[str, Any]:
     """Build one Chat Completions audio-input/text-output request."""
     audio = encode_audio(clip)
-    prompt = (
-        "Judge only the pronunciation in this short public-domain or synthetic "
-        "audio clip under the closed pronunciation-acceptability contract. "
-        "Return exactly one JSON object with clipID, verdict, confidence, and "
-        "category. verdict must be exactly one of: pass, fail, uncertain. "
-        "category must be exactly one of: correct, wrong_word, wrong_sense, "
-        "stress, vowel, consonant, timing, artifact, inaudible, other. "
-        f"The clipID must be {clip.clip_id}. Do not include markdown or prose."
-    )
     return {
         "model": MODEL_ID,
         "messages": [
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": prompt},
+                    {"type": "text", "text": _request_prompt(clip.clip_id)},
                     {
                         "type": "input_audio",
                         "input_audio": {

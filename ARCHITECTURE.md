@@ -947,10 +947,13 @@ The internal normalized response contract requires the same explicit
 `refusal` key; omission is malformed rather than an implicit null. Before a
 request cost can reserve a paid attempt, the estimator strictly round-trips the
 programmatic request body, rejects duplicate/non-finite/oversized JSON,
-validates the root/messages/message/content/input-audio extraction path, and
-re-serializes the data-redacted body. Serialization, parsing, extraction, and
-re-serialization failures become one redacted `ManifestError`; the valid body
-built by the judge retains its existing exact cost inputs.
+requires the exact pinned model, output bound, message/role order, closed
+prompt, and audio-item shape with the admitted `wav` or `mp3` format, and
+rejects missing, extra, duplicate, or mistyped fields. It then re-serializes
+the data-redacted body. Serialization, parsing, validation, extraction, and
+re-serialization failures become one redacted `ManifestError` before any run
+claim, reservation, or transport; the valid body built by the judge retains
+its existing exact cost inputs.
 
 The judge does not let its input manifest authorize its own provenance. Each
 run requires a separate absolute, single-link regular, non-symlink authority

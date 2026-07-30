@@ -656,6 +656,67 @@ class EvaluationGateTests(ManifestAdmissionTests):
         self.assertGreater(estimate["textInputTokens"], 0)
         self.assertGreater(estimate["estimatedCostUSD"], 0)
 
+    def test_malformed_built_request_is_rejected_before_paid_run_claim(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest(
+            [self.manifest_row(clip_id, path, 0.25)]
+        )
+        clip = admit_manifest(manifest)[0]
+        valid_body = build_request_body(clip)
+
+        missing_model = json.loads(json.dumps(valid_body))
+        missing_model.pop("model")
+        boolean_model = json.loads(json.dumps(valid_body))
+        boolean_model["model"] = False
+        scalar_text_item = json.loads(json.dumps(valid_body))
+        scalar_text_item["messages"][0]["content"][0] = "private-body-marker"
+        missing_audio_format = json.loads(json.dumps(valid_body))
+        missing_audio_format["messages"][0]["content"][1]["input_audio"].pop(
+            "format"
+        )
+        extra_content_item = json.loads(json.dumps(valid_body))
+        extra_content_item["messages"][0]["content"].append(
+            {"type": "text", "text": "private-body-marker"}
+        )
+        malformed_bodies = (
+            ("missing-model", missing_model),
+            ("boolean-model", boolean_model),
+            ("scalar-text-item", scalar_text_item),
+            ("missing-audio-format", missing_audio_format),
+            ("extra-content-item", extra_content_item),
+        )
+        output_root = self.directory / "runs"
+
+        def unexpected_transport(_body, _api_key):
+            raise AssertionError("paid transport must not be called")
+
+        for index, (name, body) in enumerate(malformed_bodies):
+            with self.subTest(name=name):
+                run_id = f"malformed-built-request-{index}"
+                with (
+                    mock.patch.object(
+                        audio_judge,
+                        "build_request_body",
+                        return_value=body,
+                    ),
+                    self.assertRaisesRegex(
+                        ManifestError,
+                        "^request body is invalid$",
+                    ),
+                ):
+                    run_evaluation(
+                        manifest_path=manifest,
+                        run_id=run_id,
+                        dry_run=False,
+                        output_root=output_root,
+                        environment={"OPENAI_API_KEY": "test-only-key"},
+                        transport=unexpected_transport,
+                    )
+                self.assertFalse((output_root / run_id).exists())
+
+        self.assertFalse(output_root.exists())
+
     def test_paid_transport_returning_none_is_malformed_and_never_passes(self):
         clip_id = generate_clip_id()
         path = self.write_wav(clip_id)
