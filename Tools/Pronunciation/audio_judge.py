@@ -825,15 +825,45 @@ def parse_verdict(payload: str, *, expected_clip_id: str) -> dict[str, Any]:
 
 def _request_estimate(clip: AdmittedClip, body: dict[str, Any]) -> dict[str, Any]:
     """Derive conservative tokens from exact request bytes and probed audio."""
-    stripped_body = json.loads(json.dumps(body))
-    encoded_audio = stripped_body["messages"][0]["content"][1]["input_audio"].pop(
-        "data"
-    )
-    serialized_text_request = json.dumps(
-        stripped_body,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
+    try:
+        stripped_body = json.loads(
+            json.dumps(body),
+            object_pairs_hook=_strict_object,
+            parse_constant=lambda _value: (_ for _ in ()).throw(
+                ManifestError("request body is invalid")),
+        )
+        if not _has_exact_json_type(stripped_body, dict):
+            raise ManifestError("request body is invalid")
+        messages = stripped_body.get("messages")
+        if not _has_exact_json_type(messages, list) or not messages:
+            raise ManifestError("request body is invalid")
+        message = messages[0]
+        if not _has_exact_json_type(message, dict):
+            raise ManifestError("request body is invalid")
+        content = message.get("content")
+        if (
+            not _has_exact_json_type(content, list)
+            or len(content) < 2
+            or not _has_exact_json_type(content[1], dict)
+        ):
+            raise ManifestError("request body is invalid")
+        input_audio = content[1].get("input_audio")
+        if not _has_exact_json_type(input_audio, dict):
+            raise ManifestError("request body is invalid")
+        encoded_audio = input_audio.pop("data")
+        serialized_text_request = json.dumps(
+            stripped_body,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (
+        TypeError,
+        ValueError,
+        KeyError,
+        IndexError,
+        ManifestError,
+    ) as error:
+        raise ManifestError("request body is invalid") from error
     try:
         audio_bytes = base64.b64decode(encoded_audio, validate=True)
     except (ValueError, TypeError) as error:
@@ -1081,10 +1111,10 @@ def _validated_returned_model_id(value: Any) -> str | None:
 def _response_envelope_is_valid(value: Any) -> bool:
     if not _has_exact_json_type(value, dict):
         return False
-    if not {"model", "content", "usage"}.issubset(value):
+    if not {"model", "content", "refusal", "usage"}.issubset(value):
         return False
     content = value["content"]
-    refusal = value.get("refusal")
+    refusal = value["refusal"]
     return (
         _has_exact_json_type(value["model"], str)
         and (content is None or _has_exact_json_type(content, str))

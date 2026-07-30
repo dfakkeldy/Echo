@@ -544,6 +544,118 @@ class ResponseValidationTests(unittest.TestCase):
 
 
 class EvaluationGateTests(ManifestAdmissionTests):
+    def test_missing_refusal_key_is_malformed_and_never_passes(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest(
+            [self.manifest_row(clip_id, path, 0.25)]
+        )
+        receipt = run_evaluation(
+            manifest_path=manifest,
+            run_id="missing-refusal-key",
+            dry_run=False,
+            output_root=self.directory / "runs",
+            environment={"OPENAI_API_KEY": "test-only-key"},
+            transport=lambda _body, _key: {
+                "model": "gpt-audio-1.5",
+                "content": json.dumps(
+                    {
+                        "clipID": clip_id,
+                        "verdict": "pass",
+                        "confidence": 0.95,
+                        "category": "correct",
+                    }
+                ),
+                "usage": {},
+            },
+        )
+
+        self.assertEqual("COMPLETED", receipt["status"])
+        self.assertEqual("needs_review", receipt["apiEvaluationStatus"])
+        self.assertEqual(
+            ["malformed_output"],
+            receipt["morningQueue"][0]["reasons"],
+        )
+        self.assertIsNone(receipt["results"][0]["verdict"])
+
+    def test_programmatic_request_body_failures_are_controlled_and_redacted(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        clip = admit_manifest(
+            self.write_manifest([self.manifest_row(clip_id, path, 0.25)])
+        )[0]
+        private_marker = "private-request-body-marker"
+        huge_integer = 10**5000
+        malformed_bodies = (
+            ("serialization", {"private": {private_marker}}),
+            ("oversized-integer", {"messages": huge_integer}),
+            ("root", []),
+            ("messages", {"messages": []}),
+            ("message", {"messages": [[]]}),
+            ("content", {"messages": [{"content": []}]}),
+            (
+                "audio",
+                {"messages": [{"content": [{}, {}]}]},
+            ),
+        )
+
+        for name, body in malformed_bodies:
+            with self.subTest(name=name):
+                caught = None
+                try:
+                    audio_judge._request_estimate(clip, body)
+                except Exception as error:
+                    caught = error
+                self.assertIsInstance(caught, ManifestError)
+                self.assertEqual("request body is invalid", str(caught))
+                self.assertNotIn(private_marker, str(caught))
+
+        with (
+            mock.patch.object(
+                audio_judge.json,
+                "dumps",
+                return_value='{"messages":[],"messages":[]}',
+            ),
+            self.assertRaisesRegex(ManifestError, "request body is invalid"),
+        ):
+            audio_judge._request_estimate(clip, {})
+
+        decoded_with_unserializable_value = {
+            "messages": [
+                {
+                    "content": [
+                        {},
+                        {
+                            "input_audio": {
+                                "data": base64.b64encode(
+                                    path.read_bytes()
+                                ).decode("ascii")
+                            }
+                        },
+                    ]
+                }
+            ],
+            "private": {private_marker},
+        }
+        with (
+            mock.patch.object(
+                audio_judge.json,
+                "loads",
+                return_value=decoded_with_unserializable_value,
+            ),
+            self.assertRaisesRegex(ManifestError, "request body is invalid"),
+        ):
+            audio_judge._request_estimate(clip, {})
+
+        estimate = audio_judge._request_estimate(
+            clip,
+            build_request_body(clip),
+        )
+        self.assertEqual(len(path.read_bytes()), estimate["audioInputTokens"])
+        self.assertEqual(180, estimate["textOutputTokens"])
+        self.assertGreater(estimate["textInputTokens"], 0)
+        self.assertGreater(estimate["estimatedCostUSD"], 0)
+
     def test_paid_transport_returning_none_is_malformed_and_never_passes(self):
         clip_id = generate_clip_id()
         path = self.write_wav(clip_id)
@@ -705,6 +817,7 @@ class EvaluationGateTests(ManifestAdmissionTests):
                             "category": "correct",
                         }
                     ),
+                    "refusal": None,
                     "usage": {"prompt_tokens": huge_count},
                 }
             ),
@@ -953,6 +1066,7 @@ class EvaluationGateTests(ManifestAdmissionTests):
                         "category": "correct",
                     }
                 ),
+                "refusal": None,
                 "usage": {},
             }
 
@@ -1021,6 +1135,7 @@ class EvaluationGateTests(ManifestAdmissionTests):
                         "category": "correct",
                     }
                 ),
+                "refusal": None,
                 "usage": {},
             }
 
@@ -1168,6 +1283,7 @@ class EvaluationGateTests(ManifestAdmissionTests):
                     "category": "correct",
                 }
             ),
+            "refusal": None,
             "usage": {
                 "prompt_tokens": 42,
                 "completion_tokens": 18,
@@ -1209,6 +1325,7 @@ class EvaluationGateTests(ManifestAdmissionTests):
             return_value={
                 "model": "gpt-audio-1.5",
                 "content": "not json",
+                "refusal": None,
                 "usage": {},
             }
         )
@@ -1245,6 +1362,7 @@ class EvaluationGateTests(ManifestAdmissionTests):
                         "category": "correct",
                     }
                 ),
+                "refusal": None,
                 "usage": {},
             }
         )
@@ -1327,6 +1445,7 @@ class EvaluationGateTests(ManifestAdmissionTests):
                     "category": "other",
                 }
             ),
+            "refusal": None,
             "usage": {},
         }
 
@@ -1382,6 +1501,7 @@ class EvaluationGateTests(ManifestAdmissionTests):
                     "category": "correct",
                 }
             ),
+            "refusal": None,
             "usage": {},
         }
 
@@ -1423,6 +1543,7 @@ class EvaluationGateTests(ManifestAdmissionTests):
                     "note": secret_note,
                 }
             ),
+            "refusal": None,
             "usage": {},
         }
         output_root = self.directory / "runs"
@@ -1474,6 +1595,7 @@ class EvaluationGateTests(ManifestAdmissionTests):
                         return_value={
                             "model": "gpt-audio-1.5",
                             "content": json.dumps(verdict),
+                            "refusal": None,
                             "usage": {},
                         }
                     ),
@@ -1622,6 +1744,7 @@ class EvaluationGateTests(ManifestAdmissionTests):
                         "category": "correct",
                     }
                 ),
+                "refusal": None,
                 "usage": {},
             }
 
@@ -1757,6 +1880,7 @@ class EvaluationGateTests(ManifestAdmissionTests):
                     "category": "correct",
                 }
             ),
+            "refusal": None,
             "usage": {
                 "prompt_tokens": 42,
                 "completion_tokens": 18,
@@ -1817,6 +1941,7 @@ class EvaluationGateTests(ManifestAdmissionTests):
                     "category": "correct",
                 }
             ),
+            "refusal": None,
             "usage": {
                 "prompt_tokens": 12.5,
                 "completion_tokens": -1,
@@ -1868,6 +1993,7 @@ class EvaluationGateTests(ManifestAdmissionTests):
                     "category": "correct",
                 }
             ),
+            "refusal": None,
             "usage": {},
         }
 
@@ -1913,6 +2039,7 @@ class AttemptLedgerTests(ManifestAdmissionTests):
                     "category": "wrong_sense",
                 }
             ),
+            "refusal": None,
             "usage": {},
         }
         output_root = self.directory / "runs"
@@ -3384,6 +3511,7 @@ class AttemptLedgerTests(ManifestAdmissionTests):
                         "category": "wrong_sense",
                     }
                 ),
+                "refusal": None,
                 "usage": {},
             }
 

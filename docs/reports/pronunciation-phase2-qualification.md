@@ -30,7 +30,7 @@ The following independent local gates passed on 2026-07-29:
 | --- | --- |
 | Pronunciation corpus tests | 47 passed |
 | Pronunciation pack tests and regeneration check | 38 passed; generated pack matched the committed pack |
-| Development audio-judge tests | 86 passed without an API request |
+| Development audio-judge tests | 88 passed without an API request |
 | Task 10 Swift acceptance suite | 6 passed |
 | Echo test-products build | Passed |
 | Complete Echo unit-test gate | Passed before this test/tool/documentation-only correction; not rerun because production/shared Swift did not change |
@@ -262,6 +262,15 @@ call that returns normally without any response is classified as
 `malformed_output`, preserves its truthful request and reservation counts, and
 routes a redacted item to morning review instead of completing as a pass with a
 null verdict.
+
+The normalized response contract also requires `refusal` to be explicitly
+present as null or a string; omission is malformed and cannot pass. The
+pre-reservation request estimator strictly round-trips each programmatic body,
+rejects duplicate/non-finite/oversized JSON, validates the
+root/messages/message/content/input-audio extraction path, and re-serializes
+the data-redacted body. Serialization, parser, extraction, and re-serialization
+failures expose only a generic `ManifestError`, while the judge-built body keeps
+the same request and cost estimate.
 
 Admission also requires a separate absolute, single-link regular, non-symlink
 provenance authority file outside the repository. It binds every admitted

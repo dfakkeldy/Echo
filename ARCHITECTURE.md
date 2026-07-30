@@ -943,6 +943,15 @@ validation. Once a paid transport call returns normally, the absence of a
 response is itself malformed output; it cannot bypass envelope validation or
 produce a passing empty result.
 
+The internal normalized response contract requires the same explicit
+`refusal` key; omission is malformed rather than an implicit null. Before a
+request cost can reserve a paid attempt, the estimator strictly round-trips the
+programmatic request body, rejects duplicate/non-finite/oversized JSON,
+validates the root/messages/message/content/input-audio extraction path, and
+re-serializes the data-redacted body. Serialization, parsing, extraction, and
+re-serialization failures become one redacted `ManifestError`; the valid body
+built by the judge retains its existing exact cost inputs.
+
 The judge does not let its input manifest authorize its own provenance. Each
 run requires a separate absolute, single-link regular, non-symlink authority
 file outside the repository that binds the exact opaque clip ID, measured
