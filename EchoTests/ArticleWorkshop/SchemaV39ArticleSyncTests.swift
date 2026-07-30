@@ -343,6 +343,27 @@ import Testing
     }
 
     @MainActor
+    @Test func enqueueRejectsNoncanonicalRecordIdentityWithoutMutation() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner(
+            "account-A",
+            updatedAt: "2026-07-29T12:00:00Z")
+
+        #expect(throws: ArticleSyncDAO.Error.recordIdentityMismatch) {
+            _ = try dao.enqueueReturning(
+                ArticlePendingCloudChange(
+                    recordName:
+                        "capture.00000000-0000-0000-0000-000000000141",
+                    recordType: .revision,
+                    entityID: "00000000-0000-0000-0000-000000000142",
+                    operation: .save,
+                    queuedAt: "2026-07-29T12:00:01Z"))
+        }
+        #expect(try dao.pendingChanges().isEmpty)
+    }
+
+    @MainActor
     @Test func deleteOnlyPriorOwnerLaneMayResumeWithoutSerializingContent() throws {
         let database = try DatabaseService(inMemory: ())
         let dao = ArticleSyncDAO(db: database.writer)
@@ -388,6 +409,388 @@ import Testing
         #expect(returned == .quarantined)
         #expect(try dao.pendingChanges().isEmpty)
         #expect(try dao.pendingChanges(accountOwnerID: "account-A") == [pending])
+    }
+
+    @MainActor
+    @Test func currentOwnerCannotClaimSaveIdentityOwnedByAnotherAccount() throws {
+        let receiptDatabase = try DatabaseService(inMemory: ())
+        let receiptDAO = ArticleSyncDAO(db: receiptDatabase.writer)
+        let receiptRecord =
+            "capture.00000000-0000-0000-0000-000000000127"
+        try receiptDAO.bindAccountOwner(
+            "account-A",
+            updatedAt: "2026-07-29T12:00:00Z")
+        try receiptDAO.storeFetchedCloudRecord(
+            recordName: receiptRecord,
+            recordType: .capture,
+            entityID: "00000000-0000-0000-0000-000000000127",
+            systemFields: Data("account-a-fields".utf8),
+            contentFingerprint: "account-a",
+            updatedAt: "2026-07-29T12:00:01Z")
+        try receiptDAO.bindAccountOwner(
+            "account-B",
+            updatedAt: "2026-07-29T12:01:00Z")
+
+        #expect(throws: ArticleSyncDAO.Error.accountOwnerMismatch) {
+            _ = try receiptDAO.enqueueReturning(
+                ArticlePendingCloudChange(
+                    recordName: receiptRecord,
+                    recordType: .capture,
+                    entityID: "00000000-0000-0000-0000-000000000127",
+                    operation: .save,
+                    queuedAt: "2026-07-29T12:01:01Z"))
+        }
+        #expect(try receiptDAO.pendingChanges().isEmpty)
+        #expect(
+            try receiptDatabase.read {
+                try String.fetchOne(
+                    $0,
+                    sql: """
+                        SELECT content_fingerprint FROM article_sync_record
+                        WHERE record_name = ? AND account_owner_id = 'account-A'
+                        """,
+                    arguments: [receiptRecord])
+            } == "account-a")
+
+        let saveDatabase = try DatabaseService(inMemory: ())
+        let saveDAO = ArticleSyncDAO(db: saveDatabase.writer)
+        let saveRecord =
+            "capture.00000000-0000-0000-0000-000000000128"
+        try saveDAO.bindAccountOwner(
+            "account-A",
+            updatedAt: "2026-07-29T12:00:00Z")
+        let accountASave = try saveDAO.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: saveRecord,
+                recordType: .capture,
+                entityID: "00000000-0000-0000-0000-000000000128",
+                operation: .save,
+                queuedAt: "2026-07-29T12:00:01Z"))
+        try saveDAO.bindAccountOwner(
+            "account-B",
+            updatedAt: "2026-07-29T12:01:00Z")
+
+        #expect(throws: ArticleSyncDAO.Error.accountOwnerMismatch) {
+            _ = try saveDAO.enqueueReturning(
+                ArticlePendingCloudChange(
+                    recordName: saveRecord,
+                    recordType: .capture,
+                    entityID: "00000000-0000-0000-0000-000000000128",
+                    operation: .save,
+                    queuedAt: "2026-07-29T12:01:01Z"))
+        }
+        #expect(
+            try saveDAO.pendingChanges(accountOwnerID: "account-A")
+                == [accountASave])
+        #expect(try saveDAO.pendingChanges().isEmpty)
+
+        let allowedDelete = try saveDAO.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: saveRecord,
+                recordType: .capture,
+                entityID: "00000000-0000-0000-0000-000000000128",
+                operation: .delete,
+                queuedAt: "2026-07-29T12:01:02Z"))
+        #expect(allowedDelete.accountOwnerID == "account-B")
+        #expect(allowedDelete.operation == .delete)
+    }
+
+    @MainActor
+    @Test func ownerlessSaveWaitsForMatchingPriorOwnerInsteadOfFirstNewAccount() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        let recordName =
+            "capture.00000000-0000-0000-0000-000000000129"
+        try dao.bindAccountOwner(
+            "account-A",
+            updatedAt: "2026-07-29T12:00:00Z")
+        try dao.storeFetchedCloudRecord(
+            recordName: recordName,
+            recordType: .capture,
+            entityID: "00000000-0000-0000-0000-000000000129",
+            systemFields: Data("account-a-fields".utf8),
+            contentFingerprint: "account-a",
+            updatedAt: "2026-07-29T12:00:01Z")
+        try dao.unbindAccountOwner(
+            status: .signedOut,
+            updatedAt: "2026-07-29T12:01:00Z")
+        let ownerless = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: recordName,
+                recordType: .capture,
+                entityID: "00000000-0000-0000-0000-000000000129",
+                operation: .save,
+                queuedAt: "2026-07-29T12:01:01Z"))
+        #expect(ownerless.accountOwnerID == nil)
+
+        try dao.bindAccountOwner(
+            "account-B",
+            updatedAt: "2026-07-29T12:02:00Z")
+        #expect(try dao.pendingChanges().isEmpty)
+        #expect(try dao.pendingChanges(accountOwnerID: "") == [ownerless])
+        try dao.unbindAccountOwner(
+            status: .signedOut,
+            updatedAt: "2026-07-29T12:03:00Z")
+
+        let returned = try dao.bindAccountOwner(
+            "account-A",
+            updatedAt: "2026-07-29T12:04:00Z")
+        #expect(returned == .available)
+        let adopted = try #require(
+            try dao.pendingChange(recordName: recordName))
+        #expect(adopted.accountOwnerID == "account-A")
+        #expect(adopted.generation > ownerless.generation)
+        #expect(try dao.pendingChanges(accountOwnerID: "").isEmpty)
+    }
+
+    @MainActor
+    @Test func firstAccountAdoptsNeverOwnedOwnerlessSaveWithNewGeneration() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        let recordName =
+            "capture.00000000-0000-0000-0000-000000000134"
+        let ownerless = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: recordName,
+                recordType: .capture,
+                entityID: "00000000-0000-0000-0000-000000000134",
+                operation: .save,
+                queuedAt: "2026-07-29T12:00:00Z"))
+
+        try dao.bindAccountOwner(
+            "account-A",
+            updatedAt: "2026-07-29T12:01:00Z")
+
+        let adopted = try #require(
+            try dao.pendingChange(recordName: recordName))
+        #expect(adopted.accountOwnerID == "account-A")
+        #expect(adopted.generation > ownerless.generation)
+        #expect(try dao.pendingChanges(accountOwnerID: "").isEmpty)
+    }
+
+    @MainActor
+    @Test func ownerlessDeleteWaitsForItsHistoricalOwnerAcrossAccountSwitch() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        let recordName =
+            "capture.00000000-0000-0000-0000-000000000135"
+        try dao.bindAccountOwner(
+            "account-A",
+            updatedAt: "2026-07-29T12:00:00Z")
+        try dao.storeFetchedCloudRecord(
+            recordName: recordName,
+            recordType: .capture,
+            entityID: "00000000-0000-0000-0000-000000000135",
+            systemFields: Data("account-a-fields".utf8),
+            contentFingerprint: "account-a",
+            updatedAt: "2026-07-29T12:00:01Z")
+        try dao.unbindAccountOwner(
+            status: .signedOut,
+            updatedAt: "2026-07-29T12:01:00Z")
+        let ownerless = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: recordName,
+                recordType: .capture,
+                entityID: "00000000-0000-0000-0000-000000000135",
+                operation: .delete,
+                queuedAt: "2026-07-29T12:01:01Z"))
+
+        try dao.bindAccountOwner(
+            "account-B",
+            updatedAt: "2026-07-29T12:02:00Z")
+        #expect(try dao.pendingChanges().isEmpty)
+        #expect(try dao.pendingChanges(accountOwnerID: "") == [ownerless])
+        try dao.unbindAccountOwner(
+            status: .signedOut,
+            updatedAt: "2026-07-29T12:03:00Z")
+
+        try dao.bindAccountOwner(
+            "account-A",
+            updatedAt: "2026-07-29T12:04:00Z")
+        let adopted = try #require(
+            try dao.pendingChange(recordName: recordName))
+        #expect(adopted.accountOwnerID == "account-A")
+        #expect(adopted.operation == .delete)
+        #expect(adopted.generation > ownerless.generation)
+        #expect(try dao.pendingChanges(accountOwnerID: "").isEmpty)
+    }
+
+    @MainActor
+    @Test func ownerlessAdoptionSupersedesMatchingTargetWithHigherGeneration() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        let recordName =
+            "capture.00000000-0000-0000-0000-000000000136"
+        try dao.bindAccountOwner(
+            "account-A",
+            updatedAt: "2026-07-29T12:00:00Z")
+        let target = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: recordName,
+                recordType: .capture,
+                entityID: "00000000-0000-0000-0000-000000000136",
+                operation: .delete,
+                queuedAt: "2026-07-29T12:00:01Z"))
+        try dao.unbindAccountOwner(
+            status: .signedOut,
+            updatedAt: "2026-07-29T12:01:00Z")
+        let ownerless = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: recordName,
+                recordType: .capture,
+                entityID: "00000000-0000-0000-0000-000000000136",
+                operation: .save,
+                queuedAt: "2026-07-29T12:01:01Z"))
+
+        try dao.bindAccountOwner(
+            "account-A",
+            updatedAt: "2026-07-29T12:02:00Z")
+
+        let adopted = try #require(
+            try dao.pendingChange(recordName: recordName))
+        #expect(adopted.operation == .save)
+        #expect(adopted.generation > target.generation)
+        #expect(adopted.generation > ownerless.generation)
+        #expect(try dao.pendingChanges(accountOwnerID: "").isEmpty)
+    }
+
+    @MainActor
+    @Test func ownerlessAdoptionRollsBackBindingOnTargetMismatchOrOverflow() throws {
+        let mismatchDatabase = try DatabaseService(inMemory: ())
+        let mismatchDAO = ArticleSyncDAO(db: mismatchDatabase.writer)
+        let mismatchRecord =
+            "capture.00000000-0000-0000-0000-000000000137"
+        try mismatchDAO.bindAccountOwner(
+            "account-A",
+            updatedAt: "2026-07-29T12:00:00Z")
+        try mismatchDatabase.writer.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO article_sync_outbox (
+                        record_name, record_type, entity_id, operation,
+                        generation, account_owner_id, queued_at
+                    )
+                    VALUES (?, ?, ?, ?, 1, 'account-A', ?)
+                    """,
+                arguments: [
+                    mismatchRecord,
+                    ArticleCloudRecordType.revision.rawValue,
+                    "00000000-0000-0000-0000-000000000138",
+                    ArticleSyncOperation.delete.rawValue,
+                    "2026-07-29T12:00:01Z",
+                ])
+        }
+        try mismatchDAO.unbindAccountOwner(
+            status: .signedOut,
+            updatedAt: "2026-07-29T12:01:00Z")
+        let mismatchOwnerless = try mismatchDAO.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: mismatchRecord,
+                recordType: .capture,
+                entityID: "00000000-0000-0000-0000-000000000137",
+                operation: .save,
+                queuedAt: "2026-07-29T12:01:01Z"))
+
+        #expect(throws: ArticleSyncDAO.Error.recordIdentityMismatch) {
+            try mismatchDAO.bindAccountOwner(
+                "account-A",
+                updatedAt: "2026-07-29T12:02:00Z")
+        }
+        #expect(try mismatchDAO.state()?.accountOwnerID == nil)
+        #expect(
+            try mismatchDAO.pendingChanges(accountOwnerID: "")
+                == [mismatchOwnerless])
+
+        let overflowDatabase = try DatabaseService(inMemory: ())
+        let overflowDAO = ArticleSyncDAO(db: overflowDatabase.writer)
+        let overflowRecord =
+            "capture.00000000-0000-0000-0000-000000000139"
+        _ = try overflowDAO.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: overflowRecord,
+                recordType: .capture,
+                entityID: "00000000-0000-0000-0000-000000000139",
+                operation: .save,
+                queuedAt: "2026-07-29T12:00:00Z"))
+        try overflowDatabase.writer.write { db in
+            try db.execute(
+                sql: """
+                    UPDATE article_sync_outbox
+                    SET generation = ?
+                    WHERE record_name = ? AND account_owner_id = ''
+                    """,
+                arguments: [Int64.max, overflowRecord])
+        }
+
+        #expect(throws: ArticleSyncDAO.Error.invalidGeneration) {
+            try overflowDAO.bindAccountOwner(
+                "account-A",
+                updatedAt: "2026-07-29T12:01:00Z")
+        }
+        #expect(try overflowDAO.state()?.accountOwnerID == nil)
+        #expect(
+            try overflowDatabase.read {
+                try Int64.fetchOne(
+                    $0,
+                    sql: """
+                        SELECT generation FROM article_sync_outbox
+                        WHERE record_name = ? AND account_owner_id = ''
+                        """,
+                    arguments: [overflowRecord])
+            } == Int64.max)
+    }
+
+    @MainActor
+    @Test func ownerlessChangeWithAmbiguousHistoryIsNeverClaimedByEitherAccount() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        let recordName =
+            "capture.00000000-0000-0000-0000-000000000140"
+        try dao.bindAccountOwner(
+            "account-A",
+            updatedAt: "2026-07-29T12:00:00Z")
+        try dao.storeFetchedCloudRecord(
+            recordName: recordName,
+            recordType: .capture,
+            entityID: "00000000-0000-0000-0000-000000000140",
+            systemFields: Data("account-a-fields".utf8),
+            contentFingerprint: "account-a",
+            updatedAt: "2026-07-29T12:00:01Z")
+        try dao.bindAccountOwner(
+            "account-B",
+            updatedAt: "2026-07-29T12:01:00Z")
+        let accountBDelete = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: recordName,
+                recordType: .capture,
+                entityID: "00000000-0000-0000-0000-000000000140",
+                operation: .delete,
+                queuedAt: "2026-07-29T12:01:01Z"))
+        try dao.unbindAccountOwner(
+            status: .signedOut,
+            updatedAt: "2026-07-29T12:02:00Z")
+        let ownerless = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: recordName,
+                recordType: .capture,
+                entityID: "00000000-0000-0000-0000-000000000140",
+                operation: .save,
+                queuedAt: "2026-07-29T12:02:01Z"))
+
+        try dao.bindAccountOwner(
+            "account-A",
+            updatedAt: "2026-07-29T12:03:00Z")
+        #expect(try dao.pendingChanges().isEmpty)
+        #expect(try dao.pendingChanges(accountOwnerID: "") == [ownerless])
+        try dao.unbindAccountOwner(
+            status: .signedOut,
+            updatedAt: "2026-07-29T12:04:00Z")
+
+        try dao.bindAccountOwner(
+            "account-B",
+            updatedAt: "2026-07-29T12:05:00Z")
+        #expect(try dao.pendingChanges() == [accountBDelete])
+        #expect(try dao.pendingChanges(accountOwnerID: "") == [ownerless])
     }
 
     @MainActor

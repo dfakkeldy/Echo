@@ -115,6 +115,67 @@ nonisolated struct ArticleSyncFailedChangePlan: Equatable, Sendable {
     }
 }
 
+nonisolated enum ArticleFailedSaveRecoveryReason: Equatable, Sendable {
+    case missingServerRecord
+    case serverApplyFailed
+    case missingZoneRecoveryFailed
+}
+
+nonisolated struct ArticleFailedSaveRecoveryPlan: Equatable, Sendable {
+    let shouldRequeueCurrentChange: Bool
+    let shouldPreserveZoneSaveIntent: Bool
+
+    static func make(
+        reason: ArticleFailedSaveRecoveryReason
+    ) -> ArticleFailedSaveRecoveryPlan {
+        ArticleFailedSaveRecoveryPlan(
+            shouldRequeueCurrentChange: true,
+            shouldPreserveZoneSaveIntent: reason == .missingZoneRecoveryFailed)
+    }
+}
+
+nonisolated struct ArticleCurrentChangeRequeueResolution: Equatable, Sendable {
+    let inFlightChanges: [String: ArticlePendingCloudChange]
+    let changesToQueue: [ArticlePendingCloudChange]
+}
+
+nonisolated enum ArticleCurrentChangeRequeueResolver {
+    static func resolve(
+        inFlightChanges: [String: ArticlePendingCloudChange],
+        durableChanges: [ArticlePendingCloudChange]?,
+        affectedRecordNames: Set<String>,
+        unresolvedRecordNames: Set<String> = []
+    ) -> ArticleCurrentChangeRequeueResolution {
+        var nextInFlight = inFlightChanges
+        var durableByName: [String: ArticlePendingCloudChange] = [:]
+        for change in durableChanges ?? [] {
+            if affectedRecordNames.contains(change.recordName) {
+                durableByName[change.recordName] = change
+            }
+        }
+        let unresolved =
+            durableChanges == nil
+            ? affectedRecordNames
+            : unresolvedRecordNames
+        var changesToQueue: [ArticlePendingCloudChange] = []
+        for recordName in affectedRecordNames.sorted() {
+            if let current = durableByName[recordName] {
+                nextInFlight[recordName] = current
+                changesToQueue.append(current)
+            } else if unresolved.contains(recordName) {
+                if let retained = nextInFlight[recordName] {
+                    changesToQueue.append(retained)
+                }
+            } else {
+                nextInFlight.removeValue(forKey: recordName)
+            }
+        }
+        return ArticleCurrentChangeRequeueResolution(
+            inFlightChanges: nextInFlight,
+            changesToQueue: changesToQueue)
+    }
+}
+
 nonisolated enum ArticleSentAcknowledgementCommitResult: Equatable, Sendable {
     case committed
     case failed(
@@ -386,6 +447,7 @@ nonisolated struct ArticleFetchedCloudBatchApplier: Sendable {
         var cloudReceipts: [ArticleFetchedCloudRecordReceipt] = []
         var copiedAssetURLs: [URL] = []
         var newlyInstalledURLs: [URL] = []
+        var newlyCreatedDirectories: [URL] = []
         var committed = false
         defer {
             for url in copiedAssetURLs where FileManager.default.fileExists(atPath: url.path) {
@@ -396,7 +458,28 @@ nonisolated struct ArticleFetchedCloudBatchApplier: Sendable {
                 where FileManager.default.fileExists(atPath: url.path) {
                     try? FileManager.default.removeItem(at: url)
                 }
+                // Managed parent directories this batch created hold nothing
+                // durable once the transaction rolls back. Parents are recorded
+                // before children, so reverse order reclaims the deepest first.
+                // A directory that cannot be proven empty is left alone.
+                for url in newlyCreatedDirectories.reversed()
+                where FileManager.default.fileExists(atPath: url.path) {
+                    let remaining =
+                        (try? FileManager.default.contentsOfDirectory(atPath: url.path))
+                        ?? [""]
+                    if remaining.isEmpty {
+                        try? FileManager.default.removeItem(at: url)
+                    }
+                }
             }
+        }
+        func noteDirectoryCreation(of directory: URL) {
+            guard FileManager.default.fileExists(atPath: directory.path) == false,
+                newlyCreatedDirectories.contains(directory) == false
+            else {
+                return
+            }
+            newlyCreatedDirectories.append(directory)
         }
 
         for record in modifications {
@@ -443,10 +526,13 @@ nonisolated struct ArticleFetchedCloudBatchApplier: Sendable {
                 else {
                     throw ArticleSyncDAO.Error.remoteModificationTombstoned
                 }
-                let destination =
-                    workshopRootDirectory
-                    .appending(path: "Captures", directoryHint: .isDirectory)
-                    .appending(path: payload.capture.id, directoryHint: .isDirectory)
+                let capturesRoot = workshopRootDirectory.appending(
+                    path: "Captures",
+                    directoryHint: .isDirectory)
+                let destination = capturesRoot.appending(
+                    path: payload.capture.id,
+                    directoryHint: .isDirectory)
+                noteDirectoryCreation(of: capturesRoot)
                 let existed = FileManager.default.fileExists(atPath: destination.path)
                 databaseChanges.append(
                     .capture(
@@ -484,10 +570,14 @@ nonisolated struct ArticleFetchedCloudBatchApplier: Sendable {
                         throw ArticleCloudRecordCodec.Error.invalidEntityID(
                             disposition.targetAnthologyID)
                     }
-                    let anthologyDirectory =
-                        workshopRootDirectory
-                        .appending(path: "Anthologies", directoryHint: .isDirectory)
-                        .appending(path: targetID.uuidString, directoryHint: .isDirectory)
+                    let anthologiesRoot = workshopRootDirectory.appending(
+                        path: "Anthologies",
+                        directoryHint: .isDirectory)
+                    let anthologyDirectory = anthologiesRoot.appending(
+                        path: targetID.uuidString,
+                        directoryHint: .isDirectory)
+                    noteDirectoryCreation(of: anthologiesRoot)
+                    noteDirectoryCreation(of: anthologyDirectory)
                     let previousFiles =
                         (try? FileManager.default.contentsOfDirectory(
                             atPath: anthologyDirectory.path)) ?? []
@@ -1263,31 +1353,27 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
         unresolvedRecordNames: Set<String> = [],
         syncEngine: CKSyncEngine
     ) {
-        let resolvedCurrent: [ArticlePendingCloudChange]
-        var unresolved = unresolvedRecordNames
+        let durableChanges: [ArticlePendingCloudChange]?
         if let currentChanges {
-            resolvedCurrent = currentChanges
+            durableChanges = currentChanges
         } else {
             do {
-                resolvedCurrent = try syncDAO.pendingChanges().filter {
+                durableChanges = try syncDAO.pendingChanges().filter {
                     affectedNames.contains($0.recordName)
                 }
             } catch {
-                resolvedCurrent = []
-                unresolved.formUnion(affectedNames)
+                durableChanges = nil
             }
         }
-        for name in affectedNames.subtracting(unresolved) {
-            inFlightChanges.removeValue(forKey: name)
-        }
-        for change in resolvedCurrent {
-            inFlightChanges[change.recordName] = change
-        }
-        let unresolvedChanges = unresolved.compactMap {
-            inFlightChanges[$0]
-        }
+        let resolution = ArticleCurrentChangeRequeueResolver.resolve(
+            inFlightChanges: inFlightChanges,
+            durableChanges: durableChanges,
+            affectedRecordNames: affectedNames,
+            unresolvedRecordNames: unresolvedRecordNames)
+        inFlightChanges = resolution.inFlightChanges
         syncEngine.state.add(
-            pendingRecordZoneChanges: (resolvedCurrent + unresolvedChanges).map(pendingEngineChange)
+            pendingRecordZoneChanges:
+                resolution.changesToQueue.map(pendingEngineChange)
         )
     }
 
@@ -1313,33 +1399,41 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
             : plan.action
         switch action {
         case .mergeServerAndRequeue:
-            guard let serverRecord = failure.error.serverRecord else {
-                persist(stableCode: .serverRecordConflict)
-                return
-            }
-            do {
-                if let pending = try syncDAO.pendingChange(recordName: recordName),
-                    pending.recordType != .anthology,
-                    try codec.contentFingerprint(for: failure.record)
-                        != codec.contentFingerprint(for: serverRecord)
-                {
-                    // Captures and revisions are immutable identities. A server
-                    // record with different content is parked for review rather
-                    // than being overwritten under the same deterministic ID.
-                    persist(stableCode: .serverRecordConflict)
-                    cleanupStagedAssets(recordName: recordName)
-                    return
+            if let serverRecord = failure.error.serverRecord {
+                do {
+                    if let pending = try syncDAO.pendingChange(recordName: recordName),
+                        pending.recordType != .anthology,
+                        try codec.contentFingerprint(for: failure.record)
+                            != codec.contentFingerprint(for: serverRecord)
+                    {
+                        // Captures and revisions are immutable identities. A server
+                        // record with different content is parked for review rather
+                        // than being overwritten under the same deterministic ID.
+                        persist(stableCode: .serverRecordConflict)
+                        cleanupStagedAssets(recordName: recordName)
+                        return
+                    }
+                    try batchApplier.apply(
+                        modifications: [serverRecord],
+                        deletions: [])
+                    if let pending = try syncDAO.pendingChange(recordName: recordName) {
+                        syncEngine.state.add(
+                            pendingRecordZoneChanges: [pendingEngineChange(pending)])
+                    }
+                    inFlightChanges.removeValue(forKey: recordName)
+                } catch {
+                    recoverFailedSave(
+                        reason: .serverApplyFailed,
+                        recordName: recordName,
+                        syncEngine: syncEngine,
+                        stableCode: .invalidRemoteRecord)
                 }
-                try batchApplier.apply(
-                    modifications: [serverRecord],
-                    deletions: [])
-                if let pending = try syncDAO.pendingChange(recordName: recordName) {
-                    syncEngine.state.add(
-                        pendingRecordZoneChanges: [pendingEngineChange(pending)])
-                }
-                inFlightChanges.removeValue(forKey: recordName)
-            } catch {
-                persist(stableCode: .invalidRemoteRecord)
+            } else {
+                recoverFailedSave(
+                    reason: .missingServerRecord,
+                    recordName: recordName,
+                    syncEngine: syncEngine,
+                    stableCode: .serverRecordConflict)
             }
         case .rebuildZone:
             do {
@@ -1352,7 +1446,11 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
                     pendingRecordZoneChanges: changes.map(pendingEngineChange))
                 inFlightChanges.removeValue(forKey: recordName)
             } catch {
-                persist(stableCode: .localPersistence)
+                recoverFailedSave(
+                    reason: .missingZoneRecoveryFailed,
+                    recordName: recordName,
+                    syncEngine: syncEngine,
+                    stableCode: .localPersistence)
             }
         case .engineRetains, .waitForUser:
             break
@@ -1367,6 +1465,26 @@ private actor ArticleCloudKitSyncEngineDriver: ArticleSyncEngineDriver, CKSyncEn
             break
         }
         cleanupStagedAssets(recordName: recordName)
+    }
+
+    private func recoverFailedSave(
+        reason: ArticleFailedSaveRecoveryReason,
+        recordName: String,
+        syncEngine: CKSyncEngine,
+        stableCode: ArticleSyncFailureCode
+    ) {
+        let plan = ArticleFailedSaveRecoveryPlan.make(reason: reason)
+        if plan.shouldPreserveZoneSaveIntent {
+            syncEngine.state.add(pendingDatabaseChanges: [
+                .saveZone(CKRecordZone(zoneID: zoneID))
+            ])
+        }
+        if plan.shouldRequeueCurrentChange {
+            requeueCurrentChanges(
+                affectedNames: Set([recordName]),
+                syncEngine: syncEngine)
+        }
+        persist(stableCode: stableCode)
     }
 
     private func handleFailedDelete(

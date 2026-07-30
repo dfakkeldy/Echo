@@ -132,6 +132,80 @@ import ZIPFoundation
         }
     }
 
+    @Test func snapshotImageURLsRejectCredentialsOnUploadAndInstall() throws {
+        for imageURL in [
+            "https://reader:secret@example.test/private.png",
+            "https://example.test/private.png?authToken=private",
+            "https://example.test/private.png?next=https%253A%252F%252Freader%253Asecret%2540example.test%252Fimage.png",
+            "https://example.test/private.png#https%253A%252F%252Freader%253Asecret%2540example.test%252Fimage.png",
+        ] {
+            let fixture = try ArticleCloudCodecFixture(imageURLs: [imageURL])
+            defer { fixture.remove() }
+            try expectCaptureRejectedForUploadAndInstall(fixture)
+        }
+    }
+
+    @Test func snapshotURLAttributesRejectMultiValueCSSLegacyAndMalformedBypasses() throws {
+        let bypasses = [
+            #"<a ping="https://example.test/safe https://reader:secret@example.test/private">body</a>"#,
+            #"<img imagesrcset="https://example.test/safe.png 1x, https://reader:secret@example.test/private.png 2x" />"#,
+            #"<img srcset="/safe.png,https://reader:secret@example.test/private.png" />"#,
+            #"<div style="background-image:image-set(&quot;https://example.test/safe.png&quot; 1x, &quot;https://reader:secret@example.test/private.png&quot; 2x)">body</div>"#,
+            #"<style>body { background-image: url(https://reader:secret@example.test/private.png); }</style>"#,
+            #"<style><![CDATA[body { background-image: url(https://reader:secret@example.test/private.png); }]]></style>"#,
+            #"<h:style xmlns:h="http://www.w3.org/1999/xhtml">body { background-image: url(https://reader:secret@example.test/private.png); }</h:style>"#,
+            #"<a href="/article#https%253A%252F%252Freader%253Asecret%2540example.test%252Fprivate">body</a>"#,
+            #"<div manifest="https://reader:secret@example.test/private">body</div>"#,
+            #"<div profile="https://reader:secret@example.test/private">body</div>"#,
+            #"<div usemap="https://reader:secret@example.test/private">body</div>"#,
+            #"<div codebase="https://reader:secret@example.test/private">body</div>"#,
+            #"<div classid="https://reader:secret@example.test/private">body</div>"#,
+            #"<div dynsrc="https://reader:secret@example.test/private">body</div>"#,
+            #"<div lowsrc="https://reader:secret@example.test/private">body</div>"#,
+            #"<div xml:base="https://reader:secret@example.test/private">body</div>"#,
+            #"<div itemid="https://reader:secret@example.test/private">body</div>"#,
+            #"<div resource="https://reader:secret@example.test/private">body</div>"#,
+            #"<div about="https://reader:secret@example.test/private">body</div>"#,
+            #"<div icon="https://reader:secret@example.test/private">body</div>"#,
+            #"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><use xlink:href="https://reader:secret@example.test/private" /></svg>"#,
+            #"<svg xmlns="http://www.w3.org/2000/svg"><path clip-path="url(https://reader:secret@example.test/private)" /></svg>"#,
+            #"<svg xmlns="http://www.w3.org/2000/svg"><path cursor="url(https://reader:secret@example.test/private)" /></svg>"#,
+            #"<div style="background:u\72l(https://reader:secret@example.test/private)">body</div>"#,
+            #"<meta http-equiv="refresh" content="0;url=https://reader:secret@example.test/private" />"#,
+            #"<h:meta xmlns:h="http://www.w3.org/1999/xhtml" http-equiv="refresh" content="0;url=https://reader:secret@example.test/private" />"#,
+            #"<?xml-stylesheet type="text/css" href="https://reader:secret@example.test/private.css"?>"#,
+            #"<div style="background-image:image-set(private.png 1x)">body</div>"#,
+            #"<a ping="https://example.test/safe https://[malformed">body</a>"#,
+        ]
+        for body in bypasses {
+            let fixture = try ArticleCloudCodecFixture(
+                contentXHTML:
+                    #"<html xmlns="http://www.w3.org/1999/xhtml"><body>\#(body)</body></html>"#
+            )
+            defer { fixture.remove() }
+            try expectCaptureRejectedForUploadAndInstall(fixture)
+        }
+    }
+
+    @Test func snapshotURLScannerAllowsNormalRelativeProducerXHTML() throws {
+        let fixture = try ArticleCloudCodecFixture(
+            contentXHTML:
+                #"""
+                <html xmlns="http://www.w3.org/1999/xhtml"><body>
+                <p><a href="/article#section-2" ping="/audit-one /audit-two">body</a></p>
+                <img src="/image.png" srcset="/image.png?crop=1,2 1x, /image-2x.png 2x" />
+                <div style="background-image:image-set(url('/image.png') 1x, &quot;/image-2x.png&quot; 2x)"><p>body</p></div>
+                <style>body { background-image: url('/image.png'); }</style>
+                </body></html>
+                """#
+        )
+        defer { fixture.remove() }
+
+        _ = try fixture.codec.captureRecord(
+            fixture.capture,
+            packageDirectory: fixture.packageDirectory)
+    }
+
     @Test func unknownSnapshotEnvelopeAndPayloadFieldsFailClosed() throws {
         for insertion in [
             #"{"unknownRoot":"must-not-persist","#,
@@ -283,6 +357,77 @@ import ZIPFoundation
         #expect(throws: ArticleCloudRecordCodec.Error.self) {
             _ = try fixture.codec.decode(
                 inconsistent,
+                assetCopyDirectory: fixture.incomingDirectory)
+        }
+    }
+
+    @Test func inboundCloudJSONRejectsDuplicateKnownKeysBeforeCanonicalization() throws {
+        let fixture = try ArticleCloudCodecFixture()
+        defer { fixture.remove() }
+
+        let imageData = cloudCoverPNGData()
+        try imageData.write(
+            to: fixture.packageDirectory.appending(path: "image-0.png"))
+        let captureRecord = try fixture.codec.captureRecord(
+            fixture.capture,
+            packageDirectory: fixture.packageDirectory)
+        let packageAssetsJSON = try #require(
+            captureRecord["packageAssetsJSON"] as? String)
+        captureRecord["packageAssetsJSON"] =
+            packageAssetsJSON.replacingOccurrences(
+                of: #""mediaType":"image/png""#,
+                with: #""mediaType":"image/png","mediaType":"image/png""#)
+            as CKRecordValue
+        #expect(throws: ArticleCloudRecordCodec.Error.self) {
+            _ = try fixture.codec.decode(
+                captureRecord,
+                assetCopyDirectory: fixture.incomingDirectory)
+        }
+
+        let revision = ArticleRevisionRecord(
+            id: "00000000-0000-0000-0000-000000000202",
+            captureID: fixture.capture.id,
+            parentRevisionID: nil,
+            metadataOverridesJSON: #"{"title":"Edited"}"#,
+            recipeJSON:
+                #"{"excludedBlockIDs":[],"metadataOverrides":{"title":"Edited"}}"#,
+            readableContentSHA256: String(repeating: "b", count: 64),
+            createdAt: "2026-07-29T12:00:00Z",
+            deviceName: nil)
+        let duplicateMetadata = try fixture.codec.revisionRecord(revision)
+        duplicateMetadata["metadataOverridesJSON"] =
+            #"{"title":"Edited","title":"Edited"}"# as CKRecordValue
+        #expect(throws: ArticleCloudRecordCodec.Error.self) {
+            _ = try fixture.codec.decode(
+                duplicateMetadata,
+                assetCopyDirectory: fixture.incomingDirectory)
+        }
+        let duplicateRecipe = try fixture.codec.revisionRecord(revision)
+        duplicateRecipe["recipeJSON"] =
+            #"{"excludedBlockIDs":[],"excludedBlockIDs":[],"metadataOverrides":{"title":"Edited"}}"#
+            as CKRecordValue
+        #expect(throws: ArticleCloudRecordCodec.Error.self) {
+            _ = try fixture.codec.decode(
+                duplicateRecipe,
+                assetCopyDirectory: fixture.incomingDirectory)
+        }
+
+        let manifest = cloudAnthologyManifest(
+            title: "Duplicate JSON",
+            modifiedAt: "2026-07-29T12:00:00Z")
+        let anthologyRecord = try fixture.codec.anthologyRecord(
+            manifest,
+            coverURL: nil)
+        let manifestJSON = try #require(
+            anthologyRecord["manifestJSON"] as? String)
+        anthologyRecord["manifestJSON"] =
+            manifestJSON.replacingOccurrences(
+                of: #""schemaVersion":1"#,
+                with: #""schemaVersion":1,"schemaVersion":1"#)
+            as CKRecordValue
+        #expect(throws: ArticleCloudRecordCodec.Error.self) {
+            _ = try fixture.codec.decode(
+                anthologyRecord,
                 assetCopyDirectory: fixture.incomingDirectory)
         }
     }
@@ -503,10 +648,13 @@ import ZIPFoundation
             #expect(throws: InjectedApplyFailure.failed) {
                 try applier.apply(modifications: [record], deletions: [])
             }
-            let installed = fixture.managedDirectory
+            let capturesRoot = fixture.managedDirectory
                 .appending(path: "Captures", directoryHint: .isDirectory)
+            let installed =
+                capturesRoot
                 .appending(path: fixture.capture.id, directoryHint: .isDirectory)
             #expect(FileManager.default.fileExists(atPath: installed.path) == false)
+            #expect(FileManager.default.fileExists(atPath: capturesRoot.path) == false)
         }
 
         let cleanDatabase = try DatabaseService(inMemory: ())
@@ -536,6 +684,99 @@ import ZIPFoundation
             try failingApplier.apply(modifications: [record], deletions: [])
         }
         #expect(FileManager.default.fileExists(atPath: preexisting.path))
+    }
+
+    @MainActor
+    @Test func fetchedDatabaseFailureRemovesOnlyNewManagedCoverDirectories() throws {
+        let fixture = try ArticleCloudCodecFixture()
+        defer { fixture.remove() }
+        try FileManager.default.createDirectory(
+            at: fixture.managedDirectory,
+            withIntermediateDirectories: true)
+        let anthologiesRoot = fixture.managedDirectory
+            .appending(path: "Anthologies", directoryHint: .isDirectory)
+        let incoming = cloudAnthologyManifest(
+            title: "Remote anthology",
+            modifiedAt: "2026-07-29T12:00:01Z")
+        let anthologyDirectory =
+            anthologiesRoot
+            .appending(path: incoming.anthology.id, directoryHint: .isDirectory)
+        let firstCoverURL = fixture.root.appending(path: "reclaimed-cover.png")
+        try cloudCoverPNGData().write(to: firstCoverURL)
+
+        // A fetched transaction that fails after the cover is materialized must
+        // leave no managed directory behind: nothing durable references it.
+        do {
+            let database = try DatabaseService(inMemory: ())
+            let dao = ArticleSyncDAO(db: database.writer)
+            try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+            let record = try fixture.codec.anthologyRecord(
+                incoming,
+                coverURL: firstCoverURL)
+            let applier = ArticleFetchedCloudBatchApplier(
+                syncDAO: dao,
+                codec: fixture.codec,
+                workshopRootDirectory: fixture.managedDirectory,
+                incomingDirectory: fixture.incomingDirectory,
+                beforeDatabaseCommit: { throw InjectedApplyFailure.failed })
+
+            #expect(throws: InjectedApplyFailure.failed) {
+                try applier.apply(modifications: [record], deletions: [])
+            }
+
+            #expect(try dao.anthologyManifest(id: incoming.anthology.id) == nil)
+            #expect(
+                FileManager.default.fileExists(atPath: anthologyDirectory.path) == false)
+            #expect(
+                FileManager.default.fileExists(atPath: anthologiesRoot.path) == false)
+        }
+
+        // A directory that already held a durable cover must survive the next
+        // failed transaction; only the newly written cover is reclaimed.
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        let cleanApplier = ArticleFetchedCloudBatchApplier(
+            syncDAO: dao,
+            codec: fixture.codec,
+            workshopRootDirectory: fixture.managedDirectory,
+            incomingDirectory: fixture.incomingDirectory)
+        try cleanApplier.apply(
+            modifications: [
+                try fixture.codec.anthologyRecord(incoming, coverURL: firstCoverURL)
+            ],
+            deletions: [])
+        let stored = try #require(try dao.anthologyManifest(id: incoming.anthology.id))
+        let durableCoverPath = try #require(stored.anthology.coverPath)
+        let durableCover = anthologyDirectory.appending(path: durableCoverPath)
+        #expect(FileManager.default.fileExists(atPath: durableCover.path))
+
+        let replacement = cloudAnthologyManifest(
+            title: "Later remote anthology",
+            modifiedAt: "2026-07-29T12:00:02Z")
+        let secondCoverURL = fixture.root.appending(path: "reclaimed-cover-2.png")
+        try generatedCloudCoverPNGData(width: 2).write(to: secondCoverURL)
+        let failingApplier = ArticleFetchedCloudBatchApplier(
+            syncDAO: dao,
+            codec: fixture.codec,
+            workshopRootDirectory: fixture.managedDirectory,
+            incomingDirectory: fixture.incomingDirectory,
+            beforeDatabaseCommit: { throw InjectedApplyFailure.failed })
+        #expect(throws: InjectedApplyFailure.failed) {
+            try failingApplier.apply(
+                modifications: [
+                    try fixture.codec.anthologyRecord(
+                        replacement,
+                        coverURL: secondCoverURL)
+                ],
+                deletions: [])
+        }
+
+        #expect(FileManager.default.fileExists(atPath: anthologyDirectory.path))
+        #expect(FileManager.default.fileExists(atPath: durableCover.path))
+        #expect(
+            try FileManager.default.contentsOfDirectory(
+                atPath: anthologyDirectory.path) == [durableCoverPath])
     }
 
     @MainActor
@@ -1373,6 +1614,31 @@ private func makeCaptureArchive(
     }
 }
 
+private func expectCaptureRejectedForUploadAndInstall(
+    _ fixture: ArticleCloudCodecFixture
+) throws {
+    #expect(throws: ArticleCloudRecordCodec.Error.self) {
+        _ = try fixture.codec.captureRecord(
+            fixture.capture,
+            packageDirectory: fixture.packageDirectory)
+    }
+
+    let snapshotURL = fixture.packageDirectory.appending(path: "snapshot.json")
+    let archiveURL = fixture.root.appending(path: "rejected-snapshot.zip")
+    try makeCaptureArchive(
+        at: archiveURL,
+        members: [("snapshot.json", try Data(contentsOf: snapshotURL))])
+    let payload = ArticleCloudCapturePayload(
+        capture: fixture.capture,
+        packageArchiveURL: archiveURL,
+        packageAssets: [])
+    #expect(throws: ArticleCloudRecordCodec.Error.self) {
+        _ = try fixture.codec.installCapturePackage(
+            payload,
+            workshopRootDirectory: fixture.managedDirectory)
+    }
+}
+
 private struct ArticleCloudCodecFixture {
     let root: URL
     let packageDirectory: URL
@@ -1385,7 +1651,8 @@ private struct ArticleCloudCodecFixture {
         limits: ArticleCloudRecordCodec.Limits = .production,
         sourceURL: String = "https://example.test/source",
         contentXHTML: String =
-            #"<html xmlns="http://www.w3.org/1999/xhtml"><body><p>private body</p></body></html>"#
+            #"<html xmlns="http://www.w3.org/1999/xhtml"><body><p>private body</p></body></html>"#,
+        imageURLs: [String] = []
     ) throws {
         root = FileManager.default.temporaryDirectory.appending(
             path: "ArticleCloudRecordCodecTests-\(UUID().uuidString)",
@@ -1420,7 +1687,7 @@ private struct ArticleCloudCodecFixture {
                 excerpt: "Private body",
                 contentXHTML: contentXHTML,
                 textContent: "private body",
-                imageURLs: []))
+                imageURLs: imageURLs))
         let encoder = JSONEncoder.articleWorkshop
         encoder.outputFormatting = [.sortedKeys]
         let snapshotData = try encoder.encode(envelope)

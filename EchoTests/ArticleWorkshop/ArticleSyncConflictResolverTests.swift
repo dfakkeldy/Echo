@@ -183,6 +183,42 @@ import Testing
     }
 
     @MainActor
+    @Test func ownerlessSaveForPriorAccountIdentityNeverReachesCurrentDriver() async throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        let recordName =
+            "capture.00000000-0000-0000-0000-000000000328"
+        try dao.bindAccountOwner(
+            "account-A",
+            updatedAt: "2026-07-29T12:00:00Z")
+        try dao.storeFetchedCloudRecord(
+            recordName: recordName,
+            recordType: .capture,
+            entityID: "00000000-0000-0000-0000-000000000328",
+            systemFields: Data("account-a-fields".utf8),
+            contentFingerprint: "account-a",
+            updatedAt: "2026-07-29T12:00:01Z")
+        try dao.bindAccountOwner(
+            "account-B",
+            updatedAt: "2026-07-29T12:01:00Z")
+        let driver = DeterministicArticleSyncEngineDriver()
+        let engine = ArticleWorkshopCloudSyncEngine(syncDAO: dao, driver: driver)
+
+        await engine.schedule([
+            ArticlePendingCloudChange(
+                recordName: recordName,
+                recordType: .capture,
+                entityID: "00000000-0000-0000-0000-000000000328",
+                operation: .save,
+                queuedAt: "2026-07-29T12:01:01Z")
+        ])
+
+        #expect(await driver.scheduledChanges().isEmpty)
+        #expect(try dao.pendingChanges().isEmpty)
+        #expect(try dao.pendingChanges(accountOwnerID: "account-A").isEmpty)
+    }
+
+    @MainActor
     @Test func returningToOwnerWithPreservedOutboxFailsClosedUntilReconciled() throws {
         let database = try DatabaseService(inMemory: ())
         let dao = ArticleSyncDAO(db: database.writer)
@@ -434,6 +470,106 @@ import Testing
             try database.read {
                 try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM anthology")
             } == 2)
+    }
+
+    @MainActor
+    @Test func remoteBaseEchoKeepsPendingLocalTextEditWithoutRecovery() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner(
+            "account-A",
+            updatedAt: "2026-07-29T12:00:00Z")
+        let base = anthologyManifest(
+            title: "Acknowledged base",
+            modifiedAt: "2026-07-29T12:00:00Z",
+            captureIDs: [])
+        try database.write { db in
+            var anthology = base.anthology
+            try anthology.insert(db)
+        }
+        let recordName = "anthology.\(base.anthology.id)"
+        try dao.storeFetchedCloudRecord(
+            recordName: recordName,
+            recordType: .anthology,
+            entityID: base.anthology.id,
+            systemFields: Data("base-fields".utf8),
+            contentFingerprint: try ArticleSyncFingerprint.anthology(base),
+            updatedAt: "2026-07-29T12:00:00Z")
+        try database.write { db in
+            try db.execute(
+                sql: "UPDATE anthology SET title = ?, modified_at = ? WHERE id = ?",
+                arguments: [
+                    "Pending local edit",
+                    "2026-07-29T12:01:00Z",
+                    base.anthology.id,
+                ])
+        }
+        let pending = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: recordName,
+                recordType: .anthology,
+                entityID: base.anthology.id,
+                operation: .save,
+                queuedAt: "2026-07-29T12:01:00Z"))
+
+        let disposition = try dao.anthologyDisposition(for: base)
+        #expect(disposition.action == .keepLocal)
+        try dao.applyFetchedChanges([.anthology(base)])
+
+        #expect(
+            try dao.anthologyManifest(id: base.anthology.id)?.anthology.title
+                == "Pending local edit")
+        #expect(try dao.pendingChanges() == [pending])
+        #expect(
+            try database.read {
+                try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM anthology")
+            } == 1)
+    }
+
+    @MainActor
+    @Test func remoteBaseEchoKeepsPendingLocalCoverWithoutRecovery() throws {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner(
+            "account-A",
+            updatedAt: "2026-07-29T12:00:00Z")
+        var base = anthologyManifest(
+            title: "Acknowledged cover",
+            modifiedAt: "2026-07-29T12:00:00Z",
+            captureIDs: [])
+        base.coverContentVersion = "sha256:" + String(repeating: "a", count: 64)
+        var stored = base.anthology
+        stored.coverPath = "cover-" + String(repeating: "b", count: 64) + ".png"
+        try database.write { db in try stored.insert(db) }
+        let recordName = "anthology.\(base.anthology.id)"
+        try dao.storeFetchedCloudRecord(
+            recordName: recordName,
+            recordType: .anthology,
+            entityID: base.anthology.id,
+            systemFields: Data("base-cover-fields".utf8),
+            contentFingerprint: try ArticleSyncFingerprint.anthology(base),
+            updatedAt: "2026-07-29T12:00:00Z")
+        let pending = try dao.enqueueReturning(
+            ArticlePendingCloudChange(
+                recordName: recordName,
+                recordType: .anthology,
+                entityID: base.anthology.id,
+                operation: .save,
+                queuedAt: "2026-07-29T12:01:00Z"))
+
+        let disposition = try dao.anthologyDisposition(for: base)
+        #expect(disposition.action == .keepLocal)
+        try dao.applyFetchedChanges([.anthology(base)])
+
+        #expect(
+            try dao.anthologyManifest(id: base.anthology.id)?
+                .anthology.coverPath
+                == "cover-" + String(repeating: "b", count: 64) + ".png")
+        #expect(try dao.pendingChanges() == [pending])
+        #expect(
+            try database.read {
+                try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM anthology")
+            } == 1)
     }
 
     @MainActor
@@ -757,6 +893,81 @@ import Testing
         #expect(
             ArticleSyncZoneDeletionPolicy.action(for: .encryptedDataReset)
                 == .quarantineLane)
+    }
+
+    @Test func failedSaveRecoveryPlansReloadCurrentGenerationAndPreserveZoneIntent() {
+        let missingServer = ArticleFailedSaveRecoveryPlan.make(
+            reason: .missingServerRecord)
+        #expect(missingServer.shouldRequeueCurrentChange)
+        #expect(missingServer.shouldPreserveZoneSaveIntent == false)
+
+        let serverApply = ArticleFailedSaveRecoveryPlan.make(
+            reason: .serverApplyFailed)
+        #expect(serverApply.shouldRequeueCurrentChange)
+        #expect(serverApply.shouldPreserveZoneSaveIntent == false)
+
+        let missingZone = ArticleFailedSaveRecoveryPlan.make(
+            reason: .missingZoneRecoveryFailed)
+        #expect(missingZone.shouldRequeueCurrentChange)
+        #expect(missingZone.shouldPreserveZoneSaveIntent)
+    }
+
+    @Test func requeueResolverUsesCurrentDurableOperationAndGeneration() {
+        let recordName =
+            "revision.00000000-0000-0000-0000-000000000369"
+        let inFlight = ArticlePendingCloudChange(
+            recordName: recordName,
+            recordType: .revision,
+            entityID: "00000000-0000-0000-0000-000000000369",
+            operation: .save,
+            generation: 1,
+            accountOwnerID: "account-A",
+            queuedAt: "2026-07-29T12:00:00Z")
+        var durableSave = inFlight
+        durableSave.generation = 2
+        durableSave.queuedAt = "2026-07-29T12:01:00Z"
+        let newerSave = ArticleCurrentChangeRequeueResolver.resolve(
+            inFlightChanges: [recordName: inFlight],
+            durableChanges: [durableSave],
+            affectedRecordNames: [recordName])
+        #expect(newerSave.inFlightChanges[recordName] == durableSave)
+        #expect(newerSave.changesToQueue == [durableSave])
+
+        var durableDelete = durableSave
+        durableDelete.operation = .delete
+        durableDelete.generation = 3
+        let delete = ArticleCurrentChangeRequeueResolver.resolve(
+            inFlightChanges: [recordName: inFlight],
+            durableChanges: [durableDelete],
+            affectedRecordNames: [recordName])
+        #expect(delete.inFlightChanges[recordName] == durableDelete)
+        #expect(delete.changesToQueue == [durableDelete])
+    }
+
+    @Test func requeueResolverDistinguishesMissingRowFromFailedRead() {
+        let recordName =
+            "revision.00000000-0000-0000-0000-000000000368"
+        let inFlight = ArticlePendingCloudChange(
+            recordName: recordName,
+            recordType: .revision,
+            entityID: "00000000-0000-0000-0000-000000000368",
+            operation: .save,
+            generation: 1,
+            accountOwnerID: "account-A",
+            queuedAt: "2026-07-29T12:00:00Z")
+        let readFailure = ArticleCurrentChangeRequeueResolver.resolve(
+            inFlightChanges: [recordName: inFlight],
+            durableChanges: nil,
+            affectedRecordNames: [recordName])
+        #expect(readFailure.inFlightChanges[recordName] == inFlight)
+        #expect(readFailure.changesToQueue == [inFlight])
+
+        let missingRow = ArticleCurrentChangeRequeueResolver.resolve(
+            inFlightChanges: [recordName: inFlight],
+            durableChanges: [],
+            affectedRecordNames: [recordName])
+        #expect(missingRow.inFlightChanges[recordName] == nil)
+        #expect(missingRow.changesToQueue.isEmpty)
     }
 
     @Test func failedChangePlanCarriesExactGenerationForRequeueAndMissingDeleteAck() {

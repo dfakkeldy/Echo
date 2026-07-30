@@ -214,6 +214,7 @@ nonisolated struct ArticleCloudAnthologyManifest: Codable, Equatable, Sendable {
 nonisolated struct ArticleFetchedAnthologyDisposition: Equatable, Sendable {
     enum Action: Equatable, Sendable {
         case insert
+        case keepLocal
         case replace
         case recover
     }
@@ -296,6 +297,7 @@ nonisolated struct ArticleSyncDAO: Sendable {
         case invalidEngineState
         case missingAccountOwner
         case accountOwnerMismatch
+        case recordIdentityMismatch
         case invalidGeneration
         case accountOwnerQuarantined
         case anthologyStateChanged
@@ -524,16 +526,8 @@ nonisolated struct ArticleSyncDAO: Sendable {
                     updatedAt,
                 ])
 
-            // Changes created before an account was known become owned by the
-            // first account only. Rows from a previous owner remain quarantined.
-            if previous == nil && quarantined == false {
-                try db.execute(
-                    sql: """
-                        UPDATE article_sync_outbox
-                        SET account_owner_id = ?
-                        WHERE account_owner_id = ''
-                        """,
-                    arguments: [ownerID])
+            if quarantined == false {
+                try adoptOwnerlessChanges(for: ownerID, db: db)
             }
             return quarantined ? .quarantined : .available
         }
@@ -646,7 +640,13 @@ nonisolated struct ArticleSyncDAO: Sendable {
     func enqueueReturning(_ change: ArticlePendingCloudChange) throws
         -> ArticlePendingCloudChange
     {
-        try db.write { db in
+        guard
+            change.recordName
+                == "\(change.recordType.recordNamePrefix).\(change.entityID)"
+        else {
+            throw Error.recordIdentityMismatch
+        }
+        return try db.write { db in
             let boundOwner = try String.fetchOne(
                 db,
                 sql: """
@@ -660,6 +660,16 @@ nonisolated struct ArticleSyncDAO: Sendable {
             }
             let activeOwner = change.accountOwnerID ?? boundOwner
             let ownerKey = activeOwner ?? ""
+            if change.operation == .save, let activeOwner {
+                let historicalOwners = try syncIdentityOwners(
+                    recordName: change.recordName,
+                    db: db)
+                guard historicalOwners.isEmpty
+                    || historicalOwners == Set([activeOwner])
+                else {
+                    throw Error.accountOwnerMismatch
+                }
+            }
             let previousGeneration =
                 try Int64.fetchOne(
                     db,
@@ -1361,8 +1371,14 @@ nonisolated struct ArticleSyncDAO: Sendable {
             let localDiverged =
                 hasPendingSave
                 && (baseFingerprint == nil || existingFingerprint != baseFingerprint)
-            if existingFingerprint != incomingFingerprint
-                && (baseFingerprint == nil || localDiverged)
+            let remoteDiverged =
+                baseFingerprint.map { incomingFingerprint != $0 }
+            if localDiverged && remoteDiverged == false {
+                action = .keepLocal
+                targetID = sourceID.uuidString
+            } else if existingFingerprint != incomingFingerprint
+                && (baseFingerprint == nil
+                    || (localDiverged && remoteDiverged == true))
             {
                 action = .recover
                 targetID =
@@ -1427,6 +1443,8 @@ nonisolated struct ArticleSyncDAO: Sendable {
             try replaceAnthologyAuthoringState(
                 incoming,
                 db: db)
+        case .keepLocal:
+            break
         case .recover:
             try applyRecoveredAnthology(
                 incoming,
@@ -1827,6 +1845,138 @@ nonisolated struct ArticleSyncDAO: Sendable {
             throw Error.missingAccountOwner
         }
         return owner
+    }
+
+    private func syncIdentityOwners(
+        recordName: String,
+        db: Database
+    ) throws -> Set<String> {
+        Set(
+            try String.fetchAll(
+                db,
+                sql: """
+                    SELECT account_owner_id
+                    FROM article_sync_record
+                    WHERE record_name = ? AND account_owner_id != ''
+                    UNION
+                    SELECT account_owner_id
+                    FROM article_sync_outbox
+                    WHERE record_name = ? AND account_owner_id != ''
+                    """,
+                arguments: [recordName, recordName]))
+    }
+
+    private func adoptOwnerlessChanges(
+        for owner: String,
+        db: Database
+    ) throws {
+        let rows = try Row.fetchAll(
+            db,
+            sql: """
+                SELECT record_name, record_type, entity_id, operation,
+                       generation, queued_at
+                FROM article_sync_outbox
+                WHERE account_owner_id = ''
+                ORDER BY queued_at, record_name
+                """)
+        for row in rows {
+            let recordName: String = row["record_name"]
+            let rawType: String = row["record_type"]
+            let entityID: String = row["entity_id"]
+            let rawOperation: String = row["operation"]
+            let ownerlessGeneration: Int64 = row["generation"]
+            let queuedAt: String = row["queued_at"]
+            guard let recordType = ArticleCloudRecordType(rawValue: rawType)
+            else {
+                throw Error.invalidRecordType(rawType)
+            }
+            guard ArticleSyncOperation(rawValue: rawOperation) != nil else {
+                throw Error.invalidOperation(rawOperation)
+            }
+            guard
+                recordName
+                    == "\(recordType.recordNamePrefix).\(entityID)",
+                ownerlessGeneration > 0
+            else {
+                throw Error.invalidGeneration
+            }
+            let historicalOwners = try syncIdentityOwners(
+                recordName: recordName,
+                db: db)
+            guard historicalOwners.isEmpty || historicalOwners == Set([owner])
+            else {
+                continue
+            }
+            let target = try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT record_type, entity_id, generation
+                    FROM article_sync_outbox
+                    WHERE record_name = ? AND account_owner_id = ?
+                    """,
+                arguments: [recordName, owner])
+            if let target {
+                let targetType: String = target["record_type"]
+                let targetEntityID: String = target["entity_id"]
+                guard targetType == rawType, targetEntityID == entityID else {
+                    throw Error.recordIdentityMismatch
+                }
+            }
+            let receipt = try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT record_type, entity_id, acknowledged_generation
+                    FROM article_sync_record
+                    WHERE record_name = ? AND account_owner_id = ?
+                    """,
+                arguments: [recordName, owner])
+            if let receipt {
+                let receiptType: String = receipt["record_type"]
+                let receiptEntityID: String = receipt["entity_id"]
+                guard receiptType == rawType, receiptEntityID == entityID else {
+                    throw Error.recordIdentityMismatch
+                }
+            }
+            let targetGeneration: Int64 = target?["generation"] ?? 0
+            let acknowledgedGeneration: Int64 =
+                receipt?["acknowledged_generation"] ?? 0
+            let durableGeneration = max(
+                ownerlessGeneration,
+                targetGeneration,
+                acknowledgedGeneration)
+            guard durableGeneration < Int64.max else {
+                throw Error.invalidGeneration
+            }
+            try db.execute(
+                sql: """
+                    INSERT INTO article_sync_outbox (
+                        record_name, record_type, entity_id, operation,
+                        generation, account_owner_id, queued_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(record_name, account_owner_id) DO UPDATE SET
+                        record_type = excluded.record_type,
+                        entity_id = excluded.entity_id,
+                        operation = excluded.operation,
+                        generation = excluded.generation,
+                        queued_at = excluded.queued_at
+                    """,
+                arguments: [
+                    recordName,
+                    rawType,
+                    entityID,
+                    rawOperation,
+                    durableGeneration + 1,
+                    owner,
+                    queuedAt,
+                ])
+            try db.execute(
+                sql: """
+                    DELETE FROM article_sync_outbox
+                    WHERE record_name = ? AND account_owner_id = ''
+                    """,
+                arguments: [recordName])
+        }
     }
 
     private func accountOwnerIsQuarantined(

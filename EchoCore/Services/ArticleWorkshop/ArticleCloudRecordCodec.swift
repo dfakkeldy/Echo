@@ -404,7 +404,7 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         guard let method = ArticleCaptureMethod(rawValue: methodRaw) else {
             throw Error.invalidField(Field.captureMethod)
         }
-        let warnings = try canonicalJSONString(
+        let warnings = try requireCanonicalJSONString(
             requiredString(Field.warningsJSON, from: record),
             field: Field.warningsJSON)
         let sourceURL = try requiredString(Field.sourceURL, from: record)
@@ -429,7 +429,7 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         }
         let createdAt = try requiredString(Field.createdAt, from: record)
         let modifiedAt = try requiredString(Field.modifiedAt, from: record)
-        let packageAssetsJSON = try canonicalJSONString(
+        let packageAssetsJSON = try requireCanonicalJSONString(
             requiredString(Field.packageAssetsJSON, from: record),
             field: Field.packageAssetsJSON)
         let packageAssets: [ArticleCloudCaptureAssetDescriptor]
@@ -500,10 +500,10 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
             id: entityID,
             captureID: captureID,
             parentRevisionID: parentRevisionID,
-            metadataOverridesJSON: try canonicalJSONString(
+            metadataOverridesJSON: try requireCanonicalJSONString(
                 requiredString(Field.metadataOverridesJSON, from: record),
                 field: Field.metadataOverridesJSON),
-            recipeJSON: try canonicalJSONString(
+            recipeJSON: try requireCanonicalJSONString(
                 requiredString(Field.recipeJSON, from: record),
                 field: Field.recipeJSON),
             readableContentSHA256: try requiredString(
@@ -522,7 +522,7 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         _ record: CKRecord,
         assetCopyDirectory: URL
     ) throws -> ArticleCloudAnthologyPayload {
-        let json = try canonicalJSONString(
+        let json = try requireCanonicalJSONString(
             requiredString(Field.manifestJSON, from: record),
             field: Field.manifestJSON)
         let manifest: ArticleCloudAnthologyManifest
@@ -813,19 +813,31 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         let collector = SnapshotURLAttributeCollector()
         let parser = XMLParser(data: Data(contentXHTML.utf8))
         parser.delegate = collector
-        guard parser.parse() else { throw Error.invalidPackage }
+        parser.shouldResolveExternalEntities = false
+        guard parser.parse(), collector.containsRejectedSyntax == false else {
+            throw Error.invalidPackage
+        }
 
         for attribute in collector.attributes {
             let candidates: [String]
-            switch attribute.name {
-            case "srcset":
-                candidates = attribute.value.split(separator: ",").compactMap {
-                    $0.split(whereSeparator: \.isWhitespace).first.map(String.init)
-                }
-            case "style":
-                candidates = styleURLCandidates(attribute.value)
-            default:
+            guard let semantics =
+                SnapshotURLAttributeCollector.semantics[attribute.name]
+            else {
+                throw Error.invalidPackage
+            }
+            switch semantics {
+            case .single:
                 candidates = [attribute.value]
+            case .whitespaceList:
+                candidates = attribute.value.split(whereSeparator: \.isWhitespace)
+                    .map(String.init)
+                guard candidates.isEmpty == false else {
+                    throw Error.invalidPackage
+                }
+            case .srcset:
+                candidates = try srcsetURLCandidates(attribute.value)
+            case .css:
+                candidates = try cssURLCandidates(attribute.value)
             }
             for candidate in candidates {
                 try validateSnapshotURLCandidate(candidate, relativeTo: baseURL)
@@ -833,31 +845,269 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         }
     }
 
-    private func styleURLCandidates(_ style: String) -> [String] {
+    private func srcsetURLCandidates(_ value: String) throws -> [String] {
         var candidates: [String] = []
-        var remainder = style[...]
-        while let start = remainder.range(
-            of: "url(",
-            options: [.caseInsensitive])
-        {
-            let afterStart = remainder[start.upperBound...]
-            guard let end = afterStart.firstIndex(of: ")") else {
-                return candidates + [String(afterStart)]
+        var remainder = value[...]
+        while true {
+            while let first = remainder.first,
+                first.isWhitespace || first == ","
+            {
+                remainder.removeFirst()
             }
-            candidates.append(
-                String(afterStart[..<end])
-                    .trimmingCharacters(in: CharacterSet(charactersIn: "\"' ")))
-            remainder = afterStart[afterStart.index(after: end)...]
+            guard remainder.isEmpty == false else { break }
+
+            let urlEnd =
+                remainder.firstIndex(where: \.isWhitespace)
+                ?? remainder.endIndex
+            var rawURL = String(remainder[..<urlEnd])
+            remainder = remainder[urlEnd...]
+            var endedAtComma = false
+            while rawURL.last == "," {
+                rawURL.removeLast()
+                endedAtComma = true
+            }
+            guard rawURL.isEmpty == false else {
+                throw Error.invalidPackage
+            }
+            candidates.append(rawURL)
+            var commaSearch = rawURL.startIndex
+            while let comma = rawURL[commaSearch...].firstIndex(of: ",") {
+                let suffixStart = rawURL.index(after: comma)
+                if suffixStart < rawURL.endIndex {
+                    candidates.append(String(rawURL[suffixStart...]))
+                }
+                commaSearch = suffixStart
+            }
+
+            if endedAtComma == false {
+                while remainder.first?.isWhitespace == true {
+                    remainder.removeFirst()
+                }
+                let descriptorEnd =
+                    remainder.firstIndex(of: ",")
+                    ?? remainder.endIndex
+                let descriptor = remainder[..<descriptorEnd]
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if descriptor.isEmpty == false,
+                    validImageCandidateDescriptor(descriptor) == false
+                {
+                    throw Error.invalidPackage
+                }
+                remainder = remainder[descriptorEnd...]
+            }
+            if remainder.first == "," {
+                remainder.removeFirst()
+            }
+        }
+        guard candidates.isEmpty == false else { throw Error.invalidPackage }
+        return candidates
+    }
+
+    private func validImageCandidateDescriptor(_ descriptor: String) -> Bool {
+        let pieces = descriptor.split(whereSeparator: \.isWhitespace)
+        guard pieces.count == 1, let piece = pieces.first else { return false }
+        if piece.hasSuffix("x") || piece.hasSuffix("dppx") {
+            let suffix = piece.hasSuffix("dppx") ? "dppx" : "x"
+            return Double(piece.dropLast(suffix.count)).map { $0 > 0 } ?? false
+        }
+        if piece.hasSuffix("dpi") {
+            return Double(piece.dropLast(3)).map { $0 > 0 } ?? false
+        }
+        if piece.hasSuffix("w") || piece.hasSuffix("h") {
+            return Int(piece.dropLast()).map { $0 > 0 } ?? false
+        }
+        return false
+    }
+
+    private func cssURLCandidates(_ css: String) throws -> [String] {
+        guard css.contains("\\") == false,
+            css.contains("/*") == false,
+            css.contains("*/") == false
+        else {
+            throw Error.invalidPackage
+        }
+        let functionNames = ["url(", "image-set(", "-webkit-image-set("]
+        var candidates: [String] = []
+        var unchecked = ""
+        var cursor = css.startIndex
+        while cursor < css.endIndex {
+            let matches = functionNames.compactMap { name -> (String, Range<String.Index>)? in
+                guard let range = css.range(
+                    of: name,
+                    options: [.caseInsensitive],
+                    range: cursor..<css.endIndex)
+                else {
+                    return nil
+                }
+                return (name, range)
+            }
+            guard let match = matches.min(by: {
+                $0.1.lowerBound < $1.1.lowerBound
+            }) else {
+                unchecked += css[cursor...]
+                break
+            }
+            unchecked += css[cursor..<match.1.lowerBound]
+            let parsed = try cssFunctionContent(
+                in: css,
+                openParenthesis: css.index(before: match.1.upperBound))
+            if match.0 == "url(" {
+                candidates.append(try cssURLArgument(parsed.content))
+            } else {
+                candidates.append(
+                    contentsOf: try cssImageSetCandidates(parsed.content))
+            }
+            cursor = parsed.endIndex
+        }
+        let uncheckedLower = unchecked.lowercased()
+        guard uncheckedLower.contains("url") == false,
+            uncheckedLower.contains("image-set") == false,
+            uncheckedLower.contains("@import") == false
+        else {
+            throw Error.invalidPackage
         }
         return candidates
     }
 
+    private func cssFunctionContent(
+        in value: String,
+        openParenthesis: String.Index
+    ) throws -> (content: String, endIndex: String.Index) {
+        guard value[openParenthesis] == "(" else {
+            throw Error.invalidPackage
+        }
+        var depth = 1
+        var quote: Character?
+        var index = value.index(after: openParenthesis)
+        let contentStart = index
+        while index < value.endIndex {
+            let character = value[index]
+            if character == "\\" {
+                throw Error.invalidPackage
+            }
+            if let activeQuote = quote {
+                if character == activeQuote {
+                    quote = nil
+                }
+            } else if character == "\"" || character == "'" {
+                quote = character
+            } else if character == "(" {
+                depth += 1
+            } else if character == ")" {
+                depth -= 1
+                if depth == 0 {
+                    return (
+                        String(value[contentStart..<index]),
+                        value.index(after: index))
+                }
+            }
+            index = value.index(after: index)
+        }
+        throw Error.invalidPackage
+    }
+
+    private func cssURLArgument(_ rawValue: String) throws -> String {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard value.isEmpty == false else { throw Error.invalidPackage }
+        if let quote = value.first, quote == "\"" || quote == "'" {
+            guard value.last == quote, value.count >= 2 else {
+                throw Error.invalidPackage
+            }
+            return String(value.dropFirst().dropLast())
+        }
+        guard value.contains(where: \.isWhitespace) == false,
+            value.contains("\"") == false,
+            value.contains("'") == false,
+            value.contains("(") == false,
+            value.contains(")") == false
+        else {
+            throw Error.invalidPackage
+        }
+        return value
+    }
+
+    private func cssImageSetCandidates(_ content: String) throws -> [String] {
+        let options = try splitCSSImageSetOptions(content)
+        guard options.isEmpty == false else { throw Error.invalidPackage }
+        return try options.map { option in
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.lowercased().hasPrefix("url(") {
+                guard let open = trimmed.firstIndex(of: "(") else {
+                    throw Error.invalidPackage
+                }
+                let parsed = try cssFunctionContent(
+                    in: trimmed,
+                    openParenthesis: open)
+                let remainder = trimmed[parsed.endIndex...]
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard remainder.isEmpty
+                    || validImageCandidateDescriptor(remainder)
+                else {
+                    throw Error.invalidPackage
+                }
+                return try cssURLArgument(parsed.content)
+            }
+            guard let quote = trimmed.first,
+                quote == "\"" || quote == "'",
+                let endQuote = trimmed.dropFirst().firstIndex(of: quote)
+            else {
+                throw Error.invalidPackage
+            }
+            let candidate = String(
+                trimmed[trimmed.index(after: trimmed.startIndex)..<endQuote])
+            let remainder = trimmed[trimmed.index(after: endQuote)...]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard remainder.isEmpty || validImageCandidateDescriptor(remainder)
+            else {
+                throw Error.invalidPackage
+            }
+            return candidate
+        }
+    }
+
+    private func splitCSSImageSetOptions(_ content: String) throws -> [String] {
+        var options: [String] = []
+        var depth = 0
+        var quote: Character?
+        var start = content.startIndex
+        var index = content.startIndex
+        while index < content.endIndex {
+            let character = content[index]
+            if character == "\\" {
+                throw Error.invalidPackage
+            }
+            if let activeQuote = quote {
+                if character == activeQuote { quote = nil }
+            } else if character == "\"" || character == "'" {
+                quote = character
+            } else if character == "(" {
+                depth += 1
+            } else if character == ")" {
+                guard depth > 0 else { throw Error.invalidPackage }
+                depth -= 1
+            } else if character == ",", depth == 0 {
+                options.append(String(content[start..<index]))
+                start = content.index(after: index)
+            }
+            index = content.index(after: index)
+        }
+        guard quote == nil, depth == 0 else { throw Error.invalidPackage }
+        options.append(String(content[start...]))
+        return options
+    }
+
     private func validateSnapshotURLCandidate(
         _ rawValue: String,
-        relativeTo baseURL: URL
+        relativeTo baseURL: URL,
+        depth: Int = 0
     ) throws {
+        guard depth <= 3 else { throw Error.invalidPackage }
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let decoded = repeatedlyPercentDecoded(value),
+        guard value.isEmpty == false,
+            value.unicodeScalars.allSatisfy({
+                CharacterSet.controlCharacters.contains($0) == false
+            }),
+            let decoded = repeatedlyPercentDecoded(value),
             let resolved = URL(string: decoded, relativeTo: baseURL)?.absoluteURL,
             let components = URLComponents(
                 url: resolved,
@@ -896,19 +1146,77 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
             throw Error.invalidPackage
         }
         if let fragment = components.fragment {
-            guard let decodedFragment = repeatedlyPercentDecoded(fragment) else {
-                throw Error.invalidPackage
-            }
-            let normalized = normalizedQueryName(decodedFragment)
-            let tokens = normalized.split(separator: "_").map(String.init)
-            let lowercased = decodedFragment.lowercased()
-            guard sensitiveNames.contains(normalized) == false,
-                tokens.contains(where: sensitiveTokens.contains) == false,
-                sensitiveValueMarkers.contains(where: lowercased.contains) == false
+            guard try snapshotFragmentContainsCredentials(
+                fragment,
+                relativeTo: resolved,
+                depth: depth + 1) == false
             else {
                 throw Error.invalidPackage
             }
         }
+    }
+
+    private func snapshotFragmentContainsCredentials(
+        _ fragment: String,
+        relativeTo baseURL: URL,
+        depth: Int
+    ) throws -> Bool {
+        guard depth <= 3,
+            let decoded = repeatedlyPercentDecoded(fragment)
+        else {
+            throw Error.invalidPackage
+        }
+        let sensitiveNames: Set<String> = [
+            "access_key", "access_token", "accesskey", "accesstoken", "api_key",
+            "apikey", "authorization", "auth", "bearer", "client_secret", "code",
+            "credential", "credentials", "cookie", "jwt", "key", "password",
+            "passwd", "secret", "session", "sessionid", "sig", "signature", "token",
+        ]
+        let sensitiveTokens: Set<String> = [
+            "auth", "authorization", "bearer", "code", "credential", "credentials",
+            "cookie", "jwt", "key", "password", "passwd", "secret", "session",
+            "sessionid", "sig", "signature", "token",
+        ]
+        let sensitiveValueMarkers: [String] = [
+            "access_token", "api_key", "apikey", "authorization", "bearer ",
+            "credential", "jwt", "password", "secret", "session=", "token=",
+        ]
+        let normalized = normalizedQueryName(decoded)
+        let tokens = normalized.split(separator: "_").map(String.init)
+        let lowercased = decoded.lowercased()
+        if sensitiveNames.contains(normalized)
+            || tokens.contains(where: sensitiveTokens.contains)
+            || sensitiveValueMarkers.contains(where: lowercased.contains)
+        {
+            return true
+        }
+        if let pseudoQuery = URLComponents(
+            string: "https://fragment.invalid/?\(decoded)"),
+            queryContainsCredentials(
+                pseudoQuery,
+                depth: depth,
+                sensitiveNames: sensitiveNames,
+                sensitiveTokens: sensitiveTokens,
+                sensitiveValueMarkers: sensitiveValueMarkers)
+        {
+            return true
+        }
+        let fragmentComponents = URLComponents(string: decoded)
+        if fragmentComponents?.scheme != nil
+            || decoded.hasPrefix("//")
+            || decoded.contains("://")
+        {
+            do {
+                try validateSnapshotURLCandidate(
+                    decoded,
+                    relativeTo: baseURL,
+                    depth: depth)
+                return false
+            } catch {
+                return true
+            }
+        }
+        return false
     }
 
     private func normalizedQueryName(_ value: String) -> String {
@@ -1079,6 +1387,17 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
             throw Error.canonicalJSONTooLarge(field)
         }
         return result
+    }
+
+    private func requireCanonicalJSONString(
+        _ value: String,
+        field: String
+    ) throws -> String {
+        let canonical = try canonicalJSONString(value, field: field)
+        guard value == canonical else {
+            throw Error.invalidJSON(field)
+        }
+        return value
     }
 
     private func canonicalJSONString<T: Encodable>(_ value: T, field: String) throws
@@ -1391,6 +1710,12 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         if let canonicalURL = envelope.payload.canonicalURL {
             try validateProvenanceURL(canonicalURL, field: Field.canonicalURL)
         }
+        guard let sourceURL = URL(string: envelope.payload.sourceURL) else {
+            throw Error.invalidPackage
+        }
+        for imageURL in envelope.payload.imageURLs {
+            try validateSnapshotURLCandidate(imageURL, relativeTo: sourceURL)
+        }
         try validateSnapshotURLAttributes(
             envelope.payload.contentXHTML,
             sourceURL: envelope.payload.sourceURL)
@@ -1624,6 +1949,13 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
     }
 }
 
+nonisolated private enum SnapshotURLAttributeSemantics {
+    case single
+    case whitespaceList
+    case srcset
+    case css
+}
+
 nonisolated private final class SnapshotURLAttributeCollector:
     NSObject, XMLParserDelegate
 {
@@ -1632,12 +1964,50 @@ nonisolated private final class SnapshotURLAttributeCollector:
         let value: String
     }
 
-    private static let urlBearingNames: Set<String> = [
-        "action", "background", "cite", "data", "formaction", "href",
-        "longdesc", "poster", "src", "srcset", "style", "xlink:href",
+    static let semantics: [String: SnapshotURLAttributeSemantics] = [
+        "about": .single,
+        "action": .single,
+        "archive": .whitespaceList,
+        "background": .single,
+        "cite": .single,
+        "classid": .single,
+        "clip-path": .css,
+        "codebase": .single,
+        "cursor": .css,
+        "data": .single,
+        "dynsrc": .single,
+        "fill": .css,
+        "filter": .css,
+        "formaction": .single,
+        "href": .single,
+        "icon": .single,
+        "imagesrcset": .srcset,
+        "itemid": .single,
+        "longdesc": .single,
+        "lowsrc": .single,
+        "manifest": .single,
+        "marker": .css,
+        "marker-end": .css,
+        "marker-mid": .css,
+        "marker-start": .css,
+        "mask": .css,
+        "ping": .whitespaceList,
+        "poster": .single,
+        "profile": .single,
+        "resource": .single,
+        "src": .single,
+        "srcset": .srcset,
+        "stroke": .css,
+        "style": .css,
+        "usemap": .single,
+        "xlink:href": .single,
+        "xml:base": .single,
     ]
 
     private(set) var attributes: [Attribute] = []
+    private(set) var containsRejectedSyntax = false
+    private var styleDepth = 0
+    private var styleText = ""
 
     func parser(
         _ parser: XMLParser,
@@ -1646,11 +2016,79 @@ nonisolated private final class SnapshotURLAttributeCollector:
         qualifiedName qName: String?,
         attributes attributeDict: [String: String] = [:]
     ) {
+        let localElementName =
+            elementName.split(separator: ":").last.map(String.init)?
+            .lowercased() ?? elementName.lowercased()
+        if localElementName == "meta",
+            attributeDict.first(where: {
+                $0.key.caseInsensitiveCompare("http-equiv") == .orderedSame
+            })?.value.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare("refresh") == .orderedSame
+        {
+            containsRejectedSyntax = true
+        }
+        if localElementName == "style" {
+            guard styleDepth == 0 else {
+                containsRejectedSyntax = true
+                return
+            }
+            styleDepth = 1
+            styleText = ""
+        } else if styleDepth > 0 {
+            styleDepth += 1
+        }
         for (rawName, value) in attributeDict {
             let name = rawName.lowercased()
-            if Self.urlBearingNames.contains(name) {
+            if Self.semantics[name] != nil {
                 attributes.append(Attribute(name: name, value: value))
             }
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        if styleDepth > 0 {
+            styleText += string
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
+        guard styleDepth > 0 else { return }
+        guard let string = String(data: CDATABlock, encoding: .utf8) else {
+            containsRejectedSyntax = true
+            return
+        }
+        styleText += string
+    }
+
+    func parser(
+        _ parser: XMLParser,
+        didEndElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?
+    ) {
+        guard styleDepth > 0 else { return }
+        styleDepth -= 1
+        if styleDepth == 0 {
+            let localElementName =
+                elementName.split(separator: ":").last.map(String.init)?
+                .lowercased() ?? elementName.lowercased()
+            guard localElementName == "style" else {
+                containsRejectedSyntax = true
+                styleText = ""
+                return
+            }
+            attributes.append(Attribute(name: "style", value: styleText))
+            styleText = ""
+        }
+    }
+
+    func parser(
+        _ parser: XMLParser,
+        foundProcessingInstructionWithTarget target: String,
+        data: String?
+    ) {
+        if target.caseInsensitiveCompare("xml-stylesheet") == .orderedSame {
+            containsRejectedSyntax = true
         }
     }
 }
