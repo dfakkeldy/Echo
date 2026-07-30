@@ -820,8 +820,9 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
 
         for attribute in collector.attributes {
             let candidates: [String]
-            guard let semantics =
-                SnapshotURLAttributeCollector.semantics[attribute.name]
+            guard
+                let semantics =
+                    SnapshotURLAttributeCollector.semantics[attribute.name]
             else {
                 throw Error.invalidPackage
             }
@@ -932,18 +933,21 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         var cursor = css.startIndex
         while cursor < css.endIndex {
             let matches = functionNames.compactMap { name -> (String, Range<String.Index>)? in
-                guard let range = css.range(
-                    of: name,
-                    options: [.caseInsensitive],
-                    range: cursor..<css.endIndex)
+                guard
+                    let range = css.range(
+                        of: name,
+                        options: [.caseInsensitive],
+                        range: cursor..<css.endIndex)
                 else {
                     return nil
                 }
                 return (name, range)
             }
-            guard let match = matches.min(by: {
-                $0.1.lowerBound < $1.1.lowerBound
-            }) else {
+            guard
+                let match = matches.min(by: {
+                    $0.1.lowerBound < $1.1.lowerBound
+                })
+            else {
                 unchecked += css[cursor...]
                 break
             }
@@ -998,7 +1002,8 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
                 if depth == 0 {
                     return (
                         String(value[contentStart..<index]),
-                        value.index(after: index))
+                        value.index(after: index)
+                    )
                 }
             }
             index = value.index(after: index)
@@ -1040,8 +1045,9 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
                     openParenthesis: open)
                 let remainder = trimmed[parsed.endIndex...]
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                guard remainder.isEmpty
-                    || validImageCandidateDescriptor(remainder)
+                guard
+                    remainder.isEmpty
+                        || validImageCandidateDescriptor(remainder)
                 else {
                     throw Error.invalidPackage
                 }
@@ -1146,10 +1152,11 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
             throw Error.invalidPackage
         }
         if let fragment = components.fragment {
-            guard try snapshotFragmentContainsCredentials(
-                fragment,
-                relativeTo: resolved,
-                depth: depth + 1) == false
+            guard
+                try snapshotFragmentContainsCredentials(
+                    fragment,
+                    relativeTo: resolved,
+                    depth: depth + 1) == false
             else {
                 throw Error.invalidPackage
             }
@@ -2051,9 +2058,9 @@ nonisolated private final class SnapshotURLAttributeCollector:
         }
     }
 
-    func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
+    func parser(_ parser: XMLParser, foundCDATA cdataBlock: Data) {
         guard styleDepth > 0 else { return }
-        guard let string = String(data: CDATABlock, encoding: .utf8) else {
+        guard let string = String(data: cdataBlock, encoding: .utf8) else {
             containsRejectedSyntax = true
             return
         }

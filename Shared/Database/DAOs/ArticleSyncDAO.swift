@@ -664,8 +664,9 @@ nonisolated struct ArticleSyncDAO: Sendable {
                 let historicalOwners = try syncIdentityOwners(
                     recordName: change.recordName,
                     db: db)
-                guard historicalOwners.isEmpty
-                    || historicalOwners == Set([activeOwner])
+                guard
+                    historicalOwners.isEmpty
+                        || historicalOwners == Set([activeOwner])
                 else {
                     throw Error.accountOwnerMismatch
                 }
