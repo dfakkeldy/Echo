@@ -717,6 +717,89 @@ class EvaluationGateTests(ManifestAdmissionTests):
 
         self.assertFalse(output_root.exists())
 
+    def test_request_audio_must_match_admitted_bytes_before_paid_run_claim(self):
+        wav_id = generate_clip_id()
+        wav_path = self.write_wav(wav_id)
+        mp3_id = generate_clip_id()
+        mp3_path = self.transcode_mp3(wav_path, mp3_id)
+        manifest = self.write_manifest(
+            [
+                self.manifest_row(wav_id, wav_path, 0.25),
+                self.manifest_row(
+                    mp3_id,
+                    mp3_path,
+                    self.measured_duration(mp3_path),
+                ),
+            ]
+        )
+        wav_clip, mp3_clip = admit_manifest(manifest)
+
+        for name, clip, path in (
+            ("wav", wav_clip, wav_path),
+            ("mp3", mp3_clip, mp3_path),
+        ):
+            with self.subTest(valid=name):
+                body = build_request_body(clip)
+                estimate = audio_judge._request_estimate(clip, body)
+                encoded = body["messages"][0]["content"][1]["input_audio"][
+                    "data"
+                ]
+                self.assertEqual(
+                    hashlib.sha256(path.read_bytes()).hexdigest(),
+                    hashlib.sha256(base64.b64decode(encoded)).hexdigest(),
+                )
+                self.assertGreater(estimate["audioInputTokens"], 0)
+
+        wav_manifest = self.write_manifest(
+            [self.manifest_row(wav_id, wav_path, 0.25)]
+        )
+        valid_wav_body = build_request_body(wav_clip)
+        empty_audio = json.loads(json.dumps(valid_wav_body))
+        empty_audio["messages"][0]["content"][1]["input_audio"]["data"] = ""
+        different_audio = json.loads(json.dumps(valid_wav_body))
+        different_audio["messages"][0]["content"][1]["input_audio"]["data"] = (
+            base64.b64encode(b"not-the-admitted-audio").decode("ascii")
+        )
+        wrong_format = json.loads(json.dumps(valid_wav_body))
+        wrong_format["messages"][0]["content"][1]["input_audio"]["format"] = (
+            "mp3"
+        )
+        mismatched_bodies = (
+            ("empty-audio", empty_audio),
+            ("different-audio", different_audio),
+            ("wrong-format", wrong_format),
+        )
+        output_root = self.directory / "runs"
+
+        def unexpected_transport(_body, _api_key):
+            raise AssertionError("paid transport must not be called")
+
+        for index, (name, body) in enumerate(mismatched_bodies):
+            with self.subTest(invalid=name):
+                run_id = f"mismatched-request-audio-{index}"
+                with (
+                    mock.patch.object(
+                        audio_judge,
+                        "build_request_body",
+                        return_value=body,
+                    ),
+                    self.assertRaisesRegex(
+                        ManifestError,
+                        "^request (?:body|audio payload) is invalid$",
+                    ),
+                ):
+                    run_evaluation(
+                        manifest_path=wav_manifest,
+                        run_id=run_id,
+                        dry_run=False,
+                        output_root=output_root,
+                        environment={"OPENAI_API_KEY": "test-only-key"},
+                        transport=unexpected_transport,
+                    )
+                self.assertFalse((output_root / run_id).exists())
+
+        self.assertFalse(output_root.exists())
+
     def test_paid_transport_returning_none_is_malformed_and_never_passes(self):
         clip_id = generate_clip_id()
         path = self.write_wav(clip_id)

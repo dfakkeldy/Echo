@@ -928,6 +928,11 @@ def _request_estimate(clip: AdmittedClip, body: dict[str, Any]) -> dict[str, Any
         audio_bytes = base64.b64decode(encoded_audio, validate=True)
     except (ValueError, TypeError) as error:
         raise ManifestError("request audio payload is invalid") from error
+    if (
+        not audio_bytes
+        or hashlib.sha256(audio_bytes).hexdigest() != clip.audio_sha256
+    ):
+        raise ManifestError("request audio payload is invalid")
     text_input_tokens = len(serialized_text_request)
     audio_input_tokens = max(
         len(audio_bytes),

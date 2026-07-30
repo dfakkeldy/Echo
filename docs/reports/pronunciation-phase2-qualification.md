@@ -30,7 +30,7 @@ The following independent local gates passed on 2026-07-29:
 | --- | --- |
 | Pronunciation corpus tests | 47 passed |
 | Pronunciation pack tests and regeneration check | 38 passed; generated pack matched the committed pack |
-| Development audio-judge tests | 89 passed without an API request |
+| Development audio-judge tests | 90 passed without an API request |
 | Task 10 Swift acceptance suite | 6 passed |
 | Echo test-products build | Passed |
 | Complete Echo unit-test gate | Passed before this test/tool/documentation-only correction; not rerun because production/shared Swift did not change |
@@ -270,8 +270,12 @@ rejects duplicate/non-finite/oversized JSON, and requires the exact pinned
 model, output bound, message/role order, closed prompt, and audio-item shape
 with the admitted `wav` or `mp3` format. Missing, extra, duplicate, or mistyped
 fields expose only a generic `ManifestError` before a run claim, reservation,
-or transport. The estimator then re-serializes the data-redacted body, while
-the judge-built body keeps the same request and cost estimate.
+or transport. Strictly decoded audio must also be non-empty and hash to the
+exact admitted clip SHA-256. The hash check runs during the pre-claim baseline
+and again after each attempt rebuilds from revalidated media, before
+reservation or transport. The estimator then re-serializes the data-redacted
+body, while valid WAV and MP3 judge-built bodies keep the same request and cost
+estimate.
 
 Admission also requires a separate absolute, single-link regular, non-symlink
 provenance authority file outside the repository. It binds every admitted

@@ -949,11 +949,14 @@ request cost can reserve a paid attempt, the estimator strictly round-trips the
 programmatic request body, rejects duplicate/non-finite/oversized JSON,
 requires the exact pinned model, output bound, message/role order, closed
 prompt, and audio-item shape with the admitted `wav` or `mp3` format, and
-rejects missing, extra, duplicate, or mistyped fields. It then re-serializes
-the data-redacted body. Serialization, parsing, validation, extraction, and
-re-serialization failures become one redacted `ManifestError` before any run
-claim, reservation, or transport; the valid body built by the judge retains
-its existing exact cost inputs.
+rejects missing, extra, duplicate, or mistyped fields. After strict base64
+decoding, the non-empty request audio must hash to the exact admitted clip
+SHA-256. This check runs during the pre-claim baseline and again after each
+attempt rebuilds from revalidated media, before reservation or transport. The
+estimator then re-serializes the data-redacted body. Serialization, parsing,
+validation, extraction, and re-serialization failures become one redacted
+`ManifestError`; the valid body built by the judge retains its existing exact
+cost inputs.
 
 The judge does not let its input manifest authorize its own provenance. Each
 run requires a separate absolute, single-link regular, non-symlink authority
