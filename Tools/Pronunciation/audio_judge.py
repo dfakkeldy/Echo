@@ -2573,6 +2573,8 @@ def run_evaluation(
 
         verdict: dict[str, Any] | None = None
         validation_outcome = "not_validated"
+        if failure is None and response is None:
+            failure = "malformed_output"
         if failure is None and response is not None:
             if not _response_envelope_is_valid(response):
                 failure = "malformed_output"

@@ -30,7 +30,7 @@ The following independent local gates passed on 2026-07-29:
 | --- | --- |
 | Pronunciation corpus tests | 47 passed |
 | Pronunciation pack tests and regeneration check | 38 passed; generated pack matched the committed pack |
-| Development audio-judge tests | 82 passed without an API request |
+| Development audio-judge tests | 83 passed without an API request |
 | Task 10 Swift acceptance suite | 6 passed |
 | Echo test-products build | Passed |
 | Complete Echo unit-test gate | Passed before this test/tool/documentation-only correction; not rerun because production/shared Swift did not change |
@@ -251,7 +251,11 @@ between zero and 10,000,000. Reported totals must be consistent with prompt and
 completion counts when all are present, and recognized detail counts cannot
 exceed their parent. Any invalid recognized count rejects the entire usage
 envelope; no selected detail fields are salvaged or persisted. Run IDs are
-required to be strings before regular-expression validation.
+required to be strings before regular-expression validation. A paid transport
+call that returns normally without any response is classified as
+`malformed_output`, preserves its truthful request and reservation counts, and
+routes a redacted item to morning review instead of completing as a pass with a
+null verdict.
 
 Admission also requires a separate absolute, single-link regular, non-symlink
 provenance authority file outside the repository. It binds every admitted

@@ -932,7 +932,9 @@ boundary errors. Usage counts are exact non-boolean integers from zero through
 are present, and recognized detail counts cannot exceed their parent count.
 One invalid recognized usage value rejects the whole usage envelope, so no
 partial token evidence is retained. Run IDs must be strings before regex
-validation.
+validation. Once a paid transport call returns normally, the absence of a
+response is itself malformed output; it cannot bypass envelope validation or
+produce a passing empty result.
 
 The judge does not let its input manifest authorize its own provenance. Each
 run requires a separate absolute, single-link regular, non-symlink authority

@@ -544,6 +544,57 @@ class ResponseValidationTests(unittest.TestCase):
 
 
 class EvaluationGateTests(ManifestAdmissionTests):
+    def test_paid_transport_returning_none_is_malformed_and_never_passes(self):
+        clip_id = generate_clip_id()
+        path = self.write_wav(clip_id)
+        manifest = self.write_manifest(
+            [self.manifest_row(clip_id, path, 0.25)]
+        )
+        output_root = self.directory / "runs"
+
+        receipt = run_evaluation(
+            manifest_path=manifest,
+            run_id="missing-paid-response",
+            dry_run=False,
+            output_root=output_root,
+            environment={"OPENAI_API_KEY": "test-only-key"},
+            transport=lambda _body, _key: None,
+        )
+
+        self.assertEqual("COMPLETED", receipt["status"])
+        self.assertEqual("needs_review", receipt["apiEvaluationStatus"])
+        self.assertEqual(1, receipt["requestCount"])
+        self.assertEqual(1, receipt["transportAttemptCount"])
+        self.assertEqual(
+            [
+                {
+                    "clipID": clip_id,
+                    "queueCategory": "provisional_review",
+                    "reasons": ["malformed_output"],
+                }
+            ],
+            receipt["morningQueue"],
+        )
+        result = receipt["results"][0]
+        self.assertIsNone(result["returnedModelID"])
+        self.assertIsNone(result["verdict"])
+        self.assertEqual({}, result["usage"])
+        self.assertEqual("not_validated", result["validationOutcome"])
+        self.assertNotIn("response", result)
+        self.assertNotIn("content", result)
+        self.assertNotIn("refusal", result)
+        reservations = [
+            json.loads(line)
+            for line in (
+                output_root
+                / "missing-paid-response"
+                / "request-reservations.jsonl"
+            ).read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(1, len(reservations))
+        self.assertEqual(1, reservations[0]["requestNumber"])
+        self.assertEqual(clip_id, reservations[0]["clipID"])
+
     def test_api_message_array_is_controlled_and_never_leaves_running_receipt(self):
         clip_id = generate_clip_id()
         path = self.write_wav(clip_id)
