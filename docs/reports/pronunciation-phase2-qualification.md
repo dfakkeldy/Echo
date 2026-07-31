@@ -566,6 +566,21 @@ old rows 8 and 9; W0 is what closes it.
 
 ## Known limitations recorded rather than closed
 
+- **Anchor substitution is not covered by W0.** W0 makes an *absent*
+  `attempt-state.json` evidence of tampering, restoring deletion-monotonicity
+  for the anchor. It does not cover *overwriting* it. An actor with write
+  access to a run directory can restore the fixed claim-time anchor
+  (`{"clips":{},"eventCount":0,"lastEventSHA256":"0"×64,"schemaVersion":2}`
+  — a constant, identical for every run), truncate `attempt-ledger.jsonl` to
+  one line, and remove `morning-queue.json`, and the mutating path accepts the
+  result: a terminal `morning_review`/2 clip reads back as `proposal_emitted`/0
+  and a fresh attempt can be spent. This is the round-4 laundering with a write
+  substituted for a delete, at no additional cost to the attacker. It is
+  accepted as out of model (same-UID write access to the run directory), not as
+  closed. Closing it would require an anchor witness that a fixed constant
+  cannot satisfy — e.g. binding the anchor to the claim (run ID + claim-time
+  nonce, so the genesis anchor is per-run and not replayable) or a monotone
+  counter outside the directory.
 - **Recovery requires `.attempt-ledger.lock` to already exist, while the
   mutating path creates it.** So `rm .attempt-ledger.lock` — a zero-content
   file — makes `recover` refuse until it is restored. Reviewed this round and
@@ -578,6 +593,18 @@ old rows 8 and 9; W0 is what closes it.
   absence widens nothing, and `touch` or any later mutating operation restores
   it. This was changed and then reverted during the round when the existing
   test surfaced the property the change would have broken.
+- **The `rank` order-token asymmetry leaks in the false-*accept* direction.**
+  `rank` was removed from `EnglishPronunciationPack.senseLabelOrderTokens`
+  because an organ *rank* is a real register, so `rank 8` for `organ` names a
+  genuine sense. The removal is broader than that case.
+  `isMeaningfulSenseLabel` refuses a label only when *every* token is ordering
+  vocabulary, so with `rank` out of the set a bare `rank` and a bare `rank
+  two` are both admitted as meaningful sense labels, while bare `form`,
+  `reading`, `no` and `variant` are still refused. The asymmetry is cosmetic
+  and unrelated to the ledger — it
+  admits an uninformative label rather than discarding a real one — but the
+  narrow fix (`rank` ordering only when it is the whole label, or only when no
+  content token accompanies it) is a **named follow-up, recorded not fixed**.
 - **The depth-989 encode `RecursionError` does not reproduce on this
   interpreter.** CPython 3.14.6's C encoder does not consume the Python stack
   and survives nesting of 60000; only the pure-Python encoder raises, at about

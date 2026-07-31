@@ -1808,9 +1808,27 @@ def _verify_ledger_head_against_snapshot(
     atomically, beside `run-claim.json`. A claimed run directory therefore
     always has an anchor, the crash window W8 conceded does not exist, and
     absence is unambiguously tampering. This REMOVES the underived rule rather
-    than adding a member to it, and it is what finally makes the invariant's
-    own headline sentence -- deleting an artifact must never widen the
-    accepted set -- true of the anchor.
+    than adding a member to it, and it is what makes the invariant's own
+    headline sentence -- deleting an artifact must never widen the accepted
+    set -- true of the anchor.
+
+    W0 IS ABOUT DELETION. IT DOES NOT CLOSE THE LAUNDERING CLASS.
+
+    Read the paragraph above narrowly: deletion-monotonicity now holds for the
+    anchor. SUBSTITUTION of the anchor is a separate matter and is NOT covered.
+    The claim-time anchor is a fixed constant -- `{"clips": {},
+    "eventCount": 0, "lastEventSHA256": "0"*64, "schemaVersion": 2}`, byte-
+    identical for every run -- so an actor with write access to a run directory
+    can overwrite `attempt-state.json` with it rather than unlinking it,
+    truncate the ledger to one line, and remove the queue, reproducing the
+    round-4 laundering at no additional cost. That is accepted as OUT OF MODEL
+    (same-UID write access to the run directory; this is tamper evidence, not
+    tamper proofing) and NOT as closed. Closing it would need an anchor witness
+    that a fixed constant cannot satisfy -- binding the anchor to the run claim
+    (run ID plus a claim-time nonce, so the genesis anchor is per-run and not
+    replayable), or a monotone counter outside the directory. Recorded in the
+    risk register of `docs/reports/pronunciation-phase2-qualification.md`; do
+    not restate W0 as having closed the class.
     """
     if snapshot_bytes is None:
         # W0. The anchor is written at claim time and never legitimately
@@ -2828,14 +2846,31 @@ def _verify_run_directory_witnesses(
     That authorised a production rerender and reset a terminal clip's spent
     attempts, a transition the specification calls irreversible -- with no
     forgery and no hash computation. Removing the queue as well then reopened
-    the same laundering through old rows 8 and 9, which is what W0 closes.
+    the same laundering through old rows 8 and 9, which is the deletion variant
+    W0 refuses.
+
+    WHAT IS ACTUALLY CLOSED, AND WHAT IS NOT.
+
+    The invariant's headline sentence -- deleting an artifact must never widen
+    the accepted set -- now holds of every witness in the table above,
+    including the anchor. THE LAUNDERING CLASS IS NOT CLOSED. The enumeration
+    above ranges over PRESENCE and ABSENCE only; it says nothing about a
+    witness that is present but SUBSTITUTED. The claim-time anchor is a fixed
+    constant, byte-identical for every run, so overwriting `attempt-state.json`
+    with it -- rather than unlinking it -- lands in row 2 and reproduces the
+    round-4 laundering with a write in place of a delete. That is accepted as
+    OUT OF MODEL (same-UID write access to the run directory; this scheme is
+    tamper evidence, not tamper proofing) and NOT as closed. Closing it needs
+    an anchor witness that a fixed constant cannot satisfy, such as binding the
+    anchor to the run claim. Recorded in the risk register of
+    `docs/reports/pronunciation-phase2-qualification.md`.
     """
     # W6. `_derive_attempt_states` verifies chain linkage from genesis before
     # applying any transition rule, so a rewritten or reordered interior event
     # is refused here. It is pure, so the operations that derive states again
     # afterwards observe exactly this result.
     _derive_attempt_states(events)
-    # W1, W2, W3 (mutating path only) and the W8 assumption.
+    # W0, W1, W2 and W3 (mutating path only).
     _verify_ledger_head_against_snapshot(
         snapshot_bytes,
         events,

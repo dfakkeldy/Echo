@@ -981,6 +981,17 @@ empty ledger.
 This remains tamper evidence, not tamper proofing: a same-UID actor who
 consistently forges every artifact is still outside the model.
 
+**W0 covers deletion of the anchor, not substitution of it, and the laundering
+class is therefore not closed.** The claim-time anchor is a fixed constant —
+`{"clips":{},"eventCount":0,"lastEventSHA256":"0"×64,"schemaVersion":2}`,
+identical for every run — so an actor with write access to a run directory
+can overwrite `attempt-state.json` with it, truncate the ledger to one line,
+and remove the queue, reproducing the round-4 laundering with a write in place
+of a delete. This is accepted as out of model (same-UID write access to the run
+directory), not as closed; closing it needs an anchor witness a fixed constant
+cannot satisfy, such as binding the anchor to the run claim. See the risk
+register in `docs/reports/pronunciation-phase2-qualification.md`.
+
 Manifest, audio, and judge-owned artifact reads are bounded before allocation,
 and a manifest whose clip count exceeds the 200-request cap is refused before
 any per-row hash or `ffprobe` pass rather than after two full probe sweeps.
