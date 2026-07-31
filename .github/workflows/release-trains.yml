@@ -93,7 +93,17 @@ jobs:
   ship:
     needs: resolve
     name: Build & ship train
-    runs-on: macos-15
+    # MUST stay on the same runner image as the ci.yml build gate that vetted
+    # the branch this job checks out (`nightly` runs on macos-26). `setup-xcode`
+    # with `xcode-version: '26'` resolves to the newest 26.x *installed on the
+    # image*, and the images differ: macos-15 tops out at Xcode 26.3 while
+    # macos-26 ships 26.6. That skew meant a commit could pass "Build gate +
+    # tests" on its PR and still fail this job's identical `build-for-testing`,
+    # which is how nightly went dark 2026-07-25 → 07-31: first a Swift-Testing
+    # `#expect` that exceeded 26.3's constraint-solver budget (#481), then
+    # `SystemLanguageModel.contextSize`, a Foundation Models member that simply
+    # does not exist in 26.3's SDK. If ci.yml's runner moves, move this with it.
+    runs-on: macos-26
     # Fail fast on a hang (e.g. a headless codesign keychain prompt) instead of
     # silently burning the 6-hour default. A real run is archive + upload + Apple
     # processing ≈ 40–60 min, so 90 leaves headroom without masking a stall.
@@ -107,7 +117,11 @@ jobs:
       MATCH_GIT_SSH_KEY: ${{ secrets.MATCH_GIT_SSH_KEY }}
       # match reads its repo URL from fastlane/Matchfile; readonly is forced via
       # `readonly: is_ci` in the Fastfile so CI never mutates signing assets.
-      IOS_DESTINATION: "platform=iOS Simulator,name=iPhone 16"
+      # Generic, not a named device. This job only ever COMPILES (build-for-
+      # testing); it never boots a simulator or runs a test, so pinning a device
+      # name buys nothing and breaks whenever a runner image drops that model —
+      # macos-26 carries a different simulator set than macos-15 did.
+      IOS_DESTINATION: "generic/platform=iOS Simulator"
 
     steps:
       - name: Checkout ${{ needs.resolve.outputs.branch }}
@@ -121,7 +135,8 @@ jobs:
           fetch-depth: 0
 
       # Pin Xcode 26.x to match ci.yml (newest installed 26.x; never a future
-      # major). See ci.yml for why the macos-15 default of 16.4 is too old.
+      # major). This resolves per runner image, so it only agrees with ci.yml
+      # while both jobs run on the same image — see the `runs-on` note above.
       - name: Select Xcode 26
         uses: maxim-lobanov/setup-xcode@v1
         with:
