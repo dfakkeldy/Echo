@@ -3193,6 +3193,115 @@ class AttemptLedgerTests(ManifestAdmissionTests):
                     (run_directory / "attempt-state.json").exists()
                 )
 
+    def test_erasing_all_three_artifacts_cannot_launder_a_terminal_clip(self):
+        """The anchor must be mandatory, so its absence is evidence.
+
+        The sibling test above closes "erase the ledger and the anchor" only
+        because `morning-queue.json` survives to refuse it under W4. Erase the
+        queue too and every witness is gone, so the run reads as fresh and a
+        terminal `morning_review`/2 clip is laundered back to
+        `proposal_emitted`/0 -- the transition specification 13.3(6) calls
+        irreversible -- with no forgery and no hash computation.
+
+        The `head -1` variant is the same defect through a narrower hole. W8
+        tolerates `len(L) <= 1` because the legitimate crash window between the
+        first append and the first anchor publication looks exactly like that,
+        so truncating to one line lands precisely in the gap the rule concedes.
+
+        Both variants are fixed by the same structural change, and it is a
+        DELETION rather than another predicate: the anchor is created at
+        `_claim_run` time, so a run directory never legitimately lacks one, the
+        crash window W8 exists to tolerate does not exist, and W8 is replaced
+        by "anchor absent => refuse". `rm attempt-state.json` then becomes
+        evidence rather than amnesia.
+
+        This test asserts the exact refusal message because both variants
+        already raise `LedgerError` for an unrelated reason -- an empty derived
+        state has no entry for the clip -- and a test that accepted "clip has
+        no attempt state" would pass against the defect it exists to catch.
+        """
+        for case in ("all-three-erased", "anchor-and-queue-erased-then-head-1"):
+            with self.subTest(erasure=case):
+                run_id = f"laundered-{case}"
+                clip_id, output_root = self.terminal_morning_run(run_id=run_id)
+                run_directory = output_root / run_id
+                ledger_path = run_directory / "attempt-ledger.jsonl"
+                anchor_path = run_directory / "attempt-state.json"
+                queue_path = run_directory / "morning-queue.json"
+
+                # The baseline really is the terminal state, or the test would
+                # prove nothing about irreversibility.
+                terminal = read_attempt_state(
+                    run_id=run_id,
+                    clip_id=clip_id,
+                    output_root=output_root,
+                )
+                self.assertEqual("morning_review", terminal["state"])
+                self.assertEqual(2, terminal["attemptCount"])
+
+                anchor_path.unlink()
+                queue_path.unlink()
+                if case == "all-three-erased":
+                    ledger_path.unlink()
+                else:
+                    surviving = ledger_path.read_text(
+                        encoding="utf-8"
+                    ).splitlines()[0]
+                    ledger_path.write_text(
+                        surviving + "\n",
+                        encoding="utf-8",
+                    )
+                    # The surviving line is the pre-terminal proposal, which is
+                    # what makes the laundering attractive: it derives cleanly
+                    # to `proposal_emitted`/0 and spends nothing.
+                    self.assertEqual(
+                        "proposal_emitted",
+                        json.loads(surviving)["state"],
+                    )
+
+                ledger_before = (
+                    ledger_path.read_bytes() if ledger_path.exists() else None
+                )
+
+                for operation in (
+                    lambda: read_attempt_state(
+                        run_id=run_id,
+                        clip_id=clip_id,
+                        output_root=output_root,
+                    ),
+                    lambda: audio_judge._emit_proposal(
+                        run_id=run_id,
+                        clip_id=clip_id,
+                        category="wrong_sense",
+                        output_root=output_root,
+                    ),
+                    lambda: record_attempt(
+                        run_id=run_id,
+                        clip_id=clip_id,
+                        source_commit="f" * 40,
+                        red_test_receipt="0" * 64,
+                        green_test_receipt="1" * 64,
+                        negative_guard_receipt="2" * 64,
+                        implementation_review_receipt="3" * 64,
+                        output_root=output_root,
+                    ),
+                ):
+                    with self.assertRaises(LedgerError) as caught:
+                        operation()
+                    self.assertEqual(
+                        "attempt state is missing",
+                        str(caught.exception),
+                    )
+
+                # A refusal may not repair what it refuses: fabricating the
+                # anchor here would launder the very state being rejected.
+                self.assertFalse(anchor_path.exists())
+                self.assertFalse(queue_path.exists())
+                self.assertEqual(
+                    ledger_before,
+                    ledger_path.read_bytes() if ledger_path.exists() else None,
+                )
+
     def test_emptied_ledger_cannot_launder_a_second_clip_through_evaluation(self):
         """A writer emptying the ledger mid-run must not free the next clip.
 
@@ -4423,7 +4532,28 @@ class AttemptLedgerTests(ManifestAdmissionTests):
         ledger_before_recovery = (
             run_directory / "attempt-ledger.jsonl"
         ).read_bytes()
-        self.assertFalse((run_directory / "attempt-state.json").exists())
+        # The append succeeded and the anchor publication failed, which is the
+        # crash window W3 exists for. Before the anchor became mandatory this
+        # left NO anchor at all; now `_claim_run` has already written one, so
+        # what survives is a claim-time anchor that is stale by exactly one
+        # event -- it still commits zero events at the genesis head, proving
+        # the failed publication did not land. That is a strictly stronger
+        # post-condition than the absence this previously asserted, and it is
+        # the lag W3 tolerates: len(L) - eventCount == 1.
+        stale_anchor = json.loads(
+            (run_directory / "attempt-state.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(2, stale_anchor["schemaVersion"])
+        self.assertEqual(0, stale_anchor["eventCount"])
+        self.assertEqual(
+            audio_judge.LEDGER_CHAIN_GENESIS,
+            stale_anchor["lastEventSHA256"],
+        )
+        self.assertEqual({}, stale_anchor["clips"])
+        self.assertEqual(
+            1,
+            len(ledger_before_recovery.decode("utf-8").splitlines()),
+        )
         with self.assertRaisesRegex(LedgerError, "conflicting replay"):
             audio_judge._emit_proposal(
                 run_id="proposal-recovery",

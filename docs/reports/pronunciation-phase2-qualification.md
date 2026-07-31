@@ -460,7 +460,7 @@ Therefore **deleting an artifact must never widen the accepted set**: for
 artifact sets A ⊆ B, no state refused under B may become accepted under A.
 
 The predicates, evaluated as one conjunction rather than as guards at the call
-sites, are: W1 `len(L) ≥ A.eventCount`; W2
+sites, are: **W0 the anchor is present**; W1 `len(L) ≥ A.eventCount`; W2
 `chain_head(L[:A.eventCount]) == A.lastEventSHA256`; W3
 `len(L) − A.eventCount ≤ 1`; W4 `len(L) ≥ q.sequence` for every queue ledger
 row; W5 that row's named event reproduces it exactly; W6 the ledger chains from
@@ -468,27 +468,63 @@ genesis with no interior rewrite; W7 the run claim is valid. **Recovery accepts
 exactly the mutating path's set minus W3**, the lag rule — it may tolerate
 staleness, never contradiction.
 
-W8, "anchor absent ⇒ `len(L) ≤ 1`", is an **assumption, not a witness**, and is
-labelled as such in the code. If both the ledger and the anchor are deleted, no
-surviving witness can distinguish tampering from a fresh run; W8 rests only on
-the fact that the judge always republishes the anchor after an append. It is
-load-bearing, underived, and looks exactly like an unmotivated special case —
-which is how this scheme got three rounds deep.
+### W8 is retired. The anchor is now mandatory.
 
-The twelve-state enumeration over L ∈ {`[]`, non-empty}, A ∈ {absent, present},
-Q ∈ {absent, evaluation-rows-only, has-ledger-rows} is carried in full in the
-`_verify_run_directory_witnesses` docstring, which is the authoritative copy.
-Row 3 — empty ledger, absent anchor, surviving queue ledger rows — is the
-blocking defect this round closed, and W4 is what refuses it.
+The previous revision of this receipt recorded W8, "anchor absent ⇒
+`len(L) ≤ 1`", as an **assumption, not a witness**, and defended it with this
+sentence: *if both the ledger and the anchor are deleted, no surviving witness
+can distinguish tampering from a fresh run.* **That sentence was false, and
+labelling W8 as the weak point is what made the defect findable.** A fourth
+round broke it.
 
-The reproduction: from `attemptCount=2, state=morning_review`, removing
-`attempt-ledger.jsonl` and `attempt-state.json` left the run reading as fresh
-while `morning-queue.json` still carried the terminal entry, the clip ID, and
-the SHA-256 of the event that produced it. The mutating path never loaded the
-queue at all. A full `_emit_proposal` → `record_attempt` → `record_rerender`
-cycle then completed and authorized a production rerender, taking
-`attemptCount` 2 → 1 — a transition §13.3(6) calls irreversible — with no
-forgery and no hash computation.
+Two things were wrong. First, the claim itself: `receipt.json` survives such a
+deletion and records `verdict == "fail"` for every clip `_emit_proposal` ran
+for, which contradicts an empty ledger. It is classified "no" in the witness
+table because it is not load-bearing, not because it is uninformative. Second,
+and decisively, W8's tolerance of `len(L) ≤ 1` existed to accommodate the real
+crash window between the first append and the first anchor publication — so
+truncating a ledger to its first line landed exactly in the gap the rule
+conceded. Neither `rm` of all three artifacts nor `head -1` of the ledger was
+refused; both laundered a terminal `morning_review`/2 clip back to
+`proposal_emitted`/0, with no forgery and no hash computation.
+
+The fix is **structural, and is a deletion rather than another predicate**.
+`_claim_run` now writes a schema-2 anchor — `eventCount: 0`, genesis head —
+atomically beside `run-claim.json`. `_atomic_write_json` is temp-plus-rename,
+so from the instant a run is claimed the anchor is never legitimately absent;
+the crash window W8 existed to tolerate does not exist; and `rm
+attempt-state.json` becomes evidence rather than amnesia. W8 is replaced by W0,
+"anchor absent ⇒ refuse". This *removes* an underived rule instead of adding a
+member to it, and it is what makes the invariant's own headline sentence true
+of the anchor.
+
+### The enumeration, re-derived
+
+Because W0 refuses every anchor-absent state outright, the six anchor-absent
+rows collapse to one and the table is now **seven states, not twelve**. The
+full table is carried in the `_verify_run_directory_witnesses` docstring, which
+remains the authoritative copy. What changed:
+
+- **Old rows 1, 8 and 9 — the accepting anchor-absent states — are now
+  REFUSED.** Row 1 accepted a fresh run on the strength of its emptiness; rows
+  8 and 9 accepted a one-event ledger with no anchor through W8's crash-window
+  tolerance. Rows 8 and 9 are precisely where the `head -1` laundering landed.
+- **Old rows 3 and 10 keep their REFUSE verdict** but are now refused earlier
+  and for a stronger reason: W0 rather than W4/W5.
+- **Old row 4 — empty ledger, present count-0 anchor at the genesis head — was
+  an oddity reachable only after a completed cycle. It is now the ordinary
+  state of every newly claimed run directory**, and is how a genuinely fresh
+  run is still accepted rather than refused by W0. It is new row 2.
+
+The reproduction W4 closed in the previous round: from `attemptCount=2,
+state=morning_review`, removing `attempt-ledger.jsonl` and `attempt-state.json`
+left the run reading as fresh while `morning-queue.json` still carried the
+terminal entry, the clip ID, and the SHA-256 of the event that produced it. The
+mutating path never loaded the queue at all. A full `_emit_proposal` →
+`record_attempt` → `record_rerender` cycle then completed and authorized a
+production rerender, taking `attemptCount` 2 → 1 — a transition §13.3(6) calls
+irreversible. Removing the queue as well reopened the same laundering through
+old rows 8 and 9; W0 is what closes it.
 
 ## Known limitations recorded rather than closed
 

@@ -940,7 +940,7 @@ it — both decode to zero events, and the committed count is compared against
 the surviving events with no emptiness shortcut. A ledger shorter than the
 committed count, one whose committed prefix no longer reproduces the committed
 head, a queue row naming an event the ledger no longer contains, and an anchor
-missing or unparseable over a multi-event ledger all fail closed. The anchor
+that is missing or unparseable all fail closed. The anchor
 must be schema 2: a schema-1 anchor carried neither count nor head, so
 accepting one meant accepting a present anchor with the prefix rule
 unevaluated, and downgrading the anchor became a way to shed the chain
@@ -953,13 +953,28 @@ a truncated ledger. Recovery additionally refuses an empty ledger outright, but
 as an operational precondition — with no ledger there is nothing to derive
 artifacts from — rather than as a witness rule.
 
-One rule is an assumption rather than a witness and is labelled as such in the
-code: an absent anchor over a multi-event ledger is treated as tampering,
-justified only by the fact that the judge always republishes the anchor after
-an append. If both the ledger and the anchor are removed, no surviving witness
-can distinguish tampering from a fresh run. This is tamper evidence, not tamper
-proofing: a same-UID actor who consistently forges every artifact is still
-outside the model.
+**The anchor is mandatory, and is created when the run is claimed.**
+`_claim_run` writes a schema-2 `attempt-state.json` committing zero events at
+the genesis head, atomically, beside `run-claim.json`. A claimed run directory
+therefore always has an anchor, so an absent anchor is unambiguously tampering
+and is refused outright in both modes.
+
+This replaced the scheme's last underived rule. Previously an absent anchor was
+tolerated over a ledger of at most one event, as an *assumption* rather than a
+witness: the judge always republishes the anchor after an append, so a
+multi-event ledger with no anchor had to be tampering. The tolerance existed to
+accommodate the real crash window between the first append and the first anchor
+publication — and truncating a ledger to its first line landed exactly in that
+window, laundering a terminal clip's spent attempts once the anchor and the
+queue were removed as well. Writing the anchor at claim time eliminates the
+window rather than narrowing it, which is what allows the rule to be deleted
+instead of amended. The accompanying claim that no surviving witness could
+distinguish tampering from a fresh run was also wrong: `receipt.json` records a
+`fail` verdict for every clip a proposal was emitted for, which contradicts an
+empty ledger.
+
+This remains tamper evidence, not tamper proofing: a same-UID actor who
+consistently forges every artifact is still outside the model.
 
 Manifest, audio, and judge-owned artifact reads are bounded before allocation,
 and a manifest whose clip count exceeds the 200-request cap is refused before

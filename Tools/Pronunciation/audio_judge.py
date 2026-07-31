@@ -1524,7 +1524,20 @@ def _fsync_directory(path: Path) -> None:
 
 
 def _claim_run(run_id: str, output_root: str | Path | None) -> Path:
-    """Atomically claim a never-reusable run directory."""
+    """Atomically claim a never-reusable run directory.
+
+    The empty anchor is written here, beside the claim, and this is what makes
+    the anchor MANDATORY rather than merely usual. A claimed run directory
+    always has one from its first instant, so an absent anchor is never a
+    legitimate state and `_verify_ledger_head_against_snapshot` can refuse it
+    outright instead of guessing (see W8's retirement in that docstring).
+
+    Ordering matters: the claim is written first with `O_EXCL`, so it remains
+    the thing that makes a run ID single-use, and a crash between the two
+    leaves a claimed directory with no anchor -- which the verifier refuses.
+    That is the correct outcome. The directory can never be re-claimed, and a
+    run that crashed before its anchor existed has no ledger to lose.
+    """
     root = _validated_run_root(
         output_root,
         error_type=ManifestError,
@@ -1551,8 +1564,15 @@ def _claim_run(run_id: str, output_root: str | Path | None) -> Path:
                 "state": "claimed",
             },
         )
+        # Schema 2, committing zero events at the genesis head: the anchor an
+        # empty ledger legitimately produces. `_atomic_write_json` is
+        # temp-plus-rename, so from here the anchor is never legitimately
+        # absent and `rm attempt-state.json` is evidence, not amnesia.
+        _write_attempt_snapshot(run_directory, {}, [])
         _fsync_directory(run_directory)
     except Exception:
+        for artifact in ("attempt-state.json", "run-claim.json"):
+            (run_directory / artifact).unlink(missing_ok=True)
         try:
             run_directory.rmdir()
         except OSError:
@@ -1733,7 +1753,7 @@ def _verify_ledger_head_against_snapshot(
     *,
     for_recovery: bool = False,
 ) -> None:
-    """Evaluate the anchor predicates W1, W2 and W3, and the W8 assumption.
+    """Evaluate the anchor predicates W0, W1, W2 and W3.
 
     This is one conjunct of `_verify_run_directory_witnesses`; see that
     function for the witness-monotonicity invariant these predicates serve.
@@ -1744,9 +1764,10 @@ def _verify_ledger_head_against_snapshot(
     chain that still verifies, so the anchor is what makes truncation
     evident.
 
-      W1  anchor present => len(events) >= eventCount
-      W2  anchor present => chain_head(events[:eventCount]) == lastEventSHA256
-      W3  anchor present => len(events) - eventCount <= 1   (mutating path)
+      W0  the anchor is present                             REQUIRED
+      W1  len(events) >= eventCount
+      W2  chain_head(events[:eventCount]) == lastEventSHA256
+      W3  len(events) - eventCount <= 1                      (mutating path)
 
     W3 is the lag rule and the *only* thing `for_recovery` relaxes. One
     ledger event ahead of the anchor is legitimate on the mutating path: an
@@ -1761,21 +1782,40 @@ def _verify_ledger_head_against_snapshot(
     refuses `[]` against any anchor committing one or more events, by the
     same rule that refuses a one-line truncation.
 
-    W8 (`snapshot_bytes is None`) is an ASSUMPTION, NOT A WITNESS. An absent
-    anchor attests nothing and so cannot by itself forbid any state. The rule
-    below is justified only by a completeness argument about the writer: the
-    judge always republishes the anchor after an append, so a multi-event
-    ledger with no anchor was tampered with rather than crashed. It is
-    load-bearing and underived. Do not delete it as an unmotivated special
-    case: if both the ledger and the anchor are removed, no surviving witness
-    can distinguish tampering from a fresh run, and W8 is the only thing
-    standing between "delete the anchor" and "then truncate freely".
+    W0 REPLACES THE FORMER W8, AND IS A DELETION RATHER THAN AN ADDITION.
+
+    W8 read "anchor absent => len(L) <= 1" and was labelled an assumption
+    rather than a witness, because an absent anchor attests nothing and so
+    cannot by itself forbid any state. That label was accurate, and the rule
+    was breached exactly where it was weakest. Its tolerance of `len(L) <= 1`
+    existed to accommodate a real crash window -- the first append is fsynced
+    before the first anchor is published -- and truncating a ledger to its
+    first line landed precisely in that concession, laundering a terminal
+    `morning_review`/2 clip back to `proposal_emitted`/0 once the anchor and
+    the queue were also removed.
+
+    The former docstring defended W8 by claiming that if both the ledger and
+    the anchor are removed, no surviving witness can distinguish tampering
+    from a fresh run. THAT CLAIM WAS FALSE. `receipt.json` survives such a
+    deletion and records `verdict == "fail"` for every clip `_emit_proposal`
+    was called for, which contradicts an empty ledger; it is classified "no"
+    in the witness table only because it is not load-bearing, not because it
+    is uninformative. It does not close the `head -1` variant, so it was never
+    the right fix -- but the sentence should not have stood.
+
+    The structural fix is to make the anchor mandatory instead. `_claim_run`
+    now writes a schema-2 anchor committing zero events at the genesis head,
+    atomically, beside `run-claim.json`. A claimed run directory therefore
+    always has an anchor, the crash window W8 conceded does not exist, and
+    absence is unambiguously tampering. This REMOVES the underived rule rather
+    than adding a member to it, and it is what finally makes the invariant's
+    own headline sentence -- deleting an artifact must never widen the
+    accepted set -- true of the anchor.
     """
     if snapshot_bytes is None:
-        # W8 -- assumption, not a witness. See the docstring above.
-        if len(events) > 1:
-            raise LedgerError("attempt ledger does not match its committed head")
-        return
+        # W0. The anchor is written at claim time and never legitimately
+        # unlinked, so its absence is tampering in both modes.
+        raise LedgerError("attempt state is missing")
     try:
         snapshot = json.loads(
             snapshot_bytes,
@@ -2678,12 +2718,23 @@ def _verify_run_directory_witnesses(
       run-claim.json            run ID was claimed        gate (W7, enforced
                                                           by the callers)
       attempt-ledger.jsonl      the chained history       it *is* S
-      attempt-state.json (v2)   eventCount, lastEventSHA  yes, W1/W2/W3
+      attempt-state.json (v2)   eventCount, lastEventSHA  yes, W0/W1/W2/W3
+                                                          (written at claim
+                                                          time; MANDATORY)
       morning-queue.json
         ledger rows             an exact ledger event     yes, W4/W5
         evaluation rows         clip outcomes only        no
       request-reservations.jsonl paid requests happened   no (budget witness)
-      receipt.json              run status and counts     no
+      receipt.json              run status and counts     no -- but NOT
+                                                          uninformative: a
+                                                          `fail` verdict
+                                                          records that
+                                                          `_emit_proposal`
+                                                          ran for that clip,
+                                                          which contradicts
+                                                          an empty ledger.
+                                                          Unused because W0
+                                                          subsumes it.
       .attempt-ledger.lock      mutual exclusion          n/a
 
     A missing ledger and an empty ledger are observationally identical --
@@ -2692,57 +2743,75 @@ def _verify_run_directory_witnesses(
 
     THE PREDICATES.
 
-      W1  anchor present => len(L) >= A.eventCount            witness
-      W2  anchor present => chain_head(L[:count]) == A.head   witness
-      W3  anchor present => len(L) - A.eventCount <= 1        LAG, mutating
+      W0  the anchor is present                              witness
+      W1  len(L) >= A.eventCount                              witness
+      W2  chain_head(L[:count]) == A.head                     witness
+      W3  len(L) - A.eventCount <= 1                          LAG, mutating
                                                               path only
       W4  each queue ledger row q => len(L) >= q.sequence     witness
       W5  each queue ledger row q => the event at that
           sequence reproduces q exactly                       witness
       W6  L chains from genesis with no interior rewrite      witness
       W7  run claim present and valid                         gate
-      W8  anchor absent => len(L) <= 1                        ASSUMPTION,
-                                                              NOT A WITNESS
 
-    The mutating path accepts iff W1 and W2 and W3 and W4 and W5 and W6 and
-    W7 and W8. Recovery accepts iff the same MINUS W3 -- recovery may
+    The mutating path accepts iff W0 and W1 and W2 and W3 and W4 and W5 and
+    W6 and W7. Recovery accepts iff the same MINUS W3 -- recovery may
     tolerate STALENESS (a derived witness lagging the ledger), never
     CONTRADICTION. That single relaxation is the only permitted difference
     between the two accepted sets.
 
-    W8 is labelled an assumption rather than a witness in
-    `_verify_ledger_head_against_snapshot`, where it lives; read that
-    docstring before touching it.
+    W0 replaces the former W8 ("anchor absent => len(L) <= 1"), which was
+    labelled an assumption rather than a witness and was breached through the
+    `len(L) <= 1` tolerance it conceded to a crash window. `_claim_run` now
+    writes the anchor, so that window does not exist and absence is
+    tampering. Read `_verify_ledger_head_against_snapshot` for the full
+    derivation before touching W0.
 
-    TWELVE-STATE ENUMERATION over L in {[], non-empty}, A in {absent,
-    present}, Q in {absent, evaluation-rows-only, has-ledger-rows}:
+    ENUMERATION over L in {[], non-empty}, A in {absent, present}, Q in
+    {absent, evaluation-rows-only, has-ledger-rows}. Because W0 refuses every
+    A-absent state outright, the six A-absent rows collapse to one and the
+    table is now SEVEN states, not twelve:
 
        #  L     A                      Q          verdict        by
-       1  []    absent                 absent     accept (fresh) --
-       2  []    absent                 eval only  accept         eval rows
+       1  any   ABSENT                 any        REFUSE         W0
+       2  []    present, count 0,
+                genesis head           absent     accept (fresh) W1, W2
+       3  []    present, count 0,
+                genesis head           eval only  accept         eval rows
                                                                  carry no
                                                                  ledger
                                                                  identity
-       3  []    absent                 LEDGER     REFUSE         W4
-       4  []    present, count 0,
-                genesis head           absent     accept         W1, W2
-       5  []    present, count > 0     absent     REFUSE         W1
-       6  []    present, count > 0     eval only  REFUSE         W1
-       7  []    present                LEDGER     REFUSE         W1 and W4
-       8  n>=1  absent                 absent     accept iff n=1 W8
-       9  n>=1  absent                 eval only  accept iff n=1 W8
-      10  n>=1  absent                 LEDGER     REFUSE         W8 + W4/W5
-      11  n>=1  present                absent or  W1 and W2
+       4  []    present                LEDGER     REFUSE         W4
+       5  []    present, count > 0     absent or  REFUSE         W1
+                                       eval only
+       6  n>=1  present                absent or  W1 and W2
                                        eval only  and W3
-      12  n>=1  present                LEDGER     W1..W5
+       7  n>=1  present                LEDGER     W1..W5
 
-    Row 3 is the defect this function was written to close: the mutating
-    path never loaded the queue at all, so an emptied ledger plus a removed
-    anchor read as a fresh run while `morning-queue.json` survived carrying
-    the terminal entry and the digest of the event that produced it. That
-    authorised a production rerender and reset a terminal clip's spent
+    WHAT CHANGED, AND WHY THE FRESH-RUN CASE STILL WORKS.
+
+    Old rows 1, 8 and 9 were the accepting A-absent states. Row 1 accepted a
+    fresh run on the strength of its emptiness; rows 8 and 9 accepted a
+    one-event ledger with no anchor via W8's crash-window tolerance. All three
+    are now REFUSED, and are folded into new row 1. Old rows 3 and 10 were
+    already refused, by W4/W5 rather than by the anchor, so their verdict is
+    unchanged and they too fold into new row 1 -- W0 simply refuses them
+    earlier and for a stronger reason.
+
+    A genuinely fresh run is not refused: it is new row 2, and it reaches that
+    row because `_claim_run` gives it a schema-2 anchor committing zero events
+    at the genesis head. The old row 4 -- "[] with a present count-0 anchor" --
+    was previously an oddity reachable only after a completed cycle; it is now
+    the ordinary state of every newly claimed directory.
+
+    Old row 3 remains the defect this function was written to close: the
+    mutating path never loaded the queue at all, so an emptied ledger plus a
+    removed anchor read as a fresh run while `morning-queue.json` survived
+    carrying the terminal entry and the digest of the event that produced it.
+    That authorised a production rerender and reset a terminal clip's spent
     attempts, a transition the specification calls irreversible -- with no
-    forgery and no hash computation.
+    forgery and no hash computation. Removing the queue as well then reopened
+    the same laundering through old rows 8 and 9, which is what W0 closes.
     """
     # W6. `_derive_attempt_states` verifies chain linkage from genesis before
     # applying any transition rule, so a rewritten or reordered interior event
