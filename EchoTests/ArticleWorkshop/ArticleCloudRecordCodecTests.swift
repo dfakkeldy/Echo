@@ -1708,6 +1708,55 @@ import ZIPFoundation
             try fixture.codec.validateCaptureArchive(at: archiveURL)
         }
     }
+
+    @Test func installedCapturePackageBoundsInflationOfNonImageMembers() throws {
+        let fixture = try ArticleCloudCodecFixture()
+        defer { fixture.remove() }
+
+        // `snapshot.json` is the one member validation never inflates:
+        // `captureImageMember(for:)` returns nil for it, so the bounded
+        // accumulator inside `validatePackageArchive` is structurally
+        // unreachable and only the attacker-declared `uncompressedSize` is
+        // ever checked. The install path then inflates it to disk.
+        //
+        // 8 MiB is chosen so that *no* size check downstream of extraction can
+        // reject this package: it is under `maxPackageBytes` (64 MiB) and under
+        // `maxEnvelopeBytes` (12 MiB). A bound applied to the inflate output is
+        // therefore the only thing that can produce `packageTooLarge` here.
+        let bomb = Data(count: 8 * 1_024 * 1_024)
+        let archiveURL = fixture.root.appending(path: "snapshot-bomb.zip")
+        try makeCaptureArchive(
+            at: archiveURL,
+            members: [],
+            deflatedMembers: [("snapshot.json", bomb)])
+        try underDeclareCentralDirectoryUncompressedSize(
+            in: archiveURL,
+            path: "snapshot.json",
+            declaredSize: 1_024)
+
+        let declaring = try Archive(url: archiveURL, accessMode: .read)
+        let entry = try #require(declaring["snapshot.json"])
+        #expect(entry.uncompressedSize == 1_024)
+        let archiveBytes = try #require(
+            FileManager.default.attributesOfItem(atPath: archiveURL.path)[.size]
+                as? Int)
+        #expect(archiveBytes < 1_024 * 1_024)
+
+        let payload = ArticleCloudCapturePayload(
+            capture: fixture.capture,
+            packageArchiveURL: archiveURL,
+            packageAssets: [])
+
+        // Without an output bound the extraction completes, all 8 MiB land in
+        // the staging directory, and the failure surfaces much later as a
+        // content-hash mismatch (`invalidPackage`) rather than as a rejected
+        // inflation.
+        #expect(throws: ArticleCloudRecordCodec.Error.packageTooLarge) {
+            _ = try fixture.codec.installCapturePackage(
+                payload,
+                workshopRootDirectory: fixture.managedDirectory)
+        }
+    }
 }
 
 private enum InjectedApplyFailure: Swift.Error {

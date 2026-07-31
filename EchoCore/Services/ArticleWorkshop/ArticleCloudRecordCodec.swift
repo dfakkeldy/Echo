@@ -1571,31 +1571,16 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
                 imageBytes += entry.uncompressedSize
                 // Every cap above tests `entry.uncompressedSize`, which comes
                 // from the archive's central directory and is therefore
-                // attacker-declared. Nothing in the inflate path compares the
-                // bytes actually produced against it, so a package may declare
-                // a kilobyte and expand to gigabytes. Bound the accumulator
-                // itself against the smaller of the declared size and the
-                // single-image cap, and abort mid-stream rather than after the
-                // bytes are already resident.
-                let extractionCeiling = min(
-                    entry.uncompressedSize,
-                    UInt64(ArticleWorkshopLimits.maxSingleImageBytes))
-                var data = Data()
+                // attacker-declared. `BoundedArchiveExtraction` is what makes
+                // the *produced* bytes obey a limit as well; see its invariant.
+                let data: Data
                 do {
-                    _ = try archive.extract(entry) { chunk in
-                        let produced = UInt64(chunk.count)
-                        guard
-                            produced <= extractionCeiling,
-                            UInt64(data.count) <= extractionCeiling - produced
-                        else {
-                            throw Error.packageTooLarge
-                        }
-                        data.append(chunk)
-                    }
-                } catch let error as Error {
-                    throw error
+                    data = try BoundedArchiveExtraction.data(
+                        entry,
+                        from: archive,
+                        ceiling: UInt64(ArticleWorkshopLimits.maxSingleImageBytes))
                 } catch {
-                    throw Error.invalidPackage
+                    throw packageError(for: error)
                 }
                 guard
                     ArticleImageDownloader.validatedImageType(
@@ -1623,6 +1608,12 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         } catch {
             throw Error.invalidPackage
         }
+        // `validatePackageArchive` above only inflates image members —
+        // `captureImageMember(for:)` returns nil for `snapshot.json`, so that
+        // member reaches this loop having had nothing but its declared size
+        // checked. The cumulative budget is therefore debited here with the
+        // bytes actually written, not with what the central directory claims.
+        var remaining = UInt64(limits.maxPackageBytes)
         for entry in archive {
             guard isSafeArchivePath(entry.path) else { throw Error.invalidPackage }
             guard entry.type == .file else { throw Error.invalidPackage }
@@ -1631,7 +1622,29 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
             guard destination.standardizedFileURL.deletingLastPathComponent() == root else {
                 throw Error.invalidPackage
             }
-            _ = try archive.extract(entry, to: destination)
+            do {
+                remaining -= try BoundedArchiveExtraction.write(
+                    entry,
+                    from: archive,
+                    to: destination,
+                    ceiling: remaining)
+            } catch {
+                throw packageError(for: error)
+            }
+        }
+    }
+
+    /// Maps a bounded-extraction failure onto the codec's vocabulary. An
+    /// over-ceiling inflation is a size rejection; anything else about the
+    /// stream — a CRC mismatch included — makes the package invalid.
+    private func packageError(for error: Swift.Error) -> Error {
+        switch error {
+        case let error as Error:
+            error
+        case BoundedArchiveExtraction.Failure.outputExceededCeiling:
+            Error.packageTooLarge
+        default:
+            Error.invalidPackage
         }
     }
 
