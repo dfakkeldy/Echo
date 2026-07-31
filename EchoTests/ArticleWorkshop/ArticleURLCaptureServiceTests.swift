@@ -172,6 +172,7 @@ private enum ExtractorTestError: Swift.Error {
         } catch let error as ArticleURLCaptureService.Error {
             #expect(error == .responseTooLarge)
         }
+        await ArticleURLProtocol.waitForCancellation()
         #expect(ArticleURLProtocol.cancelledRequestCount == 1)
     }
 
@@ -358,6 +359,27 @@ nonisolated final class ArticleURLProtocol: URLProtocol {
     static var cancelledRequestCount: Int {
         lock.lock(); defer { lock.unlock() }
         return cancelled
+    }
+
+    /// Waits, up to `timeout`, for URLSession to deliver the `stopLoading()`
+    /// callback that records a cancellation.
+    ///
+    /// `cancelledRequestCount` is lock-protected, so reading it concurrently is
+    /// safe — but that is a data-race guarantee, not an ordering one. URLSession
+    /// calls `stopLoading()` asynchronously on its own loading queue, so reading
+    /// the count the instant `capture` throws assumes a happens-before that does
+    /// not exist: it wins on a fast machine and loses on a loaded CI runner.
+    /// Polling returns as soon as the callback lands, and the bound keeps a real
+    /// regression a failure rather than a hung suite.
+    static func waitForCancellation(
+        atLeast expected: Int = 1,
+        timeout: Duration = .seconds(5)
+    ) async {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            if cancelledRequestCount >= expected { return }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
     }
 
     static func install(_ handler: @escaping (URLRequest) -> Reply) {
