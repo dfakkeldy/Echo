@@ -37,10 +37,15 @@ on:
     # and routinely landed builds early afternoon. 08:20 UTC is a low-demand
     # overnight-Americas window, so even a bad queue day finishes well before 9am.
     # The odd :20 minute avoids the :00/:30 cron herd.
-    - cron: '20 8 * * *'  # Nightly — every day 05:20 America/Halifax (ADT)
-    - cron: '20 9 * * *'  # Nightly — every day 05:20 America/Halifax (AST)
-    - cron: '20 8 * * 1'  # Weekly  — Mondays   05:20 America/Halifax (ADT)
-    - cron: '20 9 * * 1'  # Weekly  — Mondays   05:20 America/Halifax (AST)
+    # One cron per channel, in UTC. GitHub Actions cron never observes DST, so
+    # 08:20 UTC is 05:20 America/Halifax during ADT and 04:20 during AST. A
+    # nightly/weekly TestFlight build does not care about that one-hour drift.
+    # We deliberately do NOT add a second DST "companion" per channel: the
+    # companion only ever skipped, and a skipped ship job reports the whole run
+    # as success — a green check that built and shipped nothing, which hides
+    # real ship failures instead of surfacing them.
+    - cron: '20 8 * * *'  # Nightly — every day, 05:20 ADT / 04:20 AST
+    - cron: '20 8 * * 1'  # Weekly  — Mondays
   workflow_dispatch:
     inputs:
       channel:
@@ -49,18 +54,10 @@ on:
         options: [nightly, weekly]
         default: nightly
 
-# Serialise ALL release-train runs (every channel) into one queue, and never
-# cancel an in-flight upload (an interrupted TestFlight submission is messy to
-# recover). A single shared group is deliberate, NOT per-channel: the build
-# number is `latest_testflight_build_number + 1` (fastlane/Fastfile), so two runs
-# that overlap both read the same number and collide on upload ("Redundant Binary
-# Upload — build N already taken"). That is *guaranteed* on Mondays, when the
-# daily nightly cron and the weekly cron fire at the same minute. Serialising
-# makes the second run read the number only after the first has finished
-# uploading. (Previously the group was keyed on the cron string, so nightly and
-# weekly were different groups and ran concurrently — the 2026-06-29 race.)
+# Don't pile up overlapping builds of the same channel, but never cancel an
+# in-flight upload (an interrupted TestFlight submission is messy to recover).
 concurrency:
-  group: release-trains
+  group: release-trains-${{ github.event.inputs.channel || github.event.schedule }}
   cancel-in-progress: false
 
 jobs:
@@ -68,57 +65,45 @@ jobs:
     name: Resolve release train
     runs-on: ubuntu-latest
     outputs:
-      should_run: ${{ steps.train.outputs.should_run }}
       channel: ${{ steps.train.outputs.channel }}
       branch: ${{ steps.train.outputs.branch }}
     steps:
       # ── Map the trigger to a channel/branch ───────────────────────────────
       # Scheduled runs identify themselves by their cron string; manual runs by
-      # the `channel` input. Channel name == branch name by design.
+      # the `channel` input. Channel name == branch name by design. There is no
+      # inactive/skip outcome any more: every scheduled run and every dispatch
+      # ships, so the run's conclusion means exactly what it says.
       - name: Resolve channel → branch
         id: train
         shell: bash
         run: |
           schedule="${{ github.event.schedule }}"
           input_channel="${{ github.event.inputs.channel }}"
-          should_run=true
 
           case "$schedule" in
-            "20 8 * * *"|"20 9 * * *") CH=nightly ;;
-            "20 8 * * 1"|"20 9 * * 1") CH=weekly ;;
-            *)                          CH="$input_channel" ;;
+            "20 8 * * *") CH=nightly ;;
+            "20 8 * * 1") CH=weekly ;;
+            *)            CH="${input_channel:-nightly}" ;;
           esac
 
-          if [ -n "$schedule" ]; then
-            offset="$(TZ=America/Halifax date +%z)"
-            scheduled_hour="$(printf '%s\n' "$schedule" | awk '{ print $2 }')"
-
-            case "$offset" in
-              -0300) active_hour=8 ;;
-              -0400) active_hour=9 ;;
-              *)
-                echo "::error title=Unexpected Halifax UTC offset::America/Halifax reported offset $offset."
-                exit 1
-                ;;
-            esac
-
-            if [ "$scheduled_hour" != "$active_hour" ]; then
-              should_run=false
-              echo "Skipping inactive Halifax-time cron '$schedule' for current offset $offset."
-            fi
-          fi
-
-          CH="${CH:-nightly}"
-          echo "should_run=$should_run" >> "$GITHUB_OUTPUT"
           echo "channel=$CH" >> "$GITHUB_OUTPUT"
           echo "branch=$CH" >> "$GITHUB_OUTPUT"
-          echo "Resolved '$CH' train from branch '$CH' (should_run=$should_run)."
+          echo "Resolved '$CH' train from branch '$CH'."
 
   ship:
     needs: resolve
-    if: needs.resolve.outputs.should_run == 'true'
     name: Build & ship train
-    runs-on: macos-15
+    # MUST stay on the same runner image as the ci.yml build gate that vetted
+    # the branch this job checks out (`nightly` runs on macos-26). `setup-xcode`
+    # with `xcode-version: '26'` resolves to the newest 26.x *installed on the
+    # image*, and the images differ: macos-15 tops out at Xcode 26.3 while
+    # macos-26 ships 26.6. That skew meant a commit could pass "Build gate +
+    # tests" on its PR and still fail this job's identical `build-for-testing`,
+    # which is how nightly went dark 2026-07-25 → 07-31: first a Swift-Testing
+    # `#expect` that exceeded 26.3's constraint-solver budget (#481), then
+    # `SystemLanguageModel.contextSize`, a Foundation Models member that simply
+    # does not exist in 26.3's SDK. If ci.yml's runner moves, move this with it.
+    runs-on: macos-26
     # Fail fast on a hang (e.g. a headless codesign keychain prompt) instead of
     # silently burning the 6-hour default. A real run is archive + upload + Apple
     # processing ≈ 40–60 min, so 90 leaves headroom without masking a stall.
@@ -132,16 +117,26 @@ jobs:
       MATCH_GIT_SSH_KEY: ${{ secrets.MATCH_GIT_SSH_KEY }}
       # match reads its repo URL from fastlane/Matchfile; readonly is forced via
       # `readonly: is_ci` in the Fastfile so CI never mutates signing assets.
-      IOS_DESTINATION: "platform=iOS Simulator,name=iPhone 16"
+      # Generic, not a named device. This job only ever COMPILES (build-for-
+      # testing); it never boots a simulator or runs a test, so pinning a device
+      # name buys nothing and breaks whenever a runner image drops that model —
+      # macos-26 carries a different simulator set than macos-15 did.
+      IOS_DESTINATION: "generic/platform=iOS Simulator"
 
     steps:
       - name: Checkout ${{ needs.resolve.outputs.branch }}
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.resolve.outputs.branch }}
+          # Full history + all branches so the nightly "What to Test" generator
+          # can resolve origin/weekly and compute merge-base(origin/weekly, HEAD).
+          # The default shallow single-branch clone has no origin/weekly ref, which
+          # would silently no-op the auto-draft (it falls back to the committed copy).
+          fetch-depth: 0
 
       # Pin Xcode 26.x to match ci.yml (newest installed 26.x; never a future
-      # major). See ci.yml for why the macos-15 default of 16.4 is too old.
+      # major). This resolves per runner image, so it only agrees with ci.yml
+      # while both jobs run on the same image — see the `runs-on` note above.
       - name: Select Xcode 26
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -158,11 +153,7 @@ jobs:
             ${{ runner.os }}-xcode26-spm-
 
       - name: Resolve package dependencies
-        run: |
-          xcodebuild -resolvePackageDependencies \
-            -project Echo.xcodeproj \
-            -scheme Echo \
-            -onlyUsePackageVersionsFromResolvedFile
+        run: xcodebuild -resolvePackageDependencies -project Echo.xcodeproj -scheme Echo
 
       # ── Always-on gate: compile the train branch (no secrets required) ─────
       # This is the guaranteed-useful part of a scheduled run and the same gate
@@ -175,8 +166,6 @@ jobs:
             -project Echo.xcodeproj \
             -scheme Echo \
             -destination "$IOS_DESTINATION" \
-            -parallel-testing-enabled NO \
-            -jobs 5 \
             CODE_SIGNING_ALLOWED=NO \
             -quiet
 
@@ -184,20 +173,15 @@ jobs:
       - name: Check release credentials
         id: creds
         run: |
-          missing=()
-          [ -z "$ASC_API_KEY_JSON" ] && missing+=("APP_STORE_CONNECT_API_KEY_JSON")
-          [ -z "$MATCH_PASSWORD" ] && missing+=("MATCH_PASSWORD")
-          [ -z "$MATCH_GIT_SSH_KEY" ] && missing+=("MATCH_GIT_SSH_KEY")
-
-          if [ "${#missing[@]}" -eq 0 ]; then
+          if [ -n "$ASC_API_KEY_JSON" ] && [ -n "$MATCH_PASSWORD" ]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=TestFlight upload skipped::Signing secrets not configured: ${missing[*]}. The ${{ needs.resolve.outputs.channel }} branch was compiled but not uploaded."
+            echo "::notice title=TestFlight upload skipped::Signing secrets not configured (APP_STORE_CONNECT_API_KEY_JSON / MATCH_PASSWORD). The ${{ needs.resolve.outputs.channel }} branch was compiled but not uploaded."
           fi
 
       - name: Load match deploy key
-        if: steps.creds.outputs.ready == 'true'
+        if: steps.creds.outputs.ready == 'true' && env.MATCH_GIT_SSH_KEY != ''
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.MATCH_GIT_SSH_KEY }}
@@ -226,10 +210,3 @@ jobs:
       - name: Upload ${{ needs.resolve.outputs.channel }} build to TestFlight
         if: steps.creds.outputs.ready == 'true'
         run: bundle exec fastlane beta channel:${{ needs.resolve.outputs.channel }}
-
-      # Weekly is the external beta channel. After the build upload/review
-      # submission succeeds, keep App Store screenshot iteration on the same
-      # train. The lane skips cleanly until reviewed PNG/JPG assets exist.
-      - name: Upload reviewed App Store screenshots and metadata
-        if: steps.creds.outputs.ready == 'true' && needs.resolve.outputs.channel == 'weekly'
-        run: bundle exec fastlane upload_screenshots_if_available

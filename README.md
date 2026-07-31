@@ -39,7 +39,7 @@ I needed an app that could loop a single chapter until I understood it. I needed
 
 I couldn't find an app that did any of this persistently. So, I built it myself.
 
-Echo is the result of a massive, month-long AuDHD spin. It brings together Spaced Repetition (SRS), smart rewind, pitch-corrected speed playback, and a library system that actually makes sense. It was designed from the ground up to support neurodivergent learning styles, but it turns out that building an app for an ADHD brain creates a powerful, friction-free tool for **every** mind.
+Echo is the result of a massive, months-long AuDHD spin. It brings together Spaced Repetition (SRS), smart rewind, pitch-corrected speed playback, and a library system that actually makes sense. It was designed from the ground up to support neurodivergent learning styles, but it turns out that building an app for an ADHD brain creates a powerful, friction-free tool for **every** mind.
 
 Echo bridges the gap between reading and listening: a synced EPUB or PDF sits alongside your audiobook so you can follow the text while you hear it, jump between the two, and never lose your place. If you've ever struggled to stay focused on audio alone — or found that reading is your anchor — this hybrid approach is for you. Built for students, professionals, commuters, and anyone who learns differently.
 
