@@ -404,14 +404,48 @@ extension EnglishPronunciationPack {
     }
 
     /// Generic words that name a candidate's position rather than its meaning.
+    /// Words that name a candidate's POSITION rather than its meaning.
+    ///
+    /// `rank` was removed from this set. An organ *rank* is a real register,
+    /// so `rank 8` for `organ` is a legitimate sense label, and refusing it
+    /// discarded genuine reviewed evidence. Everything left here is a word
+    /// that can only ever mean "the nth one".
     nonisolated static let senseLabelOrderTokens: Set<String> = [
         "alt", "alternate", "alternative", "candidate", "entry", "form",
         "index", "item", "no", "num", "number", "option", "order", "pron",
-        "pronunciation", "rank", "reading", "sense", "variant", "version",
+        "pronunciation", "reading", "sense", "variant", "version",
     ]
 
     nonisolated static let senseLabelOrdinalSuffixes: Set<String> = [
         "st", "nd", "rd", "th",
+    ]
+
+    /// An ordinal spelled out is the same artifact as `2nd`.
+    nonisolated static let senseLabelSpelledOrdinals: Set<String> = [
+        "first", "second", "third", "fourth", "fifth", "sixth", "seventh",
+        "eighth", "ninth", "tenth", "eleventh", "twelfth", "thirteenth",
+        "fourteenth", "fifteenth", "sixteenth", "seventeenth", "eighteenth",
+        "nineteenth", "twentieth",
+    ]
+
+    /// A cardinal spelled out is the same artifact as `2`.
+    nonisolated static let senseLabelSpelledNumbers: Set<String> = [
+        "one", "two", "three", "four", "five", "six", "seven", "eight",
+        "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
+        "sixteen", "seventeen", "eighteen", "nineteen", "twenty",
+    ]
+
+    /// Determiners and prepositions carry no sense on their own, so they
+    /// neither rescue an otherwise ordinal label (`the 2nd`) nor condemn one
+    /// that has real content beside them (`a written account`).
+    nonisolated static let senseLabelFillerTokens: Set<String> = [
+        "a", "an", "the", "of", "for",
+    ]
+
+    /// Inflected forms of the headword restate it rather than distinguishing
+    /// a sense: `records` for `record`, `lives` for `live`.
+    nonisolated static let senseLabelInflectionSuffixes = [
+        "s", "es", "ed", "d", "ing",
     ]
 
     /// Refuse labels that record a candidate's ordering or spelling instead of
@@ -437,6 +471,15 @@ extension EnglishPronunciationPack {
     /// answered by the source and review record. A label copied from another
     /// source's gloss is likewise indistinguishable from an original one.
     ///
+    /// The refusal is a property of the label's TOKENS, never of how many it
+    /// has. An earlier revision gated the ordinal rule on a one-token label
+    /// and the order-token rule on a two-token one, so the check accepted
+    /// combinations of things it individually refused -- `2nd variant`, `the
+    /// 2nd`, `variant two` -- while over-refusing `rank 8`, a real organ
+    /// register, because it matched the two-token shape. Both failures had one
+    /// cause, so both are fixed by scanning every token instead of counting
+    /// them.
+    ///
     /// Deliberately module-internal rather than fileprivate: brief 10.1 states
     /// this rule, so the Task 10 acceptance suite asserts it directly instead
     /// of inferring it from a decode failure.
@@ -445,9 +488,8 @@ extension EnglishPronunciationPack {
         for word: String
     ) -> Bool {
         guard isShortSenseLabel(value) else { return false }
-        let lowercased = value
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowercased = trimmed.lowercased()
 
         // No letter anywhere means no sense: "2", "(2)", "#2", "02".
         guard lowercased.contains(where: \.isLetter) else { return false }
@@ -463,40 +505,130 @@ extension EnglishPronunciationPack {
             }
         }
 
-        let parts = lowercased
+        // SCAN EVERY TOKEN. Both rules here previously gated on the label's
+        // token COUNT -- the ordinal test on `parts.count == 1`, the
+        // order-token test on `tokens.count == 2` -- so ADDING a token walked
+        // out of both, and the check accepted combinations of things it
+        // individually refused: `2nd` was refused but `2nd variant` accepted,
+        // `variant 2` refused but `variant` alone accepted.
+        //
+        // The rule is now a property of the tokens rather than of their
+        // number: a label is an ordering artifact when EVERY token is ordering
+        // vocabulary. "Every" rather than "any" is what stops it
+        // over-rejecting -- `verb form` and `rank 8` each pair an ordering
+        // word with a content word and still name a sense. The shape-based
+        // version got that wrong in both directions at once.
+        //
+        // Tokenized from the trimmed original rather than the lowercased copy
+        // so that roman-numeral casing survives; each check lowercases what it
+        // needs.
+        let rawTokens = trimmed
             .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
             .map(String.init)
-
-        // A bare ordinal numeral: "2nd", "13th".
-        if parts.count == 1 {
-            let digits = parts[0].prefix(while: \.isNumber)
-            if !digits.isEmpty,
-                senseLabelOrdinalSuffixes.contains(
-                    String(parts[0].dropFirst(digits.count)))
-            {
-                return false
-            }
+        if !rawTokens.isEmpty,
+            rawTokens.allSatisfy(isSenseLabelOrderingToken)
+        {
+            return false
         }
 
-        // A generic order token beside a number, in either order and whether or
-        // not a separator was used: "variant 2", "2 variant", "pron2".
-        let tokens = parts.count == 1 ? splitBoundaryNumber(parts[0]) : parts
-        if tokens.count == 2 {
-            let numeric = tokens.filter { !$0.isEmpty && $0.allSatisfy(\.isNumber) }
-            let named = tokens.filter { !$0.isEmpty && $0.allSatisfy(\.isLetter) }
-            if numeric.count == 1, named.count == 1,
-                senseLabelOrderTokens.contains(named[0])
-            {
-                return false
-            }
-        }
-
-        // A restatement of the headword distinguishes nothing.
+        // A restatement of the headword distinguishes nothing, and neither
+        // does an inflected form of it: `records` for `record` was previously
+        // admissible because only exact equality was checked.
         let labelLetters = String(lowercased.filter(\.isLetter))
         let wordLetters = String(word.lowercased().filter(\.isLetter))
-        if !labelLetters.isEmpty, labelLetters == wordLetters { return false }
+        if !labelLetters.isEmpty, !wordLetters.isEmpty,
+            isHeadwordRestatement(labelLetters, of: wordLetters)
+        {
+            return false
+        }
 
         return true
+    }
+
+    /// A token that names ordering, either on its own or as a number glued to
+    /// an order word (`pron2`).
+    nonisolated static func isSenseLabelOrderingToken(_ raw: String) -> Bool {
+        if isSenseLabelOrderingAtom(raw) { return true }
+        let parts = splitBoundaryNumber(raw.lowercased())
+        return parts.count > 1
+            && parts.allSatisfy { !$0.isEmpty && isSenseLabelOrderingAtom($0) }
+    }
+
+    nonisolated static func isSenseLabelOrderingAtom(_ raw: String) -> Bool {
+        let token = raw.lowercased()
+        guard !token.isEmpty else { return false }
+        if token.allSatisfy(\.isNumber) { return true }
+        let digits = token.prefix(while: \.isNumber)
+        if !digits.isEmpty,
+            senseLabelOrdinalSuffixes.contains(
+                String(token.dropFirst(digits.count)))
+        {
+            return true
+        }
+        if senseLabelOrderTokens.contains(token) { return true }
+        if senseLabelSpelledOrdinals.contains(token) { return true }
+        if senseLabelSpelledNumbers.contains(token) { return true }
+        if senseLabelFillerTokens.contains(token) { return true }
+        return isRomanNumeralSenseToken(raw)
+    }
+
+    /// Whether a token is written as a roman numeral.
+    ///
+    /// Membership in the roman alphabet is not sufficient: `mix` is a
+    /// well-formed 1009, and `civil`, `did` and `mid` are all built from the
+    /// same seven letters. Requiring conventional uppercase -- or a length no
+    /// English word collides at -- keeps an ordinary word from being refused
+    /// as an ordering artifact.
+    nonisolated static func isRomanNumeralSenseToken(_ token: String) -> Bool {
+        guard !token.isEmpty,
+            token.allSatisfy({ "IVXLCDMivxlcdm".contains($0) })
+        else {
+            return false
+        }
+        guard token == token.uppercased() || token.count <= 2 else {
+            return false
+        }
+        return isCanonicalRomanNumeral(token.uppercased())
+    }
+
+    nonisolated static func isCanonicalRomanNumeral(_ token: String) -> Bool {
+        let groups: [[String]] = [
+            ["M", "MM", "MMM"],
+            ["C", "CC", "CCC", "CD", "D", "DC", "DCC", "DCCC", "CM"],
+            ["X", "XX", "XXX", "XL", "L", "LX", "LXX", "LXXX", "XC"],
+            ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX"],
+        ]
+        var remainder = Substring(token)
+        for group in groups {
+            let longest = group
+                .filter { remainder.hasPrefix($0) }
+                .max(by: { $0.count < $1.count })
+            if let longest { remainder = remainder.dropFirst(longest.count) }
+        }
+        return remainder.isEmpty
+    }
+
+    nonisolated static func isHeadwordRestatement(
+        _ label: String,
+        of word: String
+    ) -> Bool {
+        if label == word { return true }
+        for suffix in senseLabelInflectionSuffixes {
+            if label == word + suffix { return true }
+            if word == label + suffix { return true }
+        }
+        // The stem drops `y` before `ies`: `study` -> `studies`.
+        if label.hasSuffix("ies"), word.hasSuffix("y"),
+            label.dropLast(3) == word.dropLast(1)
+        {
+            return true
+        }
+        if word.hasSuffix("ies"), label.hasSuffix("y"),
+            word.dropLast(3) == label.dropLast(1)
+        {
+            return true
+        }
+        return false
     }
 
     nonisolated static func splitBoundaryNumber(_ value: String) -> [String] {

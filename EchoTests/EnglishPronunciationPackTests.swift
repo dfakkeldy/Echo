@@ -453,6 +453,91 @@ import Testing
         }
     }
 
+    /// Both rules gated on the label's TOKEN COUNT rather than on its tokens,
+    /// so the check accepted combinations of things it individually refused.
+    /// The ordinal test ran only when `parts.count == 1`, and the order-token
+    /// test only when `tokens.count == 2`, so adding a token walked out of
+    /// both: `2nd` was refused but `2nd variant` was accepted, `variant 2` was
+    /// refused but `variant` alone was accepted.
+    ///
+    /// The same shape-based gating over-rejected in the other direction:
+    /// `rank 8` is a legitimate sense for `organ` -- an organ rank is a real
+    /// register -- but it matched the two-token order-token shape and was
+    /// refused. So this is not purely a tightening, and the fix cannot be a
+    /// broader refusal.
+    ///
+    /// Asserted directly on `isAdmissibleSenseLabel` rather than through the
+    /// decode path, because the point is the per-label verdict.
+    @Test func senseLabelAdmissibilityScansEveryTokenNotTheTokenCount() {
+        let inadmissible: [(String, String)] = [
+            // Combinations of individually refused parts.
+            ("bass", "2nd variant"),
+            ("bass", "the 2nd"),
+            ("bass", "1st"),
+            ("bass", "variant 2nd"),
+            // A bare order token names ordering with no meaning at all.
+            ("bass", "variant"),
+            ("bass", "alternate"),
+            ("bass", "alt"),
+            ("bass", "option"),
+            // Spelled ordinals and cardinals are the same artifact in words.
+            ("bass", "second"),
+            ("bass", "third"),
+            ("bass", "variant two"),
+            ("bass", "number three"),
+            // Roman numerals.
+            ("bass", "II"),
+            ("bass", "IV"),
+            ("bass", "ii"),
+            // Still refused, from the previous round.
+            ("bass", "variant 2"),
+            ("bass", "2 variant"),
+            ("bass", "pron2"),
+            ("bass", "13th"),
+            ("record", "record"),
+            // A spelling variant is not only an exact restatement: an
+            // inflected form of the headword distinguishes nothing either.
+            ("record", "records"),
+            ("record", "recorded"),
+            ("read", "reading"),
+            ("live", "lives"),
+        ]
+
+        for (word, label) in inadmissible {
+            #expect(
+                !EnglishPronunciationPack.isAdmissibleSenseLabel(label, for: word),
+                "\(label) must not be admissible for \(word)"
+            )
+        }
+
+        let admissible: [(String, String)] = [
+            // The regression: a legitimate sense that happens to match the
+            // order-token-plus-number shape.
+            ("organ", "rank 8"),
+            ("organ", "musical instrument"),
+            ("organ", "body part"),
+            // An order token beside a real content word still says something.
+            ("read", "verb form"),
+            ("content", "material noun"),
+            ("content", "satisfied adjective"),
+            ("read", "past tense"),
+            ("bass", "the fish"),
+            // Previously admissible labels stay admissible.
+            ("record", "a written account"),
+            ("record", "to set down in writing"),
+            ("record", "noun"),
+            ("record", "verb (to store)"),
+            ("record", "音楽"),
+        ]
+
+        for (word, label) in admissible {
+            #expect(
+                EnglishPronunciationPack.isAdmissibleSenseLabel(label, for: word),
+                "\(label) must remain admissible for \(word)"
+            )
+        }
+    }
+
     @Test func candidateStatusInvariantsAreClosed() throws {
         let invalidMutations: [(inout [String: Any]) -> Void] = [
             { root in
