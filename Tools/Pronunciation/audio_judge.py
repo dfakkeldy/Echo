@@ -1927,9 +1927,26 @@ LEDGER_CHAIN_GENESIS = "0" * 64
 
 
 def _canonical_ledger_bytes(event: Mapping[str, Any]) -> bytes:
-    return json.dumps(event, sort_keys=True, separators=(",", ":")).encode(
-        "utf-8"
-    )
+    """Encode one event canonically, failing as a domain error.
+
+    The DECODE side has always been guarded -- `_decode_ledger_events` maps
+    `RecursionError` to `LedgerError` -- but the ENCODE side was not, and it
+    is reached FIRST: `_ledger_chain_head` digests the last event before any
+    field validation runs, so a ledger line holding a deeply nested list
+    decodes within the recursion limit and then blows the stack on re-encode.
+    The CLI happened to be contained because `main` catches `RecursionError`
+    at the top level, but library callers -- `read_attempt_state` among them
+    -- saw a bare interpreter error instead of a `LedgerError`.
+
+    This is the single chokepoint for canonical event encoding, so guarding
+    it here covers every caller rather than the one that was reported.
+    """
+    try:
+        return json.dumps(event, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    except (RecursionError, ValueError, TypeError) as error:
+        raise LedgerError("attempt ledger is invalid") from error
 
 
 def _ledger_event_digest(event: Mapping[str, Any]) -> str:

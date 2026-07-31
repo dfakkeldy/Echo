@@ -907,7 +907,12 @@ oversized integers into their closed `LedgerError` boundary. The response and
 API-envelope decoders route the same nesting failure to `malformed_output` and
 the morning queue rather than aborting a reserved, already-paid request.
 Recovery reports those errors without a traceback or raw artifact content, and
-preflight rejection cannot create the missing lock or mutate run files.
+preflight rejection cannot create the missing lock or mutate run files. The
+canonical *encoding* of a ledger event is guarded on the same boundary, which
+matters because it runs first: the chain digest re-encodes each event before
+any field validation, so an event that decodes and then fails to re-encode
+would otherwise reach a library caller as a bare interpreter error rather than
+a `LedgerError`.
 
 Every attempt-ledger event carries `previousEventSHA256`, the SHA-256 of the
 canonical serialization of its predecessor, with a zero genesis for the first

@@ -3412,6 +3412,77 @@ class AttemptLedgerTests(ManifestAdmissionTests):
             (run_directory / "morning-queue.json").read_bytes(),
         )
 
+    def test_canonical_ledger_encoding_failures_are_domain_errors(self):
+        """The encode side must fail like the decode side already does.
+
+        `_decode_ledger_events` maps `RecursionError` to `LedgerError`, but
+        the ENCODE side was unguarded and is reached FIRST: at
+        `_derive_attempt_states`, `expected_previous = _ledger_event_digest(
+        event)` re-encodes the event immediately after the chain-linkage check
+        and BEFORE the field validation below it. So an event that decodes
+        successfully and then fails to re-encode never reaches the guarded
+        path. The CLI was contained only incidentally, because `main` catches
+        `RecursionError` at the top level; library callers such as
+        `read_attempt_state` saw a bare interpreter error instead of the
+        `LedgerError` their contract promises.
+
+        ON THE DEPTH-989 REPRODUCTION. It does NOT reproduce on this
+        interpreter. CPython 3.14.6's C encoder (`json.encoder.c_make_encoder`)
+        does not consume the Python stack, so `json.dumps` survives nesting of
+        60000 and deeper; only the pure-Python encoder raises, and not until
+        about 2000. The defect is therefore real but interpreter- and
+        build-dependent, and a test pinned to a literal depth would assert a
+        property of one CPython build rather than the contract. So this pins
+        the CONTRACT -- every encode failure surfaces as `LedgerError` -- with
+        one injected `RecursionError` and one naturally occurring failure that
+        needs no injection at all.
+        """
+        # Naturally occurring, no injection: a circular structure is a real
+        # `ValueError` from `json.dumps` on every interpreter.
+        circular = {"schemaVersion": 1}
+        circular["self"] = circular
+        with self.assertRaises(LedgerError):
+            audio_judge._canonical_ledger_bytes(circular)
+        with self.assertRaises(LedgerError):
+            audio_judge._ledger_event_digest(circular)
+
+        # A non-serializable value is the other member of the same class.
+        with self.assertRaises(LedgerError):
+            audio_judge._canonical_ledger_bytes({"schemaVersion": object()})
+
+        # The reported failure, injected so it is interpreter-independent.
+        with mock.patch.object(
+            audio_judge.json,
+            "dumps",
+            side_effect=RecursionError("maximum recursion depth exceeded"),
+        ):
+            with self.assertRaises(LedgerError):
+                audio_judge._canonical_ledger_bytes({"schemaVersion": 1})
+
+        # End to end through a library caller, which is the surface that had
+        # no net. The assertion is that this is a `LedgerError` and NOT a bare
+        # `RecursionError`.
+        run_id = "encode-failure-library-caller"
+        clip_id, output_root = self.failing_run(run_id=run_id)
+        real_dumps = audio_judge.json.dumps
+
+        def fail_on_event_encoding(value, **kwargs):
+            if isinstance(value, dict) and "previousEventSHA256" in value:
+                raise RecursionError("maximum recursion depth exceeded")
+            return real_dumps(value, **kwargs)
+
+        with mock.patch.object(
+            audio_judge.json,
+            "dumps",
+            side_effect=fail_on_event_encoding,
+        ):
+            with self.assertRaises(LedgerError):
+                read_attempt_state(
+                    run_id=run_id,
+                    clip_id=clip_id,
+                    output_root=output_root,
+                )
+
     def test_erasing_all_three_artifacts_cannot_launder_a_terminal_clip(self):
         """The anchor must be mandatory, so its absence is evidence.
 
