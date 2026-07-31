@@ -2123,11 +2123,59 @@ git commit -m "feat: record contextual pronunciation shadow evidence"
 - Modify: `Tools/Pronunciation/pronunciation_corpus.py`
 - Modify: `ARCHITECTURE.md`
 - Modify: `.github/workflows/ci.yml`
+- Modify: `EchoTests/Fixtures/Pronunciation/named_regressions_v1.jsonl`
+- Modify: `EchoTests/Fixtures/Pronunciation/morphology_v1.jsonl`
+- Modify: `Tools/Pronunciation/tests/test_pronunciation_corpus.py`
+- Modify: `EchoCore/Services/Narration/EnglishPronunciationPack.swift`
+- Modify: `EchoTests/EnglishPronunciationPackTests.swift`
+- Modify: `Tools/Pronunciation/build_pronunciation_pack.py`
 
 **Amendment (2026-07-30, authorized by the user).** `.github/workflows/ci.yml`
 was not in this list when Task 10 was written, and the delivered change set
 included it. The user authorized keeping it inside Task 10, so it is recorded
 here rather than deferred.
+
+**Amendment 2 (2026-07-31, authorized by merge rather than in advance).** The
+six entries after `.github/workflows/ci.yml` above were also absent from Task
+10's Files list when it was written, and were also in the delivered change set.
+They were merged to `nightly` in `0c6d8dbb` (#480) without the prior
+authorization that the `ci.yml` amendment obtained, so **the authorization here
+is retrospective: the user's decision to merge is what granted it.** That is
+recorded plainly rather than written up as if permission had been sought first,
+because otherwise the repository's own record disagrees with the repository —
+the plan would describe a Task 10 that is narrower than the Task 10 that
+shipped. Nothing is reverted and no history is rewritten; the list is corrected
+to match what was merged.
+
+One of the six is a production change and is called out as such:
+`EnglishPronunciationPack.swift` is on the pack decode path, so this is not a
+documentation-and-fixtures amendment.
+
+Per-file rationale:
+
+- `EchoTests/Fixtures/Pronunciation/named_regressions_v1.jsonl` — Task 10's
+  qualification status and program report are computed from the committed
+  fixtures, so the named-regression rows had to carry the fields the
+  qualification arithmetic reads. Fixture data only; no code path.
+- `EchoTests/Fixtures/Pronunciation/morphology_v1.jsonl` — same reason, for the
+  morphology contract the report counts.
+- `Tools/Pronunciation/tests/test_pronunciation_corpus.py` — the corpus
+  validator gained the contract and qualification surfaces Task 10 reports on,
+  and `make pronunciation-corpus-test` is one of Task 10's gates, so the suite
+  that gate runs had to cover them. Test-only.
+- `EchoCore/Services/Narration/EnglishPronunciationPack.swift` — **production
+  decode path.** Task 10 asserts brief 10.1's sense-label prohibition directly,
+  and the committed pack contains no `validated-human-reviewed` candidate, so
+  the branch guarding them had never executed. Writing the acceptance test
+  exposed that `isAdmissibleSenseLabel` checked only length and non-emptiness.
+  The fix belongs with the assertion that found it, but it is a behavior change
+  to shipped decode logic and should have been authorized before delivery.
+- `EchoTests/EnglishPronunciationPackTests.swift` — the direct per-label
+  verdicts for the rule above, asserted on `isAdmissibleSenseLabel` rather than
+  inferred from a decode failure. Test-only.
+- `Tools/Pronunciation/build_pronunciation_pack.py` — the pack builder emits the
+  candidates the decode path validates, so it had to stop emitting labels the
+  tightened rule refuses. Development tooling; not shipped in the app.
 
 Rationale: the pronunciation corpus and audio-judge suites enforce privacy
 projection, prospective cap arithmetic, hardlink and symlink refusal,
