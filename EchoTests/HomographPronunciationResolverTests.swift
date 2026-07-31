@@ -4,6 +4,63 @@ import Testing
 @testable import Echo
 
 @Suite struct HomographPronunciationResolverTests {
+    @Test func contextualBatchMatchesSingleAnalysisWithOneTokenization() {
+        let source = "I am content with this. I read it yesterday. I read every day."
+        let wordStarts = [2, 6, 10]
+        var operationCounts =
+            HomographPronunciationResolver.ContextualAnalysisOperationCounts()
+
+        let batch = HomographPronunciationResolver.contextualAnalyses(
+            in: source,
+            wordStarts: wordStarts,
+            operationCounts: &operationCounts)
+
+        for wordStart in wordStarts {
+            #expect(
+                batch[wordStart]
+                    == HomographPronunciationResolver.contextualAnalysis(
+                        in: source,
+                        wordStart: wordStart))
+        }
+        #expect(batch[2]?.strength == .definitive)
+        #expect(batch[6]?.strength == .advisory)
+        #expect(batch[10]?.strength == .abstained)
+        #expect(operationCounts.tokenizations == 1)
+        #expect(operationCounts.tokenVisits == 13)
+        #expect(operationCounts.wordSpanLookups == 3)
+    }
+
+    @Test func contextualAnalysisExposesExactSatisfiedRuleWithoutChangingRewriteBehavior() {
+        let source = "I am content with the result."
+
+        let analysis = HomographPronunciationResolver.contextualAnalysis(
+            in: source,
+            wordStart: 2)
+
+        #expect(analysis.candidateID == "content.satisfied")
+        #expect(analysis.ruleID == "homograph.content.adjective.copula")
+        #expect(analysis.strength == .definitive)
+        #expect(
+            HomographPronunciationResolver.apply(to: source)
+                == "I am [content](/kəntˈɛnt/) with the result.")
+    }
+
+    @Test func contextualAnalysisClassifiesCueHeuristicAndAbstentionIndependently() {
+        let advisory = HomographPronunciationResolver.contextualAnalysis(
+            in: "I read the book yesterday.",
+            wordStart: 1)
+        let abstained = HomographPronunciationResolver.contextualAnalysis(
+            in: "I read every day.",
+            wordStart: 1)
+
+        #expect(advisory.candidateID == "read.past")
+        #expect(advisory.ruleID == "homograph.read.past.temporal-cue")
+        #expect(advisory.strength == .advisory)
+        #expect(abstained.candidateID == nil)
+        #expect(abstained.ruleID == nil)
+        #expect(abstained.strength == .abstained)
+    }
+
     @Test func structuredResolutionMapsRegexTokensToCanonicalWhitespaceSpan() throws {
         let source = "That can't be where this subject lives."
 

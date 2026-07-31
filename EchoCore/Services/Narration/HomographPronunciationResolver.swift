@@ -23,6 +23,28 @@ nonisolated enum HomographPronunciationResolver {
         let startsSentence: Bool
     }
 
+    struct ContextualAnalysisOperationCounts {
+        var tokenizations = 0
+        var tokenVisits = 0
+        var wordSpanLookups = 0
+    }
+
+    struct ContextualAnalysisContext {
+        private let analysisByWordStart: [Int: ContextualDeterministicAnalysis]
+
+        fileprivate init(
+            analysisByWordStart: [Int: ContextualDeterministicAnalysis]
+        ) {
+            self.analysisByWordStart = analysisByWordStart
+        }
+
+        func analysis(
+            atWordStart wordStart: Int
+        ) -> ContextualDeterministicAnalysis {
+            analysisByWordStart[wordStart] ?? .abstained
+        }
+    }
+
     private enum IPA {
         static let readPast = "ɹˈɛd"
         static let liveAdjective = "lˈIv"
@@ -142,6 +164,86 @@ nonisolated enum HomographPronunciationResolver {
         rewrite(to: text, blockID: "").text
     }
 
+    /// Exposes the existing grammatical rule result as independent evidence.
+    /// It never rewrites text and has no model input or model-selected value.
+    static func contextualAnalysis(
+        in text: String,
+        wordStart: Int
+    ) -> ContextualDeterministicAnalysis {
+        var operationCounts = ContextualAnalysisOperationCounts()
+        return contextualAnalyses(
+            in: text,
+            wordStarts: [wordStart],
+            operationCounts: &operationCounts
+        )[wordStart] ?? .abstained
+    }
+
+    static func contextualAnalyses(
+        in text: String,
+        wordStarts: [Int],
+        operationCounts: inout ContextualAnalysisOperationCounts
+    ) -> [Int: ContextualDeterministicAnalysis] {
+        let sourceSnapshot =
+            ContextualPronunciationDiscovery.SourceSnapshot(source: text)
+        let context = prepareContextualAnalysis(
+            in: text,
+            sourceSnapshot: sourceSnapshot,
+            operationCounts: &operationCounts)
+        var result: [Int: ContextualDeterministicAnalysis] = [:]
+        result.reserveCapacity(wordStarts.count)
+        for wordStart in wordStarts {
+            result[wordStart] = context.analysis(atWordStart: wordStart)
+        }
+        return result
+    }
+
+    static func prepareContextualAnalysis(
+        in text: String,
+        sourceSnapshot: ContextualPronunciationDiscovery.SourceSnapshot,
+        operationCounts: inout ContextualAnalysisOperationCounts
+    ) -> ContextualAnalysisContext {
+        operationCounts = ContextualAnalysisOperationCounts()
+        let tokens = tokens(
+            in: text,
+            authoredLinks: sourceSnapshot.authoredLinks)
+        operationCounts.tokenizations = 1
+        var analysisByWordStart: [Int: ContextualDeterministicAnalysis] = [:]
+        for index in tokens.indices {
+            operationCounts.tokenVisits += 1
+            let token = tokens[index]
+            guard !token.isAuthoredLinkDisplay,
+                !isHyphenated(token.range, in: text),
+                let family = ContextualPronunciationFamilies.family(for: token.lowercased)
+            else {
+                continue
+            }
+
+            operationCounts.wordSpanLookups += 1
+            guard let wordSpan = sourceSnapshot.wordSpan(containing: token.range) else {
+                continue
+            }
+            let analysis: ContextualDeterministicAnalysis
+            if let resolution = resolution(for: token, at: index, tokens: tokens),
+                let candidateID = family.candidates.first(where: {
+                    $0.ipa == resolution.ipa
+                })?.candidateID
+            {
+                analysis = ContextualDeterministicAnalysis(
+                    candidateID: candidateID,
+                    ruleID: resolution.ruleID,
+                    strength: deterministicStrength(for: resolution.ruleID))
+            } else {
+                analysis = .abstained
+            }
+            for wordStart in wordSpan
+            where analysisByWordStart[wordStart] == nil {
+                analysisByWordStart[wordStart] = analysis
+            }
+        }
+        return ContextualAnalysisContext(
+            analysisByWordStart: analysisByWordStart)
+    }
+
     static func rewrite(to text: String, blockID: String) -> PronunciationRewriteResult {
         let tokens = tokens(in: text)
         guard !tokens.isEmpty else {
@@ -238,6 +340,15 @@ nonisolated enum HomographPronunciationResolver {
         default:
             return nil
         }
+    }
+
+    /// Phase 2 promotes only the exact satisfied-content construction. Existing
+    /// lexical cue rules remain useful shadow evidence but are conservatively
+    /// advisory until their families complete corpus qualification.
+    private static func deterministicStrength(
+        for ruleID: String
+    ) -> DeterministicRuleStrength {
+        ruleID == "homograph.content.adjective.copula" ? .definitive : .advisory
     }
 
     private static func readResolution(at index: Int, tokens: [Token]) -> Resolution? {
@@ -554,6 +665,33 @@ nonisolated enum HomographPronunciationResolver {
             plainTextStart = index
         }
 
+        appendTokens(
+            in: plainTextStart..<text.endIndex,
+            of: text,
+            isAuthoredLinkDisplay: false,
+            to: &result)
+        return result
+    }
+
+    private static func tokens(
+        in text: String,
+        authoredLinks: [ContextualPronunciationDiscovery.SourceSnapshot.AuthoredLink]
+    ) -> [Token] {
+        var result: [Token] = []
+        var plainTextStart = text.startIndex
+        for link in authoredLinks {
+            appendTokens(
+                in: plainTextStart..<link.range.lowerBound,
+                of: text,
+                isAuthoredLinkDisplay: false,
+                to: &result)
+            appendTokens(
+                in: link.displayRange,
+                of: text,
+                isAuthoredLinkDisplay: true,
+                to: &result)
+            plainTextStart = link.range.upperBound
+        }
         appendTokens(
             in: plainTextStart..<text.endIndex,
             of: text,

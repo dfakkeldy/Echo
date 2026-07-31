@@ -73,20 +73,23 @@
                         at: cacheDirectory.appendingPathComponent(stale))
                 }
             }
-            let service = NarrationService(
-                db: db, audiobookID: audiobookID, tts: narrationTTS,
-                audioWriter: AVFoundationAudioWriter(), cacheDirectory: cacheDirectory,
-                state: narrationPlaybackState,
-                pronunciationOverrides: {
-                    PronunciationOverrideStore.shared.overrides(forBookID: audiobookID)
-                },
-                pronunciationOccurrenceOverrides: {
-                    PronunciationOverrideStore.shared.occurrenceOverrides(forBookID: audiobookID)
-                })
-
             narrationRenderTask = Task { [weak self] in
                 guard let self else { return }
                 do {
+                    let pronunciationPack = await EnglishPronunciationPack.bundledOrEmpty()
+                    let service = NarrationService(
+                        db: db, audiobookID: audiobookID, tts: narrationTTS,
+                        audioWriter: AVFoundationAudioWriter(), cacheDirectory: cacheDirectory,
+                        state: narrationPlaybackState,
+                        pronunciationOverrides: {
+                            PronunciationOverrideStore.shared.overrides(
+                                forBookID: audiobookID)
+                        },
+                        pronunciationOccurrenceOverrides: {
+                            PronunciationOverrideStore.shared.occurrenceOverrides(
+                                forBookID: audiobookID)
+                        },
+                        pronunciationPack: pronunciationPack)
                     // Wait for loadFolder's no-audio EPUB import to finish so a
                     // first-ever open isn't read before its blocks are committed.
                     await self.playerLoadingCoordinator.documentImportTask?.value

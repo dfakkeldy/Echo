@@ -1,0 +1,72 @@
+[
+  {
+    "workID": "synthetic-fiction-001",
+    "provenance": "synthetic",
+    "cases": 12,
+    "genre": "fiction",
+    "sampleSentences": ["The lantern glowed while the synthetic traveler waited."]
+  },
+  {
+    "workID": "synthetic-nonfiction-001",
+    "provenance": "synthetic",
+    "cases": 12,
+    "genre": "nonfiction",
+    "sampleSentences": ["The synthetic survey reports three observations."]
+  },
+  {
+    "workID": "synthetic-technical-001",
+    "provenance": "synthetic",
+    "cases": 12,
+    "genre": "technical prose",
+    "sampleSentences": ["The synthetic service records one deterministic event."]
+  },
+  {
+    "workID": "synthetic-dialogue-001",
+    "provenance": "synthetic",
+    "cases": 12,
+    "genre": "dialogue",
+    "sampleSentences": ["“Begin the synthetic trial now,” the tester said."]
+  },
+  {
+    "workID": "synthetic-historical-001",
+    "provenance": "synthetic",
+    "cases": 12,
+    "genre": "historical writing",
+    "sampleSentences": ["The synthetic chronicle places the event in an earlier decade."]
+  },
+  {
+    "workID": "synthetic-instructional-001",
+    "provenance": "synthetic",
+    "cases": 12,
+    "genre": "instructional material",
+    "sampleSentences": ["Turn the synthetic dial and record the displayed value."]
+  },
+  {
+    "workID": "synthetic-science-001",
+    "provenance": "synthetic",
+    "cases": 12,
+    "genre": "science",
+    "sampleSentences": ["The synthetic sample changed after controlled heating."]
+  },
+  {
+    "workID": "synthetic-essay-001",
+    "provenance": "synthetic",
+    "cases": 12,
+    "genre": "essay",
+    "sampleSentences": ["A synthetic example can isolate one linguistic contrast."]
+  },
+  {
+    "workID": "synthetic-procedure-001",
+    "provenance": "synthetic",
+    "cases": 12,
+    "genre": "procedural writing",
+    "sampleSentences": ["Confirm the synthetic indicator before continuing."]
+  },
+  {
+    "workID": "synthetic-reference-001",
+    "provenance": "synthetic",
+    "cases": 12,
+    "genre": "reference",
+    "sampleSentences": ["The synthetic glossary defines each test term once."]
+  }
+]

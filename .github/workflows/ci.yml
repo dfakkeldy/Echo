@@ -27,6 +27,50 @@ jobs:
       - name: Renderer installer tests (fast, no Xcode)
         run: make renderer-install-test
 
+      # The audio-judge suite measures real media with ffprobe and transcodes
+      # a real MP3 with ffmpeg. Those are hard requirements in the suite's
+      # setUp, not skip conditions: a silently skipped safety suite reports a
+      # false pass, which is precisely what these gates exist to prevent. CI
+      # therefore installs the toolchain rather than letting the suite opt out.
+      # Cache the Homebrew download so a green run does not depend on
+      # Homebrew's servers, and pin the formula so the media toolchain cannot
+      # float to a new major between runs.
+      - name: Cache Homebrew downloads (ffmpeg)
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew/downloads
+          key: ${{ runner.os }}-brew-ffmpeg@7
+          restore-keys: |
+            ${{ runner.os }}-brew-ffmpeg
+
+      - name: Install ffmpeg/ffprobe for the audio-judge gate
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_UPGRADE: "1"
+          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+            brew install ffmpeg@7
+            brew link --overwrite --force ffmpeg@7
+          fi
+          # Record the exact toolchain in the run log; the suites measure real
+          # media, so the version is part of the evidence.
+          ffmpeg -version | head -n 1
+          ffprobe -version | head -n 1
+
+      # Pronunciation corpus contracts: fixture schema, named-regression
+      # outcomes, human-label qualification state, and repository-scope
+      # refusal. Pure stdlib Python, seconds to run.
+      - name: Pronunciation corpus contract tests (fast, no Xcode)
+        run: make pronunciation-corpus-test
+
+      # Privacy projection, prospective cap arithmetic, hardlink and symlink
+      # refusal, request/audio binding, and attempt-ledger tamper evidence.
+      # Previously enforced only when a human typed the target locally.
+      - name: Pronunciation audio-judge tests (fast, no Xcode)
+        run: make pronunciation-audio-judge-test
+
       # Pin the toolchain to Xcode 26.x so CI compiles against the same SDK the
       # project is developed and shipped with. The macos-26 runner defaults to
       # Xcode 26.x today, and this explicit selection keeps future image updates

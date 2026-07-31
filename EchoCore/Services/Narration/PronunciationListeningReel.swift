@@ -129,7 +129,13 @@ nonisolated enum PronunciationListeningReel {
         var seen: Set<SampleKey> = []
         var items: [ExportItem] = []
 
-        for decision in decisions {
+        let rankedDecisions = decisions.enumerated().sorted { lhs, rhs in
+            let lhsRank = riskRank(lhs.element)
+            let rhsRank = riskRank(rhs.element)
+            return lhsRank == rhsRank ? lhs.offset < rhs.offset : lhsRank < rhsRank
+        }.map(\.element)
+
+        for decision in rankedDecisions {
             guard items.count < maximumSampleCount else { break }
             let key = SampleKey(
                 normalizedWord: decision.normalizedWord,
@@ -190,6 +196,60 @@ nonisolated enum PronunciationListeningReel {
 
         return items
     }
+
+    private static func riskRank(
+        _ decision: PronunciationAuditDecision
+    ) -> Int {
+        let evidence = decision.contextualEvidence.flatMap { evidence in
+            ContextualPronunciationEvidenceValidator.isValidPhaseTwo(
+                evidence,
+                blockID: decision.blockID,
+                wordStart: decision.wordStart,
+                wordEnd: decision.wordEnd,
+                normalizedWord: decision.normalizedWord,
+                source: decision.source)
+                ? evidence
+                : nil
+        }
+        if decision.source == .fallback || evidence?.isLimited == true {
+            return 1
+        }
+
+        if let humanCandidateID = evidence?.humanCandidateID,
+            humanCandidateID != evidence?.deterministicCandidateID
+                || humanCandidateID != evidence?.modelCandidateID
+        {
+            return 2
+        }
+
+        if evidence?.humanCandidateID == nil,
+            evidence?.acceptanceReason == .shadowNeedsReview
+                || evidence?.modelAbstained == true
+        {
+            return 3
+        }
+
+        if evidence?.humanCandidateID == nil,
+            let modelCandidateID = evidence?.modelCandidateID,
+            evidence?.deterministicCandidateID == nil
+                || modelCandidateID != evidence?.deterministicCandidateID
+        {
+            return 3
+        }
+
+        if let deterministicCandidateID = evidence?.deterministicCandidateID,
+            deterministicCandidateID == evidence?.modelCandidateID
+        {
+            return 4
+        }
+
+        if decision.source == .monitoredLexicon
+            || decision.source == .derivedMorphology
+        {
+            return 5
+        }
+        return 6
+    }
 }
 
 /// Production post-export generator. The reel is exported to a unique sibling
@@ -243,14 +303,16 @@ nonisolated enum PronunciationListeningReel {
         let parent = request.reelURL.deletingLastPathComponent()
         try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
         let temporaryReelURL = parent.appendingPathComponent(
-            ".\(request.reelURL.deletingPathExtension().lastPathComponent).\(UUID().uuidString).m4b")
+            ".\(request.reelURL.deletingPathExtension().lastPathComponent).\(UUID().uuidString).m4b"
+        )
         defer { try? fileManager.removeItem(at: temporaryReelURL) }
 
         try await AudioExportService().exportM4B(
             items: items,
             outputURL: temporaryReelURL,
             metadata: ExportMetadata(
-                title: "Pronunciation Review — \(request.audiobookURL.deletingPathExtension().lastPathComponent)",
+                title:
+                    "Pronunciation Review — \(request.audiobookURL.deletingPathExtension().lastPathComponent)",
                 author: "Echo",
                 coverArt: nil))
         try promote(

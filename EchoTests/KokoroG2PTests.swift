@@ -26,6 +26,12 @@ import Testing
         #expect(g2p.phonemeCount(for: "Hello world.") == phonemes.count)
     }
 
+    @Test func contentDefaultsToMaterialNounWithoutContext() {
+        let result = KokoroG2P().result(for: "Content")
+
+        #expect(result.phonemes == "kˈɑntɛnt")
+    }
+
     @Test func resultReportsOOVFallbackHits() {
         let result = KokoroG2P().result(for: "Jacqui said hello.")
         #expect(!result.phonemes.isEmpty)

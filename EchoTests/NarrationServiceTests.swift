@@ -5,6 +5,24 @@ import Testing
 
 @testable import Echo
 
+private enum ShadowEvaluatorOutcome: Sendable {
+    case selection(ContextualCandidateSlot)
+    case unavailable
+    case failure
+}
+
+private actor ShadowEvaluatorRecorder {
+    private var targetWords: [String] = []
+
+    func record(_ request: ContextualPronunciationBatchRequest) {
+        targetWords.append(contentsOf: request.occurrences.map(\.targetWord))
+    }
+
+    func recordedTargetWords() -> [String] {
+        targetWords
+    }
+}
+
 @MainActor
 @Suite struct NarrationServiceTests {
 
@@ -427,6 +445,299 @@ import Testing
             voice: VoiceID("af_heart"))
 
         #expect(deterministicURL.lastPathComponent != fmURL.lastPathComponent)
+    }
+
+    @Test func serviceUsesOneInjectedPackForPlanAndCacheIdentity() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["A foobar appeared."])
+        let pack = EnglishPronunciationPack.emptyForTesting(
+            packVersion:
+                "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            kokoroVocabularyVersion:
+                "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            automaticEntries: [
+                "foobar": ("cmudict.foobar.fixture", "fˈubɑɹ")
+            ])
+        let service = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: MockTTSEngine(),
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            pronunciationPack: pack,
+            fmEnabled: { false })
+
+        let plan = try await service.renderPlan(
+            for: blocks,
+            overrides: PronunciationOverrides(entries: [:]),
+            occurrenceOverrides: .empty,
+            fmEnabled: false)
+        let cacheURL = await service.chapterCacheURL(
+            chapterIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+        let expectedSignature = NarrationService.contentSignature(
+            for: blocks,
+            includeLeadOutPad: true,
+            overrides: PronunciationOverrides(entries: [:]),
+            occurrenceOverrides: .empty,
+            normalizationMode: "deterministic",
+            pronunciationPack: pack)
+
+        #expect(
+            plan.blocks.first?.synthesisChunks.first?.g2pInputText
+                == "A [foobar](/fˈubɑɹ/) appeared.")
+        #expect(cacheURL.lastPathComponent.contains("-h\(expectedSignature)-"))
+    }
+
+    @Test func contextualShadowOutcomesCannotChangeNarrationOrCacheIdentity() async throws {
+        let sourceBlocks = [
+            block(
+                "b1",
+                id: "shadow",
+                seq: 0,
+                text: "The content was live. I read the record.")
+        ]
+        let outcomes: [ShadowEvaluatorOutcome] = [
+            .selection(.a),
+            .selection(.b),
+            .selection(.needsReview),
+            .unavailable,
+            .failure,
+        ]
+        var plans: [NarrationRenderPlan] = []
+        var fileNames: [String] = []
+
+        for outcome in outcomes {
+            let db = try DatabaseService(inMemory: ())
+            let service = NarrationService(
+                db: db.writer,
+                audiobookID: "b1",
+                tts: MockTTSEngine(),
+                audioWriter: MockAudioWriter(),
+                cacheDirectory: FileManager.default.temporaryDirectory,
+                state: NarrationState(),
+                contextualPronunciationEvaluator: { request in
+                    let runtime = ContextualModelRuntime(
+                        platform: "test",
+                        osBuild: "test-build",
+                        qualifiedRuntimeFamilyID: "test-runtime")
+                    switch outcome {
+                    case .selection(let slot):
+                        return ContextualPronunciationBatchResult(
+                            availability: .available,
+                            selections: request.occurrences.map {
+                                ContextualModelSelection(
+                                    occurrenceID: $0.occurrenceID,
+                                    slot: slot)
+                            },
+                            failure: nil,
+                            runtime: runtime)
+                    case .unavailable:
+                        return ContextualPronunciationBatchResult(
+                            availability: .deviceNotEligible,
+                            selections: [],
+                            failure: nil,
+                            runtime: runtime)
+                    case .failure:
+                        return ContextualPronunciationBatchResult(
+                            availability: .available,
+                            selections: [],
+                            failure: .guardrail,
+                            runtime: runtime)
+                    }
+                },
+                fmEnabled: { false })
+            plans.append(
+                try await service.renderPlan(
+                    for: sourceBlocks,
+                    overrides: PronunciationOverrides(entries: [:]),
+                    occurrenceOverrides: .empty,
+                    fmEnabled: false))
+            fileNames.append(
+                await service.chapterCacheURL(
+                    chapterIndex: 0,
+                    blocks: sourceBlocks,
+                    voice: VoiceID("af_heart")
+                ).lastPathComponent)
+        }
+
+        let baseline = try #require(plans.first)
+        for plan in plans.dropFirst() {
+            #expect(
+                plan.blocks.map(\.originalBlock.text) == baseline.blocks.map(\.originalBlock.text))
+            #expect(plan.blocks.map(\.synthesisChunks) == baseline.blocks.map(\.synthesisChunks))
+            #expect(
+                productionDecisionFingerprints(plan)
+                    == productionDecisionFingerprints(baseline))
+        }
+        #expect(Set(fileNames).count == 1)
+
+        let evidence = plans.map {
+            $0.blocks.flatMap(\.pronunciationDecisions).compactMap(\.contextualEvidence)
+        }
+        #expect(evidence.allSatisfy { $0.count == 4 })
+        #expect(
+            evidence[0].allSatisfy {
+                $0.modelCandidateID?.hasSuffix(".material") == true
+                    || $0.modelCandidateID?.hasSuffix(".adjective") == true
+                    || $0.modelCandidateID?.hasSuffix(".present") == true
+                    || $0.modelCandidateID?.hasSuffix(".noun") == true
+            })
+        #expect(evidence[0] != evidence[1])
+        #expect(evidence[2].allSatisfy { $0.modelAbstained })
+        #expect(evidence[3].allSatisfy { $0.modelAvailability == .deviceNotEligible })
+        #expect(evidence[4].allSatisfy { $0.modelFailure == .guardrail })
+    }
+
+    @Test func overrideLayersAndUnspeakableBlocksAreExcludedFromShadowDiscovery() async throws {
+        let recorder = ShadowEvaluatorRecorder()
+        let service = NarrationService(
+            db: try DatabaseService(inMemory: ()).writer,
+            audiobookID: "b1",
+            tts: MockTTSEngine(),
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            contextualPronunciationEvaluator: { request in
+                await recorder.record(request)
+                return ContextualPronunciationBatchResult(
+                    availability: .available,
+                    selections: request.occurrences.map {
+                        ContextualModelSelection(
+                            occurrenceID: $0.occurrenceID,
+                            slot: .needsReview)
+                    },
+                    failure: nil,
+                    runtime: ContextualModelRuntime(
+                        platform: "test",
+                        osBuild: "test-build",
+                        qualifiedRuntimeFamilyID: "test-runtime"))
+            },
+            fmEnabled: { false })
+        let occurrenceOverrides = PronunciationOccurrenceOverrides(entries: [
+            PronunciationOccurrenceOverride(
+                blockID: "prose",
+                wordStart: 0,
+                wordEnd: 0,
+                word: "content",
+                ipa: "kˈɑntɛnt")
+        ])
+        let global = PronunciationOverrides(
+            entries: ["live": "lˈIv"],
+            source: .globalOverride)
+        let layered = PronunciationOverrides.merging(
+            global: global,
+            book: ["read": "ɹˈid"])
+        let prose = block(
+            "b1",
+            id: "prose",
+            seq: 0,
+            text: "content live read record")
+        let code = block(
+            "b1",
+            id: "code",
+            seq: 1,
+            kind: "code",
+            text: "content live read record")
+        let empty = block("b1", id: "empty", seq: 2, text: "")
+
+        let plan = try await service.renderPlan(
+            for: [prose, code, empty],
+            overrides: layered,
+            occurrenceOverrides: occurrenceOverrides,
+            fmEnabled: false)
+
+        #expect(await recorder.recordedTargetWords() == ["record"])
+        #expect(
+            plan.blocks.flatMap(\.pronunciationDecisions)
+                .compactMap(\.contextualEvidence).map(\.familyID) == ["record"])
+        #expect(plan.pronunciationAuditDiagnostics.isEmpty)
+    }
+
+    @Test func contextualCancellationStopsBeforeNarrationPlanFinalization() async throws {
+        let service = NarrationService(
+            db: try DatabaseService(inMemory: ()).writer,
+            audiobookID: "b1",
+            tts: MockTTSEngine(),
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            contextualPronunciationEvaluator: { _ in
+                throw CancellationError()
+            },
+            fmEnabled: { false })
+
+        await #expect(throws: CancellationError.self) {
+            try await service.renderPlan(
+                for: [block("b1", id: "cancel", seq: 0, text: "Read this record.")],
+                overrides: PronunciationOverrides(entries: [:]),
+                occurrenceOverrides: .empty,
+                fmEnabled: false)
+        }
+    }
+
+    @Test func cacheLookupDoesNotRunShadowPreflightButNewPlanDoes() async throws {
+        let recorder = ShadowEvaluatorRecorder()
+        let db = try DatabaseService(inMemory: ())
+        let sourceBlocks = [
+            block("b1", id: "existing", seq: 0, text: "Please record this.")
+        ]
+        let service = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: MockTTSEngine(),
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            contextualPronunciationEvaluator: { request in
+                await recorder.record(request)
+                return ContextualPronunciationBatchResult(
+                    availability: .available,
+                    selections: request.occurrences.map {
+                        ContextualModelSelection(
+                            occurrenceID: $0.occurrenceID,
+                            slot: .needsReview)
+                    },
+                    failure: nil,
+                    runtime: ContextualModelRuntime(
+                        platform: "test",
+                        osBuild: "test-build",
+                        qualifiedRuntimeFamilyID: "test-runtime"))
+            },
+            fmEnabled: { false })
+
+        _ = await service.chapterCacheURL(
+            chapterIndex: 0,
+            blocks: sourceBlocks,
+            voice: VoiceID("af_heart"))
+        let afterLookup = await recorder.recordedTargetWords()
+        #expect(afterLookup.isEmpty)
+
+        _ = try await service.renderPlan(
+            for: sourceBlocks,
+            overrides: PronunciationOverrides(entries: [:]),
+            occurrenceOverrides: .empty,
+            fmEnabled: false)
+        #expect(await recorder.recordedTargetWords() == ["record"])
+    }
+
+    private func productionDecisionFingerprints(
+        _ plan: NarrationRenderPlan
+    ) -> [String] {
+        plan.blocks.flatMap(\.pronunciationDecisions).map {
+            [
+                $0.blockID,
+                String($0.wordStart),
+                String($0.wordEnd),
+                $0.normalizedWord,
+                $0.selectedIPA,
+                $0.kokoroTokenIDs.map(String.init).joined(separator: ","),
+                $0.source.rawValue,
+                $0.ruleID,
+            ].joined(separator: "\u{0}")
+        }
     }
 
     @Test func renderFailureRemovesInProgressPartialAndLeavesNoFinalAudioFile() async throws {
@@ -948,7 +1259,8 @@ import Testing
             spokenBlocks: blocks,
             renderedTexts: [renderedText],
             includeLeadOutPad: true,
-            normalizationMode: "deterministic")
+            normalizationMode: "deterministic",
+            pronunciationPolicySignature: EnglishPronunciationPack.empty.productionPolicySignature)
         let expectedName = NarrationFileNaming.chapterFileName(
             audiobookID: "b1",
             chapterIndex: 0,
@@ -1110,6 +1422,63 @@ import Testing
         #expect(
             acceptedChildren.flatMap(\.pronunciationFallbackHits)
                 == parent.pronunciationFallbackHits)
+    }
+
+    @Test func qualityRetryPreservesFrozenDerivedCandidateProvenanceByteForByte() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let text =
+            "The process is startable. Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu."
+        let blocks = try seed(db, [text])
+        let pack = EnglishPronunciationPack.emptyForTesting(
+            packVersion:
+                "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            kokoroVocabularyVersion:
+                "sha256:1111111111111111111111111111111111111111111111111111111111111111")
+        let service = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: MockTTSEngine(secondsPerChar: 0.1),
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            pronunciationPack: pack,
+            fmEnabled: { false })
+        let plan = try await service.renderPlan(
+            for: blocks,
+            overrides: PronunciationOverrides(entries: [:]),
+            occurrenceOverrides: .empty,
+            fmEnabled: false)
+        let parent = try #require(plan.blocks.first?.synthesisChunks.first)
+        let expected = try #require(
+            plan.blocks.first?.pronunciationDecisions.first {
+                $0.normalizedWord == "startable"
+            })
+        let children = parent.frozenRetrySlices(
+            maxPhonemes: max(20, min(80, parent.phonemes.count / 2)))
+        try #require(children.count > 1)
+        let engine = try #require(service.tts as? MockTTSEngine)
+        engine.silentOnText = parent.g2pInputText
+
+        let rendered = try await service.renderSegmentFile(
+            chapterIndex: 0,
+            chapterDisplayNumber: 1,
+            segmentIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("am_michael"))
+        let actual = try #require(
+            rendered.pronunciationDecisions.first {
+                $0.normalizedWord == "startable"
+            })
+
+        #expect(engine.plannedCalls.count > 1)
+        #expect(actual.selectedIPA == expected.selectedIPA)
+        #expect(actual.candidateID == expected.candidateID)
+        #expect(actual.candidatePackVersion == expected.candidatePackVersion)
+        #expect(actual.derivationBase == expected.derivationBase)
+        #expect(actual.derivationRuleID == expected.derivationRuleID)
+        #expect(actual.candidateID?.hasPrefix("morphology.startable.") == true)
+        #expect(actual.derivationBase == "start")
+        #expect(actual.derivationRuleID == "morphology.able.exact-base.v1")
     }
 
     @Test func laterRejectedRetryChildRollsBackEarlierAcceptedSiblingsAtomically() async throws {
@@ -1539,8 +1908,8 @@ import Testing
     }
 }
 
-private extension Array where Element: Equatable {
-    func containsContiguous(_ candidate: [Element]) -> Bool {
+extension Array where Element: Equatable {
+    fileprivate func containsContiguous(_ candidate: [Element]) -> Bool {
         guard !candidate.isEmpty, candidate.count <= count else { return false }
         return indices.dropLast(candidate.count - 1).contains { start in
             Array(self[start..<(start + candidate.count)]) == candidate

@@ -1087,6 +1087,9 @@ struct NarrationRunResult {
         _ config: NarrationRunConfig,
         tts: TTSEngine? = nil,
         ttsFactory: (@MainActor () -> TTSEngine)? = nil,
+        pronunciationPackLoader: @escaping @Sendable () async -> EnglishPronunciationPack = {
+            await EnglishPronunciationPack.bundledOrEmpty()
+        },
         reviewGenerator:
             @escaping @MainActor (PronunciationReviewRequest) async throws ->
             PronunciationReviewOutcome = { request in
@@ -1097,6 +1100,7 @@ struct NarrationRunResult {
         let runLease = try Self.acquireRunLease(for: config)
         defer { withExtendedLifetime(runLease) {} }
         let fm = FileManager.default
+        let pronunciationPack = await pronunciationPackLoader()
 
         let source = try resolveNarrationSource(at: config.epubURL)
         let sourceURL = source.sourceURL
@@ -1178,7 +1182,8 @@ struct NarrationRunResult {
                         includeLeadOutPad: true,
                         overrides: overrides,
                         occurrenceOverrides: occurrenceOverrides,
-                        normalizationMode: normalizationMode)
+                        normalizationMode: normalizationMode,
+                        pronunciationPack: pronunciationPack)
                 )
             })
         let orderedVoices = chapterIndices.map { chapterIndex in
@@ -1381,6 +1386,7 @@ struct NarrationRunResult {
                         cacheDirectory: config.workDir, state: NarrationState(),
                         pronunciationOverrides: { overrides },
                         pronunciationOccurrenceOverrides: { occurrenceOverrides },
+                        pronunciationPack: pronunciationPack,
                         fmEnabled: { config.enableFMNormalization })
                     while cursor.next < batch.count {
                         let pos = cursor.next

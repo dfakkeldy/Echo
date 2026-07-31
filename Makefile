@@ -1,4 +1,4 @@
-.PHONY: help docs architecture whats-new devlog-update devlog-pr-body doc-automation-test test build-tests test-only hooks-test echo-cli renderer-install-test install-renderer verify-renderer promote-renderer repair-renderer
+.PHONY: help docs architecture whats-new devlog-update devlog-pr-body doc-automation-test pronunciation-corpus-test pronunciation-corpus-qualification pronunciation-program-report pronunciation-pack pronunciation-pack-test pronunciation-audio-judge-test test build-tests test-only hooks-test echo-cli renderer-install-test install-renderer verify-renderer promote-renderer repair-renderer
 
 help: ## List available targets
 	@echo "Echo: Audiobook Study Player — available targets:"
@@ -37,6 +37,40 @@ devlog-pr-body: ## Generate the review checklist and AI-assisted draft for the w
 
 doc-automation-test: ## Run the doc-automation Python unit tests
 	@PYTHONPATH=Scripts python3 -m unittest discover -s Scripts/doc_automation/tests -t Scripts -v
+
+pronunciation-corpus-test: ## Validate pronunciation corpus tests and fixture contracts
+	python3 -m unittest discover -s Tools/Pronunciation/tests -p 'test_pronunciation_corpus.py'
+	python3 Tools/Pronunciation/pronunciation_corpus.py validate-contract \
+		--fixtures EchoTests/Fixtures/Pronunciation
+
+pronunciation-corpus-qualification: ## Report independent-label corpus qualification
+	python3 Tools/Pronunciation/pronunciation_corpus.py qualification-status \
+		--fixtures EchoTests/Fixtures/Pronunciation
+
+pronunciation-program-report: ## Emit deterministic pronunciation program metrics
+	@python3 Tools/Pronunciation/pronunciation_corpus.py report \
+		--fixtures EchoTests/Fixtures/Pronunciation \
+		--pack EchoCore/Services/Narration/PronunciationResources/us_pronunciation_pack.json
+
+pronunciation-pack: ## Regenerate the pinned supplemental pronunciation pack
+	python3 Tools/Pronunciation/build_pronunciation_pack.py build \
+		--lock Tools/Pronunciation/cmudict.lock.json \
+		--gold EchoCore/Services/Narration/MisakiResources/us_gold.json \
+		--silver EchoCore/Services/Narration/MisakiResources/us_silver.json \
+		--vocab EchoCore/Services/Narration/_kokoro_vocab.json \
+		--output EchoCore/Services/Narration/PronunciationResources/us_pronunciation_pack.json
+
+pronunciation-pack-test: ## Test and deterministically verify the pronunciation pack
+	python3 -m unittest discover -s Tools/Pronunciation/tests -p 'test_build_pronunciation_pack.py'
+	python3 Tools/Pronunciation/build_pronunciation_pack.py check \
+		--lock Tools/Pronunciation/cmudict.lock.json \
+		--gold EchoCore/Services/Narration/MisakiResources/us_gold.json \
+		--silver EchoCore/Services/Narration/MisakiResources/us_silver.json \
+		--vocab EchoCore/Services/Narration/_kokoro_vocab.json \
+		--expected EchoCore/Services/Narration/PronunciationResources/us_pronunciation_pack.json
+
+pronunciation-audio-judge-test: ## Test the development-only public/synthetic audio judge
+	python3 -m unittest discover -s Tools/Pronunciation/tests -p 'test_audio_judge.py'
 
 SIM_DEST = platform=iOS Simulator,name=iPhone 17
 

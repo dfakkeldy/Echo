@@ -92,6 +92,9 @@ final class NarrationService {
     /// Supplies source-position pronunciation overrides accepted from narration QA.
     /// Read at render time for the same reason as the word dictionary above.
     private let pronunciationOccurrenceOverrides: () -> PronunciationOccurrenceOverrides
+    /// Immutable pronunciation source snapshot shared by planning and cache identity.
+    private let pronunciationPack: EnglishPronunciationPack
+    private let contextualPronunciationEvaluator: ContextualPronunciationBatchEvaluator
 
     init(
         db: DatabaseWriter, audiobookID: String, tts: TTSEngine,
@@ -102,6 +105,9 @@ final class NarrationService {
         pronunciationOccurrenceOverrides: @escaping () -> PronunciationOccurrenceOverrides = {
             .empty
         },
+        pronunciationPack: EnglishPronunciationPack = .empty,
+        contextualPronunciationEvaluator: @escaping ContextualPronunciationBatchEvaluator =
+            FoundationModelsContextualPronunciationEvaluator.makeBatchEvaluator(),
         fmEnabled: @escaping () -> Bool = {
             UserDefaults.standard.string(forKey: "narrationQAClassifier") ?? "auto" == "auto"
         }
@@ -114,6 +120,8 @@ final class NarrationService {
         self.state = state
         self.pronunciationOverrides = pronunciationOverrides
         self.pronunciationOccurrenceOverrides = pronunciationOccurrenceOverrides
+        self.pronunciationPack = pronunciationPack
+        self.contextualPronunciationEvaluator = contextualPronunciationEvaluator
         self.fmEnabledProvider = fmEnabled
     }
 
@@ -181,7 +189,8 @@ final class NarrationService {
             voice: voice,
             overrides: pronunciationOverrides(),
             occurrenceOverrides: pronunciationOccurrenceOverrides(),
-            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled))
+            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled),
+            pronunciationPack: pronunciationPack)
     }
 
     func segmentCacheURL(
@@ -197,7 +206,8 @@ final class NarrationService {
             voice: voice,
             overrides: pronunciationOverrides(),
             occurrenceOverrides: pronunciationOccurrenceOverrides(),
-            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled))
+            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled),
+            pronunciationPack: pronunciationPack)
     }
 
     private func chapterCacheURL(
@@ -206,14 +216,16 @@ final class NarrationService {
         voice: VoiceID,
         overrides: PronunciationOverrides,
         occurrenceOverrides: PronunciationOccurrenceOverrides,
-        normalizationMode: String
+        normalizationMode: String,
+        pronunciationPack: EnglishPronunciationPack
     ) -> URL {
         let signature = Self.contentSignature(
             for: blocks,
             includeLeadOutPad: true,
             overrides: overrides,
             occurrenceOverrides: occurrenceOverrides,
-            normalizationMode: normalizationMode)
+            normalizationMode: normalizationMode,
+            pronunciationPack: pronunciationPack)
         return cacheDirectory.appendingPathComponent(
             NarrationFileNaming.chapterFileName(
                 audiobookID: audiobookID,
@@ -229,14 +241,16 @@ final class NarrationService {
         voice: VoiceID,
         overrides: PronunciationOverrides,
         occurrenceOverrides: PronunciationOccurrenceOverrides,
-        normalizationMode: String
+        normalizationMode: String,
+        pronunciationPack: EnglishPronunciationPack
     ) -> URL {
         let signature = Self.contentSignature(
             for: blocks,
             includeLeadOutPad: false,
             overrides: overrides,
             occurrenceOverrides: occurrenceOverrides,
-            normalizationMode: normalizationMode)
+            normalizationMode: normalizationMode,
+            pronunciationPack: pronunciationPack)
         return cacheDirectory.appendingPathComponent(
             NarrationFileNaming.segmentFileName(
                 audiobookID: audiobookID,
@@ -251,7 +265,8 @@ final class NarrationService {
         includeLeadOutPad: Bool,
         overrides: PronunciationOverrides,
         occurrenceOverrides: PronunciationOccurrenceOverrides,
-        normalizationMode: String
+        normalizationMode: String,
+        pronunciationPack: EnglishPronunciationPack
     ) -> String {
         let spoken = blocks.filter { $0.text?.isEmpty == false }
         var renderedTexts: [String] = []
@@ -275,7 +290,8 @@ final class NarrationService {
             spokenBlocks: spoken,
             renderedTexts: renderedTexts,
             includeLeadOutPad: includeLeadOutPad,
-            normalizationMode: normalizationMode)
+            normalizationMode: normalizationMode,
+            pronunciationPolicySignature: pronunciationPack.productionPolicySignature)
     }
 
     private static func renderedText(
@@ -331,7 +347,8 @@ final class NarrationService {
             voice: voice,
             overrides: overrides,
             occurrenceOverrides: occurrenceOverrides,
-            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled))
+            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled),
+            pronunciationPack: pronunciationPack)
         let rendered = try await renderNarrationFile(
             chapterIndex: chapterIndex,
             chapterDisplayNumber: displayNumber,
@@ -440,7 +457,8 @@ final class NarrationService {
             voice: voice,
             overrides: overrides,
             occurrenceOverrides: occurrenceOverrides,
-            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled))
+            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled),
+            pronunciationPack: pronunciationPack)
         return try await renderNarrationFile(
             chapterIndex: chapterIndex,
             chapterDisplayNumber: chapterDisplayNumber,
@@ -654,9 +672,7 @@ final class NarrationService {
             var timing = NarrationSynthesisTiming(blockID: plannedBlock.blockID, blockStart: cursor)
             var blockChunkTimings: [(timings: [ChunkWordTiming]?, startInFile: TimeInterval)] = []
             var originalWordBase = 0
-            for (originalChunkIndex, synthesisChunk) in
-                plannedBlock.synthesisChunks.enumerated()
-            {
+            for (originalChunkIndex, synthesisChunk) in plannedBlock.synthesisChunks.enumerated() {
                 try Task.checkCancellation()
                 let identity = OriginalSynthesisChunkIdentity(
                     blockID: plannedBlock.blockID,
@@ -826,9 +842,85 @@ final class NarrationService {
             blocks,
             occurrenceOverrides: occurrenceOverrides,
             fmEnabled: fmEnabled)
+        let contextualOccurrences = preparedBlocks.flatMap { preparedBlock in
+            let block = preparedBlock.block
+            guard let text = block.text,
+                !text.isEmpty,
+                !block.isHidden,
+                EPubBlockRecord.Kind(rawValue: block.blockKind) != .code
+            else {
+                return [ContextualPronunciationOccurrence]()
+            }
+
+            // Dictionary links are applied only to this discovery copy. The
+            // production planner below still owns the actual synthesis rewrite.
+            let discoveryText = overrides.rewrite(
+                to: text,
+                blockID: block.id
+            ).text
+            return ContextualPronunciationDiscovery.discover(
+                text: discoveryText,
+                blockID: block.id)
+        }
+        let contextualEvidence = try await ContextualPronunciationPreflight.run(
+            occurrences: contextualOccurrences,
+            evaluator: contextualPronunciationEvaluator,
+            environment: FoundationModelsContextualPronunciationEvaluator.runtime)
+        let contextualEvidenceByKey = try Self.contextualEvidenceByKey(
+            contextualEvidence,
+            occurrences: contextualOccurrences)
+        try Task.checkCancellation()
         return try NarrationRenderPlanner.make(
             preparedBlocks: preparedBlocks,
-            overrides: overrides)
+            overrides: overrides,
+            pronunciationPack: pronunciationPack,
+            contextualEvidence: contextualEvidenceByKey,
+            requiresContextualEvidence: true)
+    }
+
+    private nonisolated static func contextualEvidenceByKey(
+        _ evidence: [ContextualPronunciationEvidence],
+        occurrences: [ContextualPronunciationOccurrence]
+    ) throws -> [ContextualPronunciationKey: ContextualPronunciationEvidence] {
+        var occurrencesByID: [String: ContextualPronunciationOccurrence] = [:]
+        occurrencesByID.reserveCapacity(occurrences.count)
+        for occurrence in occurrences {
+            guard
+                occurrencesByID.updateValue(
+                    occurrence,
+                    forKey: occurrence.occurrenceID) == nil
+            else {
+                throw NarrationRenderPlanError.contextualEvidenceIdentityMismatch
+            }
+        }
+
+        guard evidence.count == occurrencesByID.count else {
+            throw NarrationRenderPlanError.contextualEvidenceIdentityMismatch
+        }
+        var evidenceByKey: [ContextualPronunciationKey: ContextualPronunciationEvidence] = [:]
+        evidenceByKey.reserveCapacity(evidence.count)
+        for envelope in evidence {
+            guard
+                let occurrence = occurrencesByID.removeValue(
+                    forKey: envelope.occurrenceID),
+                ContextualPronunciationEvidenceValidator.isValidPhaseTwo(
+                    envelope,
+                    for: occurrence)
+            else {
+                throw NarrationRenderPlanError.contextualEvidenceIdentityMismatch
+            }
+            let key = ContextualPronunciationKey(
+                blockID: occurrence.blockID,
+                wordStart: occurrence.wordStart,
+                wordEnd: occurrence.wordEnd)
+            guard evidenceByKey.updateValue(envelope, forKey: key) == nil else {
+                throw NarrationRenderPlanError.contextualEvidenceIdentityMismatch
+            }
+        }
+        guard occurrencesByID.isEmpty else {
+            throw NarrationRenderPlanError.contextualEvidenceIdentityMismatch
+        }
+        return evidenceByKey
     }
 
     private func prepareBlocksForRenderPlan(
@@ -1049,11 +1141,12 @@ final class NarrationService {
                 }
 
                 if decision.wordStart == decision.wordEnd {
-                    let exactRanges = exactRangesByWord[
-                        BlockWordIdentity(
-                            blockID: decision.blockID,
-                            wordIndex: decision.wordStart)
-                    ] ?? []
+                    let exactRanges =
+                        exactRangesByWord[
+                            BlockWordIdentity(
+                                blockID: decision.blockID,
+                                wordIndex: decision.wordStart)
+                        ] ?? []
                     if exactRanges.count == 1, let exactRange = exactRanges.first {
                         return decision.attachingRenderTiming(
                             chapterIndex: chapterIndex,

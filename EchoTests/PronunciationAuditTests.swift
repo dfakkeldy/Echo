@@ -5,6 +5,24 @@ import Testing
 @testable import Echo
 
 @Suite struct PronunciationAuditTests {
+    private static let schemaThreeManifestJSON = #"""
+        {
+          "schemaVersion": 3,
+          "renderVersion": 15,
+          "voice": "af_heart",
+          "chapterVoices": {},
+          "coverage": "complete",
+          "legacyChapterIndexes": [],
+          "audiobookFileName": "book.m4b",
+          "audiobookSHA256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "listeningReelFileName": null,
+          "listeningReelSHA256": null,
+          "watchCounts": {},
+          "decisions": [],
+          "diagnostics": []
+        }
+        """#
+
     private func decision(
         word: String,
         ruleID: String,
@@ -26,7 +44,9 @@ import Testing
             chapterIndex: chapterIndex,
             chapterRelativeAudioRange: range,
             bookRelativeAudioRange: range.map {
-                .init(start: Double(chapterIndex * 10) + $0.start, end: Double(chapterIndex * 10) + $0.end)
+                .init(
+                    start: Double(chapterIndex * 10) + $0.start,
+                    end: Double(chapterIndex * 10) + $0.end)
             },
             timingPrecision: range == nil ? nil : .exactSynthesisWord)
     }
@@ -44,8 +64,84 @@ import Testing
             fallbackHits: [])
     }
 
+    private func contextualEvidence(
+        availability: ContextualModelAvailability = .available,
+        failure: ContextualModelFailure? = nil
+    ) -> ContextualPronunciationEvidence {
+        ContextualPronunciationEvidence(
+            occurrenceID: "9263c930876e89b6de947c09932eee9ccd281d3851c1c845cadc921e3ab916a5",
+            familyID: "record",
+            candidatePackVersion: ContextualPronunciationFamilies.candidatePackVersion,
+            submittedCandidateIDs: ["record.noun", "record.verb"],
+            deterministicCandidateID: "record.noun",
+            deterministicRuleID: "record.noun.fixture",
+            deterministicStrength: .definitive,
+            modelCandidateID: availability == .available && failure == nil
+                ? "record.verb"
+                : nil,
+            modelAbstained: false,
+            modelAvailability: availability,
+            modelFailure: failure,
+            familyState: .shadow,
+            acceptanceReason: failure != nil
+                ? .shadowModelFailure
+                : availability == .available
+                    ? .shadowObserved
+                    : .shadowModelUnavailable,
+            promptSchemaVersion: ContextualPronunciationFamilies.promptSchemaVersion,
+            platform: "test",
+            osBuild: "test-build",
+            qualifiedRuntimeFamilyID: "test-runtime",
+            humanCandidateID: nil,
+            humanCorrectionScope: nil,
+            isLimited: false)
+    }
+
+    private func contextualDecision(
+        evidence: ContextualPronunciationEvidence?,
+        source: PronunciationAuditDecision.Source = .contextualHomograph
+    ) -> PronunciationAuditDecision {
+        PronunciationAuditDecision(
+            blockID: "context",
+            wordStart: 1,
+            wordEnd: 1,
+            normalizedWord: "record",
+            sourceWord: "record",
+            sourceContext: "Please record this bounded fixture",
+            selectedIPA: "ɹəkˈɔɹd",
+            kokoroTokenIDs: [1, 2, 3],
+            source: source,
+            ruleID: "homograph.record.verb",
+            rationale: "Deterministic production decision.",
+            candidateID:
+                source == .supplementalLexicon || source == .derivedMorphology
+                ? "record.verb"
+                : nil,
+            candidatePackVersion:
+                source == .supplementalLexicon || source == .derivedMorphology
+                ? ContextualPronunciationFamilies.candidatePackVersion
+                : nil,
+            derivationBase: source == .derivedMorphology ? "record" : nil,
+            derivationRuleID:
+                source == .derivedMorphology
+                ? "morphology.record.fixture"
+                : nil,
+            contextualEvidence: evidence,
+            chapterIndex: 0,
+            chapterRelativeAudioRange: .init(start: 1, end: 1.2),
+            bookRelativeAudioRange: .init(start: 1, end: 1.2),
+            timingPrecision: .exactSynthesisWord)
+    }
+
+    @Test func englishKeyNormalizationCanonicalizesInternalCurlyApostrophe() {
+        #expect(PronunciationAuditContext.normalizedWord("aujourd'hui") == "aujourd'hui")
+        #expect(PronunciationAuditContext.normalizedWord("aujourd’hui") == "aujourd'hui")
+        #expect(PronunciationAuditContext.normalizedWord("Aujourd’hui") == "aujourd'hui")
+    }
+
     @Test func manifestPreservesStableEvidenceAndCountsEveryWatchedWord() {
-        let second = decision(word: "filesystem", ruleID: "override.builtin.filesystem", chapterIndex: 2)
+        let second = decision(
+            word: "filesystem", ruleID: "override.builtin.filesystem", chapterIndex: 2)
         let first = decision(word: "verified", ruleID: "g2p.lexicon.verified", chapterIndex: 0)
         let manifest = PronunciationAuditManifest.make(
             renderVersion: 11,
@@ -60,7 +156,7 @@ import Testing
             decisions: [first, second],
             diagnostics: [])
 
-        #expect(manifest.schemaVersion == 3)
+        #expect(manifest.schemaVersion == 4)
         #expect(manifest.renderVersion == 11)
         #expect(manifest.voice == "af_heart")
         #expect(manifest.coverage == .complete)
@@ -122,10 +218,12 @@ import Testing
         ] {
             var object = validObject
             object["chapterVoices"] = malformedVoices
-            let decoded = try JSONDecoder().decode(
-                PronunciationAuditManifest.self,
-                from: JSONSerialization.data(withJSONObject: object))
-            #expect(throws: (any Error).self) { _ = try decoded.encoded() }
+            let data = try JSONSerialization.data(withJSONObject: object)
+            #expect(throws: (any Error).self) {
+                _ = try JSONDecoder().decode(
+                    PronunciationAuditManifest.self,
+                    from: data)
+            }
         }
     }
 
@@ -178,6 +276,251 @@ import Testing
         #expect(incompleteEvidence.diagnostics == [evidenceDiagnostic])
         #expect(legacy.coverage == .incompleteLegacyCapture)
         #expect(legacy.legacyChapterIndexes == [1, 7])
+    }
+
+    @Test func contextualEvidenceSurvivesMaterializationTimingAndSchemaFourJSON() throws {
+        let evidence = contextualEvidence()
+        let seed = PronunciationDecisionSeed(
+            blockID: "context",
+            wordStart: 1,
+            wordEnd: 1,
+            normalizedWord: "record",
+            sourceWord: "record",
+            sourceContext: "Please record this bounded fixture",
+            selectedIPA: "ɹəkˈɔɹd",
+            source: .contextualHomograph,
+            ruleID: "homograph.record.verb",
+            rationale: "Deterministic production decision.",
+            contextualEvidence: evidence)
+        let decision = seed.materialized(
+            selectedIPA: "ɹəkˈɔɹd",
+            kokoroTokenIDs: [1, 2, 3]
+        )
+        .attachingRenderTiming(
+            chapterIndex: 2,
+            chapterRelativeAudioRange: .init(start: 1, end: 1.2),
+            timingPrecision: .exactSynthesisWord
+        )
+        .attachingBookTiming(chapterIndex: 2, chapterOffset: 10)
+        let manifest = PronunciationAuditManifest.make(
+            renderVersion: NarrationFileNaming.renderVersion,
+            voice: VoiceID("af_heart"),
+            captureCoverage: .complete,
+            legacyChapterIndexes: [],
+            audiobookURL: URL(fileURLWithPath: "/tmp/context.m4b"),
+            reelURL: nil,
+            audiobookSHA256: String(repeating: "a", count: 64),
+            listeningReelSHA256: nil,
+            watchWords: [],
+            decisions: [decision],
+            diagnostics: [])
+        let decoded = try JSONDecoder().decode(
+            PronunciationAuditManifest.self,
+            from: manifest.encoded())
+
+        #expect(decoded.coverage == .complete)
+        #expect(decoded.decisions.first?.contextualEvidence == evidence)
+        #expect(decoded.decisions.first?.selectedIPA == "ɹəkˈɔɹd")
+        #expect(
+            decoded.decisions.first?.bookRelativeAudioRange
+                == .init(start: 11, end: 11.2))
+    }
+
+    @Test func taskSevenOutcomeEnvelopesAreCompleteButMissingEvidenceIsIncomplete() throws {
+        let selected = contextualDecision(evidence: contextualEvidence())
+        let needsReview = contextualDecision(
+            evidence: replacingContextualEvidence(
+                contextualEvidence(),
+                modelCandidateID: .some(nil),
+                modelAbstained: true,
+                acceptanceReason: .shadowNeedsReview))
+        let unavailable = contextualDecision(
+            evidence: contextualEvidence(availability: .deviceNotEligible))
+        let failure = contextualDecision(
+            evidence: contextualEvidence(failure: .guardrail))
+        let missing = contextualDecision(evidence: nil)
+        func manifest(for decision: PronunciationAuditDecision) -> PronunciationAuditManifest {
+            PronunciationAuditManifest.make(
+                renderVersion: NarrationFileNaming.renderVersion,
+                voice: VoiceID("af_heart"),
+                captureCoverage: .complete,
+                legacyChapterIndexes: [],
+                audiobookURL: URL(fileURLWithPath: "/tmp/context.m4b"),
+                reelURL: nil,
+                audiobookSHA256: String(repeating: "a", count: 64),
+                listeningReelSHA256: nil,
+                watchWords: [],
+                decisions: [decision],
+                diagnostics: [])
+        }
+
+        for decision in [selected, needsReview, unavailable, failure] {
+            let receipt = manifest(for: decision)
+            #expect(receipt.coverage == .complete)
+            let decoded = try JSONDecoder().decode(
+                PronunciationAuditManifest.self,
+                from: receipt.encoded())
+            #expect(decoded.coverage == .complete)
+            #expect(decoded.decisions.first?.contextualEvidence == decision.contextualEvidence)
+        }
+        #expect(manifest(for: missing).coverage == .incompleteEvidence)
+    }
+
+    @Test func malformedPhaseTwoEvidenceFailsClosedForCoverageEncodingAndDecoding() throws {
+        let valid = contextualEvidence()
+        let malformed = [
+            replacingContextualEvidence(
+                valid,
+                occurrenceID: "unknown-occurrence"),
+            replacingContextualEvidence(
+                valid,
+                modelCandidateID: .some(nil)),
+            replacingContextualEvidence(
+                valid,
+                modelAbstained: true),
+            replacingContextualEvidence(
+                valid,
+                modelCandidateID: .some(nil),
+                modelAbstained: false,
+                acceptanceReason: .shadowNeedsReview),
+            replacingContextualEvidence(
+                valid,
+                modelAvailability: .deviceNotEligible,
+                acceptanceReason: .shadowModelUnavailable),
+            replacingContextualEvidence(
+                valid,
+                modelFailure: .some(.guardrail),
+                acceptanceReason: .shadowModelFailure),
+            replacingContextualEvidence(
+                valid,
+                modelCandidateID: .some(nil),
+                modelFailure: .some(.cancelled),
+                acceptanceReason: .shadowModelFailure),
+            replacingContextualEvidence(
+                valid,
+                modelCandidateID: "record.unknown"),
+            replacingContextualEvidence(
+                valid,
+                familyState: .graduated),
+            replacingContextualEvidence(
+                contextualEvidence(availability: .deviceNotEligible),
+                acceptanceReason: .shadowObserved),
+            replacingContextualEvidence(
+                valid,
+                humanCandidateID: .some("record.noun")),
+            replacingContextualEvidence(
+                valid,
+                humanCorrectionScope: .some("book")),
+            replacingContextualEvidence(
+                valid,
+                isLimited: true),
+            replacingContextualEvidence(
+                valid,
+                platform: ""),
+            replacingContextualEvidence(
+                valid,
+                osBuild: ""),
+            replacingContextualEvidence(
+                valid,
+                qualifiedRuntimeFamilyID: ""),
+        ]
+
+        for evidence in malformed {
+            let manifest = PronunciationAuditManifest.make(
+                renderVersion: NarrationFileNaming.renderVersion,
+                voice: VoiceID("af_heart"),
+                captureCoverage: .complete,
+                legacyChapterIndexes: [],
+                audiobookURL: URL(fileURLWithPath: "/tmp/context.m4b"),
+                reelURL: nil,
+                audiobookSHA256: String(repeating: "a", count: 64),
+                listeningReelSHA256: nil,
+                watchWords: [],
+                decisions: [contextualDecision(evidence: evidence)],
+                diagnostics: [])
+
+            #expect(manifest.coverage == .incompleteEvidence)
+            #expect(throws: (any Error).self) {
+                _ = try manifest.encoded()
+            }
+            let rawSchemaFour = try JSONEncoder().encode(manifest)
+            #expect(throws: (any Error).self) {
+                _ = try JSONDecoder().decode(
+                    PronunciationAuditManifest.self,
+                    from: rawSchemaFour)
+            }
+        }
+    }
+
+    @Test func contextualEvidenceRejectsOverrideSourcesAndPermitsOtherSources() throws {
+        let sources: [PronunciationAuditDecision.Source] = [
+            .occurrenceOverride,
+            .bookOverride,
+            .globalOverride,
+            .builtInOverride,
+            .contextualHomograph,
+            .supplementalLexicon,
+            .derivedMorphology,
+            .monitoredLexicon,
+            .fallback,
+        ]
+        let overrideSources: [PronunciationAuditDecision.Source] = [
+            .occurrenceOverride,
+            .bookOverride,
+            .globalOverride,
+            .builtInOverride,
+        ]
+        func manifest(
+            evidence: ContextualPronunciationEvidence?,
+            source: PronunciationAuditDecision.Source
+        ) -> PronunciationAuditManifest {
+            PronunciationAuditManifest.make(
+                renderVersion: NarrationFileNaming.renderVersion,
+                voice: VoiceID("af_heart"),
+                captureCoverage: .complete,
+                legacyChapterIndexes: [],
+                audiobookURL: URL(fileURLWithPath: "/tmp/context.m4b"),
+                reelURL: nil,
+                audiobookSHA256: String(repeating: "a", count: 64),
+                listeningReelSHA256: nil,
+                watchWords: [],
+                decisions: [contextualDecision(evidence: evidence, source: source)],
+                diagnostics: [])
+        }
+
+        for source in sources {
+            let receipt = manifest(
+                evidence: contextualEvidence(),
+                source: source)
+            if overrideSources.contains(source) {
+                #expect(receipt.coverage == .incompleteEvidence)
+                #expect(throws: (any Error).self) {
+                    _ = try receipt.encoded()
+                }
+                let rawSchemaFour = try JSONEncoder().encode(receipt)
+                #expect(throws: (any Error).self) {
+                    _ = try JSONDecoder().decode(
+                        PronunciationAuditManifest.self,
+                        from: rawSchemaFour)
+                }
+            } else {
+                #expect(receipt.coverage == .complete)
+                let decoded = try JSONDecoder().decode(
+                    PronunciationAuditManifest.self,
+                    from: receipt.encoded())
+                #expect(decoded.coverage == .complete)
+            }
+        }
+
+        for source in overrideSources {
+            let receipt = manifest(evidence: nil, source: source)
+            #expect(receipt.coverage == .complete)
+            #expect(
+                try JSONDecoder().decode(
+                    PronunciationAuditManifest.self,
+                    from: receipt.encoded()
+                ).coverage == .complete)
+        }
     }
 
     @Test func legacyChapterListWinsOverOtherwiseCompleteOrDiagnosticCoverage() {
@@ -298,5 +641,268 @@ import Testing
 
         #expect(throws: Error.self) { _ = try malformed.encoded() }
         #expect(throws: Error.self) { _ = try unpaired.encoded() }
+    }
+
+    @Test func schemaThreeAuditDecodesAsIncompleteEvidence() throws {
+        let decoded = try JSONDecoder().decode(
+            PronunciationAuditManifest.self,
+            from: Data(Self.schemaThreeManifestJSON.utf8))
+        let reencoded = try #require(
+            JSONSerialization.jsonObject(with: decoded.encoded())
+                as? [String: Any])
+
+        #expect(decoded.schemaVersion == 3)
+        #expect(decoded.coverage == .incompleteEvidence)
+        #expect(reencoded["schemaVersion"] as? Int == 4)
+        #expect(reencoded["coverage"] as? String == "incompleteEvidence")
+    }
+
+    @Test func schemaThreeLegacyLimitationRemainsStronger() throws {
+        var root = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(Self.schemaThreeManifestJSON.utf8)) as? [String: Any])
+        root["coverage"] = "incompleteLegacyCapture"
+        root["legacyChapterIndexes"] = [2]
+
+        let decoded = try JSONDecoder().decode(
+            PronunciationAuditManifest.self,
+            from: JSONSerialization.data(withJSONObject: root))
+
+        #expect(decoded.schemaVersion == 3)
+        #expect(decoded.coverage == .incompleteLegacyCapture)
+        #expect(decoded.legacyChapterIndexes == [2])
+    }
+
+    @Test func unsupportedAuditSchemasAreRejectedDuringDecoding() throws {
+        for schemaVersion in [2, 5] {
+            var root = try #require(
+                JSONSerialization.jsonObject(
+                    with: Data(Self.schemaThreeManifestJSON.utf8)) as? [String: Any])
+            root["schemaVersion"] = schemaVersion
+
+            #expect(throws: (any Error).self) {
+                _ = try JSONDecoder().decode(
+                    PronunciationAuditManifest.self,
+                    from: JSONSerialization.data(withJSONObject: root))
+            }
+        }
+    }
+
+    @Test func derivedProvenanceSurvivesMaterializationTimingAndJSONRoundTrip() throws {
+        let seed = PronunciationDecisionSeed(
+            blockID: "s0-b0",
+            wordStart: 3,
+            wordEnd: 3,
+            normalizedWord: "startable",
+            sourceWord: "startable",
+            sourceContext: "The widget is startable now",
+            selectedIPA: "stˈɑɹtəbəl",
+            source: .derivedMorphology,
+            ruleID: "universal.morphology",
+            rationale: "One validated base and one versioned rule.",
+            candidateID: "morphology.startable.0123456789ab",
+            candidatePackVersion: "morphology-v1:sha256:"
+                + String(repeating: "a", count: 64),
+            derivationBase: "start",
+            derivationRuleID: "morphology.able.exact-base.v1")
+
+        let materialized = seed.materialized(
+            selectedIPA: "stˈɑɹtəbəl",
+            kokoroTokenIDs: [10, 20, 30])
+        let rendered = materialized.attachingRenderTiming(
+            chapterIndex: 4,
+            chapterRelativeAudioRange: .init(start: 2, end: 2.5),
+            timingPrecision: .exactSynthesisWord)
+        let booked = rendered.attachingBookTiming(
+            chapterIndex: 4,
+            chapterOffset: 100)
+        let manifest = PronunciationAuditManifest.make(
+            renderVersion: 15,
+            voice: VoiceID("af_heart"),
+            captureCoverage: .complete,
+            legacyChapterIndexes: [],
+            audiobookURL: URL(fileURLWithPath: "/tmp/book.m4b"),
+            reelURL: nil,
+            audiobookSHA256: String(repeating: "a", count: 64),
+            listeningReelSHA256: nil,
+            watchWords: [],
+            decisions: [booked],
+            diagnostics: [])
+        let decoded = try JSONDecoder().decode(
+            PronunciationAuditManifest.self,
+            from: manifest.encoded())
+        let decision = try #require(decoded.decisions.first)
+
+        #expect(decoded.schemaVersion == 4)
+        #expect(decision.candidateID == "morphology.startable.0123456789ab")
+        #expect(
+            decision.candidatePackVersion
+                == "morphology-v1:sha256:" + String(repeating: "a", count: 64))
+        #expect(decision.derivationBase == "start")
+        #expect(decision.derivationRuleID == "morphology.able.exact-base.v1")
+        #expect(
+            decision.chapterRelativeAudioRange
+                == PronunciationAuditDecision.AudioRange(start: 2, end: 2.5))
+        #expect(
+            decision.bookRelativeAudioRange
+                == PronunciationAuditDecision.AudioRange(start: 102, end: 102.5))
+    }
+
+    @Test func supplementalProvenanceSurvivesWithoutMorphologyFields() throws {
+        let decision = PronunciationDecisionSeed(
+            blockID: "b1",
+            wordStart: 0,
+            wordEnd: 0,
+            normalizedWord: "example",
+            sourceWord: "Example",
+            sourceContext: "Example",
+            selectedIPA: "ɪɡzˈæmpəl",
+            source: .supplementalLexicon,
+            ruleID: "universal.supplemental",
+            rationale: "One validated supplemental candidate.",
+            candidateID: "cmudict.example.63ea23914424",
+            candidatePackVersion: "sha256:" + String(repeating: "b", count: 64)
+        )
+        .materialized(
+            selectedIPA: "ɪɡzˈæmpəl",
+            kokoroTokenIDs: [1, 2, 3])
+
+        #expect(decision.candidateID == "cmudict.example.63ea23914424")
+        #expect(
+            decision.candidatePackVersion
+                == "sha256:" + String(repeating: "b", count: 64))
+        #expect(decision.derivationBase == nil)
+        #expect(decision.derivationRuleID == nil)
+    }
+
+    @Test func universalDecisionsRejectIncompleteProvenanceCombinations() throws {
+        let validSupplemental = PronunciationAuditDecision(
+            blockID: "b1",
+            wordStart: 0,
+            wordEnd: 0,
+            normalizedWord: "example",
+            sourceWord: "example",
+            sourceContext: "example",
+            selectedIPA: "ipa",
+            kokoroTokenIDs: [1],
+            source: .supplementalLexicon,
+            ruleID: "universal.supplemental",
+            rationale: "fixture",
+            candidateID: "cmudict.example.fixture",
+            candidatePackVersion: "sha256:" + String(repeating: "c", count: 64))
+        let validDerived = PronunciationAuditDecision(
+            blockID: "b1",
+            wordStart: 0,
+            wordEnd: 0,
+            normalizedWord: "startable",
+            sourceWord: "startable",
+            sourceContext: "startable",
+            selectedIPA: "ipa",
+            kokoroTokenIDs: [1],
+            source: .derivedMorphology,
+            ruleID: "universal.morphology",
+            rationale: "fixture",
+            candidateID: "morphology.startable.fixture",
+            candidatePackVersion: "morphology-v1:sha256:"
+                + String(repeating: "d", count: 64),
+            derivationBase: "start",
+            derivationRuleID: "morphology.able.exact-base.v1")
+
+        let invalid = [
+            replacingProvenance(validSupplemental, candidateID: .some(nil)),
+            replacingProvenance(validSupplemental, candidatePackVersion: .some(nil)),
+            replacingProvenance(validSupplemental, derivationBase: "example"),
+            replacingProvenance(validDerived, candidateID: ""),
+            replacingProvenance(validDerived, candidatePackVersion: ""),
+            replacingProvenance(validDerived, derivationBase: ""),
+            replacingProvenance(validDerived, derivationRuleID: ""),
+        ]
+
+        for decision in invalid {
+            let manifest = PronunciationAuditManifest.make(
+                renderVersion: 15,
+                voice: VoiceID("af_heart"),
+                captureCoverage: .complete,
+                legacyChapterIndexes: [],
+                audiobookURL: URL(fileURLWithPath: "/tmp/book.m4b"),
+                reelURL: nil,
+                audiobookSHA256: String(repeating: "a", count: 64),
+                listeningReelSHA256: nil,
+                watchWords: [],
+                decisions: [decision],
+                diagnostics: [])
+            #expect(throws: (any Error).self) { _ = try manifest.encoded() }
+            let rawSchemaFour = try JSONEncoder().encode(manifest)
+            #expect(throws: (any Error).self) {
+                _ = try JSONDecoder().decode(
+                    PronunciationAuditManifest.self,
+                    from: rawSchemaFour)
+            }
+        }
+    }
+
+    private func replacingProvenance(
+        _ decision: PronunciationAuditDecision,
+        candidateID: String?? = nil,
+        candidatePackVersion: String?? = nil,
+        derivationBase: String?? = nil,
+        derivationRuleID: String?? = nil
+    ) -> PronunciationAuditDecision {
+        PronunciationAuditDecision(
+            blockID: decision.blockID,
+            wordStart: decision.wordStart,
+            wordEnd: decision.wordEnd,
+            normalizedWord: decision.normalizedWord,
+            sourceWord: decision.sourceWord,
+            sourceContext: decision.sourceContext,
+            selectedIPA: decision.selectedIPA,
+            kokoroTokenIDs: decision.kokoroTokenIDs,
+            source: decision.source,
+            ruleID: decision.ruleID,
+            rationale: decision.rationale,
+            candidateID: candidateID ?? decision.candidateID,
+            candidatePackVersion: candidatePackVersion ?? decision.candidatePackVersion,
+            derivationBase: derivationBase ?? decision.derivationBase,
+            derivationRuleID: derivationRuleID ?? decision.derivationRuleID)
+    }
+
+    private func replacingContextualEvidence(
+        _ evidence: ContextualPronunciationEvidence,
+        occurrenceID: String? = nil,
+        modelCandidateID: String?? = nil,
+        modelAbstained: Bool? = nil,
+        modelAvailability: ContextualModelAvailability? = nil,
+        modelFailure: ContextualModelFailure?? = nil,
+        familyState: ContextualFamilyState? = nil,
+        acceptanceReason: ContextualAcceptanceReason? = nil,
+        platform: String? = nil,
+        osBuild: String? = nil,
+        qualifiedRuntimeFamilyID: String? = nil,
+        humanCandidateID: String?? = nil,
+        humanCorrectionScope: String?? = nil,
+        isLimited: Bool? = nil
+    ) -> ContextualPronunciationEvidence {
+        ContextualPronunciationEvidence(
+            occurrenceID: occurrenceID ?? evidence.occurrenceID,
+            familyID: evidence.familyID,
+            candidatePackVersion: evidence.candidatePackVersion,
+            submittedCandidateIDs: evidence.submittedCandidateIDs,
+            deterministicCandidateID: evidence.deterministicCandidateID,
+            deterministicRuleID: evidence.deterministicRuleID,
+            deterministicStrength: evidence.deterministicStrength,
+            modelCandidateID: modelCandidateID ?? evidence.modelCandidateID,
+            modelAbstained: modelAbstained ?? evidence.modelAbstained,
+            modelAvailability: modelAvailability ?? evidence.modelAvailability,
+            modelFailure: modelFailure ?? evidence.modelFailure,
+            familyState: familyState ?? evidence.familyState,
+            acceptanceReason: acceptanceReason ?? evidence.acceptanceReason,
+            promptSchemaVersion: evidence.promptSchemaVersion,
+            platform: platform ?? evidence.platform,
+            osBuild: osBuild ?? evidence.osBuild,
+            qualifiedRuntimeFamilyID:
+                qualifiedRuntimeFamilyID ?? evidence.qualifiedRuntimeFamilyID,
+            humanCandidateID: humanCandidateID ?? evidence.humanCandidateID,
+            humanCorrectionScope: humanCorrectionScope ?? evidence.humanCorrectionScope,
+            isLimited: isLimited ?? evidence.isLimited)
     }
 }

@@ -830,6 +830,252 @@ Block-level read-along (the active paragraph) is refined to **word level** so th
 
 For study EPUBs that have **no audiobook**, Echo can generate spoken audio on-device and produce the same sentence-synced, study-ready aligned book. This is **additive** — the WhisperKit alignment pipeline above is untouched and still runs whenever a real audiobook exists. The synthesis path is the *inverse* of alignment: because the audio is generated from the EPUB text, every timestamp is known at synthesis time, so the transcribe-and-DTW recovery step is unnecessary — anchors are written directly.
 
+#### Pronunciation pack, contextual shadowing, and qualification
+
+English narration uses a versioned bundled pronunciation pack. Its strict
+manifest freezes the canonical normalized-entry digest, CMUdict/gold/silver
+source snapshots, generator and normalization behavior, ARPAbet conversion,
+source precedence, automatic-selection and candidate-validation policies,
+Kokoro vocabulary identity, dialect, counts, licenses, and acknowledgments.
+`packVersion` is the SHA-256 identity of those semantic inputs; the RFC 3339
+generation timestamp is audit-only and excluded. Gold and silver remain
+authoritative exclusion inputs, so the CMUdict supplement cannot displace an
+existing Echo entry. A supplemental decision freezes the source-derived
+`candidateID` and semantic `candidatePackVersion`. A morphology decision
+instead freezes its derived candidate ID, morphology-policy pack identity,
+base, and rule.
+
+The context-free fallback for `content` is the material/subject-matter noun.
+The satisfied adjective remains a first-class contextual candidate.
+`content`, `read`, `live`/`lives`, and `record` are Phase 2 shadow families:
+bounded context is evaluated locally on eligible devices, but model output is
+independent audit evidence and cannot change production narration. Echo still
+deploys to iOS 18 and macOS 15; Foundation Models execution is availability-
+gated to iOS 26/macOS 26, with deterministic behavior on older or ineligible
+systems.
+
+Pronunciation audit schema v4 carries a categorized contextual envelope for
+each evaluated occurrence and preserves schema-v3 decoding. A missing current
+envelope yields incomplete evidence rather than fabricated proof. The
+production cache identity includes the semantic pronunciation pack and
+morphology-policy identities, but excludes audit timestamps and shadow
+evidence because neither affects rendered audio. Phase 3 model-controlled
+narration requires a separate approval and is not authorized by Phase 2.
+
+The development-only audio judge accepts direct MP3/WAV files only from short
+public-domain or synthetic clips; private or copyrighted book material and
+metadata never leave the machine. It evaluates files directly with speakers
+muted, verifies the actual media container/codec before every attempt, and
+enforces strict structured-result validation plus durable 200-request/USD 10
+caps. Run IDs are atomically single-use; every transport attempt reserves its
+request number and a conservative estimate derived from the exact request,
+actual payload bytes, and probed duration before sending. Caller token
+estimates, model-authored diagnostic prose, and machine accuracy/human-evidence
+claims are excluded. Missing credentials record `WAITING_FOR_USER`. Machine
+verdicts have no production authority and cannot edit pronunciation data.
+Independent human-labelled qualification data and bounded human listening
+remain mandatory and separate.
+
+For the reviewed two-attempt correction workflow, the append-and-fsync ledger
+event is authoritative and precedes its derived state snapshot and morning
+queue. If publication is interrupted after that commit point, an exact replay
+of the complete command rebuilds the snapshot and publishes any required queue
+item without appending another event. A replay with different source, receipt,
+category, render, or outcome evidence fails closed. Terminal repeated-failure
+queue items are derived from the full ledger and deduplicated by the
+authoritative event's sequence and canonical hash. A collision on either
+identity must match the same exact clip, category, and reason or recovery fails
+closed. Schema-valid evaluation queue items without ledger identities are
+preserved.
+
+The shipped `audio_judge.py recover` command exposes that recovery without
+re-entering evaluation. It accepts only the claimed run ID and an external
+output root, strictly validates the existing ledger and complete morning queue,
+then repeats that validation under the ledger lock before changing derived
+artifacts. Only after the reconciliation plan succeeds does it republish state
+and required terminal queue entries and emit a count-only local result. It never
+opens a manifest or audio file, constructs a request, reads a credential,
+reserves an API attempt, or invokes transport. Empty, malformed, conflicting,
+unclaimed, repository-contained, and unsafe-artifact runs fail closed. Queue
+conflicts found by the outside-lock preflight do not change the snapshot,
+queue, ledger, receipt, or lock.
+
+The durable run-claim, JSONL attempt-ledger, and morning-queue decoders
+translate duplicate keys, malformed JSON, non-finite constants, interpreter
+`RecursionError`s from deeply nested input, and parser `ValueError`s such as
+oversized integers into their closed `LedgerError` boundary. The response and
+API-envelope decoders route the same nesting failure to `malformed_output` and
+the morning queue rather than aborting a reserved, already-paid request.
+Recovery reports those errors without a traceback or raw artifact content, and
+preflight rejection cannot create the missing lock or mutate run files. The
+canonical *encoding* of a ledger event is guarded on the same boundary, which
+matters because it runs first: the chain digest re-encodes each event before
+any field validation, so an event that decodes and then fails to re-encode
+would otherwise reach a library caller as a bare interpreter error rather than
+a `LedgerError`.
+
+Every attempt-ledger event carries `previousEventSHA256`, the SHA-256 of the
+canonical serialization of its predecessor, with a zero genesis for the first
+event. Reading the ledger verifies that linkage before any transition rule
+runs, so a rewritten or reordered interior event is refused rather than
+replayed. Chaining alone cannot detect a dropped final line, because the
+shortened chain still verifies, so the atomically written `attempt-state.json`
+records the committed `eventCount` and `lastEventSHA256`.
+
+These checks are a single conjunction over *witnesses*, evaluated in one place
+(`_verify_run_directory_witnesses`) rather than as guards at the call sites.
+A run directory's artifacts each attest something about the history, and a
+proposed state is accepted only if every witness that still exists agrees with
+it. An absent witness proves nothing; a present one that contradicts the
+proposed state refuses it regardless of what else is present. The consequence
+that matters is that **deleting an artifact never widens what is accepted** —
+which is precisely what three successive rounds of per-artifact guards failed
+to guarantee, each fix leaving its own sibling case open.
+
+The witnesses are the ledger itself, the `attempt-state.json` anchor
+(committed `eventCount` and `lastEventSHA256`), and the `ledgerEventSequence` /
+`ledgerEventSHA256` rows of `morning-queue.json`, which name an exact ledger
+event. Evaluation rows of the queue name no event and so witness nothing. The
+mutating path therefore loads the queue before any transition runs: previously
+it read only the ledger and the anchor, so erasing both left the queue's
+terminal row unable to refuse anything and the run read as fresh.
+
+An emptied or unlinked ledger is the maximal truncation, not an exemption from
+it — both decode to zero events, and the committed count is compared against
+the surviving events with no emptiness shortcut. A ledger shorter than the
+committed count, one whose committed prefix no longer reproduces the committed
+head, a queue row naming an event the ledger no longer contains, and an anchor
+that is missing or unparseable all fail closed. The anchor
+must be schema 2: a schema-1 anchor carried neither count nor head, so
+accepting one meant accepting a present anchor with the prefix rule
+unevaluated, and downgrading the anchor became a way to shed the chain
+evidence. On the mutating path a ledger at most one fsynced append ahead of its
+anchor is tolerated, because that is the only state an interrupted commit can
+produce. **Recovery relaxes that lag rule and nothing else**: it accepts any
+lag, since republishing a stale anchor is what the command exists for, while
+applying every other predicate identically, so it is not a laundering path for
+a truncated ledger. Recovery additionally refuses an empty ledger outright, but
+as an operational precondition — with no ledger there is nothing to derive
+artifacts from — rather than as a witness rule.
+
+**The anchor is mandatory, and is created when the run is claimed.**
+`_claim_run` writes a schema-2 `attempt-state.json` committing zero events at
+the genesis head, atomically, beside `run-claim.json`. A claimed run directory
+therefore always has an anchor, so an absent anchor is unambiguously tampering
+and is refused outright in both modes.
+
+This replaced the scheme's last underived rule. Previously an absent anchor was
+tolerated over a ledger of at most one event, as an *assumption* rather than a
+witness: the judge always republishes the anchor after an append, so a
+multi-event ledger with no anchor had to be tampering. The tolerance existed to
+accommodate the real crash window between the first append and the first anchor
+publication — and truncating a ledger to its first line landed exactly in that
+window, laundering a terminal clip's spent attempts once the anchor and the
+queue were removed as well. Writing the anchor at claim time eliminates the
+window rather than narrowing it, which is what allows the rule to be deleted
+instead of amended. The accompanying claim that no surviving witness could
+distinguish tampering from a fresh run was also wrong: `receipt.json` records a
+`fail` verdict for every clip a proposal was emitted for, which contradicts an
+empty ledger.
+
+This remains tamper evidence, not tamper proofing: a same-UID actor who
+consistently forges every artifact is still outside the model.
+
+**W0 covers deletion of the anchor, not substitution of it, and the laundering
+class is therefore not closed.** The claim-time anchor is a fixed constant —
+`{"clips":{},"eventCount":0,"lastEventSHA256":"0"×64,"schemaVersion":2}`,
+identical for every run — so an actor with write access to a run directory
+can overwrite `attempt-state.json` with it, truncate the ledger to one line,
+and remove the queue, reproducing the round-4 laundering with a write in place
+of a delete. This is accepted as out of model (same-UID write access to the run
+directory), not as closed; closing it needs an anchor witness a fixed constant
+cannot satisfy, such as binding the anchor to the run claim. See the risk
+register in `docs/reports/pronunciation-phase2-qualification.md`.
+
+Manifest, audio, and judge-owned artifact reads are bounded before allocation,
+and a manifest whose clip count exceeds the 200-request cap is refused before
+any per-row hash or `ffprobe` pass rather than after two full probe sweeps.
+
+Both pronunciation tools derive their protected repository scope from
+`git rev-parse --git-common-dir` and `git worktree list` rather than from the
+loading checkout alone, so a run root or external evidence path inside the
+canonical checkout or any sibling worktree is refused even when the tool runs
+from a linked worktree. Those queries run with `GIT_DIR`, `GIT_COMMON_DIR`,
+`GIT_WORK_TREE`, and `GIT_CEILING_DIRECTORIES` removed from the environment,
+because an ambient override silently redirected the scope at a decoy
+repository, dropping the real sibling worktrees from protection. Without git
+the loading checkout is still protected.
+
+Recovery opens the claimed run directory with `O_DIRECTORY | O_NOFOLLOW` and
+pins the descriptor's device/inode identity. Claim, ledger, and queue preflight;
+the required existing ledger lock; the under-lock replay; temporary files; and
+atomic snapshot/queue replacements are all relative to that one descriptor.
+Recovery never creates a missing lock. The public pathname is revalidated
+before opening the lock and before each publication, so deterministic pathname
+replacement fails without changing either directory or creating a replacement
+artifact. If a malicious same-UID actor swaps the pathname after the final
+check, the descriptor still prevents redirection to the replacement, but this
+is not claimed as protection from mutation of the already-open original.
+
+Run claims, ledger events, queue rows, model response fields, input manifests,
+and provenance-authority bindings require their exact JSON scalar types before
+any equality, set membership, or regular-expression check. A boolean is not an
+integer schema version; closed vocabularies are strings; and bounded numbers
+are exact integers or finite floats. Bounds are checked without converting
+unbounded integers to floats. Structured category, outcome, source-commit,
+verdict, response-category, provenance, label-status, media-type, or
+expectation values produce controlled validation errors rather than
+tracebacks. Invalid admission data cannot claim a run or reach transport, and
+invalid model response values are routed to morning review without being
+persisted as verdicts.
+
+The API response parser likewise requires an object root, a non-empty choices
+array, object choice and message envelopes, string-or-null content and refusal,
+a string model ID, and an object usage envelope. JSON decoder failures,
+including the parser's oversized-integer `ValueError`, become controlled
+boundary errors. Usage counts are exact non-boolean integers from zero through
+10,000,000; totals must agree with prompt plus completion counts when all three
+are present, and recognized detail counts cannot exceed their parent count.
+One invalid recognized usage value rejects the whole usage envelope, so no
+partial token evidence is retained. Run IDs must be strings before regex
+validation. Once a paid transport call returns normally, the absence of a
+response is itself malformed output; it cannot bypass envelope validation or
+produce a passing empty result.
+
+The internal normalized response contract requires the same explicit
+`refusal` key; omission is malformed rather than an implicit null. Before a
+request cost can reserve a paid attempt, the estimator strictly round-trips the
+programmatic request body, rejects duplicate/non-finite/oversized JSON,
+requires the exact pinned model, output bound, message/role order, closed
+prompt, and audio-item shape with the admitted `wav` or `mp3` format, and
+rejects missing, extra, duplicate, or mistyped fields. After strict base64
+decoding, the non-empty request audio must hash to the exact admitted clip
+SHA-256. This check runs during the pre-claim baseline and again after each
+attempt rebuilds from revalidated media, before reservation or transport. The
+estimator then re-serializes the data-redacted body. Serialization, parsing,
+validation, extraction, and re-serialization failures become one redacted
+`ManifestError`; the valid body built by the judge retains its existing exact
+cost inputs.
+
+The judge does not let its input manifest authorize its own provenance. Each
+run requires a separate absolute, single-link regular, non-symlink authority
+file outside the repository that binds the exact opaque clip ID, measured
+audio hash, duration, and `public-domain`/`synthetic` assertion; the receipt
+records that authority's hash. Manifest admission carries one immutable byte
+snapshot, corpus identity, and content hash into the receipt, so a later path
+replacement cannot change the admitted run identity. Judge-owned claims and
+mutable run artifacts must also be single-link files, preventing an append or
+state write through an external hardlink. Likewise, future trusted human-label
+receipts contribute to qualification only when paired with a separate
+out-of-repository authority binding the canonical exact corpus-and-receipt
+bundle digest. The authority is read once through a no-follow, single-link
+regular descriptor and rejected if its metadata changes during the read. The
+program-report API and CLI accept that receipts-and-authority pair explicitly;
+without both, the default report remains `WAITING_FOR_HUMAN_LABELS`. These are
+operator-controlled integrity roots, not cryptographic proof of authorship,
+listening, or historical provenance, so licensing/source verification and
+human adjudication remain independent proof gates.
+
 > **Phased rollout.** This documents **Plan 1 — the engine core**: schema, seams, state, text normalization, and the per-chapter render orchestration, all unit-tested behind a mock engine. The real on-device model (Kokoro CoreML/ANE) + grapheme-to-phoneme (MisakiSwift, Apache-licensed, no GPL espeak-ng), the one-time model download, the read-first "Listen" UI + voice picker, render-ahead scheduling, and `.m4b`/per-chapter export land in later plans. **No audible output ships yet.** Design spec: `docs/superpowers/specs/2026-06-13-epub-ai-narration-design.md`.
 
 > **Update (June 2026 — engine real + upstream chunking).** The real engine has since shipped: Kokoro-82M runs on-device via **FluidAudio (CoreML/ANE)** behind the `TTSEngine` seam, narration plays through the main playback pipeline (iPhone + CarPlay), and the rendered cache is **lossless ALAC** in `.m4a`. **Upstream input chunking (required):** FluidAudio does no internal chunking and caps IPA input at ~510 phonemes ("chunk longer prompts upstream"). A whole 400+ char block drove the palettized vocoder's BNNS fallback into a dynamic tensor shape that **traps** (uncatchable `EXC_BREAKPOINT` in `libBNNS`), so `NarrationService.renderChapter` splits each EPUB block into ~200-char sentence sub-chunks (`NarrationTextChunker`, pure/testable) and synthesizes each separately before concatenation — keeping inference shapes bounded and yielding finer audio, while still writing **one `.synthesized` anchor per original block** (spanning the summed sub-chunk durations) so the data model below is unchanged.

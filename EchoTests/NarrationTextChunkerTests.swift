@@ -224,6 +224,121 @@ import Testing
                 .allSatisfy { $0 == link })
     }
 
+    @Test func markdownReferencesRemainAtomic() {
+        let nested = #"[ad-hoc [guide]](https://example.com/a(b)c)"#
+        let escaped = #"[ad-hoc \[guide\]](https://example.com/a(b)c)"#
+        let fullReference = "[display label][ad-hoc]"
+        let collapsedReference = "[ad-hoc][]"
+        let shortcutReference = "[ad-hoc]"
+        let source = """
+            [ad-hoc]: https://example.com/ad-hoc
+
+            See \(nested), \(escaped), \(fullReference), \(collapsedReference), and \(shortcutReference).
+            """
+        let pieces = NarrationTextChunker.splitResolved(source, maxPhonemes: 12) {
+            $0.count
+        }
+        let protected = NarrationTextChunker.markdownProtectedRanges(in: source)
+            .map { String(source[$0]) }
+
+        #expect(protected.contains(fullReference))
+        #expect(pieces.contains { $0.contains(nested) })
+        #expect(pieces.contains { $0.contains(escaped) })
+        #expect(pieces.contains { $0.contains(fullReference) })
+        #expect(pieces.contains { $0.contains(collapsedReference) })
+        #expect(pieces.contains { $0.contains(shortcutReference) })
+    }
+
+    @Test func markdownTitlesAndMultilineDefinitionsRemainAtomic() {
+        let doubleTitle = #"[guide](https://example.com "ad-hoc (")"#
+        let singleTitle = #"[guide](https://example.com 'ad-hoc (')"#
+        let parenthesizedTitle = #"[guide](https://example.com (ad-hoc\)))"#
+        let angleDestination = #"[guide](<https://example.com/a(b)c> "ad-hoc")"#
+        let escapedTitle = #"[guide](https://example.com "ad-hoc \"quoted\"")"#
+        let multilineDefinition = #"""
+            [multiline]: https://example.com
+              "ad-hoc ("
+            """#
+        let source = """
+            \(multilineDefinition)
+
+            \(doubleTitle) \(singleTitle) \(parenthesizedTitle)
+            \(angleDestination) \(escapedTitle) See [multiline].
+            """
+        let pieces = NarrationTextChunker.splitResolved(source, maxPhonemes: 12) {
+            $0.count
+        }
+        let definitionPieces = NarrationTextChunker.splitResolved(
+            multilineDefinition,
+            maxPhonemes: 12
+        ) { $0.count }
+        let protected = NarrationTextChunker.markdownProtectedRanges(in: source)
+            .map { String(source[$0]) }
+
+        #expect(protected.contains(multilineDefinition))
+        #expect(definitionPieces == [multilineDefinition])
+        #expect(pieces.first { $0.contains("[multiline]:") } == multilineDefinition)
+        #expect(pieces.contains { $0.contains(multilineDefinition) })
+        #expect(pieces.contains { $0.contains(doubleTitle) })
+        #expect(pieces.contains { $0.contains(singleTitle) })
+        #expect(pieces.contains { $0.contains(parenthesizedTitle) })
+        #expect(pieces.contains { $0.contains(angleDestination) })
+        #expect(pieces.contains { $0.contains(escapedTitle) })
+    }
+
+    @Test func crlfReferenceTitlesAndEscapesRemainAtomic() {
+        let definition =
+            #"[guide]: https://example.com"#
+            + "\r\n"
+            + #"  "ad-hoc \"quoted\"""#
+        let source = definition + "\r\nSee [guide]."
+        let protected = NarrationTextChunker.markdownProtectedRanges(in: source)
+            .map { String(source[$0]) }
+
+        #expect(protected.contains(definition))
+        #expect(protected.contains("[guide]"))
+    }
+
+    @Test func unmatchedMarkdownBracketsHaveBoundedInspectionWork() {
+        let source = String(repeating: "[", count: 20_000)
+        var inspectionCount = 0
+
+        let ranges = NarrationTextChunker.markdownProtectedRanges(
+            in: source,
+            inspectionCount: &inspectionCount)
+
+        #expect(ranges.isEmpty)
+        #expect(inspectionCount <= source.count * 20)
+    }
+
+    @Test func repeatedMatchedLabelsWithUnclosedDestinationsHaveBoundedInspectionWork() {
+        for fragment in ["[](", "[x]("] {
+            let source = String(repeating: fragment, count: 1_000)
+            var inspectionCount = 0
+
+            _ = NarrationTextChunker.markdownProtectedRanges(
+                in: source,
+                inspectionCount: &inspectionCount)
+
+            #expect(inspectionCount <= source.count * 20)
+        }
+    }
+
+    @Test func nestedBalancedLabelsIncludingReferenceNormalizationStayBounded() {
+        let depth = 2_000
+        let source =
+            String(repeating: "[", count: depth)
+            + "multi word reference"
+            + String(repeating: "]", count: depth)
+        var inspectionCount = 0
+
+        _ = NarrationTextChunker.markdownProtectedRanges(
+            in: source,
+            inspectionCount: &inspectionCount)
+
+        #expect(inspectionCount <= source.count * 20)
+    }
+
     @Test func editorialSquareBracketsDoNotDisableSentenceSplitting() {
         // `[sic]`/footnote brackets are not pronunciation links: sentence
         // terminators after them must still split.
