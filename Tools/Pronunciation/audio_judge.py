@@ -13,6 +13,7 @@ import json
 import math
 import os
 import re
+import secrets
 import shutil
 import ssl
 import stat
@@ -1523,6 +1524,41 @@ def _fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
+def _mint_claim_nonce() -> str:
+    """Return an unpredictable per-run nonce as 64 lowercase hex characters.
+
+    `secrets` rather than `random`, and unpredictable rather than merely
+    unique: the nonce's whole job is to make the genesis anchor un-replayable,
+    so anything an attacker can recompute -- the run ID, the wall clock, a
+    counter -- would defeat it while still looking per-run.
+    """
+    return secrets.token_hex(32)
+
+
+def _valid_claim_nonce(value: Any) -> bool:
+    return _has_exact_json_type(value, str) and (
+        SHA256_PATTERN.fullmatch(value) is not None
+    )
+
+
+def _claim_binding_digest(run_id: str, claim_nonce: str) -> str:
+    """Digest binding an anchor to one specific run claim.
+
+    Both fields matter. The nonce makes the binding unpredictable, so the
+    genesis anchor is no longer a compile-time constant an attacker can write
+    back without ever reading the directory. The run ID makes it non-
+    transferable, so an anchor lifted from run A is not a valid anchor for
+    run B even when both claims are readable.
+    """
+    return hashlib.sha256(
+        json.dumps(
+            {"claimNonce": claim_nonce, "runID": run_id},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
 def _claim_run(run_id: str, output_root: str | Path | None) -> Path:
     """Atomically claim a never-reusable run directory.
 
@@ -1537,6 +1573,18 @@ def _claim_run(run_id: str, output_root: str | Path | None) -> Path:
     leaves a claimed directory with no anchor -- which the verifier refuses.
     That is the correct outcome. The directory can never be re-claimed, and a
     run that crashed before its anchor existed has no ledger to lose.
+
+    THE CLAIM NONCE IS MINTED HERE, AND THIS IS WHY THE ANCHOR IS NOT A
+    CONSTANT. Being present was never enough: the claim-time anchor used to be
+    `{"clips": {}, "eventCount": 0, "lastEventSHA256": "0"*64,
+    "schemaVersion": 2}` for every run in existence, so overwriting a terminal
+    run's anchor with that constant put the directory in enumeration row 2 --
+    a legitimately fresh run -- and laundered the terminal clip. The nonce is
+    recorded in `run-claim.json` (schema 2) and every anchor this module writes
+    carries `_claim_binding_digest` over it, so W9 can refuse an anchor that
+    belongs to no claim or to a different one. See
+    `_verify_ledger_head_against_snapshot` for the predicate and for what this
+    does and does not close.
     """
     root = _validated_run_root(
         output_root,
@@ -1554,21 +1602,29 @@ def _claim_run(run_id: str, output_root: str | Path | None) -> Path:
         run_directory.mkdir(mode=0o700)
     except FileExistsError as error:
         raise ManifestError("run identifier is already claimed") from error
+    claim_nonce = _mint_claim_nonce()
     try:
         _fsync_directory(root)
         _exclusive_write_json(
             run_directory / "run-claim.json",
             {
-                "schemaVersion": 1,
+                "schemaVersion": 2,
                 "runID": run_id,
                 "state": "claimed",
+                "claimNonce": claim_nonce,
             },
         )
-        # Schema 2, committing zero events at the genesis head: the anchor an
-        # empty ledger legitimately produces. `_atomic_write_json` is
-        # temp-plus-rename, so from here the anchor is never legitimately
-        # absent and `rm attempt-state.json` is evidence, not amnesia.
-        _write_attempt_snapshot(run_directory, {}, [])
+        # Schema 3, committing zero events at the genesis head and bound to the
+        # claim above: the anchor an empty ledger legitimately produces for THIS
+        # run and for no other. `_atomic_write_json` is temp-plus-rename, so
+        # from here the anchor is never legitimately absent and
+        # `rm attempt-state.json` is evidence, not amnesia.
+        _write_attempt_snapshot(
+            run_directory,
+            {},
+            [],
+            claim_binding=_claim_binding_digest(run_id, claim_nonce),
+        )
         _fsync_directory(run_directory)
     except Exception:
         for artifact in ("attempt-state.json", "run-claim.json"):
@@ -1655,7 +1711,28 @@ def _validated_run_root(
     return resolved
 
 
-def _validate_run_claim_bytes(content: bytes, run_id: str) -> None:
+def _validate_run_claim_bytes(content: bytes, run_id: str) -> str:
+    """Validate the run claim and return the anchor binding it authorises.
+
+    Returns rather than merely validating, because the claim is the ONLY place
+    the nonce lives and every anchor read or written under this claim must be
+    checked against it. Callers that hold a claim therefore hold the expected
+    binding, and W9 has no way to be evaluated against a value the run
+    directory itself supplied.
+
+    SCHEMA 1 CLAIMS ARE REFUSED, NOT MIGRATED. A schema-1 claim carries no
+    nonce, so there is no binding to check an anchor against; accepting one
+    would mean re-admitting exactly the state W9 exists to refuse, and the
+    permissive-branch shape has already produced one sibling defect on this
+    workstream. Nothing is lost by refusing: `audio_judge.py` first reached a
+    promotion branch in 0c6d8dbb (Task 10, #480), run roots live outside the
+    repository under `DEFAULT_OUTPUT_ROOT`, and a run directory is created and
+    consumed within a single development `run`/`recover` cycle, so no schema-1
+    claim produced by merged code can exist. A directory that predates this
+    change refuses every operation and is discarded, which is the correct
+    outcome for a development-lane artifact whose tamper evidence cannot be
+    evaluated.
+    """
     try:
         claim = json.loads(
             content.decode("utf-8"),
@@ -1673,15 +1750,17 @@ def _validate_run_claim_bytes(content: bytes, run_id: str) -> None:
         raise LedgerError("judge-owned run claim is invalid") from error
     if (
         not isinstance(claim, dict)
-        or set(claim) != {"schemaVersion", "runID", "state"}
+        or set(claim) != {"schemaVersion", "runID", "state", "claimNonce"}
         or not _has_exact_json_type(claim.get("schemaVersion"), int)
-        or claim["schemaVersion"] != 1
+        or claim["schemaVersion"] != 2
         or not _has_exact_json_type(claim.get("runID"), str)
         or claim["runID"] != run_id
         or not _has_exact_json_type(claim.get("state"), str)
         or claim["state"] != "claimed"
+        or not _valid_claim_nonce(claim.get("claimNonce"))
     ):
         raise LedgerError("judge-owned run claim is invalid")
+    return _claim_binding_digest(run_id, claim["claimNonce"])
 
 
 def _run_directory_path(
@@ -1707,10 +1786,14 @@ def _run_directory_path(
     return run_directory
 
 
-def _run_directory(run_id: str, output_root: str | Path | None) -> Path:
+def _run_directory(
+    run_id: str,
+    output_root: str | Path | None,
+) -> tuple[Path, str]:
+    """Return the claimed run directory together with its anchor binding."""
     run_directory = _run_directory_path(run_id, output_root)
     claim_path = run_directory / "run-claim.json"
-    _validate_run_claim_bytes(
+    claim_binding = _validate_run_claim_bytes(
         _read_unique_regular_bytes(
             claim_path,
             error_type=LedgerError,
@@ -1718,7 +1801,7 @@ def _run_directory(run_id: str, output_root: str | Path | None) -> Path:
         ),
         run_id,
     )
-    return run_directory
+    return run_directory, claim_binding
 
 
 def _decode_ledger_events(content: bytes) -> list[dict[str, Any]]:
@@ -1751,23 +1834,26 @@ def _verify_ledger_head_against_snapshot(
     snapshot_bytes: bytes | None,
     events: list[dict[str, Any]],
     *,
+    claim_binding: str,
     for_recovery: bool = False,
 ) -> None:
-    """Evaluate the anchor predicates W0, W1, W2 and W3.
+    """Evaluate the anchor predicates W0, W1, W2, W3 and W9.
 
     This is one conjunct of `_verify_run_directory_witnesses`; see that
     function for the witness-monotonicity invariant these predicates serve.
 
-    The anchor (`attempt-state.json`, schema 2) attests a committed
-    `eventCount` and `lastEventSHA256`. Hash chaining alone catches rewritten
-    and reordered interior events, but a truncated tail leaves a shorter
-    chain that still verifies, so the anchor is what makes truncation
-    evident.
+    The anchor (`attempt-state.json`, schema 3) attests a committed
+    `eventCount` and `lastEventSHA256`, bound to the run claim by
+    `claimBindingSHA256`. Hash chaining alone catches rewritten and reordered
+    interior events, but a truncated tail leaves a shorter chain that still
+    verifies, so the anchor is what makes truncation evident.
 
       W0  the anchor is present                             REQUIRED
       W1  len(events) >= eventCount
       W2  chain_head(events[:eventCount]) == lastEventSHA256
       W3  len(events) - eventCount <= 1                      (mutating path)
+      W9  claimBindingSHA256 == the binding this run's claim
+          authorises                                         REQUIRED
 
     W3 is the lag rule and the *only* thing `for_recovery` relaxes. One
     ledger event ahead of the anchor is legitimate on the mutating path: an
@@ -1812,23 +1898,45 @@ def _verify_ledger_head_against_snapshot(
     headline sentence -- deleting an artifact must never widen the accepted
     set -- true of the anchor.
 
-    W0 IS ABOUT DELETION. IT DOES NOT CLOSE THE LAUNDERING CLASS.
+    W0 IS ABOUT DELETION. W9 IS ABOUT SUBSTITUTION.
 
-    Read the paragraph above narrowly: deletion-monotonicity now holds for the
-    anchor. SUBSTITUTION of the anchor is a separate matter and is NOT covered.
-    The claim-time anchor is a fixed constant -- `{"clips": {},
-    "eventCount": 0, "lastEventSHA256": "0"*64, "schemaVersion": 2}`, byte-
-    identical for every run -- so an actor with write access to a run directory
-    can overwrite `attempt-state.json` with it rather than unlinking it,
-    truncate the ledger to one line, and remove the queue, reproducing the
-    round-4 laundering at no additional cost. That is accepted as OUT OF MODEL
-    (same-UID write access to the run directory; this is tamper evidence, not
-    tamper proofing) and NOT as closed. Closing it would need an anchor witness
-    that a fixed constant cannot satisfy -- binding the anchor to the run claim
-    (run ID plus a claim-time nonce, so the genesis anchor is per-run and not
-    replayable), or a monotone counter outside the directory. Recorded in the
-    risk register of `docs/reports/pronunciation-phase2-qualification.md`; do
-    not restate W0 as having closed the class.
+    Read the W0 paragraph narrowly: it makes deletion-monotonicity hold for the
+    anchor and nothing more. SUBSTITUTION is a separate matter, and it was the
+    fifth sibling. The claim-time anchor used to be a fixed constant --
+    `{"clips": {}, "eventCount": 0, "lastEventSHA256": "0"*64,
+    "schemaVersion": 2}`, byte-identical for every run -- so an actor could
+    overwrite `attempt-state.json` with it rather than unlinking it, truncate
+    the ledger to one line, and remove the queue, reproducing the round-4
+    laundering at no additional cost and with no read of the target directory.
+    Reproduced end to end: a terminal `morning_review`/2 clip read back as
+    `proposal_emitted`/0.
+
+    W9 removes the constant. `_claim_run` mints an unpredictable per-run nonce,
+    records it in `run-claim.json` (schema 2), and every anchor this module
+    writes carries `_claim_binding_digest(runID, nonce)`. The genesis anchor is
+    therefore per-run: it is not a value that exists in this source file, it
+    cannot be replayed from one run into another, and an anchor carrying no
+    binding or a foreign one is refused. The schema-2 anchor shape is refused
+    outright for the same reason schema 1 was -- see the schema check below.
+
+    WHAT W9 CLOSES, AND WHAT REMAINS OUT OF MODEL.
+
+    CLOSED: the replayable-constant variant, which is the one that was
+    reproduced. There is no longer any fixed byte string that is a valid
+    genesis anchor, and no anchor is valid outside the run that minted it.
+
+    STILL OUT OF MODEL: an actor with READ AND WRITE access to the run
+    directory can read `run-claim.json`, recompute the binding, and forge a
+    genesis anchor for that run specifically. W9 does not and cannot close
+    that, because every input to the binding lives in the directory being
+    attacked; no in-directory witness can. Closing it needs state the attacker
+    cannot read or rewind -- a monotone counter or a key outside the run
+    directory -- which is a different design, not a refinement of this one.
+    That residual is named in the risk register of
+    `docs/reports/pronunciation-phase2-qualification.md`. Do not describe W9 as
+    making this scheme tamper-PROOF; it is tamper evidence, and the honest
+    claim is that the free variant is gone and the remaining one requires
+    reading the directory first.
     """
     if snapshot_bytes is None:
         # W0. The anchor is written at claim time and never legitimately
@@ -1849,22 +1957,38 @@ def _verify_ledger_head_against_snapshot(
         RecursionError,
     ) as error:
         raise LedgerError("attempt state is invalid") from error
-    # Schema 2 is the only anchor shape. A schema-1 anchor carried no head and
-    # no count, so accepting one meant accepting a present anchor with W1 and
-    # W2 unevaluated -- a laundering path, because downgrading the anchor shed
-    # the chain evidence that a truncation would otherwise contradict. Schema 2
-    # was introduced on this same unmerged branch and no schema-1 anchor has
-    # ever been produced by merged or shipped code, so there is nothing to
-    # migrate. Requiring schema 2 is what makes "anchor present => W1 and W2"
-    # hold unconditionally.
+    # Schema 3 is the only anchor shape, and the reason is the same one that
+    # retired schema 1: accepting an older shape means accepting a present
+    # anchor with some predicate unevaluated, which is a laundering path rather
+    # than a compatibility courtesy. Schema 1 carried no head and no count, so
+    # W1 and W2 went unevaluated. Schema 2 carries no binding, so W9 goes
+    # unevaluated -- and W9 is the whole point, so a permissive schema-2 branch
+    # would re-admit precisely the state being closed. Neither shape has ever
+    # been produced by merged or shipped code outside this workstream's own
+    # development runs (`audio_judge.py` first reached a promotion branch in
+    # 0c6d8dbb), and run directories are single-cycle artifacts outside the
+    # repository, so there is nothing to migrate. Requiring schema 3 is what
+    # makes "anchor present => W1 and W2 and W9" hold unconditionally.
     if (
         not _has_exact_json_type(snapshot, dict)
         or not _has_exact_json_type(snapshot.get("schemaVersion"), int)
-        or snapshot["schemaVersion"] != 2
+        or snapshot["schemaVersion"] != 3
         or not _has_exact_json_type(snapshot.get("eventCount"), int)
         or not _valid_receipt_hash(snapshot.get("lastEventSHA256"))
+        or not _valid_receipt_hash(snapshot.get("claimBindingSHA256"))
     ):
         raise LedgerError("attempt state is invalid")
+    # W9. Evaluated before the count and head, because an anchor that belongs
+    # to no claim of this run has no standing to attest anything about it --
+    # including, in the substitution case, a genesis head that would otherwise
+    # satisfy W1 and W2 by construction. Refused in BOTH modes: a foreign or
+    # unbound anchor is a contradiction, never staleness, so recovery may not
+    # tolerate it either.
+    if not secrets.compare_digest(
+        snapshot["claimBindingSHA256"],
+        claim_binding,
+    ):
+        raise LedgerError("attempt state is not bound to the run claim")
     committed_count = snapshot["eventCount"]
     committed_head = snapshot["lastEventSHA256"]
     # W1.
@@ -2145,17 +2269,28 @@ def _derive_attempt_states(
 def _attempt_snapshot_document(
     states: dict[str, dict[str, Any]],
     events: list[dict[str, Any]],
+    claim_binding: str,
 ) -> dict[str, Any]:
-    """Snapshot the derived state together with the ledger chain head.
+    """Snapshot the derived state, the ledger chain head, and the claim binding.
 
     Chaining alone cannot detect a truncated tail: dropping the final line
     leaves a shorter but internally consistent chain. Recording the head and
     the event count in the separately written snapshot makes truncation
     evident, because the shortened ledger no longer reproduces the head the
     judge last committed.
+
+    The head and count alone were not enough either, because the values a
+    zero-event anchor carries are fixed by construction: a genesis anchor was
+    the same bytes for every run and so could be written back by an actor who
+    had never seen the directory. `claimBindingSHA256` is what makes even the
+    zero-event anchor specific to one claim. `claim_binding` is threaded in
+    rather than recomputed here so that the value written is always the value
+    the caller's validated claim authorises -- there is no path on which this
+    module mints a binding from an anchor it is about to trust.
     """
     return {
-        "schemaVersion": 2,
+        "schemaVersion": 3,
+        "claimBindingSHA256": claim_binding,
         "clips": {key: states[key] for key in sorted(states)},
         "eventCount": len(events),
         "lastEventSHA256": _ledger_chain_head(events),
@@ -2166,10 +2301,12 @@ def _write_attempt_snapshot(
     run_directory: Path,
     states: dict[str, dict[str, Any]],
     events: list[dict[str, Any]],
+    *,
+    claim_binding: str,
 ) -> None:
     _atomic_write_json(
         run_directory / "attempt-state.json",
-        _attempt_snapshot_document(states, events),
+        _attempt_snapshot_document(states, events, claim_binding),
         error_type=LedgerError,
         artifact_name="attempt state",
     )
@@ -2181,13 +2318,15 @@ def _write_attempt_snapshot_at(
     expected_run_identity: tuple[int, int],
     states: dict[str, dict[str, Any]],
     events: list[dict[str, Any]],
+    *,
+    claim_binding: str,
 ) -> None:
     _atomic_write_json_at(
         directory_descriptor,
         run_directory,
         expected_run_identity,
         "attempt-state.json",
-        _attempt_snapshot_document(states, events),
+        _attempt_snapshot_document(states, events, claim_binding),
         artifact_name="attempt state",
     )
 
@@ -2196,6 +2335,8 @@ def _append_ledger_event_locked(
     run_directory: Path,
     events: list[dict[str, Any]],
     event: dict[str, Any],
+    *,
+    claim_binding: str,
 ) -> dict[str, Any]:
     ledger_path = run_directory / "attempt-ledger.jsonl"
     event = {**event, "previousEventSHA256": _ledger_chain_head(events)}
@@ -2226,7 +2367,12 @@ def _append_ledger_event_locked(
         raise LedgerError("attempt ledger is invalid") from error
     events.append(event)
     states = _derive_attempt_states(events)
-    _write_attempt_snapshot(run_directory, states, events)
+    _write_attempt_snapshot(
+        run_directory,
+        states,
+        events,
+        claim_binding=claim_binding,
+    )
     return states[event["clipID"]]
 
 
@@ -2236,6 +2382,7 @@ def _recover_committed_event_locked(
     states: dict[str, dict[str, Any]],
     expected_event: dict[str, Any],
     *,
+    claim_binding: str,
     publish_morning_queue: bool = False,
 ) -> dict[str, Any] | None:
     if not events:
@@ -2259,7 +2406,12 @@ def _recover_committed_event_locked(
             current_queue,
             _plan_morning_queue(events, current_queue),
         )
-    _write_attempt_snapshot(run_directory, states, events)
+    _write_attempt_snapshot(
+        run_directory,
+        states,
+        events,
+        claim_binding=claim_binding,
+    )
     result = states[expected_event["clipID"]]
     if queue_plan is not None:
         _publish_morning_queue_plan(
@@ -2273,6 +2425,8 @@ def _recover_committed_event_locked(
 def _with_ledger_lock(
     run_directory: Path,
     operation: Callable[[list[dict[str, Any]]], Any],
+    *,
+    claim_binding: str,
 ) -> Any:
     lock_path = run_directory / ".attempt-ledger.lock"
     for artifact_path, artifact_name in (
@@ -2315,6 +2469,7 @@ def _with_ledger_lock(
                 events,
                 snapshot_bytes,
                 queue,
+                claim_binding=claim_binding,
                 for_recovery=False,
             )
             return operation(events)
@@ -2331,7 +2486,7 @@ def _emit_proposal(
 ) -> bool:
     if not validate_clip_id(clip_id) or category not in CATEGORIES:
         raise LedgerError("proposal evidence is invalid")
-    run_directory = _run_directory(run_id, output_root)
+    run_directory, claim_binding = _run_directory(run_id, output_root)
     event = {
         "schemaVersion": 1,
         "eventType": "proposal_emitted",
@@ -2351,6 +2506,7 @@ def _emit_proposal(
             events,
             states,
             event,
+            claim_binding=claim_binding,
         )
         if recovered is not None:
             return True
@@ -2368,10 +2524,15 @@ def _emit_proposal(
             run_directory,
             events,
             event,
+            claim_binding=claim_binding,
         )
         return True
 
-    return _with_ledger_lock(run_directory, operation)
+    return _with_ledger_lock(
+        run_directory,
+        operation,
+        claim_binding=claim_binding,
+    )
 
 
 def read_attempt_state(
@@ -2382,7 +2543,7 @@ def read_attempt_state(
 ) -> dict[str, Any]:
     if not validate_clip_id(clip_id):
         raise LedgerError("clip identifier is invalid")
-    run_directory = _run_directory(run_id, output_root)
+    run_directory, claim_binding = _run_directory(run_id, output_root)
 
     def operation(events: list[dict[str, Any]]) -> dict[str, Any]:
         state = _derive_attempt_states(events).get(clip_id)
@@ -2390,7 +2551,11 @@ def read_attempt_state(
             raise LedgerError("clip has no attempt state")
         return state
 
-    return _with_ledger_lock(run_directory, operation)
+    return _with_ledger_lock(
+        run_directory,
+        operation,
+        claim_binding=claim_binding,
+    )
 
 
 def _valid_receipt_hash(value: Any) -> bool:
@@ -2426,7 +2591,7 @@ def record_attempt(
         raise LedgerError("all reviewed workflow receipts are required")
     if len(set(receipts.values())) != len(receipts):
         raise LedgerError("reviewed workflow receipts must be distinct")
-    run_directory = _run_directory(run_id, output_root)
+    run_directory, claim_binding = _run_directory(run_id, output_root)
 
     def operation(events: list[dict[str, Any]]) -> dict[str, Any]:
         states = _derive_attempt_states(events)
@@ -2455,6 +2620,7 @@ def record_attempt(
                 events,
                 states,
                 event_for(events[-1]["attemptCount"]),
+                claim_binding=claim_binding,
             )
             if recovered is None:
                 raise LedgerError("committed transition replay is invalid")
@@ -2478,9 +2644,14 @@ def record_attempt(
             run_directory,
             events,
             event_for(current["attemptCount"] + 1),
+            claim_binding=claim_binding,
         )
 
-    return _with_ledger_lock(run_directory, operation)
+    return _with_ledger_lock(
+        run_directory,
+        operation,
+        claim_binding=claim_binding,
+    )
 
 
 def _terminal_morning_queue_entry(
@@ -2719,6 +2890,7 @@ def _verify_run_directory_witnesses(
     snapshot_bytes: bytes | None,
     queue: list[dict[str, Any]],
     *,
+    claim_binding: str,
     for_recovery: bool,
 ) -> None:
     """Accept a run directory's state only if every surviving witness agrees.
@@ -2750,11 +2922,13 @@ def _verify_run_directory_witnesses(
 
     THE WITNESSES.
 
-      run-claim.json            run ID was claimed        gate (W7, enforced
-                                                          by the callers)
+      run-claim.json            run ID was claimed, and   gate (W7, enforced
+                                the claim nonce every     by the callers) and
+                                anchor must bind to       the SOURCE of the
+                                                          binding W9 checks
       attempt-ledger.jsonl      the chained history       it *is* S
-      attempt-state.json (v2)   eventCount, lastEventSHA  yes, W0/W1/W2/W3
-                                                          (written at claim
+      attempt-state.json (v3)   eventCount, lastEventSHA, yes, W0/W1/W2/W3/W9
+                                claimBindingSHA256        (written at claim
                                                           time; MANDATORY)
       morning-queue.json
         ledger rows             an exact ledger event     yes, W4/W5
@@ -2788,12 +2962,21 @@ def _verify_run_directory_witnesses(
           sequence reproduces q exactly                       witness
       W6  L chains from genesis with no interior rewrite      witness
       W7  run claim present and valid                         gate
+      W9  A.claimBindingSHA256 == binding(runID, claim
+          nonce)                                              witness
+
+    W8 IS RETIRED AND ITS NUMBER IS NOT REUSED. It read "anchor absent =>
+    len(L) <= 1" and was deleted by W0; a new predicate carrying its number
+    would make every prior review note about "W8" ambiguous. The substitution
+    predicate is therefore W9, and the gap is deliberate.
 
     The mutating path accepts iff W0 and W1 and W2 and W3 and W4 and W5 and
-    W6 and W7. Recovery accepts iff the same MINUS W3 -- recovery may
+    W6 and W7 and W9. Recovery accepts iff the same MINUS W3 -- recovery may
     tolerate STALENESS (a derived witness lagging the ledger), never
     CONTRADICTION. That single relaxation is the only permitted difference
-    between the two accepted sets.
+    between the two accepted sets. W9 is a contradiction rule, not a staleness
+    rule -- a binding does not go stale, since it is fixed for the lifetime of
+    the claim -- so recovery evaluates it unrelaxed.
 
     W0 replaces the former W8 ("anchor absent => len(L) <= 1"), which was
     labelled an assumption rather than a witness and was breached through the
@@ -2802,67 +2985,93 @@ def _verify_run_directory_witnesses(
     tampering. Read `_verify_ledger_head_against_snapshot` for the full
     derivation before touching W0.
 
-    ENUMERATION over L in {[], non-empty}, A in {absent, present}, Q in
-    {absent, evaluation-rows-only, has-ledger-rows}. Because W0 refuses every
-    A-absent state outright, the six A-absent rows collapse to one and the
-    table is now SEVEN states, not twelve:
+    ENUMERATION over L in {[], non-empty}, A in {absent, UNBOUND, bound}, Q in
+    {absent, evaluation-rows-only, has-ledger-rows}. The A axis now has three
+    values rather than two: presence was never the only thing that can be
+    wrong with an anchor, and collapsing "present" and "correctly bound" into
+    one value is exactly the omission that let the fifth sibling through -- the
+    old table ranged over presence and absence only and therefore had no row
+    the substituted anchor could land in other than the fresh-run row.
+
+    "UNBOUND" means present but carrying no binding, a foreign binding, or a
+    superseded schema (1 or 2). Because W0 refuses every A-absent state and W9
+    refuses every A-unbound state outright, both collapse to one row each and
+    the table is EIGHT states:
 
        #  L     A                      Q          verdict        by
        1  any   ABSENT                 any        REFUSE         W0
-       2  []    present, count 0,
-                genesis head           absent     accept (fresh) W1, W2
-       3  []    present, count 0,
+       2  any   UNBOUND                any        REFUSE         W9
+       3  []    bound, count 0,
+                genesis head           absent     accept (fresh) W1, W2, W9
+       4  []    bound, count 0,
                 genesis head           eval only  accept         eval rows
                                                                  carry no
                                                                  ledger
                                                                  identity
-       4  []    present                LEDGER     REFUSE         W4
-       5  []    present, count > 0     absent or  REFUSE         W1
+       5  []    bound                  LEDGER     REFUSE         W4
+       6  []    bound, count > 0       absent or  REFUSE         W1
                                        eval only
-       6  n>=1  present                absent or  W1 and W2
+       7  n>=1  bound                  absent or  W1 and W2
                                        eval only  and W3
-       7  n>=1  present                LEDGER     W1..W5
+       8  n>=1  bound                  LEDGER     W1..W5
+
+    Row 2 is the fifth sibling's row and it is new. Under the previous table
+    the substituted genesis anchor was indistinguishable from row 3 -- it had a
+    count of 0 and the genesis head, because those values are forced for a
+    zero-event anchor -- so the terminal clip was laundered by writing a
+    constant. Row 3 is now reachable only by an anchor bound to the run's own
+    claim, which only `_claim_run` and this module's writers produce.
 
     WHAT CHANGED, AND WHY THE FRESH-RUN CASE STILL WORKS.
 
-    Old rows 1, 8 and 9 were the accepting A-absent states. Row 1 accepted a
-    fresh run on the strength of its emptiness; rows 8 and 9 accepted a
-    one-event ledger with no anchor via W8's crash-window tolerance. All three
-    are now REFUSED, and are folded into new row 1. Old rows 3 and 10 were
-    already refused, by W4/W5 rather than by the anchor, so their verdict is
-    unchanged and they too fold into new row 1 -- W0 simply refuses them
-    earlier and for a stronger reason.
+    The pre-W0 table had twelve rows and three accepting A-absent states. Its
+    row 1 accepted a fresh run on the strength of its emptiness; its rows 8 and
+    9 accepted a one-event ledger with no anchor via W8's crash-window
+    tolerance. All three are now REFUSED and fold into current row 1. Its rows
+    3 and 10 were already refused, by W4/W5 rather than by the anchor, so their
+    verdict is unchanged and they too fold into current row 1 -- W0 simply
+    refuses them earlier and for a stronger reason.
 
-    A genuinely fresh run is not refused: it is new row 2, and it reaches that
-    row because `_claim_run` gives it a schema-2 anchor committing zero events
-    at the genesis head. The old row 4 -- "[] with a present count-0 anchor" --
-    was previously an oddity reachable only after a completed cycle; it is now
-    the ordinary state of every newly claimed directory.
+    A genuinely fresh run is not refused: it is current row 3, and it reaches
+    that row because `_claim_run` gives it a schema-3 anchor committing zero
+    events at the genesis head AND bound to the claim it just wrote. The
+    pre-W0 row 4 -- "[] with a present count-0 anchor" -- was once an oddity
+    reachable only after a completed cycle; it is now the ordinary state of
+    every newly claimed directory.
 
-    Old row 3 remains the defect this function was written to close: the
+    The pre-W0 row 3 remains the defect this function was written to close: the
     mutating path never loaded the queue at all, so an emptied ledger plus a
     removed anchor read as a fresh run while `morning-queue.json` survived
     carrying the terminal entry and the digest of the event that produced it.
     That authorised a production rerender and reset a terminal clip's spent
     attempts, a transition the specification calls irreversible -- with no
     forgery and no hash computation. Removing the queue as well then reopened
-    the same laundering through old rows 8 and 9, which is the deletion variant
-    W0 refuses.
+    the same laundering through the pre-W0 rows 8 and 9, which is the deletion
+    variant W0 refuses, and writing the claim-time constant back reopened it a
+    third time, which is the substitution variant W9 refuses.
 
-    WHAT IS ACTUALLY CLOSED, AND WHAT IS NOT.
+    WHAT IS CLOSED, AND WHAT REMAINS OUT OF MODEL.
 
     The invariant's headline sentence -- deleting an artifact must never widen
-    the accepted set -- now holds of every witness in the table above,
-    including the anchor. THE LAUNDERING CLASS IS NOT CLOSED. The enumeration
-    above ranges over PRESENCE and ABSENCE only; it says nothing about a
-    witness that is present but SUBSTITUTED. The claim-time anchor is a fixed
-    constant, byte-identical for every run, so overwriting `attempt-state.json`
-    with it -- rather than unlinking it -- lands in row 2 and reproduces the
-    round-4 laundering with a write in place of a delete. That is accepted as
-    OUT OF MODEL (same-UID write access to the run directory; this scheme is
-    tamper evidence, not tamper proofing) and NOT as closed. Closing it needs
-    an anchor witness that a fixed constant cannot satisfy, such as binding the
-    anchor to the run claim. Recorded in the risk register of
+    the accepted set -- holds of every witness in the table above, including
+    the anchor. The enumeration no longer ranges over presence and absence
+    alone: the A axis carries an UNBOUND value, so a substituted anchor has a
+    row of its own (row 2, REFUSE by W9) rather than passing as a fresh run.
+
+    CLOSED: substitution by a value that is fixed, shared between runs, or
+    otherwise obtainable without reading the target directory. There is no
+    longer any byte string in this source file that is a valid anchor, and no
+    anchor is valid outside the run whose claim minted its nonce.
+
+    OUT OF MODEL, AND NAMED RATHER THAN IMPLIED: an actor with read AND write
+    access to the run directory can read the nonce from `run-claim.json`,
+    recompute the binding, and forge an anchor for that run. No predicate here
+    can close that, because every input to the binding is inside the directory
+    under attack; a witness cannot outrank an attacker who can read and rewrite
+    all of it. Closing it requires state outside the run directory -- a monotone
+    counter, or a key the run directory does not contain -- which is a different
+    design rather than another predicate. This scheme is tamper EVIDENCE, not
+    tamper proofing. Recorded in the risk register of
     `docs/reports/pronunciation-phase2-qualification.md`.
     """
     # W6. `_derive_attempt_states` verifies chain linkage from genesis before
@@ -2870,10 +3079,11 @@ def _verify_run_directory_witnesses(
     # is refused here. It is pure, so the operations that derive states again
     # afterwards observe exactly this result.
     _derive_attempt_states(events)
-    # W0, W1, W2 and W3 (mutating path only).
+    # W0, W1, W2, W9 and W3 (mutating path only).
     _verify_ledger_head_against_snapshot(
         snapshot_bytes,
         events,
+        claim_binding=claim_binding,
         for_recovery=for_recovery,
     )
     # W4 and W5.
@@ -2940,7 +3150,7 @@ def record_rerender(
         raise LedgerError("rerender evidence is invalid")
     if outcome not in {"pass", "fail"}:
         raise LedgerError("rerender outcome is invalid")
-    run_directory = _run_directory(run_id, output_root)
+    run_directory, claim_binding = _run_directory(run_id, output_root)
 
     def operation(events: list[dict[str, Any]]) -> dict[str, Any]:
         states = _derive_attempt_states(events)
@@ -2978,6 +3188,7 @@ def record_rerender(
                 events,
                 states,
                 expected_event,
+                claim_binding=claim_binding,
                 publish_morning_queue=(
                     events[-1]["state"] == "morning_review"
                 ),
@@ -2999,6 +3210,7 @@ def record_rerender(
             run_directory,
             events,
             event,
+            claim_binding=claim_binding,
         )
         if state == "morning_review":
             current_queue = _load_morning_queue(run_directory)
@@ -3009,7 +3221,11 @@ def record_rerender(
             )
         return result
 
-    return _with_ledger_lock(run_directory, operation)
+    return _with_ledger_lock(
+        run_directory,
+        operation,
+        claim_binding=claim_binding,
+    )
 
 
 def _with_recovery_ledger_lock(
@@ -3023,6 +3239,7 @@ def _with_recovery_ledger_lock(
             dict[str, dict[str, Any]],
             list[dict[str, Any]],
             list[dict[str, Any]],
+            str,
         ],
         Any,
     ],
@@ -3096,7 +3313,12 @@ def _with_recovery_ledger_lock(
                     run_directory,
                     expected_run_identity,
                 )
-                _validate_run_claim_bytes(
+                # Re-read under exclusion, and it is THIS binding that the
+                # conjunction below and the republished anchor use. The
+                # preflight in `recover_run` read the claim without the lock, so
+                # its value is advisory; using it here would let a claim swapped
+                # between the two reads decide what recovery writes.
+                claim_binding = _validate_run_claim_bytes(
                     _read_unique_regular_bytes_at(
                         directory_descriptor,
                         "run-claim.json",
@@ -3122,6 +3344,7 @@ def _with_recovery_ledger_lock(
                     events,
                     _read_optional_snapshot_bytes_at(directory_descriptor),
                     current_queue,
+                    claim_binding=claim_binding,
                     for_recovery=True,
                 )
                 states = _derive_attempt_states(events)
@@ -3131,6 +3354,7 @@ def _with_recovery_ledger_lock(
                     states,
                     current_queue,
                     planned_queue,
+                    claim_binding,
                 )
             finally:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
@@ -3153,7 +3377,7 @@ def recover_run(
         run_identity,
     )
     try:
-        _validate_run_claim_bytes(
+        preflight_claim_binding = _validate_run_claim_bytes(
             _read_unique_regular_bytes_at(
                 directory_descriptor,
                 "run-claim.json",
@@ -3171,6 +3395,7 @@ def recover_run(
             preflight_events,
             _read_optional_snapshot_bytes_at(directory_descriptor),
             _load_morning_queue_at(directory_descriptor),
+            claim_binding=preflight_claim_binding,
             for_recovery=True,
         )
 
@@ -3179,6 +3404,7 @@ def recover_run(
             states: dict[str, dict[str, Any]],
             current_queue: list[dict[str, Any]],
             planned_queue: list[dict[str, Any]],
+            claim_binding: str,
         ) -> dict[str, Any]:
             terminal_queue_entries = _required_terminal_queue_entries(events)
             _write_attempt_snapshot_at(
@@ -3187,6 +3413,7 @@ def recover_run(
                 run_identity,
                 states,
                 events,
+                claim_binding=claim_binding,
             )
             _publish_morning_queue_plan_at(
                 directory_descriptor,

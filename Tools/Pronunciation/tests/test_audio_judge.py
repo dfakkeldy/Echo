@@ -44,6 +44,30 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = REPOSITORY_ROOT / "Tools" / "Pronunciation" / "audio_judge.py"
 
 
+def write_valid_run_claim(run_directory, run_id, claim_nonce=None):
+    """Hand-write a claim the judge accepts, and return its anchor binding.
+
+    Tests that build a run directory by hand still need a VALID claim, or the
+    run is refused at the claim gate and whatever the test meant to exercise
+    downstream never runs. Writing the claim inline stopped being safe once it
+    carried a nonce, so it lives here: one definition to keep current when the
+    claim schema moves again.
+    """
+    nonce = claim_nonce or audio_judge._mint_claim_nonce()
+    (run_directory / "run-claim.json").write_text(
+        json.dumps(
+            {
+                "schemaVersion": 2,
+                "runID": run_id,
+                "state": "claimed",
+                "claimNonce": nonce,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return audio_judge._claim_binding_digest(run_id, nonce)
+
+
 class ClipIDTests(unittest.TestCase):
     def test_generated_clip_ids_are_canonical_random_uuid4_values(self):
         clip_ids = [generate_clip_id() for _ in range(32)]
@@ -2890,7 +2914,20 @@ class AttemptLedgerTests(ManifestAdmissionTests):
 
         self.assertEqual(0, completed.returncode, completed.stderr)
         repaired = json.loads(anchor_path.read_text(encoding="utf-8"))
-        self.assertEqual(2, repaired["schemaVersion"])
+        self.assertEqual(3, repaired["schemaVersion"])
+        # Republished under the claim recovery re-read under the lock, so the
+        # repaired anchor is bound to this run and not merely well-formed.
+        self.assertEqual(
+            audio_judge._claim_binding_digest(
+                run_id,
+                json.loads(
+                    (
+                        run_directory / "run-claim.json"
+                    ).read_text(encoding="utf-8")
+                )["claimNonce"],
+            ),
+            repaired["claimBindingSHA256"],
+        )
         self.assertEqual(len(events), repaired["eventCount"])
         self.assertEqual(
             audio_judge._ledger_event_digest(events[-1]),
@@ -2911,7 +2948,16 @@ class AttemptLedgerTests(ManifestAdmissionTests):
         )
 
     def test_recover_refuses_a_legacy_schema_anchor(self):
-        """A schema-1 anchor is a present anchor with W1 and W2 unevaluated.
+        """A superseded anchor is a present anchor with some predicate unevaluated.
+
+        Both retired shapes are covered, because both fail the same way and the
+        second was retired for the first one's reason. A schema-1 anchor left
+        W1 and W2 unevaluated. A schema-2 anchor leaves W9 unevaluated: it
+        carries a count and a head but no `claimBindingSHA256`, so accepting one
+        would re-admit the substituted genesis anchor that
+        `test_substituted_genesis_anchor_cannot_launder_a_terminal_clip`
+        closes. Neither is migrated; see `_validate_run_claim_bytes` for why
+        refusing costs nothing here.
 
         The migration branch returned before the committed count and head were
         consulted, so recovery applied no prefix check at all to a schema-1
@@ -2936,9 +2982,14 @@ class AttemptLedgerTests(ManifestAdmissionTests):
         `attemptCount` 1 back down to 0 without objecting, though the anchor's
         own `clips` said 1.
         """
-        for case in ("intact-ledger", "truncated-ledger"):
-            with self.subTest(ledger=case):
-                run_id = f"legacy-anchor-{case}"
+        for case, legacy_schema in (
+            ("intact-ledger", 1),
+            ("truncated-ledger", 1),
+            ("intact-ledger", 2),
+            ("truncated-ledger", 2),
+        ):
+            with self.subTest(ledger=case, schema=legacy_schema):
+                run_id = f"legacy-anchor-{legacy_schema}-{case}"
                 if case == "intact-ledger":
                     clip_id, output_root = self.terminal_morning_run(
                         run_id=run_id
@@ -2999,26 +3050,37 @@ class AttemptLedgerTests(ManifestAdmissionTests):
                         encoding="utf-8",
                     )
 
-                anchor_path.write_text(
-                    json.dumps(
-                        {
-                            "schemaVersion": 1,
-                            "clips": snapshot["clips"],
-                        },
-                        sort_keys=True,
+                legacy_anchor: dict[str, Any] = {
+                    "schemaVersion": legacy_schema,
+                    "clips": snapshot["clips"],
+                }
+                if legacy_schema == 2:
+                    # A schema-2 anchor is otherwise complete -- count and head
+                    # present and self-consistent with the surviving ledger --
+                    # so only the missing binding can refuse it. That is the
+                    # point: the shape is refused for being unbindable, not for
+                    # being malformed.
+                    legacy_anchor["eventCount"] = snapshot["eventCount"]
+                    legacy_anchor["lastEventSHA256"] = (
+                        snapshot["lastEventSHA256"]
                     )
-                    + "\n",
+                anchor_path.write_text(
+                    json.dumps(legacy_anchor, sort_keys=True) + "\n",
                     encoding="utf-8",
                 )
 
                 before = self.run_file_bytes(run_directory)
 
-                with self.assertRaises(LedgerError):
+                with self.assertRaises(LedgerError) as caught:
                     read_attempt_state(
                         run_id=run_id,
                         clip_id=clip_id,
                         output_root=output_root,
                     )
+                self.assertEqual(
+                    "attempt state is invalid",
+                    str(caught.exception),
+                )
 
                 completed = self.run_recovery_cli(
                     run_id=run_id,
@@ -3591,6 +3653,228 @@ class AttemptLedgerTests(ManifestAdmissionTests):
                     ledger_before,
                     ledger_path.read_bytes() if ledger_path.exists() else None,
                 )
+
+    def test_substituted_genesis_anchor_cannot_launder_a_terminal_clip(self):
+        """W0 forbids DELETING the anchor. The fifth sibling OVERWRITES it.
+
+        The sibling test above closes `rm attempt-state.json`, and closes it
+        structurally: `_claim_run` writes the anchor, so absence is tampering.
+        It says nothing about a witness that is PRESENT BUT SUBSTITUTED, and
+        the claim-time anchor was a fixed constant --
+
+            {"clips": {}, "eventCount": 0,
+             "lastEventSHA256": "0"*64, "schemaVersion": 2}
+
+        -- byte-identical for every run and therefore available to an actor who
+        has never read the directory being attacked. Writing that constant back
+        lands in enumeration row 2 ("[] with a present count-0 anchor at the
+        genesis head"), which is the ordinary state of a freshly claimed
+        directory, so W0 through W5 all hold and the mutating path accepts: a
+        terminal `morning_review`/2 clip reads back as `proposal_emitted`/0 and
+        a third attempt can be spent on a clip the transition specification
+        13.3(6) calls irreversible.
+
+        The closure is to make the genesis anchor per-run rather than constant:
+        `_claim_run` mints a claim nonce, records it in `run-claim.json`, and
+        every anchor carries the digest binding that nonce to the run ID. W9
+        then refuses any anchor whose binding does not match the claim, so the
+        constant above is not a valid anchor for ANY run and cannot be replayed
+        from one run into another.
+
+        THREE PAYLOADS, AND WHY ALL THREE ARE NEEDED. The historical constant
+        is a schema-2 document, so after the binding was added it is refused by
+        the SCHEMA check before W9 is ever consulted. A test carrying only that
+        payload would therefore pass against a build in which W9 was absent,
+        broken, or reduced to a no-op -- it would be measuring the schema bump.
+        The `foreign-claim-binding` and `replayed-sibling-anchor` payloads are
+        well-formed schema-3 anchors, so nothing but W9 can refuse them, and
+        `replayed-sibling-anchor` is a genesis anchor this module really
+        produced for a different run -- the exact "valid for A, so replay it
+        into B" move the binding exists to stop.
+
+        Each payload asserts its own EXACT refusal message. The substituted
+        state already raises `LedgerError` from `read_attempt_state` for an
+        unrelated reason once the ledger derives to a clip-free state, so a bare
+        `assertRaises(LedgerError)` would pass against the defect it exists to
+        catch -- the same trap `test_erasing_all_three_artifacts_...` documents.
+        """
+        historical_constant = {
+            "clips": {},
+            "eventCount": 0,
+            "lastEventSHA256": "0" * 64,
+            "schemaVersion": 2,
+        }
+        payloads = {
+            # Refused by the schema rule, not by W9: schema 2 carries no
+            # binding at all, so there is nothing for W9 to compare.
+            "historical-schema-2-constant": (
+                historical_constant,
+                "attempt state is invalid",
+            ),
+            # A well-formed current-schema genesis anchor bound to some other
+            # claim. Only W9 can object to it.
+            "foreign-claim-binding": (
+                {
+                    **historical_constant,
+                    "schemaVersion": 3,
+                    "claimBindingSHA256": audio_judge._claim_binding_digest(
+                        "some-other-run",
+                        "a" * 64,
+                    ),
+                },
+                "attempt state is not bound to the run claim",
+            ),
+            # Filled in per subtest from a real sibling run's genesis anchor.
+            "replayed-sibling-anchor": (
+                None,
+                "attempt state is not bound to the run claim",
+            ),
+        }
+
+        for case, (payload, expected_message) in payloads.items():
+            with self.subTest(payload=case):
+                run_id = f"substituted-genesis-anchor-{case}"
+                clip_id, output_root = self.terminal_morning_run(run_id=run_id)
+                run_directory = output_root / run_id
+                ledger_path = run_directory / "attempt-ledger.jsonl"
+                anchor_path = run_directory / "attempt-state.json"
+                queue_path = run_directory / "morning-queue.json"
+
+                # The baseline really is the terminal state, or the test would
+                # prove nothing about irreversibility.
+                terminal = read_attempt_state(
+                    run_id=run_id,
+                    clip_id=clip_id,
+                    output_root=output_root,
+                )
+                self.assertEqual("morning_review", terminal["state"])
+                self.assertEqual(2, terminal["attemptCount"])
+
+                if case == "replayed-sibling-anchor":
+                    sibling_directory = audio_judge._claim_run(
+                        f"sibling-of-{run_id}",
+                        output_root,
+                    )
+                    sibling_anchor = (
+                        sibling_directory / "attempt-state.json"
+                    ).read_bytes()
+                    # A genuine, freshly minted, currently valid genesis anchor
+                    # -- for the wrong run.
+                    decoded = json.loads(sibling_anchor)
+                    self.assertEqual(3, decoded["schemaVersion"])
+                    self.assertEqual(0, decoded["eventCount"])
+                    self.assertEqual("0" * 64, decoded["lastEventSHA256"])
+                    anchor_path.write_bytes(sibling_anchor)
+                else:
+                    anchor_path.write_text(
+                        json.dumps(payload, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+
+                surviving = ledger_path.read_text(
+                    encoding="utf-8"
+                ).splitlines()[0]
+                # The surviving line is the pre-terminal proposal, which is what
+                # makes the laundering attractive: it derives cleanly to
+                # `proposal_emitted`/0 and spends nothing.
+                self.assertEqual(
+                    "proposal_emitted",
+                    json.loads(surviving)["state"],
+                )
+                ledger_path.write_text(surviving + "\n", encoding="utf-8")
+                queue_path.unlink()
+
+                before = self.run_file_bytes(run_directory)
+
+                for operation in (
+                    lambda: read_attempt_state(
+                        run_id=run_id,
+                        clip_id=clip_id,
+                        output_root=output_root,
+                    ),
+                    lambda: audio_judge._emit_proposal(
+                        run_id=run_id,
+                        clip_id=clip_id,
+                        category="wrong_sense",
+                        output_root=output_root,
+                    ),
+                    lambda: record_attempt(
+                        run_id=run_id,
+                        clip_id=clip_id,
+                        source_commit="f" * 40,
+                        red_test_receipt="0" * 64,
+                        green_test_receipt="1" * 64,
+                        negative_guard_receipt="2" * 64,
+                        implementation_review_receipt="3" * 64,
+                        output_root=output_root,
+                    ),
+                ):
+                    with self.assertRaises(LedgerError) as caught:
+                        operation()
+                    self.assertEqual(
+                        expected_message,
+                        str(caught.exception),
+                    )
+
+                # Recovery must refuse it too. W9 is a contradiction rule, so
+                # the relaxed lag mode may not tolerate what the mutating path
+                # rejected.
+                completed = self.run_recovery_cli(
+                    run_id=run_id,
+                    output_root=output_root,
+                )
+                self.assertNotEqual(0, completed.returncode)
+                self.assertEqual("", completed.stdout)
+                self.assertNotIn("Traceback", completed.stderr)
+
+                # A refusal may not repair what it refuses: republishing the
+                # anchor here would launder the very state being rejected.
+                self.assertEqual(before, self.run_file_bytes(run_directory))
+
+    def test_claim_nonce_is_unpredictable_and_per_run(self):
+        """The binding is only as good as the nonce behind it.
+
+        A nonce derived from the run ID, the clock, or a counter would still be
+        per-run and would still make every test above pass, while leaving the
+        genesis anchor recomputable by anyone who knows the scheme -- which is
+        the property that made the fixed constant exploitable in the first
+        place. Pin what actually matters: distinct across runs, full width, and
+        not a function of the run ID.
+        """
+        output_root = self.directory / "runs"
+        nonces = []
+        for index in range(8):
+            run_directory = audio_judge._claim_run(
+                f"nonce-run-{index}",
+                output_root,
+            )
+            claim = json.loads(
+                (run_directory / "run-claim.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(2, claim["schemaVersion"])
+            self.assertRegex(claim["claimNonce"], r"^[0-9a-f]{64}$")
+            nonces.append(claim["claimNonce"])
+            # The anchor written beside the claim binds to it.
+            anchor = json.loads(
+                (
+                    run_directory / "attempt-state.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                audio_judge._claim_binding_digest(
+                    f"nonce-run-{index}",
+                    claim["claimNonce"],
+                ),
+                anchor["claimBindingSHA256"],
+            )
+
+        self.assertEqual(len(nonces), len(set(nonces)))
+        # Same nonce, different run ID => different binding. This is what makes
+        # an anchor non-transferable rather than merely per-run.
+        self.assertNotEqual(
+            audio_judge._claim_binding_digest("run-a", nonces[0]),
+            audio_judge._claim_binding_digest("run-b", nonces[0]),
+        )
 
     def test_emptied_ledger_cannot_launder_a_second_clip_through_evaluation(self):
         """A writer emptying the ledger mid-run must not free the next clip.
@@ -4236,16 +4520,7 @@ class AttemptLedgerTests(ManifestAdmissionTests):
 
         conflicting_run = output_root / "conflicting-recovery"
         conflicting_run.mkdir()
-        (conflicting_run / "run-claim.json").write_text(
-            json.dumps(
-                {
-                    "schemaVersion": 1,
-                    "runID": "conflicting-recovery",
-                    "state": "claimed",
-                }
-            ),
-            encoding="utf-8",
-        )
+        write_valid_run_claim(conflicting_run, "conflicting-recovery")
         conflicting_events = [
             {
                 "schemaVersion": 1,
@@ -4833,7 +5108,7 @@ class AttemptLedgerTests(ManifestAdmissionTests):
         stale_anchor = json.loads(
             (run_directory / "attempt-state.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(2, stale_anchor["schemaVersion"])
+        self.assertEqual(3, stale_anchor["schemaVersion"])
         self.assertEqual(0, stale_anchor["eventCount"])
         self.assertEqual(
             audio_judge.LEDGER_CHAIN_GENESIS,
@@ -5226,16 +5501,7 @@ class AttemptLedgerTests(ManifestAdmissionTests):
         output_root = self.directory / "runs"
         run_directory = output_root / "invalid-ledger"
         run_directory.mkdir(parents=True)
-        (run_directory / "run-claim.json").write_text(
-            json.dumps(
-                {
-                    "schemaVersion": 1,
-                    "runID": "invalid-ledger",
-                    "state": "claimed",
-                }
-            ),
-            encoding="utf-8",
-        )
+        write_valid_run_claim(run_directory, "invalid-ledger")
         clip_id = generate_clip_id()
         invalid_events = [
             {

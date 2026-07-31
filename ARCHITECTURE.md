@@ -933,7 +933,8 @@ which is precisely what three successive rounds of per-artifact guards failed
 to guarantee, each fix leaving its own sibling case open.
 
 The witnesses are the ledger itself, the `attempt-state.json` anchor
-(committed `eventCount` and `lastEventSHA256`), and the `ledgerEventSequence` /
+(committed `eventCount`, `lastEventSHA256`, and `claimBindingSHA256`), the
+`run-claim.json` nonce the anchor binds to, and the `ledgerEventSequence` /
 `ledgerEventSHA256` rows of `morning-queue.json`, which name an exact ledger
 event. Evaluation rows of the queue name no event and so witness nothing. The
 mutating path therefore loads the queue before any transition runs: previously
@@ -945,11 +946,13 @@ it — both decode to zero events, and the committed count is compared against
 the surviving events with no emptiness shortcut. A ledger shorter than the
 committed count, one whose committed prefix no longer reproduces the committed
 head, a queue row naming an event the ledger no longer contains, and an anchor
-that is missing or unparseable all fail closed. The anchor
-must be schema 2: a schema-1 anchor carried neither count nor head, so
-accepting one meant accepting a present anchor with the prefix rule
-unevaluated, and downgrading the anchor became a way to shed the chain
-evidence. On the mutating path a ledger at most one fsynced append ahead of its
+that is missing, unparseable, or not bound to this run's claim all fail closed.
+The anchor must be schema 3, and each superseded shape is refused for the same
+reason: a schema-1 anchor carried neither count nor head, so accepting one meant
+accepting a present anchor with the prefix rule unevaluated; a schema-2 anchor
+carries no claim binding, so accepting one would leave the substitution rule
+unevaluated. In both cases downgrading the anchor would be a way to shed
+evidence, so neither shape is migrated. On the mutating path a ledger at most one fsynced append ahead of its
 anchor is tolerated, because that is the only state an interrupted commit can
 produce. **Recovery relaxes that lag rule and nothing else**: it accepts any
 lag, since republishing a stale anchor is what the command exists for, while
@@ -959,7 +962,7 @@ as an operational precondition — with no ledger there is nothing to derive
 artifacts from — rather than as a witness rule.
 
 **The anchor is mandatory, and is created when the run is claimed.**
-`_claim_run` writes a schema-2 `attempt-state.json` committing zero events at
+`_claim_run` writes a schema-3 `attempt-state.json` committing zero events at
 the genesis head, atomically, beside `run-claim.json`. A claimed run directory
 therefore always has an anchor, so an absent anchor is unambiguously tampering
 and is refused outright in both modes.
@@ -981,16 +984,28 @@ empty ledger.
 This remains tamper evidence, not tamper proofing: a same-UID actor who
 consistently forges every artifact is still outside the model.
 
-**W0 covers deletion of the anchor, not substitution of it, and the laundering
-class is therefore not closed.** The claim-time anchor is a fixed constant —
+**The genesis anchor is bound to the run claim, which closes substitution by a
+replayable value.** W0 covers *deleting* the anchor; it says nothing about
+*overwriting* it, and the claim-time anchor used to be a fixed constant —
 `{"clips":{},"eventCount":0,"lastEventSHA256":"0"×64,"schemaVersion":2}`,
-identical for every run — so an actor with write access to a run directory
-can overwrite `attempt-state.json` with it, truncate the ledger to one line,
-and remove the queue, reproducing the round-4 laundering with a write in place
-of a delete. This is accepted as out of model (same-UID write access to the run
-directory), not as closed; closing it needs an anchor witness a fixed constant
-cannot satisfy, such as binding the anchor to the run claim. See the risk
-register in `docs/reports/pronunciation-phase2-qualification.md`.
+identical for every run and therefore known from the source rather than from the
+directory. Writing it back, truncating the ledger to one line and removing the
+queue reproduced the earlier laundering with a write in place of a delete, taking
+a terminal `morning_review`/2 clip back to `proposal_emitted`/0. `_claim_run` now
+mints an unpredictable per-run nonce, records it in `run-claim.json` (schema 2),
+and every anchor carries `claimBindingSHA256`, the digest binding that nonce to
+the run ID. An anchor whose binding is absent or belongs to another claim is
+refused in both modes, so no constant is a valid anchor and no anchor transfers
+between runs.
+
+The narrower residual is named rather than implied: an actor with **read and
+write** access to the run directory can read the nonce and recompute the binding
+for that run. No in-directory witness can close that, since every input to the
+binding lives in the directory under attack; it would need a monotone counter or
+a key outside the run directory. What changed is that the attack now requires
+reading the target directory instead of only knowing a published constant. Still
+out of model (same-UID write access). See the risk register in
+`docs/reports/pronunciation-phase2-qualification.md`.
 
 Manifest, audio, and judge-owned artifact reads are bounded before allocation,
 and a manifest whose clip count exceeds the 200-request cap is refused before
