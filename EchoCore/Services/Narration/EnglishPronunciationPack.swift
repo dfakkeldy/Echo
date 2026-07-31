@@ -402,6 +402,114 @@ extension EnglishPronunciationPack {
             contentDefaultPolicyVersion,
         ].joined(separator: "|")
     }
+
+    /// Generic words that name a candidate's position rather than its meaning.
+    nonisolated static let senseLabelOrderTokens: Set<String> = [
+        "alt", "alternate", "alternative", "candidate", "entry", "form",
+        "index", "item", "no", "num", "number", "option", "order", "pron",
+        "pronunciation", "rank", "reading", "sense", "variant", "version",
+    ]
+
+    nonisolated static let senseLabelOrdinalSuffixes: Set<String> = [
+        "st", "nd", "rd", "th",
+    ]
+
+    /// Refuse labels that record a candidate's ordering or spelling instead of
+    /// its sense.
+    ///
+    /// A sense label exists to tell two pronunciations of one spelling apart by
+    /// meaning. An ordinal, a source-order token, a raw CMUdict alternate
+    /// annotation, or a restatement of the headword conveys no meaning, so
+    /// promoting one to a sense label manufactures the appearance of reviewed
+    /// evidence out of ordering that was never reviewed. The specification says
+    /// the generator "must not fabricate labels or ordinal strings", and a
+    /// `validated-human-reviewed` candidate is admitted to contextual model
+    /// selection, so this is the boundary that keeps that admission honest.
+    ///
+    /// Length and non-emptiness alone were the entire check before, and no test
+    /// exercised even that: the committed pack contains zero
+    /// `validated-human-reviewed` candidates, so the branch guarding them never
+    /// executed.
+    ///
+    /// Two of the five prohibitions in brief 10.1 are NOT decidable here and
+    /// are deliberately not attempted. A model-authored label is a provenance
+    /// question -- the string carries no evidence of its author -- and must be
+    /// answered by the source and review record. A label copied from another
+    /// source's gloss is likewise indistinguishable from an original one.
+    ///
+    /// Deliberately module-internal rather than fileprivate: brief 10.1 states
+    /// this rule, so the Task 10 acceptance suite asserts it directly instead
+    /// of inferring it from a decode failure.
+    nonisolated static func isAdmissibleSenseLabel(
+        _ value: String,
+        for word: String
+    ) -> Bool {
+        guard isShortSenseLabel(value) else { return false }
+        let lowercased = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        // No letter anywhere means no sense: "2", "(2)", "#2", "02".
+        guard lowercased.contains(where: \.isLetter) else { return false }
+
+        // A raw CMUdict alternate annotation: "example(2)".
+        if lowercased.hasSuffix(")"), let open = lowercased.firstIndex(of: "(") {
+            let inside = lowercased[
+                lowercased.index(after: open)..<lowercased.index(
+                    before: lowercased.endIndex)
+            ]
+            if !inside.isEmpty, inside.allSatisfy(\.isNumber) {
+                return false
+            }
+        }
+
+        let parts = lowercased
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .map(String.init)
+
+        // A bare ordinal numeral: "2nd", "13th".
+        if parts.count == 1 {
+            let digits = parts[0].prefix(while: \.isNumber)
+            if !digits.isEmpty,
+                senseLabelOrdinalSuffixes.contains(
+                    String(parts[0].dropFirst(digits.count)))
+            {
+                return false
+            }
+        }
+
+        // A generic order token beside a number, in either order and whether or
+        // not a separator was used: "variant 2", "2 variant", "pron2".
+        let tokens = parts.count == 1 ? splitBoundaryNumber(parts[0]) : parts
+        if tokens.count == 2 {
+            let numeric = tokens.filter { !$0.isEmpty && $0.allSatisfy(\.isNumber) }
+            let named = tokens.filter { !$0.isEmpty && $0.allSatisfy(\.isLetter) }
+            if numeric.count == 1, named.count == 1,
+                senseLabelOrderTokens.contains(named[0])
+            {
+                return false
+            }
+        }
+
+        // A restatement of the headword distinguishes nothing.
+        let labelLetters = String(lowercased.filter(\.isLetter))
+        let wordLetters = String(word.lowercased().filter(\.isLetter))
+        if !labelLetters.isEmpty, labelLetters == wordLetters { return false }
+
+        return true
+    }
+
+    nonisolated static func splitBoundaryNumber(_ value: String) -> [String] {
+        let leading = value.prefix(while: \.isNumber)
+        if !leading.isEmpty {
+            return [String(leading), String(value.dropFirst(leading.count))]
+        }
+        let trailing = String(value.reversed().prefix(while: \.isNumber).reversed())
+        if !trailing.isEmpty {
+            return [String(value.dropLast(trailing.count)), trailing]
+        }
+        return [value]
+    }
 }
 
 private extension EnglishPronunciationPack {
@@ -579,7 +687,10 @@ private extension EnglishPronunciationPack {
                 else {
                     throw ValidationError.invalid("candidate")
                 }
-                try validateCandidate(candidate, entryCandidateCount: candidates.count)
+                try validateCandidate(
+                    candidate,
+                    entryCandidateCount: candidates.count,
+                    word: word)
             }
         }
         guard manifest.candidateCount == actualCandidateCount else {
@@ -633,7 +744,8 @@ private extension EnglishPronunciationPack {
 
     nonisolated static func validateCandidate(
         _ candidate: Candidate,
-        entryCandidateCount: Int
+        entryCandidateCount: Int,
+        word: String
     ) throws {
         switch candidate.validationStatus {
         case .validatedAutomatic:
@@ -641,7 +753,7 @@ private extension EnglishPronunciationPack {
                 throw ValidationError.invalid("automatic candidate")
             }
             if let senseLabel = candidate.senseLabel {
-                guard isShortSenseLabel(senseLabel) else {
+                guard isAdmissibleSenseLabel(senseLabel, for: word) else {
                     throw ValidationError.invalid("automatic sense label")
                 }
             }
@@ -654,13 +766,14 @@ private extension EnglishPronunciationPack {
             }
         case .validatedHumanReviewed:
             guard let senseLabel = candidate.senseLabel,
-                isShortSenseLabel(senseLabel),
+                isAdmissibleSenseLabel(senseLabel, for: word),
                 !candidate.automaticWithoutContext
             else {
                 throw ValidationError.invalid("human-reviewed candidate")
             }
         }
     }
+
 
     nonisolated static func validateGeneratorBehavior(
         _ behavior: GeneratorBehavior

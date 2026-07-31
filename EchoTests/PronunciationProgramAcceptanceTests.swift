@@ -951,6 +951,49 @@ import Testing
         #expect(candidateCacheSignatures[6] != candidateCacheSignatures[0])
     }
 
+    @Test func orderingIsNeverPromotedToASenseLabel() throws {
+        // Brief 10.1: never promote an ordinal, source order, spelling
+        // variant, model-authored label, or CMUdict annotation to a sense
+        // label. That rule had no test at all. The only check on a
+        // `validated-human-reviewed` label was that it was nonempty, and even
+        // that branch never executed, because the committed pack contains zero
+        // such candidates -- so the assertion was vacuous and the rule was
+        // enforced nowhere.
+        let ordinals = ["2", "02", "2nd", "13th", "(2)", "#2"]
+        let sourceOrder = [
+            "variant 2", "candidate 3", "sense_2", "pron2", "2 variant",
+            "option-4", "reading 2",
+        ]
+        let cmudictAnnotations = ["record(2)", "example(1)", "abandon(3)"]
+        let spellingVariants = ["record", "Record", "  record  "]
+
+        for label in ordinals + sourceOrder + cmudictAnnotations
+            + spellingVariants
+        {
+            #expect(
+                !EnglishPronunciationPack.isAdmissibleSenseLabel(
+                    label, for: "record"),
+                "\(label) must not be admissible")
+        }
+
+        for label in [
+            "a written account", "to set down in writing", "past tense",
+            "musical disc", "verb (to store)",
+        ] {
+            #expect(
+                EnglishPronunciationPack.isAdmissibleSenseLabel(
+                    label, for: "record"),
+                "\(label) must remain admissible")
+        }
+
+        // A model-authored label and a copied gloss are provenance questions,
+        // not lexical ones: the string carries no evidence of its author, so
+        // they are answered by the source and review record rather than here.
+        #expect(
+            EnglishPronunciationPack.isAdmissibleSenseLabel(
+                "a written account", for: "record"))
+    }
+
     @Test func bundledPackHasClosedShapeAttributionAndIndependentIdentity() throws {
         let data = try Data(contentsOf: packURL)
         let pack = try EnglishPronunciationPack(data: data)
@@ -982,10 +1025,10 @@ import Testing
                 let status = try #require(candidate["validationStatus"] as? String)
                 #expect(closedStatuses.contains(status))
                 if status == "validated-human-reviewed" {
+                    let label = try #require(candidate["senseLabel"] as? String)
                     #expect(
-                        (candidate["senseLabel"] as? String)?
-                            .trimmingCharacters(in: .whitespacesAndNewlines)
-                            .isEmpty == false)
+                        EnglishPronunciationPack.isAdmissibleSenseLabel(
+                            label, for: word))
                 }
             }
 

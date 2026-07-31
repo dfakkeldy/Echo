@@ -917,20 +917,49 @@ replayed. Chaining alone cannot detect a dropped final line, because the
 shortened chain still verifies, so the atomically written `attempt-state.json`
 records the committed `eventCount` and `lastEventSHA256`.
 
-The committed count is compared against the surviving events before any other
-rule, including before any emptiness shortcut: an emptied or unlinked ledger is
-the maximal truncation, not an exemption from it. A ledger shorter than the
+These checks are a single conjunction over *witnesses*, evaluated in one place
+(`_verify_run_directory_witnesses`) rather than as guards at the call sites.
+A run directory's artifacts each attest something about the history, and a
+proposed state is accepted only if every witness that still exists agrees with
+it. An absent witness proves nothing; a present one that contradicts the
+proposed state refuses it regardless of what else is present. The consequence
+that matters is that **deleting an artifact never widens what is accepted** —
+which is precisely what three successive rounds of per-artifact guards failed
+to guarantee, each fix leaving its own sibling case open.
+
+The witnesses are the ledger itself, the `attempt-state.json` anchor
+(committed `eventCount` and `lastEventSHA256`), and the `ledgerEventSequence` /
+`ledgerEventSHA256` rows of `morning-queue.json`, which name an exact ledger
+event. Evaluation rows of the queue name no event and so witness nothing. The
+mutating path therefore loads the queue before any transition runs: previously
+it read only the ledger and the anchor, so erasing both left the queue's
+terminal row unable to refuse anything and the run read as fresh.
+
+An emptied or unlinked ledger is the maximal truncation, not an exemption from
+it — both decode to zero events, and the committed count is compared against
+the surviving events with no emptiness shortcut. A ledger shorter than the
 committed count, one whose committed prefix no longer reproduces the committed
-head, and an anchor that is missing or unparseable over a multi-event ledger
-all fail closed, and the mutating path refuses an empty ledger whenever an
-anchor exists. On the mutating path a ledger at most one fsynced append ahead
-of its snapshot is tolerated, because that is the only state an interrupted
-commit can produce. Recovery relaxes only that lag rule — it accepts any lag
-and migrates a pre-chain schema-1 anchor, since republishing a stale anchor is
-what the command exists for — while applying the same committed-prefix rule, so
-recovery is not a laundering path for a truncated ledger. This is tamper
-evidence, not tamper proofing: a same-UID actor who consistently forges both
-artifacts is still outside the model.
+head, a queue row naming an event the ledger no longer contains, and an anchor
+missing or unparseable over a multi-event ledger all fail closed. The anchor
+must be schema 2: a schema-1 anchor carried neither count nor head, so
+accepting one meant accepting a present anchor with the prefix rule
+unevaluated, and downgrading the anchor became a way to shed the chain
+evidence. On the mutating path a ledger at most one fsynced append ahead of its
+anchor is tolerated, because that is the only state an interrupted commit can
+produce. **Recovery relaxes that lag rule and nothing else**: it accepts any
+lag, since republishing a stale anchor is what the command exists for, while
+applying every other predicate identically, so it is not a laundering path for
+a truncated ledger. Recovery additionally refuses an empty ledger outright, but
+as an operational precondition — with no ledger there is nothing to derive
+artifacts from — rather than as a witness rule.
+
+One rule is an assumption rather than a witness and is labelled as such in the
+code: an absent anchor over a multi-event ledger is treated as tampering,
+justified only by the fact that the judge always republishes the anchor after
+an append. If both the ledger and the anchor are removed, no surviving witness
+can distinguish tampering from a fresh run. This is tamper evidence, not tamper
+proofing: a same-UID actor who consistently forges every artifact is still
+outside the model.
 
 Manifest, audio, and judge-owned artifact reads are bounded before allocation,
 and a manifest whose clip count exceeds the 200-request cap is refused before

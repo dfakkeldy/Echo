@@ -1,9 +1,11 @@
 import base64
 import hashlib
+import http.client
 import json
 import os
 import re
 import shutil
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -1210,6 +1212,47 @@ class EvaluationGateTests(ManifestAdmissionTests):
             self.assertRaises(PermanentTransportError),
         ):
             audio_judge._post_chat_completion({}, "test-only-key")
+
+    def test_connection_level_read_failures_are_typed_transport_errors(self):
+        """A connection dying mid-body is a transport failure, not a crash.
+
+        `response.read()` runs inside the `urlopen` block, and none of these
+        four is an `HTTPError`, a `URLError` or a `TimeoutError`, so each used
+        to escape `_post_chat_completion` untyped. `run_evaluation` has no
+        catch-all and `main` catches only the domain errors, so the run died
+        on a raw traceback and produced neither a morning-queue entry nor a
+        pass -- breaking the outcome contract that says every clip ends in
+        one or the other.
+
+        NOTE: typing these does NOT address the budget consequence recorded in
+        the receipt's risk register. `_claim_run` makes a run ID single-use, so
+        recovering from such a crash still needs a new run ID with a fresh
+        request and USD budget while the crashed run already spent part of one.
+        Those are two different problems; the cross-run accumulator is
+        deferred.
+        """
+        failures = (
+            http.client.RemoteDisconnected(
+                "remote end closed connection without response"
+            ),
+            http.client.IncompleteRead(b"partial", 4096),
+            ssl.SSLError("record layer failure"),
+            ConnectionResetError("connection reset by peer"),
+        )
+        for failure in failures:
+            with self.subTest(failure=type(failure).__name__):
+                api_response = mock.MagicMock()
+                api_response.__enter__.return_value.read.side_effect = failure
+
+                with (
+                    mock.patch.object(
+                        audio_judge.urllib.request,
+                        "urlopen",
+                        return_value=api_response,
+                    ),
+                    self.assertRaises(TransientTransportError),
+                ):
+                    audio_judge._post_chat_completion({}, "test-only-key")
 
     def test_non_string_run_identifiers_fail_controlled_before_regex_or_io(self):
         clip_id = generate_clip_id()
@@ -2743,56 +2786,177 @@ class AttemptLedgerTests(ManifestAdmissionTests):
                 )
         self.assertTrue((run_directory / "attempt-ledger.jsonl").exists())
 
-    def test_recover_republishes_a_legacy_or_lagging_anchor(self):
-        """`recover` must repair the two states it exists for.
+    def test_recover_republishes_a_lagging_anchor(self):
+        """`recover` must repair the state it exists for.
 
-        A schema-1 anchor predates the chain, and a ledger more than one
-        append ahead is what an interrupted multi-step command leaves. The
-        mutating path is strict about both; recovery is the escape hatch and
-        must not refuse them.
+        A ledger more than one append ahead of its anchor is what an
+        interrupted multi-step command leaves. The mutating path refuses that
+        lag (W3); recovery is the escape hatch and must not. The committed
+        prefix still has to reproduce exactly in both modes.
         """
-        cases = ("legacy-schema", "lagging-anchor")
-        for case in cases:
-            with self.subTest(anchor=case):
-                run_id = f"repairable-{case}"
-                clip_id, output_root = self.terminal_morning_run(run_id=run_id)
-                run_directory = output_root / run_id
-                anchor_path = run_directory / "attempt-state.json"
-                events = [
-                    json.loads(line)
-                    for line in (
-                        run_directory / "attempt-ledger.jsonl"
-                    ).read_text(encoding="utf-8").splitlines()
-                ]
-                self.assertGreater(len(events), 3)
-                snapshot = json.loads(anchor_path.read_text(encoding="utf-8"))
+        run_id = "repairable-lagging-anchor"
+        clip_id, output_root = self.terminal_morning_run(run_id=run_id)
+        run_directory = output_root / run_id
+        anchor_path = run_directory / "attempt-state.json"
+        events = [
+            json.loads(line)
+            for line in (
+                run_directory / "attempt-ledger.jsonl"
+            ).read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertGreater(len(events), 3)
+        snapshot = json.loads(anchor_path.read_text(encoding="utf-8"))
 
-                if case == "legacy-schema":
-                    anchor_path.write_text(
-                        json.dumps(
-                            {
-                                "schemaVersion": 1,
-                                "clips": snapshot["clips"],
-                            },
-                            sort_keys=True,
-                        )
-                        + "\n",
-                        encoding="utf-8",
+        committed = len(events) - 3
+        snapshot["eventCount"] = committed
+        snapshot["lastEventSHA256"] = (
+            audio_judge._ledger_event_digest(events[committed - 1])
+            if committed
+            else audio_judge.LEDGER_CHAIN_GENESIS
+        )
+        anchor_path.write_text(
+            json.dumps(snapshot, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        # The mutating path stays strict about the lag.
+        with self.assertRaises(LedgerError):
+            read_attempt_state(
+                run_id=run_id,
+                clip_id=clip_id,
+                output_root=output_root,
+            )
+
+        completed = self.run_recovery_cli(
+            run_id=run_id,
+            output_root=output_root,
+        )
+
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        repaired = json.loads(anchor_path.read_text(encoding="utf-8"))
+        self.assertEqual(2, repaired["schemaVersion"])
+        self.assertEqual(len(events), repaired["eventCount"])
+        self.assertEqual(
+            audio_judge._ledger_event_digest(events[-1]),
+            repaired["lastEventSHA256"],
+        )
+        self.assertEqual(
+            "morning_review",
+            repaired["clips"][clip_id]["state"],
+        )
+        # Recovery restored the mutating path.
+        self.assertEqual(
+            "morning_review",
+            read_attempt_state(
+                run_id=run_id,
+                clip_id=clip_id,
+                output_root=output_root,
+            )["state"],
+        )
+
+    def test_recover_refuses_a_legacy_schema_anchor(self):
+        """A schema-1 anchor is a present anchor with W1 and W2 unevaluated.
+
+        The migration branch returned before the committed count and head were
+        consulted, so recovery applied no prefix check at all to a schema-1
+        anchor even though its docstring claimed otherwise. Downgrading the
+        anchor therefore shed the chain evidence: a truncated ledger under a
+        schema-1 anchor was republished without objection, spending a clip's
+        recorded attempt back down. Schema 2 was introduced on this same
+        unmerged branch and no schema-1 anchor has ever been produced by
+        merged or shipped code, so requiring schema 2 costs nothing and makes
+        "anchor present => W1 and W2" hold unconditionally.
+
+        The intact case is the one the deleted branch accepted; the truncated
+        case is the laundering it enabled. Both must be refused, and neither
+        may mutate the directory.
+
+        The truncated case deliberately uses a run with NO terminal
+        morning-queue row. A terminal run would be refused by W4 the moment
+        the ledger lost the event its queue row names, so it would pass
+        against the unfixed code for the wrong reason and prove nothing about
+        the anchor. Here the anchor is the only witness that can object, which
+        is why the missing prefix check was reachable: recovery republished
+        `attemptCount` 1 back down to 0 without objecting, though the anchor's
+        own `clips` said 1.
+        """
+        for case in ("intact-ledger", "truncated-ledger"):
+            with self.subTest(ledger=case):
+                run_id = f"legacy-anchor-{case}"
+                if case == "intact-ledger":
+                    clip_id, output_root = self.terminal_morning_run(
+                        run_id=run_id
                     )
                 else:
-                    committed = len(events) - 3
-                    snapshot["eventCount"] = committed
-                    snapshot["lastEventSHA256"] = (
-                        audio_judge._ledger_event_digest(events[committed - 1])
-                        if committed
-                        else audio_judge.LEDGER_CHAIN_GENESIS
+                    clip_id, output_root = self.failing_run(run_id=run_id)
+                    record_attempt(
+                        run_id=run_id,
+                        clip_id=clip_id,
+                        source_commit="d" * 40,
+                        red_test_receipt="1" * 64,
+                        green_test_receipt="2" * 64,
+                        negative_guard_receipt="3" * 64,
+                        implementation_review_receipt="4" * 64,
+                        output_root=output_root,
                     )
-                    anchor_path.write_text(
-                        json.dumps(snapshot, sort_keys=True) + "\n",
+                    record_rerender(
+                        run_id=run_id,
+                        clip_id=clip_id,
+                        render_content_sha256="5" * 64,
+                        audio_retest_receipt="6" * 64,
+                        family_regression_receipt="7" * 64,
+                        outcome="fail",
+                        output_root=output_root,
+                    )
+                run_directory = output_root / run_id
+                anchor_path = run_directory / "attempt-state.json"
+                ledger_path = run_directory / "attempt-ledger.jsonl"
+                snapshot = json.loads(anchor_path.read_text(encoding="utf-8"))
+
+                if case == "truncated-ledger":
+                    self.assertEqual(
+                        1,
+                        snapshot["clips"][clip_id]["attemptCount"],
+                    )
+                    # Evaluation rows may be present -- they name no ledger
+                    # event and so are not witnesses. What must be absent is
+                    # any ledger row, or W4 would refuse this case instead of
+                    # the anchor rules.
+                    self.assertEqual(
+                        [],
+                        [
+                            row
+                            for row in json.loads(
+                                (
+                                    run_directory / "morning-queue.json"
+                                ).read_bytes()
+                            )
+                            if "ledgerEventSequence" in row
+                        ],
+                    )
+                    lines = ledger_path.read_text(
+                        encoding="utf-8"
+                    ).splitlines()
+                    self.assertEqual(3, len(lines))
+                    ledger_path.write_text(
+                        f"{lines[0]}\n",
                         encoding="utf-8",
                     )
 
-                # The mutating path stays strict about both.
+                anchor_path.write_text(
+                    json.dumps(
+                        {
+                            "schemaVersion": 1,
+                            "clips": snapshot["clips"],
+                        },
+                        sort_keys=True,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+
+                before = self.run_file_bytes(run_directory)
+
                 with self.assertRaises(LedgerError):
                     read_attempt_state(
                         run_id=run_id,
@@ -2805,29 +2969,10 @@ class AttemptLedgerTests(ManifestAdmissionTests):
                     output_root=output_root,
                 )
 
-                self.assertEqual(0, completed.returncode, completed.stderr)
-                repaired = json.loads(
-                    anchor_path.read_text(encoding="utf-8")
-                )
-                self.assertEqual(2, repaired["schemaVersion"])
-                self.assertEqual(len(events), repaired["eventCount"])
-                self.assertEqual(
-                    audio_judge._ledger_event_digest(events[-1]),
-                    repaired["lastEventSHA256"],
-                )
-                self.assertEqual(
-                    "morning_review",
-                    repaired["clips"][clip_id]["state"],
-                )
-                # Recovery restored the mutating path.
-                self.assertEqual(
-                    "morning_review",
-                    read_attempt_state(
-                        run_id=run_id,
-                        clip_id=clip_id,
-                        output_root=output_root,
-                    )["state"],
-                )
+                self.assertNotEqual(0, completed.returncode)
+                self.assertEqual("", completed.stdout)
+                self.assertNotIn("Traceback", completed.stderr)
+                self.assertEqual(before, self.run_file_bytes(run_directory))
 
     def test_recovery_still_refuses_a_truncated_or_rewritten_ledger(self):
         """The relaxed lag rules must not relax the truncation rules."""
@@ -2913,6 +3058,84 @@ class AttemptLedgerTests(ManifestAdmissionTests):
                 # The anchor is the only surviving evidence; nothing may
                 # rewrite it while the ledger cannot reproduce it.
                 self.assertEqual(anchor_before, anchor_path.read_bytes())
+
+    def test_erasing_both_ledger_and_anchor_cannot_launder_a_surviving_queue(self):
+        """Deleting an artifact must never widen the accepted set.
+
+        Refusing an emptied ledger *with* a committed anchor left the sibling
+        case open: erase the ledger AND the anchor and the run read as fresh,
+        while `morning-queue.json` survived carrying the terminal entry, the
+        clip ID, and the SHA-256 of the exact ledger event that produced it.
+        The mutating path never loaded the queue at all, so that surviving
+        witness could not refuse anything. A full proposal, attempt and
+        rerender cycle then completed and authorised a production rerender,
+        taking a terminal clip's attemptCount from 2 back to 1 -- a transition
+        the specification calls irreversible -- with no forgery and no hash
+        computation.
+
+        This is row 3 of the twelve-state enumeration in
+        `_verify_run_directory_witnesses`, and W4 is what refuses it: with no
+        surviving ledger events there are no required entries, so a queue row
+        naming sequence 4 matches nothing.
+        """
+        for index, erase in enumerate(
+            (
+                lambda path: path.write_bytes(b""),
+                lambda path: path.unlink(),
+            )
+        ):
+            with self.subTest(erasure=("empty", "unlink")[index]):
+                run_id = f"both-erased-{index}"
+                clip_id, output_root = self.terminal_morning_run(run_id=run_id)
+                run_directory = output_root / run_id
+                queue_path = run_directory / "morning-queue.json"
+
+                queue_before = queue_path.read_bytes()
+                queue_rows = json.loads(queue_before)
+                # The queue must actually carry a ledger identity, or the test
+                # would pass for the wrong reason.
+                self.assertTrue(
+                    any(
+                        "ledgerEventSHA256" in row and "ledgerEventSequence" in row
+                        for row in queue_rows
+                    ),
+                    queue_rows,
+                )
+
+                erase(run_directory / "attempt-ledger.jsonl")
+                (run_directory / "attempt-state.json").unlink()
+
+                with self.assertRaises(LedgerError):
+                    read_attempt_state(
+                        run_id=run_id,
+                        clip_id=clip_id,
+                        output_root=output_root,
+                    )
+                with self.assertRaises(LedgerError):
+                    audio_judge._emit_proposal(
+                        run_id=run_id,
+                        clip_id=clip_id,
+                        category="wrong_sense",
+                        output_root=output_root,
+                    )
+                with self.assertRaises(LedgerError):
+                    record_attempt(
+                        run_id=run_id,
+                        clip_id=clip_id,
+                        source_commit="f" * 40,
+                        red_test_receipt="0" * 64,
+                        green_test_receipt="1" * 64,
+                        negative_guard_receipt="2" * 64,
+                        implementation_review_receipt="3" * 64,
+                        output_root=output_root,
+                    )
+
+                # The queue is the only surviving witness; nothing may rewrite
+                # it while the ledger cannot reproduce what it names.
+                self.assertEqual(queue_before, queue_path.read_bytes())
+                self.assertFalse(
+                    (run_directory / "attempt-state.json").exists()
+                )
 
     def test_emptied_ledger_cannot_launder_a_second_clip_through_evaluation(self):
         """A writer emptying the ledger mid-run must not free the next clip.

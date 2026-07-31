@@ -403,6 +403,56 @@ import Testing
         }
     }
 
+    @Test func orderingArtifactsAreRejectedAsSenseLabels() throws {
+        // Each of these reaches the pack through the full decode path on a
+        // `validated-human-reviewed` candidate whose every other field is
+        // valid, so the sense label is the only thing that can refuse it.
+        let inadmissible = [
+            "2",  // bare ordinal
+            "02",
+            "2nd",  // ordinal numeral
+            "(2)",
+            "variant 2",  // source order
+            "sense_2",
+            "pron2",
+            "record(2)",  // raw CMUdict alternate annotation
+            "record",  // spelling variant of the headword
+            "Record",
+        ]
+
+        for label in inadmissible {
+            let data = try Self.rehashed { root in
+                Self.mutateFirstRecordCandidate(in: &root) {
+                    $0["validationStatus"] = "validated-human-reviewed"
+                    $0["senseLabel"] = label
+                }
+            }
+
+            #expect(throws: (any Error).self) {
+                _ = try EnglishPronunciationPack(data: data)
+            }
+        }
+    }
+
+    @Test func genuineSenseLabelsRemainAdmissible() throws {
+        for label in [
+            "a written account",
+            "to set down in writing",
+            "noun",
+            "verb (to store)",
+            "音楽",
+        ] {
+            let data = try Self.rehashed { root in
+                Self.mutateFirstRecordCandidate(in: &root) {
+                    $0["validationStatus"] = "validated-human-reviewed"
+                    $0["senseLabel"] = label
+                }
+            }
+
+            _ = try EnglishPronunciationPack(data: data)
+        }
+    }
+
     @Test func candidateStatusInvariantsAreClosed() throws {
         let invalidMutations: [(inout [String: Any]) -> Void] = [
             { root in

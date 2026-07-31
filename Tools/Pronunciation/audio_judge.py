@@ -8,11 +8,13 @@ import base64
 import fcntl
 import functools
 import hashlib
+import http.client
 import json
 import math
 import os
 import re
 import shutil
+import ssl
 import stat
 import subprocess
 import urllib.error
@@ -592,6 +594,11 @@ def _load_provenance_authority(
         json.JSONDecodeError,
         ValueError,
         ManifestError,
+        # The provenance authority is an operator-supplied external file, so
+        # its nesting depth is attacker-controlled and a deep document raises
+        # RecursionError, which is a RuntimeError and so caught by none of the
+        # above.
+        RecursionError,
     ) as error:
         raise ManifestError("provenance authority is invalid") from error
     if (
@@ -662,7 +669,11 @@ def _probe_audio(path: Path, expected_format: str) -> float:
             text=True,
             timeout=30,
         )
-        decoded = json.loads(result.stdout)
+        decoded = json.loads(
+            result.stdout,
+            parse_constant=lambda _value: (_ for _ in ()).throw(
+                ManifestError("trusted media probe failed")),
+        )
         format_record = decoded["format"]
         streams = decoded["streams"]
         duration = float(format_record["duration"])
@@ -674,6 +685,8 @@ def _probe_audio(path: Path, expected_format: str) -> float:
         json.JSONDecodeError,
         KeyError,
         TypeError,
+        ManifestError,
+        RecursionError,
     ) as error:
         raise ManifestError("trusted media probe failed") from error
     if not math.isfinite(duration) or duration <= 0:
@@ -1061,6 +1074,7 @@ def _request_estimate(clip: AdmittedClip, body: dict[str, Any]) -> dict[str, Any
         KeyError,
         IndexError,
         ManifestError,
+        RecursionError,
     ) as error:
         raise ManifestError("request body is invalid") from error
     try:
@@ -1151,7 +1165,22 @@ def _post_chat_completion(body: dict[str, Any], api_key: str) -> dict[str, Any]:
         if error.code in {408, 409, 429} or 500 <= error.code <= 599:
             raise TransientTransportError() from None
         raise PermanentTransportError() from None
-    except (urllib.error.URLError, TimeoutError):
+    except (
+        urllib.error.URLError,
+        TimeoutError,
+        # `response.read()` runs inside this block, and a connection that
+        # dies mid-body does not surface as a URLError. None of the four
+        # below is a URLError, a TimeoutError or an HTTPError, so each used
+        # to escape untyped: `run_evaluation` has no catch-all and `main`
+        # catches only the domain errors, so the run died on a raw traceback
+        # and produced neither a morning-queue entry nor a pass, breaking the
+        # outcome contract. All four are connection-level and
+        # indistinguishable from a network blip, so all four are transient.
+        http.client.RemoteDisconnected,
+        http.client.IncompleteRead,
+        ssl.SSLError,
+        ConnectionResetError,
+    ):
         raise TransientTransportError() from None
     try:
         decoded = json.loads(
@@ -1693,83 +1722,93 @@ def _verify_ledger_head_against_snapshot(
     *,
     for_recovery: bool = False,
 ) -> None:
-    """Refuse a ledger that no longer reproduces its committed head.
+    """Evaluate the anchor predicates W1, W2 and W3, and the W8 assumption.
 
-    Hash chaining catches rewritten and reordered interior events, but a
-    truncated tail leaves a shorter chain that still verifies. The snapshot
-    is written after every append and records the head plus the event count,
-    so a dropped final line is detected here.
+    This is one conjunct of `_verify_run_directory_witnesses`; see that
+    function for the witness-monotonicity invariant these predicates serve.
 
-    One ledger event ahead of the snapshot is legitimate: an append is
-    fsynced before the snapshot is republished, so a crash in that window
-    leaves the ledger one event ahead and recovery repairs it. A ledger that
-    is *shorter* than the committed count, or that no longer reproduces the
-    committed head, is refused.
+    The anchor (`attempt-state.json`, schema 2) attests a committed
+    `eventCount` and `lastEventSHA256`. Hash chaining alone catches rewritten
+    and reordered interior events, but a truncated tail leaves a shorter
+    chain that still verifies, so the anchor is what makes truncation
+    evident.
 
-    An emptied or unlinked ledger is the maximal truncation, not an exemption
-    from it. Returning early on `not events` let that one case through while
-    every smaller truncation was caught, and the next append then overwrote
-    the anchor and destroyed the evidence. The committed count is therefore
-    compared against the surviving events before any emptiness shortcut.
+      W1  anchor present => len(events) >= eventCount
+      W2  anchor present => chain_head(events[:eventCount]) == lastEventSHA256
+      W3  anchor present => len(events) - eventCount <= 1   (mutating path)
 
-    `for_recovery` relaxes only the lag rules, never the truncation rules.
-    Recovery exists to republish a stale anchor, so refusing every anchor it
-    is meant to repair made the command useless for a schema-1 anchor written
-    before the chain existed, and for a ledger more than one append ahead. In
-    that mode a legacy anchor is migrated and any lag is accepted, but the
-    committed prefix must still reproduce exactly: a shorter ledger or a
-    rewritten committed event is refused in both modes.
+    W3 is the lag rule and the *only* thing `for_recovery` relaxes. One
+    ledger event ahead of the anchor is legitimate on the mutating path: an
+    append is fsynced before the anchor is republished, so a crash in that
+    window leaves the ledger one event ahead. Recovery exists to repair a
+    stale anchor, so it tolerates any lag. Neither mode tolerates
+    contradiction: a ledger shorter than the committed count, or one that no
+    longer reproduces the committed head, is refused in both.
+
+    An emptied or unlinked ledger is the maximal truncation, not an
+    exemption from it. `_load_ledger_events` returns `[]` for both, and W1
+    refuses `[]` against any anchor committing one or more events, by the
+    same rule that refuses a one-line truncation.
+
+    W8 (`snapshot_bytes is None`) is an ASSUMPTION, NOT A WITNESS. An absent
+    anchor attests nothing and so cannot by itself forbid any state. The rule
+    below is justified only by a completeness argument about the writer: the
+    judge always republishes the anchor after an append, so a multi-event
+    ledger with no anchor was tampered with rather than crashed. It is
+    load-bearing and underived. Do not delete it as an unmotivated special
+    case: if both the ledger and the anchor are removed, no surviving witness
+    can distinguish tampering from a fresh run, and W8 is the only thing
+    standing between "delete the anchor" and "then truncate freely".
     """
     if snapshot_bytes is None:
-        # Only the very first append can precede the first snapshot.
+        # W8 -- assumption, not a witness. See the docstring above.
         if len(events) > 1:
             raise LedgerError("attempt ledger does not match its committed head")
         return
     try:
-        snapshot = json.loads(snapshot_bytes, object_pairs_hook=_strict_object)
+        snapshot = json.loads(
+            snapshot_bytes,
+            object_pairs_hook=_strict_object,
+            parse_constant=lambda _value: (_ for _ in ()).throw(
+                LedgerError("attempt state is invalid")),
+        )
     except (
         UnicodeError,
         json.JSONDecodeError,
         ValueError,
+        ManifestError,
         RecursionError,
     ) as error:
         raise LedgerError("attempt state is invalid") from error
-    if not _has_exact_json_type(snapshot, dict) or not _has_exact_json_type(
-        snapshot.get("schemaVersion"), int
-    ):
-        raise LedgerError("attempt state is invalid")
-    if snapshot["schemaVersion"] == 1:
-        # A pre-chain anchor carries no head to verify against. Recovery
-        # migrates it; the mutating path refuses it so a schema downgrade
-        # cannot be used to shed the chain evidence.
-        if for_recovery and set(snapshot) == {"schemaVersion", "clips"}:
-            return
-        raise LedgerError("attempt state is invalid")
+    # Schema 2 is the only anchor shape. A schema-1 anchor carried no head and
+    # no count, so accepting one meant accepting a present anchor with W1 and
+    # W2 unevaluated -- a laundering path, because downgrading the anchor shed
+    # the chain evidence that a truncation would otherwise contradict. Schema 2
+    # was introduced on this same unmerged branch and no schema-1 anchor has
+    # ever been produced by merged or shipped code, so there is nothing to
+    # migrate. Requiring schema 2 is what makes "anchor present => W1 and W2"
+    # hold unconditionally.
     if (
-        snapshot["schemaVersion"] != 2
+        not _has_exact_json_type(snapshot, dict)
+        or not _has_exact_json_type(snapshot.get("schemaVersion"), int)
+        or snapshot["schemaVersion"] != 2
         or not _has_exact_json_type(snapshot.get("eventCount"), int)
         or not _valid_receipt_hash(snapshot.get("lastEventSHA256"))
     ):
         raise LedgerError("attempt state is invalid")
     committed_count = snapshot["eventCount"]
     committed_head = snapshot["lastEventSHA256"]
-    # Checked before anything else so an emptied or unlinked ledger, which is
-    # simply `len(events) == 0`, is refused by the same rule as a one-line
-    # truncation instead of slipping past on an emptiness shortcut.
+    # W1.
     if committed_count < 0 or committed_count > len(events):
         raise LedgerError("attempt ledger does not match its committed head")
-    # The committed prefix must reproduce exactly in both modes. This is the
-    # rule that refuses truncation and interior rewriting; only how far the
-    # ledger may run ahead of it differs.
+    # W2. Refuses truncation and interior rewriting in both modes.
     if committed_head != _ledger_chain_head(events[:committed_count]):
         raise LedgerError("attempt ledger does not match its committed head")
-    if not events:
-        return
     if for_recovery:
         return
-    if len(events) - committed_count <= 1:
-        return
-    raise LedgerError("attempt ledger does not match its committed head")
+    # W3, the lag rule, and the sole difference between the two accepted sets.
+    if len(events) - committed_count > 1:
+        raise LedgerError("attempt ledger does not match its committed head")
 
 
 def _read_optional_snapshot_bytes(run_directory: Path) -> bytes | None:
@@ -2180,12 +2219,18 @@ def _with_ledger_lock(
         try:
             events = _load_ledger_events(run_directory / "attempt-ledger.jsonl")
             snapshot_bytes = _read_optional_snapshot_bytes(run_directory)
-            # `_with_recovery_ledger_lock` and `recover_run` both refuse an
-            # empty ledger; the mutating path must not be the one seam that
-            # accepts one over a run that has already committed state.
-            if not events and snapshot_bytes is not None:
-                raise LedgerError("attempt ledger is empty")
-            _verify_ledger_head_against_snapshot(snapshot_bytes, events)
+            # The queue is loaded here, before any transition runs, because it
+            # is a witness. This path used to read the ledger and the anchor
+            # only, so a queue row naming a removed ledger event could not
+            # refuse anything; `_load_morning_queue` appeared exclusively on
+            # recovery paths. See `_verify_run_directory_witnesses`.
+            queue = _load_morning_queue(run_directory)
+            _verify_run_directory_witnesses(
+                events,
+                snapshot_bytes,
+                queue,
+                for_recovery=False,
+            )
             return operation(events)
         finally:
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
@@ -2445,10 +2490,38 @@ def _load_morning_queue_at(
     )
 
 
-def _plan_morning_queue(
+def _morning_queue_row_authority(
     events: list[dict[str, Any]],
     current_queue: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[tuple[dict[str, Any], dict[str, Any] | None]]]:
+    """Evaluate the queue predicates W4 and W5 against the ledger.
+
+    This is one conjunct of `_verify_run_directory_witnesses` and the single
+    implementation of the queue rules. `_plan_morning_queue` consumes the
+    classification returned here rather than repeating the checks, so the
+    mutating path and recovery cannot drift apart on what a queue row is
+    allowed to say.
+
+    A `morning-queue.json` ledger row names an exact ledger event by
+    `ledgerEventSequence` and `ledgerEventSHA256`, so it is a witness:
+
+      W4  each ledger row q => len(events) >= q.ledgerEventSequence
+      W5  each ledger row q => digest(events[q.ledgerEventSequence - 1])
+                               == q.ledgerEventSHA256, and the entry
+                               reconstructed from that event equals q
+
+    Evaluation rows carry clip outcomes only and name no ledger event, so
+    they are not witnesses and are validated for shape alone.
+
+    A row naming an event the ledger no longer contains is a *contradiction*,
+    not staleness, and is refused in both modes. This is what refuses an
+    emptied ledger whose queue still records the terminal event that was
+    removed: with `events == []` there are no required entries, so every
+    surviving ledger row fails W4.
+
+    Returns the required terminal entries together with `(row, matched)`
+    pairs, where `matched` is `None` for an evaluation row.
+    """
     evaluation_fields = {"clipID", "queueCategory", "reasons"}
     ledger_fields = evaluation_fields | {
         "ledgerEventSequence",
@@ -2476,8 +2549,7 @@ def _plan_morning_queue(
     ):
         raise LedgerError("morning queue authority is ambiguous")
 
-    planned: list[dict[str, Any]] = []
-    included_ledger_identities: set[tuple[int, str]] = set()
+    classified: list[tuple[dict[str, Any], dict[str, Any] | None]] = []
     for item in current_queue:
         if set(item) == evaluation_fields:
             reasons = item.get("reasons")
@@ -2497,7 +2569,7 @@ def _plan_morning_queue(
                 or not all(reason in evaluation_reasons for reason in reasons)
             ):
                 raise LedgerError("morning queue evaluation row is invalid")
-            planned.append(item)
+            classified.append((item, None))
             continue
         if set(item) != ledger_fields:
             raise LedgerError("morning queue ledger row is invalid")
@@ -2509,6 +2581,10 @@ def _plan_morning_queue(
             or SHA256_PATTERN.fullmatch(event_hash) is None
         ):
             raise LedgerError("morning queue ledger identity is invalid")
+        # W4 and W5. `required_by_sequence` is keyed by position in the
+        # surviving ledger, so a row naming a sequence beyond `len(events)` --
+        # including every row when the ledger is empty -- finds no match and is
+        # refused here rather than silently replanned.
         sequence_match = required_by_sequence.get(sequence)
         hash_match = required_by_hash.get(event_hash)
         if (
@@ -2518,9 +2594,27 @@ def _plan_morning_queue(
             or item != sequence_match
         ):
             raise LedgerError("morning queue conflicts with attempt ledger")
-        identity = (sequence, event_hash)
+        classified.append((item, sequence_match))
+    return required, classified
+
+
+def _plan_morning_queue(
+    events: list[dict[str, Any]],
+    current_queue: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    required, classified = _morning_queue_row_authority(events, current_queue)
+    planned: list[dict[str, Any]] = []
+    included_ledger_identities: set[tuple[int, str]] = set()
+    for item, matched in classified:
+        if matched is None:
+            planned.append(item)
+            continue
+        identity = (
+            matched["ledgerEventSequence"],
+            matched["ledgerEventSHA256"],
+        )
         if identity not in included_ledger_identities:
-            planned.append(sequence_match)
+            planned.append(matched)
             included_ledger_identities.add(identity)
 
     for entry in required:
@@ -2532,6 +2626,126 @@ def _plan_morning_queue(
             planned.append(entry)
             included_ledger_identities.add(identity)
     return planned
+
+
+def _verify_run_directory_witnesses(
+    events: list[dict[str, Any]],
+    snapshot_bytes: bytes | None,
+    queue: list[dict[str, Any]],
+    *,
+    for_recovery: bool,
+) -> None:
+    """Accept a run directory's state only if every surviving witness agrees.
+
+    WITNESS MONOTONICITY -- the invariant this function exists to enforce.
+
+    A run directory's artifacts are a set of *witnesses* to a history. A
+    proposed state S may be accepted only if every witness that survives in
+    the directory is consistent with S.
+
+      * An ABSENT witness proves nothing: it neither permits nor forbids.
+      * A PRESENT witness that contradicts S must refuse S, regardless of
+        which other witnesses are present or absent.
+      * Therefore DELETING AN ARTIFACT MUST NEVER WIDEN THE ACCEPTED SET.
+        For artifact sets A subset-of B, no state refused under B may become
+        accepted under A.
+
+    WHY THIS IS ONE FUNCTION AND NOT A SET OF GUARDS AT THE CALL SITES.
+
+    The tamper-evidence scheme produced a BLOCKING defect in three
+    consecutive review rounds, and each defect was the *sibling case* of the
+    fix before it: hardening truncation left emptying open; closing emptying
+    left "delete both files" open; and the schema migration added by that
+    same fix opened a laundering path of its own. Each round fixed the seam
+    in front of it instead of the class of seam. The check is therefore a
+    conjunction over all witnesses evaluated in ONE place. ADDING A WITNESS
+    MEANS ADDING A PREDICATE TO THIS CONJUNCTION, NOT A BRANCH AT A CALL
+    SITE.
+
+    THE WITNESSES.
+
+      run-claim.json            run ID was claimed        gate (W7, enforced
+                                                          by the callers)
+      attempt-ledger.jsonl      the chained history       it *is* S
+      attempt-state.json (v2)   eventCount, lastEventSHA  yes, W1/W2/W3
+      morning-queue.json
+        ledger rows             an exact ledger event     yes, W4/W5
+        evaluation rows         clip outcomes only        no
+      request-reservations.jsonl paid requests happened   no (budget witness)
+      receipt.json              run status and counts     no
+      .attempt-ledger.lock      mutual exclusion          n/a
+
+    A missing ledger and an empty ledger are observationally identical --
+    `_load_ledger_events` returns `[]` for both -- so `events == []` covers
+    both cases and no predicate may branch on which one occurred.
+
+    THE PREDICATES.
+
+      W1  anchor present => len(L) >= A.eventCount            witness
+      W2  anchor present => chain_head(L[:count]) == A.head   witness
+      W3  anchor present => len(L) - A.eventCount <= 1        LAG, mutating
+                                                              path only
+      W4  each queue ledger row q => len(L) >= q.sequence     witness
+      W5  each queue ledger row q => the event at that
+          sequence reproduces q exactly                       witness
+      W6  L chains from genesis with no interior rewrite      witness
+      W7  run claim present and valid                         gate
+      W8  anchor absent => len(L) <= 1                        ASSUMPTION,
+                                                              NOT A WITNESS
+
+    The mutating path accepts iff W1 and W2 and W3 and W4 and W5 and W6 and
+    W7 and W8. Recovery accepts iff the same MINUS W3 -- recovery may
+    tolerate STALENESS (a derived witness lagging the ledger), never
+    CONTRADICTION. That single relaxation is the only permitted difference
+    between the two accepted sets.
+
+    W8 is labelled an assumption rather than a witness in
+    `_verify_ledger_head_against_snapshot`, where it lives; read that
+    docstring before touching it.
+
+    TWELVE-STATE ENUMERATION over L in {[], non-empty}, A in {absent,
+    present}, Q in {absent, evaluation-rows-only, has-ledger-rows}:
+
+       #  L     A                      Q          verdict        by
+       1  []    absent                 absent     accept (fresh) --
+       2  []    absent                 eval only  accept         eval rows
+                                                                 carry no
+                                                                 ledger
+                                                                 identity
+       3  []    absent                 LEDGER     REFUSE         W4
+       4  []    present, count 0,
+                genesis head           absent     accept         W1, W2
+       5  []    present, count > 0     absent     REFUSE         W1
+       6  []    present, count > 0     eval only  REFUSE         W1
+       7  []    present                LEDGER     REFUSE         W1 and W4
+       8  n>=1  absent                 absent     accept iff n=1 W8
+       9  n>=1  absent                 eval only  accept iff n=1 W8
+      10  n>=1  absent                 LEDGER     REFUSE         W8 + W4/W5
+      11  n>=1  present                absent or  W1 and W2
+                                       eval only  and W3
+      12  n>=1  present                LEDGER     W1..W5
+
+    Row 3 is the defect this function was written to close: the mutating
+    path never loaded the queue at all, so an emptied ledger plus a removed
+    anchor read as a fresh run while `morning-queue.json` survived carrying
+    the terminal entry and the digest of the event that produced it. That
+    authorised a production rerender and reset a terminal clip's spent
+    attempts, a transition the specification calls irreversible -- with no
+    forgery and no hash computation.
+    """
+    # W6. `_derive_attempt_states` verifies chain linkage from genesis before
+    # applying any transition rule, so a rewritten or reordered interior event
+    # is refused here. It is pure, so the operations that derive states again
+    # afterwards observe exactly this result.
+    _derive_attempt_states(events)
+    # W1, W2, W3 (mutating path only) and the W8 assumption.
+    _verify_ledger_head_against_snapshot(
+        snapshot_bytes,
+        events,
+        for_recovery=for_recovery,
+    )
+    # W4 and W5.
+    _morning_queue_row_authority(events, queue)
 
 
 def _publish_morning_queue_plan(
@@ -2747,17 +2961,25 @@ def _with_recovery_ledger_lock(
                     run_id,
                 )
                 events = _load_ledger_events_at(directory_descriptor)
+                # An operational precondition of the `recover` command, NOT a
+                # witness predicate: recovery republishes derived artifacts
+                # from authoritative ones, and with no ledger there is nothing
+                # to derive them from, so it refuses rather than fabricating an
+                # anchor. Deliberately outside the conjunction below, which
+                # treats an empty ledger as an absent witness.
                 if not events:
                     raise LedgerError("attempt ledger is empty")
-                # Recovery exists to republish a missing snapshot, so a
-                # absent anchor is tolerated here; a present one must match.
-                _verify_ledger_head_against_snapshot(
-                    _read_optional_snapshot_bytes_at(directory_descriptor),
+                current_queue = _load_morning_queue_at(directory_descriptor)
+                # The same conjunction the mutating path evaluates, differing
+                # only by the W3 lag rule. Recovery may tolerate a stale
+                # derived witness; it may never tolerate a contradicting one.
+                _verify_run_directory_witnesses(
                     events,
+                    _read_optional_snapshot_bytes_at(directory_descriptor),
+                    current_queue,
                     for_recovery=True,
                 )
                 states = _derive_attempt_states(events)
-                current_queue = _load_morning_queue_at(directory_descriptor)
                 planned_queue = _plan_morning_queue(events, current_queue)
                 return operation(
                     events,
@@ -2795,17 +3017,17 @@ def recover_run(
             ),
             run_id,
         )
+        # Refuse before taking the lock, using the same conjunction the locked
+        # path re-evaluates under exclusion.
         preflight_events = _load_ledger_events_at(directory_descriptor)
         if not preflight_events:
             raise LedgerError("attempt ledger is empty")
-        _verify_ledger_head_against_snapshot(
-            _read_optional_snapshot_bytes_at(directory_descriptor),
+        _verify_run_directory_witnesses(
             preflight_events,
+            _read_optional_snapshot_bytes_at(directory_descriptor),
+            _load_morning_queue_at(directory_descriptor),
             for_recovery=True,
         )
-        _derive_attempt_states(preflight_events)
-        preflight_queue = _load_morning_queue_at(directory_descriptor)
-        _plan_morning_queue(preflight_events, preflight_queue)
 
         def operation(
             events: list[dict[str, Any]],

@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from Tools.Pronunciation import pronunciation_corpus
 from Tools.Pronunciation.pronunciation_corpus import (
@@ -1363,6 +1364,119 @@ class PronunciationCorpusTests(unittest.TestCase):
 
         self.assertEqual(first, second)
         self.assertEqual(build_report(FIXTURES, PACK), json.loads(first))
+
+    def recursion_tripping_json_depth(self):
+        """Smallest probed nesting depth that raises on THIS interpreter.
+
+        CPython's C scanner guards on the C stack rather than
+        `sys.getrecursionlimit()`, so the depth that trips varies by version
+        and platform -- 3.14 parses 100_000 nested arrays without complaint.
+        A hardcoded depth would silently stop reproducing the defect, which is
+        exactly how this class of bug survived two previous rounds. The
+        subprocess under test runs `sys.executable`, so a depth that trips
+        here trips there.
+        """
+        depth = 100_000
+        for _ in range(5):
+            try:
+                json.loads("[" * depth + "]" * depth)
+            except RecursionError:
+                return depth
+            depth *= 2
+        self.skipTest("no probed JSON depth raises RecursionError here")
+
+    def test_strict_json_loads_types_recursion_as_a_value_error(self):
+        """The conversion itself, pinned independently of any depth probe.
+
+        `_strict_json_loads` caught only `JSONDecodeError`. `RecursionError`
+        is a `RuntimeError`, so it escaped both this function and `main`,
+        which catches only `ValueError`. Every JSON decode in this module
+        funnels through here, so this single conversion types the whole class.
+        """
+        with mock.patch.object(
+            pronunciation_corpus.json,
+            "loads",
+            side_effect=RecursionError("too deep"),
+        ):
+            with self.assertRaises(ValueError) as raised:
+                pronunciation_corpus._strict_json_loads("[]", "probe.json")
+
+        self.assertNotIsInstance(raised.exception, RecursionError)
+        self.assertIn("probe.json", str(raised.exception))
+
+    def test_deeply_nested_external_receipts_are_typed_not_a_traceback(self):
+        """`--trusted-receipts` is external input, so its depth is untrusted.
+
+        `_strict_json_loads` caught only `JSONDecodeError` and `main` caught
+        only `ValueError`. `RecursionError` is a `RuntimeError`, so a deeply
+        nested receipts file killed the real CLI with an unhandled traceback.
+        CI stayed green because it runs without external receipts.
+
+        Both commands that accept the flag are covered: this is the third
+        recurrence of the class, and the previous two were closed one named
+        site at a time.
+        """
+        depth = self.recursion_tripping_json_depth()
+        for command in ("qualification-status", "report"):
+            with self.subTest(command=command):
+                with tempfile.TemporaryDirectory() as directory:
+                    receipts = Path(directory) / "trusted-receipts.jsonl"
+                    # One JSONL row, nested far past the interpreter's
+                    # recursion limit. The receipts are decoded before the
+                    # authority is, so this is what the parser sees first.
+                    receipts.write_text(
+                        "[" * depth + "]" * depth + "\n",
+                        encoding="utf-8",
+                    )
+                    authority = Path(directory) / "authority.json"
+                    authority.write_text(
+                        json.dumps(
+                            {
+                                "schemaVersion": 1,
+                                "authorityKind":
+                                    "user-controlled-out-of-repository",
+                                "authorizationPurpose":
+                                    pronunciation_corpus
+                                    .HUMAN_EVIDENCE_AUTHORITY_PURPOSE,
+                                "evidenceBundleSHA256": "0" * 64,
+                            },
+                            sort_keys=True,
+                        ),
+                        encoding="utf-8",
+                    )
+
+                    # Only `report` takes `--pack`; passing it to
+                    # `qualification-status` would make argparse reject the
+                    # command line and the test would pass without ever
+                    # reaching the parser.
+                    command_line = [
+                        sys.executable,
+                        str(SCRIPT),
+                        command,
+                        "--fixtures",
+                        str(FIXTURES),
+                    ]
+                    if command == "report":
+                        command_line += ["--pack", str(PACK)]
+                    command_line += [
+                        "--trusted-receipts",
+                        str(receipts),
+                        "--human-evidence-authority",
+                        str(authority),
+                    ]
+
+                    completed = subprocess.run(
+                        command_line,
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
+
+                self.assertNotEqual(0, completed.returncode)
+                self.assertEqual("", completed.stdout)
+                self.assertNotIn("unrecognized arguments", completed.stderr)
+                self.assertNotIn("Traceback", completed.stderr)
+                self.assertNotIn("RecursionError", completed.stderr)
 
     def test_make_program_report_stdout_is_one_json_value(self):
         completed = subprocess.run(

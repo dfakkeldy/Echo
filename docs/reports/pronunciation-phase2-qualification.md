@@ -1,6 +1,6 @@
 # Pronunciation Phases 0–2 Qualification
 
-Date: 2026-07-30 (second consolidated repair round)
+Date: 2026-07-30 (third consolidated repair round)
 
 Overall status: **PENDING**. The independent local implementation gates listed
 below are complete, but corpus-dependent qualification is
@@ -36,13 +36,14 @@ recorded as not rerun and would not count as a pass.
 
 | Gate | Result |
 | --- | --- |
-| Pronunciation corpus tests (`make pronunciation-corpus-test`) | 51 distinct test methods, 51 executed, all passed; contract `CONTRACT_VALID` with 37 named regressions |
+| Pronunciation corpus tests (`make pronunciation-corpus-test`) | 53 distinct test methods, 53 executed, all passed; contract `CONTRACT_VALID` with 37 named regressions |
 | Corpus qualification (`make pronunciation-corpus-qualification`) | Ran; reports `WAITING_FOR_HUMAN_LABELS` with zero qualifying rows, which is the truthful state and not a pass of qualification |
-| Development audio-judge tests (`make pronunciation-audio-judge-test`) | 95 distinct test methods, 119 executed, all passed without an API request |
-| Deterministic program report (`make pronunciation-program-report`, twice) | Two runs byte-identical; SHA-256 `f592456769e35628573415be183a5d9e37138ce84ed4c34391e36fd229bb0343`. This differs from the previous receipt's `12e0ad90…` because the named fixture gained one row and one field |
-| Task 10 Swift acceptance suite | 6 passed |
+| Development audio-judge tests (`make pronunciation-audio-judge-test`) | 98 distinct test methods, 122 executed, all passed without an API request |
+| Pronunciation pack tests (`make pronunciation-pack-test`) | 38 distinct test methods, 38 executed, all passed; `build_pronunciation_pack.py check` reproduced the committed pack byte-for-byte from the pinned lock, gold, silver, and vocabulary inputs. This gate is named by brief 10.6 but was **absent from every earlier revision of this table**. Because the preamble above promises nothing is carried forward, omitting it was worse than mislabelling it: a reader could not tell "not run" from "not mentioned". It is now run and recorded |
+| Deterministic program report (`make pronunciation-program-report`, twice) | Two runs byte-identical; SHA-256 `f592456769e35628573415be183a5d9e37138ce84ed4c34391e36fd229bb0343`, unchanged from the previous round |
+| Task 10 Swift acceptance suite | 7 passed (one added this round for brief 10.1's sense-label rule). Run again together with `EnglishPronunciationPackTests`, which carries the two new pack-decode rejection tests: 32 tests across the two suites, all passed |
 | Complete Echo unit-test gate (`make test`) | Ran at the corrected state; `** TEST SUCCEEDED **`, zero recorded issues |
-| Release `echo-cli` build (`make echo-cli`) | Ran at the corrected state and completed successfully. No production or CLI-linked Swift changed this round — the only Swift change is a test file — so no relink was required and the Release product was already current |
+| Release `echo-cli` build (`make echo-cli`) | Ran at the corrected state and completed successfully. Unlike the previous round, production Swift **did** change this round (`EnglishPronunciationPack.swift` gained the sense-label admissibility rule), so this was a real relink rather than a no-op revalidation |
 | Python compilation | `compileall` clean on both tools and both test modules |
 | Diff hygiene | `git diff --check` and `git diff --cached --check` both clean |
 
@@ -441,6 +442,54 @@ evidence and are never described as human listening or human labels.
 Status: **NOT RUN** for the Task 10 source state at the time this receipt was
 written. Local tests and builds are not hosted CI.
 
+## The ledger tamper-evidence invariant, and why it is stated rather than patched
+
+The hostile review found a blocking defect in the attempt-ledger
+tamper-evidence scheme in **three consecutive rounds, and each was the sibling
+case of the fix before it**: round one hardened truncation and left emptying
+open; round two's fix left "delete both files" open; and the schema-1 migration
+branch added by that same fix opened a laundering path of its own. Each round
+closed the seam in front of it rather than the class of seam. This round states
+the invariant and implements it once, in `_verify_run_directory_witnesses`.
+
+**Witness monotonicity.** A run directory's artifacts are *witnesses* to a
+history. A proposed state **S** is accepted only if every witness that survives
+in the directory is consistent with **S**. An absent witness proves nothing. A
+present witness that contradicts **S** refuses it, whatever else is present.
+Therefore **deleting an artifact must never widen the accepted set**: for
+artifact sets A ⊆ B, no state refused under B may become accepted under A.
+
+The predicates, evaluated as one conjunction rather than as guards at the call
+sites, are: W1 `len(L) ≥ A.eventCount`; W2
+`chain_head(L[:A.eventCount]) == A.lastEventSHA256`; W3
+`len(L) − A.eventCount ≤ 1`; W4 `len(L) ≥ q.sequence` for every queue ledger
+row; W5 that row's named event reproduces it exactly; W6 the ledger chains from
+genesis with no interior rewrite; W7 the run claim is valid. **Recovery accepts
+exactly the mutating path's set minus W3**, the lag rule — it may tolerate
+staleness, never contradiction.
+
+W8, "anchor absent ⇒ `len(L) ≤ 1`", is an **assumption, not a witness**, and is
+labelled as such in the code. If both the ledger and the anchor are deleted, no
+surviving witness can distinguish tampering from a fresh run; W8 rests only on
+the fact that the judge always republishes the anchor after an append. It is
+load-bearing, underived, and looks exactly like an unmotivated special case —
+which is how this scheme got three rounds deep.
+
+The twelve-state enumeration over L ∈ {`[]`, non-empty}, A ∈ {absent, present},
+Q ∈ {absent, evaluation-rows-only, has-ledger-rows} is carried in full in the
+`_verify_run_directory_witnesses` docstring, which is the authoritative copy.
+Row 3 — empty ledger, absent anchor, surviving queue ledger rows — is the
+blocking defect this round closed, and W4 is what refuses it.
+
+The reproduction: from `attemptCount=2, state=morning_review`, removing
+`attempt-ledger.jsonl` and `attempt-state.json` left the run reading as fresh
+while `morning-queue.json` still carried the terminal entry, the clip ID, and
+the SHA-256 of the event that produced it. The mutating path never loaded the
+queue at all. A full `_emit_proposal` → `record_attempt` → `record_rerender`
+cycle then completed and authorized a production rerender, taking
+`attemptCount` 2 → 1 — a transition §13.3(6) calls irreversible — with no
+forgery and no hash computation.
+
 ## Known limitations recorded rather than closed
 
 - **The USD 10 / 200-request cap is per run ID, not cumulative.** Concurrent
@@ -478,6 +527,34 @@ real response fails closed and the paid lane cannot complete. This was found by
 code reading only. The paid lane is `WAITING_FOR_USER` and no outbound call was
 made to check, so this is recorded rather than tested. **Verify the actual
 response envelope against a single cheap request before running the corpus.**
+
+**A crash mid-run consumes a whole request and spend budget with no way to
+reclaim it, and repeated crashes give unbounded cumulative spend.** This round
+typed four connection-level failures — `RemoteDisconnected`, `IncompleteRead`,
+`ssl.SSLError`, and `ConnectionResetError` — that could previously kill the run
+with a raw traceback out of `response.read()`. **Typing those exceptions does
+not address this budget gap; they are two different problems.** `_claim_run`
+makes a run ID single-use, so recovering from any crash that ends a run
+prematurely requires a *new* run ID, which starts with a fresh 200-request /
+USD-10 budget, while the crashed run has already spent part of one. Nothing
+accumulates spend across run IDs. Three crashes therefore authorize up to three
+full budgets. The cross-run accumulator that would close this remains
+**deferred** — it is a design change to the budget model, not a repair. Until
+it exists, an operator must track cumulative spend across run IDs manually
+before each paid run.
+
+## Follow-ups recorded from the third review round, not implemented
+
+- **`GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_n`, and `GIT_CONFIG_VALUE_n` are
+  missing from the environment scrub list** used when the tool queries git.
+  They allow arbitrary configuration injection without touching a config file.
+  Recorded rather than fixed this round: the scrub list is shared with other
+  callers and changing it belongs with a review of that list as a whole.
+- **A repository using `--separate-git-dir` places the shared git directory
+  outside the checkout**, so the protected-root computation can over-protect an
+  unrelated parent, up to and including `$HOME`. Fail-closed, so recorded.
+- **A worktree path containing a newline still drops out of protection**,
+  carried forward unchanged from the second round for the same reason.
 
 ## Follow-ups recorded from the second review round, not implemented
 

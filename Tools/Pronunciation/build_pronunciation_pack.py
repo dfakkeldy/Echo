@@ -492,10 +492,26 @@ def verify_locked_file(path: Path, expected_sha256: str) -> None:
     _verify_bytes(path, path.read_bytes(), expected_sha256)
 
 
+def _reject_nonstandard_json_constant(value: str) -> Any:
+    raise ValueError(f"non-standard JSON constant {value}")
+
+
 def _load_json(path: Path) -> Any:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        return json.loads(
+            path.read_text(encoding="utf-8"),
+            parse_constant=_reject_nonstandard_json_constant,
+        )
+    except (
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        # Every path this decodes arrives from a required CLI flag, so nesting
+        # depth is caller-controlled. RecursionError is a RuntimeError and so
+        # is caught by none of the above, and `main` catches only OSError and
+        # ValueError, so it reached the CLI as a raw traceback.
+        RecursionError,
+    ) as error:
         raise ValueError(f"cannot load JSON from {path}: {error}") from error
 
 
@@ -513,8 +529,13 @@ def _load_json_bytes(path: Path, data: bytes) -> Any:
         return json.loads(
             data.decode("utf-8"),
             object_pairs_hook=_reject_duplicate_json_keys,
+            parse_constant=_reject_nonstandard_json_constant,
         )
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        RecursionError,
+    ) as error:
         raise ValueError(f"cannot load JSON from {path}: {error}") from error
 
 
@@ -689,6 +710,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
+        return 1
+    except RecursionError:
+        print("error: input nesting is too deep", file=sys.stderr)
         return 1
 
 

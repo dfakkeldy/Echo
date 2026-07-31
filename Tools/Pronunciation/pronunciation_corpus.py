@@ -1048,6 +1048,14 @@ def _strict_json_loads(text: str, location: str) -> Any:
             f"{location} is not valid JSON: {error.msg} "
             f"at column {error.colno}"
         ) from error
+    except RecursionError as error:
+        # `--trusted-receipts` and `--human-evidence-authority` name external
+        # files by design, so nesting depth is caller-controlled. RecursionError
+        # is a RuntimeError, so the JSONDecodeError clause above does not catch
+        # it and it reached the CLI as a raw traceback. Every decode in this
+        # module funnels through here, so converting it to the module's own
+        # ValueError types the whole class at its single choke point.
+        raise ValueError(f"{location} is nested too deeply") from error
 
 
 def _load_json(path: Path) -> Any:
@@ -1414,6 +1422,10 @@ def main(argv: list[str] | None = None) -> int:
             )
     except ValueError as error:
         parser.error(str(error))
+    except RecursionError:
+        # Backstop for recursion raised outside `_strict_json_loads` -- the
+        # validators walk decoded structures, so depth survives the parse.
+        parser.error("input nesting is too deep")
     return 0
 
 
