@@ -3193,6 +3193,225 @@ class AttemptLedgerTests(ManifestAdmissionTests):
                     (run_directory / "attempt-state.json").exists()
                 )
 
+    def test_queue_row_naming_a_real_event_must_also_reproduce_it(self):
+        """W5 is a whole-row equality, not a `(sequence, hash)` lookup.
+
+        `_morning_queue_row_authority` refuses a row unless it equals the
+        entry reconstructed from the event it names. Neutralising the final
+        `or item != sequence_match` clause to `or False` left the whole suite
+        green, so nothing at all was testing it: a row could name the correct
+        sequence AND the correct event digest while lying about every field
+        that carries meaning -- `clipID`, `queueCategory`, `reasons`.
+
+        That is the interesting attack rather than a contrived one. The
+        identity fields are what an auditor checks, and they would verify;
+        the payload is what a human reads in the morning, and it would be
+        attacker-chosen. Re-pointing a terminal entry at a different clip is
+        enough to send the wrong clip to review and quietly retire the right
+        one.
+
+        Each mutation is applied to an otherwise valid row, so the sequence
+        and digest still match and only the lie differs.
+        """
+        run_id = "queue-row-payload-authority"
+        clip_id, output_root = self.terminal_morning_run(run_id=run_id)
+        run_directory = output_root / run_id
+        queue_path = run_directory / "morning-queue.json"
+        honest_queue = json.loads(queue_path.read_text(encoding="utf-8"))
+        ledger_rows = [
+            row for row in honest_queue if "ledgerEventSHA256" in row
+        ]
+        self.assertTrue(ledger_rows, honest_queue)
+        honest_row = ledger_rows[0]
+
+        other_clip = generate_clip_id()
+        self.assertNotEqual(clip_id, other_clip)
+        mutations = {
+            "clipID": other_clip,
+            "queueCategory": "provisional_review",
+            "reasons": ["transport_failure"],
+        }
+        for field, replacement in mutations.items():
+            with self.subTest(field=field):
+                self.assertNotEqual(honest_row[field], replacement)
+                tampered = [
+                    {**row, field: replacement}
+                    if row is honest_row or row == honest_row
+                    else row
+                    for row in honest_queue
+                ]
+                # The identity fields are untouched, so W4 and the digest
+                # lookup both still succeed; only whole-row equality objects.
+                self.assertEqual(
+                    honest_row["ledgerEventSequence"],
+                    tampered[honest_queue.index(honest_row)][
+                        "ledgerEventSequence"
+                    ],
+                )
+                self.assertEqual(
+                    honest_row["ledgerEventSHA256"],
+                    tampered[honest_queue.index(honest_row)][
+                        "ledgerEventSHA256"
+                    ],
+                )
+                queue_path.write_text(
+                    json.dumps(tampered, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+
+                with self.assertRaisesRegex(
+                    LedgerError,
+                    "morning queue conflicts with attempt ledger",
+                ):
+                    read_attempt_state(
+                        run_id=run_id,
+                        clip_id=clip_id,
+                        output_root=output_root,
+                    )
+                completed = self.run_recovery_cli(
+                    run_id=run_id,
+                    output_root=output_root,
+                )
+                self.assertNotEqual(0, completed.returncode, completed.stdout)
+
+    def test_recovery_refuses_an_empty_ledger_rather_than_fabricating_state(self):
+        """The recovery empty-ledger precondition, asserted by no test.
+
+        Neutralising BOTH copies of `if not events: raise` -- the preflight at
+        the top of `recover_run` and the re-check inside the lock -- left the
+        whole suite green. The rule is load-bearing: recovery republishes
+        derived artifacts FROM the ledger, so with no ledger there is nothing
+        to derive from, and proceeding would write an anchor and a queue
+        attesting a history that no longer exists. That is fabrication by a
+        command whose entire purpose is to restore evidence.
+
+        Both copies are exercised. The preflight is what an ordinary
+        invocation hits; the locked re-check is what protects against the
+        ledger being emptied between the preflight and the lock, and it is
+        reachable only by emptying the ledger inside that window.
+
+        The empty and unlinked cases are both covered because
+        `_load_ledger_events` returns `[]` for each, so neither may be
+        distinguished.
+
+        THE FRESHLY-CLAIMED CASE IS THE LOAD-BEARING ONE. On a run that has
+        committed events, emptying the ledger is ALSO refused by W1, because
+        the anchor commits a count the empty ledger cannot reach -- so a test
+        using only that shape passes even with the precondition deleted, for
+        the wrong reason. On a freshly claimed run the anchor commits zero
+        events at the genesis head, so W1 and W2 both agree with an empty
+        ledger and the precondition is the ONLY thing left to object. Without
+        it, `recover` reports RECOVERED for a run with no history at all.
+        """
+        # The freshly-claimed shape: anchor present, count 0, genesis head --
+        # new row 2 of the enumeration. Every witness agrees; only the
+        # precondition refuses.
+        fresh_run = "recover-freshly-claimed"
+        fresh_root = self.directory / "runs"
+        clip_id = generate_clip_id()
+        manifest = self.write_manifest(
+            [self.manifest_row(clip_id, self.write_wav(clip_id), 0.25)]
+        )
+        run_evaluation(
+            manifest_path=manifest,
+            run_id=fresh_run,
+            dry_run=True,
+            output_root=fresh_root,
+        )
+        fresh_directory = fresh_root / fresh_run
+        self.assertFalse((fresh_directory / "attempt-ledger.jsonl").exists())
+        # Recovery deliberately requires a pre-existing lock, so without this
+        # the lock guard would refuse first and the precondition would never
+        # be reached -- the test would pass while proving nothing about it.
+        (fresh_directory / ".attempt-ledger.lock").touch(mode=0o600)
+        fresh_anchor = json.loads(
+            (fresh_directory / "attempt-state.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(0, fresh_anchor["eventCount"])
+        self.assertEqual(
+            audio_judge.LEDGER_CHAIN_GENESIS,
+            fresh_anchor["lastEventSHA256"],
+        )
+        completed = self.run_recovery_cli(
+            run_id=fresh_run,
+            output_root=fresh_root,
+        )
+        self.assertNotEqual(0, completed.returncode, completed.stdout)
+        self.assertIn("attempt ledger is empty", completed.stderr)
+        self.assertNotIn("RECOVERED", completed.stdout)
+
+        for case in ("emptied", "unlinked"):
+            with self.subTest(ledger=case, guard="preflight"):
+                run_id = f"recover-empty-{case}"
+                _clip_id, output_root = self.terminal_morning_run(run_id=run_id)
+                run_directory = output_root / run_id
+                ledger_path = run_directory / "attempt-ledger.jsonl"
+                anchor_before = (
+                    run_directory / "attempt-state.json"
+                ).read_bytes()
+                queue_before = (
+                    run_directory / "morning-queue.json"
+                ).read_bytes()
+
+                if case == "emptied":
+                    ledger_path.write_bytes(b"")
+                else:
+                    ledger_path.unlink()
+
+                completed = self.run_recovery_cli(
+                    run_id=run_id,
+                    output_root=output_root,
+                )
+                self.assertNotEqual(0, completed.returncode, completed.stdout)
+                self.assertIn("attempt ledger is empty", completed.stderr)
+                # Nothing was republished over the surviving witnesses.
+                self.assertEqual(
+                    anchor_before,
+                    (run_directory / "attempt-state.json").read_bytes(),
+                )
+                self.assertEqual(
+                    queue_before,
+                    (run_directory / "morning-queue.json").read_bytes(),
+                )
+
+        # The locked re-check. `_load_ledger_events_at` is what the locked
+        # path calls; emptying the ledger there simulates a writer that
+        # truncated it after the preflight read a healthy one.
+        run_id = "recover-empty-under-lock"
+        _clip_id, output_root = self.terminal_morning_run(run_id=run_id)
+        run_directory = output_root / run_id
+        anchor_before = (run_directory / "attempt-state.json").read_bytes()
+        queue_before = (run_directory / "morning-queue.json").read_bytes()
+        real_load_at = audio_judge._load_ledger_events_at
+        calls = {"count": 0}
+
+        def empty_after_preflight(directory_descriptor):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                return real_load_at(directory_descriptor)
+            return []
+
+        with mock.patch.object(
+            audio_judge,
+            "_load_ledger_events_at",
+            side_effect=empty_after_preflight,
+        ):
+            with self.assertRaisesRegex(LedgerError, "attempt ledger is empty"):
+                audio_judge.recover_run(
+                    run_id=run_id,
+                    output_root=output_root,
+                )
+
+        self.assertGreaterEqual(calls["count"], 2)
+        self.assertEqual(
+            anchor_before,
+            (run_directory / "attempt-state.json").read_bytes(),
+        )
+        self.assertEqual(
+            queue_before,
+            (run_directory / "morning-queue.json").read_bytes(),
+        )
+
     def test_erasing_all_three_artifacts_cannot_launder_a_terminal_clip(self):
         """The anchor must be mandatory, so its absence is evidence.
 
