@@ -1,6 +1,6 @@
 # Pronunciation Phases 0–2 Qualification
 
-Date: 2026-07-30 (third consolidated repair round)
+Date: 2026-07-30 (fourth consolidated repair round)
 
 Overall status: **PENDING**. The independent local implementation gates listed
 below are complete, but corpus-dependent qualification is
@@ -19,13 +19,37 @@ separately.
   this repair round, ending with the commit that contains this receipt. The
   final Task 10 identity is therefore the commit containing this file; no
   circular placeholder hash is embedded here.
-- Every gate in the table below was run at the corrected state of this round.
-  An earlier revision of this table recorded the complete Echo unit-test gate
-  and the Release `echo-cli` build as "not rerun" while `progress.md` recorded
-  that both had run. That contradiction is resolved here in favour of what was
-  actually executed: both ran, and this table is the authoritative record.
+- **Every gate in the table below was run at
+  `3215875b29596039757f15e5763c1fbec1c1cbb6`**, the last source commit of this
+  round, and each gate started after that commit was written (last commit
+  2026-07-30T23:43:31−03:00; earliest gate log 23:43:49, latest 23:52:20).
+  Only this receipt is committed afterwards, and it changes documentation
+  only. An earlier revision of this table recorded the complete Echo unit-test
+  gate and the Release `echo-cli` build as "not rerun" while `progress.md`
+  recorded that both had run. That contradiction is resolved here in favour of
+  what was actually executed: both ran, and this table is the authoritative
+  record.
 - The canonical Echo checkout and the separate Article Anthologies worktree
   were not modified by this work.
+
+### Correction: a controller-supplied SHA that did not resolve
+
+The brief opening this round specified the base commit as
+`2c693b8ea1e40e50fe25ea4ea4ae5c4b8a6a1c86`. **No such object exists in this
+repository.** `git cat-file -t` failed on it, and
+`git rev-parse --disambiguate=2c693b8e` returned exactly one object —
+`2c693b8ed5808012abed825262f43bacdc45b6a3`, the actual `HEAD`, whose commit
+message matched what the brief described. The two share only the eight-hex
+prefix and diverge at character nine; a reviewer's report had given the correct
+short prefix in one place and a bad forty-hex expansion in another, and the
+expansion was propagated without checking that it resolved.
+
+Recorded rather than quietly repaired, because a controller passing an
+unverified identifier down to a worker is the same class of defect this
+programme has been catching in the code: an identity asserted rather than
+checked. Work stopped and reported instead of proceeding on a guess, and the
+base was confirmed before any file was touched. The standing rule taken from
+it: **every SHA supplied in a brief is a claim to verify, not a fact.**
 
 ## Local unit and build gates
 
@@ -41,9 +65,10 @@ recorded as not rerun and would not count as a pass.
 | Development audio-judge tests (`make pronunciation-audio-judge-test`) | 103 distinct test methods, 127 executed, all passed without an API request |
 | Pronunciation pack tests (`make pronunciation-pack-test`) | 38 distinct test methods, 38 executed, all passed; `build_pronunciation_pack.py check` reproduced the committed pack byte-for-byte from the pinned lock, gold, silver, and vocabulary inputs. This gate is named by brief 10.6 but was **absent from every earlier revision of this table**. Because the preamble above promises nothing is carried forward, omitting it was worse than mislabelling it: a reader could not tell "not run" from "not mentioned". It is now run and recorded |
 | Deterministic program report (`make pronunciation-program-report`, twice) | Two runs byte-identical; SHA-256 `f592456769e35628573415be183a5d9e37138ce84ed4c34391e36fd229bb0343`, unchanged from the previous round |
-| Task 10 Swift acceptance suite | 7 passed (one added this round for brief 10.1's sense-label rule). Run again together with `EnglishPronunciationPackTests`, which carries the two new pack-decode rejection tests: 32 tests across the two suites, all passed |
-| Complete Echo unit-test gate (`make test`) | Ran at the corrected state; `** TEST SUCCEEDED **`, zero recorded issues |
-| Release `echo-cli` build (`make echo-cli`) | Ran at the corrected state and completed successfully. Unlike the previous round, production Swift **did** change this round (`EnglishPronunciationPack.swift` gained the sense-label admissibility rule), so this was a real relink rather than a no-op revalidation |
+| Task 10 Swift acceptance suite | Run together with `EnglishPronunciationPackTests`, which gained the token-scanning sense-label test this round: `EnglishPronunciationPackTests` is 26 tests, all passed. Both suites also ran inside `make test` below |
+| Complete Echo unit-test gate (`make test`) | `** TEST SUCCEEDED **`, zero recorded issues (`✘` count zero across the whole log) |
+| Release `echo-cli` build (`make echo-cli`) | Completed successfully; `echo-cli (Release) ready at .build/cli/Build/Products/Release/echo-cli`. Production Swift changed again this round (`EnglishPronunciationPack.swift`), so this was a real relink rather than a no-op revalidation |
+| Mutation check on the guards fixed or newly tested this round | Seven mutants, each neutralising exactly one guard: all **killed**. Ad-hoc harness, not committed |
 | Python compilation | `compileall` clean on both tools and both test modules |
 | Diff hygiene | `git diff --check` and `git diff --cached --check` both clean |
 
@@ -540,6 +565,27 @@ irreversible. Removing the queue as well reopened the same laundering through
 old rows 8 and 9; W0 is what closes it.
 
 ## Known limitations recorded rather than closed
+
+- **Recovery requires `.attempt-ledger.lock` to already exist, while the
+  mutating path creates it.** So `rm .attempt-ledger.lock` — a zero-content
+  file — makes `recover` refuse until it is restored. Reviewed this round and
+  **deliberately kept**. The asymmetry is what lets a refused recovery leave
+  the run directory byte-identical, a property
+  `test_recover_requires_existing_lock_without_creating_one` already pins;
+  adding `O_CREAT` would mean the command whose purpose is to restore evidence
+  mutates a directory it is in the middle of rejecting. The cost is
+  availability, not laundering: the lock is "n/a" in the witness table, so its
+  absence widens nothing, and `touch` or any later mutating operation restores
+  it. This was changed and then reverted during the round when the existing
+  test surfaced the property the change would have broken.
+- **The depth-989 encode `RecursionError` does not reproduce on this
+  interpreter.** CPython 3.14.6's C encoder does not consume the Python stack
+  and survives nesting of 60000; only the pure-Python encoder raises, at about
+  2000. The guard is still correct and is now in place, but the reported
+  reproduction was interpreter- and build-specific, so the test pins the
+  contract — every canonical-encoding failure surfaces as `LedgerError` — with
+  one naturally occurring failure and one injected error rather than a literal
+  depth.
 
 - **The USD 10 / 200-request cap is per run ID, not cumulative.** Concurrent
   runs, or a fresh run ID, each get their own budget, so N runs can spend
