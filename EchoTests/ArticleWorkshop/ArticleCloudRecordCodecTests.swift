@@ -871,8 +871,23 @@ import ZIPFoundation
         #expect(FileManager.default.fileExists(atPath: fixture.managedDirectory.path))
     }
 
+    /// COVERAGE LIMIT — read this before changing the rollback reclamation in
+    /// `ArticleWorkshopCloudSyncEngine`.
+    ///
+    /// This proves the emptiness GUARD: a directory holding a cover is not
+    /// reclaimed. It does NOT prove the `rmdir(2)` semantics that guard was
+    /// paired with. The injected `beforeDatabaseCommit` save completes before
+    /// the rollback `defer` begins, so `remaining.isEmpty` is already false and
+    /// the removal branch is never entered — this test passes identically
+    /// whether that line calls `rmdir` or `removeItem`.
+    ///
+    /// Discriminating the two needs the directory to be empty at the listing
+    /// and non-empty at the removal, which is a TOCTOU window inside a `defer`
+    /// with no seam. Tracked as `D1/N2-COVERAGE`, bundled with the deferred
+    /// event-seam work. Do not read a green run here as licence to change the
+    /// removal syscall.
     @MainActor
-    @Test func concurrentCoverSaveSurvivesFetchedBatchRollback() throws {
+    @Test func coverPresentAtRollbackSurvivesReclamation() throws {
         let fixture = try ArticleCloudCodecFixture()
         defer { fixture.remove() }
         try FileManager.default.createDirectory(
