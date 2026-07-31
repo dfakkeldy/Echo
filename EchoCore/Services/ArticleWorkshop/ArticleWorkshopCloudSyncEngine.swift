@@ -462,18 +462,39 @@ nonisolated struct ArticleFetchedCloudBatchApplier: Sendable {
                 // durable once the transaction rolls back. Parents are recorded
                 // before children, so reverse order reclaims the deepest first.
                 // A directory that cannot be proven empty is left alone.
+                //
+                // The removal is `rmdir`, not `removeItem`: this struct holds
+                // no lock, so a concurrent local save can land a cover between
+                // the listing and the removal. `removeItem` would delete that
+                // cover recursively; `rmdir` fails with ENOTEMPTY and leaves it
+                // intact. See the ledger's D1/N2 follow-up for the residual
+                // window this does not close.
                 for url in newlyCreatedDirectories.reversed()
                 where FileManager.default.fileExists(atPath: url.path) {
                     let remaining =
                         (try? FileManager.default.contentsOfDirectory(atPath: url.path))
                         ?? [""]
                     if remaining.isEmpty {
-                        try? FileManager.default.removeItem(at: url)
+                        _ = url.withUnsafeFileSystemRepresentation { path in
+                            guard let path else { return Int32(-1) }
+                            return rmdir(path)
+                        }
                     }
                 }
             }
         }
         func noteDirectoryCreation(of directory: URL) {
+            // The workshop root long outlives any single fetched transaction
+            // and is never this batch's to reclaim. Only `Captures`,
+            // `Anthologies`, and `Anthologies/<id>` reach here today, so the
+            // exclusion holds by construction; state it explicitly so a future
+            // caller cannot retire the root by accident.
+            guard
+                directory.standardizedFileURL
+                    != workshopRootDirectory.standardizedFileURL
+            else {
+                return
+            }
             guard FileManager.default.fileExists(atPath: directory.path) == false,
                 newlyCreatedDirectories.contains(directory) == false
             else {

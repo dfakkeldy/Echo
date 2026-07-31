@@ -780,6 +780,158 @@ import ZIPFoundation
     }
 
     @MainActor
+    @Test func unreadableManagedDirectoryIsNotReclaimedOnRollback() throws {
+        let fixture = try ArticleCloudCodecFixture()
+        defer { fixture.remove() }
+        try FileManager.default.createDirectory(
+            at: fixture.managedDirectory,
+            withIntermediateDirectories: true)
+        let anthologiesRoot = fixture.managedDirectory
+            .appending(path: "Anthologies", directoryHint: .isDirectory)
+        let incoming = cloudAnthologyManifest(
+            title: "Remote anthology",
+            modifiedAt: "2026-07-29T12:00:01Z")
+        let anthologyDirectory =
+            anthologiesRoot
+            .appending(path: incoming.anthology.id, directoryHint: .isDirectory)
+        let coverURL = fixture.root.appending(path: "unreadable-cover.png")
+        try cloudCoverPNGData().write(to: coverURL)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o755],
+                ofItemAtPath: anthologyDirectory.path)
+        }
+
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        let applier = ArticleFetchedCloudBatchApplier(
+            syncDAO: dao,
+            codec: fixture.codec,
+            workshopRootDirectory: fixture.managedDirectory,
+            incomingDirectory: fixture.incomingDirectory,
+            beforeDatabaseCommit: {
+                // Write and traverse without read: the rollback path can still
+                // unlink the cover this batch installed, leaving the directory
+                // genuinely empty, but cannot list it to prove that. This is
+                // the only permission set that isolates the unreadable branch
+                // from the ordinary non-empty one. An indeterminate directory
+                // must be left alone rather than assumed reclaimable.
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: 0o300],
+                    ofItemAtPath: anthologyDirectory.path)
+                throw InjectedApplyFailure.failed
+            })
+
+        #expect(throws: InjectedApplyFailure.failed) {
+            try applier.apply(
+                modifications: [
+                    try fixture.codec.anthologyRecord(incoming, coverURL: coverURL)
+                ],
+                deletions: [])
+        }
+
+        #expect(FileManager.default.fileExists(atPath: anthologyDirectory.path))
+    }
+
+    @MainActor
+    @Test func workshopRootSurvivesFetchedBatchRollback() throws {
+        let fixture = try ArticleCloudCodecFixture()
+        defer { fixture.remove() }
+        try FileManager.default.createDirectory(
+            at: fixture.managedDirectory,
+            withIntermediateDirectories: true)
+        let incoming = cloudAnthologyManifest(
+            title: "Remote anthology",
+            modifiedAt: "2026-07-29T12:00:01Z")
+        let coverURL = fixture.root.appending(path: "root-survival-cover.png")
+        try cloudCoverPNGData().write(to: coverURL)
+
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        let applier = ArticleFetchedCloudBatchApplier(
+            syncDAO: dao,
+            codec: fixture.codec,
+            workshopRootDirectory: fixture.managedDirectory,
+            incomingDirectory: fixture.incomingDirectory,
+            beforeDatabaseCommit: { throw InjectedApplyFailure.failed })
+
+        #expect(throws: InjectedApplyFailure.failed) {
+            try applier.apply(
+                modifications: [
+                    try fixture.codec.anthologyRecord(incoming, coverURL: coverURL)
+                ],
+                deletions: [])
+        }
+
+        // The workshop root long outlives any single fetched transaction. It is
+        // never a batch-created directory, so rollback must never reclaim it
+        // even once every collection directory beneath it has been removed.
+        #expect(FileManager.default.fileExists(atPath: fixture.managedDirectory.path))
+    }
+
+    @MainActor
+    @Test func concurrentCoverSaveSurvivesFetchedBatchRollback() throws {
+        let fixture = try ArticleCloudCodecFixture()
+        defer { fixture.remove() }
+        try FileManager.default.createDirectory(
+            at: fixture.managedDirectory,
+            withIntermediateDirectories: true)
+        let anthologiesRoot = fixture.managedDirectory
+            .appending(path: "Anthologies", directoryHint: .isDirectory)
+        let incoming = cloudAnthologyManifest(
+            title: "Remote anthology",
+            modifiedAt: "2026-07-29T12:00:01Z")
+        let anthologyID = try #require(UUID(uuidString: incoming.anthology.id))
+        let anthologyDirectory =
+            anthologiesRoot
+            .appending(path: incoming.anthology.id, directoryHint: .isDirectory)
+        let fetchedCoverURL = fixture.root.appending(path: "fetched-cover.png")
+        try cloudCoverPNGData().write(to: fetchedCoverURL)
+        let localCoverURL = fixture.root.appending(path: "local-cover.png")
+        try generatedCloudCoverPNGData(width: 3).write(to: localCoverURL)
+
+        let database = try DatabaseService(inMemory: ())
+        let dao = ArticleSyncDAO(db: database.writer)
+        try dao.bindAccountOwner("account-A", updatedAt: "2026-07-29T12:00:00Z")
+        let localCover = ConcurrentCoverPathBox()
+        let applier = ArticleFetchedCloudBatchApplier(
+            syncDAO: dao,
+            codec: fixture.codec,
+            workshopRootDirectory: fixture.managedDirectory,
+            incomingDirectory: fixture.incomingDirectory,
+            beforeDatabaseCommit: {
+                // A local save lands its own cover into the same managed
+                // directory while the fetched batch is still in flight.
+                localCover.value = try AnthologyCoverStore(
+                    root: fixture.managedDirectory
+                ).importCover(from: localCoverURL, anthologyID: anthologyID)
+                throw InjectedApplyFailure.failed
+            })
+
+        #expect(throws: InjectedApplyFailure.failed) {
+            try applier.apply(
+                modifications: [
+                    try fixture.codec.anthologyRecord(
+                        incoming,
+                        coverURL: fetchedCoverURL)
+                ],
+                deletions: [])
+        }
+
+        // Rollback reclaims only what this batch created. The concurrently
+        // written cover makes the directory non-empty, so neither the cover nor
+        // its directory may be removed.
+        let localCoverPath = localCover.value
+        #expect(localCoverPath.isEmpty == false)
+        #expect(FileManager.default.fileExists(atPath: anthologyDirectory.path))
+        #expect(
+            FileManager.default.fileExists(
+                atPath: anthologyDirectory.appending(path: localCoverPath).path))
+    }
+
+    @MainActor
     @Test func fetchedRevisionMustMaterializeAgainstInstalledCaptureBeforeActivation() throws {
         let fixture = try ArticleCloudCodecFixture()
         defer { fixture.remove() }
@@ -1516,10 +1668,61 @@ import ZIPFoundation
             }
         }
     }
+
+    @Test func downloadedCaptureArchiveBoundsInflationAgainstUnderDeclaredSize()
+        throws
+    {
+        let fixture = try ArticleCloudCodecFixture()
+        defer { fixture.remove() }
+        let snapshot = try Data(
+            contentsOf: fixture.packageDirectory.appending(path: "snapshot.json"))
+
+        // Zero-filled content deflates to a few hundred kilobytes and inflates
+        // past both image caps. 64 MiB is deliberately modest: it is enough to
+        // clear the 12 MiB single-image and 50 MiB cumulative caps while still
+        // being survivable if the accumulator is ever left unbounded again.
+        let bomb = Data(count: 64 * 1_024 * 1_024)
+        let archiveURL = fixture.root.appending(path: "under-declared.zip")
+        try makeCaptureArchive(
+            at: archiveURL,
+            members: [("snapshot.json", snapshot)],
+            deflatedMembers: [("image-0.png", bomb)])
+        try underDeclareCentralDirectoryUncompressedSize(
+            in: archiveURL,
+            path: "image-0.png",
+            declaredSize: 1_024)
+
+        // Every byte cap in validatePackageArchive is satisfied before a single
+        // byte is inflated: the entry declares 1 KiB and the archive on disk is
+        // far below maxPackageBytes. Only a bound applied to the inflate output
+        // itself can reject this package.
+        let declaring = try Archive(url: archiveURL, accessMode: .read)
+        let entry = try #require(declaring["image-0.png"])
+        #expect(entry.uncompressedSize == 1_024)
+        let archiveBytes = try #require(
+            FileManager.default.attributesOfItem(atPath: archiveURL.path)[.size]
+                as? Int)
+        #expect(archiveBytes < 1_024 * 1_024)
+
+        #expect(throws: ArticleCloudRecordCodec.Error.packageTooLarge) {
+            try fixture.codec.validateCaptureArchive(at: archiveURL)
+        }
+    }
 }
 
 private enum InjectedApplyFailure: Swift.Error {
     case failed
+}
+
+private enum ArchiveFixtureError: Swift.Error {
+    case entryNotFound
+}
+
+/// Carries a cover filename out of the applier's `@Sendable` commit hook. The
+/// hook runs synchronously inside `apply`, so the write and the later read are
+/// ordered by that call and need no further synchronization.
+private nonisolated final class ConcurrentCoverPathBox: @unchecked Sendable {
+    var value = ""
 }
 
 private func cloudAnthologyManifest(
@@ -1598,7 +1801,8 @@ private func generatedCloudCoverPNGData(width: Int) throws -> Data {
 
 private func makeCaptureArchive(
     at url: URL,
-    members: [(String, Data)]
+    members: [(String, Data)],
+    deflatedMembers: [(String, Data)] = []
 ) throws {
     let archive = try Archive(url: url, accessMode: .create)
     for (path, data) in members {
@@ -1612,6 +1816,59 @@ private func makeCaptureArchive(
                 in: Int(position)..<min(Int(position) + size, data.count))
         }
     }
+    for (path, data) in deflatedMembers {
+        try archive.addEntry(
+            with: path,
+            type: .file,
+            uncompressedSize: Int64(data.count),
+            compressionMethod: .deflate
+        ) { position, size in
+            data.subdata(
+                in: Int(position)..<min(Int(position) + size, data.count))
+        }
+    }
+}
+
+/// Rewrites only the central directory's uncompressed-size field, leaving the
+/// compressed stream, its CRC, and the local file header untouched.
+///
+/// `Entry.uncompressedSize` is read from the central directory and is never
+/// compared against the local file header, so this is precisely what a hostile
+/// producer is free to declare.
+private func underDeclareCentralDirectoryUncompressedSize(
+    in url: URL,
+    path: String,
+    declaredSize: UInt32
+) throws {
+    var bytes = try Data(contentsOf: url)
+    let signature: [UInt8] = [0x50, 0x4b, 0x01, 0x02]
+    let nameBytes = Array(path.utf8)
+    let headerSize = 46
+    let nameLengthOffset = 28
+    let uncompressedSizeOffset = 24
+    var patched = false
+    var index = 0
+    while index + headerSize <= bytes.count {
+        guard Array(bytes[index..<(index + 4)]) == signature else {
+            index += 1
+            continue
+        }
+        let nameLength =
+            Int(bytes[index + nameLengthOffset])
+            | (Int(bytes[index + nameLengthOffset + 1]) << 8)
+        let nameStart = index + headerSize
+        guard nameStart + nameLength <= bytes.count else { break }
+        if Array(bytes[nameStart..<(nameStart + nameLength)]) == nameBytes {
+            for offset in 0..<4 {
+                bytes[index + uncompressedSizeOffset + offset] = UInt8(
+                    (declaredSize >> (8 * UInt32(offset))) & 0xff)
+            }
+            patched = true
+        }
+        index += 1
+    }
+    guard patched else { throw ArchiveFixtureError.entryNotFound }
+    try bytes.write(to: url, options: .atomic)
 }
 
 private func expectCaptureRejectedForUploadAndInstall(

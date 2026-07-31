@@ -820,6 +820,13 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
 
         for attribute in collector.attributes {
             let candidates: [String]
+            // Load-bearing invariant: the sanitizer's URL-emitting attribute
+            // surface must stay a subset of `semantics`. The collector only
+            // appends names already present in that table, so this throw is
+            // unreachable today and an unlisted URL-bearing attribute would be
+            // skipped silently rather than rejected. Any new sanitizer
+            // attribute that can carry a URL must be added to `semantics` in
+            // the same change, or it opens a hole here without failing.
             guard
                 let semantics =
                     SnapshotURLAttributeCollector.semantics[attribute.name]
@@ -1562,11 +1569,31 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
                     throw Error.packageTooLarge
                 }
                 imageBytes += entry.uncompressedSize
+                // Every cap above tests `entry.uncompressedSize`, which comes
+                // from the archive's central directory and is therefore
+                // attacker-declared. Nothing in the inflate path compares the
+                // bytes actually produced against it, so a package may declare
+                // a kilobyte and expand to gigabytes. Bound the accumulator
+                // itself against the smaller of the declared size and the
+                // single-image cap, and abort mid-stream rather than after the
+                // bytes are already resident.
+                let extractionCeiling = min(
+                    entry.uncompressedSize,
+                    UInt64(ArticleWorkshopLimits.maxSingleImageBytes))
                 var data = Data()
                 do {
                     _ = try archive.extract(entry) { chunk in
+                        let produced = UInt64(chunk.count)
+                        guard
+                            produced <= extractionCeiling,
+                            UInt64(data.count) <= extractionCeiling - produced
+                        else {
+                            throw Error.packageTooLarge
+                        }
                         data.append(chunk)
                     }
+                } catch let error as Error {
+                    throw error
                 } catch {
                     throw Error.invalidPackage
                 }
