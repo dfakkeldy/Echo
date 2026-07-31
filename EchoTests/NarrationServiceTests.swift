@@ -1315,15 +1315,24 @@ private actor ShadowEvaluatorRecorder {
         let retryCalls = engine.plannedCalls.dropFirst()
         let link = "[filesystem](/fˈIl sˌɪstəm/)"
         #expect(retryCalls.count > 1)
-        #expect(
-            retryCalls.reduce(0) {
-                $0 + $1.chunk.g2pInputText.components(separatedBy: link).count - 1
-            } == 1)
-        #expect(
-            retryCalls.allSatisfy {
-                $0.chunk.g2pInputText.contains("[filesystem]") == false
-                    || $0.chunk.g2pInputText.contains(link)
-            })
+
+        // Computed before the assertions on purpose: `#expect` captures its whole
+        // condition as one instrumented expression tree, so folding a `reduce` or
+        // `allSatisfy` over the labeled `(chunk:voice:)` tuples into the condition
+        // costs enough to exhaust the constraint solver on some Xcode 26.x
+        // toolchains ("unable to type-check this expression in reasonable time").
+        // The explicit `Int` pins `reduce`'s result so the literals and `+`/`-`
+        // overloads resolve immediately. Keep these hoisted.
+        let linkOccurrences: Int = retryCalls.reduce(0) { total, call in
+            total + call.chunk.g2pInputText.components(separatedBy: link).count - 1
+        }
+        #expect(linkOccurrences == 1)
+
+        let everyRetryKeepsTheLinkIntact = retryCalls.allSatisfy { call in
+            let text = call.chunk.g2pInputText
+            return text.contains("[filesystem]") == false || text.contains(link)
+        }
+        #expect(everyRetryKeepsTheLinkIntact)
     }
 
     @Test(.timeLimit(.minutes(1)))
