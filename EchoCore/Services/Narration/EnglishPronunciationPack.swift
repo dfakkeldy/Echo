@@ -403,17 +403,52 @@ extension EnglishPronunciationPack {
         ].joined(separator: "|")
     }
 
-    /// Generic words that name a candidate's position rather than its meaning.
     /// Words that name a candidate's POSITION rather than its meaning.
     ///
-    /// `rank` was removed from this set. An organ *rank* is a real register,
-    /// so `rank 8` for `organ` is a legitimate sense label, and refusing it
-    /// discarded genuine reviewed evidence. Everything left here is a word
-    /// that can only ever mean "the nth one".
+    /// `rank` is a member again. It was removed to rescue `rank 8` for `organ`
+    /// -- an organ rank is a real register -- but removal was the wrong
+    /// instrument, and it leaked in the false-ACCEPT direction. The refusal
+    /// rule fires only when EVERY token is ordering vocabulary, so taking one
+    /// word out of the set exempts every label built from it: bare `rank` and
+    /// `rank two` became admissible while bare `form`, `reading`, `no` and
+    /// `variant` stayed refused, which is an asymmetry with no basis in what
+    /// the labels mean. `rank` on its own names ordering exactly as `variant`
+    /// does.
+    ///
+    /// Every word here is dual-use to some degree -- a `verb form`, a `close
+    /// reading`, an organ `rank` -- and dual-use is handled by the rule rather
+    /// than by set membership: a content token beside the ordering word rescues
+    /// the label, so `verb form` is admissible while `form` is not. Membership
+    /// says only "this word contributes no meaning by itself".
     nonisolated static let senseLabelOrderTokens: Set<String> = [
         "alt", "alternate", "alternative", "candidate", "entry", "form",
         "index", "item", "no", "num", "number", "option", "order", "pron",
-        "pronunciation", "reading", "sense", "variant", "version",
+        "pronunciation", "rank", "reading", "sense", "variant", "version",
+    ]
+
+    /// Ordering words whose companion INTEGER designates a real thing rather
+    /// than a position.
+    ///
+    /// This is the one property that separates `rank 8` (admissible, an organ
+    /// register named by pipe length) from `variant 2` (inadmissible, a source
+    /// index). Both are `<ordering word> <bare integer>`, so no rule phrased
+    /// over token CLASSES can tell them apart -- the difference is lexical, and
+    /// naming it here is what keeps it out of the rule as a special case.
+    ///
+    /// The criterion for membership: the word names a category whose members
+    /// are conventionally identified BY number, so the numeral is data. Organ
+    /// ranks are 8', 16', 4'. `form`, `reading`, `no` and `variant` are
+    /// deliberately NOT members: their numeric companion is always an index
+    /// (`form 2`, `reading 2`, `no. 3`, `variant 2` are ordering artifacts, and
+    /// `variant 2` is pinned inadmissible), so admitting integers beside them
+    /// would reopen the false-accept leak this closes. Their dual-use readings
+    /// are already served by the content-token rule.
+    ///
+    /// Membership changes nothing about the bare word or a spelled companion.
+    /// `rank`, `rank two` and `rank second` are refused exactly as `variant`,
+    /// `variant two` and `variant second` are.
+    nonisolated static let senseLabelDesignationNouns: Set<String> = [
+        "rank",
     ]
 
     nonisolated static let senseLabelOrdinalSuffixes: Set<String> = [
@@ -480,6 +515,15 @@ extension EnglishPronunciationPack {
     /// cause, so both are fixed by scanning every token instead of counting
     /// them.
     ///
+    /// `rank 8` is rescued by `senseLabelDesignationNouns`, not by exempting
+    /// `rank` from the ordering vocabulary. Exempting it was the previous
+    /// attempt and it leaked the other way, admitting bare `rank` and `rank
+    /// two`, because the refusal needs EVERY token to be ordering vocabulary
+    /// and a non-member token satisfies nothing. The rescue is therefore an
+    /// explicit narrow admission of `<designation noun> <integer>` rather than
+    /// a hole in the vocabulary, which keeps the bare and spelled-companion
+    /// cases refused for `rank` exactly as they are for `variant`.
+    ///
     /// Deliberately module-internal rather than fileprivate: brief 10.1 states
     /// this rule, so the Task 10 acceptance suite asserts it directly instead
     /// of inferring it from a decode failure.
@@ -526,7 +570,8 @@ extension EnglishPronunciationPack {
             .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
             .map(String.init)
         if !rawTokens.isEmpty,
-            rawTokens.allSatisfy(isSenseLabelOrderingToken)
+            rawTokens.allSatisfy(isSenseLabelOrderingToken),
+            !isSenseLabelNumericDesignation(rawTokens)
         {
             return false
         }
@@ -543,6 +588,45 @@ extension EnglishPronunciationPack {
         }
 
         return true
+    }
+
+    /// A designation noun qualified by a bare integer, as `rank 8` is.
+    ///
+    /// Phrased over token PROPERTIES, not over a token count, for the reason
+    /// the shape-based version failed: `rank 8 16` and `the rank 8` are the
+    /// same claim as `rank 8`, and a `count == 2` test would split them
+    /// arbitrarily. Fillers neither rescue nor condemn, matching
+    /// `senseLabelFillerTokens`, so they are skipped rather than counted.
+    ///
+    /// Both flags are required. Without a designation noun this would admit
+    /// bare numerals, which carry no letter and are refused earlier anyway;
+    /// without an integer it would admit bare `rank`, which is the false accept
+    /// being closed. A SPELLED companion is not an integer, so `rank two` stays
+    /// refused -- the numeral has to be data, and `two` is prose.
+    ///
+    /// A glued numeral is not a designation: `rank8` remains refused, because
+    /// `<word><digits>` with no separator is the fabricated CMUdict artifact
+    /// shape that `pron2` established, and reading it as a register would
+    /// reopen that shape for every designation noun.
+    nonisolated static func isSenseLabelNumericDesignation(
+        _ tokens: [String]
+    ) -> Bool {
+        var sawDesignationNoun = false
+        var sawInteger = false
+        for token in tokens {
+            let lowercased = token.lowercased()
+            if senseLabelDesignationNouns.contains(lowercased) {
+                sawDesignationNoun = true
+                continue
+            }
+            if !lowercased.isEmpty, lowercased.allSatisfy(\.isNumber) {
+                sawInteger = true
+                continue
+            }
+            if senseLabelFillerTokens.contains(lowercased) { continue }
+            return false
+        }
+        return sawDesignationNoun && sawInteger
     }
 
     /// A token that names ordering, either on its own or as a number glued to

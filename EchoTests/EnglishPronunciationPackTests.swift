@@ -501,6 +501,34 @@ import Testing
             ("record", "recorded"),
             ("read", "reading"),
             ("live", "lives"),
+            // The `rank` asymmetry, closed. `rank` was taken OUT of the
+            // ordering vocabulary to rescue `rank 8`, and because the refusal
+            // needs every token to be ordering vocabulary, removing the word
+            // exempted every label built from it: these two became admissible
+            // while bare `form`, `reading`, `no` and `variant` stayed refused.
+            // `rank` alone names ordering exactly as `variant` does.
+            ("organ", "rank"),
+            ("organ", "rank two"),
+            ("organ", "rank second"),
+            ("organ", "the rank"),
+            // A glued numeral is the fabricated-artifact shape, not a
+            // designation, so membership in the designation set does not
+            // rescue it.
+            ("organ", "rank8"),
+            // The rest of the dual-use family, refused identically. Each is
+            // admissible beside a content token and refused bare or beside
+            // ordering vocabulary -- that consistency is the point.
+            ("bass", "form"),
+            ("bass", "form 2"),
+            ("bass", "form two"),
+            // Deliberately not headword `read`: `reading` is an inflection of
+            // it, so that pairing would be refused by the restatement rule and
+            // would prove nothing about the ordering rule.
+            ("bass", "reading 2"),
+            ("bass", "no"),
+            ("bass", "no 3"),
+            ("bass", "variant"),
+            ("bass", "variant two"),
         ]
 
         for (word, label) in inadmissible {
@@ -512,12 +540,21 @@ import Testing
 
         let admissible: [(String, String)] = [
             // The regression: a legitimate sense that happens to match the
-            // order-token-plus-number shape.
+            // order-token-plus-number shape. Rescued by
+            // `senseLabelDesignationNouns` -- an organ rank is named by pipe
+            // length, so the numeral is data -- rather than by exempting `rank`
+            // from the ordering vocabulary, which is what leaked above.
             ("organ", "rank 8"),
+            ("organ", "rank 16"),
+            ("organ", "the rank 8"),
             ("organ", "musical instrument"),
             ("organ", "body part"),
             // An order token beside a real content word still says something.
+            // This is the mechanism that serves every dual-use reading in the
+            // family, and it is why the designation set does not need them.
             ("read", "verb form"),
+            ("bass", "musical form"),
+            ("bass", "close reading"),
             ("content", "material noun"),
             ("content", "satisfied adjective"),
             ("read", "past tense"),

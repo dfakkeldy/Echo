@@ -502,9 +502,13 @@ sites, are: **W0 the anchor is present**; W1 `len(L) ≥ A.eventCount`; W2
 `chain_head(L[:A.eventCount]) == A.lastEventSHA256`; W3
 `len(L) − A.eventCount ≤ 1`; W4 `len(L) ≥ q.sequence` for every queue ledger
 row; W5 that row's named event reproduces it exactly; W6 the ledger chains from
-genesis with no interior rewrite; W7 the run claim is valid. **Recovery accepts
+genesis with no interior rewrite; W7 the run claim is valid; **W9
+`A.claimBindingSHA256 == binding(runID, claim nonce)`**. **Recovery accepts
 exactly the mutating path's set minus W3**, the lag rule — it may tolerate
-staleness, never contradiction.
+staleness, never contradiction. W9 is a contradiction rule, not a staleness
+rule, so recovery evaluates it unrelaxed. W8 is retired and its number is
+deliberately not reused, so that prior review notes about "W8" stay
+unambiguous.
 
 ### W8 is retired. The anchor is now mandatory.
 
@@ -536,12 +540,71 @@ attempt-state.json` becomes evidence rather than amnesia. W8 is replaced by W0,
 member to it, and it is what makes the invariant's own headline sentence true
 of the anchor.
 
+### W9 closes anchor substitution. The genesis anchor is no longer a constant.
+
+A fifth round found the sibling of W0, and it shipped in #480 recorded as
+*accepted out of model*: **W0 forbids deleting the anchor but not overwriting
+it**, and the claim-time anchor was a fixed constant —
+`{"clips":{},"eventCount":0,"lastEventSHA256":"0"×64,"schemaVersion":2}` —
+byte-identical for every run and therefore present in the source rather than in
+the directory. Restoring that constant, truncating `attempt-ledger.jsonl` to one
+line and removing `morning-queue.json` put the directory in the *fresh run* row,
+so W0–W5 all held and the mutating path accepted it. **Reproduced end to end: a
+terminal `morning_review`/2 clip read back as `proposal_emitted`/0.**
+
+The finding is real but the response to it was wrong, and a later reviewer named
+why: *"out of model" and "not worth a ten-line change" are different claims, and
+the commit made the first while implying the second.* The residual genuinely is
+out of model — this scheme is tamper *evidence*, not tamper proofing — but the
+named closure was cheap, local to `_claim_run`, and had already been written
+down. It is now implemented.
+
+`_claim_run` mints an unpredictable per-run nonce (`secrets.token_hex(32)` —
+**not** derived from the run ID, the clock, or a counter, any of which would look
+per-run while remaining recomputable), records it in `run-claim.json` at
+**schema 2**, and every anchor this module writes carries
+`claimBindingSHA256 = SHA-256({"claimNonce":…,"runID":…})` at anchor **schema
+3**. W9 refuses any anchor whose binding is absent or does not match the claim
+the run directory presents. Both fields are load-bearing: the nonce makes the
+genesis anchor unpredictable, the run ID makes it non-transferable, so an anchor
+that is valid for run A is not valid for run B.
+
+**Migration: superseded schemas are refused, not migrated.** A schema-1 claim
+carries no nonce and a schema-2 anchor carries no binding, so accepting either
+would re-admit exactly the state W9 exists to refuse — and a permissive
+schema-migration branch is what produced one of the earlier siblings on this
+same workstream, and had to be deleted. Refusing costs nothing measurable:
+`audio_judge.py` first reached a promotion branch in `0c6d8dbb` (Task 10, #480),
+run roots live outside the repository under `DEFAULT_OUTPUT_ROOT`, and a run
+directory is created and consumed inside a single development `run`/`recover`
+cycle, so no superseded artifact produced by merged code can exist. A directory
+predating this change refuses every operation and is discarded, which is the
+right outcome for a development-lane artifact whose tamper evidence cannot be
+evaluated.
+
+The RED test asserts the **exact** refusal message per payload, and carries
+three payloads rather than one. The historical schema-2 constant is now refused
+by the *schema* rule before W9 is consulted, so a test carrying only that
+payload would pass against a build with W9 absent or stubbed — it would be
+measuring the schema bump. `foreign-claim-binding` and
+`replayed-sibling-anchor` are well-formed schema-3 anchors that only W9 can
+refuse, and the latter is a genesis anchor this module really produced for a
+different run. Verified by mutation: with the W9 comparison replaced by `pass`,
+both schema-3 payloads launder through and the test fails.
+
 ### The enumeration, re-derived
 
-Because W0 refuses every anchor-absent state outright, the six anchor-absent
-rows collapse to one and the table is now **seven states, not twelve**. The
-full table is carried in the `_verify_run_directory_witnesses` docstring, which
-remains the authoritative copy. What changed:
+Because W0 refuses every anchor-absent state and W9 every anchor-unbound state,
+each collapses to a single row and the table is **eight states**. The A axis now
+ranges over `{absent, unbound, bound}` rather than `{absent, present}`: ranging
+over presence alone is precisely the omission that let the fifth sibling
+through, because a substituted genesis anchor had no row to land in other than
+the fresh-run row. The full table is carried in the
+`_verify_run_directory_witnesses` docstring, which remains the authoritative
+copy. What changed:
+
+- **A substituted anchor now has its own row** — row 2, REFUSE by W9 — instead
+  of passing as row 3, the fresh run.
 
 - **Old rows 1, 8 and 9 — the accepting anchor-absent states — are now
   REFUSED.** Row 1 accepted a fresh run on the strength of its emptiness; rows
@@ -552,7 +615,8 @@ remains the authoritative copy. What changed:
 - **Old row 4 — empty ledger, present count-0 anchor at the genesis head — was
   an oddity reachable only after a completed cycle. It is now the ordinary
   state of every newly claimed run directory**, and is how a genuinely fresh
-  run is still accepted rather than refused by W0. It is new row 2.
+  run is still accepted rather than refused by W0. It is current row 3, and it
+  is now reachable only by an anchor bound to the run's own claim.
 
 The reproduction W4 closed in the previous round: from `attemptCount=2,
 state=morning_review`, removing `attempt-ledger.jsonl` and `attempt-state.json`
@@ -566,21 +630,24 @@ old rows 8 and 9; W0 is what closes it.
 
 ## Known limitations recorded rather than closed
 
-- **Anchor substitution is not covered by W0.** W0 makes an *absent*
-  `attempt-state.json` evidence of tampering, restoring deletion-monotonicity
-  for the anchor. It does not cover *overwriting* it. An actor with write
-  access to a run directory can restore the fixed claim-time anchor
-  (`{"clips":{},"eventCount":0,"lastEventSHA256":"0"×64,"schemaVersion":2}`
-  — a constant, identical for every run), truncate `attempt-ledger.jsonl` to
-  one line, and remove `morning-queue.json`, and the mutating path accepts the
-  result: a terminal `morning_review`/2 clip reads back as `proposal_emitted`/0
-  and a fresh attempt can be spent. This is the round-4 laundering with a write
-  substituted for a delete, at no additional cost to the attacker. It is
-  accepted as out of model (same-UID write access to the run directory), not as
-  closed. Closing it would require an anchor witness that a fixed constant
-  cannot satisfy — e.g. binding the anchor to the claim (run ID + claim-time
-  nonce, so the genesis anchor is per-run and not replayable) or a monotone
-  counter outside the directory.
+- **Anchor substitution by a replayable value: CLOSED by W9** (was *accepted out
+  of model* in #480). The genesis anchor is no longer a constant, so there is no
+  byte string in the source that is a valid anchor, and no anchor is valid
+  outside the run whose claim minted its nonce. See "W9 closes anchor
+  substitution" above for the mechanism, the migration decision, and the
+  mutation check. **The residual, which is narrower and is named rather than
+  implied:** an actor with **read *and* write** access to the run directory can
+  read the nonce from `run-claim.json`, recompute the binding, and forge an
+  anchor for *that* run. W9 cannot close this and no in-directory witness can,
+  because every input to the binding lives in the directory under attack; a
+  witness cannot outrank an attacker who reads and rewrites all of it. Closing
+  it needs state the attacker cannot read or rewind — a monotone counter, or a
+  key outside the run directory — which is a different design, not another
+  predicate. What changed is that the *free* variant is gone: the attack now
+  requires reading the target directory first, where before it required only
+  knowledge of a constant published in this repository. Still out of model
+  (same-UID write access); this scheme remains tamper evidence, not tamper
+  proofing.
 - **Recovery requires `.attempt-ledger.lock` to already exist, while the
   mutating path creates it.** So `rm .attempt-ledger.lock` — a zero-content
   file — makes `recover` refuse until it is restored. Reviewed this round and
@@ -593,18 +660,26 @@ old rows 8 and 9; W0 is what closes it.
   absence widens nothing, and `touch` or any later mutating operation restores
   it. This was changed and then reverted during the round when the existing
   test surfaced the property the change would have broken.
-- **The `rank` order-token asymmetry leaks in the false-*accept* direction.**
-  `rank` was removed from `EnglishPronunciationPack.senseLabelOrderTokens`
-  because an organ *rank* is a real register, so `rank 8` for `organ` names a
-  genuine sense. The removal is broader than that case.
-  `isMeaningfulSenseLabel` refuses a label only when *every* token is ordering
-  vocabulary, so with `rank` out of the set a bare `rank` and a bare `rank
-  two` are both admitted as meaningful sense labels, while bare `form`,
-  `reading`, `no` and `variant` are still refused. The asymmetry is cosmetic
-  and unrelated to the ledger — it
-  admits an uninformative label rather than discarding a real one — but the
-  narrow fix (`rank` ordering only when it is the whole label, or only when no
-  content token accompanies it) is a **named follow-up, recorded not fixed**.
+- **The `rank` order-token asymmetry: CLOSED.** `rank` had been removed from
+  `EnglishPronunciationPack.senseLabelOrderTokens` to rescue `rank 8` for
+  `organ`, a real organ register. Removal was the wrong instrument and leaked in
+  the false-*accept* direction: `isAdmissibleSenseLabel` refuses a label only
+  when *every* token is ordering vocabulary, so taking one word out of the set
+  exempts every label built from it, and bare `rank` and `rank two` became
+  admissible while bare `form`, `reading`, `no` and `variant` stayed refused.
+  `rank` is a member again, which restores the family to one rule, and `rank 8`
+  is rescued by a named lexical set instead — `senseLabelDesignationNouns`,
+  ordering words whose companion *integer* designates a real thing rather than a
+  position (organ ranks are 8′, 16′, 4′). This is the only thing that can
+  separate `rank 8` from `variant 2`: both are `<ordering word> <bare integer>`,
+  so no rule phrased over token classes distinguishes them and the difference has
+  to be recorded as lexical. `form`, `reading`, `no` and `variant` are
+  deliberately *not* members, because their numeric companion is always an index
+  and `variant 2` is pinned inadmissible; their dual-use readings are served by
+  the pre-existing content-token rule, which is why `verb form`, `musical form`
+  and `close reading` remain admissible. The family is now consistent in both
+  directions: each of the five is refused bare, refused beside spelled or
+  positional vocabulary, and admitted beside a content token.
 - **The depth-989 encode `RecursionError` does not reproduce on this
   interpreter.** CPython 3.14.6's C encoder does not consume the Python stack
   and survives nesting of 60000; only the pure-Python encoder raises, at about
