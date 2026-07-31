@@ -37,10 +37,15 @@ on:
     # and routinely landed builds early afternoon. 08:20 UTC is a low-demand
     # overnight-Americas window, so even a bad queue day finishes well before 9am.
     # The odd :20 minute avoids the :00/:30 cron herd.
-    - cron: '20 8 * * *'  # Nightly — every day 05:20 America/Halifax (ADT)
-    - cron: '20 9 * * *'  # Nightly — every day 05:20 America/Halifax (AST)
-    - cron: '20 8 * * 1'  # Weekly  — Mondays   05:20 America/Halifax (ADT)
-    - cron: '20 9 * * 1'  # Weekly  — Mondays   05:20 America/Halifax (AST)
+    # One cron per channel, in UTC. GitHub Actions cron never observes DST, so
+    # 08:20 UTC is 05:20 America/Halifax during ADT and 04:20 during AST. A
+    # nightly/weekly TestFlight build does not care about that one-hour drift.
+    # We deliberately do NOT add a second DST "companion" per channel: the
+    # companion only ever skipped, and a skipped ship job reports the whole run
+    # as success — a green check that built and shipped nothing, which hides
+    # real ship failures instead of surfacing them.
+    - cron: '20 8 * * *'  # Nightly — every day, 05:20 ADT / 04:20 AST
+    - cron: '20 8 * * 1'  # Weekly  — Mondays
   workflow_dispatch:
     inputs:
       channel:
@@ -60,59 +65,45 @@ jobs:
     name: Resolve release train
     runs-on: ubuntu-latest
     outputs:
-      should_run: ${{ steps.train.outputs.should_run }}
       channel: ${{ steps.train.outputs.channel }}
       branch: ${{ steps.train.outputs.branch }}
     steps:
       # ── Map the trigger to a channel/branch ───────────────────────────────
       # Scheduled runs identify themselves by their cron string; manual runs by
-      # the `channel` input. Channel name == branch name by design.
+      # the `channel` input. Channel name == branch name by design. There is no
+      # inactive/skip outcome any more: every scheduled run and every dispatch
+      # ships, so the run's conclusion means exactly what it says.
       - name: Resolve channel → branch
         id: train
         shell: bash
         run: |
           schedule="${{ github.event.schedule }}"
           input_channel="${{ github.event.inputs.channel }}"
-          should_run=true
 
           case "$schedule" in
-            "20 8 * * *"|"20 9 * * *") CH=nightly ;;
-            "20 8 * * 1"|"20 9 * * 1") CH=weekly ;;
-            *)                          CH="$input_channel" ;;
+            "20 8 * * *") CH=nightly ;;
+            "20 8 * * 1") CH=weekly ;;
+            *)            CH="${input_channel:-nightly}" ;;
           esac
 
-          if [ -n "$schedule" ]; then
-            offset="$(TZ=America/Halifax date +%z)"
-            scheduled_hour="$(printf '%s\n' "$schedule" | awk '{ print $2 }')"
-
-            case "$offset" in
-              -0300) active_hour=8 ;;
-              -0400) active_hour=9 ;;
-              *)
-                echo "::error title=Unexpected Halifax UTC offset::America/Halifax reported offset $offset."
-                exit 1
-                ;;
-            esac
-
-            if [ "$scheduled_hour" != "$active_hour" ]; then
-              should_run=false
-              echo "Skipping inactive Halifax-time cron '$schedule' for current offset $offset."
-            fi
-          fi
-
-          CH="${CH:-nightly}"
-          {
-            echo "should_run=$should_run"
-            echo "channel=$CH"
-            echo "branch=$CH"
-          } >> "$GITHUB_OUTPUT"
-          echo "Resolved '$CH' train from branch '$CH' (should_run=$should_run)."
+          echo "channel=$CH" >> "$GITHUB_OUTPUT"
+          echo "branch=$CH" >> "$GITHUB_OUTPUT"
+          echo "Resolved '$CH' train from branch '$CH'."
 
   ship:
     needs: resolve
-    if: needs.resolve.outputs.should_run == 'true'
     name: Build & ship train
-    runs-on: macos-15
+    # MUST stay on the same runner image as the ci.yml build gate that vetted
+    # the branch this job checks out (`nightly` runs on macos-26). `setup-xcode`
+    # with `xcode-version: '26'` resolves to the newest 26.x *installed on the
+    # image*, and the images differ: macos-15 tops out at Xcode 26.3 while
+    # macos-26 ships 26.6. That skew meant a commit could pass "Build gate +
+    # tests" on its PR and still fail this job's identical `build-for-testing`,
+    # which is how nightly went dark 2026-07-25 → 07-31: first a Swift-Testing
+    # `#expect` that exceeded 26.3's constraint-solver budget (#481), then
+    # `SystemLanguageModel.contextSize`, a Foundation Models member that simply
+    # does not exist in 26.3's SDK. If ci.yml's runner moves, move this with it.
+    runs-on: macos-26
     # Fail fast on a hang (e.g. a headless codesign keychain prompt) instead of
     # silently burning the 6-hour default. A real run is archive + upload + Apple
     # processing ≈ 40–60 min, so 90 leaves headroom without masking a stall.
@@ -126,7 +117,11 @@ jobs:
       MATCH_GIT_SSH_KEY: ${{ secrets.MATCH_GIT_SSH_KEY }}
       # match reads its repo URL from fastlane/Matchfile; readonly is forced via
       # `readonly: is_ci` in the Fastfile so CI never mutates signing assets.
-      IOS_DESTINATION: "platform=iOS Simulator,name=iPhone 16"
+      # Generic, not a named device. This job only ever COMPILES (build-for-
+      # testing); it never boots a simulator or runs a test, so pinning a device
+      # name buys nothing and breaks whenever a runner image drops that model —
+      # macos-26 carries a different simulator set than macos-15 did.
+      IOS_DESTINATION: "generic/platform=iOS Simulator"
 
     steps:
       - name: Checkout ${{ needs.resolve.outputs.branch }}
@@ -140,7 +135,8 @@ jobs:
           fetch-depth: 0
 
       # Pin Xcode 26.x to match ci.yml (newest installed 26.x; never a future
-      # major). See ci.yml for why the macos-15 default of 16.4 is too old.
+      # major). This resolves per runner image, so it only agrees with ci.yml
+      # while both jobs run on the same image — see the `runs-on` note above.
       - name: Select Xcode 26
         uses: maxim-lobanov/setup-xcode@v1
         with:
