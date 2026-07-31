@@ -86,4 +86,3 @@ git commit -m "feat: stage article captures atomically"
 ```
 
 ---
-

@@ -1,6 +1,6 @@
 # Task 7 Report: Article Inbox and Library Mode Selector
 
-Date: 2026-07-29  
+Date: 2026-07-29
 Base: `daf7e4ea263ca792d985644bd2da8decf28e2d86`
 
 ## RED receipts

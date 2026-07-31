@@ -42,4 +42,3 @@ Verdict: **FAIL**
 
 No live CloudKit, account-switch, cross-device, physical-device, hosted CI,
 merge, installation, or release proof was supplied.
-
