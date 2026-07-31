@@ -3007,6 +3007,19 @@ def _with_recovery_ledger_lock(
             error_type=LedgerError,
             name=artifact_name,
         )
+    # DELIBERATELY STRICTER THAN THE MUTATING PATH, which creates this lock
+    # with `O_CREAT`. Recovery requires it to already exist, so that a REFUSED
+    # recovery leaves the run directory byte-identical -- the property
+    # `test_recover_requires_existing_lock_without_creating_one` pins. Adding
+    # `O_CREAT` here would mean a recovery that goes on to refuse had already
+    # created a file, and the command whose job is to restore evidence would
+    # be mutating a directory it is in the middle of rejecting.
+    #
+    # The cost is that `rm .attempt-ledger.lock` makes `recover` refuse until
+    # the file is restored. That is an availability cost, not a laundering
+    # one: the lock is "n/a" in the witness table, so its absence widens
+    # nothing, and `touch .attempt-ledger.lock` or any subsequent mutating
+    # operation restores it. The strictness is kept on that trade.
     if not _validate_existing_mutable_file_at(
         directory_descriptor,
         ".attempt-ledger.lock",
