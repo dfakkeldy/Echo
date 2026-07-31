@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import ssl
 import subprocess
 import sys
@@ -1216,13 +1217,21 @@ class EvaluationGateTests(ManifestAdmissionTests):
     def test_connection_level_read_failures_are_typed_transport_errors(self):
         """A connection dying mid-body is a transport failure, not a crash.
 
-        `response.read()` runs inside the `urlopen` block, and none of these
-        four is an `HTTPError`, a `URLError` or a `TimeoutError`, so each used
-        to escape `_post_chat_completion` untyped. `run_evaluation` has no
-        catch-all and `main` catches only the domain errors, so the run died
-        on a raw traceback and produced neither a morning-queue entry nor a
-        pass -- breaking the outcome contract that says every clip ends in
-        one or the other.
+        `response.read()` runs inside the `urlopen` block, and a connection
+        that dies mid-body does not surface as a `URLError`, so these escaped
+        `_post_chat_completion` untyped. `run_evaluation` has no catch-all and
+        `main` catches only the domain errors, so the run died on a raw
+        traceback and produced neither a morning-queue entry nor a pass --
+        breaking the outcome contract that says every clip ends in one or the
+        other.
+
+        The first four cases are the originally observed escapes. The
+        remaining seven are the siblings that STILL escaped after those four
+        were named individually, and they are what makes the point: an
+        enumeration of exception types can only ever chase the next sibling.
+        The handler now catches `(OSError, http.client.HTTPException)` -- the
+        two bases that close the class -- so this list is a sample of a
+        covered class rather than a specification of the covered set.
 
         NOTE: typing these does NOT address the budget consequence recorded in
         the receipt's risk register. `_claim_run` makes a run ID single-use, so
@@ -1238,6 +1247,13 @@ class EvaluationGateTests(ManifestAdmissionTests):
             http.client.IncompleteRead(b"partial", 4096),
             ssl.SSLError("record layer failure"),
             ConnectionResetError("connection reset by peer"),
+            http.client.LineTooLong("header line"),
+            http.client.BadStatusLine("\x16\x03\x01"),
+            http.client.ResponseNotReady("Idle"),
+            http.client.HTTPException("protocol failure"),
+            ConnectionAbortedError("software caused connection abort"),
+            BrokenPipeError("broken pipe"),
+            socket.gaierror("temporary failure in name resolution"),
         )
         for failure in failures:
             with self.subTest(failure=type(failure).__name__):
@@ -1251,6 +1267,46 @@ class EvaluationGateTests(ManifestAdmissionTests):
                         return_value=api_response,
                     ),
                     self.assertRaises(TransientTransportError),
+                ):
+                    audio_judge._post_chat_completion({}, "test-only-key")
+
+    def test_http_status_errors_keep_their_permanent_transient_split(self):
+        """`HTTPError` must not be swallowed by the connection-level clause.
+
+        `urllib.error.HTTPError` is a `URLError` and therefore an `OSError`,
+        so broadening the connection-level handler to `OSError` puts it in
+        reach of a clause that treats everything as transient. Only clause
+        ORDER keeps the status-code split intact, and nothing else in the
+        suite would notice if the two clauses were swapped: every 4xx would
+        silently become retryable.
+        """
+        for status, expected in (
+            (400, PermanentTransportError),
+            (401, PermanentTransportError),
+            (404, PermanentTransportError),
+            (408, TransientTransportError),
+            (409, TransientTransportError),
+            (429, TransientTransportError),
+            (500, TransientTransportError),
+            (503, TransientTransportError),
+        ):
+            with self.subTest(status=status):
+                failure = audio_judge.urllib.error.HTTPError(
+                    "https://api.openai.com/v1/chat/completions",
+                    status,
+                    "status",
+                    {},
+                    None,
+                )
+                self.addCleanup(failure.close)
+                self.assertIsInstance(failure, OSError)
+                with (
+                    mock.patch.object(
+                        audio_judge.urllib.request,
+                        "urlopen",
+                        side_effect=failure,
+                    ),
+                    self.assertRaises(expected),
                 ):
                     audio_judge._post_chat_completion({}, "test-only-key")
 

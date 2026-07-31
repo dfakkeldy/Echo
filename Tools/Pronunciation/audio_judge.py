@@ -1165,22 +1165,33 @@ def _post_chat_completion(body: dict[str, Any], api_key: str) -> dict[str, Any]:
         if error.code in {408, 409, 429} or 500 <= error.code <= 599:
             raise TransientTransportError() from None
         raise PermanentTransportError() from None
-    except (
-        urllib.error.URLError,
-        TimeoutError,
-        # `response.read()` runs inside this block, and a connection that
-        # dies mid-body does not surface as a URLError. None of the four
-        # below is a URLError, a TimeoutError or an HTTPError, so each used
-        # to escape untyped: `run_evaluation` has no catch-all and `main`
-        # catches only the domain errors, so the run died on a raw traceback
-        # and produced neither a morning-queue entry nor a pass, breaking the
-        # outcome contract. All four are connection-level and
-        # indistinguishable from a network blip, so all four are transient.
-        http.client.RemoteDisconnected,
-        http.client.IncompleteRead,
-        ssl.SSLError,
-        ConnectionResetError,
-    ):
+    except (OSError, http.client.HTTPException):
+        # Catch the CLASS, not a list of members. `response.read()` runs
+        # inside this block, and a connection that dies mid-body does not
+        # surface as a `URLError`. An earlier revision enumerated the four
+        # siblings that had been observed escaping; six more still did --
+        # `LineTooLong`, `BadStatusLine`, `ResponseNotReady`, a bare
+        # `HTTPException`, `ConnectionAbortedError`, `BrokenPipeError` and
+        # `socket.gaierror` -- and each died on a raw traceback, because
+        # `run_evaluation` has no catch-all and `main` catches only the domain
+        # errors. That produced neither a morning-queue entry nor a pass,
+        # breaking the outcome contract that says every clip ends in one or
+        # the other. Enumerating members could only ever chase the next
+        # sibling.
+        #
+        # These two bases close the class exhaustively. `OSError` subsumes
+        # `URLError`, `TimeoutError`, `ssl.SSLError`, `socket.gaierror` and
+        # every `ConnectionError` (reset, aborted, broken pipe);
+        # `http.client.HTTPException` subsumes `IncompleteRead`,
+        # `BadStatusLine`, `RemoteDisconnected`, `LineTooLong` and
+        # `ResponseNotReady`. All are connection-level and indistinguishable
+        # from a network blip, so all are transient.
+        #
+        # ORDERING IS LOAD-BEARING: `urllib.error.HTTPError` is a `URLError`
+        # and therefore an `OSError`, so it would be swallowed here and every
+        # 4xx would be retried as transient. Its clause must stay above this
+        # one, where it separates the retryable status codes from the
+        # permanent ones.
         raise TransientTransportError() from None
     try:
         decoded = json.loads(
