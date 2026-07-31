@@ -38,7 +38,7 @@ recorded as not rerun and would not count as a pass.
 | --- | --- |
 | Pronunciation corpus tests (`make pronunciation-corpus-test`) | 53 distinct test methods, 53 executed, all passed; contract `CONTRACT_VALID` with 37 named regressions |
 | Corpus qualification (`make pronunciation-corpus-qualification`) | Ran; reports `WAITING_FOR_HUMAN_LABELS` with zero qualifying rows, which is the truthful state and not a pass of qualification |
-| Development audio-judge tests (`make pronunciation-audio-judge-test`) | 98 distinct test methods, 122 executed, all passed without an API request |
+| Development audio-judge tests (`make pronunciation-audio-judge-test`) | 103 distinct test methods, 127 executed, all passed without an API request |
 | Pronunciation pack tests (`make pronunciation-pack-test`) | 38 distinct test methods, 38 executed, all passed; `build_pronunciation_pack.py check` reproduced the committed pack byte-for-byte from the pinned lock, gold, silver, and vocabulary inputs. This gate is named by brief 10.6 but was **absent from every earlier revision of this table**. Because the preamble above promises nothing is carried forward, omitting it was worse than mislabelling it: a reader could not tell "not run" from "not mentioned". It is now run and recorded |
 | Deterministic program report (`make pronunciation-program-report`, twice) | Two runs byte-identical; SHA-256 `f592456769e35628573415be183a5d9e37138ce84ed4c34391e36fd229bb0343`, unchanged from the previous round |
 | Task 10 Swift acceptance suite | 7 passed (one added this round for brief 10.1's sense-label rule). Run again together with `EnglishPronunciationPackTests`, which carries the two new pack-decode rejection tests: 32 tests across the two suites, all passed |
@@ -50,9 +50,22 @@ recorded as not rerun and would not count as a pass.
 Distinct and executed test counts are stated separately because both
 audio-judge gate classes inherit from `ManifestAdmissionTests`. Twelve methods
 defined on that base class therefore execute three times — once in the base
-class and once in each of `EvaluationGateTests` and `AttemptLedgerTests` —
-so 95 distinct methods produce 119 executed tests. An earlier revision of this
-report stated only the executed figure.
+class and once in each of `EvaluationGateTests` and `AttemptLedgerTests`.
+The arithmetic: 91 methods defined on the leaf classes execute once each, and
+the 12 base-class methods execute three times each, so **103 distinct methods
+produce 127 executed tests** (91 + 36 = 127; 91 + 12 = 103).
+
+An earlier revision of this report stated only the executed figure. The
+revision after that stated **95 distinct and 119 executed in this paragraph
+while the gate table above said 98 and 122** — a self-contradiction within one
+document. The table was the correct pair. Both figures have since moved
+together, because this round added five test methods, all on leaf classes:
+one for the erasure-laundering defect (B-1), two for the previously untested
+`_morning_queue_row_authority` and recovery-precondition guards (S-3), one for
+canonical-encoding failures, and one pinning the `HTTPError` clause ordering
+that broadening the transport handler put at risk. Counts are now derived
+mechanically from `unittest`'s loader rather than by hand, which is what the
+earlier contradiction warranted.
 
 The pronunciation corpus and audio-judge suites now run in hosted CI as
 dedicated pre-Xcode steps, with a pinned and cached `ffmpeg`/`ffprobe` install
