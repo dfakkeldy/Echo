@@ -660,18 +660,26 @@ old rows 8 and 9; W0 is what closes it.
   absence widens nothing, and `touch` or any later mutating operation restores
   it. This was changed and then reverted during the round when the existing
   test surfaced the property the change would have broken.
-- **The `rank` order-token asymmetry leaks in the false-*accept* direction.**
-  `rank` was removed from `EnglishPronunciationPack.senseLabelOrderTokens`
-  because an organ *rank* is a real register, so `rank 8` for `organ` names a
-  genuine sense. The removal is broader than that case.
-  `isMeaningfulSenseLabel` refuses a label only when *every* token is ordering
-  vocabulary, so with `rank` out of the set a bare `rank` and a bare `rank
-  two` are both admitted as meaningful sense labels, while bare `form`,
-  `reading`, `no` and `variant` are still refused. The asymmetry is cosmetic
-  and unrelated to the ledger — it
-  admits an uninformative label rather than discarding a real one — but the
-  narrow fix (`rank` ordering only when it is the whole label, or only when no
-  content token accompanies it) is a **named follow-up, recorded not fixed**.
+- **The `rank` order-token asymmetry: CLOSED.** `rank` had been removed from
+  `EnglishPronunciationPack.senseLabelOrderTokens` to rescue `rank 8` for
+  `organ`, a real organ register. Removal was the wrong instrument and leaked in
+  the false-*accept* direction: `isAdmissibleSenseLabel` refuses a label only
+  when *every* token is ordering vocabulary, so taking one word out of the set
+  exempts every label built from it, and bare `rank` and `rank two` became
+  admissible while bare `form`, `reading`, `no` and `variant` stayed refused.
+  `rank` is a member again, which restores the family to one rule, and `rank 8`
+  is rescued by a named lexical set instead — `senseLabelDesignationNouns`,
+  ordering words whose companion *integer* designates a real thing rather than a
+  position (organ ranks are 8′, 16′, 4′). This is the only thing that can
+  separate `rank 8` from `variant 2`: both are `<ordering word> <bare integer>`,
+  so no rule phrased over token classes distinguishes them and the difference has
+  to be recorded as lexical. `form`, `reading`, `no` and `variant` are
+  deliberately *not* members, because their numeric companion is always an index
+  and `variant 2` is pinned inadmissible; their dual-use readings are served by
+  the pre-existing content-token rule, which is why `verb form`, `musical form`
+  and `close reading` remain admissible. The family is now consistent in both
+  directions: each of the five is refused bare, refused beside spelled or
+  positional vocabulary, and admitted beside a content token.
 - **The depth-989 encode `RecursionError` does not reproduce on this
   interpreter.** CPython 3.14.6's C encoder does not consume the Python stack
   and survives nesting of 60000; only the pure-Python encoder raises, at about
