@@ -1,0 +1,9 @@
+{
+  "package": "@mozilla/readability",
+  "version": "0.6.0",
+  "gitHead": "4d5dd0bbe0bfbc44e219dc86865131e79639e30b",
+  "npmTarball": "https://registry.npmjs.org/@mozilla/readability/-/readability-0.6.0.tgz",
+  "npmIntegrity": "sha512-juG5VWh4qAivzTAeMzvY9xs9HY5rAcr2E4I7tiSSCokRFi7XIZCAu92ZkSTsIj1OPceCifL3cpfteP3pDT9/QQ==",
+  "npmSHA1": "134e3ce3ff1676716e550de0b8de957bcc59208b",
+  "license": "Apache-2.0"
+}

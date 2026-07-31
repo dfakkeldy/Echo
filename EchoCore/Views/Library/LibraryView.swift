@@ -4,10 +4,16 @@
 
     struct LibraryView: View {
         @State private var vm: LibraryViewModel
+        @State private var articleInboxViewModel: ArticleInboxViewModel
+        @State private var anthologyListViewModel: AnthologyListViewModel
+        @State private var mode = LibraryMode.books
         @State private var showingManageRoots = false
         @State private var showingRecoveryFolderPicker = false
         let onAddFolder: () -> Void
         let onConnectServer: () -> Void
+        private let anthologyService: AnthologyService
+        private let anthologyBuildService: AnthologyBuildService
+        private let openBook: (LibraryOpenTarget) -> Void
 
         init(
             db: DatabaseService,
@@ -15,50 +21,90 @@
             onAddFolder: @escaping () -> Void,
             onConnectServer: @escaping () -> Void
         ) {
+            let articleFileStore = ArticleWorkshopFileStore()
+            let articleInboxViewModel = ArticleInboxViewModel(
+                db: db,
+                fileStore: articleFileStore)
+            let anthologyService = AnthologyService(
+                db: db,
+                fileStore: articleFileStore)
             _vm = State(initialValue: LibraryViewModel(db: db, openBook: openBook))
+            _articleInboxViewModel = State(
+                initialValue: articleInboxViewModel
+            )
+            _anthologyListViewModel = State(
+                initialValue: AnthologyListViewModel(service: anthologyService)
+            )
+            self.anthologyService = anthologyService
+            self.anthologyBuildService = AnthologyBuildService(
+                workshopRoot: articleFileStore.root,
+                anthologyService: anthologyService,
+                databaseService: db)
+            self.openBook = openBook
             self.onAddFolder = onAddFolder
             self.onConnectServer = onConnectServer
         }
 
         var body: some View {
-            Group {
-                if vm.isEmpty {
-                    emptyState
-                } else {
-                    LibraryShelfGrid(
-                        sections: vm.sections,
-                        statusMap: vm.statusMap,
-                        siblingEditions: { vm.siblingEditions(of: $0) },
-                        readAlongCandidates: { vm.readAlongCandidates(of: $0) }
-                    ) { book in
-                        vm.open(book)
-                    } onUseAsReadAlong: { edition, book in
-                        vm.useAsReadAlongText(edition, for: book)
-                    } onSeparateEdition: { book in
-                        vm.separateEdition(book)
+            VStack(spacing: 0) {
+                LibraryModePicker(selection: $mode)
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+
+                Group {
+                    switch mode {
+                    case .books:
+                        booksContent
+                    case .inbox:
+                        ArticleInboxView(viewModel: articleInboxViewModel)
+                    case .anthologies:
+                        anthologiesContent
                     }
-                }
-            }
-            .overlay {
-                if vm.isScanning {
-                    ProgressView("Scanning...")
-                        .padding()
-                        .background(.regularMaterial, in: .rect(cornerRadius: 8))
                 }
             }
             .navigationTitle("Library")
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
-                    LibraryBrowseByView(selectedAxis: vm.selectedAxis) { axis in
-                        vm.selectAxis(axis)
-                    }
-                    Menu("Library Options", systemImage: "ellipsis.circle") {
-                        Toggle("Show Missing Books", isOn: showUnavailable)
-                        Button("Manage Roots", systemImage: "folder.badge.gearshape") {
-                            showingManageRoots = true
+                    switch mode {
+                    case .books:
+                        LibraryBrowseByView(selectedAxis: vm.selectedAxis) { axis in
+                            vm.selectAxis(axis)
                         }
+                        Menu("Library Options", systemImage: "ellipsis.circle") {
+                            Toggle("Show Missing Books", isOn: showUnavailable)
+                            Button("Manage Roots", systemImage: "folder.badge.gearshape") {
+                                showingManageRoots = true
+                            }
+                        }
+                        Button(
+                            "Add Folder",
+                            systemImage: "folder.badge.plus",
+                            action: onAddFolder
+                        )
+                    case .inbox:
+                        Button(
+                            articleInboxViewModel.selectedIDs.count
+                                == articleInboxViewModel.articles.count
+                                && articleInboxViewModel.articles.isEmpty == false
+                                ? "Clear Selection" : "Select All",
+                            systemImage: "checkmark.circle"
+                        ) {
+                            articleInboxViewModel.selectAll()
+                        }
+                        .disabled(articleInboxViewModel.articles.isEmpty)
+
+                        Button("New Anthology", systemImage: "text.badge.plus") {
+                            do {
+                                _ = try articleInboxViewModel.createAnthology()
+                                mode = .anthologies
+                            } catch {
+                                articleInboxViewModel.errorMessage = error.localizedDescription
+                            }
+                        }
+                        .disabled(articleInboxViewModel.selectedIDs.isEmpty)
+                    case .anthologies:
+                        EmptyView()
                     }
-                    Button("Add Folder", systemImage: "folder.badge.plus", action: onAddFolder)
                 }
             }
             .sheet(isPresented: $showingManageRoots) {
@@ -70,7 +116,19 @@
                     Task { await vm.relocatePendingRecoveryBook(to: url) }
                 }
             }
-            .onAppear { vm.reload() }
+            .onAppear {
+                vm.reload()
+            }
+            .task(id: mode) {
+                switch mode {
+                case .books:
+                    vm.reload()
+                case .inbox:
+                    await articleInboxViewModel.reload()
+                case .anthologies:
+                    return
+                }
+            }
             .alert("Couldn't open book", isPresented: errorPresented) {
                 Button("OK") { vm.errorMessage = nil }
             } message: {
@@ -127,6 +185,45 @@
                 onAddFolder: onAddFolder,
                 onConnectServer: onConnectServer
             )
+        }
+
+        @ViewBuilder
+        private var booksContent: some View {
+            Group {
+                if vm.isEmpty {
+                    emptyState
+                } else {
+                    LibraryShelfGrid(
+                        sections: vm.sections,
+                        statusMap: vm.statusMap,
+                        siblingEditions: { vm.siblingEditions(of: $0) },
+                        readAlongCandidates: { vm.readAlongCandidates(of: $0) }
+                    ) { book in
+                        vm.open(book)
+                    } onUseAsReadAlong: { edition, book in
+                        vm.useAsReadAlongText(edition, for: book)
+                    } onSeparateEdition: { book in
+                        vm.separateEdition(book)
+                    }
+                }
+            }
+            .overlay {
+                if vm.isScanning {
+                    ProgressView("Scanning...")
+                        .padding()
+                        .background(.regularMaterial, in: .rect(cornerRadius: 8))
+                }
+            }
+        }
+
+        @ViewBuilder
+        private var anthologiesContent: some View {
+            AnthologyListView(
+                viewModel: anthologyListViewModel,
+                service: anthologyService,
+                buildService: anthologyBuildService,
+                openBook: openBook,
+                cleanupContext: articleInboxViewModel.cleanupContext)
         }
     }
 

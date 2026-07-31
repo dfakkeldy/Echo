@@ -2,7 +2,7 @@
 import Foundation
 import GRDB
 
-enum TimelineItemType: String, Codable {
+enum TimelineItemType: String, Codable, Sendable {
     case textSegment
     case chapterMarker
     case imageAsset
@@ -12,7 +12,7 @@ enum TimelineItemType: String, Codable {
     case note
 }
 
-enum GranularityLevel: Int, Codable {
+enum GranularityLevel: Int, Codable, Sendable {
     case chapter = 0
     case paragraph = 1
     case sentence = 2
@@ -20,7 +20,9 @@ enum GranularityLevel: Int, Codable {
 }
 
 /// Materialized timeline item for the dual-path feed.
-struct TimelineItem: Identifiable, Equatable, Codable, FetchableRecord, MutablePersistableRecord {
+struct TimelineItem: Identifiable, Equatable, Codable, FetchableRecord,
+    MutablePersistableRecord, Sendable
+{
     var id: String
     var audiobookID: String
     var itemType: TimelineItemType
@@ -107,7 +109,10 @@ extension TimelineItem {
     /// Single source of truth shared by bulk ingestion
     /// (`EPUBBlockIngestionStrategy`) and the alignment self-heal path
     /// (`AlignmentService.recalculateTimeline`), so both produce identical rows.
-    static func fromEPubBlock(_ block: EPubBlockRecord, audiobookID: String) -> TimelineItem {
+    nonisolated static func fromEPubBlock(
+        _ block: EPubBlockRecord,
+        audiobookID: String
+    ) -> TimelineItem {
         TimelineItem(
             id: "epub-\(block.id)",
             audiobookID: audiobookID,

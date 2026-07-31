@@ -3,6 +3,20 @@ import Foundation
 import GRDB
 import os.log
 
+nonisolated enum DocumentImportNetworkPolicy: Sendable {
+    case standard
+    case localOnly
+
+    var allowsExternalFetches: Bool {
+        self == .standard
+    }
+}
+
+nonisolated enum DocumentImportNetworkRequest: Equatable, Sendable {
+    case ubiquitousSidecarDownload
+    case cloudKitAnchors
+}
+
 /// The shared post-import tail for document (EPUB / text) ingestion: create
 /// initial alignment anchors (alignment.json sidecar → CloudKit → first/last
 /// fallback), recalculate the read-along timeline, and post
@@ -40,7 +54,10 @@ enum DocumentImportFinalizer {
         blocks: [EPubBlockRecord],
         fileURL: URL,
         duration: TimeInterval?,
-        databaseService: DatabaseService
+        databaseService: DatabaseService,
+        networkPolicy: DocumentImportNetworkPolicy = .standard,
+        networkRequestObserver:
+            (@Sendable (DocumentImportNetworkRequest) -> Void)? = nil
     ) async -> Bool {
         // Create initial system anchors (first block → 0, last block → duration)
         // so every block gets an interpolated timestamp from the start.
@@ -66,7 +83,12 @@ enum DocumentImportFinalizer {
             wordsWritten: 0, totalBlocks: blocks.count,
             updatedAt: AlignmentService.isoFormatter.string(from: Date()))
 
-        let resolution = await resolveSidecar(for: fileURL)
+        let resolution =
+            networkPolicy.allowsExternalFetches
+            ? await resolveSidecar(
+                for: fileURL,
+                networkRequestObserver: networkRequestObserver)
+            : localSidecarResolution(for: fileURL)
 
         if case .available(let alignmentSidecarURL) = resolution {
             summary.sidecarFound = true
@@ -198,7 +220,10 @@ enum DocumentImportFinalizer {
                 let (title, author) = EPUBAutoImportScanner.anchorLookupMetadata(
                     folderURL: folderURL, record: record)
 
-                if CloudKitSyncService.canAccessConfiguredContainer() {
+                if networkPolicy.allowsExternalFetches,
+                    CloudKitSyncService.canAccessConfiguredContainer()
+                {
+                    networkRequestObserver?(.cloudKitAnchors)
                     let syncService = CloudKitSyncService(db: databaseService.writer)
                     do {
                         downloadedAnchors = try await syncService.downloadAnchors(
@@ -212,9 +237,13 @@ enum DocumentImportFinalizer {
                             "CloudKit anchor lookup failed; falling back to local anchors: \(error.localizedDescription)"
                         )
                     }
-                } else {
+                } else if networkPolicy.allowsExternalFetches {
                     logger.info(
                         "Skipped CloudKit anchor lookup because the app is not entitled for the configured CloudKit container."
+                    )
+                } else {
+                    logger.info(
+                        "Skipped CloudKit anchor lookup because this import is local-only."
                     )
                 }
 
@@ -470,7 +499,10 @@ enum DocumentImportFinalizer {
         audiobookID: String,
         fileURL: URL,
         duration: TimeInterval?,
-        databaseService: DatabaseService
+        databaseService: DatabaseService,
+        networkPolicy: DocumentImportNetworkPolicy = .standard,
+        networkRequestObserver:
+            (@Sendable (DocumentImportNetworkRequest) -> Void)? = nil
     ) async -> Bool {
         // Cheap presence check (no download) so the common "no sidecar" reopen
         // stays fast; `finalize` does the actual dataless download once.
@@ -492,7 +524,9 @@ enum DocumentImportFinalizer {
             blocks: blocks,
             fileURL: fileURL,
             duration: duration,
-            databaseService: databaseService
+            databaseService: databaseService,
+            networkPolicy: networkPolicy,
+            networkRequestObserver: networkRequestObserver
         )
     }
 
@@ -505,12 +539,18 @@ enum DocumentImportFinalizer {
     /// sibling, so an m4b-keyed `<m4b-base>.alignment.json` resolves too.
     private static func resolveSidecar(
         for fileURL: URL,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        networkRequestObserver:
+            (@Sendable (DocumentImportNetworkRequest) -> Void)? = nil
     ) async -> SidecarResolution {
         // 1. A sidecar whose real filename is already visible on disk (downloaded
         //    file, or a placeholder that still reports its logical path).
         if let url = alignmentSidecarURL(for: fileURL, fileManager: fileManager) {
-            if await ensureDownloaded(url, fileManager: fileManager) {
+            if await ensureDownloaded(
+                url,
+                fileManager: fileManager,
+                networkRequestObserver: networkRequestObserver)
+            {
                 return .available(url)
             }
             return .placeholderPending
@@ -519,11 +559,39 @@ enum DocumentImportFinalizer {
         //    which the `.skipsHiddenFiles` scan in (1) cannot see. Map it back to
         //    its logical URL, download, and re-check.
         if let logical = ubiquitousPlaceholderSidecarURL(near: fileURL, fileManager: fileManager) {
-            if await ensureDownloaded(logical, fileManager: fileManager),
+            if await ensureDownloaded(
+                logical,
+                fileManager: fileManager,
+                networkRequestObserver: networkRequestObserver),
                 fileManager.fileExists(atPath: logical.path)
             {
                 return .available(logical)
             }
+            return .placeholderPending
+        }
+        return .none
+    }
+
+    /// Resolves only already-materialized sidecars. It never starts a ubiquitous
+    /// download and treats dataless placeholders as pending.
+    private static func localSidecarResolution(
+        for fileURL: URL,
+        fileManager: FileManager = .default
+    ) -> SidecarResolution {
+        if let url = alignmentSidecarURL(for: fileURL, fileManager: fileManager) {
+            let values = try? url.resourceValues(forKeys: [
+                .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey,
+            ])
+            if values?.isUbiquitousItem == true,
+                values?.ubiquitousItemDownloadingStatus != .current
+            {
+                return .placeholderPending
+            }
+            if fileManager.fileExists(atPath: url.path) {
+                return .available(url)
+            }
+        }
+        if ubiquitousPlaceholderSidecarURL(near: fileURL, fileManager: fileManager) != nil {
             return .placeholderPending
         }
         return .none
@@ -545,7 +613,9 @@ enum DocumentImportFinalizer {
     /// Non-ubiquitous files short-circuit to a plain existence check.
     private static func ensureDownloaded(
         _ url: URL,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        networkRequestObserver:
+            (@Sendable (DocumentImportNetworkRequest) -> Void)? = nil
     ) async -> Bool {
         let values = try? url.resourceValues(forKeys: [
             .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey,
@@ -555,6 +625,7 @@ enum DocumentImportFinalizer {
         }
         if values?.ubiquitousItemDownloadingStatus == .current { return true }
         do {
+            networkRequestObserver?(.ubiquitousSidecarDownload)
             try fileManager.startDownloadingUbiquitousItem(at: url)
         } catch {
             logger.error(

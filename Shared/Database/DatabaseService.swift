@@ -158,6 +158,18 @@ final class DatabaseService {
         migrator.registerMigration("v36_code_language") { db in
             try Schema_V36.migrate(db)
         }
+        migrator.registerMigration("v37_article_workshop") { db in
+            try Schema_V37.migrate(db)
+        }
+        migrator.registerMigration("v37_repair_anthology_build_attempt_receipts") { db in
+            try Schema_V37.repairBuildAttemptReceipts(db)
+        }
+        migrator.registerMigration("v38_generated_chapter_key") { db in
+            try Schema_V38.migrate(db)
+        }
+        migrator.registerMigration("v39_article_sync") { db in
+            try Schema_V39.migrate(db)
+        }
         try migrator.migrate(writer)
     }
 }

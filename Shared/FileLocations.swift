@@ -4,7 +4,7 @@ import Foundation
 /// Centralized directory access for the app group, documents, caches,
 /// and application support.  Use these instead of ad-hoc
 /// `FileManager.default.urls(for:in:)` calls scattered across the codebase.
-enum FileLocations {
+nonisolated enum FileLocations {
 
     enum Error: Swift.Error, LocalizedError {
         case appGroupNotFound(String)
@@ -40,6 +40,39 @@ enum FileLocations {
 
     static var applicationSupportDirectory: URL {
         URL.applicationSupportDirectory
+    }
+
+    static func articleCaptureStagingDirectory() throws -> URL {
+        let directory = try appGroupContainer()
+            .appending(path: "ArticleWorkshop/Staging", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    static var articleWorkshopRootDirectory: URL {
+        applicationSupportDirectory
+            .appending(path: "ArticleWorkshop", directoryHint: .isDirectory)
+    }
+
+    static func articleCaptureDirectory(id: UUID) -> URL {
+        articleWorkshopRootDirectory
+            .appending(path: "Captures", directoryHint: .isDirectory)
+            .appending(path: id.uuidString, directoryHint: .isDirectory)
+    }
+
+    static func articleAnthologyDirectory(id: UUID) -> URL {
+        articleWorkshopRootDirectory
+            .appending(path: "Anthologies", directoryHint: .isDirectory)
+            .appending(path: id.uuidString, directoryHint: .isDirectory)
+    }
+
+    static func articleEditionURL(anthologyID: UUID) -> URL {
+        articleAnthologyDirectory(id: anthologyID).appending(path: "edition.epub")
+    }
+
+    static var articleSyncTemporaryDirectory: URL {
+        cachesDirectory
+            .appending(path: "ArticleWorkshopSync", directoryHint: .isDirectory)
     }
 
     /// Directory for unpacked EPUB content inside the caches folder.

@@ -76,13 +76,15 @@ enum EPUBAutoImportScanner {
             return false
         }
 
-        guard let epubURL = CompanionDocumentSelector.select(
-            documents: epubFiles,
-            for: folderURL,
-            folderIsDirectory: folderIsDirectory,
-            siblingFiles: contents)
+        guard
+            let epubURL = CompanionDocumentSelector.select(
+                documents: epubFiles,
+                for: folderURL,
+                folderIsDirectory: folderIsDirectory,
+                siblingFiles: contents)
         else {
-            logger.debug("No unambiguous .epub companion found for: \(sanitizedPath(folderURL.path))")
+            logger.debug(
+                "No unambiguous .epub companion found for: \(sanitizedPath(folderURL.path))")
             return false
         }
 
@@ -108,7 +110,10 @@ enum EPUBAutoImportScanner {
         chapters: [Chapter],
         duration: TimeInterval?,
         force: Bool = false,
-        finalizerFileURL: URL? = nil
+        finalizerFileURL: URL? = nil,
+        networkPolicy: DocumentImportNetworkPolicy = .standard,
+        networkRequestObserver:
+            (@Sendable (DocumentImportNetworkRequest) -> Void)? = nil
     ) async -> Bool {
         let outcome = await importEPUBFileOutcome(
             epubURL: epubURL,
@@ -117,7 +122,9 @@ enum EPUBAutoImportScanner {
             chapters: chapters,
             duration: duration,
             force: force,
-            finalizerFileURL: finalizerFileURL
+            finalizerFileURL: finalizerFileURL,
+            networkPolicy: networkPolicy,
+            networkRequestObserver: networkRequestObserver
         )
         return outcome.didImportBlocks
     }
@@ -129,7 +136,10 @@ enum EPUBAutoImportScanner {
         chapters: [Chapter],
         duration: TimeInterval?,
         force: Bool = false,
-        finalizerFileURL: URL? = nil
+        finalizerFileURL: URL? = nil,
+        networkPolicy: DocumentImportNetworkPolicy = .standard,
+        networkRequestObserver:
+            (@Sendable (DocumentImportNetworkRequest) -> Void)? = nil
     ) async -> ImportOutcome {
         // Security-scoped access is managed by SecurityScopeManager in loadFolder.
         // Don't start/stop here — duplicate cycles break file-provider access.
@@ -147,7 +157,9 @@ enum EPUBAutoImportScanner {
                     audiobookID: audiobookID,
                     fileURL: finalizerFileURL ?? epubURL,
                     duration: duration,
-                    databaseService: databaseService
+                    databaseService: databaseService,
+                    networkPolicy: networkPolicy,
+                    networkRequestObserver: networkRequestObserver
                 )
                 return .alreadyImported
             }
@@ -192,7 +204,9 @@ enum EPUBAutoImportScanner {
 
             let finalized = await DocumentImportFinalizer.finalize(
                 audiobookID: audiobookID, blocks: blocks, fileURL: finalizerFileURL ?? epubURL,
-                duration: duration, databaseService: databaseService)
+                duration: duration, databaseService: databaseService,
+                networkPolicy: networkPolicy,
+                networkRequestObserver: networkRequestObserver)
             if finalized {
                 return .imported
             }

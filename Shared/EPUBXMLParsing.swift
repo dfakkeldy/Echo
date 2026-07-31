@@ -63,6 +63,8 @@ struct OPFParseResult: Sendable {
     let spine: [SpineItemDescriptor]
     let tocHref: String?
     let guideReferences: [GuideReference]
+    let packageIdentifier: String?
+    let echoManifestSHA256: String?
 }
 
 /// A parsed block from XHTML content — a paragraph, heading, image, or code.
@@ -82,12 +84,20 @@ struct TextBlockDescriptor: Sendable {
     var narrationCue: String?
     /// Language hint for `.code` blocks. Nil otherwise.
     let codeLanguage: String?
+    let echoMetadataPresent: Bool
+    let echoStableSlot: Int?
+    let echoBlockIndex: Int?
+    let echoNarration: String?
+    let echoLinkNarrationValues: [String]
 
     init(
         kind: EPubBlockRecord.Kind, text: String?, imagePath: String?, htmlContent: String?,
         markers: [SyncMarker] = [], textFormats: [TextFormat] = [],
         rawClasses: [String] = [], rawTags: String = "", anchorIDs: [String] = [],
-        narrationCue: String? = nil, codeLanguage: String? = nil
+        narrationCue: String? = nil, codeLanguage: String? = nil,
+        echoMetadataPresent: Bool = false, echoStableSlot: Int? = nil,
+        echoBlockIndex: Int? = nil, echoNarration: String? = nil,
+        echoLinkNarrationValues: [String] = []
     ) {
         self.kind = kind
         self.text = text
@@ -100,6 +110,11 @@ struct TextBlockDescriptor: Sendable {
         self.anchorIDs = anchorIDs
         self.narrationCue = narrationCue
         self.codeLanguage = codeLanguage
+        self.echoMetadataPresent = echoMetadataPresent
+        self.echoStableSlot = echoStableSlot
+        self.echoBlockIndex = echoBlockIndex
+        self.echoNarration = echoNarration
+        self.echoLinkNarrationValues = echoLinkNarrationValues
     }
 }
 
@@ -111,7 +126,8 @@ final class ContainerXMLParser: NSObject, XMLParserDelegate {
 
     func parse(_ data: Data) {
         let parser = XMLParser(data: data)
-        parser.shouldResolveExternalEntities = false  // Trust boundary: parsing untrusted EPUB input
+        // Trust boundary: parsing untrusted EPUB input.
+        parser.shouldResolveExternalEntities = false
         parser.delegate = self
         parser.parse()
     }
@@ -146,6 +162,15 @@ final class OPFParserDelegate: NSObject, XMLParserDelegate {
     private var manifestItems: [String: SpineItemDescriptor] = [:]
     private var spineRefs: [(idref: String, linear: Bool)] = []
     private var currentAttributes: [String: String] = [:]
+    private var metadataText = ""
+    private var metadataTarget: MetadataTarget?
+    private(set) var packageIdentifier: String?
+    private(set) var echoManifestSHA256: String?
+
+    private enum MetadataTarget {
+        case identifier
+        case manifestSHA256
+    }
 
     func parse(_ data: Data) {
         let parser = XMLParser(data: opfDataEscapingBareAmpersands(data))
@@ -162,6 +187,15 @@ final class OPFParserDelegate: NSObject, XMLParserDelegate {
         attributes attributeDict: [String: String] = [:]
     ) {
         currentAttributes = attributeDict
+        if elementName == "identifier" {
+            metadataTarget = .identifier
+            metadataText = ""
+        } else if elementName == "meta",
+            attributeDict["property"] == "echo:manifest-sha256"
+        {
+            metadataTarget = .manifestSHA256
+            metadataText = ""
+        }
         if elementName == "itemref", let idref = attributeDict["idref"] {
             spineRefs.append((idref: idref, linear: attributeDict["linear"]?.lowercased() != "no"))
         } else if elementName == "reference",
@@ -178,6 +212,13 @@ final class OPFParserDelegate: NSObject, XMLParserDelegate {
         namespaceURI: String?,
         qualifiedName qName: String?
     ) {
+        if elementName == "identifier", metadataTarget == .identifier {
+            packageIdentifier = metadataText.trimmingCharacters(in: .whitespacesAndNewlines)
+            metadataTarget = nil
+        } else if elementName == "meta", metadataTarget == .manifestSHA256 {
+            echoManifestSHA256 = metadataText.trimmingCharacters(in: .whitespacesAndNewlines)
+            metadataTarget = nil
+        }
         if elementName == "item",
             let id = currentAttributes["id"],
             let href = currentAttributes["href"],
@@ -193,6 +234,10 @@ final class OPFParserDelegate: NSObject, XMLParserDelegate {
                 ncxHref = href
             }
         }
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        if metadataTarget != nil { metadataText += string }
     }
 
     func parserDidEndDocument(_ parser: XMLParser) {
@@ -340,7 +385,8 @@ final class TOCParserDelegate: NSObject, XMLParserDelegate {
 
     func parse(_ data: Data) {
         let parser = XMLParser(data: data)
-        parser.shouldResolveExternalEntities = false  // Trust boundary: parsing untrusted EPUB input
+        // Trust boundary: parsing untrusted EPUB input.
+        parser.shouldResolveExternalEntities = false
         parser.delegate = self
         parser.parse()
     }
@@ -526,10 +572,22 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
     private var pendingFormatStack: [(FormatType, Int)] = []
     private var blockMarkers: [SyncMarker] = []
     private var blockFormats: [TextFormat] = []
+    private let captureEchoMetadata: Bool
+    private var currentEchoMetadataPresent = false
+    private var currentEchoStableSlot: Int?
+    private var currentEchoBlockIndex: Int?
+    private var currentEchoNarration: String?
+    private var currentEchoLinkNarrationValues: [String] = []
+    private var isGeneratedImagePlaceholder = false
+
+    init(captureEchoMetadata: Bool = false) {
+        self.captureEchoMetadata = captureEchoMetadata
+    }
 
     func parse(_ data: Data) {
         let parser = XMLParser(data: data)
-        parser.shouldResolveExternalEntities = false  // Trust boundary: parsing untrusted EPUB input
+        // Trust boundary: parsing untrusted EPUB input.
+        parser.shouldResolveExternalEntities = false
         parser.delegate = self
         currentHTML = ""
         currentText = ""
@@ -584,9 +642,15 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         if elementName == "pre" {
             flushBlock()
             captureAnchorID(attributeDict["id"])
+            captureEchoAttributes(attributeDict)
             isInPre = true
             currentCodeText = ""
-            currentCodeLanguage = Self.codeLanguage(fromClassAttribute: attributeDict["class"])
+            let classLanguage = Self.codeLanguage(
+                fromClassAttribute: attributeDict["class"])
+            currentCodeLanguage =
+                captureEchoMetadata
+                ? attributeDict["data-code-language"] ?? classLanguage
+                : classLanguage
             return
         }
 
@@ -600,9 +664,42 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         let flushesBlock = elementName == "img" || blockTags.contains(elementName)
         if !flushesBlock { captureAnchorID(anchorID) }
 
+        if captureEchoMetadata, elementName == "hr", hasEchoAttributes(attributeDict) {
+            flushBlock()
+            captureAnchorID(anchorID)
+            captureEchoAttributes(attributeDict)
+            textBlocks.append(
+                TextBlockDescriptor(
+                    kind: .paragraph,
+                    text: nil,
+                    imagePath: nil,
+                    htmlContent: nil,
+                    rawTags: "hr",
+                    anchorIDs: pendingAnchorIDs,
+                    echoMetadataPresent: currentEchoMetadataPresent,
+                    echoStableSlot: currentEchoStableSlot,
+                    echoBlockIndex: currentEchoBlockIndex,
+                    echoNarration: currentEchoNarration
+                ))
+            pendingAnchorIDs = []
+            resetEchoAttributes()
+            return
+        }
+        if captureEchoMetadata, elementName == "span", hasEchoAttributes(attributeDict) {
+            flushBlock()
+            captureAnchorID(anchorID)
+            captureEchoAttributes(attributeDict)
+            currentBlockTags = "span"
+            currentBlockClasses = (attributeDict["class"] ?? "").split(separator: " ").map(
+                String.init)
+            isGeneratedImagePlaceholder = true
+            return
+        }
+
         if ["h1", "h2", "h3", "h4", "h5", "h6"].contains(elementName) {
             flushBlock()
             captureAnchorID(anchorID)
+            captureEchoAttributes(attributeDict)
             isInHeading = true
             isInBlock = true
             currentHeading = ""
@@ -613,6 +710,7 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         } else if elementName == "img", let src = attributeDict["src"] {
             flushBlock()
             captureAnchorID(anchorID)
+            captureEchoAttributes(attributeDict)
             let marker = SyncMarker(type: .image, payload: src, epubCharOffset: currentCharOffset)
             textBlocks.append(
                 TextBlockDescriptor(
@@ -624,12 +722,18 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
                     rawClasses: (attributeDict["class"] ?? "").split(separator: " ").map(
                         String.init),
                     rawTags: "img",
-                    anchorIDs: pendingAnchorIDs
+                    anchorIDs: pendingAnchorIDs,
+                    echoMetadataPresent: currentEchoMetadataPresent,
+                    echoStableSlot: currentEchoStableSlot,
+                    echoBlockIndex: currentEchoBlockIndex,
+                    echoNarration: currentEchoNarration
                 ))
             pendingAnchorIDs = []
+            resetEchoAttributes()
         } else if blockTags.contains(elementName) {
             flushBlock()
             captureAnchorID(anchorID)
+            captureEchoAttributes(attributeDict)
             isInBlock = true
             currentHTML = ""
             currentBlockTags = elementName
@@ -643,6 +747,11 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             let marker = SyncMarker(
                 type: .hyperlink, payload: href, epubCharOffset: currentCharOffset)
             blockMarkers.append(marker)
+            if captureEchoMetadata, currentEchoMetadataPresent,
+                let narration = attributeDict["data-echo-narration"]
+            {
+                currentEchoLinkNarrationValues.append(narration)
+            }
         } else if elementName == "hr" {
             let marker = SyncMarker(
                 type: .horizontalRule, payload: "", epubCharOffset: currentCharOffset)
@@ -795,6 +904,30 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
 
         insertSoftWordBreakIfStructural(elementName)
 
+        if elementName == "span", isGeneratedImagePlaceholder {
+            isGeneratedImagePlaceholder = false
+            textBlocks.append(
+                TextBlockDescriptor(
+                    kind: .image,
+                    text: nil,
+                    imagePath: nil,
+                    htmlContent: nil,
+                    rawClasses: currentBlockClasses,
+                    rawTags: currentBlockTags,
+                    anchorIDs: pendingAnchorIDs,
+                    echoMetadataPresent: currentEchoMetadataPresent,
+                    echoStableSlot: currentEchoStableSlot,
+                    echoBlockIndex: currentEchoBlockIndex,
+                    echoNarration: currentEchoNarration,
+                    echoLinkNarrationValues: currentEchoLinkNarrationValues
+                ))
+            pendingAnchorIDs = []
+            currentBlockClasses = []
+            currentBlockTags = ""
+            resetEchoAttributes()
+            return
+        }
+
         // `<a>` is opened as a hyperlink marker only (no HTML, no inlineDepth),
         // so its close must be a no-op — otherwise it emits an orphan `</a>`
         // and desyncs inlineDepth.
@@ -856,10 +989,16 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
                         textFormats: [],
                         rawClasses: currentBlockClasses,
                         rawTags: currentBlockTags,
-                        anchorIDs: pendingAnchorIDs
+                        anchorIDs: pendingAnchorIDs,
+                        echoMetadataPresent: currentEchoMetadataPresent,
+                        echoStableSlot: currentEchoStableSlot,
+                        echoBlockIndex: currentEchoBlockIndex,
+                        echoNarration: currentEchoNarration,
+                        echoLinkNarrationValues: currentEchoLinkNarrationValues
                     ))
                 pendingAnchorIDs = []
             }
+            resetEchoAttributes()
         }
     }
 
@@ -874,14 +1013,16 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             blockMarkers = []
             blockFormats = []
             currentCharOffset = 0
+            if !currentEchoMetadataPresent {
+                resetEchoAttributes()
+            }
             return
         }
-        let markers = blockMarkers
-            + (
-                currentBlockHasBlockquote
-                    ? [SyncMarker(type: .blockquote, payload: "", epubCharOffset: 0)]
-                    : []
-            )
+        let markers =
+            blockMarkers
+            + (currentBlockHasBlockquote
+                ? [SyncMarker(type: .blockquote, payload: "", epubCharOffset: 0)]
+                : [])
         let formats = blockFormats
         blockMarkers = []
         blockFormats = []
@@ -903,9 +1044,15 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
                 textFormats: formats,
                 rawClasses: classes,
                 rawTags: tags,
-                anchorIDs: pendingAnchorIDs
+                anchorIDs: pendingAnchorIDs,
+                echoMetadataPresent: currentEchoMetadataPresent,
+                echoStableSlot: currentEchoStableSlot,
+                echoBlockIndex: currentEchoBlockIndex,
+                echoNarration: currentEchoNarration,
+                echoLinkNarrationValues: currentEchoLinkNarrationValues
             ))
         pendingAnchorIDs = []
+        resetEchoAttributes()
     }
 
     /// Emits the accumulated <pre> content as a `.code` descriptor. Leading and
@@ -931,9 +1078,15 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
                 rawTags: "pre",
                 anchorIDs: pendingAnchorIDs,
                 narrationCue: "Code listing.",
-                codeLanguage: language
+                codeLanguage: language,
+                echoMetadataPresent: currentEchoMetadataPresent,
+                echoStableSlot: currentEchoStableSlot,
+                echoBlockIndex: currentEchoBlockIndex,
+                echoNarration: currentEchoNarration,
+                echoLinkNarrationValues: currentEchoLinkNarrationValues
             ))
         pendingAnchorIDs = []
+        resetEchoAttributes()
         if !figureStack.isEmpty {
             figureStack[figureStack.count - 1].codeBlockIndices.append(textBlocks.count - 1)
         }
@@ -976,6 +1129,28 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         }
         return nil
     }
+
+    private func hasEchoAttributes(_ attributes: [String: String]) -> Bool {
+        attributes["data-echo-stable-slot"] != nil
+            || attributes["data-echo-block-index"] != nil
+    }
+
+    private func captureEchoAttributes(_ attributes: [String: String]) {
+        guard captureEchoMetadata else { return }
+        currentEchoMetadataPresent = hasEchoAttributes(attributes)
+        currentEchoStableSlot = attributes["data-echo-stable-slot"].flatMap(Int.init)
+        currentEchoBlockIndex = attributes["data-echo-block-index"].flatMap(Int.init)
+        currentEchoNarration = attributes["data-echo-narration"]
+        currentEchoLinkNarrationValues = []
+    }
+
+    private func resetEchoAttributes() {
+        currentEchoMetadataPresent = false
+        currentEchoStableSlot = nil
+        currentEchoBlockIndex = nil
+        currentEchoNarration = nil
+        currentEchoLinkNarrationValues = []
+    }
 }
 
 // MARK: - Convenience Helpers
@@ -995,13 +1170,18 @@ func parseOPF(from data: Data) -> OPFParseResult {
     return OPFParseResult(
         spine: parser.spineItems,
         tocHref: parser.tocHref,
-        guideReferences: parser.guideReferences
+        guideReferences: parser.guideReferences,
+        packageIdentifier: parser.packageIdentifier,
+        echoManifestSHA256: parser.echoManifestSHA256
     )
 }
 
 /// Parse XHTML data into an array of text / image block descriptors and the document title if available.
-func parseXHTML(from data: Data) -> (blocks: [TextBlockDescriptor], title: String?) {
-    let parser = XHTMLBlockDelegate()
+func parseXHTML(
+    from data: Data,
+    captureEchoMetadata: Bool = false
+) -> (blocks: [TextBlockDescriptor], title: String?) {
+    let parser = XHTMLBlockDelegate(captureEchoMetadata: captureEchoMetadata)
     parser.parse(data)
     return (parser.textBlocks, parser.documentTitle)
 }

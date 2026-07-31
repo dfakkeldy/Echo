@@ -11,7 +11,8 @@ struct EPUBCodeBlockParsingTests {
     }
 
     @Test func preBecomesCodeBlockWithWhitespacePreserved() {
-        let parsed = blocks("""
+        let parsed = blocks(
+            """
             <html><body>
             <p>Consider this function:</p>
             <pre><code class="language-python">def greet(name):
@@ -32,7 +33,8 @@ struct EPUBCodeBlockParsingTests {
     }
 
     @Test func syntaxHighlightSpansInsidePreContributeCharactersOnly() {
-        let parsed = blocks("""
+        let parsed = blocks(
+            """
             <html><body><pre><span class="kw">let</span> x = <span class="num">5</span></pre></body></html>
             """)
         #expect(parsed.count == 1)
@@ -40,8 +42,19 @@ struct EPUBCodeBlockParsingTests {
         #expect(parsed[0].text == "let x = 5")
     }
 
+    @Test func genericParsingIgnoresEchoCodeLanguageAttribute() {
+        let parsed = blocks(
+            """
+            <html><body><pre data-code-language="forged"><code>let x = 5</code></pre></body></html>
+            """)
+        #expect(parsed.count == 1)
+        #expect(parsed[0].kind == .code)
+        #expect(parsed[0].codeLanguage == nil)
+    }
+
     @Test func inlineCodeOutsidePreStaysSpokenProse() {
-        let parsed = blocks("""
+        let parsed = blocks(
+            """
             <html><body><p>Call <code>len()</code> on the list.</p></body></html>
             """)
         #expect(parsed.count == 1)
@@ -50,7 +63,8 @@ struct EPUBCodeBlockParsingTests {
     }
 
     @Test func figureFigcaptionSuppliesTheCue() {
-        let parsed = blocks("""
+        let parsed = blocks(
+            """
             <html><body>
             <figure>
             <pre><code>x = 1</code></pre>
@@ -61,11 +75,13 @@ struct EPUBCodeBlockParsingTests {
         let code = parsed.first { $0.kind == .code }
         #expect(code?.narrationCue == "Listing 4-2. Assigning a variable")
         // figcaption text must NOT leak into prose blocks.
-        #expect(!parsed.contains { $0.kind == .paragraph && $0.text?.contains("Listing 4-2") == true })
+        #expect(
+            !parsed.contains { $0.kind == .paragraph && $0.text?.contains("Listing 4-2") == true })
     }
 
     @Test func figcaptionBeforePreAlsoSuppliesTheCue() {
-        let parsed = blocks("""
+        let parsed = blocks(
+            """
             <html><body>
             <figure>
             <figcaption>Listing 1-1. Hello</figcaption>
@@ -77,7 +93,8 @@ struct EPUBCodeBlockParsingTests {
     }
 
     @Test func figcaptionStructuralMarkupPreservesWordBoundaries() {
-        let parsed = blocks("""
+        let parsed = blocks(
+            """
             <html><body><figure>
             <pre>let value = 42</pre>
             <figcaption>Listing 1<br/>Assigning <strong>a</strong><div>variable</div></figcaption>
@@ -91,7 +108,8 @@ struct EPUBCodeBlockParsingTests {
     }
 
     @Test func nestedFigureCaptionsStayWithTheirOwnCodeBlocks() {
-        let parsed = blocks("""
+        let parsed = blocks(
+            """
             <html><body>
             <figure>
             <pre>outer()</pre>
@@ -133,7 +151,8 @@ struct EPUBCodeBlockParsingTests {
     }
 
     @Test func tablesStillFlattenAsToday() {
-        let parsed = blocks("""
+        let parsed = blocks(
+            """
             <html><body><table><tr><td>Topic</td><td>Entropy</td></tr></table></body></html>
             """)
         #expect(parsed.count == 1)
