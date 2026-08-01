@@ -14,6 +14,12 @@ nonisolated struct PronunciationTokenEvidence: Codable, Equatable, Sendable {
     /// decodable; a missing range means the evidence cannot be safely sliced.
     let phonemeCharacterRange: Range<Int>?
     let usedFallback: Bool
+    /// `"left+right"` when an unlisted closed compound was voiced from two known
+    /// lexical components, otherwise `nil`. A component-built pronunciation
+    /// carries the same OOV rating as the whole-token guess, so this is the only
+    /// thing that separates "reused two known words" from "guessed the spelling".
+    /// Optional keeps captures written before compound provenance decodable.
+    let compoundComponents: String?
 
     init(
         text: String,
@@ -22,7 +28,8 @@ nonisolated struct PronunciationTokenEvidence: Codable, Equatable, Sendable {
         rating: Int?,
         displayCharacterRange: Range<Int>,
         phonemeCharacterRange: Range<Int>? = nil,
-        usedFallback: Bool
+        usedFallback: Bool,
+        compoundComponents: String? = nil
     ) {
         self.text = text
         self.selectedPhonemes = selectedPhonemes
@@ -31,6 +38,7 @@ nonisolated struct PronunciationTokenEvidence: Codable, Equatable, Sendable {
         self.displayCharacterRange = displayCharacterRange
         self.phonemeCharacterRange = phonemeCharacterRange
         self.usedFallback = usedFallback
+        self.compoundComponents = compoundComponents
     }
 }
 
@@ -946,11 +954,24 @@ nonisolated enum PronunciationAuditContext {
         let wordEnd = wordBase + localWordSpan.upperBound
         let source: PronunciationAuditDecision.Source =
             evidence.usedFallback ? .fallback : .monitoredLexicon
-        let ruleKind = evidence.usedFallback ? "fallback" : "lexicon"
-        let rationale =
-            evidence.usedFallback
-            ? "Deterministic G2P fallback selected for “\(evidence.text)”."
-            : "Watched ordinary-lexicon pronunciation selected for “\(evidence.text)”."
+        // A closed compound reuses two known lexical components, so it must not
+        // read as a blind whole-token guess in the audit even though it shares
+        // the fallback's OOV rating.
+        let ruleKind: String
+        let rationale: String
+        if let components = evidence.compoundComponents {
+            ruleKind = "compound"
+            rationale =
+                "Closed-compound pronunciation built from known components "
+                + "“\(components)” for “\(evidence.text)”."
+        } else if evidence.usedFallback {
+            ruleKind = "fallback"
+            rationale = "Deterministic G2P fallback selected for “\(evidence.text)”."
+        } else {
+            ruleKind = "lexicon"
+            rationale =
+                "Watched ordinary-lexicon pronunciation selected for “\(evidence.text)”."
+        }
         return PronunciationDecisionSeed(
             blockID: blockID,
             wordStart: wordStart,

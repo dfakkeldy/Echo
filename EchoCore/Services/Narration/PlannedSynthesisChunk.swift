@@ -139,7 +139,8 @@ nonisolated struct PlannedSynthesisChunk: Equatable, Sendable {
                     rating: evidence.rating,
                     displayCharacterRange: childDisplayRange,
                     phonemeCharacterRange: childPhonemeRange,
-                    usedFallback: evidence.usedFallback)
+                    usedFallback: evidence.usedFallback,
+                    compoundComponents: evidence.compoundComponents)
             }
             let expectedEvidenceCount = pronunciationTokenEvidence.filter {
                 Self.fullyContains(displayRange, $0.displayCharacterRange)

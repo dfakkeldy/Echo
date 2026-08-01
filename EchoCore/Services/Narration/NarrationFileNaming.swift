@@ -43,7 +43,12 @@ nonisolated enum NarrationFileNaming {
     /// keeping synthesis chunks and pronunciation evidence on the same indices.
     /// v16 = validated supplemental whole-word and bounded morphology
     /// pronunciations join the production front end.
-    static let renderVersion = 16
+    /// v17 = claimed by the concurrent spaced-dash normalization change, so this
+    /// revision takes v18 rather than reuse a number another change holds.
+    /// v18 = closed-compound resolution accepts semantic evidence from either
+    /// constituent, so a compound with a familiar head (`boatlight`, `fogline`)
+    /// is voiced from its known components instead of the whole-token guess.
+    static let renderVersion = 18
     /// Stable renderer-family identity persisted beside headless captures. The
     /// cache render version tracks byte-affecting revisions within this family;
     /// this value prevents a different engine/G2P stack from inheriting them.
