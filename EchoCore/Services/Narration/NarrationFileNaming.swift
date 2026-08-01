@@ -43,7 +43,10 @@ nonisolated enum NarrationFileNaming {
     /// keeping synthesis chunks and pronunciation evidence on the same indices.
     /// v16 = validated supplemental whole-word and bounded morphology
     /// pronunciations join the production front end.
-    static let renderVersion = 16
+    /// v17 = a spaced em/en dash normalizes to a standalone comma rather than one
+    /// attached to the preceding word, so the dash keeps its own authored word
+    /// slot; the extra token changes the rendered bytes for those blocks.
+    static let renderVersion = 17
     /// Stable renderer-family identity persisted beside headless captures. The
     /// cache render version tracks byte-affecting revisions within this family;
     /// this value prevents a different engine/G2P stack from inheriting them.
