@@ -110,6 +110,59 @@ let texts: [(originalText: String, requiredPhonemes: [String])] = [
   }
 }
 
+/// A closed compound whose *head* is a productive constituent must resolve even
+/// when its modifier is not itself a curated root — the gate used to consult the
+/// left component only, so `fog`/`tide`/`boat` compounds fell through to the
+/// whole-token OOV guess (dropping the `g` of `fogline` entirely).
+@Test func testClosedCompoundsResolveFromProductiveHeads() async throws {
+  let englishG2P = EnglishG2P(british: false)
+  let expected = [
+    "fogline": "fˈɔɡlˌIn",
+    "tidewatcher": "tˈIdwˌɑʧəɹ",
+    "boatlight": "bˈOtlˌIt",
+  ]
+
+  for (word, ipa) in expected {
+    let result = englishG2P.phonemizeWithMetadata(text: word)
+    let hit = try #require(result.fallbackHits.first, Comment(rawValue: word))
+    #expect(hit.word.lowercased() == word)
+    #expect(hit.phonemes == ipa, Comment(rawValue: "\(word) phonemes"))
+    #expect(result.tokens.first?.`_`.compoundComponents != nil)
+  }
+}
+
+/// The head set is semantic evidence, so it must never contain a derivational
+/// suffix: `bookless` is `book` + the suffix `-less`, not a compound with the
+/// head `less`. Those words still resolve through the left-constituent path,
+/// which measurably beats the whole-token guess; what must not happen is a
+/// suffix qualifying a split on its own.
+@Test func testProductiveHeadsExcludeDerivationalSuffixes() async throws {
+  let suffixes: Set<String> = [
+    "able", "ally", "ance", "ate", "ence", "hood", "ible", "ing", "ion", "ism",
+    "ist", "ity", "ive", "less", "like", "ling", "ment", "ness", "ous", "ward",
+    "wise",
+  ]
+
+  #expect(Lexicon.compoundHeads.intersection(suffixes).isEmpty)
+  // A head shorter than four characters can never satisfy the minimum
+  // right-component length, so it would be dead weight in the set.
+  #expect(Lexicon.compoundHeads.allSatisfy { $0.count >= 4 })
+}
+
+/// Two qualifying splits are not evidence of anything — the resolver must
+/// abstain rather than pick one, which is what keeps the widened gate honest.
+@Test func testClosedCompoundResolutionAbstainsOnAmbiguousSplits() async throws {
+  let englishG2P = EnglishG2P(british: false)
+
+  for word in ["carpetshoprope", "handbookstone"] {
+    let result = englishG2P.phonemizeWithMetadata(text: word)
+    let hit = try #require(result.fallbackHits.first, Comment(rawValue: word))
+    #expect(
+      hit.phonemes == EnglishFallbackNetwork.phonemes(for: word),
+      Comment(rawValue: "\(word) has multiple qualifying splits"))
+  }
+}
+
 @Test func testMultiwordExplicitPronunciationIsAppliedOnce() async throws {
   let englishG2P = EnglishG2P(british: false)
   let phrasePhonemes = "nˈu jˈɔɹk"

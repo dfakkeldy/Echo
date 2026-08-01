@@ -540,11 +540,18 @@ final public class EnglishG2P {
     return nil
   }
 
+  /// The compound resolution and the whole-token guess share the same OOV
+  /// rating, so the components are reported separately — otherwise a
+  /// component-built pronunciation is indistinguishable from a blind guess.
   private func fallbackTranscription(
     for token: MToken,
     ctx: TokenContext
-  ) -> (phoneme: String, rating: Int) {
-    lexicon.transcribeClosedCompound(token, ctx: ctx) ?? fallback(token)
+  ) -> (phoneme: String, rating: Int, compoundComponents: String?) {
+    if let compound = lexicon.transcribeClosedCompound(token, ctx: ctx) {
+      return (compound.phonemes, compound.rating, compound.components)
+    }
+    let guess = fallback(token)
+    return (guess.phoneme, guess.rating, nil)
   }
    
   /// Never-voiceless guarantee for a single token's phonemes.
@@ -604,6 +611,7 @@ final public class EnglishG2P {
           let out = fallbackTranscription(for: w, ctx: ctx)
           w.phonemes = out.0
           w.`_`.rating = out.1
+          w.`_`.compoundComponents = out.compoundComponents
           fallbackHits.append(EnglishG2PFallbackHit(word: w.text, phonemes: out.0))
         }
         
@@ -622,6 +630,7 @@ final public class EnglishG2P {
               let out = fallbackTranscription(for: token, ctx: ctx)
               token.phonemes = out.0
               token.`_`.rating = out.1
+              token.`_`.compoundComponents = out.compoundComponents
               fallbackHits.append(EnglishG2PFallbackHit(word: token.text, phonemes: out.0))
             }
 
@@ -673,6 +682,7 @@ final public class EnglishG2P {
             let out = fallbackTranscription(for: token, ctx: ctx)
             first.phonemes = out.0
             first.`_`.rating = out.1
+            first.`_`.compoundComponents = out.compoundComponents
             fallbackHits.append(EnglishG2PFallbackHit(word: token.text, phonemes: out.0))
             arr[0] = first
             if arr.count > 1 {

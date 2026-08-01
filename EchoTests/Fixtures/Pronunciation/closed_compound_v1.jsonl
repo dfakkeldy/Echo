@@ -1,0 +1,21 @@
+{"caseID":"compound-head-fogline","word":"fogline","expectedOutcome":"compound","expectedLeft":"fog","expectedRight":"line","expectedLeftIPA":"fˈɔɡ","expectedRightIPA":"lˈIn","expectedIPA":"fˈɔɡlˌIn","evidence":"head"}
+{"caseID":"compound-head-tidewatcher","word":"tidewatcher","expectedOutcome":"compound","expectedLeft":"tide","expectedRight":"watcher","expectedLeftIPA":"tˈId","expectedRightIPA":"wˈɑʧəɹ","expectedIPA":"tˈIdwˌɑʧəɹ","evidence":"head"}
+{"caseID":"compound-head-boatlight","word":"boatlight","expectedOutcome":"compound","expectedLeft":"boat","expectedRight":"light","expectedLeftIPA":"bˈOt","expectedRightIPA":"lˈIt","expectedIPA":"bˈOtlˌIt","evidence":"head"}
+{"caseID":"compound-modifier-headphone","word":"headphone","expectedOutcome":"compound","expectedLeft":"head","expectedRight":"phone","expectedLeftIPA":"hˈɛd","expectedRightIPA":"fˈOn","expectedIPA":"hˈɛdfˌOn","evidence":"modifier"}
+{"caseID":"compound-modifier-filesystem","word":"filesystem","expectedOutcome":"compound","expectedLeft":"file","expectedRight":"system","expectedLeftIPA":"fˈIl","expectedRightIPA":"sˈɪstəm","expectedIPA":"fˈIlsˌɪstəm","evidence":"modifier"}
+{"caseID":"compound-prefix-hyperparameter","word":"hyperparameter","expectedOutcome":"compound","expectedLeft":"hyper","expectedRight":"parameter","expectedLeftIPA":"hˈIpəɹ","expectedRightIPA":"pəɹˈæməɾəɹ","expectedIPA":"hˌIpəɹpəɹˈæməTəɹ","evidence":"prefix"}
+{"caseID":"nosplit-latinate-acerate","word":"acerate","expectedOutcome":"whole-token-fallback","expectedIPA":"ˈæsɹætɛ","evidence":"ace+rate is an accidental gold pair"}
+{"caseID":"nosplit-latinate-camerate","word":"camerate","expectedOutcome":"whole-token-fallback","expectedIPA":"kˈæmɛɹætɛ","evidence":"came+rate is an accidental gold pair"}
+{"caseID":"nosplit-latinate-cancellate","word":"cancellate","expectedOutcome":"whole-token-fallback","expectedIPA":"kˈænslætɛ","evidence":"cancel+late is an accidental gold pair"}
+{"caseID":"nosplit-latinate-adherescent","word":"adherescent","expectedOutcome":"whole-token-fallback","expectedIPA":"ˈædɛɹɛssnt","evidence":"adhere+scent is an accidental gold pair"}
+{"caseID":"nosplit-suffix-admittable","word":"admittable","expectedOutcome":"whole-token-fallback","expectedIPA":"ˈædmɪtæblɛ","evidence":"-able derivations are not compounds"}
+{"caseID":"nosplit-suffix-abandonable","word":"abandonable","expectedOutcome":"whole-token-fallback","expectedIPA":"ˈæbændɒnæblɛ","evidence":"-able derivations are not compounds"}
+{"caseID":"nosplit-ambiguous-carpetshoprope","word":"carpetshoprope","expectedOutcome":"whole-token-fallback","expectedIPA":"kˈæɹpɛtʃɒpɹɒpɛ","evidence":"more than one qualifying split"}
+{"caseID":"nosplit-ambiguous-handbookstone","word":"handbookstone","expectedOutcome":"whole-token-fallback","expectedIPA":"hˈændbukstɒnɛ","evidence":"more than one qualifying split"}
+{"caseID":"lexicon-table","word":"table","expectedOutcome":"lexicon","expectedIPA":"tˈAbəl","evidence":"authoritative entry outranks any split"}
+{"caseID":"lexicon-available","word":"available","expectedOutcome":"lexicon","expectedIPA":"əvˈAləbəl","evidence":"authoritative entry outranks any split"}
+{"caseID":"lexicon-comfortable","word":"comfortable","expectedOutcome":"lexicon","expectedIPA":"kˈʌmfəɹTəbəl","evidence":"exception word"}
+{"caseID":"lexicon-readable","word":"readable","expectedOutcome":"lexicon","expectedIPA":"ɹˈidəbəl","evidence":"exception word"}
+{"caseID":"lexicon-livable","word":"livable","expectedOutcome":"lexicon","expectedIPA":"lˈɪvəbəl","evidence":"exception word"}
+{"caseID":"lexicon-responsible","word":"responsible","expectedOutcome":"lexicon","expectedIPA":"ɹəspˈɑnsəbəl","evidence":"exception word"}
+{"caseID":"lexicon-notebook","word":"notebook","expectedOutcome":"lexicon","expectedIPA":"nˈOtbˌʊk","evidence":"a listed compound still comes from the lexicon"}
