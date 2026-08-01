@@ -538,11 +538,15 @@ final class NarrationService {
             // unit's words below, so per-word read-along lights up incrementally.
             try AlignmentService(db: db, audiobookID: audiobookID)
                 .recalculateTimeline(anchoredOnly: true, materializeWordTimings: false)
+            // Word rows are keyed to the source words the reader shows; the
+            // mapping reports which of them were spoken as several words so the
+            // synthesis timings can be folded onto the same basis below.
+            var expansionCountsByBlock: [String: [Int]] = [:]
             if rendered.speechRangesByBlock.isEmpty {
                 try WordTimingMaterializer.materializeChapter(
                     audiobookID: audiobookID, blockIDs: rendered.spokenBlockIDs, writer: db)
             } else {
-                try WordTimingMaterializer.materializeSynthesizedChapter(
+                expansionCountsByBlock = try WordTimingMaterializer.materializeSynthesizedChapter(
                     audiobookID: audiobookID,
                     speechRangesByBlock: rendered.speechRangesByBlock,
                     writer: db)
@@ -550,10 +554,22 @@ final class NarrationService {
             let overridden = try WordTimingMaterializer.refineWithSynthesis(
                 audiobookID: audiobookID,
                 synthesisByBlock: rendered.synthesisWordTimingsByBlock,
+                expansionCountsByBlock: expansionCountsByBlock,
                 writer: db)
             if !rendered.synthesisWordTimingsByBlock.isEmpty {
                 logger.notice(
                     "Synthesis word timing: \(overridden, privacy: .public)/\(rendered.synthesisWordTimingsByBlock.count, privacy: .public) blocks overrode interpolation (rest fell back)."
+                )
+            }
+            // A block whose narration cannot be folded back onto its source
+            // words keeps rows on the spoken basis. Those rows still match the
+            // synthesis timings one-for-one, so the counter above reports them
+            // as successes and only the sidecar export drops them — exactly the
+            // silent partial application `applySidecarWords` was taught to log.
+            let unalignable = rendered.speechRangesByBlock.count - expansionCountsByBlock.count
+            if unalignable > 0 {
+                logger.notice(
+                    "Synthesis word timing: \(unalignable, privacy: .public) block(s) could not map narrated words back to source words; their word rows stay on the spoken basis and are omitted from the sidecar."
                 )
             }
             if let segmentKey {

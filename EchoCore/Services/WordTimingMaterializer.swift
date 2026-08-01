@@ -46,20 +46,84 @@ enum WordTimingMaterializer {
         try dao.insert(records(from: blocks, audiobookID: audiobookID))
     }
 
+    /// Materializes the narration render loop's word rows for one chapter.
+    ///
+    /// Rows are written on the **source** word basis — the words the reader
+    /// shows and indexes — even though the audio was produced from the narrated
+    /// text. `TextNormalizer` speaks "1,200" as "one thousand two hundred", so
+    /// the spoken word sequence can be longer than the authored one; each source
+    /// word takes one row spanning all the narrated words it produced.
+    ///
+    /// Returns the per-block expansion counts that were applied, so
+    /// `refineWithSynthesis` can fold the narrated-basis synthesis timings onto
+    /// these same rows. A block whose narration cannot be aligned back onto its
+    /// source words is absent from the result and keeps rows on the spoken
+    /// basis, which the sidecar export guard will then (correctly) decline.
+    @discardableResult
     static func materializeSynthesizedChapter(
         audiobookID: String,
         speechRangesByBlock: [String: [NarrationSpeechRange]],
         writer: DatabaseWriter
-    ) throws {
+    ) throws -> [String: [Int]] {
         let blockIDs = Array(speechRangesByBlock.keys)
-        guard !blockIDs.isEmpty else { return }
+        guard !blockIDs.isEmpty else { return [:] }
+
+        let sourceTextByBlockID = try narratedSourceText(
+            audiobookID: audiobookID, blockIDs: blockIDs, writer: writer)
 
         let dao = WordTimingDAO(db: writer)
         try dao.deleteAll(forAudiobook: audiobookID, blockIDs: blockIDs)
 
         var records: [WordTimingRecord] = []
+        var expansionCountsByBlock: [String: [Int]] = [:]
         for (blockID, ranges) in speechRangesByBlock {
-            for (rangeIndex, range) in ranges.sorted(by: { $0.start < $1.start }).enumerated() {
+            let ordered = ranges.sorted { $0.start < $1.start }
+
+            // The block's spoken words and their interpolated spans, in reading
+            // order across every range the block was synthesized in.
+            var spokenWords: [String] = []
+            var spokenTimings: [ChunkWordTiming] = []
+            for range in ordered {
+                guard !WordTokenizer.words(in: range.text).isEmpty else { continue }
+                for interpolated in WordTimingInterpolator.interpolate(
+                    text: range.text,
+                    blockStart: range.start,
+                    blockEnd: range.end)
+                {
+                    spokenTimings.append(
+                        ChunkWordTiming(
+                            wordIndex: spokenTimings.count,
+                            start: interpolated.start,
+                            end: interpolated.end))
+                    spokenWords.append(interpolated.word)
+                }
+            }
+            guard !spokenTimings.isEmpty else { continue }
+
+            if let sourceText = sourceTextByBlockID[blockID],
+                let counts = NarratedWordAlignment.expansionCounts(
+                    source: sourceText, narrated: spokenWords.joined(separator: " ")),
+                let folded = NarratedWordAlignment.collapse(spokenTimings, counts: counts)
+            {
+                let sourceWords = WordTokenizer.words(in: sourceText).map(String.init)
+                for (wordIndex, timing) in folded.enumerated() {
+                    records.append(
+                        WordTimingRecord(
+                            audiobookID: audiobookID,
+                            epubBlockID: blockID,
+                            wordIndex: wordIndex,
+                            word: sourceWords[wordIndex],
+                            audioStartTime: timing.start,
+                            audioEndTime: timing.end,
+                            confidence: 0.7,
+                            source: "synthesized"))
+                }
+                expansionCountsByBlock[blockID] = counts
+                continue
+            }
+
+            // Unalignable: keep the spoken basis rather than guess a mapping.
+            for (rangeIndex, range) in ordered.enumerated() {
                 guard !WordTokenizer.words(in: range.text).isEmpty else { continue }
                 for interpolated in WordTimingInterpolator.interpolate(
                     text: range.text,
@@ -80,6 +144,37 @@ enum WordTimingMaterializer {
             }
         }
         try dao.insert(records)
+        return expansionCountsByBlock
+    }
+
+    /// The source text each block's word rows must be keyed to — the same
+    /// policy the sidecar export and import validate against.
+    private static func narratedSourceText(
+        audiobookID: String, blockIDs: [String], writer: DatabaseWriter
+    ) throws -> [String: String] {
+        try writer.read { db in
+            let sql = """
+                SELECT id, text, block_kind, narration_text
+                FROM epub_block
+                WHERE audiobook_id = ?
+                  AND id IN (\(databaseQuestionMarks(count: blockIDs.count)))
+                """
+            let rows = try Row.fetchAll(
+                db, sql: sql, arguments: StatementArguments([audiobookID] + blockIDs))
+            var textByID: [String: String] = [:]
+            for row in rows {
+                guard
+                    let text = NarratedBlockText.text(
+                        blockKind: row["block_kind"],
+                        sourceText: row["text"],
+                        narrationText: row["narration_text"]
+                    ),
+                    !text.isEmpty
+                else { continue }
+                textByID[row["id"]] = text
+            }
+            return textByID
+        }
     }
 
     // MARK: - Shared
@@ -225,9 +320,16 @@ enum WordTimingMaterializer {
     /// deletes rows. Call AFTER `materializeChapter` has written the interpolated
     /// baseline for these blocks.
     @discardableResult
+    /// `expansionCountsByBlock` carries the narrated-to-source word mapping
+    /// `materializeSynthesizedChapter` applied. Synthesis timings are indexed by
+    /// the words Kokoro *spoke*, so a block whose narration expanded a number
+    /// has more timings than rows; folding them with the block's counts gives
+    /// each source word one span before the rows are retimed. Blocks without a
+    /// mapping keep the historical one-timing-per-row reading.
     static func refineWithSynthesis(
         audiobookID: String,
         synthesisByBlock: [String: [ChunkWordTiming]],
+        expansionCountsByBlock: [String: [Int]] = [:],
         writer: DatabaseWriter
     ) throws -> Int {
         guard !synthesisByBlock.isEmpty else { return 0 }
@@ -236,9 +338,17 @@ enum WordTimingMaterializer {
         var blocksOverridden = 0
         for (blockID, timings) in synthesisByBlock {
             let rows = try dao.words(forAudiobook: audiobookID, blockID: blockID)
-            guard rows.count == timings.count, !rows.isEmpty else { continue }
+            guard !rows.isEmpty else { continue }
+            let sortedTimings = timings.sorted { $0.wordIndex < $1.wordIndex }
+            var timingsByIndex = sortedTimings
+            if let counts = expansionCountsByBlock[blockID],
+                counts.count == rows.count,
+                let folded = NarratedWordAlignment.collapse(sortedTimings, counts: counts)
+            {
+                timingsByIndex = folded
+            }
+            guard rows.count == timingsByIndex.count else { continue }
             let rowsByIndex = rows.sorted { $0.wordIndex < $1.wordIndex }
-            let timingsByIndex = timings.sorted { $0.wordIndex < $1.wordIndex }
             for (row, t) in zip(rowsByIndex, timingsByIndex) {
                 var updated = row
                 updated.audioStartTime = t.start
