@@ -46,6 +46,13 @@ import Testing
             ("The train leaves at 3:15.", [1, 1, 1, 1, 2]),
             // A replacement word that also occurs earlier must not steal the anchor.
             ("The word percent appears before 40% here.", [1, 1, 1, 1, 1, 2, 1]),
+            // Abbreviation expansion substitutes one spoken word for one
+            // authored word, so every count stays 1 — including two expansions
+            // in the same sentence, which the untouched words between them
+            // anchor independently.
+            ("Mt. Everest rose 40 km ahead.", [1, 1, 1, 1, 1, 1]),
+            ("Snow fell in Feb. 1987.", [1, 1, 1, 1, 1]),
+            ("It weighed approx. 40 pounds.", [1, 1, 1, 1, 1]),
         ])
     func normalizerExpansionsMapBackOntoTheAuthoredWords(
         _ source: String, _ expected: [Int]

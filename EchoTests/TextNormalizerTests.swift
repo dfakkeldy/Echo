@@ -177,12 +177,108 @@ import Testing
         #expect(TextNormalizer.normalize(input) == expected)
     }
 
+    /// Abbreviations that stand for a whole word must be spelled out before
+    /// G2P. Left literal, `km` and `hrs` phonemize to the vowelless `km` and
+    /// `hɹs` — consonant clusters the voice physically cannot say — while
+    /// `Feb.` truncated to "feb" and `approx.` was read aloud as "approks".
+    @Test(arguments: [
+        ("Mt. Everest rose ahead.", "Mount Everest rose ahead."),
+        ("The trail ran 40 km north.", "The trail ran 40 kilometers north."),
+        ("The walk took 3 hrs.", "The walk took 3 hours."),
+        ("Snow fell in Feb. 1987.", "Snow fell in February 1987."),
+        ("It weighed approx. 40 pounds.", "It weighed approximately 40 pounds."),
+    ])
+    func expandsUnpronounceableAbbreviations(_ input: String, _ expected: String) {
+        #expect(TextNormalizer.normalize(input) == expected)
+    }
+
+    /// A unit reads as a plural unless exactly one of it is being counted, so
+    /// "1 km" cannot become "one kilometers". The singular is keyed to a
+    /// standalone `1`; the `1` inside a longer number does not count.
+    @Test(arguments: [
+        ("Only 1 km remained.", "Only 1 kilometer remained."),
+        ("Only 2 km remained.", "Only 2 kilometers remained."),
+        ("Only 21 km remained.", "Only 21 kilometers remained."),
+        ("It ran 1,200 km north.", "It ran one thousand two hundred kilometers north."),
+    ])
+    func picksUnitNumberFromTheCountBeforeIt(_ input: String, _ expected: String) {
+        #expect(TextNormalizer.normalize(input) == expected)
+    }
+
+    /// Months whose abbreviation collides with a real lexicon word are the
+    /// quietest instance of this bug: `Mar.` resolves confidently to "mar"
+    /// and `Sept.` to "sept", so they never raise a G2P fallback the audit
+    /// can surface — they simply narrate the wrong word.
+    @Test(arguments: [
+        ("Mar. 3 was cold.", "March 3 was cold."),
+        ("Sept. 9 arrived.", "September 9 arrived."),
+        ("Jun. 1 opened the season.", "June 1 opened the season."),
+        ("Jan. 4 stayed dark.", "January 4 stayed dark."),
+        ("Dec. 25 came quickly.", "December 25 came quickly."),
+    ])
+    func expandsMonthsThatSilentlyResolveToTheWrongWord(_ input: String, _ expected: String) {
+        #expect(TextNormalizer.normalize(input) == expected)
+    }
+
+    /// Knowing when NOT to fire is half the feature. Every entry here is a
+    /// form some abbreviation table would expand, and every expansion would
+    /// corrupt ordinary prose.
+    ///
+    /// The month cases are why a day or year is required: outside date
+    /// position, `Jan.` is a person's name and `Aug.` cannot be told from a
+    /// sentence ending on an abbreviation. "The Sun. It burns." is the
+    /// sharpest of all — capitalised, sentence-final, entirely innocent.
+    @Test(arguments: [
+        "The Sun. It burns.",
+        "He sat. Then rose.",
+        "Come in. The door is open.",
+        "Say no. Then leave.",
+        "It took 5 min. Then it ended.",
+        "I spoke with Jan. She agreed.",
+        "Deliveries resume in Aug.",
+        "The thaw came late in Feb. The snow stayed.",
+        "The KM ratio held.",
+        "Set mt to zero.",
+        "The 40km marker passed.",
+        "An hr later, nothing.",
+        "The mount was steep.",
+    ])
+    func leavesAmbiguousAbbreviationFormsAlone(_ input: String) {
+        #expect(TextNormalizer.normalize(input) == input)
+    }
+
+    /// The load-bearing invariant: word-level read-along indexes timings by the
+    /// SOURCE block's whitespace-delimited words, so an expansion that changes
+    /// the token count costs that block every word timing it had. Each of these
+    /// substitutes one authored word for exactly one spoken word.
+    @Test(arguments: [
+        "Mt. Everest rose ahead.",
+        "The trail ran 40 km north.",
+        "The walk took 3 hrs.",
+        "Snow fell in Feb. 1987.",
+        "It weighed approx. 40 pounds.",
+        "Only 1 km remained.",
+        // The probe sentence that surfaced every case at once.
+        "Dr. Almond wrote to Mt. Pearl on Feb. 2. St. John's is 3 hrs away by road, approx. 240 km.",
+    ])
+    func abbreviationExpansionKeepsTheAuthoredWordCount(_ input: String) {
+        let normalized = TextNormalizer.normalize(input)
+        #expect(
+            WordTokenizer.words(in: normalized).count
+                == WordTokenizer.words(in: input).count)
+    }
+
     @Test func leavesPlainProseUnchanged() {
         #expect(TextNormalizer.normalize("The quick brown fox.") == "The quick brown fox.")
     }
 
     @Test(arguments: [
         "Visit https://example.com/path?x=1.",
+        // A unit symbol is a word only in prose. Inside a path or a compound
+        // unit it is a path segment, so it must stay literal.
+        "Visit https://example.com/km/path.",
+        "Read docs/hrs/index.html for the schedule.",
+        "The dial read 90 km/h steadily.",
         "Email me@example.com before launch.",
         "Run echo-cli qa --work-dir /tmp/render.",
         "Keep rough-and-ready and sourceBlockID stable.",
