@@ -172,8 +172,14 @@ private enum ExtractorTestError: Swift.Error {
         } catch let error as ArticleURLCaptureService.Error {
             #expect(error == .responseTooLarge)
         }
-        await ArticleURLProtocol.waitForCancellation()
-        #expect(ArticleURLProtocol.cancelledRequestCount == 1)
+        // The loader's `task.cancel()` is deliberately not asserted here.
+        // `URLProtocol.startLoading()` hands its whole body to URLSession before
+        // the delegate sees a byte, so the transfer is always complete by the
+        // time the size limit trips: a URLProtocol double cannot observe an
+        // early stop. `stopLoading()` is only end-of-life teardown, delivered
+        // once per request whether or not it was cancelled, so counting it
+        // proved nothing while making this test sensitive to callbacks arriving
+        // from outside its own window.
     }
 
     @Test func classifiesLoginFormInsteadOfSavingItAsTheArticle() async throws {
@@ -348,7 +354,6 @@ nonisolated final class ArticleURLProtocol: URLProtocol {
 
     nonisolated(unsafe) private static var handler: ((URLRequest) -> Reply)?
     nonisolated(unsafe) private static var requests = 0
-    nonisolated(unsafe) private static var cancelled = 0
     private static let lock = NSLock()
 
     static var requestCount: Int {
@@ -356,44 +361,16 @@ nonisolated final class ArticleURLProtocol: URLProtocol {
         return requests
     }
 
-    static var cancelledRequestCount: Int {
-        lock.lock(); defer { lock.unlock() }
-        return cancelled
-    }
-
-    /// Waits, up to `timeout`, for URLSession to deliver the `stopLoading()`
-    /// callback that records a cancellation.
-    ///
-    /// `cancelledRequestCount` is lock-protected, so reading it concurrently is
-    /// safe — but that is a data-race guarantee, not an ordering one. URLSession
-    /// calls `stopLoading()` asynchronously on its own loading queue, so reading
-    /// the count the instant `capture` throws assumes a happens-before that does
-    /// not exist: it wins on a fast machine and loses on a loaded CI runner.
-    /// Polling returns as soon as the callback lands, and the bound keeps a real
-    /// regression a failure rather than a hung suite.
-    static func waitForCancellation(
-        atLeast expected: Int = 1,
-        timeout: Duration = .seconds(5)
-    ) async {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            if cancelledRequestCount >= expected { return }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-    }
-
     static func install(_ handler: @escaping (URLRequest) -> Reply) {
         lock.lock(); defer { lock.unlock() }
         self.handler = handler
         requests = 0
-        cancelled = 0
     }
 
     static func reset() {
         lock.lock(); defer { lock.unlock() }
         handler = nil
         requests = 0
-        cancelled = 0
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -429,8 +406,9 @@ nonisolated final class ArticleURLProtocol: URLProtocol {
         }
     }
 
-    override func stopLoading() {
-        Self.lock.lock(); defer { Self.lock.unlock() }
-        Self.cancelled += 1
-    }
+    // URLSession delivers this once per request as end-of-life teardown, for
+    // successful and cancelled transfers alike, on its own loading queue. It
+    // carries no cancellation signal, so — as in this suite's sibling doubles —
+    // there is nothing to record here.
+    override func stopLoading() {}
 }
