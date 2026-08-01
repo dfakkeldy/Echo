@@ -9,6 +9,9 @@ import Testing
         // v17 gives a spaced dash its own authored word slot, changing the
         // phoneme stream, so v16 audio and its evidence must not be reused.
         #expect(NarrationFileNaming.renderVersion == 17)
+        // v18 voices closed compounds from either constituent's evidence, so v16
+        // audio and its pronunciation evidence must not be reused.
+        #expect(NarrationFileNaming.renderVersion == 18)
         let current = NarrationFileNaming.chapterFileName(
             audiobookID: "book",
             chapterIndex: 0,
@@ -17,6 +20,9 @@ import Testing
         let previous = current.replacing("-v17.m4a", with: "-v16.m4a")
 
         #expect(current.hasSuffix("-v17.m4a"))
+        let previous = current.replacing("-v18.m4a", with: "-v16.m4a")
+
+        #expect(current.hasSuffix("-v18.m4a"))
         #expect(
             NarrationFileNaming.isCurrentChapterCacheFileName(
                 current,

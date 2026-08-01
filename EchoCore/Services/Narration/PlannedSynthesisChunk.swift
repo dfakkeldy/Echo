@@ -233,6 +233,26 @@ nonisolated struct PlannedSynthesisChunk: Equatable, Sendable {
                         phonemeCharacterRange: childPhonemeRange,
                         usedFallback: evidence.usedFallback)
                 }
+                let childDisplayLowerBound =
+                    evidence.displayCharacterRange.lowerBound - displayRange.lowerBound
+                let childDisplayUpperBound =
+                    evidence.displayCharacterRange.upperBound - displayRange.lowerBound
+                let childDisplayRange = childDisplayLowerBound..<childDisplayUpperBound
+                let childPhonemeLowerBound =
+                    parentPhonemeRange.lowerBound - phonemeRange.lowerBound
+                let childPhonemeUpperBound =
+                    parentPhonemeRange.upperBound - phonemeRange.lowerBound
+                let childPhonemeRange = childPhonemeLowerBound..<childPhonemeUpperBound
+                return PronunciationTokenEvidence(
+                    text: evidence.text,
+                    selectedPhonemes: evidence.selectedPhonemes,
+                    lexicalTag: evidence.lexicalTag,
+                    rating: evidence.rating,
+                    displayCharacterRange: childDisplayRange,
+                    phonemeCharacterRange: childPhonemeRange,
+                    usedFallback: evidence.usedFallback,
+                    compoundComponents: evidence.compoundComponents)
+            }
             let expectedEvidenceCount = pronunciationTokenEvidence.filter {
                 Self.fullyContains(displayRange, $0.displayCharacterRange)
             }.count

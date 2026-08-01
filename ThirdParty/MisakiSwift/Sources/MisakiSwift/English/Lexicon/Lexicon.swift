@@ -48,6 +48,43 @@ final class Lexicon {
     "water", "web", "wheel", "wind", "word", "work", "world",
   ]
 
+  /// Common free nouns that productively *head* closed compounds. A compound is
+  /// modifier + head, and either constituent can carry the semantic evidence:
+  /// `boatlight` is as clearly a compound as `headphone`, but only its head is a
+  /// familiar constituent. Consulting the modifier alone made every compound
+  /// whose modifier happened to be unlisted (`fog`, `tide`, `boat`) fall through
+  /// to the whole-token guess.
+  ///
+  /// Membership is reviewed, not derived: no signal in the shipped lexicons
+  /// separates `boat` + `light` from `cancel` + `late`, since both are clean
+  /// concatenations of two gold entries. Every entry must be a free-standing
+  /// noun the lexicon already attests as the head of real closed compounds, and
+  /// must never be a derivational suffix — `bookless` is `book` + `-less`, not a
+  /// compound headed by `less`. Entries shorter than four characters would never
+  /// satisfy the minimum right-component length, so they are omitted.
+  static let compoundHeads: Set<String> = [
+    "band", "base", "bell", "bird", "boat", "body", "bone", "book", "boot", "bowl",
+    "brush", "cake", "card", "case", "chair", "chart", "check", "cloth", "coat",
+    "code", "cost", "craft", "dish", "door", "draft", "drop", "fall", "farm",
+    "field", "fire", "fish", "flow", "food", "foot", "frame", "gate", "glass",
+    "goal", "gold", "grass", "ground", "guard", "hall", "hand", "head", "heart",
+    "hill", "hole", "hook", "horn", "house", "keeper", "knife", "lake", "land",
+    "level", "life", "light", "line", "link", "list", "load", "lock", "machine",
+    "mail", "maker", "mark", "market", "mask", "master", "meal", "milk", "mill",
+    "mine", "note", "page", "paint", "paper", "park", "path", "phone", "pipe",
+    "place", "plane", "plant", "plate", "point", "pool", "port", "post", "pump",
+    "rack", "rail", "rain", "road", "rock", "roof", "room", "root", "rope", "sale",
+    "salt", "sand", "scale", "school", "screen", "seat", "shape", "shelf", "shell",
+    "ship", "shirt", "shoe", "shop", "shot", "side", "sign", "site", "skin",
+    "sleep", "slide", "snow", "song", "sound", "space", "speed", "spot", "stack",
+    "stage", "stand", "state", "station", "step", "stick", "stone", "stop",
+    "store", "storm", "stream", "street", "string", "strip", "suit", "system",
+    "tail", "tank", "tape", "test", "text", "tide", "time", "tone", "tool",
+    "tooth", "tower", "town", "track", "trail", "train", "tree", "truck", "tube",
+    "wall", "watch", "watcher", "water", "wave", "wheel", "window", "wing", "wire",
+    "wood", "word", "work", "world", "yard",
+  ]
+
   init(british: Bool) {
     self.british = british
     // Load and grow dictionaries
@@ -167,7 +204,17 @@ final class Lexicon {
   /// lexical components. Whole-word and inflection lookup must run first; this
   /// is a guarded fallback for spellings such as `hyperparameter` and
   /// `headphone`, not a replacement for authoritative lexicon entries.
-  func transcribeClosedCompound(_ token: MToken, ctx: TokenContext) -> (String, Int)? {
+  ///
+  /// A split needs *two* things: lexical evidence (both components resolve) and
+  /// semantic evidence (one component is a reviewed productive constituent).
+  /// Lexical evidence alone is not enough — `cancel` + `late` and `boat` +
+  /// `light` are both clean concatenations of two gold entries, so admitting
+  /// every known pair would mispronounce ordinary derived words. Either the
+  /// modifier (`hyper`, `head`) or the head (`light`, `line`) may supply the
+  /// semantic evidence.
+  func transcribeClosedCompound(
+    _ token: MToken, ctx: TokenContext
+  ) -> (phonemes: String, rating: Int, components: String)? {
     guard token.tag?.isProperNoun != true else { return nil }
 
     let word = token.text.lowercased().precomposedStringWithCompatibilityMapping
@@ -175,14 +222,14 @@ final class Lexicon {
     guard characters.count >= 6, characters.allSatisfy(\.isLetter) else { return nil }
     guard !word.hasSuffix("able"), !word.hasSuffix("ible") else { return nil }
 
-    var candidates: [(left: String, leftIPA: String, rightIPA: String)] = []
+    var candidates: [(left: String, right: String, leftIPA: String, rightIPA: String)] = []
     for split in 3...(characters.count - 3) {
       let left = String(characters[..<split])
       let right = String(characters[split...])
-      guard
+      let leftIsProductive =
         Self.productiveCompoundPrefixes.contains(left)
-          || Self.compoundRoots.contains(left)
-      else {
+        || Self.compoundRoots.contains(left)
+      guard leftIsProductive || Self.compoundHeads.contains(right) else {
         continue
       }
       guard right.count >= 4 || Self.productiveCompoundPrefixes.contains(left) else {
@@ -193,18 +240,19 @@ final class Lexicon {
       guard let leftIPA = leftResult.phoneme, let rightIPA = rightResult.phoneme else {
         continue
       }
-      candidates.append((left: left, leftIPA: leftIPA, rightIPA: rightIPA))
+      candidates.append(
+        (left: left, right: right, leftIPA: leftIPA, rightIPA: rightIPA))
     }
 
     guard candidates.count == 1, let candidate = candidates.first else { return nil }
     let phonemes = compoundPhonemes(for: candidate)
       .replacingOccurrences(of: "ɾ", with: "T")
       .replacingOccurrences(of: "ʔ", with: "t")
-    return (phonemes, 1)
+    return (phonemes, 1, "\(candidate.left)+\(candidate.right)")
   }
 
   private func compoundPhonemes(
-    for candidate: (left: String, leftIPA: String, rightIPA: String)
+    for candidate: (left: String, right: String, leftIPA: String, rightIPA: String)
   ) -> String {
     let rightCarriesPrimaryStress =
       Self.productiveCompoundPrefixes.contains(candidate.left)
