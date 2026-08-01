@@ -50,7 +50,10 @@ nonisolated enum NarrationFileNaming {
     /// is voiced from its known components instead of the whole-token guess.
     /// v19 = the spaced-dash normalization now lands on top of v18: the dash
     /// keeps its own authored word slot and adds a token to the rendered stream.
-    static let renderVersion = 19
+    /// v20 = common abbreviations are spelled out before G2P, so `km`, `hrs`,
+    /// `Mt.`, `approx.`, and month abbreviations in date position are voiced as
+    /// words instead of reaching the voice as unpronounceable letter strings.
+    static let renderVersion = 20
     /// Stable renderer-family identity persisted beside headless captures. The
     /// cache render version tracks byte-affecting revisions within this family;
     /// this value prevents a different engine/G2P stack from inheriting them.

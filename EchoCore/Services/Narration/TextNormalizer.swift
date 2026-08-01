@@ -31,6 +31,11 @@ enum TextNormalizer {
             periodPolicy: .beforeUppercaseOrEnd
         )
         out = replaceAbbreviation(out, abbreviation: "vs.", replacement: "versus")
+        out = replaceAbbreviation(out, abbreviation: "approx.", replacement: "approximately")
+        // "Mt." only ever prefixes a place name, so it keeps `.endOnly`:
+        // `.beforeUppercaseOrEnd` would read the capital in "Mt. Pearl" as a
+        // sentence break and speak "Mount. Pearl".
+        out = replaceAbbreviation(out, abbreviation: "Mt.", replacement: "Mount")
         out = out.replacingOccurrences(of: "Dr.", with: "Doctor")
         // "Mrs." before "Mr." so the shorter token can't partially consume it.
         out = out.replacingOccurrences(of: "Mrs.", with: "Missus")
@@ -39,7 +44,120 @@ enum TextNormalizer {
         out = out.replacingOccurrences(of: "Prof.", with: "Professor")
         // "St." → Saint before a capitalized word, else Street.
         out = replaceStreetVsSaint(out)
+        out = expandMonthAbbreviations(out)
+        out = expandUnitSymbols(out)
         return out
+    }
+
+    /// Month abbreviations, but only in date position.
+    ///
+    /// Nine of the twelve are outside the lexicon entirely and truncate —
+    /// `Feb.` is voiced "feb". The other three are worse: `Mar.`, `Sept.`, and
+    /// `Jun.` resolve confidently to the unrelated words "mar", "sept", and
+    /// "jun", so they never raise the G2P fallback an audit can surface and
+    /// simply narrate the wrong word.
+    ///
+    /// A following day or year is required, which is what makes the rule safe
+    /// rather than merely useful. Outside date position the form cannot be
+    /// told from a name ("I spoke with Jan.") or from a sentence that happens
+    /// to end on the abbreviation ("Deliveries resume in Aug."), and the
+    /// trailing period is then the sentence's rather than the abbreviation's.
+    /// Requiring the number removes both hazards without a per-month
+    /// exception list.
+    private static func expandMonthAbbreviations(_ s: String) -> String {
+        var out = s
+        for (abbreviation, month) in monthAbbreviations {
+            let escaped = NSRegularExpression.escapedPattern(for: abbreviation)
+            out = replacingMatches(
+                in: out,
+                pattern: #"(?<![\p{L}\p{N}_])\#(escaped)(?=\s+[0-9])"#
+            ) { _, _ in month }
+        }
+        return out
+    }
+
+    /// "Sept." before "Sep." so the shorter token can't partially consume it,
+    /// matching the "Mrs." before "Mr." ordering above. "May" has no
+    /// abbreviated form and is already a lexicon word.
+    private static let monthAbbreviations: [(abbreviation: String, month: String)] = [
+        ("Jan.", "January"), ("Feb.", "February"), ("Mar.", "March"),
+        ("Apr.", "April"), ("Jun.", "June"), ("Jul.", "July"),
+        ("Aug.", "August"), ("Sept.", "September"), ("Sep.", "September"),
+        ("Oct.", "October"), ("Nov.", "November"), ("Dec.", "December"),
+    ]
+
+    /// Unit symbols that stand for a word. Left literal they phonemize to
+    /// vowelless consonant clusters — `km` stays "km" and `hrs` becomes "hɹs"
+    /// — which the voice cannot produce at all, so the unit is simply not
+    /// spoken.
+    private static func expandUnitSymbols(_ s: String) -> String {
+        var out = replaceCountedUnit(
+            s, symbol: "km", singular: "kilometer", plural: "kilometers")
+        // "hrs" is already plural; the singular symbol is "hr", which is left
+        // alone because it cannot be told from an initialism.
+        out = replaceUnitSymbol(out, symbol: "hrs", replacement: "hours")
+        return out
+    }
+
+    /// A unit takes its number from the count in front of it, so "1 km" must
+    /// not read as "one kilometers". Only a standalone `1` counts — the `1`
+    /// opening "1,200" belongs to a larger number.
+    private static func replaceCountedUnit(
+        _ s: String,
+        symbol: String,
+        singular: String,
+        plural: String
+    ) -> String {
+        replacingMatches(in: s, pattern: unitSymbolPattern(symbol)) { match, text in
+            tokenBefore(match.range, in: text) == "1" ? singular : plural
+        }
+    }
+
+    private static func replaceUnitSymbol(
+        _ s: String,
+        symbol: String,
+        replacement: String
+    ) -> String {
+        replacingMatches(in: s, pattern: unitSymbolPattern(symbol)) { _, _ in replacement }
+    }
+
+    /// Case-sensitive, and a whole token in running prose only. `KM` is an
+    /// initialism, and a symbol welded to its number ("40km") would have to
+    /// become two words to be spoken — word-level read-along indexes timings
+    /// by the source block's whitespace-delimited words, so gaining a word
+    /// there would cost the block every timing it had.
+    ///
+    /// Slashes, dots, and hyphens are excluded on both sides so a path
+    /// segment ("example.com/km/path") and a compound unit ("km/h") stay
+    /// literal, the same guard `expandProseFriendlyTimes` uses to leave a URL
+    /// alone. A trailing period is still allowed: it ends the sentence, not
+    /// the symbol.
+    private static func unitSymbolPattern(_ symbol: String) -> String {
+        let escaped = NSRegularExpression.escapedPattern(for: symbol)
+        return #"(?<![\p{L}\p{N}_/.-])\#(escaped)(?![\p{L}\p{N}_/-])"#
+    }
+
+    /// The whitespace-delimited token immediately before `range`, or `nil` at
+    /// the start of the text. Unlike `wordBefore` this keeps digits and
+    /// punctuation, so "1,200" does not read as the count "1".
+    private static func tokenBefore(_ range: NSRange, in s: String) -> String? {
+        guard let swiftRange = Range(range, in: s) else { return nil }
+        var cursor = swiftRange.lowerBound
+        while cursor > s.startIndex {
+            let previous = s.index(before: cursor)
+            guard s[previous].isWhitespace else { break }
+            cursor = previous
+        }
+
+        let end = cursor
+        while cursor > s.startIndex {
+            let previous = s.index(before: cursor)
+            guard !s[previous].isWhitespace else { break }
+            cursor = previous
+        }
+
+        guard cursor < end else { return nil }
+        return String(s[cursor..<end])
     }
 
     private static func replaceAbbreviation(

@@ -6,17 +6,18 @@ import Testing
 
 @Suite struct NarrationFileNamingTests {
     @Test func renderVersionRegeneratesCachesForPronunciationFrontEndRefresh() {
-        // v19 gives a spaced dash its own authored word slot on top of the v18
-        // compound change, so v18 audio and its evidence must not be reused.
-        #expect(NarrationFileNaming.renderVersion == 19)
+        // v20 spells common abbreviations out before G2P, so a v19 chapter
+        // still voices `km` and `hrs` as vowelless letter strings and neither
+        // its audio nor its pronunciation evidence may be reused.
+        #expect(NarrationFileNaming.renderVersion == 20)
         let current = NarrationFileNaming.chapterFileName(
             audiobookID: "book",
             chapterIndex: 0,
             voice: VoiceID("af_heart"),
             contentSignature: "0123456789abcdef")
-        let previous = current.replacing("-v19.m4a", with: "-v18.m4a")
+        let previous = current.replacing("-v20.m4a", with: "-v19.m4a")
 
-        #expect(current.hasSuffix("-v19.m4a"))
+        #expect(current.hasSuffix("-v20.m4a"))
         #expect(
             NarrationFileNaming.isCurrentChapterCacheFileName(
                 current,
