@@ -123,24 +123,22 @@ enum WordTimingMaterializer {
             }
 
             // Unalignable: keep the spoken basis rather than guess a mapping.
-            for (rangeIndex, range) in ordered.enumerated() {
-                guard !WordTokenizer.words(in: range.text).isEmpty else { continue }
-                for interpolated in WordTimingInterpolator.interpolate(
-                    text: range.text,
-                    blockStart: range.start,
-                    blockEnd: range.end)
-                {
-                    records.append(
-                        WordTimingRecord(
-                            audiobookID: audiobookID,
-                            epubBlockID: blockID,
-                            wordIndex: rangeIndex * 10_000 + interpolated.index,
-                            word: interpolated.word,
-                            audioStartTime: interpolated.start,
-                            audioEndTime: interpolated.end,
-                            confidence: 0.7,
-                            source: "synthesized"))
-                }
+            // The spoken words already carry a contiguous index across every
+            // range, and it has to stay contiguous: every reader indexes a row
+            // positionally into the text it displays (`rectForWord(at:)` guards
+            // `wordIndex < wordRanges.count`), so a gap silently costs each
+            // later row its highlight and its tap-to-seek.
+            for (wordIndex, (word, timing)) in zip(spokenWords, spokenTimings).enumerated() {
+                records.append(
+                    WordTimingRecord(
+                        audiobookID: audiobookID,
+                        epubBlockID: blockID,
+                        wordIndex: wordIndex,
+                        word: word,
+                        audioStartTime: timing.start,
+                        audioEndTime: timing.end,
+                        confidence: 0.7,
+                        source: "synthesized"))
             }
         }
         try dao.insert(records)

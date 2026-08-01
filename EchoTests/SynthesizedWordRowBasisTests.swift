@@ -152,4 +152,54 @@ import Testing
         #expect(counts["b0"] == nil)
         #expect(try rows(db).count == 5)  // the spoken words, as before
     }
+
+    /// A block synthesized across several speech ranges keeps ONE contiguous
+    /// index run over the whole block, even on the unalignable fallback.
+    ///
+    /// The rows used to be keyed `rangeIndex * 10_000 + indexWithinRange`, which
+    /// only had to keep the per-range indices from colliding — each range
+    /// restarts `WordTimingInterpolator` at 0. But every reader indexes a row
+    /// positionally into the text it displays (`ParagraphCardCell.rectForWord(at:)`
+    /// guards `wordIndex < wordRanges.count`, and `ReaderFeedViewModel.wordTiming`
+    /// matches the index a tap resolved to), so the second range's rows landed
+    /// past the end of the block and read-along went silent mid-paragraph with
+    /// nothing logged. No consumer ever needed the stride: they sort by
+    /// `word_index` and zip, so ordering is all that was load-bearing.
+    @Test func unalignableMultiRangeBlockKeepsContiguousWordIndices() throws {
+        // Shares no word with the spoken text, so the alignment provably fails
+        // (`attributeRegion` rejects a multi-word source run) and we exercise
+        // the fallback. Longer than the spoken text so every contiguous index
+        // still addresses a real displayed word.
+        let sourceText = "alpha beta gamma delta epsilon zeta eta theta"
+        let db = try seed(sourceText: sourceText)
+        let counts = try WordTimingMaterializer.materializeSynthesizedChapter(
+            audiobookID: "bk",
+            speechRangesByBlock: [
+                "b0": [
+                    NarrationSpeechRange(
+                        blockID: "b0", text: "totally different spoken", start: 0, end: 3),
+                    NarrationSpeechRange(
+                        blockID: "b0", text: "words here now", start: 3, end: 6),
+                ]
+            ],
+            writer: db.writer)
+
+        // The fallback ran — not the aligned path, which would also be contiguous.
+        #expect(counts["b0"] == nil)
+
+        let rows = try rows(db)
+        #expect(rows.map(\.wordIndex) == [0, 1, 2, 3, 4, 5])  // was [0, 1, 2, 10000, 10001, 10002]
+        #expect(
+            rows.map(\.word) == ["totally", "different", "spoken", "words", "here", "now"])
+
+        // What the stride actually cost: every row must address a word the
+        // reader can find in the text on screen, or it can never highlight.
+        let displayedWordCount = WordTokenizer.words(in: sourceText).count
+        #expect(rows.allSatisfy { $0.wordIndex < displayedWordCount })
+
+        // The second range's rows carry the second range's audio times, so the
+        // contiguous run really spans both ranges rather than repeating one.
+        #expect(rows[3].audioStartTime >= 3.0)
+        #expect(rows[5].audioEndTime <= 6.0)
+    }
 }
