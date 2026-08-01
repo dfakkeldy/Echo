@@ -9,9 +9,11 @@ import Testing
         ("St. Mary on St. James St.", "Saint Mary on Saint James Street."),
         ("It cost 1,200 dollars.", "It cost one thousand two hundred dollars."),
         ("See e.g. chapter 3.", "See for example chapter 3."),
-        ("A pause — then silence.", "A pause, then silence."),
-        ("A pause – then silence.", "A pause, then silence."),  // spaced en dash
-        ("A pause - then silence.", "A pause, then silence."),  // spaced ASCII hyphen
+        // The comma keeps the dash's own whitespace-delimited slot (see
+        // `spacedDashKeepsTheAuthoredWordCount`), so it stays a standalone token.
+        ("A pause — then silence.", "A pause , then silence."),
+        ("A pause – then silence.", "A pause , then silence."),  // spaced en dash
+        ("A pause - then silence.", "A pause , then silence."),  // spaced ASCII hyphen
         ("Chapter IV begins.", "Chapter 4 begins."),
         ("It served 6,000 people.", "It served six thousand people."),
         ("The launch reached 10,000 readers.", "The launch reached ten thousand readers."),
@@ -101,6 +103,25 @@ import Testing
     ])
     func leavesAmbiguousNaturalnessFormsAlone(_ input: String, _ expected: String) {
         #expect(TextNormalizer.normalize(input) == expected)
+    }
+
+    /// Word-level read-along indexes timings by the SOURCE block's
+    /// whitespace-delimited words, so normalization must never add or drop one.
+    /// A spaced dash is its own authored word; collapsing it onto the previous
+    /// word ("heard —" → "heard,") made the rendered text one word shorter than
+    /// the source and cost that whole block its word timings.
+    @Test(
+        arguments: [
+            "The seam has to be heard — even when it cannot be seen.",
+            "The seam has to be heard – even when it cannot be seen.",
+            "The seam has to be heard - even when it cannot be seen.",
+        ])
+    func spacedDashKeepsTheAuthoredWordCount(_ input: String) {
+        let normalized = TextNormalizer.normalize(input)
+        #expect(
+            WordTokenizer.words(in: normalized).count
+                == WordTokenizer.words(in: input).count)
+        #expect(WordTokenizer.words(in: normalized).map(String.init)[6] == ",")
     }
 
     @Test func leavesIntraWordHyphenForTheG2P() {

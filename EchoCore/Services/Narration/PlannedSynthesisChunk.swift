@@ -31,6 +31,93 @@ nonisolated struct PlannedSynthesisChunk: Equatable, Sendable {
         self.pronunciationEvidenceValidation = pronunciationEvidenceValidation
     }
 
+    /// How many space-delimited phoneme groups each authored (whitespace-delimited)
+    /// word of `displayText` is spoken as, in reading order.
+    ///
+    /// Kokoro's duration head is grouped into words by splitting the token ids on
+    /// the space token, but a space can land *inside* one authored word: Misaki
+    /// gives an intra-word hyphen the phoneme `" "` ("well-tempered" is spoken as
+    /// two groups) and inserts the same break between the parts of a CamelCase
+    /// compound ("EchoCore"). Counting groups per authored word — rather than
+    /// assuming one each — keeps the timing map on the authored word indices that
+    /// read-along highlights, the same invariant v15 established for the periods
+    /// inside dotted identifiers.
+    ///
+    /// `nil` when the mapping cannot be proven from token evidence (unmatched
+    /// evidence, a token spanning a word boundary, or a word no token covers), so
+    /// `KokoroWordTimer` falls back to one group per word rather than guessing.
+    var authoredWordGroupCounts: [Int]? {
+        guard case .matched = pronunciationEvidenceValidation,
+            !pronunciationTokenEvidence.isEmpty
+        else {
+            return nil
+        }
+
+        let phonemeCharacters = Array(phonemes)
+        var counts: [Int] = []
+        var evidenceIndex = 0
+        for wordRange in Self.displayWordRanges(in: displayText) {
+            var span: Range<Int>?
+            while evidenceIndex < pronunciationTokenEvidence.count {
+                let evidence = pronunciationTokenEvidence[evidenceIndex]
+                guard evidence.displayCharacterRange.lowerBound < wordRange.upperBound else {
+                    break
+                }
+                // A token that straddles a word boundary, or one whose phoneme
+                // slice is missing, leaves the mapping unproven.
+                guard evidence.displayCharacterRange.lowerBound >= wordRange.lowerBound,
+                    evidence.displayCharacterRange.upperBound <= wordRange.upperBound,
+                    let phonemeRange = evidence.phonemeCharacterRange,
+                    phonemeRange.upperBound <= phonemeCharacters.count,
+                    phonemeRange.lowerBound >= span?.upperBound ?? 0
+                else {
+                    return nil
+                }
+                span = (span?.lowerBound ?? phonemeRange.lowerBound)..<phonemeRange.upperBound
+                evidenceIndex += 1
+            }
+            guard let span else { return nil }
+            counts.append(Self.spokenGroupCount(in: phonemeCharacters[span]))
+        }
+        guard evidenceIndex == pronunciationTokenEvidence.count, !counts.isEmpty else {
+            return nil
+        }
+        return counts
+    }
+
+    /// Maximal runs of non-space phonemes — the same grouping `KokoroWordTimer`
+    /// derives from the token ids, which map 1:1 onto these characters.
+    private static func spokenGroupCount(in phonemes: ArraySlice<Character>) -> Int {
+        var groups = 0
+        var inGroup = false
+        for character in phonemes {
+            if character == " " {
+                inGroup = false
+            } else if !inGroup {
+                inGroup = true
+                groups += 1
+            }
+        }
+        return groups
+    }
+
+    /// `WordTokenizer`'s word ranges as character offsets, walked once so the
+    /// conversion stays linear. The canonical word definition is not re-derived
+    /// here — read-along and the timing map must not fork it.
+    private static func displayWordRanges(in displayText: String) -> [Range<Int>] {
+        var ranges: [Range<Int>] = []
+        var cursor = displayText.startIndex
+        var offset = 0
+        for range in WordTokenizer.wordRanges(in: displayText) {
+            offset += displayText.distance(from: cursor, to: range.lowerBound)
+            let lowerBound = offset
+            offset += displayText.distance(from: range.lowerBound, to: range.upperBound)
+            cursor = range.upperBound
+            ranges.append(lowerBound..<offset)
+        }
+        return ranges
+    }
+
     /// Splits a rejected synthesis plan without running G2P again. Every child
     /// is a contiguous slice of the exact display, resolved markup, phoneme,
     /// token-ID, fallback, and token-evidence state accepted for the parent.
@@ -78,11 +165,14 @@ nonisolated struct PlannedSynthesisChunk: Equatable, Sendable {
         guard fallbackEvidence.count == pronunciationFallbackHits.count else { return [] }
 
         var unmatchedFallbackHits = pronunciationFallbackHits
-        var fallbackHitsByGroup = Array(repeating: [PronunciationFallbackHit](), count: unitGroups.count)
+        var fallbackHitsByGroup = Array(
+            repeating: [PronunciationFallbackHit](), count: unitGroups.count)
         for indexedEvidence in fallbackEvidence {
-            guard let hitIndex = unmatchedFallbackHits.firstIndex(where: {
-                Self.fallbackEvidence(indexedEvidence.element, matches: $0)
-            }) else {
+            guard
+                let hitIndex = unmatchedFallbackHits.firstIndex(where: {
+                    Self.fallbackEvidence(indexedEvidence.element, matches: $0)
+                })
+            else {
                 return []
             }
             let hit = unmatchedFallbackHits.remove(at: hitIndex)
@@ -91,7 +181,8 @@ nonisolated struct PlannedSynthesisChunk: Equatable, Sendable {
                     let displayLowerBound = units[group.lowerBound].displayRange.lowerBound
                     let displayUpperBound = units[group.upperBound - 1].displayRange.upperBound
                     let displayRange = displayLowerBound..<displayUpperBound
-                    return displayRange.contains(indexedEvidence.element.displayCharacterRange.lowerBound)
+                    return displayRange.contains(
+                        indexedEvidence.element.displayCharacterRange.lowerBound)
                 })
             else {
                 return []
@@ -110,38 +201,39 @@ nonisolated struct PlannedSynthesisChunk: Equatable, Sendable {
             let phonemeLowerBound = unitPhonemeBoundaries[group.lowerBound]
             let phonemeUpperBound = unitPhonemeBoundaries[group.upperBound]
             let phonemeRange = phonemeLowerBound..<phonemeUpperBound
-            let resolvedRange = firstUnit.resolvedRange.lowerBound..<lastUnit.resolvedRange.upperBound
+            let resolvedRange =
+                firstUnit.resolvedRange.lowerBound..<lastUnit.resolvedRange.upperBound
 
             let childDisplay = Self.substring(displayText, characterRange: displayRange)
             let childPhonemes = Self.substring(phonemes, characterRange: phonemeRange)
             let childEvidence: [PronunciationTokenEvidence] =
                 pronunciationTokenEvidence.compactMap { evidence -> PronunciationTokenEvidence? in
-                guard Self.fullyContains(displayRange, evidence.displayCharacterRange),
-                    let parentPhonemeRange = evidence.phonemeCharacterRange,
-                    Self.fullyContains(phonemeRange, parentPhonemeRange)
-                else {
-                    return nil
+                    guard Self.fullyContains(displayRange, evidence.displayCharacterRange),
+                        let parentPhonemeRange = evidence.phonemeCharacterRange,
+                        Self.fullyContains(phonemeRange, parentPhonemeRange)
+                    else {
+                        return nil
+                    }
+                    let childDisplayLowerBound =
+                        evidence.displayCharacterRange.lowerBound - displayRange.lowerBound
+                    let childDisplayUpperBound =
+                        evidence.displayCharacterRange.upperBound - displayRange.lowerBound
+                    let childDisplayRange = childDisplayLowerBound..<childDisplayUpperBound
+                    let childPhonemeLowerBound =
+                        parentPhonemeRange.lowerBound - phonemeRange.lowerBound
+                    let childPhonemeUpperBound =
+                        parentPhonemeRange.upperBound - phonemeRange.lowerBound
+                    let childPhonemeRange = childPhonemeLowerBound..<childPhonemeUpperBound
+                    return PronunciationTokenEvidence(
+                        text: evidence.text,
+                        selectedPhonemes: evidence.selectedPhonemes,
+                        lexicalTag: evidence.lexicalTag,
+                        rating: evidence.rating,
+                        displayCharacterRange: childDisplayRange,
+                        phonemeCharacterRange: childPhonemeRange,
+                        usedFallback: evidence.usedFallback,
+                        compoundComponents: evidence.compoundComponents)
                 }
-                let childDisplayLowerBound =
-                    evidence.displayCharacterRange.lowerBound - displayRange.lowerBound
-                let childDisplayUpperBound =
-                    evidence.displayCharacterRange.upperBound - displayRange.lowerBound
-                let childDisplayRange = childDisplayLowerBound..<childDisplayUpperBound
-                let childPhonemeLowerBound =
-                    parentPhonemeRange.lowerBound - phonemeRange.lowerBound
-                let childPhonemeUpperBound =
-                    parentPhonemeRange.upperBound - phonemeRange.lowerBound
-                let childPhonemeRange = childPhonemeLowerBound..<childPhonemeUpperBound
-                return PronunciationTokenEvidence(
-                    text: evidence.text,
-                    selectedPhonemes: evidence.selectedPhonemes,
-                    lexicalTag: evidence.lexicalTag,
-                    rating: evidence.rating,
-                    displayCharacterRange: childDisplayRange,
-                    phonemeCharacterRange: childPhonemeRange,
-                    usedFallback: evidence.usedFallback,
-                    compoundComponents: evidence.compoundComponents)
-            }
             let expectedEvidenceCount = pronunciationTokenEvidence.filter {
                 Self.fullyContains(displayRange, $0.displayCharacterRange)
             }.count
@@ -271,18 +363,21 @@ nonisolated struct PlannedSynthesisChunk: Equatable, Sendable {
         var boundaries = [0]
         boundaries.reserveCapacity(units.count + 1)
         for unit in units.dropFirst() {
-            guard let evidence = pronunciationTokenEvidence.first(where: {
-                $0.displayCharacterRange.lowerBound >= unit.displayRange.lowerBound
-            }), let phonemeRange = evidence.phonemeCharacterRange
+            guard
+                let evidence = pronunciationTokenEvidence.first(where: {
+                    $0.displayCharacterRange.lowerBound >= unit.displayRange.lowerBound
+                }), let phonemeRange = evidence.phonemeCharacterRange
             else {
                 return nil
             }
             boundaries.append(phonemeRange.lowerBound)
         }
         boundaries.append(phonemes.count)
-        guard zip(boundaries, boundaries.dropFirst()).allSatisfy({ pair in
-            pair.0 <= pair.1
-        }) else {
+        guard
+            zip(boundaries, boundaries.dropFirst()).allSatisfy({ pair in
+                pair.0 <= pair.1
+            })
+        else {
             return nil
         }
         return boundaries

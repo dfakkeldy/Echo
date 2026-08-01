@@ -48,7 +48,9 @@ nonisolated enum NarrationFileNaming {
     /// v18 = closed-compound resolution accepts semantic evidence from either
     /// constituent, so a compound with a familiar head (`boatlight`, `fogline`)
     /// is voiced from its known components instead of the whole-token guess.
-    static let renderVersion = 18
+    /// v19 = the spaced-dash normalization now lands on top of v18: the dash
+    /// keeps its own authored word slot and adds a token to the rendered stream.
+    static let renderVersion = 19
     /// Stable renderer-family identity persisted beside headless captures. The
     /// cache render version tracks byte-affecting revisions within this family;
     /// this value prevents a different engine/G2P stack from inheriting them.

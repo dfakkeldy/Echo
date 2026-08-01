@@ -557,9 +557,15 @@ import Testing
 
         #expect(plan.blocks.count == 1)
         #expect(plan.blocks[0].blockID == "b0")
+        // The spaced dash normalizes to a *standalone* comma, so the planned text
+        // keeps one whitespace-delimited word per source word — the invariant the
+        // sidecar's word rows are indexed by.
         #expect(
             plan.blocks[0].synthesisChunks.map(\.g2pInputText)
-                == ["Deploy [Kubernetes](/kuːbərˈnɛtɪs/), now."])
+                == ["Deploy [Kubernetes](/kuːbərˈnɛtɪs/) , now."])
+        #expect(
+            plan.blocks[0].synthesisChunks.reduce(0) { $0 + $1.wordCount }
+                == WordTokenizer.words(in: "Deploy Kubernetes — now.").count)
         #expect(plan.blocks[0].trailingSilence == nil)
     }
 

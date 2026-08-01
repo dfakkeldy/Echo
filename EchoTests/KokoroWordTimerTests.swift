@@ -33,6 +33,58 @@ struct KokoroWordTimerTests {
                 sampleCount: 24_000, sampleRate: 24_000) == nil)
     }
 
+    /// One authored word spoken as two groups (an intra-word hyphen or a
+    /// CamelCase compound) spans from the first group's start to the last
+    /// group's end — the intervening break belongs to the word, not to a gap.
+    @Test func mergesGroupsThatBelongToOneAuthoredWord() throws {
+        let out = try #require(
+            KokoroWordTimer.wordTimings(
+                ids: ids, perTokenFrames: frames, wordCount: 1,
+                wordGroupCounts: [2],
+                sampleCount: 24_000, sampleRate: 24_000))
+        #expect(out.count == 1)
+        #expect(out[0].wordIndex == 0)
+        #expect(abs(out[0].start - 1.0 / 13.0) < 1e-6)
+        #expect(abs(out[0].end - 12.0 / 13.0) < 1e-6)
+    }
+
+    /// The grouping is only trusted when it accounts for every spoken group;
+    /// otherwise the caller falls back to interpolation rather than mis-mapping.
+    @Test func returnsNilWhenGroupCountsDoNotCoverEveryGroup() {
+        #expect(
+            KokoroWordTimer.wordTimings(
+                ids: ids, perTokenFrames: frames, wordCount: 1,
+                wordGroupCounts: [1],
+                sampleCount: 24_000, sampleRate: 24_000) == nil)
+    }
+
+    @Test func returnsNilWhenGroupCountsDisagreeWithWordCount() {
+        #expect(
+            KokoroWordTimer.wordTimings(
+                ids: ids, perTokenFrames: frames, wordCount: 2,
+                wordGroupCounts: [2],
+                sampleCount: 24_000, sampleRate: 24_000) == nil)
+    }
+
+    @Test func returnsNilWhenAWordClaimsNoSpokenGroup() {
+        #expect(
+            KokoroWordTimer.wordTimings(
+                ids: ids, perTokenFrames: frames, wordCount: 3,
+                wordGroupCounts: [1, 0, 1],
+                sampleCount: 24_000, sampleRate: 24_000) == nil)
+    }
+
+    /// Absent an explicit grouping the timer keeps its historical behavior:
+    /// one spoken group per authored word.
+    @Test func withoutGroupCountsEachGroupIsItsOwnWord() throws {
+        let out = try #require(
+            KokoroWordTimer.wordTimings(
+                ids: ids, perTokenFrames: frames, wordCount: 2,
+                wordGroupCounts: nil,
+                sampleCount: 24_000, sampleRate: 24_000))
+        #expect(out.count == 2)
+    }
+
     @Test func returnsNilWhenFramesCountMismatch() {
         #expect(
             KokoroWordTimer.wordTimings(

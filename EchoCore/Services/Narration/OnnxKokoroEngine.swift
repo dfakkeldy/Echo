@@ -251,6 +251,7 @@
             {
                 wordTimings = KokoroWordTimer.wordTimings(
                     ids: ids, perTokenFrames: frames, wordCount: inputs.wordCount,
+                    wordGroupCounts: inputs.wordGroupCounts,
                     sampleCount: samples.count, sampleRate: 24_000)
             }
             return TTSChunk(
@@ -269,7 +270,8 @@
             voice: VoiceID,
             frontEnd: KokoroFrontEnd
         ) throws -> (
-            waveformIDs: [Int32], durationIDs: [Int32], refS: [Float], wordCount: Int
+            waveformIDs: [Int32], durationIDs: [Int32], refS: [Float], wordCount: Int,
+            wordGroupCounts: [Int]?
         ) {
             let refS = try frontEnd.referenceStyle(
                 voice: voice, phonemeCount: planned.phonemes.count)
@@ -277,7 +279,8 @@
                 waveformIDs: planned.phonemeIDs,
                 durationIDs: planned.phonemeIDs,
                 refS: refS,
-                wordCount: planned.wordCount
+                wordCount: planned.wordCount,
+                wordGroupCounts: planned.authoredWordGroupCounts
             )
         }
 
