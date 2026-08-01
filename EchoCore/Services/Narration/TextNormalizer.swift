@@ -393,9 +393,16 @@ enum TextNormalizer {
         // real pause. Covers em (—), en (–), and a spaced ASCII hyphen (common in
         // plain-text/Markdown imports). Intra-word hyphens (no surrounding spaces,
         // e.g. "rough-and-ready") are left for the G2P to read as a word break.
-        var out = s.replacingOccurrences(of: " — ", with: ", ")
-        out = out.replacingOccurrences(of: " – ", with: ", ")
-        out = out.replacingOccurrences(of: " - ", with: ", ")
+        //
+        // The comma keeps the dash's own whitespace-delimited slot rather than
+        // attaching to the preceding word: word-level read-along indexes timings
+        // by the SOURCE block's words, so a normalization that drops a word makes
+        // the rendered text one word shorter than the source and costs that whole
+        // block its word timings (the sidecar's row/token count guard). Same
+        // invariant as the periods kept inside dotted identifiers in v15.
+        var out = s.replacingOccurrences(of: " — ", with: " , ")
+        out = out.replacingOccurrences(of: " – ", with: " , ")
+        out = out.replacingOccurrences(of: " - ", with: " , ")
         return out
     }
 
