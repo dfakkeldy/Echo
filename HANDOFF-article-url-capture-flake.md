@@ -39,3 +39,26 @@ Fix is applied and unstaged. Next: wait for any other xcodebuild to exit, then
 run `make build-tests` followed by the ArticleWorkshop suites, and open a PR
 with --base nightly.
 ```
+
+## 2026-08-01 — Verified locally, pushing
+
+Done:
+- `make build-tests` → `** TEST BUILD SUCCEEDED **`.
+- Ran the three suites sharing `ArticleURLProtocol`
+  (`ArticleURLCaptureServiceTests`, `ArticleImageDownloaderTests`,
+  `ArticleInboxIngestionServiceTests`) 3x back to back. Read from the
+  `.xcresult`, not the exit code: 38 passed / 0 failed / `"result": "Passed"`
+  in all three runs.
+- Machine had 2 competing xcodebuilds from other sessions; the repo's
+  concurrent-build hook blocked one attempt. Serialized and waited each time.
+
+Next:
+- Open PR `--base nightly`; watch `Build gate + tests`; delete this file in the
+  same PR before merge.
+
+Resume:
+```
+Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/nervous-swirles-2dec60,
+branch claude/nervous-swirles-2dec60. Fix committed (dee36ce0) and locally
+verified. Next: report hosted CI state on the PR, then drop this handoff file.
+```
