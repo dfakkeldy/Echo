@@ -26,6 +26,11 @@
             let selectedPhonemes: String
             let lexicalTag: String?
             let rating: Int?
+            /// `"left+right"` when the token was voiced from two known lexical
+            /// components. Defaults to `nil` because every other resolution path
+            /// — lexicon, inflection, whole-token guess — has no components to
+            /// report.
+            var compoundComponents: String? = nil
         }
 
         struct Result: Equatable, Sendable {
@@ -61,7 +66,8 @@
                         rating: snapshot.rating,
                         displayCharacterRange: displayLowerBound..<displayUpperBound,
                         phonemeCharacterRange: phonemeLowerBound..<phonemeUpperBound,
-                        usedFallback: snapshot.rating == 1))
+                        usedFallback: snapshot.rating == 1,
+                        compoundComponents: snapshot.compoundComponents))
                 reconstructedDisplayText.append(contentsOf: snapshot.whitespace)
                 reconstructedTokenPhonemes.append(
                     contentsOf: snapshot.whitespace.filter {
@@ -148,7 +154,8 @@
                     whitespace: token.whitespace,
                     selectedPhonemes: token.phonemes ?? "",
                     lexicalTag: token.tag?.rawValue,
-                    rating: token.`_`.rating)
+                    rating: token.`_`.rating,
+                    compoundComponents: token.`_`.compoundComponents)
             }
             let rawTokenResult = PronunciationEvidenceValidator.validate(
                 snapshots: rawSnapshots,
@@ -175,7 +182,8 @@
                         snapshot.selectedPhonemes,
                         forWord: snapshot.text),
                     lexicalTag: snapshot.lexicalTag,
-                    rating: snapshot.rating)
+                    rating: snapshot.rating,
+                    compoundComponents: snapshot.compoundComponents)
             }
             let finalPhonemes = snapshots.reduce(into: "") { result, snapshot in
                 result.append(contentsOf: snapshot.selectedPhonemes)

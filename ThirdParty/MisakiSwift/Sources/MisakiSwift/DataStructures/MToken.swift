@@ -17,6 +17,11 @@ public class Underscore {
   public var prespace: Bool
   /// A quality or confidence rating for the token metadata.
   public var rating: Int?
+  /// The two known lexical components an unlisted closed compound was voiced
+  /// from, as `"left+right"` (Echo addition); `nil` for every other resolution.
+  /// A component-built pronunciation shares the OOV rating of the whole-token
+  /// guess, so without this the two are indistinguishable downstream.
+  public var compoundComponents: String?
 
   /// Creates a new instance with optional linguistic metadata.
   /// - Parameters:
@@ -27,6 +32,7 @@ public class Underscore {
   ///   - num_flags: Numeric interpretation flags (defaults to empty string).
   ///   - prespace: Whether to add preceding whitespace (defaults to `false`).
   ///   - rating: Quality or confidence rating (defaults to `nil`).
+  ///   - compoundComponents: Closed-compound components (defaults to `nil`).
   public init(
     is_head: Bool = true,
     alias: String? = nil,
@@ -34,7 +40,8 @@ public class Underscore {
     currency: String? = nil,
     num_flags: String = "",
     prespace: Bool = false,
-    rating: Int? = nil) {
+    rating: Int? = nil,
+    compoundComponents: String? = nil) {
       self.is_head = is_head
       self.alias = alias
       self.stress = stress
@@ -42,6 +49,7 @@ public class Underscore {
       self.num_flags = num_flags
       self.prespace = prespace
       self.rating = rating
+      self.compoundComponents = compoundComponents
   }
   
   /// Creates a copy of an existing `Underscore` instance.
@@ -54,7 +62,8 @@ public class Underscore {
       currency: other.currency,
       num_flags: other.num_flags,
       prespace: other.prespace,
-      rating: other.rating)
+      rating: other.rating,
+      compoundComponents: other.compoundComponents)
   }
 }
 
