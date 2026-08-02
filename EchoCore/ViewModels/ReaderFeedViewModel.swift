@@ -69,6 +69,10 @@ final class ReaderFeedViewModel {
     /// start time. Consumed by `ReaderActiveBlockResolver.activeWord` to drive
     /// karaoke highlighting within the active block.
     private var wordCache: [ReaderActiveBlockResolver.WordRow] = []
+    /// Per-block index over `wordCache`, rebuilt alongside it
+    /// so the 12.5 Hz `updateActiveBlock` tick no longer linear-scans the whole
+    /// book's word rows.
+    private var wordIndex = ReaderActiveBlockResolver.WordIndex(rows: [])
     /// (blockID, wordIndex) of the currently spoken word, for karaoke.
     private(set) var activeWord: (blockID: String, index: Int)?
 
@@ -469,6 +473,7 @@ final class ReaderFeedViewModel {
                     blockID: $0.epubBlockID, wordIndex: $0.wordIndex
                 )
             }
+            wordIndex = ReaderActiveBlockResolver.WordIndex(rows: wordCache)
 
             allAlignmentStatusByBlockID = newAlignmentStatus
             allAudioStartTimeByBlockID = newAudioStartTime
@@ -1042,7 +1047,7 @@ final class ReaderFeedViewModel {
         }
 
         let wordIdx = ReaderActiveBlockResolver.activeWord(
-            in: wordCache, time: time, activeBlockID: foundBlockID)
+            in: wordIndex, time: time, activeBlockID: foundBlockID)
         let newActiveWord = wordIdx.map { (blockID: foundBlockID ?? "", index: $0) }
         if newActiveWord?.blockID != activeWord?.blockID
             || newActiveWord?.index != activeWord?.index

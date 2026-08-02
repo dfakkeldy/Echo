@@ -11,7 +11,8 @@ struct VisualListeningCueResolverTests {
             block("hidden-image", sequence: 1, kind: .image, imagePath: "hidden.jpg", hidden: true),
             block("missing-image", sequence: 2, kind: .image, imagePath: nil),
             block("figure", sequence: 3, kind: .image, imagePath: "figures/one.jpg"),
-            block("captioned-text", sequence: 4, kind: .paragraph, text: "Look at the bright edge."),
+            block(
+                "captioned-text", sequence: 4, kind: .paragraph, text: "Look at the bright edge."),
         ]
         let snapshot = VisualListeningCueResolver.snapshot(
             blocks: blocks,
@@ -144,7 +145,7 @@ struct VisualListeningCueResolverTests {
 
     @Test func subtitleUsesActiveBlockAndWordProgress() {
         let blocks = [
-            block("text", sequence: 0, kind: .paragraph, text: "One two three."),
+            block("text", sequence: 0, kind: .paragraph, text: "One two three.")
         ]
         let snapshot = VisualListeningCueResolver.snapshot(
             blocks: blocks,
@@ -168,7 +169,7 @@ struct VisualListeningCueResolverTests {
 
     @Test func subtitleWordProgressUsesDisplayOrdinalForSparseTimingIndices() {
         let blocks = [
-            block("text", sequence: 0, kind: .paragraph, text: "One two three."),
+            block("text", sequence: 0, kind: .paragraph, text: "One two three.")
         ]
         let snapshot = VisualListeningCueResolver.snapshot(
             blocks: blocks,
@@ -190,7 +191,7 @@ struct VisualListeningCueResolverTests {
 
     @Test func subtitleFallsBackToBlockTextWithoutWordTiming() {
         let blocks = [
-            block("text", sequence: 0, kind: .paragraph, text: "No precise word timing."),
+            block("text", sequence: 0, kind: .paragraph, text: "No precise word timing.")
         ]
         let snapshot = VisualListeningCueResolver.snapshot(
             blocks: blocks,
@@ -205,6 +206,57 @@ struct VisualListeningCueResolverTests {
         #expect(snapshot.subtitleCue?.blockID == "text")
         #expect(snapshot.subtitleCue?.activeWordIndex == nil)
         #expect(snapshot.subtitleCue?.alreadyHeardWordCount == 0)
+    }
+
+    @Test func preparedSnapshotMatchesLegacySnapshot() {
+        let blocks = [
+            block("text1", sequence: 0, kind: .paragraph, text: "One two three."),
+            block("figure1", sequence: 1, kind: .image, imagePath: "figures/one.jpg"),
+            block("text2", sequence: 2, kind: .paragraph, text: "Four five six."),
+            block("code1", sequence: 3, kind: .code, text: "let x = 1"),
+        ]
+        let timeline = [
+            timeline(0, 5, blockID: "text1"),
+            timeline(5, 8, blockID: "figure1"),
+            timeline(8, 14, blockID: "text2"),
+            timeline(14, 20, blockID: "code1"),
+        ]
+        let words: [ReaderActiveBlockResolver.WordRow] = [
+            (start: 0, end: 1, blockID: "text1", wordIndex: 0),
+            (start: 1, end: 2, blockID: "text1", wordIndex: 1),
+            (start: 2, end: 3, blockID: "text1", wordIndex: 2),
+            (start: 8, end: 9, blockID: "text2", wordIndex: 0),
+            (start: 9, end: 10, blockID: "text2", wordIndex: 1),
+            (start: 10, end: 11, blockID: "text2", wordIndex: 2),
+        ]
+
+        let orderedBlocks = blocks.sorted { lhs, rhs in
+            if lhs.sequenceIndex == rhs.sequenceIndex {
+                return lhs.id.localizedStandardCompare(rhs.id) == .orderedAscending
+            }
+            return lhs.sequenceIndex < rhs.sequenceIndex
+        }
+        let blocksByID = Dictionary(uniqueKeysWithValues: orderedBlocks.map { ($0.id, $0) })
+
+        let prepared = VisualListeningCueResolver.visualCues(
+            blocks: orderedBlocks, blocksByID: blocksByID, timeline: timeline,
+            currentTrackSegmentKey: nil, currentTrackChapterIndices: nil,
+            syncPoint: .midpoint)
+
+        for t in stride(from: 0.0, through: 20.0, by: 0.5) {
+            let legacy = VisualListeningCueResolver.snapshot(
+                blocks: blocks, timeline: timeline, words: words, time: t,
+                currentTrackSegmentKey: nil, currentTrackChapterIndices: nil,
+                syncPoint: .midpoint)
+            let fast = VisualListeningCueResolver.snapshot(
+                preparedCues: prepared, blocksByID: blocksByID, words: words,
+                timeline: timeline, time: t,
+                currentTrackSegmentKey: nil, currentTrackChapterIndices: nil)
+            #expect(
+                fast == legacy,
+                "mismatch at t=\(t): fast=\(String(describing: fast)) legacy=\(String(describing: legacy))"
+            )
+        }
     }
 
     private func block(

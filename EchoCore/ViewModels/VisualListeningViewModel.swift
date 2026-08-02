@@ -29,6 +29,21 @@ final class VisualListeningViewModel {
     private var lastSegmentKey: String?
     private var lastChapterIndices: Set<Int>?
 
+    /// Blocks sorted the same way `VisualListeningCueResolver.snapshot` orders
+    /// them internally, and the block-ID lookup built from that order. Both are
+    /// rebuilt once per `reload()` so `recomputeSnapshot()` doesn't re-sort and
+    /// re-key the whole book on every playback tick.
+    private var orderedBlocks: [EPubBlockRecord] = []
+    private var blocksByID: [String: EPubBlockRecord] = [:]
+    /// Cached visual cues for the current scope, consumed by the prepared-cues
+    /// snapshot path. Rebuilt only when the scope it was computed for
+    /// (`preparedScope`) no longer matches the current segment/chapter/sync-point
+    /// scope — nil right after `reload()` so a fresh book always rebuilds even
+    /// when its scope happens to equal the previous book's.
+    private var preparedCues: [VisualListeningVisualCue] = []
+    private var preparedScope:
+        (segmentKey: String?, chapters: Set<Int>?, syncPoint: VisualListeningSyncPoint)?
+
     init(audiobookID: String, db: DatabaseWriter) {
         self.audiobookID = audiobookID
         self.db = db
@@ -37,6 +52,15 @@ final class VisualListeningViewModel {
     func reload() async {
         do {
             blocks = try EPubBlockDAO(db: db).visibleBlocks(for: audiobookID)
+            orderedBlocks = blocks.sorted { lhs, rhs in
+                if lhs.sequenceIndex == rhs.sequenceIndex {
+                    return lhs.id.localizedStandardCompare(rhs.id) == .orderedAscending
+                }
+                return lhs.sequenceIndex < rhs.sequenceIndex
+            }
+            blocksByID = Dictionary(uniqueKeysWithValues: orderedBlocks.map { ($0.id, $0) })
+            preparedCues = []
+            preparedScope = nil
             timeline = try TimelineRowLoader.rows(audiobookID: audiobookID, db: db)
             words = try WordTimingDAO(db: db)
                 .words(forAudiobook: audiobookID)
@@ -52,6 +76,10 @@ final class VisualListeningViewModel {
             recomputeSnapshot()
         } catch {
             blocks = []
+            orderedBlocks = []
+            blocksByID = [:]
+            preparedCues = []
+            preparedScope = nil
             timeline = []
             words = []
             hasVisualListeningContent = false
@@ -77,14 +105,41 @@ final class VisualListeningViewModel {
             return
         }
 
+        // Rebuild the prepared cues only when the scope they were computed for
+        // has changed (including right after `reload()`, when `preparedScope`
+        // is nil). Otherwise reuse them — this is the whole point of the
+        // cache: skip the per-tick sort + dictionary rebuild + cue derivation.
+        let scopeChanged: Bool
+        if let preparedScope {
+            scopeChanged =
+                lastSegmentKey != preparedScope.segmentKey
+                || lastChapterIndices != preparedScope.chapters
+                || syncPoint != preparedScope.syncPoint
+        } else {
+            scopeChanged = true
+        }
+        if scopeChanged {
+            preparedCues = VisualListeningCueResolver.visualCues(
+                blocks: orderedBlocks,
+                blocksByID: blocksByID,
+                timeline: timeline,
+                currentTrackSegmentKey: lastSegmentKey,
+                currentTrackChapterIndices: lastChapterIndices,
+                syncPoint: syncPoint
+            )
+            preparedScope = (
+                segmentKey: lastSegmentKey, chapters: lastChapterIndices, syncPoint: syncPoint
+            )
+        }
+
         snapshot = VisualListeningCueResolver.snapshot(
-            blocks: blocks,
-            timeline: timeline,
+            preparedCues: preparedCues,
+            blocksByID: blocksByID,
             words: words,
+            timeline: timeline,
             time: lastTime,
             currentTrackSegmentKey: lastSegmentKey,
-            currentTrackChapterIndices: lastChapterIndices,
-            syncPoint: syncPoint
+            currentTrackChapterIndices: lastChapterIndices
         )
     }
 

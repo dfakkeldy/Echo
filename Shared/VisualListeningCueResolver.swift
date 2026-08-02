@@ -114,6 +114,40 @@ nonisolated enum VisualListeningCueResolver {
         )
     }
 
+    /// Snapshot from PRE-computed cues: skips the per-tick sort + dictionary
+    /// rebuild + cue derivation. `preparedCues` must come from `visualCues(…)`
+    /// with the same scope arguments; the ViewModel invalidates on scope change.
+    static func snapshot(
+        preparedCues: [VisualListeningVisualCue],
+        blocksByID: [String: EPubBlockRecord],
+        words: [ReaderActiveBlockResolver.WordRow],
+        timeline: [ReaderActiveBlockResolver.TimelineRow],
+        time: TimeInterval,
+        currentTrackSegmentKey: String?,
+        currentTrackChapterIndices: Set<Int>?
+    ) -> VisualListeningSnapshot {
+        let activeBlockID = ReaderActiveBlockResolver.activeBlockID(
+            in: timeline, time: time,
+            currentTrackSegmentKey: currentTrackSegmentKey,
+            currentTrackChapterIndices: currentTrackChapterIndices)
+        let visualCue =
+            preparedCues
+            .filter { time >= $0.displayStartTime && time < $0.displayEndTime }
+            .max { lhs, rhs in
+                if lhs.sequenceIndex == rhs.sequenceIndex {
+                    return lhs.displayStartTime < rhs.displayStartTime
+                }
+                return lhs.sequenceIndex < rhs.sequenceIndex
+            }
+        let subtitle =
+            subtitleCue(blockID: activeBlockID, blocksByID: blocksByID, words: words, time: time)
+            ?? subtitleCue(
+                blockID: visualCue?.subtitleBlockID, blocksByID: blocksByID, words: words,
+                time: time)
+        return VisualListeningSnapshot(
+            visualCue: visualCue, subtitleCue: subtitle, activeBlockID: activeBlockID)
+    }
+
     private static func activeVisualCue(
         blocks: [EPubBlockRecord],
         blocksByID: [String: EPubBlockRecord],
@@ -297,7 +331,7 @@ nonisolated enum VisualListeningCueResolver {
         )
     }
 
-    private static func subtitleCue(
+    static func subtitleCue(
         blockID: String?,
         blocksByID: [String: EPubBlockRecord],
         words: [ReaderActiveBlockResolver.WordRow],

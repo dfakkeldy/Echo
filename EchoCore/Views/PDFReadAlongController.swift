@@ -21,6 +21,10 @@ final class PDFReadAlongController {
 
     private var timelineCache: [ReaderActiveBlockResolver.TimelineRow] = []
     private var wordCache: [ReaderActiveBlockResolver.WordRow] = []
+    /// Per-block index over `wordCache`, rebuilt alongside it
+    /// so `activeBlock(at:)` no longer linear-scans the whole book's word rows
+    /// on every read-along tick.
+    private var wordIndex = ReaderActiveBlockResolver.WordIndex(rows: [])
 
     /// blockID → page index, from `pdf_block_page`.
     private var pageIndexByBlockID: [String: Int] = [:]
@@ -81,6 +85,7 @@ final class PDFReadAlongController {
                     blockID: $0.epubBlockID, wordIndex: $0.wordIndex
                 )
             }
+            wordIndex = ReaderActiveBlockResolver.WordIndex(rows: wordCache)
 
             // 3. Page index map from pdf_block_page
             let pageRows = try PDFBlockPageDAO(db: db).rows(for: audiobookID)
@@ -136,7 +141,7 @@ final class PDFReadAlongController {
         else { return nil }
 
         let wordIdx = ReaderActiveBlockResolver.activeWord(
-            in: wordCache, time: time, activeBlockID: blockID)
+            in: wordIndex, time: time, activeBlockID: blockID)
         return (blockID: blockID, wordIndex: wordIdx)
     }
 
