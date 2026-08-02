@@ -411,6 +411,10 @@
                     else { return }
                     self.state.narrationRenderInFlight = false
                     self.narrationPlaybackState.complete()
+                    // Release both ONNX sessions and the grown arena now that every
+                    // chapter of this book is rendered/queued (§7.1). The next book
+                    // (or a later replay of this one) re-prepares lazily.
+                    await self.narrationTTS.unload()
                 } catch is CancellationError {
                     // Switched books or stopped — loadFolder resets the flags.
                 } catch {

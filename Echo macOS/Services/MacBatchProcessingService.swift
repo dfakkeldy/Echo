@@ -393,6 +393,10 @@ final class MacBatchProcessingService {
                         "Narrated — \(skipped) chapter(s) skipped (synthesis failed).")
                 }
 
+                // Release both ONNX sessions and the grown arena now that every chapter
+                // of this book is rendered (§7.1). The next book re-prepares lazily.
+                await service.tts.unload()
+
                 // Write the read-along sidecar next to the EPUB so a book narrated
                 // on the Mac gets read-along on the device on import. Narration's
                 // synthesized anchor times are per-chapter-relative; convert to

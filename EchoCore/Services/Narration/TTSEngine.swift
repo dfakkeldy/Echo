@@ -75,6 +75,10 @@ protocol TTSEngine: Sendable {
     /// requirement so calls through `any TTSEngine` dynamically dispatch to an
     /// engine that consumes the approved phonemes and token IDs directly.
     func synthesize(_ chunk: PlannedSynthesisChunk, voice: VoiceID) async throws -> TTSChunk
+    /// Releases model memory. Engines that hold no resident state may keep the
+    /// default no-op. Callers may invoke at render-completion boundaries;
+    /// prepare()/synthesize must lazily restore whatever unload released.
+    func unload() async
 }
 
 /// One step of the engine's one-time `prepare()` — surfaced so the UI can show
@@ -102,6 +106,8 @@ extension TTSEngine {
     func synthesize(_ chunk: PlannedSynthesisChunk, voice: VoiceID) async throws -> TTSChunk {
         try await synthesize(chunk.g2pInputText, voice: voice)
     }
+
+    func unload() async {}
 }
 
 /// Pure mapping from a prepare step to the macOS batch item's (fraction, message).
