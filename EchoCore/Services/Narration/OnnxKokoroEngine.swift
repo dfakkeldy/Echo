@@ -43,6 +43,12 @@
         /// memory arena back after each run, so the arena no longer ratchets up to
         /// the largest chunk's activation peak for the session's lifetime (§7.1).
         private var runOptions: ORTRunOptions?
+        /// Bumped by `unload()`. A `prepare()` in flight captures the generation
+        /// current at its start and only commits its freshly created sessions if
+        /// that generation is still current — otherwise an `unload()` racing the
+        /// in-flight `modelProvider`/session-create work would be silently undone
+        /// by the stale task's completion writing `session`/`env` back in.
+        private var lifecycleGeneration = 0
 
         /// Actor-confined Kokoro compatibility front end and per-voice style cache.
         /// Planned synthesis only asks it for a style row; its legacy G2P/vocab path
@@ -154,11 +160,17 @@
             let fan = ProgressFanOut()
             fan.add(progress)
             progressFanOut = fan
-            let task = Task<Void, Error> { [logger, modelProvider, intraOpThreads] in
+            let generation = lifecycleGeneration
+            let task = Task<Void, Error> { [logger, modelProvider, intraOpThreads, generation] in
                 defer { fan.clear() }
                 let modelURL = try await modelProvider { f in
                     fan.emit(.downloadingModels(fraction: f))
                 }
+                // A concurrent unload() during the await above bumped
+                // lifecycleGeneration and cancelled this task; bail before doing
+                // any more work (including the possibly multi-second session
+                // creation below) rather than resurrecting released state.
+                try Task.checkCancellation()
                 // No Espresso/AOT compile — session-create is the whole cost, and
                 // it's seconds. Time it so the A14 spike has the load number.
                 fan.emit(.compilingModels(done: 0, total: 1))
@@ -196,7 +208,9 @@
                 } else {
                     logger.warning("Duration head resource not bundled (word timing disabled).")
                 }
-                self.store(env: env, session: session, durationSession: durationSession)
+                self.store(
+                    env: env, session: session, durationSession: durationSession,
+                    ifGeneration: generation)
                 fan.emit(.compilingModels(done: 1, total: 1))
                 fan.emit(.ready)
             }
@@ -424,7 +438,15 @@
 
         // MARK: - Private
 
-        private func store(env: ORTEnv, session: ORTSession, durationSession: ORTSession?) {
+        /// Commits a freshly created env/session/durationSession — but only if
+        /// `ifGeneration` still matches the current `lifecycleGeneration`. A
+        /// mismatch means `unload()` ran while this session was being built;
+        /// discard it silently (the caller's locals simply deallocate) rather
+        /// than resurrecting state `unload()` already released.
+        private func store(
+            env: ORTEnv, session: ORTSession, durationSession: ORTSession?, ifGeneration: Int
+        ) {
+            guard lifecycleGeneration == ifGeneration else { return }
             self.env = env
             self.session = session
             self.durationSession = durationSession
@@ -440,7 +462,13 @@
         /// an async requirement otherwise loses overload resolution to the
         /// protocol extension's default no-op when called on the concrete type,
         /// silently turning every call here into a no-op.
+        ///
+        /// Bumps `lifecycleGeneration` so an in-flight `prepare()` — cancelled
+        /// below but not guaranteed to observe that cancellation before it
+        /// finishes building a session — cannot silently repopulate the state
+        /// this just cleared; see `store(env:session:durationSession:ifGeneration:)`.
         func unload() async {
+            lifecycleGeneration += 1
             initializationTask?.cancel()
             initializationTask = nil
             session = nil
