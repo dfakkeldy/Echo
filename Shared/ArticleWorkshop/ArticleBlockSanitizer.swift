@@ -217,6 +217,10 @@ private nonisolated final class ArticleXHTMLSanitizerDelegate: NSObject, XMLPars
             skipDepth += 1
             return
         }
+        if shouldSkipPresentationFurniture(name: name, attributes: attributeDict) {
+            skipDepth = 1
+            return
+        }
         guard isAllowedElement(name, namespaceURI: namespaceURI) else {
             skipDepth = 1
             return
@@ -248,8 +252,7 @@ private nonisolated final class ArticleXHTMLSanitizerDelegate: NSObject, XMLPars
 
         if name == "img" {
             flushActiveBlock(parser)
-            guard let source = attributeDict["src"] else { return }
-            guard let candidate = normalizedHTTPURL(source, relativeTo: sourceURL) else {
+            guard let candidate = preferredImageURL(attributes: attributeDict) else {
                 addWarning(.rejectedURLScheme)
                 return
             }
@@ -266,6 +269,7 @@ private nonisolated final class ArticleXHTMLSanitizerDelegate: NSObject, XMLPars
                 text: nil,
                 sourceURL: nil,
                 imageCandidateURL: candidate,
+                altText: normalizedText(attributeDict["alt"]),
                 caption: nil,
                 codeLanguage: nil,
                 parser: parser)
@@ -400,6 +404,7 @@ private nonisolated final class ArticleXHTMLSanitizerDelegate: NSObject, XMLPars
         text: String?,
         sourceURL: URL?,
         imageCandidateURL: URL?,
+        altText: String? = nil,
         caption: String?,
         codeLanguage: String?,
         parser: XMLParser?
@@ -417,6 +422,7 @@ private nonisolated final class ArticleXHTMLSanitizerDelegate: NSObject, XMLPars
             text: text,
             sourceURL: sourceURL,
             imageCandidateURL: imageCandidateURL,
+            altText: altText,
             caption: caption,
             codeLanguage: codeLanguage))
     }
@@ -446,6 +452,53 @@ private nonisolated final class ArticleXHTMLSanitizerDelegate: NSObject, XMLPars
             if className.hasPrefix("lang-") { return String(className.dropFirst("lang-".count)) }
             return nil
         }.first
+    }
+
+    private func preferredImageURL(attributes: [String: String]) -> URL? {
+        let srcsetCandidates = (attributes["srcset"] ?? "")
+            .split(separator: ",")
+            .compactMap { entry -> (url: URL, score: Double)? in
+                let fields = entry.split(whereSeparator: { $0.isWhitespace })
+                guard let raw = fields.first,
+                    let url = normalizedHTTPURL(String(raw), relativeTo: sourceURL)
+                else { return nil }
+                let descriptor = fields.dropFirst().first.map(String.init) ?? "1x"
+                let score: Double
+                if descriptor.hasSuffix("w") {
+                    score = Double(descriptor.dropLast()) ?? 0
+                } else if descriptor.hasSuffix("x") {
+                    score = (Double(descriptor.dropLast()) ?? 0) * 10_000
+                } else {
+                    score = 0
+                }
+                return (url, score)
+            }
+        if let best = srcsetCandidates.max(by: { $0.score < $1.score })?.url {
+            return best
+        }
+        return normalizedHTTPURL(attributes["src"], relativeTo: sourceURL)
+    }
+
+    private func shouldSkipPresentationFurniture(
+        name: String,
+        attributes: [String: String]
+    ) -> Bool {
+        if ["aside", "nav", "footer"].contains(name) { return true }
+        if attributes["hidden"] != nil || attributes["aria-hidden"]?.lowercased() == "true" {
+            return true
+        }
+        let role = attributes["role"]?.lowercased() ?? ""
+        if ["banner", "complementary", "contentinfo", "navigation"].contains(role) {
+            return true
+        }
+        let tokens = ((attributes["class"] ?? "") + " " + (attributes["id"] ?? ""))
+            .lowercased()
+            .split { !$0.isLetter && !$0.isNumber }
+        let furniture: Set<Substring> = [
+            "ad", "ads", "advert", "advertisement", "promo", "recommendation",
+            "recommendations", "related", "share", "social", "sponsor", "sponsored",
+        ]
+        return tokens.contains(where: furniture.contains)
     }
 }
 

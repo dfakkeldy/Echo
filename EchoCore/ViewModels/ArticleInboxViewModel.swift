@@ -8,15 +8,15 @@ nonisolated struct ArticleInboxReloadResult: Sendable {
 }
 
 actor ArticleInboxReloadWorker {
-    private let operation: @Sendable () throws -> ArticleInboxReloadResult
+    private let operation: @Sendable () async throws -> ArticleInboxReloadResult
 
-    init(operation: @escaping @Sendable () throws -> ArticleInboxReloadResult) {
+    init(operation: @escaping @Sendable () async throws -> ArticleInboxReloadResult) {
         self.operation = operation
     }
 
     func load() async throws -> ArticleInboxReloadResult {
         try Task.checkCancellation()
-        let result = try operation()
+        let result = try await operation()
         try Task.checkCancellation()
         return result
     }
@@ -50,11 +50,11 @@ final class ArticleInboxViewModel {
         reloadWorker = ArticleInboxReloadWorker {
             try Task.checkCancellation()
             let stagingRoot = try FileLocations.articleCaptureStagingDirectory()
-            try ArticleInboxIngestionService(
+            try await ArticleInboxIngestionService(
                 captureDAO: captureDAO,
                 fileStore: fileStore,
                 stagingRoot: stagingRoot
-            ).drainStaging()
+            ).drainStagingLocalizingImages()
             try Task.checkCancellation()
             let articles = try service.inboxItems()
             try Task.checkCancellation()

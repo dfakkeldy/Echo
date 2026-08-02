@@ -5,7 +5,7 @@ import Foundation
 import ZIPFoundation
 
 nonisolated struct ArticleCloudCaptureAssetDescriptor:
-    Codable, Equatable, Sendable
+    Codable, Equatable, Hashable, Sendable
 {
     let path: String
     let sha256: String
@@ -1495,7 +1495,10 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
                     .fileSizeKey,
                 ])
             guard values.isSymbolicLink != true else { throw Error.unsafeFile }
-            guard values.isDirectory != true else { throw Error.invalidPackage }
+            if values.isDirectory == true {
+                guard relativePath == "images" else { throw Error.invalidPackage }
+                continue
+            }
             guard values.isRegularFile == true, let size = values.fileSize, size >= 0 else {
                 throw Error.unsafeFile
             }
@@ -1514,9 +1517,9 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
                 imageBytes += size
                 let data = try Data(contentsOf: url, options: [.mappedIfSafe])
                 guard
-                    ArticleImageDownloader.validatedImageType(
+                    ArticleImageValidator.isValid(
                         data: data,
-                        mimeType: image.mimeType) != nil
+                        mediaType: image.mimeType)
                 else {
                     throw Error.invalidPackage
                 }
@@ -1528,6 +1531,11 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
             }
         }
         try validateCapturePackageMembers(paths)
+        try validateManagedImageManifest(
+            try paths.contains("image-assets.json")
+                ? Data(contentsOf: directory.appending(path: "image-assets.json"))
+                : nil,
+            packageAssets: packageAssets)
         return packageAssets.sorted { $0.path < $1.path }
     }
 
@@ -1545,9 +1553,14 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         var imageBytes: UInt64 = 0
         var paths: Set<String> = []
         var packageAssets: [ArticleCloudCaptureAssetDescriptor] = []
+        var managedManifestData: Data?
         for entry in archive {
             guard isSafeArchivePath(entry.path) else {
                 throw Error.invalidPackage
+            }
+            if entry.type == .directory {
+                guard entry.path == "images/" else { throw Error.invalidPackage }
+                continue
             }
             guard paths.insert(entry.path).inserted else { throw Error.invalidPackage }
             guard entry.type == .file else { throw Error.invalidPackage }
@@ -1583,9 +1596,9 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
                     throw packageError(for: error)
                 }
                 guard
-                    ArticleImageDownloader.validatedImageType(
+                    ArticleImageValidator.isValid(
                         data: data,
-                        mimeType: image.mimeType) != nil
+                        mediaType: image.mimeType)
                 else {
                     throw Error.invalidPackage
                 }
@@ -1594,9 +1607,21 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
                         path: entry.path,
                         sha256: sha256(data),
                         mediaType: image.mimeType))
+            } else if entry.path == "image-assets.json" {
+                do {
+                    managedManifestData = try BoundedArchiveExtraction.data(
+                        entry,
+                        from: archive,
+                        ceiling: UInt64(ArticleWorkshopLimits.maxEnvelopeBytes))
+                } catch {
+                    throw packageError(for: error)
+                }
             }
         }
         try validateCapturePackageMembers(Array(paths))
+        try validateManagedImageManifest(
+            managedManifestData,
+            packageAssets: packageAssets)
         return packageAssets.sorted { $0.path < $1.path }
     }
 
@@ -1616,12 +1641,20 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
         var remaining = UInt64(limits.maxPackageBytes)
         for entry in archive {
             guard isSafeArchivePath(entry.path) else { throw Error.invalidPackage }
+            if entry.type == .directory {
+                guard entry.path == "images/" else { throw Error.invalidPackage }
+                try createSafeDirectory(directory.appending(path: "images", directoryHint: .isDirectory))
+                continue
+            }
             guard entry.type == .file else { throw Error.invalidPackage }
             let destination = directory.appending(path: entry.path)
             let root = directory.standardizedFileURL
-            guard destination.standardizedFileURL.deletingLastPathComponent() == root else {
+            let parent = destination.standardizedFileURL.deletingLastPathComponent()
+            guard parent == root || parent == root.appending(path: "images", directoryHint: .isDirectory)
+            else {
                 throw Error.invalidPackage
             }
+            if parent != root { try createSafeDirectory(parent) }
             do {
                 remaining -= try BoundedArchiveExtraction.write(
                     entry,
@@ -1653,10 +1686,20 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
     /// yet carry explicit local-asset descriptors, so no other path is
     /// authorized by inference.
     private func validateCapturePackageMembers(_ paths: [String]) throws {
-        guard paths.count <= ArticleWorkshopLimits.maxImages + 1,
+        guard paths.count <= ArticleWorkshopLimits.maxImages + 2,
             paths.filter({ $0 == "snapshot.json" }).count == 1
         else {
             throw Error.invalidPackage
+        }
+        if paths.contains("image-assets.json") {
+            guard paths.filter({ $0 == "image-assets.json" }).count == 1,
+                paths.allSatisfy({ path in
+                    path == "snapshot.json" || path == "image-assets.json"
+                        || (try? captureImageMember(for: path)) != nil
+                            && path.hasPrefix("images/")
+                })
+            else { throw Error.invalidPackage }
+            return
         }
         var imageIndices: Set<Int> = []
         for path in paths where path != "snapshot.json" {
@@ -1674,7 +1717,26 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
     private func captureImageMember(
         for path: String
     ) throws -> (index: Int, mimeType: String)? {
-        if path == "snapshot.json" { return nil }
+        if path == "snapshot.json" || path == "image-assets.json" { return nil }
+        if path.hasPrefix("images/") {
+            let name = String(path.dropFirst("images/".count))
+            let mediaType: String
+            let digest: String
+            if name.hasSuffix(".jpg") {
+                mediaType = "image/jpeg"
+                digest = String(name.dropLast(4))
+            } else if name.hasSuffix(".png") {
+                mediaType = "image/png"
+                digest = String(name.dropLast(4))
+            } else {
+                throw Error.invalidPackage
+            }
+            guard digest.count == 64,
+                digest.allSatisfy({ $0.isHexDigit && !$0.isUppercase }),
+                path == "images/\(digest).\(mediaType == "image/png" ? "png" : "jpg")"
+            else { throw Error.invalidPackage }
+            return (-1, mediaType)
+        }
         guard path.hasPrefix("image-"),
             path.contains("/") == false
         else {
@@ -1704,6 +1766,36 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
             throw Error.invalidPackage
         }
         return (index, mimeType)
+    }
+
+    private func validateManagedImageManifest(
+        _ data: Data?,
+        packageAssets: [ArticleCloudCaptureAssetDescriptor]
+    ) throws {
+        guard let data else {
+            guard packageAssets.allSatisfy({ $0.path.hasPrefix("image-") }) else {
+                throw Error.invalidPackage
+            }
+            return
+        }
+        guard data.count <= ArticleWorkshopLimits.maxEnvelopeBytes,
+            let manifest = try? JSONDecoder.articleWorkshop.decode(
+                ArticleImageAssetManifest.self,
+                from: data),
+            manifest.schemaVersion == 1,
+            manifest.assets.count <= ArticleWorkshopLimits.maxImages,
+            Set(manifest.assets.map(\.owningBlockID)).count == manifest.assets.count,
+            Set(manifest.failures.map(\.owningBlockID)).count == manifest.failures.count,
+            Set(manifest.assets.map(\.owningBlockID)).isDisjoint(
+                with: manifest.failures.map(\.owningBlockID))
+        else { throw Error.invalidPackage }
+        let expected = Set(manifest.assets.map {
+            ArticleCloudCaptureAssetDescriptor(
+                path: $0.managedPath,
+                sha256: $0.sha256,
+                mediaType: $0.mediaType)
+        })
+        guard expected == Set(packageAssets) else { throw Error.invalidPackage }
     }
 
     private func validateInstalledCapture(
@@ -1752,6 +1844,37 @@ nonisolated struct ArticleCloudRecordCodec: Sendable {
             ArticleContentState(rawValue: capture.contentState) != nil
         else {
             throw Error.invalidPackage
+        }
+        let imageManifestURL = directory.appending(path: "image-assets.json")
+        if FileManager.default.fileExists(atPath: imageManifestURL.path) {
+            let manifestData = try Data(
+                contentsOf: imageManifestURL,
+                options: [.mappedIfSafe])
+            guard let manifest = try? JSONDecoder.articleWorkshop.decode(
+                ArticleImageAssetManifest.self,
+                from: manifestData),
+                manifest.captureID == envelope.captureID,
+                let snapshot = try? ArticleBlockSanitizer().sanitize(envelope: envelope)
+            else { throw Error.invalidPackage }
+            let imageBlocks = Dictionary(
+                uniqueKeysWithValues: snapshot.blocks.filter { $0.kind == .image }
+                    .map { ($0.id, $0) })
+            let describedIDs = Set(manifest.assets.map(\.owningBlockID))
+                .union(manifest.failures.map(\.owningBlockID))
+            guard describedIDs == Set(imageBlocks.keys),
+                manifest.assets.allSatisfy({ descriptor in
+                    guard let block = imageBlocks[descriptor.owningBlockID] else {
+                        return false
+                    }
+                    return block.imageCandidateURL == descriptor.sourceURL
+                        && block.altText == descriptor.altText
+                        && block.caption == descriptor.caption
+                }),
+                manifest.failures.allSatisfy({ failure in
+                    imageBlocks[failure.owningBlockID]?.imageCandidateURL
+                        == failure.sourceURL
+                })
+            else { throw Error.invalidPackage }
         }
         try validateProvenanceURL(envelope.payload.sourceURL, field: Field.sourceURL)
         if let canonicalURL = envelope.payload.canonicalURL {

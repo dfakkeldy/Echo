@@ -41,12 +41,14 @@ import Foundation
             let manifestData = try encodedManifest(manifest)
             let manifestDigest = Self.sha256(manifestData)
             let cover = try coverAsset(for: manifest)
+            let articleImages = try articleImageAssets(for: manifest)
             let chapters = manifest.chapters.sorted { $0.order < $1.order }
             let entries = archiveEntries(
                 manifest: manifest,
                 manifestSHA256: manifestDigest,
                 chapters: chapters,
-                cover: cover)
+                cover: cover,
+                articleImages: articleImages)
 
             do {
                 let archive = try Archive(url: destination, accessMode: .create)
@@ -80,7 +82,7 @@ import Foundation
         }
 
         private func validate(_ manifest: AnthologyBuildManifest) throws {
-            guard manifest.schemaVersion == 1,
+            guard [1, 2].contains(manifest.schemaVersion),
                 manifest.revision > 0,
                 manifest.epubIdentifier == "urn:uuid:\(manifest.anthologyID.uuidString)",
                 manifest.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
@@ -128,18 +130,66 @@ import Foundation
                         throw Error.invalidManifest
                     }
                     if block.kind == .image {
-                        throw Error.missingImageAssetMapping
+                        guard manifest.schemaVersion == 2 else {
+                            throw Error.missingImageAssetMapping
+                        }
                     }
                 }
             }
+            if manifest.schemaVersion == 1 {
+                guard manifest.imageAssets == nil, manifest.imageFailures == nil else {
+                    throw Error.invalidManifest
+                }
+                return
+            }
+            let imageBlocks = manifest.chapters.flatMap(\.blocks).filter { $0.kind == .image }
+            let assets = manifest.imageAssets ?? []
+            guard assets.count == imageBlocks.count,
+                Set(assets.map(\.owningBlockID)).count == assets.count,
+                Set(assets.map(\.owningBlockID)) == Set(imageBlocks.map(\.id))
+            else { throw Error.invalidManifest }
+            let blocksByID = Dictionary(uniqueKeysWithValues: imageBlocks.map { ($0.id, $0) })
+            var archiveEvidence: [String: String] = [:]
+            for asset in assets {
+                let fileExtension = asset.mediaType == "image/png" ? "png" : "jpg"
+                guard let block = blocksByID[asset.owningBlockID],
+                    block.imageCandidateURL == asset.sourceURL,
+                    block.altText == asset.altText,
+                    block.caption == asset.caption,
+                    Self.validAssetPath(asset.managedPath),
+                    Self.validArchiveImagePath(asset.archivePath),
+                    ["image/jpeg", "image/png"].contains(asset.mediaType),
+                    asset.sha256.range(of: #"^[0-9a-f]{64}$"#, options: .regularExpression) != nil,
+                    asset.managedPath == "images/\(asset.sha256).\(fileExtension)",
+                    asset.archivePath
+                        == "EPUB/images/article-\(asset.sha256).\(fileExtension)",
+                    asset.byteCount > 0,
+                    asset.byteCount <= ArticleWorkshopLimits.maxSingleImageBytes,
+                    asset.pixelWidth.map({ $0 > 0 && $0 <= 16_384 }) ?? true,
+                    asset.pixelHeight.map({ $0 > 0 && $0 <= 16_384 }) ?? true,
+                    Self.isSafeHTTPURL(asset.sourceURL)
+                else { throw Error.invalidManifest }
+                let evidence = "\(asset.sha256):\(asset.byteCount):\(asset.mediaType)"
+                if let prior = archiveEvidence[asset.archivePath], prior != evidence {
+                    throw Error.invalidManifest
+                }
+                archiveEvidence[asset.archivePath] = evidence
+            }
+            let failureIDs = (manifest.imageFailures ?? []).map(\.owningBlockID)
+            guard Set(failureIDs).count == failureIDs.count,
+                Set(failureIDs).isDisjoint(with: Set(assets.map(\.owningBlockID))),
+                (manifest.imageFailures ?? []).allSatisfy({ Self.isSafeHTTPURL($0.sourceURL) })
+            else { throw Error.invalidManifest }
         }
 
         private func archiveEntries(
             manifest: AnthologyBuildManifest,
             manifestSHA256: String,
             chapters: [AnthologyChapterManifest],
-            cover: EPUBXMLWriter.CoverAsset
+            cover: EPUBXMLWriter.CoverAsset,
+            articleImages: [LoadedArticleImage]
         ) -> [ArchiveEntry] {
+            let descriptors = articleImages.map(\.descriptor)
             var entries = [
                 ArchiveEntry(
                     path: "mimetype",
@@ -155,7 +205,8 @@ import Foundation
                             manifest: manifest,
                             manifestSHA256: manifestSHA256,
                             chapters: chapters,
-                            cover: cover
+                            cover: cover,
+                            articleImages: descriptors
                         ).utf8)),
                 ArchiveEntry(
                     path: "EPUB/nav.xhtml",
@@ -185,9 +236,14 @@ import Foundation
                         data: Data(
                             EPUBXMLWriter.chapter(
                                 $0,
-                                language: manifest.language
+                                language: manifest.language,
+                                articleImages: descriptors
                             ).utf8))
                 })
+            var emitted = Set<String>()
+            for image in articleImages where emitted.insert(image.descriptor.archivePath).inserted {
+                entries.append(ArchiveEntry(path: image.descriptor.archivePath, data: image.data))
+            }
             return entries
         }
 
@@ -221,7 +277,9 @@ import Foundation
                     .appending(path: "Anthologies", directoryHint: .isDirectory)
                     .appending(path: manifest.anthologyID.uuidString, directoryHint: .isDirectory)
                     .appending(path: name)
-                let data = try readRegularFileWithoutFollowingSymlink(at: url)
+                let data = try readRegularFileWithoutFollowingSymlink(
+                    at: url,
+                    maximumBytes: AnthologyCoverStore.productionMaximumBytes)
                 let expectedName = "cover-\(Self.sha256(data)).\(ext)"
                 guard name == expectedName else { throw Error.unsafeAsset }
                 return EPUBXMLWriter.CoverAsset(
@@ -235,7 +293,50 @@ import Foundation
             }
         }
 
-        private func readRegularFileWithoutFollowingSymlink(at url: URL) throws -> Data {
+        private func articleImageAssets(
+            for manifest: AnthologyBuildManifest
+        ) throws -> [LoadedArticleImage] {
+            guard manifest.schemaVersion == 2 else { return [] }
+            let captureByBlockID = Dictionary(uniqueKeysWithValues: manifest.chapters.flatMap { chapter in
+                chapter.blocks.map { ($0.id, chapter.captureID) }
+            })
+            var loaded: [LoadedArticleImage] = []
+            var totalBytes = 0
+            var dataByManagedPath: [String: Data] = [:]
+            for descriptor in manifest.imageAssets ?? [] {
+                guard let captureID = captureByBlockID[descriptor.owningBlockID] else {
+                    throw Error.unsafeAsset
+                }
+                let url = workshopRoot
+                    .appending(path: "Captures", directoryHint: .isDirectory)
+                    .appending(path: captureID.uuidString, directoryHint: .isDirectory)
+                    .appending(path: descriptor.managedPath)
+                let isNewPath = dataByManagedPath[descriptor.managedPath] == nil
+                let data = try dataByManagedPath[descriptor.managedPath]
+                    ?? readRegularFileWithoutFollowingSymlink(
+                        at: url,
+                        maximumBytes: ArticleWorkshopLimits.maxSingleImageBytes)
+                guard data.count == descriptor.byteCount,
+                    Self.sha256(data) == descriptor.sha256,
+                    ArticleImageValidator.isValid(
+                        data: data,
+                        mediaType: descriptor.mediaType),
+                    isNewPath == false
+                        || totalBytes <= ArticleWorkshopLimits.maxTotalImageBytes - data.count
+                else { throw Error.unsafeAsset }
+                if isNewPath {
+                    dataByManagedPath[descriptor.managedPath] = data
+                    totalBytes += data.count
+                }
+                loaded.append(LoadedArticleImage(descriptor: descriptor, data: data))
+            }
+            return loaded
+        }
+
+        private func readRegularFileWithoutFollowingSymlink(
+            at url: URL,
+            maximumBytes: Int
+        ) throws -> Data {
             let descriptor = open(url.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
             guard descriptor >= 0 else { throw Error.unsafeAsset }
             let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
@@ -243,7 +344,7 @@ import Foundation
             guard fstat(descriptor, &metadata) == 0,
                 metadata.st_mode & S_IFMT == S_IFREG,
                 metadata.st_size >= 0,
-                metadata.st_size <= AnthologyCoverStore.productionMaximumBytes
+                metadata.st_size <= maximumBytes
             else {
                 throw Error.unsafeAsset
             }
@@ -272,6 +373,7 @@ import Foundation
                         block.id,
                         block.text ?? "",
                         block.caption ?? "",
+                        block.altText ?? "",
                         block.codeLanguage ?? "",
                         block.sourceURL?.absoluteString ?? "",
                         block.imageCandidateURL?.absoluteString ?? "",
@@ -303,6 +405,23 @@ import Foundation
             return true
         }
 
+        private static func validAssetPath(_ path: String) -> Bool {
+            safeRelativePath(path) && path.hasPrefix("images/")
+                && path.split(separator: "/").count == 2
+        }
+
+        private static func validArchiveImagePath(_ path: String) -> Bool {
+            safeRelativePath(path) && path.hasPrefix("EPUB/images/article-")
+                && (path.hasSuffix(".jpg") || path.hasSuffix(".png"))
+        }
+
+        private static func safeRelativePath(_ path: String) -> Bool {
+            path.isEmpty == false && path.hasPrefix("/") == false && path.contains("\\") == false
+                && path.split(separator: "/", omittingEmptySubsequences: false).allSatisfy {
+                    $0.isEmpty == false && $0 != "." && $0 != ".."
+                }
+        }
+
         static func sha256(_ data: Data) -> String {
             SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         }
@@ -317,6 +436,11 @@ import Foundation
                 self.data = data
                 self.compressed = compressed
             }
+        }
+
+        private struct LoadedArticleImage {
+            let descriptor: ArticleImageAssetDescriptor
+            let data: Data
         }
     }
 #endif

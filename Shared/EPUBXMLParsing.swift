@@ -550,6 +550,7 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
     private struct FigureContext {
         var captionText = ""
         var codeBlockIndices: [Int] = []
+        var imageBlockIndices: [Int] = []
     }
 
     private var figureStack: [FigureContext] = []
@@ -715,7 +716,10 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             textBlocks.append(
                 TextBlockDescriptor(
                     kind: .image,
-                    text: nil,
+                    text: attributeDict["alt"].flatMap {
+                        let value = $0.collapsedWhitespace()
+                        return value.isEmpty ? nil : value
+                    },
                     imagePath: src,
                     htmlContent: nil,
                     markers: [marker],
@@ -730,6 +734,10 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
                 ))
             pendingAnchorIDs = []
             resetEchoAttributes()
+            if !figureStack.isEmpty {
+                figureStack[figureStack.count - 1].imageBlockIndices.append(
+                    textBlocks.count - 1)
+            }
         } else if blockTags.contains(elementName) {
             flushBlock()
             captureAnchorID(anchorID)
@@ -1100,6 +1108,9 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         if !caption.isEmpty {
             for index in figure.codeBlockIndices {
                 textBlocks[index].narrationCue = caption
+            }
+            for index in figure.imageBlockIndices {
+                textBlocks[index].text = caption
             }
         }
     }

@@ -1,32 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import CryptoKit
 import Foundation
 import ImageIO
 import zlib
-
-nonisolated enum ArticleImageLocalizationWarning: String, Codable, Equatable, Sendable {
-    case invalidURL
-    case downloadFailed
-    case invalidContentType
-    case responseTooLarge
-    case invalidImage
-    case totalByteLimitReached
-    case unsafeDestination
-}
-
-nonisolated struct ArticleImageLocalization: Sendable {
-    let localURLs: [URL]
-    let warnings: [ArticleImageLocalizationWarning]
-}
 
 nonisolated enum ArticleImageType: Sendable {
     case jpeg
     case png
 
     var fileExtension: String { self == .jpeg ? "jpg" : "png" }
+    var mediaType: String { self == .jpeg ? "image/jpeg" : "image/png" }
 }
 
-@MainActor
-struct ArticleImageDownloader {
+nonisolated struct ArticleValidatedImage: Sendable {
+    let type: ArticleImageType
+    let pixelWidth: Int
+    let pixelHeight: Int
+}
+
+nonisolated struct ArticleImageDownloader {
     private let sessionConfiguration: URLSessionConfiguration
     private let maximumImages: Int
     private let maximumSingleImageBytes: Int
@@ -113,6 +105,164 @@ struct ArticleImageDownloader {
         return ArticleImageLocalization(localURLs: localURLs, warnings: warnings)
     }
 
+    /// Localizes image blocks without positional inference. Every input block
+    /// produces either one immutable descriptor or one block-scoped failure;
+    /// successful duplicates share bytes by digest.
+    func localize(
+        candidates: [ArticleImageCandidate],
+        into captureDirectory: URL
+    ) async -> ArticleImageLocalization {
+        let root = captureDirectory.standardizedFileURL
+        guard Self.isSafeDirectory(root) else {
+            let failures = candidates.map {
+                ArticleImageFailureDescriptor(
+                    owningBlockID: $0.owningBlockID,
+                    sourceURL: $0.sourceURL,
+                    reason: .unsafeDestination)
+            }
+            return ArticleImageLocalization(
+                localURLs: [],
+                warnings: failures.map(\.reason),
+                failures: failures)
+        }
+        let imagesRoot = root.appending(path: "images", directoryHint: .isDirectory)
+        do {
+            if FileManager.default.fileExists(atPath: imagesRoot.path) == false {
+                try FileManager.default.createDirectory(
+                    at: imagesRoot,
+                    withIntermediateDirectories: false)
+            }
+            guard Self.isSafeDirectory(imagesRoot),
+                imagesRoot.standardizedFileURL.deletingLastPathComponent() == root
+            else { throw CocoaError(.fileWriteInvalidFileName) }
+        } catch {
+            let failures = candidates.map {
+                ArticleImageFailureDescriptor(
+                    owningBlockID: $0.owningBlockID,
+                    sourceURL: $0.sourceURL,
+                    reason: .unsafeDestination)
+            }
+            return ArticleImageLocalization(
+                localURLs: [], warnings: failures.map(\.reason), failures: failures)
+        }
+
+        var assets: [ArticleImageAssetDescriptor] = []
+        var failures: [ArticleImageFailureDescriptor] = []
+        var localURLs: [URL] = []
+        var totalBytes = 0
+        var acceptedByDigest: [String: URL] = [:]
+
+        for candidate in candidates.prefix(maximumImages) {
+            let remainingBytes = maximumTotalImageBytes - totalBytes
+            guard remainingBytes > 0 else {
+                failures.append(.init(
+                    owningBlockID: candidate.owningBlockID,
+                    sourceURL: candidate.sourceURL,
+                    reason: .totalByteLimitReached))
+                continue
+            }
+            guard let url = ArticleNetworkURLPolicy.normalized(candidate.sourceURL) else {
+                failures.append(.init(
+                    owningBlockID: candidate.owningBlockID,
+                    sourceURL: candidate.sourceURL,
+                    reason: .invalidURL))
+                continue
+            }
+            let loader = ArticleBoundedURLLoader(
+                configuration: sessionConfiguration,
+                acceptedMIMETypes: ["image/jpeg", "image/png"],
+                maximumBytes: min(maximumSingleImageBytes, remainingBytes))
+            let response: ArticleBoundedURLLoader.Response
+            do {
+                response = try await loader.load(url: url)
+            } catch let error as ArticleBoundedURLLoader.Error {
+                failures.append(.init(
+                    owningBlockID: candidate.owningBlockID,
+                    sourceURL: url,
+                    reason: Self.warning(for: error)))
+                continue
+            } catch {
+                failures.append(.init(
+                    owningBlockID: candidate.owningBlockID,
+                    sourceURL: url,
+                    reason: .downloadFailed))
+                continue
+            }
+            let validated = await Task.detached(priority: .userInitiated) {
+                Self.validatedImage(data: response.data, mimeType: response.mimeType)
+            }.value
+            guard let validated,
+                validated.pixelWidth > 1,
+                validated.pixelHeight > 1
+            else {
+                failures.append(.init(
+                    owningBlockID: candidate.owningBlockID,
+                    sourceURL: url,
+                    reason: .invalidImage))
+                continue
+            }
+            let digest = Self.sha256(response.data)
+            let managedPath = "images/\(digest).\(validated.type.fileExtension)"
+            let destination = imagesRoot.appending(
+                path: "\(digest).\(validated.type.fileExtension)")
+            do {
+                if acceptedByDigest[digest] == nil {
+                    if FileManager.default.fileExists(atPath: destination.path) {
+                        let values = try destination.resourceValues(
+                            forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
+                        guard values.isRegularFile == true,
+                            values.isSymbolicLink != true,
+                            values.fileSize == response.data.count,
+                            Self.sha256(try Data(contentsOf: destination)) == digest
+                        else { throw CocoaError(.fileReadCorruptFile) }
+                    } else {
+                        let temporary = imagesRoot.appending(
+                            path: ".\(digest)-\(UUID().uuidString).partial")
+                        try response.data.write(to: temporary, options: .withoutOverwriting)
+                        defer { try? FileManager.default.removeItem(at: temporary) }
+                        guard Self.isSafeDirectory(imagesRoot),
+                            destination.standardizedFileURL.deletingLastPathComponent() == imagesRoot,
+                            FileManager.default.fileExists(atPath: destination.path) == false
+                        else { throw CocoaError(.fileWriteFileExists) }
+                        try FileManager.default.moveItem(at: temporary, to: destination)
+                    }
+                    acceptedByDigest[digest] = destination
+                    localURLs.append(destination)
+                    totalBytes += response.data.count
+                }
+                assets.append(ArticleImageAssetDescriptor(
+                    owningBlockID: candidate.owningBlockID,
+                    managedPath: managedPath,
+                    archivePath:
+                        "EPUB/images/article-\(digest).\(validated.type.fileExtension)",
+                    mediaType: validated.type.mediaType,
+                    sha256: digest,
+                    byteCount: response.data.count,
+                    pixelWidth: validated.pixelWidth,
+                    pixelHeight: validated.pixelHeight,
+                    sourceURL: url,
+                    altText: candidate.altText,
+                    caption: candidate.caption))
+            } catch {
+                failures.append(.init(
+                    owningBlockID: candidate.owningBlockID,
+                    sourceURL: url,
+                    reason: .unsafeDestination))
+            }
+        }
+        for candidate in candidates.dropFirst(maximumImages) {
+            failures.append(.init(
+                owningBlockID: candidate.owningBlockID,
+                sourceURL: candidate.sourceURL,
+                reason: .totalByteLimitReached))
+        }
+        return ArticleImageLocalization(
+            localURLs: localURLs,
+            warnings: failures.map(\.reason),
+            assets: assets,
+            failures: failures)
+    }
+
     private static func isSafeDirectory(_ url: URL) -> Bool {
         guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
         else { return false }
@@ -134,6 +284,13 @@ struct ArticleImageDownloader {
         data: Data,
         mimeType: String
     ) -> ArticleImageType? {
+        validatedImage(data: data, mimeType: mimeType)?.type
+    }
+
+    nonisolated static func validatedImage(
+        data: Data,
+        mimeType: String
+    ) -> ArticleValidatedImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
             CGImageSourceGetCount(source) == 1,
             CGImageSourceGetStatus(source) == .statusComplete,
@@ -181,7 +338,14 @@ struct ArticleImageDownloader {
             return nil
         }
         context.draw(thumbnail, in: CGRect(x: 0, y: 0, width: 1, height: 1))
-        return imageType
+        return ArticleValidatedImage(
+            type: imageType,
+            pixelWidth: width,
+            pixelHeight: height)
+    }
+
+    private nonisolated static func sha256(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }
 

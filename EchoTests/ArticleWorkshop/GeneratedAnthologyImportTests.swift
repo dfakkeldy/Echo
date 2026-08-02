@@ -8,6 +8,62 @@ import Testing
 
 @Suite("Generated anthology import")
 struct GeneratedAnthologyImportTests {
+    @Test("Localized article image survives build, preflight, import, and visual cue resolution")
+    @MainActor
+    func localizedImageEndToEnd() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let prepared = try fixture.manifestWithImage()
+        let archive = try fixture.writeArchive(prepared.manifest, name: "image-end-to-end")
+        _ = try AnthologyEPUBPreflight().validate(
+            epubAt: archive,
+            against: prepared.manifest)
+        let database = try DatabaseService(inMemory: ())
+        let audiobookID = "generated-image-\(UUID().uuidString)"
+        try Self.seedAudiobook(audiobookID, in: database.writer)
+        let storage = EPUBAssetStorage(databaseService: database)
+        defer { try? storage.removeAll(for: audiobookID) }
+
+        _ = try await GeneratedAnthologyImportReconciler.importArchive(
+            at: archive,
+            audiobookID: audiobookID,
+            identity: try GeneratedAnthologyImportIdentity(
+                manifest: prepared.manifest),
+            databaseService: database)
+        let blocks = try await database.writer.read { database in
+            try EPubBlockRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .order(Column("sequence_index"))
+                .fetchAll(database)
+        }
+        let image = try #require(blocks.first {
+            $0.blockKind == EPubBlockRecord.Kind.image.rawValue
+                && $0.sourceChapterKey == prepared.manifest.chapters[0].entryID.uuidString
+        })
+        let imagePath = try #require(image.imagePath)
+        #expect(image.text == "Fishing boats returning home.")
+        #expect(FileManager.default.fileExists(atPath: imagePath))
+        #expect(try Data(contentsOf: URL(fileURLWithPath: imagePath)) == prepared.data)
+
+        let cue = VisualListeningCueResolver.snapshot(
+            blocks: blocks,
+            timeline: [(
+                start: 0,
+                end: 10,
+                blockID: image.id,
+                chapterIndex: image.chapterIndex,
+                segmentKey: nil,
+            )],
+            words: [],
+            time: 1,
+            currentTrackSegmentKey: nil,
+            currentTrackChapterIndices: nil,
+            syncPoint: .begin)
+        #expect(cue.visualCue?.blockID == image.id)
+        #expect(cue.visualCue?.imagePath == imagePath)
+        #expect(cue.subtitleCue?.text == "Fishing boats returning home.")
+    }
+
     @Test("Trusted generated metadata creates stable IDs while cover stays non-generated")
     func trustedParseUsesManifestIdentity() throws {
         let fixture = try Fixture()
@@ -708,6 +764,80 @@ struct GeneratedAnthologyImportTests {
                 coverPath: nil,
                 modifiedAt: Date(timeIntervalSince1970: 1_700_000_000),
                 chapters: chapters)
+        }
+
+        func manifestWithImage() throws -> (
+            manifest: AnthologyBuildManifest,
+            descriptor: ArticleImageAssetDescriptor,
+            data: Data
+        ) {
+            let data = Data(base64Encoded:
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")!
+            let digest = SHA256.hash(data: data)
+                .map { String(format: "%02x", $0) }.joined()
+            let captureID = Self.uuid(seed: 100)
+            let sourceURL = URL(string: "https://images.example.test/harbour.png")!
+            let block = ArticleBlock(
+                id: "image-block",
+                stableOrdinal: 4,
+                kind: .image,
+                text: nil,
+                sourceURL: nil,
+                imageCandidateURL: sourceURL,
+                altText: "Harbour at sunrise",
+                caption: "Fishing boats returning home.",
+                codeLanguage: nil)
+            let descriptor = ArticleImageAssetDescriptor(
+                owningBlockID: block.id,
+                managedPath: "images/\(digest).png",
+                archivePath: "EPUB/images/article-\(digest).png",
+                mediaType: "image/png",
+                sha256: digest,
+                byteCount: data.count,
+                pixelWidth: 1,
+                pixelHeight: 1,
+                sourceURL: sourceURL,
+                altText: block.altText,
+                caption: block.caption)
+            let directory = root.appending(
+                path: "Captures/\(captureID.uuidString)/images",
+                directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true)
+            try data.write(to: directory.appending(path: "\(digest).png"))
+            let chapter = AnthologyChapterManifest(
+                entryID: Self.uuid(seed: 1),
+                captureID: captureID,
+                articleRevisionID: Self.uuid(seed: 200),
+                stableSlot: 0,
+                order: 0,
+                title: "Article with a picture",
+                author: nil,
+                siteName: "Example",
+                sourceURL: URL(string: "https://example.test/article")!,
+                capturedAt: Date(timeIntervalSince1970: 1_700_000_000),
+                voiceID: nil,
+                blocks: [block],
+                readableContentSHA256: ArticleWorkshopDigest.readableContent(
+                    blocks: [block]))
+            return (
+                AnthologyBuildManifest(
+                    schemaVersion: 2,
+                    anthologyID: anthologyID,
+                    revision: 1,
+                    epubIdentifier: "urn:uuid:\(anthologyID.uuidString)",
+                    title: "Anthology",
+                    subtitle: nil,
+                    creator: "Echo",
+                    language: "en",
+                    coverPath: nil,
+                    modifiedAt: Date(timeIntervalSince1970: 1_700_000_000),
+                    chapters: [chapter],
+                    imageAssets: [descriptor],
+                    imageFailures: []),
+                descriptor,
+                data)
         }
 
         func chapter(

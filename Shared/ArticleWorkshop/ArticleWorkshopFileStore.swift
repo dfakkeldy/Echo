@@ -20,6 +20,7 @@ nonisolated struct ArticleWorkshopFileStore {
         case unsafePackage(URL)
         case unsafeFile(URL)
         case fileChangedDuringValidation(URL)
+        case invalidImageAssetManifest(UUID)
 
         var errorDescription: String? {
             switch self {
@@ -45,6 +46,8 @@ nonisolated struct ArticleWorkshopFileStore {
                 return "Article capture package contains an unsafe file: \(url.path)"
             case .fileChangedDuringValidation(let url):
                 return "Article capture package changed during validation: \(url.path)"
+            case .invalidImageAssetManifest(let id):
+                return "Article capture image assets are invalid for \(id.uuidString)."
             }
         }
     }
@@ -53,6 +56,7 @@ nonisolated struct ArticleWorkshopFileStore {
         let envelope: ArticleCaptureEnvelope
         let snapshotURL: URL
         let sha256: String
+        let imageAssets: ArticleImageAssetManifest?
     }
 
     struct ValidatedEnvelope: Sendable {
@@ -71,8 +75,17 @@ nonisolated struct ArticleWorkshopFileStore {
         self.validationHook = validationHook
     }
 
-    func importEnvelope(at package: URL) throws -> ImportedEnvelope {
+    func importEnvelope(
+        at package: URL,
+        imageLocalization: ArticleImageLocalization? = nil,
+        localizationRoot: URL? = nil
+    ) throws -> ImportedEnvelope {
         let validated = try validateEnvelope(at: package)
+        let stagedLocalization = try imageLocalization
+            ?? stagedImageLocalization(at: package, captureID: validated.envelope.captureID)
+        let stagedLocalizationRoot = stagedLocalization == nil
+            ? localizationRoot
+            : (imageLocalization == nil ? package : localizationRoot)
         let fileManager = FileManager.default
         let directoryID = validated.envelope.captureID
         let destination = root
@@ -86,7 +99,17 @@ nonisolated struct ArticleWorkshopFileStore {
             guard Self.sha256(durableData) == validated.sha256 else {
                 throw Error.destinationDigestMismatch(directoryID)
             }
-            return ImportedEnvelope(envelope: validated.envelope, snapshotURL: snapshot, sha256: validated.sha256)
+            let durableAssets = try loadImageAssetManifest(captureID: directoryID)
+            if let stagedLocalization {
+                guard durableAssets?.assets == stagedLocalization.assets,
+                    durableAssets?.failures == stagedLocalization.failures
+                else { throw Error.destinationDigestMismatch(directoryID) }
+            }
+            return ImportedEnvelope(
+                envelope: validated.envelope,
+                snapshotURL: snapshot,
+                sha256: validated.sha256,
+                imageAssets: durableAssets)
         }
 
         let capturesRoot = root.appending(path: "Captures", directoryHint: .isDirectory)
@@ -102,13 +125,202 @@ nonisolated struct ArticleWorkshopFileStore {
             throw Error.fileChangedDuringValidation(package.appending(path: "envelope.json"))
         }
         try sourceData.write(to: partial.appending(path: "snapshot.json"), options: .atomic)
+        if let stagedLocalization {
+            guard let stagedLocalizationRoot else {
+                throw Error.invalidImageAssetManifest(directoryID)
+            }
+            try writeImageAssets(
+                stagedLocalization,
+                captureID: directoryID,
+                sourceRoot: stagedLocalizationRoot,
+                destination: partial)
+        }
         try fileManager.moveItem(at: partial, to: destination)
 
         let durableData = try boundedRegularFileData(at: snapshot)
         guard Self.sha256(durableData) == validated.sha256 else {
             throw Error.destinationDigestMismatch(directoryID)
         }
-        return ImportedEnvelope(envelope: validated.envelope, snapshotURL: snapshot, sha256: validated.sha256)
+        return ImportedEnvelope(
+            envelope: validated.envelope,
+            snapshotURL: snapshot,
+            sha256: validated.sha256,
+            imageAssets: try loadImageAssetManifest(captureID: directoryID))
+    }
+
+    private func stagedImageLocalization(
+        at package: URL,
+        captureID: UUID
+    ) throws -> ArticleImageLocalization? {
+        let manifestURL = package.appending(path: "image-assets.json")
+        guard FileManager.default.fileExists(atPath: manifestURL.path) else {
+            let children = try FileManager.default.contentsOfDirectory(
+                at: package,
+                includingPropertiesForKeys: nil)
+            guard Set(children.map(\.lastPathComponent)).isSubset(of: [
+                "envelope.json", "complete",
+            ]) else { throw Error.invalidImageAssetManifest(captureID) }
+            return nil
+        }
+        let data = try boundedRegularFileData(at: manifestURL)
+        let manifest = try JSONDecoder.articleWorkshop.decode(
+            ArticleImageAssetManifest.self,
+            from: data)
+        try validateImageAssetDescriptors(manifest, captureID: captureID)
+        let children = try FileManager.default.contentsOfDirectory(
+            at: package,
+            includingPropertiesForKeys: nil)
+        guard Set(children.map(\.lastPathComponent)).isSubset(of: [
+            "envelope.json", "complete", "image-assets.json", "images",
+        ]) else { throw Error.invalidImageAssetManifest(captureID) }
+        let expected = Set(manifest.assets.map(\.managedPath))
+        let images = package.appending(path: "images", directoryHint: .isDirectory)
+        let actual: Set<String>
+        if FileManager.default.fileExists(atPath: images.path) {
+            guard try safeDirectory(images) else { throw Error.unsafePackage(images) }
+            actual = Set(try FileManager.default.contentsOfDirectory(
+                at: images,
+                includingPropertiesForKeys: nil).map { "images/\($0.lastPathComponent)" })
+        } else {
+            actual = []
+        }
+        guard actual == expected else { throw Error.invalidImageAssetManifest(captureID) }
+        return ArticleImageLocalization(
+            localURLs: manifest.assets.map { package.appending(path: $0.managedPath) },
+            warnings: manifest.failures.map(\.reason),
+            assets: manifest.assets,
+            failures: manifest.failures)
+    }
+
+    func loadImageAssetManifest(captureID: UUID) throws -> ArticleImageAssetManifest? {
+        let package = root.appending(path: "Captures", directoryHint: .isDirectory)
+            .appending(path: captureID.uuidString, directoryHint: .isDirectory)
+        let manifestURL = package.appending(path: "image-assets.json")
+        guard FileManager.default.fileExists(atPath: manifestURL.path) else { return nil }
+        let data = try boundedRegularFileData(at: manifestURL)
+        let manifest = try JSONDecoder.articleWorkshop.decode(
+            ArticleImageAssetManifest.self,
+            from: data)
+        try validateImageAssetManifest(manifest, package: package, captureID: captureID)
+        return manifest
+    }
+
+    private func writeImageAssets(
+        _ localization: ArticleImageLocalization,
+        captureID: UUID,
+        sourceRoot: URL,
+        destination: URL
+    ) throws {
+        let manifest = ArticleImageAssetManifest(
+            schemaVersion: 1,
+            captureID: captureID,
+            assets: localization.assets,
+            failures: localization.failures)
+        try validateImageAssetDescriptors(manifest, captureID: captureID)
+        let images = destination.appending(path: "images", directoryHint: .isDirectory)
+        if localization.assets.isEmpty == false {
+            try FileManager.default.createDirectory(at: images, withIntermediateDirectories: false)
+        }
+        var copied = Set<String>()
+        for descriptor in localization.assets where copied.insert(descriptor.managedPath).inserted {
+            let source = sourceRoot.appending(path: descriptor.managedPath)
+            let data = try boundedRegularFileData(at: source)
+            guard data.count == descriptor.byteCount,
+                Self.sha256(data) == descriptor.sha256,
+                ArticleImageValidator.isValid(data: data, mediaType: descriptor.mediaType)
+            else { throw Error.invalidImageAssetManifest(captureID) }
+            let target = destination.appending(path: descriptor.managedPath)
+            guard target.standardizedFileURL.deletingLastPathComponent() == images else {
+                throw Error.invalidImageAssetManifest(captureID)
+            }
+            try data.write(to: target, options: .withoutOverwriting)
+        }
+        let encoder = JSONEncoder.articleWorkshop
+        encoder.outputFormatting = [.sortedKeys]
+        try encoder.encode(manifest).write(
+            to: destination.appending(path: "image-assets.json"),
+            options: .atomic)
+    }
+
+    private func validateImageAssetManifest(
+        _ manifest: ArticleImageAssetManifest,
+        package: URL,
+        captureID: UUID
+    ) throws {
+        try validateImageAssetDescriptors(manifest, captureID: captureID)
+        let children = try FileManager.default.contentsOfDirectory(
+            at: package,
+            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey],
+            options: [])
+        guard Set(children.map(\.lastPathComponent)).isSubset(of: [
+            "snapshot.json", "image-assets.json", "images",
+        ]) else { throw Error.invalidImageAssetManifest(captureID) }
+        let expectedPaths = Set(manifest.assets.map(\.managedPath))
+        let images = package.appending(path: "images", directoryHint: .isDirectory)
+        let actualPaths: Set<String>
+        if FileManager.default.fileExists(atPath: images.path) {
+            guard try safeDirectory(images) else { throw Error.unsafePackage(images) }
+            actualPaths = Set(try FileManager.default.contentsOfDirectory(
+                at: images,
+                includingPropertiesForKeys: nil).map { "images/\($0.lastPathComponent)" })
+        } else {
+            actualPaths = []
+        }
+        guard actualPaths == expectedPaths else {
+            throw Error.invalidImageAssetManifest(captureID)
+        }
+        for descriptor in manifest.assets {
+            let data = try boundedRegularFileData(at: package.appending(path: descriptor.managedPath))
+            guard data.count == descriptor.byteCount,
+                Self.sha256(data) == descriptor.sha256,
+                ArticleImageValidator.isValid(data: data, mediaType: descriptor.mediaType)
+            else { throw Error.invalidImageAssetManifest(captureID) }
+        }
+    }
+
+    private func validateImageAssetDescriptors(
+        _ manifest: ArticleImageAssetManifest,
+        captureID: UUID
+    ) throws {
+        let assets = manifest.assets
+        let owningIDs = assets.map(\.owningBlockID)
+        let failures = manifest.failures.map(\.owningBlockID)
+        guard manifest.schemaVersion == 1,
+            manifest.captureID == captureID,
+            assets.count <= ArticleWorkshopLimits.maxImages,
+            owningIDs.count + failures.count <= ArticleWorkshopLimits.maxBlocks,
+            Set(owningIDs).count == owningIDs.count,
+            Set(failures).count == failures.count,
+            Set(owningIDs).isDisjoint(with: failures)
+        else { throw Error.invalidImageAssetManifest(captureID) }
+        var evidenceByPath: [String: String] = [:]
+        var totalBytes = 0
+        for descriptor in assets {
+            let components = descriptor.managedPath.split(separator: "/")
+            guard components.count == 2, components[0] == "images",
+                descriptor.managedPath == "images/\(descriptor.sha256).\(descriptor.mediaType == "image/png" ? "png" : "jpg")",
+                descriptor.archivePath == "EPUB/images/article-\(descriptor.sha256).\(descriptor.mediaType == "image/png" ? "png" : "jpg")",
+                descriptor.sha256.count == 64,
+                descriptor.sha256.allSatisfy({ $0.isHexDigit && !$0.isUppercase }),
+                descriptor.byteCount > 0,
+                ["image/jpeg", "image/png"].contains(descriptor.mediaType),
+                descriptor.sourceURL.user == nil,
+                descriptor.sourceURL.password == nil,
+                ["http", "https"].contains(descriptor.sourceURL.scheme?.lowercased() ?? "")
+            else { throw Error.invalidImageAssetManifest(captureID) }
+            let evidence = "\(descriptor.sha256):\(descriptor.byteCount):\(descriptor.mediaType)"
+            if let prior = evidenceByPath[descriptor.managedPath] {
+                guard prior == evidence else {
+                    throw Error.invalidImageAssetManifest(captureID)
+                }
+            } else {
+                guard totalBytes <= ArticleWorkshopLimits.maxTotalImageBytes
+                    - descriptor.byteCount
+                else { throw Error.invalidImageAssetManifest(captureID) }
+                evidenceByPath[descriptor.managedPath] = evidence
+                totalBytes += descriptor.byteCount
+            }
+        }
     }
 
     func validateEnvelope(at package: URL) throws -> ValidatedEnvelope {

@@ -1,10 +1,59 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import CryptoKit
 import Foundation
 import Testing
 
 @testable import Echo
 
 @Suite struct ArticleWorkshopFileStoreTests {
+    @Test func importsDescriptorAndImageAtomicallyThenRejectsTamperedManagedBytes() throws {
+        let root = try temporaryRoot()
+        defer { try! FileManager.default.removeItem(at: root) }
+        let envelope = articleWorkshopFixtureEnvelope()
+        let staging = root.appending(path: "staging", directoryHint: .isDirectory)
+        let localizationRoot = root.appending(path: "localized", directoryHint: .isDirectory)
+        let images = localizationRoot.appending(path: "images", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: images, withIntermediateDirectories: true)
+        let data = Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")!
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let managedPath = "images/\(digest).png"
+        try data.write(to: localizationRoot.appending(path: managedPath))
+        let descriptor = ArticleImageAssetDescriptor(
+            owningBlockID: "image-block",
+            managedPath: managedPath,
+            archivePath: "EPUB/images/article-\(digest).png",
+            mediaType: "image/png",
+            sha256: digest,
+            byteCount: data.count,
+            pixelWidth: 1,
+            pixelHeight: 1,
+            sourceURL: URL(string: "https://example.test/image.png")!,
+            altText: "Chart",
+            caption: "A useful chart.")
+        let store = ArticleWorkshopFileStore(
+            root: root.appending(path: "workshop", directoryHint: .isDirectory))
+        let localization = ArticleImageLocalization(
+            localURLs: [localizationRoot.appending(path: managedPath)],
+            warnings: [],
+            assets: [descriptor])
+        let package = try ArticleCaptureStagingWriter(root: staging).stage(
+            envelope,
+            imageLocalization: localization,
+            localizationRoot: localizationRoot)
+
+        let imported = try store.importEnvelope(at: package)
+
+        #expect(imported.imageAssets?.assets == [descriptor])
+        let durableImage = imported.snapshotURL.deletingLastPathComponent()
+            .appending(path: managedPath)
+        #expect(try Data(contentsOf: durableImage) == data)
+        try Data("tampered".utf8).write(to: durableImage, options: .atomic)
+        #expect(throws: ArticleWorkshopFileStore.Error.self) {
+            _ = try store.loadImageAssetManifest(captureID: envelope.captureID)
+        }
+    }
+
     @Test func completionMarkerIsWrittenAfterEnvelope() throws {
         let root = try temporaryRoot()
         defer { try! FileManager.default.removeItem(at: root) }
