@@ -41,7 +41,7 @@ struct MacVisualListeningParityTests {
     @Test func macVisualStageKeepsSubtitlesTimingChoiceAndImageLoading() throws {
         let stage = try MacSource.read("Views/MacVisualStageView.swift")
 
-        #expect(stage.contains("Image(nsImage: image)"))
+        #expect(stage.contains("Image(decorative: cgImage, scale: 1)"))
         #expect(stage.contains("Picker(\"Visual timing\""))
         #expect(stage.contains(".accessibilityLabel(Text(\"Visual timing\"))"))
         #expect(!stage.contains("\"Image timing\""))

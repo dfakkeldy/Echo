@@ -474,7 +474,8 @@ final class MacPlayerModel {
             }
             // Re-derive the active chapter for the current playhead.
             self.refreshCurrentChapter()
-            self.importPendingCompanionDocumentsIfNeeded(for: url, loadedChapters: parsed, loadedDuration: loadedDuration)
+            self.importPendingCompanionDocumentsIfNeeded(
+                for: url, loadedChapters: parsed, loadedDuration: loadedDuration)
         }
     }
 
@@ -679,7 +680,8 @@ final class MacPlayerModel {
         loadedChapters: [Chapter],
         loadedDuration: TimeInterval?
     ) {
-        guard let pending = pendingCompanionDocumentImport, pending.triggerAudioURL == audioURL else {
+        guard let pending = pendingCompanionDocumentImport, pending.triggerAudioURL == audioURL
+        else {
             return
         }
         pendingCompanionDocumentImport = nil
@@ -745,7 +747,8 @@ final class MacPlayerModel {
                 }
             } else {
                 parsedChapters = await ChapterService.parseChapters(from: asset)
-                measuredDuration = Self.finitePositiveDuration(try? await asset.load(.duration).seconds)
+                measuredDuration = Self.finitePositiveDuration(
+                    try? await asset.load(.duration).seconds)
             }
 
             let trackDuration = measuredDuration ?? parsedChapters.map(\.endSeconds).max() ?? 0
@@ -1633,7 +1636,9 @@ extension MacPlayerModel {
         Task { @MainActor [weak self] in
             let meta = await MacArtworkLoader.load(for: url, scopedRoot: scopedRoot)
             guard let self, self.artworkLoadToken == token else { return }
-            self.coverImage = meta.image
+            self.coverImage = meta.cgImage.map {
+                NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height))
+            }
             self.currentAuthor = meta.author
             self.updateNowPlaying()
         }
@@ -1641,11 +1646,11 @@ extension MacPlayerModel {
 }
 
 /// macOS counterpart to the iOS-only `ArtworkCache` cover sourcing. Pure helpers
-/// with no shared mutable state, returning `NSImage` — the type
-/// `MPMediaItemArtwork` expects on macOS.
-private enum MacArtworkLoader {
+/// with no shared mutable state, returning `CGImage` (Sendable) so `load` can
+/// run off the main actor; the caller wraps the result in `NSImage`.
+private nonisolated enum MacArtworkLoader {
     struct BookMetadata {
-        let image: NSImage?
+        let cgImage: CGImage?
         let author: String?
     }
 
@@ -1661,13 +1666,13 @@ private enum MacArtworkLoader {
 
         let asset = AVURLAsset(url: url)
         let metadata = (try? await asset.load(.commonMetadata)) ?? []
-        var image: NSImage?
+        var cgImage: CGImage?
         var author: String?
         for item in metadata {
-            if image == nil, item.commonKey == .commonKeyArtwork,
+            if cgImage == nil, item.commonKey == .commonKeyArtwork,
                 let data = try? await item.load(.dataValue)
             {
-                image = downsampledImage(from: data)
+                cgImage = MacImageDecode.downsampledCGImage(data: data, maxPixelSize: 600)
             }
             if author == nil, item.commonKey == .commonKeyArtist,
                 let value = try? await item.load(.stringValue), !value.isEmpty
@@ -1675,13 +1680,13 @@ private enum MacArtworkLoader {
                 author = value
             }
         }
-        if image == nil { image = folderArtworkImage(near: url) }
-        return BookMetadata(image: image, author: author)
+        if cgImage == nil { cgImage = folderArtworkImage(near: url) }
+        return BookMetadata(cgImage: cgImage, author: author)
     }
 
     /// Falls back to a `cover.*` (or first, name-sorted) image file alongside the
     /// audio — the same heuristic `ArtworkCache.folderArtworkImage` uses on iOS.
-    static func folderArtworkImage(near url: URL) -> NSImage? {
+    static func folderArtworkImage(near url: URL) -> CGImage? {
         let folderURL = url.deletingLastPathComponent()
         let didStart = folderURL.startAccessingSecurityScopedResource()
         defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
@@ -1707,20 +1712,6 @@ private enum MacArtworkLoader {
                     == .orderedAscending
             }.first
         guard let selected, let data = try? Data(contentsOf: selected) else { return nil }
-        return downsampledImage(from: data)
-    }
-
-    /// Decodes `data` to a downsampled `NSImage` (max 600px on the long edge).
-    static func downsampledImage(from data: Data, maxPixelSize: Int = 600) -> NSImage? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
-        ]
-        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
-        else { return nil }
-        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+        return MacImageDecode.downsampledCGImage(data: data, maxPixelSize: 600)
     }
 }

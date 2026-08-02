@@ -8,8 +8,7 @@ struct MacVisualStageView: View {
     let folderURL: URL?
     let appFont: String
 
-    @State private var image: NSImage?
-    @State private var loadedImagePath: String?
+    @State private var cgImage: CGImage?
 
     var body: some View {
         HStack(alignment: .center, spacing: 16) {
@@ -33,9 +32,8 @@ struct MacVisualStageView: View {
             }
             .frame(maxWidth: 320, alignment: .topLeading)
         }
-        .onAppear(perform: loadImageIfNeeded)
-        .onChange(of: snapshot.visualCue?.imagePath) { _, _ in
-            loadImageIfNeeded()
+        .task(id: snapshot.visualCue?.imagePath) {
+            await loadImageIfNeeded()
         }
         .accessibilityElement(children: .contain)
     }
@@ -47,8 +45,8 @@ struct MacVisualStageView: View {
 
             if case .code(let text, _) = snapshot.visualCue?.content {
                 VisualListeningCodeView(text: text)
-            } else if let image {
-                Image(nsImage: image)
+            } else if let cgImage {
+                Image(decorative: cgImage, scale: 1)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .transition(.opacity)
@@ -81,31 +79,34 @@ struct MacVisualStageView: View {
         return String(localized: "Current figure")
     }
 
-    private func loadImageIfNeeded() {
-        guard let imagePath = snapshot.visualCue?.imagePath else {
-            image = nil
-            loadedImagePath = nil
+    private func loadImageIfNeeded() async {
+        guard let resolvedURL = visualListeningImageURL() else {
+            cgImage = nil
             return
         }
-        guard imagePath != loadedImagePath else { return }
-        loadedImagePath = imagePath
-        image = visualListeningImage(at: imagePath)
+        cgImage = await MacImageDecode.loadCGImage(url: resolvedURL, maxPixelSize: 1600)
     }
 
-    private func visualListeningImage(at imagePath: String) -> NSImage? {
+    /// Resolves the on-disk location for the current cue's image path (either
+    /// a direct path or one relative to the book's `EPUBAssets` folder). Only
+    /// does cheap existence checks — the actual read + decode happens off-main
+    /// in `MacImageDecode`.
+    private func visualListeningImageURL() -> URL? {
+        guard let imagePath = snapshot.visualCue?.imagePath else { return nil }
         if FileManager.default.fileExists(atPath: imagePath) {
-            return NSImage(contentsOfFile: imagePath)
+            return URL(fileURLWithPath: imagePath)
         }
 
         guard let folderURL else { return nil }
         let assetsDir = SafeFileName.fromAudiobookID(folderURL.absoluteString)
-        let resolvedURL = folderURL
+        let resolvedURL =
+            folderURL
             .deletingLastPathComponent()
             .appendingPathComponent(assetsDir)
             .appendingPathComponent("EPUBAssets")
             .appendingPathComponent(imagePath)
         guard FileManager.default.fileExists(atPath: resolvedURL.path) else { return nil }
-        return NSImage(contentsOf: resolvedURL)
+        return resolvedURL
     }
 }
 
