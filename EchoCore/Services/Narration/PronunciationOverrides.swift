@@ -8,7 +8,7 @@ import Foundation
 ///
 /// Case-insensitive whole-word match; substring matches are rejected ("use" must
 /// not match inside "user"). Per-book entries override global entries on conflict.
-struct PronunciationOverrides: Equatable, Sendable {
+nonisolated struct PronunciationOverrides: Equatable, Sendable {
     private struct ScopedEntry: Equatable, Sendable {
         let word: String
         let ipa: String

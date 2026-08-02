@@ -387,7 +387,7 @@ nonisolated struct EnglishPronunciationPack: Equatable, Sendable {
     }
 }
 
-extension EnglishPronunciationPack {
+nonisolated extension EnglishPronunciationPack {
     static let contentDefaultPolicyVersion = "content-default-material-noun-v1"
 
     var productionPolicySignature: String {

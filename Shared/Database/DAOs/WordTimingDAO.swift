@@ -3,7 +3,7 @@ import Foundation
 import GRDB
 
 /// DAO for per-word read-along timings.
-struct WordTimingDAO {
+nonisolated struct WordTimingDAO {
     let db: DatabaseWriter
 
     func insert(_ records: [WordTimingRecord]) throws {

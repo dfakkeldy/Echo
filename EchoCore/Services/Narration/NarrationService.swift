@@ -4,6 +4,10 @@ import Foundation
 import GRDB
 import os.log
 
+#if DEBUG
+    import Synchronization
+#endif
+
 enum NarrationError: Error, Equatable {
     case synthesisFailed
     case audiobookNotFound
@@ -183,7 +187,7 @@ final class NarrationService {
         blocks: [EPubBlockRecord],
         voice: VoiceID
     ) async -> URL {
-        chapterCacheURL(
+        await chapterCacheURL(
             chapterIndex: chapterIndex,
             blocks: blocks,
             voice: voice,
@@ -199,7 +203,7 @@ final class NarrationService {
         blocks: [EPubBlockRecord],
         voice: VoiceID
     ) async -> URL {
-        segmentCacheURL(
+        await segmentCacheURL(
             chapterIndex: chapterIndex,
             segmentIndex: segmentIndex,
             blocks: blocks,
@@ -218,8 +222,8 @@ final class NarrationService {
         occurrenceOverrides: PronunciationOccurrenceOverrides,
         normalizationMode: String,
         pronunciationPack: EnglishPronunciationPack
-    ) -> URL {
-        let signature = Self.contentSignature(
+    ) async -> URL {
+        let signature = await Self.contentSignatureOffMain(
             for: blocks,
             includeLeadOutPad: true,
             overrides: overrides,
@@ -243,8 +247,8 @@ final class NarrationService {
         occurrenceOverrides: PronunciationOccurrenceOverrides,
         normalizationMode: String,
         pronunciationPack: EnglishPronunciationPack
-    ) -> URL {
-        let signature = Self.contentSignature(
+    ) async -> URL {
+        let signature = await Self.contentSignatureOffMain(
             for: blocks,
             includeLeadOutPad: false,
             overrides: overrides,
@@ -260,7 +264,7 @@ final class NarrationService {
                 contentSignature: signature))
     }
 
-    static func contentSignature(
+    nonisolated static func contentSignature(
         for blocks: [EPubBlockRecord],
         includeLeadOutPad: Bool,
         overrides: PronunciationOverrides,
@@ -294,7 +298,80 @@ final class NarrationService {
             pronunciationPolicySignature: pronunciationPack.productionPolicySignature)
     }
 
-    private static func renderedText(
+    #if DEBUG
+        /// Test-only observation seam: records whether the most recent
+        /// `normalizeBlocksOffMain` call executed its body on the main thread.
+        /// Mutex-protected (not `nonisolated(unsafe)`) because this seam is NOT
+        /// single-writer in practice: production `prepareBlocksForRenderPlan`
+        /// calls `normalizeBlocksOffMain` too, and several tests in
+        /// `NarrationOffMainPlanningTests` call it directly. Nothing races
+        /// today only because the Makefile pins `-parallel-testing-enabled NO`
+        /// (Makefile:91,99) — there's no `.xctestplan` enforcing that for an
+        /// Xcode-UI test run, so the mutex is what actually keeps this correct
+        /// rather than an assumption about how tests happen to be invoked.
+        /// Exists so the off-main guarantee is verified empirically instead of
+        /// trusted from the `@concurrent` annotation alone.
+        nonisolated static let debugNormalizeBlocksRanOnMainThread = Mutex<Bool?>(nil)
+        /// Same seam for `contentSignatureOffMain`.
+        nonisolated static let debugContentSignatureOffMainRanOnMainThread = Mutex<Bool?>(nil)
+        /// `Thread.isMainThread` is `NS_SWIFT_UNAVAILABLE_FROM_ASYNC` — reading it
+        /// directly inside an `async` function body doesn't compile. This
+        /// synchronous wrapper is the sanctioned way to read it from async code.
+        nonisolated private static func debugIsMainThread() -> Bool { Thread.isMainThread }
+    #endif
+
+    /// Runs TextNormalizer over every spoken, non-code block OFF the main
+    /// actor. `@concurrent` is what actually moves this onto the cooperative
+    /// pool: this project builds with `SWIFT_APPROACHABLE_CONCURRENCY = YES`,
+    /// which enables `NonisolatedNonsendingByDefault` — under that mode a
+    /// plain `nonisolated async` function runs ON the caller's actor, not off
+    /// it. Do not drop `@concurrent` under the assumption that `nonisolated
+    /// async` alone suspends off-main; it does not, here. Returns
+    /// blockID → normalized text.
+    @concurrent
+    nonisolated static func normalizeBlocksOffMain(
+        _ blocks: [EPubBlockRecord]
+    ) async -> [String: String] {
+        #if DEBUG
+            let isMainThread = Self.debugIsMainThread()
+            Self.debugNormalizeBlocksRanOnMainThread.withLock { $0 = isMainThread }
+        #endif
+        var result: [String: String] = [:]
+        result.reserveCapacity(blocks.count)
+        for block in blocks {
+            guard let text = block.text, !text.isEmpty, !block.isHidden,
+                NarrationCodeBlockCue.spokenText(for: block) == nil
+            else { continue }
+            result[block.id] = TextNormalizer.normalize(text)
+        }
+        return result
+    }
+
+    /// Off-main wrapper for contentSignature — same output, computed on the
+    /// cooperative pool instead of the main thread. See
+    /// `normalizeBlocksOffMain`'s doc comment: `@concurrent` (not plain
+    /// `nonisolated async`) is what makes that true under this project's
+    /// `SWIFT_APPROACHABLE_CONCURRENCY` build setting.
+    @concurrent
+    nonisolated static func contentSignatureOffMain(
+        for blocks: [EPubBlockRecord],
+        includeLeadOutPad: Bool,
+        overrides: PronunciationOverrides,
+        occurrenceOverrides: PronunciationOccurrenceOverrides,
+        normalizationMode: String,
+        pronunciationPack: EnglishPronunciationPack
+    ) async -> String {
+        #if DEBUG
+            let isMainThread = Self.debugIsMainThread()
+            Self.debugContentSignatureOffMainRanOnMainThread.withLock { $0 = isMainThread }
+        #endif
+        return contentSignature(
+            for: blocks, includeLeadOutPad: includeLeadOutPad, overrides: overrides,
+            occurrenceOverrides: occurrenceOverrides, normalizationMode: normalizationMode,
+            pronunciationPack: pronunciationPack)
+    }
+
+    nonisolated private static func renderedText(
         fromNormalized normalized: String,
         blockID: String,
         overrides: PronunciationOverrides,
@@ -341,7 +418,7 @@ final class NarrationService {
         let overrides = pronunciationOverrides()
         let occurrenceOverrides = pronunciationOccurrenceOverrides()
         let fmEnabled = fmEnabled
-        let fileURL = chapterCacheURL(
+        let fileURL = await chapterCacheURL(
             chapterIndex: chapterIndex,
             blocks: blocks,
             voice: voice,
@@ -450,7 +527,7 @@ final class NarrationService {
         let overrides = pronunciationOverrides()
         let occurrenceOverrides = pronunciationOccurrenceOverrides()
         let fmEnabled = fmEnabled
-        let fileURL = segmentCacheURL(
+        let fileURL = await segmentCacheURL(
             chapterIndex: chapterIndex,
             segmentIndex: segmentIndex,
             blocks: blocks,
@@ -944,6 +1021,7 @@ final class NarrationService {
         occurrenceOverrides: PronunciationOccurrenceOverrides,
         fmEnabled: Bool
     ) async -> [NarrationPreparedBlock] {
+        let normalizedByID = await Self.normalizeBlocksOffMain(blocks)
         var prepared: [NarrationPreparedBlock] = []
         prepared.reserveCapacity(blocks.count)
 
@@ -964,7 +1042,7 @@ final class NarrationService {
                 continue
             }
 
-            let normalized = TextNormalizer.normalize(block.text ?? "")
+            let normalized = normalizedByID[block.id] ?? TextNormalizer.normalize(block.text ?? "")
             let refined =
                 fmEnabled ? await FMNormalizer.refine(normalized, cache: fmCache) : normalized
             if refined != normalized {

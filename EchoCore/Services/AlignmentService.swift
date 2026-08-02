@@ -8,8 +8,12 @@ import os.log
 ///
 /// Public operations produce alignment anchors and recalculate affected
 /// `timeline_item` rows in a single DB transaction.
-struct AlignmentService {
-    static let isoFormatter = ISO8601DateFormatter()
+nonisolated struct AlignmentService {
+    // Computed rather than a cached `static let`: `ISO8601DateFormatter` is not
+    // Sendable, and this type is `nonisolated` so a shared static instance would be
+    // unsynchronized global mutable state. Construction is cheap; this keeps every
+    // call read-only-safe without an unsafe concurrency escape hatch.
+    static var isoFormatter: ISO8601DateFormatter { ISO8601DateFormatter() }
 
     private let logger = Logger(category: "Alignment")
     private let anchorDAO: AlignmentAnchorDAO
@@ -455,7 +459,7 @@ struct AlignmentService {
 
 // MARK: - TimelineDAO Alignment Extension
 
-extension TimelineDAO {
+nonisolated extension TimelineDAO {
     /// Updates alignment metadata for a timeline item linked to an EPUB block.
     /// Opens its own transaction — suitable for single-call use.
     func updateAlignment(

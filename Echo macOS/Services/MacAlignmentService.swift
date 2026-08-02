@@ -80,8 +80,10 @@ final class MacAlignmentService {
             "Aligning \(epubTokens.count) blocks with \(audioTokens.count) tokens…"
         alignmentProgress = 0.75
 
-        let candidates = TokenDTW.alignWithBisection(epub: epubTokens, audio: audioTokens)
-        let selected = AnchorSelector.select(candidates: candidates)
+        let selected = await Task.detached(priority: .utility) {
+            AnchorSelector.select(
+                candidates: TokenDTW.alignWithBisection(epub: epubTokens, audio: audioTokens))
+        }.value
         guard !selected.isEmpty else { throw AlignmentError.noAnchorsProduced }
 
         alignmentStatus = "Saving \(selected.count) anchors…"
@@ -118,7 +120,9 @@ final class MacAlignmentService {
         // Do it once here.
         alignmentStatus = "Recalculating timeline…"
         alignmentProgress = 0.95
-        try alignmentService.insertAnchors(records)
+        try await Task.detached(priority: .utility) {
+            try alignmentService.insertAnchors(records)
+        }.value
 
         // Emit the portable `alignment.json` sidecar next to the EPUB so this
         // Mac-produced alignment travels to the user's device (via their synced
