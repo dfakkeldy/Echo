@@ -6,6 +6,7 @@ struct PreparedNarrationPlaybackPlan {
     let chapters: [NarrationChapterRenderPlan]
     let segments: [NarrationSegmentPlanner.PlannedSegment]
     let expectedDurableFileNames: Set<String>
+    let expectedFileNamesByChapter: [Int: Set<String>]
     let renderedChapterIndices: Set<Int>
 
     var voiceOverrideCount: Int {
@@ -35,8 +36,10 @@ enum NarrationPlaybackPlanPreparation {
         resolveManifest: () throws -> AnthologyBuildManifest?,
         existingDurableFileNames: Set<String>,
         expectedFileName: (NarrationSegmentPlanner.PlannedSegment) async throws -> String,
+        validateActive: () throws -> Void = { try Task.checkCancellation() },
         cleanup: (Set<String>) throws -> Void
     ) async throws -> PreparedNarrationPlaybackPlan {
+        try validateActive()
         let manifest = try resolveManifest()
         let allRenderPlans = try NarrationChapterRenderPlanner.plan(
             chapters: allChapters,
@@ -62,55 +65,37 @@ enum NarrationPlaybackPlanPreparation {
             throw NarrationPlaybackPlanPreparationError.emptyRenderPlan
         }
 
-        var fileNamesBySegment: [(NarrationSegmentPlanner.PlannedSegment, String)] = []
-        fileNamesBySegment.reserveCapacity(segments.count)
+        let activeChapterIndices = Set(renderPlans.map(\.chapterIndex))
+        let excludedRenderPlans = allRenderPlans.filter {
+            !activeChapterIndices.contains($0.chapterIndex)
+        }
+        let expectedSegments = segments + NarrationSegmentPlanner.plan(excludedRenderPlans)
         var expectedFileNames = Set<String>()
-        for segment in segments {
+        var expectedFileNamesByChapter: [Int: Set<String>] = [:]
+        for segment in expectedSegments {
             let fileName = try await expectedFileName(segment)
+            try validateActive()
             guard expectedFileNames.insert(fileName).inserted else {
                 throw NarrationPlaybackPlanPreparationError.duplicateExpectedFileName(fileName)
             }
-            fileNamesBySegment.append((segment, fileName))
+            expectedFileNamesByChapter[segment.chapterIndex, default: []].insert(fileName)
         }
 
-        let chapterIndices = Set(segments.map(\.chapterIndex))
-        let renderedChapterIndices = Set(chapterIndices.filter { chapterIndex in
-            fileNamesBySegment
-                .filter { $0.0.chapterIndex == chapterIndex }
-                .allSatisfy { existingDurableFileNames.contains($0.1) }
-        })
-
-        let activeChapterIndices = Set(renderPlans.map(\.chapterIndex))
-        let excludedPlans = allRenderPlans.filter {
-            !activeChapterIndices.contains($0.chapterIndex)
+        let activeExpectedFileNamesByChapter = expectedFileNamesByChapter.filter {
+            activeChapterIndices.contains($0.key)
         }
-        let preservedExcludedFileNames = existingDurableFileNames.filter { fileName in
-            excludedPlans.contains { cacheFile(fileName, belongsTo: $0) }
-        }
-        let cleanupExpectedFileNames = expectedFileNames.union(preservedExcludedFileNames)
+        let renderedChapterIndices = NarrationOutlineReadiness.renderedChapterIndices(
+            expectedFileNamesByChapter: activeExpectedFileNamesByChapter,
+            existingFileNames: existingDurableFileNames)
 
-        try cleanup(cleanupExpectedFileNames)
+        try validateActive()
+        try cleanup(expectedFileNames)
         return PreparedNarrationPlaybackPlan(
             manifest: manifest,
             chapters: renderPlans,
             segments: segments,
-            expectedDurableFileNames: cleanupExpectedFileNames,
+            expectedDurableFileNames: expectedFileNames,
+            expectedFileNamesByChapter: expectedFileNamesByChapter,
             renderedChapterIndices: renderedChapterIndices)
-    }
-
-    private static func cacheFile(
-        _ fileName: String,
-        belongsTo plan: NarrationChapterRenderPlan
-    ) -> Bool {
-        let suffix = "-\(plan.voice.rawValue)-v\(NarrationFileNaming.renderVersion).m4a"
-        guard fileName.hasSuffix(suffix),
-            let location = NarrationFileNaming.location(fromFileName: fileName)
-        else { return false }
-
-        if let sourceChapterKey = plan.sourceChapterKey {
-            return location.stableChapterToken
-                == NarrationFileNaming.stableChapterToken(for: sourceChapterKey)
-        }
-        return location.chapterIndex == plan.chapterIndex
     }
 }

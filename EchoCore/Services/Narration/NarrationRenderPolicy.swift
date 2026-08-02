@@ -7,7 +7,19 @@ import Foundation
 /// Extracted from the inline logic in `PlayerModel+Narration.swift` so the
 /// look-ahead backpressure, pause-awareness, at-gap deadlock prevention,
 /// and book-switch guard are testable without constructing a full `PlayerModel`.
-enum NarrationRenderPolicy {
+nonisolated enum NarrationRenderPolicy {
+
+    /// Throws when a cooperative render task was cancelled or its captured book
+    /// is no longer active. Call immediately after suspension before side effects.
+    static func checkTaskIsActive(
+        currentFolderURL: String?,
+        audiobookID: String
+    ) throws {
+        try Task.checkCancellation()
+        guard !bookWasSwitched(currentFolderURL: currentFolderURL, audiobookID: audiobookID) else {
+            throw CancellationError()
+        }
+    }
 
     /// Whether the render loop should wait before synthesising the next chapter.
     ///

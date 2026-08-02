@@ -62,6 +62,26 @@ import Testing
         #expect(rows.map(\.isExcluded) == [false, true, false])
     }
 
+    @Test func readinessRecomputesFromEveryExactFilenameAfterRendering() {
+        let expectedByChapter: [Int: Set<String>] = [
+            0: ["chapter-0-segment-0.m4a", "chapter-0-segment-1.m4a"],
+            1: ["chapter-1-segment-0.m4a"],
+        ]
+
+        let initiallyRendered = NarrationOutlineReadiness.renderedChapterIndices(
+            expectedFileNamesByChapter: expectedByChapter,
+            existingFileNames: ["chapter-0-segment-0.m4a"])
+        let afterRendering = NarrationOutlineReadiness.renderedChapterIndices(
+            expectedFileNamesByChapter: expectedByChapter,
+            existingFileNames: [
+                "chapter-0-segment-0.m4a", "chapter-0-segment-1.m4a",
+                "chapter-1-segment-0.m4a",
+            ])
+
+        #expect(initiallyRendered.isEmpty)
+        #expect(afterRendering == [0, 1])
+    }
+
     @Test func titlePreservesClosingParenthesisAfterDuplicateChapterPrefixCleanup() {
         var blocks: [EPubBlockRecord] = []
         for chapter in 0..<7 {

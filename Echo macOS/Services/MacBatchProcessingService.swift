@@ -350,6 +350,7 @@ final class MacBatchProcessingService {
                             chapterIndex: chapter.index,
                             chapterDisplayNumber: chapter.displayNumber,
                             blocks: chapter.blocks,
+                            voice: voice,
                             chapterTitle: chapter.title)
                         continue
                     }

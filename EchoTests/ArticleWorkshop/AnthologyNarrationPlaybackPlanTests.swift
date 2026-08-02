@@ -68,6 +68,26 @@ import Testing
         #expect(reordered.first?.chapterIndex == 0)
     }
 
+    @Test func anthologyWithMissingStableResumeDoesNotFallBackToLegacyChapterIndex() throws {
+        let plans = try NarrationChapterRenderPlanner.plan(
+            chapters: chapters(keys: [entryA.uuidString, entryB.uuidString]),
+            preferredVoice: VoiceID("af_heart"),
+            manifest: manifest(entries: [(entryA, nil), (entryB, "bf_emma")]))
+        let legacyURL = URL(fileURLWithPath: "/cache/syn-book-ch1-s0-af_heart-rv16.m4a")
+
+        let anthologyTarget = NarrationResumeResolver.target(
+            fromLastTrackURL: legacyURL,
+            plans: plans,
+            isAnthology: true)
+        let ordinaryTarget = NarrationResumeResolver.target(
+            fromLastTrackURL: legacyURL,
+            plans: [],
+            isAnthology: false)
+
+        #expect(anthologyTarget == nil)
+        #expect(ordinaryTarget == .chapterIndex(1))
+    }
+
     @Test func invalidReceiptDoesNotComputeExpectedFilesOrRunCleanup() async {
         var expectedFileNameCalls = 0
         var cleanupCalls = 0
@@ -115,13 +135,20 @@ import Testing
     }
 
     @Test func cleanupPreservesCurrentCacheForExcludedChapter() async throws {
-        let excludedFileName = NarrationFileNaming.segmentFileName(
+        let exactExcludedFileName = NarrationFileNaming.segmentFileName(
             audiobookID: "book",
             chapterIndex: 1,
             sourceChapterKey: entryB.uuidString,
             segmentIndex: 0,
             voice: VoiceID("bf_emma"),
             contentSignature: "excluded")
+        let staleExcludedFileName = NarrationFileNaming.segmentFileName(
+            audiobookID: "book",
+            chapterIndex: 1,
+            sourceChapterKey: entryB.uuidString,
+            segmentIndex: 0,
+            voice: VoiceID("bf_emma"),
+            contentSignature: "stale-excluded")
         var cleanupExpectedFileNames = Set<String>()
 
         _ = try await NarrationPlaybackPlanPreparation.prepare(
@@ -129,13 +156,46 @@ import Testing
             allChapters: chapters(keys: [entryA.uuidString, entryB.uuidString]),
             preferredVoice: VoiceID("af_heart"),
             resolveManifest: { manifest(entries: [(entryA, nil), (entryB, "bf_emma")]) },
-            existingDurableFileNames: [excludedFileName],
+            existingDurableFileNames: [exactExcludedFileName, staleExcludedFileName],
             expectedFileName: { segment in
-                "active-\(segment.chapterIndex)-\(segment.segmentIndex).m4a"
+                segment.chapterIndex == 1
+                    ? exactExcludedFileName
+                    : "active-\(segment.chapterIndex)-\(segment.segmentIndex).m4a"
             },
             cleanup: { cleanupExpectedFileNames = $0 })
 
-        #expect(cleanupExpectedFileNames.contains(excludedFileName))
+        #expect(cleanupExpectedFileNames.contains(exactExcludedFileName))
+        #expect(!cleanupExpectedFileNames.contains(staleExcludedFileName))
+    }
+
+    @Test func cancellationAfterFilenameSuspensionPreventsCleanup() async {
+        var resumeFilename: CheckedContinuation<Void, Never>?
+        var filenameComputationStarted = false
+        var cleanupCalls = 0
+
+        let task = Task {
+            try await NarrationPlaybackPlanPreparation.prepare(
+                chapters: chapters(keys: [entryA.uuidString]),
+                allChapters: chapters(keys: [entryA.uuidString]),
+                preferredVoice: VoiceID("af_heart"),
+                resolveManifest: { manifest(entries: [(entryA, nil)]) },
+                existingDurableFileNames: [],
+                expectedFileName: { _ in
+                    filenameComputationStarted = true
+                    await withCheckedContinuation { resumeFilename = $0 }
+                    return "computed.m4a"
+                },
+                cleanup: { _ in cleanupCalls += 1 })
+        }
+
+        while !filenameComputationStarted { await Task.yield() }
+        task.cancel()
+        resumeFilename?.resume()
+
+        await #expect(throws: CancellationError.self) {
+            try await task.value
+        }
+        #expect(cleanupCalls == 0)
     }
 
     private enum FixtureError: Error {

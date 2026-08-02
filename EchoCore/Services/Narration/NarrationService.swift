@@ -437,6 +437,7 @@ final class NarrationService {
         chapterDisplayNumber: Int,
         segmentIndex: Int? = nil,
         blocks: [EPubBlockRecord],
+        voice: VoiceID,
         chapterTitle: String? = nil
     ) async throws {
         let savedTitle = Self.savedTitle(
@@ -452,10 +453,10 @@ final class NarrationService {
             try db.execute(
                 sql: """
                     UPDATE track
-                    SET title = ?, sort_order = ?
+                    SET title = ?, sort_order = ?, narration_voice = ?
                     WHERE id = ? AND audiobook_id = ?
                     """,
-                arguments: [savedTitle, sortOrder, trackID, audiobookID])
+                arguments: [savedTitle, sortOrder, voice.rawValue, trackID, audiobookID])
         }
     }
 

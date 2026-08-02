@@ -912,6 +912,7 @@ private actor ShadowEvaluatorRecorder {
             chapterDisplayNumber: 10,
             segmentIndex: 0,
             blocks: blocks,
+            voice: VoiceID("bf_emma"),
             chapterTitle: "After reorder")
 
         let tracks = try TrackDAO(db: db.writer).tracks(for: "b1")
@@ -924,6 +925,7 @@ private actor ShadowEvaluatorRecorder {
                     sourceChapterKey: sourceChapterKey, segmentIndex: 0))
         #expect(tracks.first?.title == "After reorder")
         #expect(tracks.first?.sortOrder == 9_000)
+        #expect(tracks.first?.narrationVoice == "bf_emma")
     }
 
     @Test func stableSegmentVoiceChangeCreatesOnlyThatChaptersNewCacheFile() async throws {

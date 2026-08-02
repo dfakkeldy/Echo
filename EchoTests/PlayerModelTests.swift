@@ -532,6 +532,38 @@ struct PlayerModelTests {
         #expect(cleanupIndex.lowerBound < synthesisIndex.lowerBound)
     }
 
+    @Test func narrationTaskGuardRejectsSwitchedBook() {
+        #expect(throws: CancellationError.self) {
+            try NarrationRenderPolicy.checkTaskIsActive(
+                currentFolderURL: "file:///new-book/",
+                audiobookID: "file:///old-book/")
+        }
+    }
+
+    @Test func narrationPreparationIsGuardedBeforeMutationAndTTS() throws {
+        let source = try Self.source(named: "PlayerModel+Narration.swift")
+        let importAwait = try #require(
+            source.range(of: "await self.playerLoadingCoordinator.documentImportTask?.value"))
+        let firstGuard = try #require(
+            source.range(
+                of: "try NarrationRenderPolicy.checkTaskIsActive(",
+                range: importAwait.upperBound..<source.endIndex))
+        let preparation = try #require(
+            source.range(of: "let preparation = try await NarrationPlaybackPlanPreparation.prepare("))
+        let postPreparationGuard = try #require(
+            source.range(
+                of: "try NarrationRenderPolicy.checkTaskIsActive(",
+                range: preparation.upperBound..<source.endIndex))
+        let stateMutation = try #require(source.range(of: "self.state.narrationDefaultVoice ="))
+        let ttsPreparation = try #require(source.range(of: "self.narrationTTS.prepare("))
+
+        #expect(importAwait.lowerBound < firstGuard.lowerBound)
+        #expect(firstGuard.lowerBound < preparation.lowerBound)
+        #expect(preparation.lowerBound < postPreparationGuard.lowerBound)
+        #expect(postPreparationGuard.lowerBound < stateMutation.lowerBound)
+        #expect(postPreparationGuard.lowerBound < ttsPreparation.lowerBound)
+    }
+
     private static func source(named fileName: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
