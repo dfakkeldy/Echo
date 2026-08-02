@@ -37,12 +37,8 @@ struct MacOffMainDecodeTests {
     @Test func macImageDecodeLoadCGImageStaysConcurrent() throws {
         let src = try MacSource.read("Services/MacImageDecode.swift")
         #expect(
-            src.contains("\n    @concurrent\n"),
-            "loadCGImage must stay @concurrent — under this project's SWIFT_APPROACHABLE_CONCURRENCY build setting, plain `nonisolated async` runs ON the caller's (main) actor, not off it."
-        )
-        #expect(
-            src.contains("func loadCGImage("),
-            "The @concurrent attribute above must still be immediately followed by the loadCGImage declaration."
+            src.contains("@concurrent static func loadCGImage("),
+            "loadCGImage must stay @concurrent — under this project's SWIFT_APPROACHABLE_CONCURRENCY build setting, plain `nonisolated async` runs ON the caller's (main) actor, not off it. This literal is a fixed point of MacSource.normalized, so formatter rewrapping cannot break it."
         )
         #expect(
             src.contains("debugLoadCGImageRanOnMainThread = Mutex<Bool?>(nil)"),
@@ -56,7 +52,7 @@ struct MacOffMainDecodeTests {
     @Test func macArtworkLoaderLoadStaysConcurrent() throws {
         let src = try MacSource.read("Views/MacPlayerModel.swift")
         #expect(
-            src.contains("\n    @concurrent\n"),
+            src.contains("@concurrent static func load(for url: URL"),
             "MacArtworkLoader.load must stay @concurrent — under this project's SWIFT_APPROACHABLE_CONCURRENCY build setting, plain `nonisolated async` runs ON the caller's (main) actor, not off it."
         )
         #expect(
@@ -80,7 +76,7 @@ struct MacOffMainDecodeTests {
     @Test func transcriptStoreReadIndexStaysConcurrent() throws {
         let src = try MacSource.read("Views/TranscriptStore.swift")
         #expect(
-            src.contains("\n    @concurrent\n"),
+            src.contains("@concurrent nonisolated static func readIndex(from"),
             "readIndex must stay @concurrent — under this project's SWIFT_APPROACHABLE_CONCURRENCY build setting, plain `nonisolated async` called from an unstructured Task inside a @MainActor class runs ON the main thread, not off it."
         )
         #expect(
