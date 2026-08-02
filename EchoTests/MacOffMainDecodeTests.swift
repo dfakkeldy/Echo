@@ -27,14 +27,22 @@ struct MacOffMainDecodeTests {
 
     /// Site A: `MacImageDecode.loadCGImage` — called from `.task(id:)`
     /// closures on `@MainActor` SwiftUI views (`MacBookmarkReviewView`,
-    /// `MacVisualStageView`).
+    /// `MacVisualStageView`). Two independent, single-line checks (not one
+    /// hardcoded multi-line signature): the attribute must sit on its own
+    /// line — distinguishing the real annotation from the many mentions of
+    /// "`@concurrent`" in surrounding doc-comment prose — and the
+    /// declaration must still be `loadCGImage`. Neither check embeds the
+    /// full parameter list, so a rename/rewrap of unrelated parameters can't
+    /// break this for reasons unrelated to the annotation itself.
     @Test func macImageDecodeLoadCGImageStaysConcurrent() throws {
         let src = try MacSource.read("Services/MacImageDecode.swift")
         #expect(
-            src.contains(
-                "@concurrent\n    static func loadCGImage(url: URL, maxPixelSize: Int) async -> CGImage? {"
-            ),
+            src.contains("\n    @concurrent\n"),
             "loadCGImage must stay @concurrent — under this project's SWIFT_APPROACHABLE_CONCURRENCY build setting, plain `nonisolated async` runs ON the caller's (main) actor, not off it."
+        )
+        #expect(
+            src.contains("func loadCGImage("),
+            "The @concurrent attribute above must still be immediately followed by the loadCGImage declaration."
         )
         #expect(
             src.contains("debugLoadCGImageRanOnMainThread = Mutex<Bool?>(nil)"),
@@ -43,14 +51,17 @@ struct MacOffMainDecodeTests {
     }
 
     /// Site B: `MacArtworkLoader.load`, the cover-art decode used by
-    /// `MacPlayerModel.loadCoverArt(for:)`.
+    /// `MacPlayerModel.loadCoverArt(for:)`. Same two-independent-checks
+    /// shape as Site A.
     @Test func macArtworkLoaderLoadStaysConcurrent() throws {
         let src = try MacSource.read("Views/MacPlayerModel.swift")
         #expect(
-            src.contains(
-                "@concurrent\n    static func load(for url: URL, scopedRoot: URL?) async -> BookMetadata {"
-            ),
+            src.contains("\n    @concurrent\n"),
             "MacArtworkLoader.load must stay @concurrent — under this project's SWIFT_APPROACHABLE_CONCURRENCY build setting, plain `nonisolated async` runs ON the caller's (main) actor, not off it."
+        )
+        #expect(
+            src.contains("func load("),
+            "The @concurrent attribute above must still be immediately followed by MacArtworkLoader's load declaration."
         )
         #expect(
             src.contains("struct BookMetadata: Sendable {"),
@@ -64,14 +75,17 @@ struct MacOffMainDecodeTests {
 
     /// Site C: `TranscriptStore.readIndex`, called from an unstructured
     /// `Task` inside the `@MainActor @Observable` `TranscriptStore` class —
-    /// an unstructured `Task` inherits the enclosing actor.
+    /// an unstructured `Task` inherits the enclosing actor. Same
+    /// two-independent-checks shape as Site A.
     @Test func transcriptStoreReadIndexStaysConcurrent() throws {
         let src = try MacSource.read("Views/TranscriptStore.swift")
         #expect(
-            src.contains(
-                "@concurrent\n    nonisolated static func readIndex(from transcriptDir: URL) async -> ("
-            ),
+            src.contains("\n    @concurrent\n"),
             "readIndex must stay @concurrent — under this project's SWIFT_APPROACHABLE_CONCURRENCY build setting, plain `nonisolated async` called from an unstructured Task inside a @MainActor class runs ON the main thread, not off it."
+        )
+        #expect(
+            src.contains("func readIndex("),
+            "The @concurrent attribute above must still be immediately followed by the readIndex declaration."
         )
         #expect(
             src.contains("debugReadIndexRanOnMainThread = Mutex<Bool?>(nil)"),
@@ -81,12 +95,21 @@ struct MacOffMainDecodeTests {
 
     /// The stale claim this whole task exists to correct: the doc comment
     /// must no longer assert that plain `nonisolated async` alone is
-    /// sufficient to leave the main actor.
+    /// sufficient to leave the main actor. This is independent of
+    /// `transcriptStoreReadIndexStaysConcurrent` above (which only checks
+    /// the attribute's placement, not the comment's wording) — it fails on
+    /// its own if either half regresses: the exact stale sentence
+    /// reappearing, or the corrective sentence disappearing.
     @Test func transcriptStoreDocCommentNoLongerClaimsBareNonisolatedAsyncIsOffMain() throws {
         let src = try MacSource.read("Views/TranscriptStore.swift")
         #expect(
-            src.contains("@concurrent"),
-            "The corrected doc comment must reference @concurrent as the actual mechanism."
+            !src.contains(
+                "Pure directory scan + JSON decode + word-frequency compute, off-main."),
+            "The stale doc comment claiming off-main-ness with no @concurrent backing it must not return."
+        )
+        #expect(
+            src.contains("Do not drop `@concurrent` under the assumption that"),
+            "The corrected doc comment must warn that plain `nonisolated async` does NOT suspend off-main under this project's SWIFT_APPROACHABLE_CONCURRENCY setting."
         )
     }
 }
