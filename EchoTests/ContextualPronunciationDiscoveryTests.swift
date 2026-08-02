@@ -76,6 +76,18 @@ import Testing
         #expect(occurrences.isEmpty)
     }
 
+    @Test func emDashJoinedFamilySpellingKeepsItsCanonicalWordSpan() throws {
+        let occurrences = ContextualPronunciationDiscovery.discover(
+            text: "Generate code or content—so it works.",
+            blockID: "b-em-dash")
+
+        let item = try #require(occurrences.first)
+        #expect(occurrences.count == 1)
+        #expect(item.targetWord == "content")
+        #expect(item.wordStart == 3)
+        #expect(item.wordEnd == 3)
+    }
+
     @Test func occurrenceIDIsTheSpecifiedIndependentSHA256() throws {
         let first = try #require(
             ContextualPronunciationDiscovery.discover(text: "read", blockID: "b1").first)

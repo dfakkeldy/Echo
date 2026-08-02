@@ -946,6 +946,36 @@ import Testing
         #expect(plan.pronunciationAuditDiagnostics.isEmpty)
     }
 
+    @Test func emDashJoinedMonitoredLexiconDecisionReceivesContextualEvidence() throws {
+        let text = "Generate code or content—so it works."
+        let occurrence = try #require(
+            ContextualPronunciationDiscovery.discover(
+                text: text,
+                blockID: "em-dash-context"
+            ).first)
+        let evidence = contextualEvidence(for: occurrence, slot: .a)
+        let key = ContextualPronunciationKey(
+            blockID: occurrence.blockID,
+            wordStart: occurrence.wordStart,
+            wordEnd: occurrence.wordEnd)
+
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "em-dash-context", text: text, index: 0)],
+            overrides: PronunciationOverrides(entries: [:]),
+            contextualEvidence: [key: evidence])
+        let decision = try #require(
+            plan.blocks.first?.pronunciationDecisions.first {
+                $0.normalizedWord == "content"
+            })
+
+        #expect(decision.wordStart == 3)
+        #expect(decision.wordEnd == 3)
+        #expect(decision.selectedIPA == "kˈɑntɛnt")
+        #expect(decision.source == .monitoredLexicon)
+        #expect(decision.contextualEvidence == evidence)
+        #expect(plan.pronunciationAuditDiagnostics.isEmpty)
+    }
+
     @Test func contextualEvidenceIdentityAndCandidatePackMismatchesFailClosed() throws {
         let text = "Please record this."
         let occurrence = try #require(
