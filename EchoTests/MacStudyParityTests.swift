@@ -60,15 +60,18 @@ struct MacStudyParityTests {
         #expect(
             app.contains("Generate Study Deck…")
                 && app.contains("requestGenerateStudyDeck"),
-            "The macOS Study menu must expose Generate Study Deck and route it through a window notification.")
+            "The macOS Study menu must expose Generate Study Deck and route it through a window notification."
+        )
         #expect(
             app.contains("Import Deck…")
                 && app.contains("requestImportDeck"),
-            "The macOS Study menu must expose Import Deck and route it through a window notification.")
+            "The macOS Study menu must expose Import Deck and route it through a window notification."
+        )
         #expect(
             app.contains("player.audiobookID == nil")
                 && app.contains("player.dbService == nil"),
-            "Generate Study Deck must require a loaded macOS audiobook and configured database writer.")
+            "Generate Study Deck must require a loaded macOS audiobook and configured database writer."
+        )
     }
 
     @Test func triPaneHostsStudyDeckGenerationSheet() throws {
@@ -77,22 +80,26 @@ struct MacStudyParityTests {
             triPane.contains(".requestGenerateStudyDeck")
                 && triPane.contains("StudyDeckGenerationSheet(")
                 && triPane.contains("StudyDeckGenerationViewModel("),
-            "MacTriPaneView must present the shared StudyDeckGenerationSheet/ViewModel when requested.")
+            "MacTriPaneView must present the shared StudyDeckGenerationSheet/ViewModel when requested."
+        )
         #expect(
             triPane.contains("player.audiobookID")
                 && triPane.contains("StudyPlanBookTitleResolver.resolve(")
                 && triPane.contains("dbService.writer"),
-            "Deck generation must use the current macOS audiobook id, resolved book title, and shared DB writer.")
+            "Deck generation must use the current macOS audiobook id, resolved book title, and shared DB writer."
+        )
     }
 
     @Test func studyDeckGenerationPrefersLoadedFileTitleBeforeParentFolder() throws {
         let triPane = try MacSource.read("Views/MacTriPaneView.swift")
         let resolver = try #require(
-            triPane.range(of: "static func resolve(\n        storedTitle: String?,")
+            triPane.range(of: "static func resolve(storedTitle: String?,")
         )
         let resolverBody = triPane[resolver.lowerBound...]
-        let currentTitleFallback = try #require(resolverBody.range(of: "?? normalizedTitle(currentTitle)"))
-        let folderTitleFallback = try #require(resolverBody.range(of: "?? normalizedTitle(folderTitle)"))
+        let currentTitleFallback = try #require(
+            resolverBody.range(of: "?? normalizedTitle(currentTitle)"))
+        let folderTitleFallback = try #require(
+            resolverBody.range(of: "?? normalizedTitle(folderTitle)"))
 
         #expect(
             currentTitleFallback.lowerBound < folderTitleFallback.lowerBound,
@@ -111,7 +118,8 @@ struct MacStudyParityTests {
             triPane.contains("DeckImportService().importDeckVNext(from:")
                 && triPane.contains("startAccessingSecurityScopedResource()")
                 && triPane.contains("stopAccessingSecurityScopedResource()"),
-            "The macOS import path must use DeckImportService.importDeckVNext with balanced security-scoped file access.")
+            "The macOS import path must use DeckImportService.importDeckVNext with balanced security-scoped file access."
+        )
         #expect(
             triPane.contains("Import Complete")
                 && triPane.contains("Import Failed")
