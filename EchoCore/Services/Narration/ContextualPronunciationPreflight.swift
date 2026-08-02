@@ -73,7 +73,11 @@ nonisolated enum ContextualPronunciationPreflight {
                     finalAttempt: false,
                     terminalFailure: failure)
 
-            case .timeout, .rateLimited, .assetsUnavailable:
+            // A missing context window is transient, not a size problem, so it
+            // earns a fresh attempt at the same batch size rather than the
+            // pointless halving that an oversized prompt would deserve.
+            case .timeout, .rateLimited, .assetsUnavailable,
+                .contextWindowUnavailable:
                 try Task.checkCancellation()
                 return try await processFinalAttempt(
                     occurrences,
@@ -194,11 +198,14 @@ nonisolated enum ContextualPronunciationPreflight {
                 validatedSelections: nil)
         }
 
-        if result.failure != nil {
-            return makeEvidence(
+        if let retryFailure = result.failure {
+            // Report the failure that started the retry, not the one the retry
+            // happened to hit. A retry that trips a *different* guard would
+            // otherwise erase the original cause from the audit.
+            return makeFailureEvidence(
                 for: occurrences,
-                result: result,
-                validatedSelections: nil)
+                failure: terminalFailure ?? retryFailure,
+                runtime: result.runtime)
         }
 
         guard let selections = validatedSelections(result, for: occurrences) else {

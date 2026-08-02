@@ -74,7 +74,12 @@ nonisolated enum ContextualModelAvailability: String, Codable, Equatable, Sendab
 }
 
 nonisolated enum ContextualModelFailure: String, Codable, Equatable, Sendable {
+    /// The prompt genuinely exceeded the model's context window.
     case contextTooLarge
+    /// The runtime reported no usable context window, so the prompt could not
+    /// be size-checked at all. Distinct from `contextTooLarge`: nothing was
+    /// oversized, the window size was simply unknown.
+    case contextWindowUnavailable
     case guardrail
     case refusal
     case unsupportedLanguageOrLocale
