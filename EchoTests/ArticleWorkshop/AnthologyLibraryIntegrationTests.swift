@@ -176,7 +176,7 @@ struct AnthologyLibraryRollbackIntegrationTests {
         let failure = try #require(
             try fixture.builds().first { $0.status == "failed" })
         #expect(failure.status == "failed")
-        #expect(failure.errorCode == "build_failed")
+        #expect(failure.errorCode == "generated_import_rollback_limit")
     }
 
     @Test func rollbackSnapshotValidationFailureIsReportedAsLibraryRecoveryFailure() async throws {

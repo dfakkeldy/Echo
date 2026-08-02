@@ -231,6 +231,19 @@ private nonisolated final class ArticleXHTMLSanitizerDelegate: NSObject, XMLPars
             isInCaption = true
             return
         }
+        if name == "br" {
+            if isInCaption, !figureContexts.isEmpty {
+                appendCollapsed(" ", to: &figureContexts[figureContexts.count - 1].caption)
+            } else if var block = activeBlock {
+                if block.kind == .code {
+                    block.text += "\n"
+                } else {
+                    appendCollapsed(" ", to: &block.text)
+                }
+                activeBlock = block
+            }
+            return
+        }
         if isInCaption { return }
 
         if name == "img" {

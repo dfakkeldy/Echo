@@ -60,6 +60,7 @@ struct GeneratedAnthologyImportTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let title = String(repeating: "Long generated anthology title ", count: 5)
+            .trimmingCharacters(in: .whitespaces)
         #expect(title.count > 100)
         let manifest = fixture.manifest(chapters: [
             fixture.chapter(slot: 0, order: 0, title: title, body: "Body")
