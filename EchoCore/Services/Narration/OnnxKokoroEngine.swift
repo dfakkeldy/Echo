@@ -39,6 +39,10 @@
         private var initializationTask: Task<Void, Error>?
         private var progressFanOut: ProgressFanOut?
         private var didLogFirstSynthesis = false
+        /// Run options shared by every session.run: asks ORT to shrink the CPU
+        /// memory arena back after each run, so the arena no longer ratchets up to
+        /// the largest chunk's activation peak for the session's lifetime (§7.1).
+        private var runOptions: ORTRunOptions?
 
         /// Actor-confined Kokoro compatibility front end and per-voice style cache.
         /// Planned synthesis only asks it for a style row; its legacy G2P/vocab path
@@ -318,7 +322,7 @@
             let outputs = try session.run(
                 withInputs: ["input_ids": inputIds, "style": styleValue, "speed": speedValue],
                 outputNames: ["waveform"],
-                runOptions: nil)
+                runOptions: runOptions)
             let computeS = Date().timeIntervalSince(runStart)
 
             guard let waveform = outputs["waveform"] else { throw NarrationError.engineUnavailable }
@@ -372,7 +376,7 @@
                     shape: [NSNumber(value: 1)])
                 let outputs = try durationSession.run(
                     withInputs: ["input_ids": inputIds, "style": styleValue, "speed": speedValue],
-                    outputNames: [Self.durationOutputName], runOptions: nil)
+                    outputNames: [Self.durationOutputName], runOptions: runOptions)
                 guard let durValue = outputs[Self.durationOutputName] else { return nil }
                 let frames = try durValue.tensorData().toFloatArray()
                 guard frames.count == ids32.count else { return nil }
@@ -424,6 +428,39 @@
             self.env = env
             self.session = session
             self.durationSession = durationSession
+            self.runOptions = try? Self.makeRunOptions()
+        }
+
+        /// Releases both ONNX sessions, the env, and the arena they own. prepare()
+        /// lazily re-creates everything on the next synthesis, so callers may
+        /// unload aggressively at render-completion boundaries.
+        ///
+        /// Declared `async` (though the body never suspends) to exactly match the
+        /// `TTSEngine.unload() async` requirement's signature — a sync witness for
+        /// an async requirement otherwise loses overload resolution to the
+        /// protocol extension's default no-op when called on the concrete type,
+        /// silently turning every call here into a no-op.
+        func unload() async {
+            initializationTask?.cancel()
+            initializationTask = nil
+            session = nil
+            durationSession = nil
+            env = nil
+            runOptions = nil
+        }
+
+        /// Test seam: whether the waveform session is currently resident.
+        var isPreparedForTesting: Bool {
+            session != nil
+        }
+
+        /// Builds the shared run options. "cpu:0" names the CPU EP's default
+        /// device arena — ORT shrinks it at the end of each Run() carrying this key.
+        private nonisolated static func makeRunOptions() throws -> ORTRunOptions {
+            let options = try ORTRunOptions()
+            try options.addConfigEntry(
+                withKey: "memory.enable_memory_arena_shrinkage", value: "cpu:0")
+            return options
         }
 
         /// Copies a numeric array's raw bytes into `NSMutableData` for an ORTValue
