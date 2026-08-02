@@ -183,7 +183,7 @@ final class NarrationService {
         blocks: [EPubBlockRecord],
         voice: VoiceID
     ) async -> URL {
-        chapterCacheURL(
+        await chapterCacheURL(
             chapterIndex: chapterIndex,
             blocks: blocks,
             voice: voice,
@@ -199,7 +199,7 @@ final class NarrationService {
         blocks: [EPubBlockRecord],
         voice: VoiceID
     ) async -> URL {
-        segmentCacheURL(
+        await segmentCacheURL(
             chapterIndex: chapterIndex,
             segmentIndex: segmentIndex,
             blocks: blocks,
@@ -218,8 +218,8 @@ final class NarrationService {
         occurrenceOverrides: PronunciationOccurrenceOverrides,
         normalizationMode: String,
         pronunciationPack: EnglishPronunciationPack
-    ) -> URL {
-        let signature = Self.contentSignature(
+    ) async -> URL {
+        let signature = await Self.contentSignatureOffMain(
             for: blocks,
             includeLeadOutPad: true,
             overrides: overrides,
@@ -243,8 +243,8 @@ final class NarrationService {
         occurrenceOverrides: PronunciationOccurrenceOverrides,
         normalizationMode: String,
         pronunciationPack: EnglishPronunciationPack
-    ) -> URL {
-        let signature = Self.contentSignature(
+    ) async -> URL {
+        let signature = await Self.contentSignatureOffMain(
             for: blocks,
             includeLeadOutPad: false,
             overrides: overrides,
@@ -260,7 +260,7 @@ final class NarrationService {
                 contentSignature: signature))
     }
 
-    static func contentSignature(
+    nonisolated static func contentSignature(
         for blocks: [EPubBlockRecord],
         includeLeadOutPad: Bool,
         overrides: PronunciationOverrides,
@@ -294,7 +294,40 @@ final class NarrationService {
             pronunciationPolicySignature: pronunciationPack.productionPolicySignature)
     }
 
-    private static func renderedText(
+    /// Runs TextNormalizer over every spoken, non-code block OFF the main
+    /// actor (nonisolated async ⇒ executes on the cooperative pool at the
+    /// caller's priority). Returns blockID → normalized text.
+    nonisolated static func normalizeBlocksOffMain(
+        _ blocks: [EPubBlockRecord]
+    ) async -> [String: String] {
+        var result: [String: String] = [:]
+        result.reserveCapacity(blocks.count)
+        for block in blocks {
+            guard let text = block.text, !text.isEmpty, !block.isHidden,
+                NarrationCodeBlockCue.spokenText(for: block) == nil
+            else { continue }
+            result[block.id] = TextNormalizer.normalize(text)
+        }
+        return result
+    }
+
+    /// Off-main wrapper for contentSignature — same output, computed on the
+    /// cooperative pool instead of the main thread.
+    nonisolated static func contentSignatureOffMain(
+        for blocks: [EPubBlockRecord],
+        includeLeadOutPad: Bool,
+        overrides: PronunciationOverrides,
+        occurrenceOverrides: PronunciationOccurrenceOverrides,
+        normalizationMode: String,
+        pronunciationPack: EnglishPronunciationPack
+    ) async -> String {
+        contentSignature(
+            for: blocks, includeLeadOutPad: includeLeadOutPad, overrides: overrides,
+            occurrenceOverrides: occurrenceOverrides, normalizationMode: normalizationMode,
+            pronunciationPack: pronunciationPack)
+    }
+
+    nonisolated private static func renderedText(
         fromNormalized normalized: String,
         blockID: String,
         overrides: PronunciationOverrides,
@@ -341,7 +374,7 @@ final class NarrationService {
         let overrides = pronunciationOverrides()
         let occurrenceOverrides = pronunciationOccurrenceOverrides()
         let fmEnabled = fmEnabled
-        let fileURL = chapterCacheURL(
+        let fileURL = await chapterCacheURL(
             chapterIndex: chapterIndex,
             blocks: blocks,
             voice: voice,
@@ -450,7 +483,7 @@ final class NarrationService {
         let overrides = pronunciationOverrides()
         let occurrenceOverrides = pronunciationOccurrenceOverrides()
         let fmEnabled = fmEnabled
-        let fileURL = segmentCacheURL(
+        let fileURL = await segmentCacheURL(
             chapterIndex: chapterIndex,
             segmentIndex: segmentIndex,
             blocks: blocks,
@@ -944,6 +977,7 @@ final class NarrationService {
         occurrenceOverrides: PronunciationOccurrenceOverrides,
         fmEnabled: Bool
     ) async -> [NarrationPreparedBlock] {
+        let normalizedByID = await Self.normalizeBlocksOffMain(blocks)
         var prepared: [NarrationPreparedBlock] = []
         prepared.reserveCapacity(blocks.count)
 
@@ -964,7 +998,7 @@ final class NarrationService {
                 continue
             }
 
-            let normalized = TextNormalizer.normalize(block.text ?? "")
+            let normalized = normalizedByID[block.id] ?? TextNormalizer.normalize(block.text ?? "")
             let refined =
                 fmEnabled ? await FMNormalizer.refine(normalized, cache: fmCache) : normalized
             if refined != normalized {

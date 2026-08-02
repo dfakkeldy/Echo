@@ -27,7 +27,7 @@ import Foundation
 /// - Never loses content: concatenating the pieces reproduces the input modulo
 ///   collapsed runs of whitespace.
 /// - Empty / whitespace-only input → `[]`.
-enum NarrationTextChunker {
+nonisolated enum NarrationTextChunker {
     nonisolated private static let linkDetector = try? NSDataDetector(
         types: NSTextCheckingResult.CheckingType.link.rawValue)
 

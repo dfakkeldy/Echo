@@ -160,7 +160,7 @@ final class MacBatchProcessingService {
         guard runner == nil else { return }
         let runner = BatchQueueRunner(dao: dao, stages: makeStages())
         self.runner = runner
-        Task { [weak self] in
+        Task(priority: .utility) { [weak self] in
             guard let self else { return }
             self.isProcessing = true
             await runner.drain()

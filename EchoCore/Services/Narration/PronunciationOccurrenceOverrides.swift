@@ -3,7 +3,7 @@ import Foundation
 
 /// A single source-position pronunciation correction accepted from narration QA.
 /// Word indices are the same whitespace-token indices used by `NarrationQADetector`.
-struct PronunciationOccurrenceOverride: Codable, Equatable, Sendable {
+nonisolated struct PronunciationOccurrenceOverride: Codable, Equatable, Sendable {
     let blockID: String
     let wordStart: Int
     let wordEnd: Int
@@ -14,7 +14,7 @@ struct PronunciationOccurrenceOverride: Codable, Equatable, Sendable {
 /// Block-scoped pronunciation corrections for specific word positions. This is
 /// intentionally separate from the global/book dictionary: it lets a reviewer fix
 /// one ambiguous occurrence without changing every matching word in the book.
-struct PronunciationOccurrenceOverrides: Equatable, Sendable {
+nonisolated struct PronunciationOccurrenceOverrides: Equatable, Sendable {
     let entries: [PronunciationOccurrenceOverride]
 
     static let empty = PronunciationOccurrenceOverrides(entries: [])
