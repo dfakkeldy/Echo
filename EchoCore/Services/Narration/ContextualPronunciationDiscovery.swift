@@ -245,6 +245,7 @@ nonisolated enum ContextualPronunciationDiscovery {
     }
 
     private static let wordRegex = try! NSRegularExpression(pattern: #"\b[\p{L}]+\b"#)
+    private static let hyphens: Set<Character> = ["-", "‑"]
 
     static func discover(
         text: String,
@@ -314,8 +315,10 @@ nonisolated enum ContextualPronunciationDiscovery {
             guard let wordSpan,
                 wordSpan.lowerBound == wordSpan.upperBound,
                 sourceSnapshot.displayWords.indices.contains(wordSpan.lowerBound),
-                PronunciationAuditContext.normalizedWord(
-                    sourceSnapshot.displayWords[wordSpan.lowerBound]) == token.normalized,
+                canonicalWord(
+                    sourceSnapshot.displayWords[wordSpan.lowerBound],
+                    matches: token,
+                    in: text),
                 let sentenceIndex
             else {
                 continue
@@ -344,6 +347,43 @@ nonisolated enum ContextualPronunciationDiscovery {
                     deterministicStrength: analysis.strength))
         }
         return occurrences
+    }
+
+    private static func canonicalWord(
+        _ canonicalWord: String,
+        matches token: SourceToken,
+        in source: String
+    ) -> Bool {
+        if PronunciationAuditContext.normalizedWord(canonicalWord) == token.normalized {
+            return true
+        }
+
+        guard isHyphenated(token.range, in: source) else { return false }
+        let fullRange = NSRange(
+            canonicalWord.startIndex..<canonicalWord.endIndex, in: canonicalWord)
+        let monitoredComponents = wordRegex.matches(in: canonicalWord, range: fullRange).compactMap
+        {
+            match -> String? in
+            guard let range = Range(match.range, in: canonicalWord) else { return nil }
+            let normalized = PronunciationAuditContext.canonicalEnglishKeySpelling(
+                String(canonicalWord[range]))
+            return ContextualPronunciationFamilies.family(for: normalized) == nil
+                ? nil : normalized
+        }
+        return monitoredComponents == [token.normalized]
+    }
+
+    private static func isHyphenated(
+        _ range: Range<String.Index>,
+        in text: String
+    ) -> Bool {
+        if range.lowerBound > text.startIndex,
+            hyphens.contains(text[text.index(before: range.lowerBound)])
+        {
+            return true
+        }
+        return range.upperBound < text.endIndex
+            && hyphens.contains(text[range.upperBound])
     }
 
     private static func tokens(
