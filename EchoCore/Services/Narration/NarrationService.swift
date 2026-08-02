@@ -4,6 +4,10 @@ import Foundation
 import GRDB
 import os.log
 
+#if DEBUG
+    import Synchronization
+#endif
+
 enum NarrationError: Error, Equatable {
     case synthesisFailed
     case audiobookNotFound
@@ -297,13 +301,19 @@ final class NarrationService {
     #if DEBUG
         /// Test-only observation seam: records whether the most recent
         /// `normalizeBlocksOffMain` call executed its body on the main thread.
-        /// Not synchronized — safe only because a single test exercises this
-        /// seam at a time (true today: `NarrationOffMainPlanningTests` is the
-        /// only caller under test). Exists so the off-main guarantee is
-        /// verified empirically instead of trusted from the annotation alone.
-        nonisolated(unsafe) static var debugNormalizeBlocksRanOnMainThread: Bool?
+        /// Mutex-protected (not `nonisolated(unsafe)`) because this seam is NOT
+        /// single-writer in practice: production `prepareBlocksForRenderPlan`
+        /// calls `normalizeBlocksOffMain` too, and several tests in
+        /// `NarrationOffMainPlanningTests` call it directly. Nothing races
+        /// today only because the Makefile pins `-parallel-testing-enabled NO`
+        /// (Makefile:91,99) — there's no `.xctestplan` enforcing that for an
+        /// Xcode-UI test run, so the mutex is what actually keeps this correct
+        /// rather than an assumption about how tests happen to be invoked.
+        /// Exists so the off-main guarantee is verified empirically instead of
+        /// trusted from the `@concurrent` annotation alone.
+        nonisolated static let debugNormalizeBlocksRanOnMainThread = Mutex<Bool?>(nil)
         /// Same seam for `contentSignatureOffMain`.
-        nonisolated(unsafe) static var debugContentSignatureOffMainRanOnMainThread: Bool?
+        nonisolated static let debugContentSignatureOffMainRanOnMainThread = Mutex<Bool?>(nil)
         /// `Thread.isMainThread` is `NS_SWIFT_UNAVAILABLE_FROM_ASYNC` — reading it
         /// directly inside an `async` function body doesn't compile. This
         /// synchronous wrapper is the sanctioned way to read it from async code.
@@ -323,7 +333,8 @@ final class NarrationService {
         _ blocks: [EPubBlockRecord]
     ) async -> [String: String] {
         #if DEBUG
-            Self.debugNormalizeBlocksRanOnMainThread = Self.debugIsMainThread()
+            let isMainThread = Self.debugIsMainThread()
+            Self.debugNormalizeBlocksRanOnMainThread.withLock { $0 = isMainThread }
         #endif
         var result: [String: String] = [:]
         result.reserveCapacity(blocks.count)
@@ -351,7 +362,8 @@ final class NarrationService {
         pronunciationPack: EnglishPronunciationPack
     ) async -> String {
         #if DEBUG
-            Self.debugContentSignatureOffMainRanOnMainThread = Self.debugIsMainThread()
+            let isMainThread = Self.debugIsMainThread()
+            Self.debugContentSignatureOffMainRanOnMainThread.withLock { $0 = isMainThread }
         #endif
         return contentSignature(
             for: blocks, includeLeadOutPad: includeLeadOutPad, overrides: overrides,

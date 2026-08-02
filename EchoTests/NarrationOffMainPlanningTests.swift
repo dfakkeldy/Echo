@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import Synchronization
 import Testing
 
 @testable import Echo
@@ -28,16 +29,19 @@ struct NarrationOffMainPlanningTests {
     /// callee's own body (via the debug seam) is what catches a regression
     /// that a "did it type-check" check cannot.
     @Test @MainActor func normalizeBlocksOffMainDoesNotRunOnTheMainThread() async {
-        NarrationService.debugNormalizeBlocksRanOnMainThread = nil
+        NarrationService.debugNormalizeBlocksRanOnMainThread.withLock { $0 = nil }
         _ = await NarrationService.normalizeBlocksOffMain([
             block(id: "b0", sequence: 0, text: "Hello there.")
         ])
-        #expect(NarrationService.debugNormalizeBlocksRanOnMainThread == false)
+        let observedOnMainThread = NarrationService.debugNormalizeBlocksRanOnMainThread.withLock {
+            $0
+        }
+        #expect(observedOnMainThread == false)
     }
 
     /// Same empirical check for the other off-main entry point.
     @Test @MainActor func contentSignatureOffMainDoesNotRunOnTheMainThread() async {
-        NarrationService.debugContentSignatureOffMainRanOnMainThread = nil
+        NarrationService.debugContentSignatureOffMainRanOnMainThread.withLock { $0 = nil }
         _ = await NarrationService.contentSignatureOffMain(
             for: [block(id: "b0", sequence: 0, text: "Hello there.")],
             includeLeadOutPad: true,
@@ -45,7 +49,9 @@ struct NarrationOffMainPlanningTests {
             occurrenceOverrides: .empty,
             normalizationMode: "deterministic",
             pronunciationPack: .empty)
-        #expect(NarrationService.debugContentSignatureOffMainRanOnMainThread == false)
+        let observedOnMainThread = NarrationService.debugContentSignatureOffMainRanOnMainThread
+            .withLock { $0 }
+        #expect(observedOnMainThread == false)
     }
 
     /// Negative coverage: hidden blocks and code blocks must stay OUT of the
