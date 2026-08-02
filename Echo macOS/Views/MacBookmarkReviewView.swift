@@ -17,7 +17,8 @@ struct MacBookmarkReviewView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            BookmarkReviewHeader(filter: $filter, bookmarkCount: player.bookmarkStore.bookmarks.count)
+            BookmarkReviewHeader(
+                filter: $filter, bookmarkCount: player.bookmarkStore.bookmarks.count)
 
             Divider()
 
@@ -214,10 +215,12 @@ private struct MacBookmarkReviewRow: View {
                     .buttonStyle(.borderless)
                     .help("Edit bookmark")
 
-                Button("Delete Bookmark", systemImage: "trash", role: .destructive, action: onDelete)
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                    .help("Delete bookmark")
+                Button(
+                    "Delete Bookmark", systemImage: "trash", role: .destructive, action: onDelete
+                )
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .help("Delete bookmark")
             }
         }
         .padding(.vertical, 6)
@@ -227,13 +230,12 @@ private struct MacBookmarkReviewRow: View {
 private struct BookmarkThumbnail: View {
     let bookmark: Bookmark
     let folderURL: URL?
+    @State private var cgImage: CGImage?
 
     var body: some View {
         Group {
-            if let url = bookmark.bookmarkImageURL(in: folderURL),
-                let image = NSImage(contentsOf: url)
-            {
-                Image(nsImage: image)
+            if let cgImage {
+                Image(decorative: cgImage, scale: 1)
                     .resizable()
                     .scaledToFill()
             } else {
@@ -246,6 +248,12 @@ private struct BookmarkThumbnail: View {
         }
         .frame(width: 54, height: 54)
         .clipShape(.rect(cornerRadius: 6))
+        .task(id: bookmark.id) {
+            guard let url = bookmark.bookmarkImageURL(in: folderURL) else { return }
+            let decoded = await MacImageDecode.loadCGImage(url: url, maxPixelSize: 108)
+            guard !Task.isCancelled else { return }
+            cgImage = decoded
+        }
     }
 }
 
@@ -301,7 +309,9 @@ private struct MacBookmarkEditSheet: View {
                         Text(formatHMS(timestamp))
                             .foregroundStyle(.secondary)
                     }
-                    Stepper("Adjust by 1 second", value: $timestamp, in: 0...(.greatestFiniteMagnitude), step: 1)
+                    Stepper(
+                        "Adjust by 1 second", value: $timestamp, in: 0...(.greatestFiniteMagnitude),
+                        step: 1)
                 }
             }
             .formStyle(.grouped)
@@ -344,11 +354,12 @@ private struct BookmarkImagePreview: Identifiable {
 private struct BookmarkImagePreviewSheet: View {
     @Environment(\.dismiss) private var dismiss
     let preview: BookmarkImagePreview
+    @State private var cgImage: CGImage?
 
     var body: some View {
         VStack(spacing: 0) {
-            if let image = NSImage(contentsOf: preview.url) {
-                Image(nsImage: image)
+            if let cgImage {
+                Image(decorative: cgImage, scale: 1)
                     .resizable()
                     .scaledToFit()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -373,5 +384,10 @@ private struct BookmarkImagePreviewSheet: View {
             .padding()
         }
         .frame(minWidth: 520, minHeight: 420)
+        .task(id: preview.id) {
+            let decoded = await MacImageDecode.loadCGImage(url: preview.url, maxPixelSize: 1600)
+            guard !Task.isCancelled else { return }
+            cgImage = decoded
+        }
     }
 }
