@@ -18,6 +18,7 @@ class TranscriptStore {
 
     private let logger = Logger(category: "TranscriptStore")
     private let transcriptDir: URL
+    private var loadGeneration = 0
 
     init() {
         let appSupport = FileLocations.applicationSupportDirectory
@@ -44,10 +45,13 @@ class TranscriptStore {
     /// the result on the main actor. Non-blocking: launch no longer waits while
     /// every transcript JSON is decoded and word-frequency-counted (audit fix 4).
     func loadIndex() {
+        loadGeneration += 1
+        let generation = loadGeneration
         let dir = transcriptDir
         Task(priority: .utility) { [weak self] in
             let loaded = await Self.readIndex(from: dir)
-            guard let self else { return }
+            guard let self, self.loadGeneration == generation else { return }
+            guard let loaded else { return }
             self.transcriptions = loaded.transcriptions
             self.wordClouds = loaded.wordClouds
             for hash in loaded.transcriptions.keys { self.fileMapping[hash] = "Audiobook" }
@@ -58,11 +62,11 @@ class TranscriptStore {
     nonisolated static func readIndex(from transcriptDir: URL) async -> (
         transcriptions: [String: [TranscriptionSegment]],
         wordClouds: [String: [WordFrequency]]
-    ) {
+    )? {
         guard
             let files = try? FileManager.default.contentsOfDirectory(
                 at: transcriptDir, includingPropertiesForKeys: nil)
-        else { return ([:], [:]) }
+        else { return nil }
 
         var newTranscriptions: [String: [TranscriptionSegment]] = [:]
         var newWordClouds: [String: [WordFrequency]] = [:]
