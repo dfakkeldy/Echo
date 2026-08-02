@@ -15,6 +15,7 @@ import AppKit
 import Foundation
 import GRDB
 import ImageIO
+import LocalAuthentication
 import Observation
 import Security
 import Synchronization
@@ -1013,12 +1014,18 @@ final class MacPlayerModel {
     nonisolated private static func keychainData(
         account: String, service: String = "com.echo.audiobooks"
     ) -> Data? {
+        let authenticationContext = LAContext()
+        authenticationContext.interactionNotAllowed = true
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: account,
             kSecAttrService as String: service,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
+            // Restoring the last-opened file is a launch convenience. A bookmark
+            // created by a differently signed build must not summon a blocking
+            // Keychain authorization dialog during app startup.
+            kSecUseAuthenticationContext as String: authenticationContext,
         ]
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
