@@ -45,8 +45,10 @@
             narrationPlaybackState.reset()
             state.narrationRenderInFlight = true
             state.awaitingNarrationChapter = false
+            state.narrationDefaultVoice = nil
+            state.narrationVoiceOverrideCount = 0
 
-            // Stop playback before evicting stale-voice files so the AVPlayer isn't
+            // Stop playback before plan-aware cache eviction so the AVPlayer isn't
             // holding a reference to a file we're about to delete (§5.1).
             playbackController.stop()
 
@@ -61,21 +63,27 @@
             progressPresenter.updateNowPlayingInfo(isPaused: true)
 
             let cacheDirectory = Self.narrationCacheDirectory()
-            // Drop this book's files rendered with a previous voice so the store
-            // doesn't grow unbounded across voice changes.
-            let bookPrefix = NarrationFileNaming.chapterPrefix(audiobookID: audiobookID)
-            if let names = try? FileManager.default.contentsOfDirectory(atPath: cacheDirectory.path)
-            {
-                for stale in NarrationCacheStore.staleVoiceFiles(
-                    names, bookPrefix: bookPrefix, currentVoice: voice.id)
-                {
-                    try? FileManager.default.removeItem(
-                        at: cacheDirectory.appendingPathComponent(stale))
-                }
-            }
             narrationRenderTask = Task { [weak self] in
                 guard let self else { return }
                 do {
+                    // Wait for loadFolder's no-audio EPUB import to finish so a
+                    // first-ever open isn't read before its blocks are committed.
+                    await self.playerLoadingCoordinator.documentImportTask?.value
+                    let blockDAO = EPubBlockDAO(db: db)
+                    let allBlocks = try blockDAO.allBlocks(for: audiobookID)
+                    // Visible blocks omit chapters marked "Not in Audio", matching
+                    // the alignment/timeline paths. The complete set remains the
+                    // presentation source for the excluded-chapter outline.
+                    let visibleBlocks = try blockDAO.visibleBlocks(for: audiobookID)
+                    let chapters = NarrationChapterPlanner.plan(from: visibleBlocks)
+                    let allChapters = NarrationChapterPlanner.plan(from: allBlocks)
+                    guard !chapters.isEmpty else {
+                        self.state.narrationRenderInFlight = false
+                        self.state.currentSubtitle = String(localized: "No text to narrate")
+                        self.progressPresenter.updateNowPlayingInfo(isPaused: true)
+                        return
+                    }
+
                     let pronunciationPack = await EnglishPronunciationPack.bundledOrEmpty()
                     let service = NarrationService(
                         db: db, audiobookID: audiobookID, tts: narrationTTS,
@@ -90,13 +98,45 @@
                                 forBookID: audiobookID)
                         },
                         pronunciationPack: pronunciationPack)
-                    // Wait for loadFolder's no-audio EPUB import to finish so a
-                    // first-ever open isn't read before its blocks are committed.
-                    await self.playerLoadingCoordinator.documentImportTask?.value
-                    // visibleBlocks (not blocks) so blocks the user marked "Not in
-                    // Audio" in the reader are excluded from narration, matching the
-                    // alignment/timeline paths.
-                    let blocks = try EPubBlockDAO(db: db).visibleBlocks(for: audiobookID)
+                    let existingFileNames = Set(
+                        (try? FileManager.default.contentsOfDirectory(
+                            atPath: cacheDirectory.path)) ?? [])
+                    let preparation = try await NarrationPlaybackPlanPreparation.prepare(
+                        chapters: chapters,
+                        allChapters: allChapters,
+                        preferredVoice: voice.id,
+                        resolveManifest: {
+                            try AnthologyNarrationManifestResolver(db: db).resolve(
+                                audiobookID: audiobookID,
+                                epubURL: self.state.sourceDocumentURL)
+                        },
+                        existingDurableFileNames: existingFileNames,
+                        expectedFileName: { segment in
+                            await service.segmentCacheURL(
+                                chapterIndex: segment.chapterIndex,
+                                sourceChapterKey: segment.sourceChapterKey,
+                                segmentIndex: segment.segmentIndex,
+                                blocks: segment.blocks,
+                                voice: segment.voice)
+                                .lastPathComponent
+                        },
+                        cleanup: { expectedFileNames in
+                            let bookPrefix = "\(NarrationFileNaming.safeToken(audiobookID))-"
+                            for stale in NarrationCacheStore.staleFiles(
+                                Array(existingFileNames),
+                                bookPrefix: bookPrefix,
+                                expectedDurableFileNames: expectedFileNames)
+                            {
+                                try? FileManager.default.removeItem(
+                                    at: cacheDirectory.appendingPathComponent(stale))
+                            }
+                        })
+
+                    self.state.narrationDefaultVoice = voice.id
+                    self.state.narrationVoiceOverrideCount = preparation.voiceOverrideCount
+                    self.refreshNarrationOutline(
+                        allBlocks: allBlocks,
+                        renderedChapterIndices: preparation.renderedChapterIndices)
 
                     // Write the EPUB's cover into the narration cache so Now Playing
                     // and the lock screen show artwork instead of a placeholder. The
@@ -127,8 +167,6 @@
                         // Fallback: the first front-matter (else any) inline image
                         // block. Query ALL image blocks (not just visibleBlocks) since
                         // the cover is front-matter and marked is_hidden during import.
-                        let allBlocks =
-                            (try? EPubBlockDAO(db: db).allBlocks(for: audiobookID)) ?? []
                         let imageBlocks = allBlocks.filter {
                             $0.blockKind == EPubBlockRecord.Kind.image.rawValue
                         }
@@ -162,30 +200,21 @@
                         }
                     }
 
-                    let plan = NarrationChapterPlanner.plan(from: blocks)
-                    guard !plan.isEmpty else {
-                        // No narratable text: replace the interim "Preparing narration…"
-                        // status (set synchronously above) with a clear reason instead
-                        // of a silent blank, so the user understands why playback never
-                        // started rather than being left staring at an empty subtitle (§5.5).
-                        self.state.narrationRenderInFlight = false
-                        self.state.currentSubtitle = String(localized: "No text to narrate")
-                        self.progressPresenter.updateNowPlayingInfo(isPaused: true)
-                        return
-                    }
-                    // Surface the full chapter outline (incl. any excluded chapters)
-                    // now that the EPUB blocks are committed, so the playlist shows
-                    // every chapter, not just the ones about to render.
-                    self.refreshNarrationOutline()
-                    // Segment plan: render/play the first small segment quickly, then
-                    // continue rendering ahead. Resume stays chapter-granular for v1:
-                    // a saved segment/chapter filename maps to its chapter, and playback
-                    // starts at that chapter's first segment.
-                    let segments = NarrationSegmentPlanner.plan(plan)
+                    let segments = preparation.segments
                     let forwardSegments: [NarrationSegmentPlanner.PlannedSegment]
                     let earlierSegments: [NarrationSegmentPlanner.PlannedSegment]
-                    if let lastTrackID = self.persistence.getLastTrack(for: audiobookID),
-                        let fileName = URL(string: lastTrackID)?.lastPathComponent,
+                    let lastTrackURL = self.persistence.getLastTrack(for: audiobookID)
+                        .flatMap(URL.init(string:))
+                    if preparation.manifest != nil,
+                        let sourceChapterKey = NarrationResumeResolver.sourceChapterKey(
+                            fromLastTrackURL: lastTrackURL,
+                            plans: preparation.chapters)
+                    {
+                        forwardSegments = NarrationSegmentPlanner.resume(
+                            segments, startingAtSourceChapterKey: sourceChapterKey)
+                        earlierSegments = NarrationSegmentPlanner.beforeResume(
+                            segments, startingAtSourceChapterKey: sourceChapterKey)
+                    } else if let fileName = lastTrackURL?.lastPathComponent,
                         let resumeIndex = NarrationFileNaming.chapterIndex(fromFileName: fileName)
                     {
                         forwardSegments = NarrationSegmentPlanner.resume(
@@ -230,9 +259,10 @@
 
                         let fileURL = await service.segmentCacheURL(
                             chapterIndex: segment.chapterIndex,
+                            sourceChapterKey: segment.sourceChapterKey,
                             segmentIndex: segment.segmentIndex,
                             blocks: segment.blocks,
-                            voice: voice.id)
+                            voice: segment.voice)
 
                         // Persistence: a segment already rendered for this voice is
                         // reused as-is. Re-synthesising it would burn seconds of CPU
@@ -244,7 +274,8 @@
                             let alreadyRenderedThisChapter = Self.narrationCacheContainsChapter(
                                 audiobookID: audiobookID,
                                 chapterIndex: segment.chapterIndex,
-                                voice: voice.id,
+                                sourceChapterKey: segment.sourceChapterKey,
+                                voice: segment.voice,
                                 cacheDirectory: cacheDirectory)
                             guard
                                 self.allowNarrationRenderOrPresentPaywall(
@@ -283,10 +314,11 @@
                             self.progressPresenter.updateNowPlayingInfo(isPaused: true)
                             try await service.renderSegment(
                                 chapterIndex: segment.chapterIndex,
+                                sourceChapterKey: segment.sourceChapterKey,
                                 chapterDisplayNumber: segment.chapterDisplayNumber,
                                 segmentIndex: segment.segmentIndex,
                                 blocks: segment.blocks,
-                                voice: voice.id,
+                                voice: segment.voice,
                                 chapterTitle: segment.chapterTitle,
                                 onBlockProgress: { [weak self] displayNumber, fraction in
                                     guard let self else { return }
@@ -310,6 +342,7 @@
                         } else {
                             try await service.updateCachedNarrationTitle(
                                 chapterIndex: segment.chapterIndex,
+                                sourceChapterKey: segment.sourceChapterKey,
                                 chapterDisplayNumber: segment.chapterDisplayNumber,
                                 segmentIndex: segment.segmentIndex,
                                 blocks: segment.blocks,
@@ -349,16 +382,18 @@
                         try Task.checkCancellation()
                         let fileURL = await service.segmentCacheURL(
                             chapterIndex: segment.chapterIndex,
+                            sourceChapterKey: segment.sourceChapterKey,
                             segmentIndex: segment.segmentIndex,
                             blocks: segment.blocks,
-                            voice: voice.id)
+                            voice: segment.voice)
                         // Reuse an already-rendered segment (persistence) — only
                         // synthesise the ones missing from the cache.
                         if !FileManager.default.fileExists(atPath: fileURL.path) {
                             let alreadyRenderedThisChapter = Self.narrationCacheContainsChapter(
                                 audiobookID: audiobookID,
                                 chapterIndex: segment.chapterIndex,
-                                voice: voice.id,
+                                sourceChapterKey: segment.sourceChapterKey,
+                                voice: segment.voice,
                                 cacheDirectory: cacheDirectory)
                             guard
                                 self.allowNarrationRenderOrPresentPaywall(
@@ -373,10 +408,11 @@
                             else { return }
                             try await service.renderSegment(
                                 chapterIndex: segment.chapterIndex,
+                                sourceChapterKey: segment.sourceChapterKey,
                                 chapterDisplayNumber: segment.chapterDisplayNumber,
                                 segmentIndex: segment.segmentIndex,
                                 blocks: segment.blocks,
-                                voice: voice.id,
+                                voice: segment.voice,
                                 chapterTitle: segment.chapterTitle)
                             try Task.checkCancellation()
                             guard
@@ -388,6 +424,7 @@
                         } else {
                             try await service.updateCachedNarrationTitle(
                                 chapterIndex: segment.chapterIndex,
+                                sourceChapterKey: segment.sourceChapterKey,
                                 chapterDisplayNumber: segment.chapterDisplayNumber,
                                 segmentIndex: segment.segmentIndex,
                                 blocks: segment.blocks,
@@ -417,6 +454,21 @@
                     await self.narrationTTS.unload()
                 } catch is CancellationError {
                     // Switched books or stopped — loadFolder resets the flags.
+                } catch where error is AnthologyBuildManifestValidationError
+                    || error is NarrationChapterRenderPlanError
+                {
+                    guard
+                        NarrationRenderPolicy.bookWasSwitched(
+                            currentFolderURL: self.bookIdentityURL?.absoluteString,
+                            audiobookID: audiobookID
+                        ) == false
+                    else { return }
+                    self.state.narrationRenderInFlight = false
+                    self.narrationPlaybackState.fail(
+                        String(
+                            localized:
+                                "Rebuild this anthology to refresh its narration plan, then try again."
+                        ))
                 } catch {
                     // Don't stamp a stale failure onto a book the user switched to.
                     guard
@@ -453,27 +505,26 @@
         /// The full EPUB chapter outline for the current narration book.
         var narrationOutline: [NarrationOutlineChapter] { state.narrationOutline }
 
-        /// Voice used to key narration cache filenames (matches the render path's
-        /// resolution, so `isRendered` lines up with the files actually written).
-        private var narrationVoiceForFiles: VoiceID {
-            VoiceCatalog.voice(for: VoiceID(settingsManager?.narrationVoiceID ?? ""))?.id
-                ?? VoiceCatalog.default.id
-        }
-
         private static func narrationCacheContainsChapter(
             audiobookID: String,
             chapterIndex: Int,
+            sourceChapterKey: String?,
             voice: VoiceID,
             cacheDirectory: URL
         ) -> Bool {
-            let prefix = NarrationFileNaming.chapterPrefix(audiobookID: audiobookID)
+            let prefix = "\(NarrationFileNaming.safeToken(audiobookID))-"
             let suffix = "-\(voice.rawValue)-v\(NarrationFileNaming.renderVersion).m4a"
+            let stableToken = sourceChapterKey.map(NarrationFileNaming.stableChapterToken)
             let names =
                 (try? FileManager.default.contentsOfDirectory(atPath: cacheDirectory.path)) ?? []
             return names.contains { name in
-                name.hasPrefix(prefix)
-                    && name.hasSuffix(suffix)
-                    && NarrationFileNaming.chapterIndex(fromFileName: name) == chapterIndex
+                guard name.hasPrefix(prefix), name.hasSuffix(suffix),
+                    let location = NarrationFileNaming.location(fromFileName: name)
+                else { return false }
+                if let stableToken {
+                    return location.stableChapterToken == stableToken
+                }
+                return location.chapterIndex == chapterIndex
             }
         }
 
@@ -488,14 +539,19 @@
                 return
             }
             let blocks = (try? EPubBlockDAO(db: db).allBlocks(for: audiobookID)) ?? []
-            let cacheDir = Self.narrationCacheDirectory()
-            let voice = narrationVoiceForFiles
-            state.narrationOutline = NarrationOutlineBuilder.build(allBlocks: blocks) { idx in
-                Self.narrationCacheContainsChapter(
-                    audiobookID: audiobookID,
-                    chapterIndex: idx,
-                    voice: voice,
-                    cacheDirectory: cacheDir)
+            let renderedChapterIndices = Set(
+                state.narrationOutline.lazy.filter(\.isRendered).map(\.chapterIndex))
+            refreshNarrationOutline(
+                allBlocks: blocks,
+                renderedChapterIndices: renderedChapterIndices)
+        }
+
+        private func refreshNarrationOutline(
+            allBlocks: [EPubBlockRecord],
+            renderedChapterIndices: Set<Int>
+        ) {
+            state.narrationOutline = NarrationOutlineBuilder.build(allBlocks: allBlocks) {
+                renderedChapterIndices.contains($0)
             }
         }
 

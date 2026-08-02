@@ -1300,6 +1300,8 @@ final class PlayerModel {
         narrationRenderTask = nil
         state.narrationRenderInFlight = false
         state.awaitingNarrationChapter = false
+        state.narrationDefaultVoice = nil
+        state.narrationVoiceOverrideCount = 0
         narrationPlaybackState.reset()
         playerLoadingCoordinator.loadFolder(
             url, autoplay: autoplay, persistBookmark: persistBookmark)

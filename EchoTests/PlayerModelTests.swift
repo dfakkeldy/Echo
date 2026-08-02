@@ -512,12 +512,24 @@ struct PlayerModelTests {
     @Test("narration playback renders and queues segment files")
     func narrationPlaybackUsesSegmentPlan() throws {
         let source = try Self.source(named: "PlayerModel+Narration.swift")
-        #expect(source.contains("let segments = NarrationSegmentPlanner.plan(plan)"))
+        #expect(source.contains("let preparation = try await NarrationPlaybackPlanPreparation.prepare("))
+        #expect(source.contains("let segments = preparation.segments"))
         #expect(source.contains("NarrationSegmentPlanner.resume("))
         #expect(source.contains("NarrationSegmentPlanner.beforeResume("))
         #expect(source.contains("await service.segmentCacheURL("))
         #expect(source.contains("try await service.renderSegment("))
+        #expect(source.contains("sourceChapterKey: segment.sourceChapterKey"))
+        #expect(source.contains("voice: segment.voice"))
+        #expect(source.contains("NarrationCacheStore.staleFiles("))
+        #expect(!source.contains("voice: voice.id"))
+        #expect(!source.contains("narrationVoiceForFiles"))
         #expect(!source.contains("try await service.renderChapter("))
+
+        let preparationIndex = try #require(source.range(of: "let preparation = try await"))
+        let cleanupIndex = try #require(source.range(of: "NarrationCacheStore.staleFiles("))
+        let synthesisIndex = try #require(source.range(of: "self.narrationTTS.prepare("))
+        #expect(preparationIndex.lowerBound < cleanupIndex.lowerBound)
+        #expect(cleanupIndex.lowerBound < synthesisIndex.lowerBound)
     }
 
     private static func source(named fileName: String) throws -> String {

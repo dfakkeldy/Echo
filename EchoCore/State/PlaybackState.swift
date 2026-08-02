@@ -241,6 +241,11 @@ final class PlaybackState {
     /// independent of render progress), shown on the playlist page with
     /// tap-to-exclude. Empty for non-narration books. See NarrationOutlineBuilder.
     var narrationOutline: [NarrationOutlineChapter] = []
+    /// Preferred voice selected for the current narration plan. Anthology rows
+    /// may override it, but ordinary books use it for every chapter.
+    var narrationDefaultVoice: VoiceID? = nil
+    /// Number of represented anthology chapters with a frozen manifest override.
+    var narrationVoiceOverrideCount = 0
     /// Fine-grained sub-section atoms per logical chapter index.
     /// Populated by `ChapterGroupingService` when a Libation-style naming
     /// pattern is detected; empty for all other books.

@@ -45,6 +45,23 @@ import Testing
         #expect(rows[0].title == "Chapter 1")
     }
 
+    @Test func exactPlaybackPlanReadinessDoesNotHideExcludedChapterRows() {
+        let blocks = [
+            block("p0", ch: 0, seq: 0, text: "rendered chapter"),
+            block("p1", ch: 1, seq: 1, text: "excluded chapter", hidden: true),
+            block("p2", ch: 2, seq: 2, text: "not rendered"),
+        ]
+        let exactlyRenderedChapterIndices: Set<Int> = [0]
+
+        let rows = NarrationOutlineBuilder.build(allBlocks: blocks) {
+            exactlyRenderedChapterIndices.contains($0)
+        }
+
+        #expect(rows.map(\.chapterIndex) == [0, 1, 2])
+        #expect(rows.map(\.isRendered) == [true, false, false])
+        #expect(rows.map(\.isExcluded) == [false, true, false])
+    }
+
     @Test func titlePreservesClosingParenthesisAfterDuplicateChapterPrefixCleanup() {
         var blocks: [EPubBlockRecord] = []
         for chapter in 0..<7 {
