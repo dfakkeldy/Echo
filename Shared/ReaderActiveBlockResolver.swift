@@ -60,42 +60,43 @@ nonisolated enum ReaderActiveBlockResolver {
         return nil
     }
 
-    /// Pre-grouped, start-sorted word rows. Build ONCE when the word cache
-    /// loads; the 12.5 Hz tick then binary-searches one block's rows instead
+    /// Pre-grouped word rows, one bucket per block, **preserving each row's
+    /// original relative order within its block**. Build ONCE when the word
+    /// cache loads; the 12.5 Hz tick then only scans one block's rows instead
     /// of linear-scanning the whole book (the audit's hottest polling loop).
+    ///
+    /// The win here is narrowing the scan to a single block (tens of rows)
+    /// out of the whole book (thousands) — NOT a sorted/binary-searchable
+    /// structure. Word timings are not guaranteed disjoint or non-overlapping
+    /// (no DB constraint enforces it, and this repo has shipped timing
+    /// anomalies before), so rows are intentionally left unsorted: sorting by
+    /// `start` would change which row wins when ranges overlap, silently
+    /// diverging from the legacy first-match-in-array-order scan.
     struct WordIndex: Sendable {
         private let byBlock: [String: [WordRow]]
 
         init(rows: [WordRow]) {
             var grouped: [String: [WordRow]] = [:]
             for row in rows { grouped[row.blockID, default: []].append(row) }
-            for key in grouped.keys { grouped[key]?.sort { $0.start < $1.start } }
             byBlock = grouped
         }
 
         fileprivate func rows(for blockID: String) -> [WordRow]? { byBlock[blockID] }
     }
 
-    /// Index-backed variant of `activeWord(in:time:activeBlockID:)` — identical
-    /// results, O(log n) in the block's word count.
+    /// Index-backed variant of `activeWord(in:time:activeBlockID:)` — a
+    /// per-block linear scan in the rows' original order, so it returns
+    /// exactly the same first-match result as the whole-book scan, including
+    /// when ranges overlap or nest. The performance win is scanning one
+    /// block's rows instead of the whole book's.
     static func activeWord(
         in index: WordIndex,
         time: TimeInterval,
         activeBlockID: String?
     ) -> Int? {
         guard let activeBlockID, let rows = index.rows(for: activeBlockID) else { return nil }
-        var low = 0
-        var high = rows.count - 1
-        while low <= high {
-            let mid = low + (high - low) / 2
-            let row = rows[mid]
-            if time >= row.start && time < row.end {
-                return row.wordIndex
-            } else if time < row.start {
-                high = mid - 1
-            } else {
-                low = mid + 1
-            }
+        for row in rows {
+            if time >= row.start && time < row.end { return row.wordIndex }
         }
         return nil
     }
