@@ -180,11 +180,13 @@ final class NarrationService {
 
     func chapterCacheURL(
         chapterIndex: Int,
+        sourceChapterKey: String? = nil,
         blocks: [EPubBlockRecord],
         voice: VoiceID
     ) async -> URL {
         chapterCacheURL(
             chapterIndex: chapterIndex,
+            sourceChapterKey: sourceChapterKey,
             blocks: blocks,
             voice: voice,
             overrides: pronunciationOverrides(),
@@ -195,12 +197,14 @@ final class NarrationService {
 
     func segmentCacheURL(
         chapterIndex: Int,
+        sourceChapterKey: String? = nil,
         segmentIndex: Int,
         blocks: [EPubBlockRecord],
         voice: VoiceID
     ) async -> URL {
         segmentCacheURL(
             chapterIndex: chapterIndex,
+            sourceChapterKey: sourceChapterKey,
             segmentIndex: segmentIndex,
             blocks: blocks,
             voice: voice,
@@ -212,6 +216,7 @@ final class NarrationService {
 
     private func chapterCacheURL(
         chapterIndex: Int,
+        sourceChapterKey: String? = nil,
         blocks: [EPubBlockRecord],
         voice: VoiceID,
         overrides: PronunciationOverrides,
@@ -230,12 +235,14 @@ final class NarrationService {
             NarrationFileNaming.chapterFileName(
                 audiobookID: audiobookID,
                 chapterIndex: chapterIndex,
+                sourceChapterKey: sourceChapterKey,
                 voice: voice,
                 contentSignature: signature))
     }
 
     private func segmentCacheURL(
         chapterIndex: Int,
+        sourceChapterKey: String? = nil,
         segmentIndex: Int,
         blocks: [EPubBlockRecord],
         voice: VoiceID,
@@ -255,6 +262,7 @@ final class NarrationService {
             NarrationFileNaming.segmentFileName(
                 audiobookID: audiobookID,
                 chapterIndex: chapterIndex,
+                sourceChapterKey: sourceChapterKey,
                 segmentIndex: segmentIndex,
                 voice: voice,
                 contentSignature: signature))
@@ -320,15 +328,16 @@ final class NarrationService {
     /// Render one chapter. Cancellable between blocks; on cancel, nothing is persisted.
     /// Idempotent: re-rendering the same chapter (e.g. a voice change) upserts in place.
     ///
-    /// `chapterIndex` is the raw EPUB index — it keys the cache file, the track id,
-    /// and sort order, and must stay stable. `chapterNumber` is the human-facing
+    /// `chapterIndex` is the mutable EPUB order used for presentation; anthology
+    /// callers supply `sourceChapterKey` to keep cache and track identity stable.
+    /// `chapterNumber` is the human-facing
     /// 1-based position among *narratable* chapters (front matter excluded), used
     /// only for the title and status text so the first real chapter reads
     /// "Chapter 1". Defaults to `chapterIndex + 1` when omitted (tests that don't
     /// exercise numbering).
     @discardableResult
     func renderChapter(
-        chapterIndex: Int, chapterNumber: Int? = nil,
+        chapterIndex: Int, sourceChapterKey: String? = nil, chapterNumber: Int? = nil,
         blocks: [EPubBlockRecord], voice: VoiceID,
         chapterTitle: String? = nil,
         onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)? =
@@ -343,6 +352,7 @@ final class NarrationService {
         let fmEnabled = fmEnabled
         let fileURL = chapterCacheURL(
             chapterIndex: chapterIndex,
+            sourceChapterKey: sourceChapterKey,
             blocks: blocks,
             voice: voice,
             overrides: overrides,
@@ -364,7 +374,11 @@ final class NarrationService {
             onBlockProgress: onBlockProgress)
         try await persistRenderedNarration(
             rendered,
-            trackID: "syn-\(audiobookID)-ch\(chapterIndex)",
+            trackID: NarrationFileNaming.trackID(
+                audiobookID: audiobookID,
+                chapterIndex: chapterIndex,
+                sourceChapterKey: sourceChapterKey,
+                segmentIndex: nil),
             title: savedTitle,
             sortOrder: chapterIndex,
             voice: voice)
@@ -382,6 +396,7 @@ final class NarrationService {
     /// collisions when segment files are eventually queued for playback.
     func renderSegment(
         chapterIndex: Int,
+        sourceChapterKey: String? = nil,
         chapterDisplayNumber: Int,
         segmentIndex: Int,
         blocks: [EPubBlockRecord],
@@ -394,6 +409,7 @@ final class NarrationService {
             displayNumber: chapterDisplayNumber, blocks: blocks, chapterTitle: chapterTitle)
         let rendered = try await renderSegmentFile(
             chapterIndex: chapterIndex,
+            sourceChapterKey: sourceChapterKey,
             chapterDisplayNumber: chapterDisplayNumber,
             segmentIndex: segmentIndex,
             blocks: blocks,
@@ -402,7 +418,11 @@ final class NarrationService {
 
         try await persistRenderedNarration(
             rendered,
-            trackID: "syn-\(audiobookID)-ch\(chapterIndex)-s\(segmentIndex)",
+            trackID: NarrationFileNaming.trackID(
+                audiobookID: audiobookID,
+                chapterIndex: chapterIndex,
+                sourceChapterKey: sourceChapterKey,
+                segmentIndex: segmentIndex),
             title: savedTitle,
             sortOrder: chapterIndex * 1000 + segmentIndex,
             voice: voice,
@@ -413,6 +433,7 @@ final class NarrationService {
 
     func updateCachedNarrationTitle(
         chapterIndex: Int,
+        sourceChapterKey: String? = nil,
         chapterDisplayNumber: Int,
         segmentIndex: Int? = nil,
         blocks: [EPubBlockRecord],
@@ -420,17 +441,21 @@ final class NarrationService {
     ) async throws {
         let savedTitle = Self.savedTitle(
             displayNumber: chapterDisplayNumber, blocks: blocks, chapterTitle: chapterTitle)
-        let trackID: String
-        if let segmentIndex {
-            trackID = "syn-\(audiobookID)-ch\(chapterIndex)-s\(segmentIndex)"
-        } else {
-            trackID = "syn-\(audiobookID)-ch\(chapterIndex)"
-        }
+        let trackID = NarrationFileNaming.trackID(
+            audiobookID: audiobookID,
+            chapterIndex: chapterIndex,
+            sourceChapterKey: sourceChapterKey,
+            segmentIndex: segmentIndex)
+        let sortOrder = segmentIndex.map { chapterIndex * 1000 + $0 } ?? chapterIndex
 
         try await db.write { db in
             try db.execute(
-                sql: "UPDATE track SET title = ? WHERE id = ? AND audiobook_id = ?",
-                arguments: [savedTitle, trackID, audiobookID])
+                sql: """
+                    UPDATE track
+                    SET title = ?, sort_order = ?
+                    WHERE id = ? AND audiobook_id = ?
+                    """,
+                arguments: [savedTitle, sortOrder, trackID, audiobookID])
         }
     }
 
@@ -440,6 +465,7 @@ final class NarrationService {
     /// read-along, and export semantics in later slices.
     func renderSegmentFile(
         chapterIndex: Int,
+        sourceChapterKey: String? = nil,
         chapterDisplayNumber: Int,
         segmentIndex: Int,
         blocks: [EPubBlockRecord],
@@ -452,6 +478,7 @@ final class NarrationService {
         let fmEnabled = fmEnabled
         let fileURL = segmentCacheURL(
             chapterIndex: chapterIndex,
+            sourceChapterKey: sourceChapterKey,
             segmentIndex: segmentIndex,
             blocks: blocks,
             voice: voice,

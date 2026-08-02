@@ -1,5 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import CryptoKit
 import Foundation
+
+nonisolated struct NarrationCacheLocation: Equatable, Sendable {
+    let chapterIndex: Int?
+    let stableChapterToken: String?
+    let segmentIndex: Int?
+}
 
 /// Single source of truth for narration cache filenames, so the writer
 /// (`NarrationService`) and the exporter (`NarrationCacheSource`) always agree —
@@ -65,13 +72,43 @@ nonisolated enum NarrationFileNaming {
         return token.isEmpty ? "book" : token
     }
 
+    /// A compact, stable identity for an anthology source chapter. The source key
+    /// never appears in a cache filename, and keeping the first 128 SHA-256 bits
+    /// makes a collision impractical while preserving readable file names.
+    static func stableChapterToken(for sourceChapterKey: String) -> String {
+        String(
+            SHA256.hash(data: Data(sourceChapterKey.utf8))
+                .map { String(format: "%02x", $0) }
+                .joined()
+                .prefix(32))
+    }
+
     static func chapterFileName(
         audiobookID: String,
         chapterIndex: Int,
         voice: VoiceID,
         contentSignature: String? = nil
     ) -> String {
+        chapterFileName(
+            audiobookID: audiobookID,
+            chapterIndex: chapterIndex,
+            sourceChapterKey: nil,
+            voice: voice,
+            contentSignature: contentSignature)
+    }
+
+    static func chapterFileName(
+        audiobookID: String,
+        chapterIndex: Int,
+        sourceChapterKey: String?,
+        voice: VoiceID,
+        contentSignature: String? = nil
+    ) -> String {
         let signature = signatureFragment(contentSignature)
+        if let sourceChapterKey {
+            return
+                "\(safeToken(audiobookID))-ck\(stableChapterToken(for: sourceChapterKey))\(signature)-\(voice.rawValue)-v\(renderVersion).m4a"
+        }
         return
             "\(safeToken(audiobookID))-ch\(chapterIndex)\(signature)-\(voice.rawValue)-v\(renderVersion).m4a"
     }
@@ -83,9 +120,58 @@ nonisolated enum NarrationFileNaming {
         voice: VoiceID,
         contentSignature: String? = nil
     ) -> String {
+        segmentFileName(
+            audiobookID: audiobookID,
+            chapterIndex: chapterIndex,
+            sourceChapterKey: nil,
+            segmentIndex: segmentIndex,
+            voice: voice,
+            contentSignature: contentSignature)
+    }
+
+    static func segmentFileName(
+        audiobookID: String,
+        chapterIndex: Int,
+        sourceChapterKey: String?,
+        segmentIndex: Int,
+        voice: VoiceID,
+        contentSignature: String? = nil
+    ) -> String {
         let signature = signatureFragment(contentSignature)
+        if let sourceChapterKey {
+            return
+                "\(safeToken(audiobookID))-ck\(stableChapterToken(for: sourceChapterKey))-s\(segmentIndex)\(signature)-\(voice.rawValue)-v\(renderVersion).m4a"
+        }
         return
             "\(safeToken(audiobookID))-ch\(chapterIndex)-s\(segmentIndex)\(signature)-\(voice.rawValue)-v\(renderVersion).m4a"
+    }
+
+    static func trackID(
+        audiobookID: String,
+        chapterIndex: Int,
+        sourceChapterKey: String?,
+        segmentIndex: Int?
+    ) -> String {
+        let chapterIdentity: String
+        if let sourceChapterKey {
+            chapterIdentity = "ck\(stableChapterToken(for: sourceChapterKey))"
+        } else {
+            chapterIdentity = "ch\(chapterIndex)"
+        }
+        let segmentSuffix = segmentIndex.map { "-s\($0)" } ?? ""
+        return "syn-\(audiobookID)-\(chapterIdentity)\(segmentSuffix)"
+    }
+
+    static func trackID(
+        audiobookID: String,
+        chapterIndex: Int,
+        segmentIndex: Int?
+    ) -> String {
+        trackID(
+            audiobookID: audiobookID,
+            chapterIndex: chapterIndex,
+            sourceChapterKey: nil,
+            segmentIndex: segmentIndex)
     }
 
     static func contentSignature(
@@ -142,6 +228,31 @@ nonisolated enum NarrationFileNaming {
         return (chapterIndex, segmentIndex)
     }
 
+    /// Recovers either legacy EPUB-index placement or anthology stable placement
+    /// from a complete, current narration cache file. Deliberately strict: a
+    /// cache cleanup must never adopt a malformed name that merely contains
+    /// `-ck` or `-s` as an incidental substring.
+    static func location(fromFileName fileName: String) -> NarrationCacheLocation? {
+        let range = NSRange(fileName.startIndex..., in: fileName)
+        if let match = stableLocationPattern.firstMatch(in: fileName, range: range) {
+            let tokenRange = Range(match.range(at: 1), in: fileName)!
+            let segmentIndex = integerCapture(match, at: 2, in: fileName)
+            return NarrationCacheLocation(
+                chapterIndex: nil,
+                stableChapterToken: String(fileName[tokenRange]),
+                segmentIndex: segmentIndex)
+        }
+        if let match = legacyLocationPattern.firstMatch(in: fileName, range: range),
+            let chapterIndex = integerCapture(match, at: 1, in: fileName)
+        {
+            return NarrationCacheLocation(
+                chapterIndex: chapterIndex,
+                stableChapterToken: nil,
+                segmentIndex: integerCapture(match, at: 2, in: fileName))
+        }
+        return nil
+    }
+
     static func isCurrentChapterCacheFileName(
         _ fileName: String,
         audiobookID: String,
@@ -171,11 +282,29 @@ nonisolated enum NarrationFileNaming {
         let safe = contentSignature.filter { $0.isLetter || $0.isNumber }
         return safe.isEmpty ? "" : "-h\(safe)"
     }
+
+    private static let stableLocationPattern = try! NSRegularExpression(
+        pattern: "^[A-Za-z0-9_]+-ck([0-9a-f]{32})(?:-s([0-9]+))?(?:-h[A-Za-z0-9]+)?-[A-Za-z0-9_]+-v20\\.m4a$")
+    private static let legacyLocationPattern = try! NSRegularExpression(
+        pattern: "^[A-Za-z0-9_]+-ch([0-9]+)(?:-s([0-9]+))?(?:-h[A-Za-z0-9]+)?-[A-Za-z0-9_]+(?:-v[0-9]+)?\\.m4a$")
+
+    private static func integerCapture(
+        _ match: NSTextCheckingResult,
+        at index: Int,
+        in fileName: String
+    ) -> Int? {
+        let capture = match.range(at: index)
+        guard capture.location != NSNotFound,
+            let range = Range(capture, in: fileName)
+        else { return nil }
+        return Int(fileName[range])
+    }
 }
 
 /// Pure helpers for keeping the rendered-narration directory tidy.
 nonisolated enum NarrationCacheStore {
-    /// File names belonging to `bookPrefix` that don't match the current voice
+    /// Temporary compatibility entry point for the pre-plan narrator. File names
+    /// belonging to `bookPrefix` that don't match the current voice
     /// *and* current render version — safe to delete when (re)rendering. This
     /// sweeps both stale-voice files and orphaned older-version renders (e.g. the
     /// un-versioned v1 files) so the cache doesn't grow without bound.
@@ -184,5 +313,22 @@ nonisolated enum NarrationCacheStore {
     ) -> [String] {
         let keepSuffix = "-\(currentVoice.rawValue)-v\(NarrationFileNaming.renderVersion).m4a"
         return fileNames.filter { $0.hasPrefix(bookPrefix) && !$0.hasSuffix(keepSuffix) }
+    }
+
+    /// The renderer owns cleanup only after it constructed a complete expected
+    /// plan. Keeping every expected durable name lets an anthology use multiple
+    /// voices while deleting stale voice, signature, version, and partial files.
+    static func staleFiles(
+        _ fileNames: [String],
+        bookPrefix: String,
+        expectedDurableFileNames: Set<String>
+    ) -> [String] {
+        // An empty expected set means plan construction failed or was skipped;
+        // never turn that failure into deletion of a whole book's cache.
+        guard !expectedDurableFileNames.isEmpty else { return [] }
+        return fileNames.filter {
+            ($0.hasPrefix(bookPrefix) || $0.hasPrefix(".\(bookPrefix)"))
+                && !expectedDurableFileNames.contains($0)
+        }
     }
 }

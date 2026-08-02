@@ -889,6 +889,85 @@ private actor ShadowEvaluatorRecorder {
             ])
     }
 
+    @Test func stableCachedSegmentReorderUpdatesSortOrderWithoutSynthesizing() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["first"])
+        let tts = MockTTSEngine(secondsPerChar: 0.1)
+        let service = makeService(db, tts: tts, writer: MockAudioWriter())
+        let sourceChapterKey = "75D4AA19-0B16-4B27-A2CD-D4E19ED6B20A"
+
+        try await service.renderSegment(
+            chapterIndex: 1,
+            sourceChapterKey: sourceChapterKey,
+            chapterDisplayNumber: 2,
+            segmentIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"),
+            chapterTitle: "Before reorder")
+        let synthesisCount = tts.calls.count
+
+        try await service.updateCachedNarrationTitle(
+            chapterIndex: 9,
+            sourceChapterKey: sourceChapterKey,
+            chapterDisplayNumber: 10,
+            segmentIndex: 0,
+            blocks: blocks,
+            chapterTitle: "After reorder")
+
+        let tracks = try TrackDAO(db: db.writer).tracks(for: "b1")
+        #expect(tts.calls.count == synthesisCount)
+        #expect(tracks.count == 1)
+        #expect(
+            tracks.first?.id
+                == NarrationFileNaming.trackID(
+                    audiobookID: "b1", chapterIndex: 9,
+                    sourceChapterKey: sourceChapterKey, segmentIndex: 0))
+        #expect(tracks.first?.title == "After reorder")
+        #expect(tracks.first?.sortOrder == 9_000)
+    }
+
+    @Test func stableSegmentVoiceChangeCreatesOnlyThatChaptersNewCacheFile() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["first"])
+        let writer = MockAudioWriter()
+        let service = makeService(
+            db, tts: MockTTSEngine(secondsPerChar: 0.1), writer: writer)
+        let sourceChapterKey = "75D4AA19-0B16-4B27-A2CD-D4E19ED6B20A"
+        let otherSourceChapterKey = "FC46FC66-FBDF-4D70-8F99-47ABCA675B86"
+
+        let first = try await service.renderSegmentFile(
+            chapterIndex: 1,
+            sourceChapterKey: sourceChapterKey,
+            chapterDisplayNumber: 2,
+            segmentIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+        let unaffected = try await service.renderSegmentFile(
+            chapterIndex: 2,
+            sourceChapterKey: otherSourceChapterKey,
+            chapterDisplayNumber: 3,
+            segmentIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+        let changedVoice = try await service.renderSegmentFile(
+            chapterIndex: 9,
+            sourceChapterKey: sourceChapterKey,
+            chapterDisplayNumber: 10,
+            segmentIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("bf_emma"))
+
+        #expect(first.fileURL.lastPathComponent != changedVoice.fileURL.lastPathComponent)
+        #expect(
+            first.fileURL.lastPathComponent.hasPrefix(
+                "b1-ck\(NarrationFileNaming.stableChapterToken(for: sourceChapterKey))-s0"))
+        #expect(
+            unaffected.fileURL.lastPathComponent.hasPrefix(
+                "b1-ck\(NarrationFileNaming.stableChapterToken(for: otherSourceChapterKey))-s0"))
+        #expect(!unaffected.fileURL.lastPathComponent.contains("bf_emma"))
+        #expect(writer.writtenURLs.count == 3)
+    }
+
     @Test func skipsBlocksWithNoText() async throws {
         let db = try DatabaseService(inMemory: ())
         let blocks = try seed(db, ["hi", nil, ""])
