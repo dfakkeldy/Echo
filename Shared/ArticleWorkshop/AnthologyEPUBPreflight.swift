@@ -159,7 +159,10 @@ import Foundation
             for chapter in chapters {
                 let path = "EPUB/articles/article-s\(chapter.stableSlot).xhtml"
                 guard let data = files[path] else { throw Error.missingRequiredEntry }
-                try validateChapter(try parseXML(data), against: chapter)
+                try validateChapter(
+                    try parseXML(data),
+                    against: chapter,
+                    imageAssets: manifest.imageAssets ?? [])
             }
             guard let coverPage = files["EPUB/cover.xhtml"] else {
                 throw Error.missingRequiredEntry
@@ -168,6 +171,7 @@ import Foundation
                 try parseXML(coverPage),
                 manifest: manifest)
             try validateCover(files: files, manifest: manifest)
+            try validateArticleImages(files: files, manifest: manifest)
 
             return AnthologyEPUBBuildResult(
                 temporaryURL: url,
@@ -281,6 +285,14 @@ import Foundation
                     nil
                 )
             }
+            var emittedImagePaths = Set<String>()
+            for image in manifest.imageAssets ?? []
+            where emittedImagePaths.insert(image.archivePath).inserted {
+                expected["article-image-\(image.sha256)"] = (
+                    String(image.archivePath.dropFirst("EPUB/".count)),
+                    image.mediaType,
+                    nil)
+            }
             let itemNodes = manifestNode.children
             guard itemNodes.count == expected.count else { throw Error.invalidPackage }
             var itemIDs = Set<String>()
@@ -345,7 +357,8 @@ import Foundation
 
         private func validateChapter(
             _ document: XMLNode,
-            against chapter: AnthologyChapterManifest
+            against chapter: AnthologyChapterManifest,
+            imageAssets: [ArticleImageAssetDescriptor]
         ) throws {
             guard isXHTMLDocument(document) else { throw Error.invalidChapter }
             let nodesWithIDs = document.allDescendants.compactMap { node -> (String, XMLNode)? in
@@ -408,6 +421,15 @@ import Foundation
                     node.attributes["data-code-language"] == expectedCodeLanguage
                 else {
                     throw Error.invalidChapter
+                }
+                if block.kind == .image {
+                    guard let image = imageAssets.first(where: {
+                        $0.owningBlockID == block.id
+                    }),
+                        node.attributes["src"]
+                            == "../" + String(image.archivePath.dropFirst("EPUB/".count)),
+                        node.attributes["alt"] == (image.altText ?? "")
+                    else { throw Error.invalidChapter }
                 }
             }
             guard
@@ -499,7 +521,8 @@ import Foundation
                         manifest: manifest,
                         manifestSHA256: manifestDigest,
                         chapters: chapters,
-                        cover: cover
+                        cover: cover,
+                        articleImages: manifest.imageAssets ?? []
                     ).utf8),
                 "EPUB/nav.xhtml": Data(
                     EPUBXMLWriter.navigation(
@@ -517,11 +540,39 @@ import Foundation
                 expected["EPUB/articles/article-s\(chapter.stableSlot).xhtml"] = Data(
                     EPUBXMLWriter.chapter(
                         chapter,
-                        language: manifest.language
+                        language: manifest.language,
+                        articleImages: manifest.imageAssets ?? []
                     ).utf8)
             }
             guard expected.allSatisfy({ files[$0.key] == $0.value }) else {
                 throw Error.invalidPackage
+            }
+        }
+
+        private func validateArticleImages(
+            files: [String: Data],
+            manifest: AnthologyBuildManifest
+        ) throws {
+            var expectedByPath: [String: ArticleImageAssetDescriptor] = [:]
+            var total = 0
+            for descriptor in manifest.imageAssets ?? [] {
+                if let prior = expectedByPath[descriptor.archivePath] {
+                    guard prior.sha256 == descriptor.sha256,
+                        prior.byteCount == descriptor.byteCount,
+                        prior.mediaType == descriptor.mediaType
+                    else { throw Error.invalidPackage }
+                    continue
+                }
+                expectedByPath[descriptor.archivePath] = descriptor
+                guard let data = files[descriptor.archivePath],
+                    data.count == descriptor.byteCount,
+                    Self.sha256(data) == descriptor.sha256,
+                    ArticleImageValidator.isValid(
+                        data: data,
+                        mediaType: descriptor.mediaType),
+                    total <= ArticleWorkshopLimits.maxTotalImageBytes - data.count
+                else { throw Error.invalidPackage }
+                total += data.count
             }
         }
 
@@ -683,7 +734,7 @@ import Foundation
             case .quote: "blockquote"
             case .code: "pre"
             case .separator: "hr"
-            case .image: "span"
+            case .image: "img"
             }
         }
 

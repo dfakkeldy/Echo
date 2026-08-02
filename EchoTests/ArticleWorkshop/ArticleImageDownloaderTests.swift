@@ -201,6 +201,44 @@ import zlib
         #expect(symlinkResult.warnings == [.unsafeDestination])
     }
 
+    @Test func failedCandidatesDoNotShiftBlockMappingsAndDuplicateBytesShareOneAsset() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let valid = try png(width: 17, height: 19, interlaced: false)
+        ArticleURLProtocol.install { request in
+            request.url?.lastPathComponent == "failed.png"
+                ? .response(status: 200, mimeType: "image/png", data: Data("bad".utf8))
+                : .response(status: 200, mimeType: "image/png", data: valid)
+        }
+        defer { ArticleURLProtocol.reset() }
+        let candidates = [
+            ArticleImageCandidate(
+                owningBlockID: "image-a",
+                sourceURL: URL(string: "https://example.test/failed.png")!,
+                altText: nil,
+                caption: nil),
+            ArticleImageCandidate(
+                owningBlockID: "image-b",
+                sourceURL: URL(string: "https://example.test/shared.png")!,
+                altText: "Diagram",
+                caption: nil),
+            ArticleImageCandidate(
+                owningBlockID: "image-c",
+                sourceURL: URL(string: "https://example.test/shared-again.png")!,
+                altText: nil,
+                caption: "The same diagram."),
+        ]
+
+        let result = await ArticleImageDownloader(
+            sessionConfiguration: articleURLProtocolConfiguration()
+        ).localize(candidates: candidates, into: root)
+
+        #expect(result.failures.map(\.owningBlockID) == ["image-a"])
+        #expect(result.assets.map(\.owningBlockID) == ["image-b", "image-c"])
+        #expect(result.assets[0].managedPath == result.assets[1].managedPath)
+        #expect(result.localURLs.count == 1)
+    }
+
     private func temporaryRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "ArticleImageDownloaderTests-\(UUID().uuidString)", directoryHint: .isDirectory)

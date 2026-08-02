@@ -113,6 +113,29 @@ struct AnthologyEPUBPreflightTests {
         }
     }
 
+    @Test(arguments: [
+        AnthologyEPUBPreflightFixture.Mutation.tamperedArticleImage,
+        .missingArticleImage,
+    ])
+    func rejectsTamperedOrMissingDeclaredArticleImage(
+        mutation: AnthologyEPUBPreflightFixture.Mutation
+    ) throws {
+        let fixture = try AnthologyEPUBPreflightFixture()
+        defer { fixture.removeFiles() }
+        let manifest = try fixture.manifestWithImage()
+        let valid = fixture.root.appending(path: "valid-image.epub")
+        _ = try AnthologyEPUBBuilder(workshopRoot: fixture.workshopRoot)
+            .build(manifest: manifest, to: valid)
+        let tampered = fixture.root.appending(path: "tampered-image.epub")
+        try fixture.rewrite(valid, to: tampered, mutation: mutation)
+
+        #expect(throws: AnthologyEPUBPreflight.Error.self) {
+            _ = try AnthologyEPUBPreflight().validate(
+                epubAt: tampered,
+                against: manifest)
+        }
+    }
+
     @Test func abortsExtractionOnTheFirstOverflowingChunk() throws {
         var buffer = AnthologyEPUBExtractionBuffer(maxBytes: 4)
         try buffer.consume(Data([0, 1, 2, 3]))
@@ -146,6 +169,8 @@ struct AnthologyEPUBPreflightFixture {
         case renamedPackageSpine
         case wrongXHTMLRoot
         case wrongXHTMLNamespace
+        case tamperedArticleImage
+        case missingArticleImage
     }
 
     let root: URL
@@ -200,6 +225,71 @@ struct AnthologyEPUBPreflightFixture {
             chapters: [chapter])
     }
 
+    func manifestWithImage() throws -> AnthologyBuildManifest {
+        let data = Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")!
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let captureID = UUID(uuidString: "DDDDDDDD-DDDD-DDDD-DDDD-DDDDDDDDDDDD")!
+        let sourceURL = URL(string: "https://example.test/article-image.png")!
+        let image = ArticleBlock(
+            id: "article-image-block",
+            stableOrdinal: 6,
+            kind: .image,
+            text: nil,
+            sourceURL: nil,
+            imageCandidateURL: sourceURL,
+            altText: "Diagram",
+            caption: "A bounded diagram.",
+            codeLanguage: nil)
+        let base = manifest()
+        let blocks = base.chapters[0].blocks + [image]
+        let chapter = AnthologyChapterManifest(
+            entryID: base.chapters[0].entryID,
+            captureID: captureID,
+            articleRevisionID: base.chapters[0].articleRevisionID,
+            stableSlot: base.chapters[0].stableSlot,
+            order: 0,
+            title: base.chapters[0].title,
+            author: base.chapters[0].author,
+            siteName: base.chapters[0].siteName,
+            sourceURL: base.chapters[0].sourceURL,
+            capturedAt: base.chapters[0].capturedAt,
+            voiceID: nil,
+            blocks: blocks,
+            readableContentSHA256: ArticleWorkshopDigest.readableContent(blocks: blocks))
+        let descriptor = ArticleImageAssetDescriptor(
+            owningBlockID: image.id,
+            managedPath: "images/\(digest).png",
+            archivePath: "EPUB/images/article-\(digest).png",
+            mediaType: "image/png",
+            sha256: digest,
+            byteCount: data.count,
+            pixelWidth: 1,
+            pixelHeight: 1,
+            sourceURL: sourceURL,
+            altText: image.altText,
+            caption: image.caption)
+        let directory = workshopRoot.appending(
+            path: "Captures/\(captureID.uuidString)/images",
+            directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try data.write(to: directory.appending(path: "\(digest).png"))
+        return AnthologyBuildManifest(
+            schemaVersion: 2,
+            anthologyID: base.anthologyID,
+            revision: base.revision,
+            epubIdentifier: base.epubIdentifier,
+            title: base.title,
+            subtitle: base.subtitle,
+            creator: base.creator,
+            language: base.language,
+            coverPath: base.coverPath,
+            modifiedAt: base.modifiedAt,
+            chapters: [chapter],
+            imageAssets: [descriptor],
+            imageFailures: [])
+    }
+
     func rewrite(
         _ source: URL,
         to destination: URL,
@@ -211,6 +301,11 @@ struct AnthologyEPUBPreflightFixture {
         let destinationArchive = try Archive(url: destination, accessMode: .create)
         for entry in sourceArchive {
             if mutation == .missingContainer, entry.path == "META-INF/container.xml" {
+                continue
+            }
+            if mutation == .missingArticleImage,
+                entry.path.hasPrefix("EPUB/images/article-")
+            {
                 continue
             }
             var data = try extract(entry, from: sourceArchive)
@@ -243,6 +338,11 @@ struct AnthologyEPUBPreflightFixture {
     }
 
     private func mutate(_ data: Data, at path: String, mutation: Mutation) -> Data {
+        if mutation == .tamperedArticleImage,
+            path.hasPrefix("EPUB/images/article-")
+        {
+            return Data("tampered image".utf8)
+        }
         guard let text = String(data: data, encoding: .utf8) else { return data }
         let changed: String
         switch mutation {
@@ -317,6 +417,8 @@ struct AnthologyEPUBPreflightFixture {
             changed = text.replacingOccurrences(
                 of: "http://www.w3.org/1999/xhtml",
                 with: "https://example.test/not-xhtml")
+        case .tamperedArticleImage, .missingArticleImage:
+            changed = text
         default:
             return data
         }

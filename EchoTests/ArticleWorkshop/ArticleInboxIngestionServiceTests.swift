@@ -1,11 +1,47 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import CoreGraphics
 import Foundation
+import ImageIO
 import Testing
+import UniformTypeIdentifiers
 
 @testable import Echo
 
 @MainActor
 struct ArticleInboxIngestionServiceTests {
+    @Test func productionDrainLocalizesRetainedImageBeforeDurableImport() async throws {
+        let fixture = try makeFixture()
+        defer { try! FileManager.default.removeItem(at: fixture.root) }
+        let envelope = articleWorkshopFixtureEnvelope(
+            contentXHTML: """
+                <article><p>Before.</p><figure><img src="https://example.test/photo.png" alt="Diagram"><figcaption>Useful diagram.</figcaption></figure></article>
+                """)
+        _ = try fixture.writer.stage(envelope)
+        let png = try meaningfulPNG()
+        ArticleURLProtocol.install { _ in
+            .response(status: 200, mimeType: "image/png", data: png)
+        }
+        defer { ArticleURLProtocol.reset() }
+
+        try await fixture.service.drainStagingLocalizingImages(
+            downloader: ArticleImageDownloader(
+                sessionConfiguration: articleURLProtocolConfiguration()))
+
+        let manifest = try #require(
+            try fixture.fileStore.loadImageAssetManifest(captureID: envelope.captureID))
+        #expect(manifest.assets.count == 1)
+        #expect(manifest.failures.isEmpty)
+        #expect(manifest.assets[0].altText == "Diagram")
+        #expect(manifest.assets[0].caption == "Useful diagram.")
+        let durable = fixture.workshopRoot
+            .appending(path: "Captures/\(envelope.captureID.uuidString)")
+            .appending(path: manifest.assets[0].managedPath)
+        #expect(try Data(contentsOf: durable) == png)
+        #expect(
+            try fixture.dao.capture(id: envelope.captureID.uuidString)?.contentState
+                == ArticleContentState.ready.rawValue)
+    }
+
     @Test func incompletePackageIsIgnored() async throws {
         let fixture = try makeFixture()
         defer { try! FileManager.default.removeItem(at: fixture.root) }
@@ -359,6 +395,30 @@ struct ArticleInboxIngestionServiceTests {
             fileStore: fixture.fileStore,
             stagingRoot: fixture.stagingRoot
         )
+    }
+
+    private func meaningfulPNG() throws -> Data {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let context = try #require(CGContext(
+            data: nil,
+            width: 2,
+            height: 2,
+            bitsPerComponent: 8,
+            bytesPerRow: 8,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.8, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        let image = try #require(context.makeImage())
+        let data = NSMutableData()
+        let destination = try #require(CGImageDestinationCreateWithData(
+            data,
+            UTType.png.identifier as CFString,
+            1,
+            nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        try #require(CGImageDestinationFinalize(destination))
+        return data as Data
     }
 
     private func cleanupRoot(in stagingRoot: URL) -> URL? {

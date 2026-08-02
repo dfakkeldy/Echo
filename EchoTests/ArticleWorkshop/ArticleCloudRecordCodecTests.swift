@@ -1652,6 +1652,67 @@ import ZIPFoundation
         }
     }
 
+    @Test func descriptorBackedNestedImagesRoundTripWithExactBytesAndOwnership() throws {
+        let sourceURL = URL(string: "https://example.test/meaningful.png")!
+        let fixture = try ArticleCloudCodecFixture(
+            contentXHTML: """
+                <html xmlns="http://www.w3.org/1999/xhtml"><body><figure><img src="\(sourceURL.absoluteString)" alt="Diagram"/><figcaption>Useful diagram.</figcaption></figure></body></html>
+                """,
+            imageURLs: [sourceURL.absoluteString])
+        defer { fixture.remove() }
+        let data = cloudCoverPNGData()
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let images = fixture.packageDirectory.appending(
+            path: "images",
+            directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: images, withIntermediateDirectories: false)
+        try data.write(to: images.appending(path: "\(digest).png"))
+        let descriptor = ArticleImageAssetDescriptor(
+            owningBlockID: "article-\(fixture.capture.id)-b0",
+            managedPath: "images/\(digest).png",
+            archivePath: "EPUB/images/article-\(digest).png",
+            mediaType: "image/png",
+            sha256: digest,
+            byteCount: data.count,
+            pixelWidth: 1,
+            pixelHeight: 1,
+            sourceURL: sourceURL,
+            altText: "Diagram",
+            caption: "Useful diagram.")
+        let manifest = ArticleImageAssetManifest(
+            schemaVersion: 1,
+            captureID: UUID(uuidString: fixture.capture.id)!,
+            assets: [descriptor],
+            failures: [])
+        let encoder = JSONEncoder.articleWorkshop
+        encoder.outputFormatting = [.sortedKeys]
+        try encoder.encode(manifest).write(
+            to: fixture.packageDirectory.appending(path: "image-assets.json"))
+
+        let record = try fixture.codec.captureRecord(
+            fixture.capture,
+            packageDirectory: fixture.packageDirectory)
+        let decoded = try fixture.codec.decode(
+            record,
+            assetCopyDirectory: fixture.incomingDirectory)
+        guard case .capture(let payload) = decoded else {
+            Issue.record("Expected capture payload")
+            return
+        }
+        let installed = try fixture.codec.installCapturePackage(
+            payload,
+            workshopRootDirectory: fixture.managedDirectory)
+        let installedDirectory = URL(fileURLWithPath: installed.packagePath)
+
+        #expect(
+            try Data(contentsOf: installedDirectory.appending(path: descriptor.managedPath)) == data)
+        #expect(
+            try JSONDecoder.articleWorkshop.decode(
+                ArticleImageAssetManifest.self,
+                from: Data(contentsOf: installedDirectory.appending(path: "image-assets.json")))
+                == manifest)
+    }
+
     @Test func downloadedCaptureArchiveUsesSameExactMemberGrammar() throws {
         let fixture = try ArticleCloudCodecFixture()
         defer { fixture.remove() }

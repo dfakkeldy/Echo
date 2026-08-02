@@ -20,6 +20,7 @@ nonisolated struct GeneratedChapterIdentity: Equatable, Sendable {
         let stableBlockIndex: Int
         let kind: EPubBlockRecord.Kind
         let text: String?
+        let imagePath: String?
         let rawTag: String
         let rawClasses: Set<String>
         let codeLanguage: String?
@@ -49,7 +50,7 @@ nonisolated struct GeneratedAnthologyImportIdentity: Equatable, Sendable {
         let digest = SHA256.hash(data: manifestData)
             .map { String(format: "%02x", $0) }.joined()
 
-        guard manifest.schemaVersion == 1,
+        guard [1, 2].contains(manifest.schemaVersion),
             manifest.revision > 0,
             manifest.epubIdentifier == "urn:uuid:\(manifest.anthologyID.uuidString)",
             manifest.chapters.isEmpty == false
@@ -71,7 +72,9 @@ nonisolated struct GeneratedAnthologyImportIdentity: Equatable, Sendable {
             guard chapters[href] == nil else {
                 throw GeneratedAnthologyImportError.invalidManifest
             }
-            let expected = try Self.expectedBlocks(for: chapter)
+            let expected = try Self.expectedBlocks(
+                for: chapter,
+                imageAssets: manifest.imageAssets ?? [])
             chapters[href] = GeneratedChapterIdentity(
                 sourceChapterKey: chapter.entryID.uuidString,
                 href: href,
@@ -113,6 +116,7 @@ nonisolated struct GeneratedAnthologyImportIdentity: Equatable, Sendable {
                 seen.insert(blockIndex).inserted,
                 descriptor.kind == expected.kind,
                 descriptor.text == expected.text,
+                descriptor.imagePath == expected.imagePath,
                 descriptor.rawTags == expected.rawTag,
                 Set(descriptor.rawClasses) == expected.rawClasses,
                 descriptor.codeLanguage == expected.codeLanguage,
@@ -149,7 +153,8 @@ nonisolated struct GeneratedAnthologyImportIdentity: Equatable, Sendable {
     }
 
     private static func expectedBlocks(
-        for chapter: AnthologyChapterManifest
+        for chapter: AnthologyChapterManifest,
+        imageAssets: [ArticleImageAssetDescriptor]
     ) throws -> [Int: GeneratedChapterIdentity.ExpectedBlock] {
         var expected: [Int: GeneratedChapterIdentity.ExpectedBlock] = [:]
         try insert(
@@ -157,6 +162,7 @@ nonisolated struct GeneratedAnthologyImportIdentity: Equatable, Sendable {
                 stableBlockIndex: 0,
                 kind: .heading,
                 text: chapter.title,
+                imagePath: nil,
                 rawTag: "h1",
                 rawClasses: [],
                 codeLanguage: nil,
@@ -170,6 +176,7 @@ nonisolated struct GeneratedAnthologyImportIdentity: Equatable, Sendable {
                     stableBlockIndex: 1,
                     kind: .paragraph,
                     text: author,
+                    imagePath: nil,
                     rawTag: "p",
                     rawClasses: ["byline"],
                     codeLanguage: nil,
@@ -185,6 +192,7 @@ nonisolated struct GeneratedAnthologyImportIdentity: Equatable, Sendable {
                 stableBlockIndex: 2,
                 kind: .paragraph,
                 text: publication,
+                imagePath: nil,
                 rawTag: "p",
                 rawClasses: ["publication"],
                 codeLanguage: nil,
@@ -198,6 +206,10 @@ nonisolated struct GeneratedAnthologyImportIdentity: Equatable, Sendable {
             }
             let index = 1_000 + block.stableOrdinal
             let attributes = expectedAttributes(for: block)
+            let image = imageAssets.first(where: { $0.owningBlockID == block.id })
+            if block.kind == .image, image == nil {
+                throw GeneratedAnthologyImportError.invalidManifest
+            }
             try insert(
                 .init(
                     stableBlockIndex: index,
@@ -205,7 +217,12 @@ nonisolated struct GeneratedAnthologyImportIdentity: Equatable, Sendable {
                     // XML parsing canonicalizes presentation-only whitespace at
                     // element boundaries. Apply the same rule to legacy capture
                     // snapshots before performing the strict identity check.
-                    text: block.text?.trimmingCharacters(in: .whitespacesAndNewlines),
+                    text: block.kind == .image
+                        ? (image?.caption ?? image?.altText)
+                        : block.text?.trimmingCharacters(in: .whitespacesAndNewlines),
+                    imagePath: image.map {
+                        "../" + String($0.archivePath.dropFirst("EPUB/".count))
+                    },
                     rawTag: attributes.tag,
                     rawClasses: attributes.classes,
                     codeLanguage: block.kind == .code ? block.codeLanguage : nil,
@@ -219,6 +236,7 @@ nonisolated struct GeneratedAnthologyImportIdentity: Equatable, Sendable {
                 stableBlockIndex: 900_000,
                 kind: .paragraph,
                 text: "Source: \(chapter.sourceURL.absoluteString)",
+                imagePath: nil,
                 rawTag: "p",
                 rawClasses: ["source"],
                 codeLanguage: nil,
@@ -256,7 +274,7 @@ nonisolated struct GeneratedAnthologyImportIdentity: Equatable, Sendable {
         case .separator:
             return (.paragraph, "hr", [])
         case .image:
-            return (.image, "span", [])
+            return (.image, "img", [])
         }
     }
 

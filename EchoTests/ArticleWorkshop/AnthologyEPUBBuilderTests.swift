@@ -156,6 +156,27 @@ struct AnthologyEPUBBuilderTests {
         let archive = try Archive(url: output, accessMode: .read)
         #expect(try fixture.string("EPUB/nav.xhtml", in: archive).contains("xml:lang=\"und\""))
     }
+
+    @Test func embedsDescriptorBackedArticleImageAsAccessibleFigure() throws {
+        let fixture = try AnthologyEPUBFixture()
+        defer { fixture.removeFiles() }
+        let prepared = try fixture.manifestWithManagedArticleImage()
+        let output = fixture.root.appending(path: "article-image.epub")
+
+        _ = try AnthologyEPUBBuilder(workshopRoot: fixture.workshopRoot)
+            .build(manifest: prepared.manifest, to: output)
+
+        let archive = try Archive(url: output, accessMode: .read)
+        #expect(try fixture.data(prepared.descriptor.archivePath, in: archive) == prepared.data)
+        let package = try fixture.string("EPUB/package.opf", in: archive)
+        let chapter = try fixture.string("EPUB/articles/article-s42.xhtml", in: archive)
+        #expect(package.contains("href=\"images/article-\(prepared.descriptor.sha256).png\" media-type=\"image/png\""))
+        #expect(chapter.contains("<figure"))
+        #expect(chapter.contains("src=\"../images/article-\(prepared.descriptor.sha256).png\""))
+        #expect(chapter.contains("alt=\"Harbour at sunrise\""))
+        #expect(chapter.contains("<figcaption>Fishing boats returning home.</figcaption>"))
+        #expect(chapter.contains("https://images.example.test/photo.png") == false)
+    }
 }
 
 private struct AnthologyEPUBFixture {
@@ -285,6 +306,81 @@ private struct AnthologyEPUBFixture {
         let filename = "cover-\(sha256(data)).png"
         try data.write(to: directory.appending(path: filename))
         return filename
+    }
+
+    func manifestWithManagedArticleImage() throws -> (
+        manifest: AnthologyBuildManifest,
+        descriptor: ArticleImageAssetDescriptor,
+        data: Data
+    ) {
+        let data = png()
+        let digest = sha256(data)
+        let captureID = UUID(uuidString: "21111111-1111-1111-1111-111111111111")!
+        let blockID = "article-\(captureID.uuidString)-b9"
+        let managedPath = "images/\(digest).png"
+        let directory = workshopRoot
+            .appending(path: "Captures", directoryHint: .isDirectory)
+            .appending(path: captureID.uuidString, directoryHint: .isDirectory)
+            .appending(path: "images", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try data.write(to: directory.appending(path: "\(digest).png"))
+        let descriptor = ArticleImageAssetDescriptor(
+            owningBlockID: blockID,
+            managedPath: managedPath,
+            archivePath: "EPUB/images/article-\(digest).png",
+            mediaType: "image/png",
+            sha256: digest,
+            byteCount: data.count,
+            pixelWidth: 1,
+            pixelHeight: 1,
+            sourceURL: URL(string: "https://images.example.test/photo.png")!,
+            altText: "Harbour at sunrise",
+            caption: "Fishing boats returning home.")
+        var manifest = manifest(includeImageBlock: true)
+        let chapters = manifest.chapters.map { chapter in
+            let blocks = chapter.blocks.map { block in
+                guard block.id == blockID else { return block }
+                return ArticleBlock(
+                    id: block.id,
+                    stableOrdinal: block.stableOrdinal,
+                    kind: block.kind,
+                    text: block.text,
+                    sourceURL: block.sourceURL,
+                    imageCandidateURL: block.imageCandidateURL,
+                    altText: descriptor.altText,
+                    caption: descriptor.caption,
+                    codeLanguage: block.codeLanguage)
+            }
+            return AnthologyChapterManifest(
+                entryID: chapter.entryID,
+                captureID: chapter.captureID,
+                articleRevisionID: chapter.articleRevisionID,
+                stableSlot: chapter.stableSlot,
+                order: chapter.order,
+                title: chapter.title,
+                author: chapter.author,
+                siteName: chapter.siteName,
+                sourceURL: chapter.sourceURL,
+                capturedAt: chapter.capturedAt,
+                voiceID: chapter.voiceID,
+                blocks: blocks,
+                readableContentSHA256: ArticleWorkshopDigest.readableContent(blocks: blocks))
+        }
+        manifest = AnthologyBuildManifest(
+            schemaVersion: 2,
+            anthologyID: manifest.anthologyID,
+            revision: manifest.revision,
+            epubIdentifier: manifest.epubIdentifier,
+            title: manifest.title,
+            subtitle: manifest.subtitle,
+            creator: manifest.creator,
+            language: manifest.language,
+            coverPath: manifest.coverPath,
+            modifiedAt: manifest.modifiedAt,
+            chapters: chapters,
+            imageAssets: [descriptor],
+            imageFailures: [])
+        return (manifest, descriptor, data)
     }
 
     func png() -> Data {
