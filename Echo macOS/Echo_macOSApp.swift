@@ -30,6 +30,7 @@ struct Echo_macOSApp: App {
     @State private var showAnkiExport = false
     @State private var showAudioExport = false
     @State private var showVideoExport = false
+    @State private var showArticleWorkshop = false
 
     /// Persistent batch pipeline (import → transcribe → align → word timings).
     /// Survives app restart; the queue lives in the shared database.
@@ -120,6 +121,9 @@ struct Echo_macOSApp: App {
                             databaseWriter: db)
                     }
                 }
+                .sheet(isPresented: $showArticleWorkshop) {
+                    MacArticleWorkshopView(db: dbService)
+                }
         }
         .defaultLaunchBehavior(.presented)
         .commands {
@@ -160,6 +164,13 @@ struct Echo_macOSApp: App {
             }
 
             CommandMenu("View") {
+                Button("Article Workshop…") {
+                    showArticleWorkshop = true
+                }
+                .keyboardShortcut("w", modifiers: [.command, .option])
+
+                Divider()
+
                 Button("Toggle Review Pane") {
                     NotificationCenter.default.post(name: .requestToggleDetailPane, object: nil)
                 }

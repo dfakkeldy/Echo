@@ -37,6 +37,69 @@ struct GeneratedAnthologyImportTests {
         #expect(cover.id != "epub-generated-book-s0-b0")
     }
 
+    @Test("Legacy edge whitespace uses the parser's canonical block identity")
+    func legacyEdgeWhitespaceUsesCanonicalIdentity() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let manifest = fixture.manifest(chapters: [
+            fixture.chapter(slot: 0, order: 0, title: "Article", body: "Body with legacy space ")
+        ])
+
+        let parsed = try parseEPUBBlocks(
+            audiobookID: "legacy-whitespace",
+            epubURL: fixture.writeExpandedEPUB(manifest),
+            generatedIdentity: try GeneratedAnthologyImportIdentity(manifest: manifest))
+
+        #expect(parsed.blocks.contains {
+            $0.id == "epub-legacy-whitespace-s0-b1004" && $0.text == "Body with legacy space"
+        })
+    }
+
+    @Test("Long generated titles keep their validated stable block set")
+    func longGeneratedTitleDoesNotSynthesizeAHeading() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let title = String(repeating: "Long generated anthology title ", count: 5)
+        #expect(title.count > 100)
+        let manifest = fixture.manifest(chapters: [
+            fixture.chapter(slot: 0, order: 0, title: title, body: "Body")
+        ])
+
+        let parsed = try parseEPUBBlocks(
+            audiobookID: "long-title",
+            epubURL: fixture.writeExpandedEPUB(manifest),
+            generatedIdentity: try GeneratedAnthologyImportIdentity(manifest: manifest))
+
+        let generated = parsed.blocks.filter { $0.sourceChapterKey != nil }
+        #expect(generated.count == 4)
+        #expect(generated.map(\.id) == [
+            "epub-long-title-s0-b0",
+            "epub-long-title-s0-b2",
+            "epub-long-title-s0-b1004",
+            "epub-long-title-s0-b900000",
+        ])
+        #expect(generated.first?.text == title)
+    }
+
+    @Test("Generated block kinds bypass generic EPUB heading heuristics")
+    func generatedKindsBypassHeuristics() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let chapter = fixture.withAuthor(
+            "AUTHOR",
+            in: fixture.chapter(slot: 0, order: 0, title: "Article", body: "Body"))
+        let manifest = fixture.manifest(chapters: [chapter])
+
+        let parsed = try parseEPUBBlocks(
+            audiobookID: "trusted-kinds",
+            epubURL: fixture.writeExpandedEPUB(manifest),
+            generatedIdentity: try GeneratedAnthologyImportIdentity(manifest: manifest))
+
+        let byline = try #require(parsed.blocks.first { $0.id == "epub-trusted-kinds-s0-b1" })
+        #expect(byline.blockKind == EPubBlockRecord.Kind.paragraph.rawValue)
+        #expect(byline.text == "AUTHOR")
+    }
+
     @Test("Reordering chapters changes location fields but not stable IDs")
     func reorderKeepsStableIDs() throws {
         let fixture = try Fixture()
@@ -690,6 +753,26 @@ struct GeneratedAnthologyImportTests {
                 order: order,
                 title: chapter.title,
                 author: chapter.author,
+                siteName: chapter.siteName,
+                sourceURL: chapter.sourceURL,
+                capturedAt: chapter.capturedAt,
+                voiceID: chapter.voiceID,
+                blocks: chapter.blocks,
+                readableContentSHA256: chapter.readableContentSHA256)
+        }
+
+        func withAuthor(
+            _ author: String,
+            in chapter: AnthologyChapterManifest
+        ) -> AnthologyChapterManifest {
+            AnthologyChapterManifest(
+                entryID: chapter.entryID,
+                captureID: chapter.captureID,
+                articleRevisionID: chapter.articleRevisionID,
+                stableSlot: chapter.stableSlot,
+                order: chapter.order,
+                title: chapter.title,
+                author: author,
                 siteName: chapter.siteName,
                 sourceURL: chapter.sourceURL,
                 capturedAt: chapter.capturedAt,

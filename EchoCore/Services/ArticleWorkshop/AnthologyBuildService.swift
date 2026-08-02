@@ -745,7 +745,10 @@ actor AnthologyBuildService {
     }
 
     private nonisolated static func timestamp(_ date: Date) -> String {
-        date.formatted(.iso8601.timeZone(separator: .omitted))
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: date)
     }
 
     private nonisolated static func errorCode(_ error: Swift.Error) -> String {
@@ -756,6 +759,26 @@ actor AnthologyBuildService {
             return "epub_build_failed"
         case is AnthologyEPUBPreflight.Error:
             return "epub_preflight_failed"
+        case GeneratedAnthologyImportError.invalidManifest:
+            return "generated_import_invalid_manifest"
+        case GeneratedAnthologyImportError.packageEvidenceMismatch:
+            return "generated_import_evidence_mismatch"
+        case GeneratedAnthologyImportError.unexpectedChapter:
+            return "generated_import_unexpected_chapter"
+        case GeneratedAnthologyImportError.invalidStableBlock:
+            return "generated_import_invalid_stable_block"
+        case GeneratedAnthologyImportError.incompleteStableBlockSet:
+            return "generated_import_incomplete_blocks"
+        case GeneratedAnthologyImportError.duplicateStableBlock:
+            return "generated_import_duplicate_block"
+        case GeneratedAnthologyImportError.crossBookCollision:
+            return "generated_import_cross_book_collision"
+        case GeneratedAnthologyImportError.rollbackSnapshotLimitExceeded:
+            return "generated_import_rollback_limit"
+        case GeneratedAnthologyImportError.invalidRollbackSnapshot:
+            return "generated_import_invalid_rollback"
+        case GeneratedAnthologyImportError.injectedFailure:
+            return "generated_import_injected_failure"
         case Error.unsafeManagedPath:
             return "unsafe_managed_path"
         case Error.invalidBuildResult:
