@@ -21,6 +21,57 @@
 
     extension PlayerModel {
 
+        func handleNarrationPreparationProgress(
+            _ progress: NarrationPrepareProgress,
+            operation: NarrationOperationToken,
+            audiobookID: String
+        ) {
+            guard NarrationRenderPolicy.callbackIsCurrent(
+                operation: operation,
+                currentOperation: narrationOperation,
+                currentFolderURL: bookIdentityURL?.absoluteString,
+                audiobookID: audiobookID)
+            else { return }
+
+            switch progress {
+            case .downloadingModels(let fraction):
+                narrationPlaybackState.update(
+                    phase: .preparingEngine, progress: 0.5 * fraction,
+                    statusMessage:
+                        "Downloading voice models… \(Int(min(max(fraction, 0), 1) * 100))%"
+                )
+            case .compilingModels(let done, let total):
+                let fraction = total > 0 ? Double(done) / Double(total) : 0
+                narrationPlaybackState.update(
+                    phase: .preparingEngine, progress: 0.5 + 0.5 * fraction,
+                    statusMessage: "Loading voice models… \(done) of \(total)")
+            case .ready:
+                narrationPlaybackState.update(
+                    phase: .preparingEngine, progress: 1.0,
+                    statusMessage: "Voice models ready")
+            }
+        }
+
+        func handleNarrationBlockProgress(
+            chapterDisplayNumber: Int,
+            fraction: Double,
+            operation: NarrationOperationToken,
+            audiobookID: String
+        ) {
+            guard NarrationRenderPolicy.callbackIsCurrent(
+                operation: operation,
+                currentOperation: narrationOperation,
+                currentFolderURL: bookIdentityURL?.absoluteString,
+                audiobookID: audiobookID)
+            else { return }
+
+            state.currentSubtitle = NarrationProgressText.subtitle(
+                chapterDisplayNumber: chapterDisplayNumber, fraction: fraction)
+            // This callback only fires while the chapter is still rendering
+            // (render-then-play), so no audio is playing yet.
+            progressPresenter.updateNowPlayingInfo(isPaused: true)
+        }
+
         /// Plays an audio-less study book's narration through the main playback
         /// pipeline: each chapter is rendered to a file and injected as a `Track`,
         /// so CarPlay, the lock screen, and the scrubber drive it like a normal
@@ -42,6 +93,7 @@
             else { return }
 
             narrationRenderTask?.cancel()
+            let operation = replaceNarrationOperation()
             narrationPlaybackState.reset()
             state.narrationRenderInFlight = true
             state.awaitingNarrationChapter = false
@@ -249,28 +301,8 @@
                         audiobookID: audiobookID)
                     try await self.narrationTTS.prepare(progress: { [weak self] p in
                         Task { @MainActor [weak self] in
-                            guard let model = self,
-                                !NarrationRenderPolicy.bookWasSwitched(
-                                    currentFolderURL: model.bookIdentityURL?.absoluteString,
-                                    audiobookID: audiobookID)
-                            else { return }
-                            switch p {
-                            case .downloadingModels(let f):
-                                model.narrationPlaybackState.update(
-                                    phase: .preparingEngine, progress: 0.5 * f,
-                                    statusMessage:
-                                        "Downloading voice models… \(Int(min(max(f, 0), 1) * 100))%"
-                                )
-                            case .compilingModels(let done, let total):
-                                let frac = total > 0 ? Double(done) / Double(total) : 0
-                                model.narrationPlaybackState.update(
-                                    phase: .preparingEngine, progress: 0.5 + 0.5 * frac,
-                                    statusMessage: "Loading voice models… \(done) of \(total)")
-                            case .ready:
-                                model.narrationPlaybackState.update(
-                                    phase: .preparingEngine, progress: 1.0,
-                                    statusMessage: "Voice models ready")
-                            }
+                            self?.handleNarrationPreparationProgress(
+                                p, operation: operation, audiobookID: audiobookID)
                         }
                     })
                     try NarrationRenderPolicy.checkTaskIsActive(
@@ -348,19 +380,11 @@
                                 voice: segment.voice,
                                 chapterTitle: segment.chapterTitle,
                                 onBlockProgress: { [weak self] displayNumber, fraction in
-                                    guard let self,
-                                        !NarrationRenderPolicy.bookWasSwitched(
-                                            currentFolderURL: self.bookIdentityURL?.absoluteString,
-                                            audiobookID: audiobookID)
-                                    else { return }
-                                    self.state.currentSubtitle = NarrationProgressText.subtitle(
-                                        chapterDisplayNumber: displayNumber, fraction: fraction)
-                                    // `isPaused: true` is a prepare-time precondition: this
-                                    // callback only fires while the chapter is still rendering
-                                    // (render-then-play), so no audio is playing yet. If this
-                                    // callback is ever reused on a live-playback path, derive
-                                    // the flag from `self.isPlaying` instead of hardcoding it.
-                                    self.progressPresenter.updateNowPlayingInfo(isPaused: true)
+                                    self?.handleNarrationBlockProgress(
+                                        chapterDisplayNumber: displayNumber,
+                                        fraction: fraction,
+                                        operation: operation,
+                                        audiobookID: audiobookID)
                                 })
                             try Task.checkCancellation()
                             // Bail if the user switched books while this chapter rendered.

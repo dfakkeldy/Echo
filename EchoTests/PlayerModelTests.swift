@@ -540,6 +540,58 @@ struct PlayerModelTests {
         }
     }
 
+    @Test func sameBookRestartRejectsStalePreparationProgress() {
+        let model = PlayerModel()
+        let bookURL = URL(fileURLWithPath: "/same-book", isDirectory: true)
+        model.folderURL = bookURL
+        let staleOperation = model.replaceNarrationOperation()
+
+        model.handleNarrationPreparationProgress(
+            .ready,
+            operation: staleOperation,
+            audiobookID: bookURL.absoluteString)
+        #expect(model.narrationPlaybackState.phase == .preparingEngine)
+        #expect(model.narrationPlaybackState.progress == 1)
+
+        _ = model.replaceNarrationOperation()
+        model.narrationPlaybackState.update(
+            phase: .renderingAhead,
+            progress: 0.25,
+            statusMessage: "Current operation")
+        model.handleNarrationPreparationProgress(
+            .ready,
+            operation: staleOperation,
+            audiobookID: bookURL.absoluteString)
+
+        #expect(model.narrationPlaybackState.phase == .renderingAhead)
+        #expect(model.narrationPlaybackState.progress == 0.25)
+        #expect(model.narrationPlaybackState.statusMessage == "Current operation")
+    }
+
+    @Test func sameBookRestartRejectsStaleBlockProgress() {
+        let model = PlayerModel()
+        let bookURL = URL(fileURLWithPath: "/same-book", isDirectory: true)
+        model.folderURL = bookURL
+        let staleOperation = model.replaceNarrationOperation()
+
+        model.handleNarrationBlockProgress(
+            chapterDisplayNumber: 3,
+            fraction: 0.5,
+            operation: staleOperation,
+            audiobookID: bookURL.absoluteString)
+        #expect(model.state.currentSubtitle == "Preparing chapter 3… 50%")
+
+        _ = model.replaceNarrationOperation()
+        model.state.currentSubtitle = "Current operation"
+        model.handleNarrationBlockProgress(
+            chapterDisplayNumber: 8,
+            fraction: 0.75,
+            operation: staleOperation,
+            audiobookID: bookURL.absoluteString)
+
+        #expect(model.state.currentSubtitle == "Current operation")
+    }
+
     @Test func narrationPreparationIsGuardedBeforeMutationAndTTS() throws {
         let source = try Self.source(named: "PlayerModel+Narration.swift")
         let importAwait = try #require(
