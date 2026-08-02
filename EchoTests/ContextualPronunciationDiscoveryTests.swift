@@ -44,13 +44,34 @@ import Testing
         #expect(occurrences.map(\.targetWord) == ["Read", "record"])
         #expect(occurrences.map(\.wordStart) == [0, 2])
         #expect(occurrences.map(\.wordEnd) == [0, 2])
-        #expect(occurrences.allSatisfy { $0.targetSentence == "“Read,” then record what happened." })
+        #expect(
+            occurrences.allSatisfy { $0.targetSentence == "“Read,” then record what happened." })
     }
 
     @Test func connectedFamilySpellingsDoNotShareOneCanonicalWordSpan() {
         let occurrences = ContextualPronunciationDiscovery.discover(
             text: "read/record",
             blockID: "b-connected")
+
+        #expect(occurrences.isEmpty)
+    }
+
+    @Test func hyphenatedFamilySpellingKeepsItsOwnCanonicalWordSpan() throws {
+        let occurrences = ContextualPronunciationDiscovery.discover(
+            text: "Use read-only access.",
+            blockID: "b-hyphenated")
+
+        let item = try #require(occurrences.first)
+        #expect(occurrences.count == 1)
+        #expect(item.targetWord == "read")
+        #expect(item.wordStart == 1)
+        #expect(item.wordEnd == 1)
+    }
+
+    @Test func hyphenatedCanonicalWordWithTwoFamiliesIsNotAmbiguousAtOneIndex() {
+        let occurrences = ContextualPronunciationDiscovery.discover(
+            text: "read-record",
+            blockID: "b-two-families")
 
         #expect(occurrences.isEmpty)
     }
