@@ -84,7 +84,9 @@ struct MacVisualStageView: View {
             cgImage = nil
             return
         }
-        cgImage = await MacImageDecode.loadCGImage(url: resolvedURL, maxPixelSize: 1600)
+        let decoded = await MacImageDecode.loadCGImage(url: resolvedURL, maxPixelSize: 1600)
+        guard !Task.isCancelled else { return }
+        cgImage = decoded
     }
 
     /// Resolves the on-disk location for the current cue's image path (either

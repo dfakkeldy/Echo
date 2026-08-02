@@ -250,7 +250,9 @@ private struct BookmarkThumbnail: View {
         .clipShape(.rect(cornerRadius: 6))
         .task(id: bookmark.id) {
             guard let url = bookmark.bookmarkImageURL(in: folderURL) else { return }
-            cgImage = await MacImageDecode.loadCGImage(url: url, maxPixelSize: 108)
+            let decoded = await MacImageDecode.loadCGImage(url: url, maxPixelSize: 108)
+            guard !Task.isCancelled else { return }
+            cgImage = decoded
         }
     }
 }
@@ -383,7 +385,9 @@ private struct BookmarkImagePreviewSheet: View {
         }
         .frame(minWidth: 520, minHeight: 420)
         .task(id: preview.id) {
-            cgImage = await MacImageDecode.loadCGImage(url: preview.url, maxPixelSize: 1600)
+            let decoded = await MacImageDecode.loadCGImage(url: preview.url, maxPixelSize: 1600)
+            guard !Task.isCancelled else { return }
+            cgImage = decoded
         }
     }
 }
