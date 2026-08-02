@@ -26,6 +26,52 @@ private actor PreflightCallRecorder {
     }
 }
 
+/// Reproduces the measured Foundation Models fault: one transient generation
+/// error, after which `SystemLanguageModel.contextSize` reports 0 for the rest
+/// of the process. The probe routes through the production guard helpers so the
+/// test exercises the real recovery path rather than a restatement of it.
+private actor PoisonedContextWindowProbe {
+    private let reportedContextSizes: [Int]
+    private var callCount = 0
+    private var lastKnownGood = 0
+
+    init(reportedContextSizes: [Int]) {
+        self.reportedContextSizes = reportedContextSizes
+    }
+
+    func evaluate(
+        _ request: ContextualPronunciationBatchRequest
+    ) -> ContextualPronunciationBatchResult {
+        let reported = reportedContextSizes[
+            min(callCount, reportedContextSizes.count - 1)]
+        callCount += 1
+
+        let contextSize =
+            FoundationModelsContextualPronunciationEvaluator
+            .resolvedContextSize(reported: reported, lastKnownGood: lastKnownGood)
+        if contextSize > 0 {
+            lastKnownGood = contextSize
+        }
+
+        if let failure =
+            FoundationModelsContextualPronunciationEvaluator
+            .contextWindowFailure(
+                promptCharacterCount: 1_651,
+                contextSize: contextSize)
+        {
+            return PreflightFixtures.failure(failure)
+        }
+
+        // The first live call is the transient generation error that poisons
+        // the window; it surfaces as `.unknown` because the underlying
+        // `LanguageModelError -1` does not cast to a documented case.
+        if callCount == 1 {
+            return PreflightFixtures.failure(.unknown)
+        }
+        return PreflightFixtures.success(for: request)
+    }
+}
+
 private actor SerialPreflightProbe {
     private var activeCalls = 0
     private(set) var maximumActiveCalls = 0
@@ -431,6 +477,78 @@ private nonisolated enum PreflightFixtures {
             environment: PreflightFixtures.runtime)
 
         #expect(await recorder.batchCounts() == [4, 2, 1, 1, 2, 1, 1])
+        #expect(evidence.allSatisfy { $0.modelCandidateID == "read-present" })
+    }
+
+    @Test func aTransientFirstBatchFailureLeavesLaterBatchesEvaluable() async throws {
+        // Call 1 sees a healthy window and hits the transient generation error;
+        // every later call sees the poisoned 0 report the fault leaves behind.
+        let probe = PoisonedContextWindowProbe(reportedContextSizes: [4_096, 0])
+        let evaluator: ContextualPronunciationBatchEvaluator = { request in
+            await probe.evaluate(request)
+        }
+
+        let evidence = try await ContextualPronunciationPreflight.run(
+            occurrences: PreflightFixtures.occurrences(count: 16),
+            evaluator: evaluator,
+            environment: PreflightFixtures.runtime)
+
+        let secondBatch = evidence.suffix(8)
+        #expect(secondBatch.allSatisfy { $0.modelCandidateID == "read-present" })
+        #expect(secondBatch.allSatisfy { $0.acceptanceReason == .shadowObserved })
+        #expect(secondBatch.allSatisfy { $0.modelFailure == nil })
+    }
+
+    @Test func aPoisonedWindowIsNeverReportedAsAnOversizedPrompt() async throws {
+        let probe = PoisonedContextWindowProbe(reportedContextSizes: [0])
+        let evaluator: ContextualPronunciationBatchEvaluator = { request in
+            await probe.evaluate(request)
+        }
+
+        let evidence = try await ContextualPronunciationPreflight.run(
+            occurrences: PreflightFixtures.occurrences(count: 2),
+            evaluator: evaluator,
+            environment: PreflightFixtures.runtime)
+
+        #expect(evidence.allSatisfy { $0.modelFailure == .contextWindowUnavailable })
+        #expect(evidence.allSatisfy { $0.modelFailure != .contextTooLarge })
+    }
+
+    @Test func aPoisonedRetryDoesNotOverwriteTheOriginalFailureReason() async throws {
+        let recorder = PreflightCallRecorder()
+        let evaluator: ContextualPronunciationBatchEvaluator = { request in
+            let call = await recorder.record(request)
+            if call == 1 {
+                return PreflightFixtures.failure(.unknown)
+            }
+            return PreflightFixtures.failure(.contextWindowUnavailable)
+        }
+
+        let evidence = try await ContextualPronunciationPreflight.run(
+            occurrences: PreflightFixtures.occurrences(count: 4),
+            evaluator: evaluator,
+            environment: PreflightFixtures.runtime)
+
+        #expect(await recorder.batchCounts() == [4, 2, 2])
+        #expect(evidence.allSatisfy { $0.modelFailure == .unknown })
+    }
+
+    @Test func anUnavailableWindowEarnsOneFreshRetryWithoutHalving() async throws {
+        let recorder = PreflightCallRecorder()
+        let evaluator: ContextualPronunciationBatchEvaluator = { request in
+            let call = await recorder.record(request)
+            if call == 1 {
+                return PreflightFixtures.failure(.contextWindowUnavailable)
+            }
+            return PreflightFixtures.success(for: request)
+        }
+
+        let evidence = try await ContextualPronunciationPreflight.run(
+            occurrences: PreflightFixtures.occurrences(count: 2),
+            evaluator: evaluator,
+            environment: PreflightFixtures.runtime)
+
+        #expect(await recorder.batchCounts() == [2, 2])
         #expect(evidence.allSatisfy { $0.modelCandidateID == "read-present" })
     }
 

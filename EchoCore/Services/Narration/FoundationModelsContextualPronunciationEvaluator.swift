@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import Synchronization
 
 #if canImport(FoundationModels) && (os(iOS) || os(macOS))
     import FoundationModels
 #endif
 
 nonisolated enum FoundationModelsContextualPronunciationEvaluator {
+    /// Last positive `SystemLanguageModel.contextSize` seen in this process.
+    private static let lastKnownGoodContextSize = Mutex<Int>(0)
+
     private static let instructions = """
         Classify each target spelling by meaning and grammatical role.
         Return exactly one supplied candidate slot for every occurrence.
@@ -98,13 +102,56 @@ nonisolated enum FoundationModelsContextualPronunciationEvaluator {
         result(availability: .unsupportedOS)
     }
 
-    static func fitsConservativeContext(
+    /// Characters of prompt budgeted per token of reported context window.
+    ///
+    /// `contextSize` is a *token* budget, not a character budget. English runs
+    /// about four characters per token, and the window must also hold the
+    /// instructions block and the generated response, so a quarter of it is
+    /// reserved and the prompt is budgeted at three characters per token. A
+    /// 14,393-character prompt was measured answering successfully against a
+    /// 4,096-token window (≈3.5 characters per token), so this ceiling stays
+    /// below what the real runtime accepts.
+    static let promptCharactersPerContextToken = 3
+
+    /// Returns the failure this prompt would hit, or `nil` when it fits.
+    ///
+    /// A non-positive `contextSize` means the window size is *unknown*, which
+    /// is reported separately from an oversized prompt so the audit never
+    /// blames a size problem that did not occur.
+    static func contextWindowFailure(
         promptCharacterCount: Int,
         contextSize: Int
-    ) -> Bool {
-        guard promptCharacterCount >= 0, contextSize > 0 else { return false }
-        let (ceiling, overflow) = contextSize.multipliedReportingOverflow(by: 2)
-        return overflow || promptCharacterCount <= ceiling
+    ) -> ContextualModelFailure? {
+        guard promptCharacterCount >= 0 else { return .unknown }
+        guard contextSize > 0 else { return .contextWindowUnavailable }
+        let (ceiling, overflow) = contextSize.multipliedReportingOverflow(
+            by: promptCharactersPerContextToken)
+        if overflow || promptCharacterCount <= ceiling { return nil }
+        return .contextTooLarge
+    }
+
+    /// Picks the context window to trust for this call.
+    ///
+    /// A transient `LanguageModelSession` generation error leaves
+    /// `SystemLanguageModel.contextSize` reporting 0 for the remainder of the
+    /// process. Falling back to the last positive reading keeps one transient
+    /// fault from disabling the shadow layer for the whole render.
+    static func resolvedContextSize(reported: Int, lastKnownGood: Int) -> Int {
+        reported > 0 ? reported : lastKnownGood
+    }
+
+    /// Records a positive context-window reading and returns the size to use,
+    /// falling back to the last positive reading when the runtime reports none.
+    static func rememberedContextSize(reporting reported: Int) -> Int {
+        lastKnownGoodContextSize.withLock { lastKnownGood in
+            let resolved = resolvedContextSize(
+                reported: reported,
+                lastKnownGood: lastKnownGood)
+            if resolved > 0 {
+                lastKnownGood = resolved
+            }
+            return resolved
+        }
     }
 
     static func modelFailure(for error: any Error) throws -> ContextualModelFailure {
@@ -193,14 +240,11 @@ nonisolated enum FoundationModelsContextualPronunciationEvaluator {
             }
 
             let formattedPrompt = prompt(for: request)
-            guard
-                fitsConservativeContext(
-                    promptCharacterCount: formattedPrompt.count,
-                    contextSize: model.contextSize)
-            else {
-                return result(
-                    availability: .available,
-                    failure: .contextTooLarge)
+            if let failure = contextWindowFailure(
+                promptCharacterCount: formattedPrompt.count,
+                contextSize: rememberedContextSize(reporting: model.contextSize))
+            {
+                return result(availability: .available, failure: failure)
             }
 
             do {

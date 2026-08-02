@@ -236,19 +236,74 @@ private nonisolated enum ContextualEvaluatorFixtures {
         }
     }
 
-    @Test func contextGuardUsesThePublicRuntimeCapacityConservatively() {
+    @Test func contextGuardBudgetsThreeCharactersPerContextToken() {
         #expect(
-            FoundationModelsContextualPronunciationEvaluator.fitsConservativeContext(
-                promptCharacterCount: 8_192,
-                contextSize: 4_096))
+            FoundationModelsContextualPronunciationEvaluator.contextWindowFailure(
+                promptCharacterCount: 12_288,
+                contextSize: 4_096) == nil)
         #expect(
-            !FoundationModelsContextualPronunciationEvaluator.fitsConservativeContext(
-                promptCharacterCount: 8_193,
-                contextSize: 4_096))
+            FoundationModelsContextualPronunciationEvaluator.contextWindowFailure(
+                promptCharacterCount: 12_289,
+                contextSize: 4_096) == .contextTooLarge)
+    }
+
+    @Test func contextGuardAdmitsPromptsMeasuredToFitTheRealWindow() {
+        // A 14,393-character prompt was answered successfully at batch size 8
+        // against a 4,096-token window, so the guard must not reject prompts of
+        // the size real batches actually reach (1,650-3,400 characters).
         #expect(
-            !FoundationModelsContextualPronunciationEvaluator.fitsConservativeContext(
+            FoundationModelsContextualPronunciationEvaluator.contextWindowFailure(
+                promptCharacterCount: 3_400,
+                contextSize: 4_096) == nil)
+    }
+
+    @Test func unknownContextWindowIsNotReportedAsAnOversizedPrompt() {
+        #expect(
+            FoundationModelsContextualPronunciationEvaluator.contextWindowFailure(
                 promptCharacterCount: 1,
-                contextSize: 0))
+                contextSize: 0) == .contextWindowUnavailable)
+        #expect(
+            FoundationModelsContextualPronunciationEvaluator.contextWindowFailure(
+                promptCharacterCount: 1,
+                contextSize: -1) == .contextWindowUnavailable)
+    }
+
+    @Test func negativePromptLengthsAreRejectedWithoutClaimingAnOversizedPrompt() {
+        #expect(
+            FoundationModelsContextualPronunciationEvaluator.contextWindowFailure(
+                promptCharacterCount: -1,
+                contextSize: 4_096) == .unknown)
+    }
+
+    @Test func aNonPositiveContextReportFallsBackToTheLastKnownGoodWindow() {
+        #expect(
+            FoundationModelsContextualPronunciationEvaluator.resolvedContextSize(
+                reported: 4_096,
+                lastKnownGood: 0) == 4_096)
+        #expect(
+            FoundationModelsContextualPronunciationEvaluator.resolvedContextSize(
+                reported: 0,
+                lastKnownGood: 4_096) == 4_096)
+        #expect(
+            FoundationModelsContextualPronunciationEvaluator.resolvedContextSize(
+                reported: 4_096,
+                lastKnownGood: 8_192) == 4_096)
+        #expect(
+            FoundationModelsContextualPronunciationEvaluator.resolvedContextSize(
+                reported: 0,
+                lastKnownGood: 0) == 0)
+    }
+
+    @Test func theRememberedWindowSurvivesALaterZeroReport() {
+        let seeded =
+            FoundationModelsContextualPronunciationEvaluator
+            .rememberedContextSize(reporting: 4_096)
+        let afterPoisoning =
+            FoundationModelsContextualPronunciationEvaluator
+            .rememberedContextSize(reporting: 0)
+
+        #expect(seeded == 4_096)
+        #expect(afterPoisoning == 4_096)
     }
 
     @Test func runtimeProvenanceIsNonUserSpecific() {
