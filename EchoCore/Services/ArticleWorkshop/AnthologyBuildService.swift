@@ -369,7 +369,7 @@ actor AnthologyBuildService {
                 epubIdentifier: manifest.epubIdentifier,
                 manifestJSON: manifestEvidence.json,
                 manifestSHA256: manifestEvidence.sha256,
-                epubPath: finalURL.path,
+                epubPath: finalURL.standardizedFileURL.path,
                 epubSHA256: result.epubSHA256,
                 audiobookID: audiobookID,
                 status: "succeeded",
