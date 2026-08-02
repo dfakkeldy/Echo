@@ -26,4 +26,25 @@ struct ReaderActiveWordTests {
         #expect(
             ReaderActiveBlockResolver.activeWord(in: rows, time: 9.0, activeBlockID: "b1") == nil)
     }
+
+    @Test func wordIndexMatchesLinearScanAcrossAllTimes() {
+        let rows: [ReaderActiveBlockResolver.WordRow] = [
+            (start: 0.0, end: 0.4, blockID: "a", wordIndex: 0),
+            (start: 0.4, end: 1.0, blockID: "a", wordIndex: 1),
+            (start: 0.0, end: 0.7, blockID: "b", wordIndex: 0),
+            (start: 0.7, end: 1.5, blockID: "b", wordIndex: 1),
+        ]
+        let index = ReaderActiveBlockResolver.WordIndex(rows: rows)
+        for t in stride(from: -0.1, through: 1.6, by: 0.05) {
+            for block in ["a", "b", "missing"] {
+                #expect(
+                    ReaderActiveBlockResolver.activeWord(
+                        in: index, time: t, activeBlockID: block)
+                        == ReaderActiveBlockResolver.activeWord(
+                            in: rows, time: t, activeBlockID: block))
+            }
+        }
+        #expect(
+            ReaderActiveBlockResolver.activeWord(in: index, time: 0.5, activeBlockID: nil) == nil)
+    }
 }

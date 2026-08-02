@@ -42,6 +42,10 @@ struct MacReaderFeedView: View {
     /// (the reader-cache order). Fed to `ReaderActiveBlockResolver.activeWord`
     /// for karaoke word highlighting within the active block.
     @State private var wordCache: [ReaderActiveBlockResolver.WordRow] = []
+    /// Per-block binary-searchable index over `wordCache`, rebuilt alongside it
+    /// so the 12.5 Hz tick in `trackCurrentBlock()` no longer linear-scans the
+    /// whole book's word rows.
+    @State private var wordIndex = ReaderActiveBlockResolver.WordIndex(rows: [])
     /// (blockID, wordIndex) of the currently spoken word, for karaoke highlight.
     @State private var activeWord: (blockID: String, index: Int)?
     /// Whether the loaded book has source-PDF page data (`pdf_block_page` rows) —
@@ -232,6 +236,7 @@ struct MacReaderFeedView: View {
             blocks = []
             timelineCache = []
             wordCache = []
+            wordIndex = ReaderActiveBlockResolver.WordIndex(rows: [])
             hasPDFPages = false
             showingPageView = false
             return
@@ -261,12 +266,14 @@ struct MacReaderFeedView: View {
                     blockID: $0.epubBlockID, wordIndex: $0.wordIndex
                 )
             }
+            wordIndex = ReaderActiveBlockResolver.WordIndex(rows: wordCache)
         } catch {
             blocks = []
             hasPDFPages = false
             showingPageView = false
             timelineCache = []
             wordCache = []
+            wordIndex = ReaderActiveBlockResolver.WordIndex(rows: [])
         }
     }
 
@@ -393,7 +400,7 @@ struct MacReaderFeedView: View {
                     currentTrackChapterIndices: currentTrackChapterIndices
                 )
                 if let idx = ReaderActiveBlockResolver.activeWord(
-                    in: wordCache,
+                    in: wordIndex,
                     time: player.currentTime,
                     activeBlockID: currentBlockID
                 ) {
