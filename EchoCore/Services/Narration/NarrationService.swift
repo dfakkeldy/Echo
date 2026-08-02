@@ -294,12 +294,37 @@ final class NarrationService {
             pronunciationPolicySignature: pronunciationPack.productionPolicySignature)
     }
 
+    #if DEBUG
+        /// Test-only observation seam: records whether the most recent
+        /// `normalizeBlocksOffMain` call executed its body on the main thread.
+        /// Not synchronized — safe only because a single test exercises this
+        /// seam at a time (true today: `NarrationOffMainPlanningTests` is the
+        /// only caller under test). Exists so the off-main guarantee is
+        /// verified empirically instead of trusted from the annotation alone.
+        nonisolated(unsafe) static var debugNormalizeBlocksRanOnMainThread: Bool?
+        /// Same seam for `contentSignatureOffMain`.
+        nonisolated(unsafe) static var debugContentSignatureOffMainRanOnMainThread: Bool?
+        /// `Thread.isMainThread` is `NS_SWIFT_UNAVAILABLE_FROM_ASYNC` — reading it
+        /// directly inside an `async` function body doesn't compile. This
+        /// synchronous wrapper is the sanctioned way to read it from async code.
+        nonisolated private static func debugIsMainThread() -> Bool { Thread.isMainThread }
+    #endif
+
     /// Runs TextNormalizer over every spoken, non-code block OFF the main
-    /// actor (nonisolated async ⇒ executes on the cooperative pool at the
-    /// caller's priority). Returns blockID → normalized text.
+    /// actor. `@concurrent` is what actually moves this onto the cooperative
+    /// pool: this project builds with `SWIFT_APPROACHABLE_CONCURRENCY = YES`,
+    /// which enables `NonisolatedNonsendingByDefault` — under that mode a
+    /// plain `nonisolated async` function runs ON the caller's actor, not off
+    /// it. Do not drop `@concurrent` under the assumption that `nonisolated
+    /// async` alone suspends off-main; it does not, here. Returns
+    /// blockID → normalized text.
+    @concurrent
     nonisolated static func normalizeBlocksOffMain(
         _ blocks: [EPubBlockRecord]
     ) async -> [String: String] {
+        #if DEBUG
+            Self.debugNormalizeBlocksRanOnMainThread = Self.debugIsMainThread()
+        #endif
         var result: [String: String] = [:]
         result.reserveCapacity(blocks.count)
         for block in blocks {
@@ -312,7 +337,11 @@ final class NarrationService {
     }
 
     /// Off-main wrapper for contentSignature — same output, computed on the
-    /// cooperative pool instead of the main thread.
+    /// cooperative pool instead of the main thread. See
+    /// `normalizeBlocksOffMain`'s doc comment: `@concurrent` (not plain
+    /// `nonisolated async`) is what makes that true under this project's
+    /// `SWIFT_APPROACHABLE_CONCURRENCY` build setting.
+    @concurrent
     nonisolated static func contentSignatureOffMain(
         for blocks: [EPubBlockRecord],
         includeLeadOutPad: Bool,
@@ -321,7 +350,10 @@ final class NarrationService {
         normalizationMode: String,
         pronunciationPack: EnglishPronunciationPack
     ) async -> String {
-        contentSignature(
+        #if DEBUG
+            Self.debugContentSignatureOffMainRanOnMainThread = Self.debugIsMainThread()
+        #endif
+        return contentSignature(
             for: blocks, includeLeadOutPad: includeLeadOutPad, overrides: overrides,
             occurrenceOverrides: occurrenceOverrides, normalizationMode: normalizationMode,
             pronunciationPack: pronunciationPack)
