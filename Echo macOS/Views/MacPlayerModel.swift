@@ -474,8 +474,7 @@ final class MacPlayerModel {
             }
             // Re-derive the active chapter for the current playhead.
             self.refreshCurrentChapter()
-            self.importPendingCompanionDocumentsIfNeeded(
-                for: url, loadedChapters: parsed, loadedDuration: loadedDuration)
+            self.importPendingCompanionDocumentsIfNeeded(for: url, loadedChapters: parsed, loadedDuration: loadedDuration)
         }
     }
 
