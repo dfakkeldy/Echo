@@ -139,6 +139,49 @@ import Testing
         #expect(snapshot.blocks.compactMap(\.text).joined() == "Unclosed paragraph")
     }
 
+    @Test func acceptsReadabilityNonBreakingSpaceEntitiesWithoutAnHTMLDTD() throws {
+        let envelope = fixtureEnvelope(
+            contentXHTML: "<article><p>One&nbsp;two &amp; three.</p></article>")
+
+        let snapshot = try ArticleBlockSanitizer().sanitize(envelope: envelope)
+
+        #expect(snapshot.contentState == .ready)
+        #expect(snapshot.warnings.contains(.parserFailure) == false)
+        #expect(snapshot.blocks.count == 1)
+        #expect(snapshot.blocks[0].text?.contains("One") == true)
+        #expect(snapshot.blocks[0].text?.contains("two & three.") == true)
+    }
+
+    @Test func acceptsReadabilityHTMLVoidElementsWithoutXMLClosingSlashes() throws {
+        let envelope = fixtureEnvelope(contentXHTML: """
+            <article>
+              <p>Before image.<br>After break.</p>
+              <figure><img src="/cover.png" alt="a > b"><figcaption>Cover.</figcaption></figure>
+              <hr>
+            </article>
+            """)
+
+        let snapshot = try ArticleBlockSanitizer().sanitize(envelope: envelope)
+
+        #expect(snapshot.contentState == .ready)
+        #expect(snapshot.warnings.contains(.parserFailure) == false)
+        #expect(snapshot.blocks.map(\.kind) == [.paragraph, .image, .separator])
+        #expect(snapshot.blocks[0].text == "Before image. After break.")
+        #expect(snapshot.blocks[1].imageCandidateURL == URL(string: "https://example.test/cover.png"))
+        #expect(snapshot.blocks[1].caption == "Cover.")
+    }
+
+    @Test func keepsParagraphsInsideGoogleArticleParagraphContainers() throws {
+        let envelope = fixtureEnvelope(contentXHTML: """
+            <article><uni-article-paragraph><div><p>Satellite article text.</p></div></uni-article-paragraph></article>
+            """)
+
+        let snapshot = try ArticleBlockSanitizer().sanitize(envelope: envelope)
+
+        #expect(snapshot.contentState == .ready)
+        #expect(snapshot.blocks.map(\.text) == ["Satellite article text."])
+    }
+
     @Test func blockIDsRemainStableWhenCleanupExcludesNeighbors() throws {
         let snapshot = try ArticleBlockSanitizer().sanitize(envelope: fixtureEnvelope(named: "structural"))
         let recipe = ArticleEditRecipe(

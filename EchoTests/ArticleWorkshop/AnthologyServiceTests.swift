@@ -141,6 +141,50 @@ struct AnthologyServiceTests {
                 from: Data(stored.manifestJSON.utf8)) == manifest)
     }
 
+    @Test func manifestOmitsUnmappedRemoteImagesAndKeepsTheirCaptionsAsText() throws {
+        let fixture = try AnthologyServiceFixture()
+        defer { fixture.removeFiles() }
+        let capture = try fixture.installCapture(
+            suffix: 19,
+            title: "Captioned",
+            recipe: .init(),
+            contentXHTML: """
+                <article><p>Before.</p><figure><img src="https://example.test/image.png"/><figcaption>Useful caption.</figcaption></figure><img src="https://example.test/bare.png"/></article>
+                """)
+        let service = fixture.service()
+        let project = try service.createProject(title: "Book", captureIDs: [capture.id])
+
+        let manifest = try service.prepareManifest(anthologyID: project.anthology.id)
+        let blocks = manifest.chapters[0].blocks
+
+        #expect(blocks.map(\.kind) == [.paragraph, .paragraph])
+        #expect(blocks.compactMap(\.text) == ["Before.", "Useful caption."])
+        #expect(blocks.allSatisfy { $0.imageCandidateURL == nil })
+        #expect(
+            manifest.chapters[0].readableContentSHA256
+                == ArticleWorkshopDigest.readableContent(blocks: blocks))
+    }
+
+    @Test func manifestOmitsEmptyReadableBlocksButPreservesSeparators() throws {
+        let fixture = try AnthologyServiceFixture()
+        defer { fixture.removeFiles() }
+        let capture = try fixture.installCapture(
+            suffix: 20,
+            title: "Empty blocks",
+            recipe: .init(),
+            contentXHTML: """
+                <article><p>Before.</p><pre><code>   </code></pre><hr/><p>After.</p></article>
+                """)
+        let service = fixture.service()
+        let project = try service.createProject(title: "Book", captureIDs: [capture.id])
+
+        let manifest = try service.prepareManifest(anthologyID: project.anthology.id)
+        let blocks = manifest.chapters[0].blocks
+
+        #expect(blocks.map(\.kind) == [.paragraph, .separator, .paragraph])
+        #expect(blocks.compactMap(\.text) == ["Before.", "After."])
+    }
+
     @Test func timestampOnlyProjectSaveDoesNotMarkContentChangesAvailable() throws {
         let fixture = try AnthologyServiceFixture()
         defer { fixture.removeFiles() }

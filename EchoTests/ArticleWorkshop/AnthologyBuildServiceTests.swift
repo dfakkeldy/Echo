@@ -746,7 +746,7 @@ private struct AnthologyBuildServiceFixture {
                         throw FixtureError.injected
                     }
                 }),
-            now: { Date(timeIntervalSince1970: 1_775_000_000) },
+            now: { Date(timeIntervalSince1970: 1_785_585_600) },
             makeID: UUID.init)
     }
 

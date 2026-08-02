@@ -403,6 +403,7 @@ nonisolated struct AnthologyService: Sendable {
             else {
                 throw Error.invalidStoredData
             }
+            let publishedBlocks = Self.publishedBlocks(clean.blocks)
             return AnthologyChapterManifest(
                 entryID: entryID,
                 captureID: captureID,
@@ -416,8 +417,9 @@ nonisolated struct AnthologyService: Sendable {
                 sourceURL: sourceURL,
                 capturedAt: capturedAt,
                 voiceID: Self.optionalText(value.entry.narrationVoiceID),
-                blocks: clean.blocks,
-                readableContentSHA256: revision.readableContentSHA256)
+                blocks: publishedBlocks,
+                readableContentSHA256: ArticleWorkshopDigest.readableContent(
+                    blocks: publishedBlocks))
         }
         let languages = project.entries.map {
             Self.optionalText($0.cleanArticle?.metadata.language)
@@ -448,6 +450,30 @@ nonisolated struct AnthologyService: Sendable {
                 storedData: true),
             modifiedAt: modifiedAt,
             chapters: chapters)
+    }
+
+    /// Remote image candidates are capture-time editing hints, not publishable
+    /// EPUB assets. Preserve useful captions as narration text and omit bare
+    /// placeholders before the strict EPUB builder validates the manifest.
+    private static func publishedBlocks(_ blocks: [ArticleBlock]) -> [ArticleBlock] {
+        blocks.compactMap { block in
+            if block.kind == .image {
+                guard let caption = optionalText(block.caption) else { return nil }
+                return ArticleBlock(
+                    id: block.id,
+                    stableOrdinal: block.stableOrdinal,
+                    kind: .paragraph,
+                    text: caption,
+                    sourceURL: nil,
+                    imageCandidateURL: nil,
+                    caption: nil,
+                    codeLanguage: nil)
+            }
+            if block.kind != .separator, optionalText(block.text) == nil {
+                return nil
+            }
+            return block
+        }
     }
 
     private func validate(_ snapshot: AnthologyDatabaseSnapshot) throws {

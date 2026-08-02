@@ -202,7 +202,10 @@ nonisolated struct GeneratedAnthologyImportIdentity: Equatable, Sendable {
                 .init(
                     stableBlockIndex: index,
                     kind: attributes.kind,
-                    text: block.text,
+                    // XML parsing canonicalizes presentation-only whitespace at
+                    // element boundaries. Apply the same rule to legacy capture
+                    // snapshots before performing the strict identity check.
+                    text: block.text?.trimmingCharacters(in: .whitespacesAndNewlines),
                     rawTag: attributes.tag,
                     rawClasses: attributes.classes,
                     codeLanguage: block.kind == .code ? block.codeLanguage : nil,

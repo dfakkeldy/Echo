@@ -160,28 +160,32 @@ func parseEPUBBlocks(
         var textBlocks = parsedSpines[i].blocks
         let spineHref = spine[i].href
 
-        // Score pass
-        for j in 0..<textBlocks.count {
-            let newKind = engine.score(block: textBlocks[j])
-            // Create a new struct to update the kind
-            textBlocks[j] = TextBlockDescriptor(
-                kind: newKind,
-                text: textBlocks[j].text,
-                imagePath: textBlocks[j].imagePath,
-                htmlContent: textBlocks[j].htmlContent,
-                markers: textBlocks[j].markers,
-                textFormats: textBlocks[j].textFormats,
-                rawClasses: textBlocks[j].rawClasses,
-                rawTags: textBlocks[j].rawTags,
-                anchorIDs: textBlocks[j].anchorIDs,
-                narrationCue: textBlocks[j].narrationCue,
-                codeLanguage: textBlocks[j].codeLanguage,
-                echoMetadataPresent: textBlocks[j].echoMetadataPresent,
-                echoStableSlot: textBlocks[j].echoStableSlot,
-                echoBlockIndex: textBlocks[j].echoBlockIndex,
-                echoNarration: textBlocks[j].echoNarration,
-                echoLinkNarrationValues: textBlocks[j].echoLinkNarrationValues
-            )
+        // Score pass. Manifest-backed generated chapters already carry an
+        // authenticated kind for every stable block. Reclassifying them with
+        // generic publisher heuristics would invalidate that identity.
+        if generatedChapterBySpineIndex[i] == nil {
+            for j in 0..<textBlocks.count {
+                let newKind = engine.score(block: textBlocks[j])
+                // Create a new struct to update the kind
+                textBlocks[j] = TextBlockDescriptor(
+                    kind: newKind,
+                    text: textBlocks[j].text,
+                    imagePath: textBlocks[j].imagePath,
+                    htmlContent: textBlocks[j].htmlContent,
+                    markers: textBlocks[j].markers,
+                    textFormats: textBlocks[j].textFormats,
+                    rawClasses: textBlocks[j].rawClasses,
+                    rawTags: textBlocks[j].rawTags,
+                    anchorIDs: textBlocks[j].anchorIDs,
+                    narrationCue: textBlocks[j].narrationCue,
+                    codeLanguage: textBlocks[j].codeLanguage,
+                    echoMetadataPresent: textBlocks[j].echoMetadataPresent,
+                    echoStableSlot: textBlocks[j].echoStableSlot,
+                    echoBlockIndex: textBlocks[j].echoBlockIndex,
+                    echoNarration: textBlocks[j].echoNarration,
+                    echoLinkNarrationValues: textBlocks[j].echoLinkNarrationValues
+                )
+            }
         }
         let stableBlockIndices: [Int]?
         if let chapter = generatedChapterBySpineIndex[i], let generatedIdentity {
@@ -227,7 +231,8 @@ func parseEPUBBlocks(
 
         if hasContentHeading && !isFrontMatterSpine {
             hasSeenContentHeading = true
-        } else if !isFrontMatterSpine, !titleIsNonContent,
+        } else if generatedChapterBySpineIndex[i] == nil,
+            !isFrontMatterSpine, !titleIsNonContent,
             let title = fallbackTitle, !title.isEmpty,
             title.lowercased() != "untitled", title.lowercased() != "unknown"
         {

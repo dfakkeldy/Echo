@@ -3,7 +3,9 @@ import Foundation
 
 nonisolated struct ArticleBlockSanitizer {
     func sanitize(envelope: ArticleCaptureEnvelope) throws -> ArticleSnapshot {
-        let xhtmlData = Data(envelope.payload.contentXHTML.utf8)
+        let xmlCompatibleXHTML = Self.xmlCompatibleReadabilityFragment(
+            envelope.payload.contentXHTML)
+        let xhtmlData = Data(xmlCompatibleXHTML.utf8)
         let metadata = ArticleMetadata(
             title: normalizedText(envelope.payload.title) ?? "Untitled article",
             author: normalizedText(envelope.payload.byline),
@@ -57,6 +59,78 @@ nonisolated struct ArticleBlockSanitizer {
             blocks: blocks,
             warnings: warnings,
             contentState: contentState)
+    }
+
+    /// Readability returns an HTML fragment despite the `contentXHTML` field
+    /// name. Preserve the fragment's bytes semantically while making the two
+    /// HTML constructs that XMLParser cannot accept XML-compatible.
+    private static func xmlCompatibleReadabilityFragment(_ html: String) -> String {
+        let normalizedEntities = html.replacingOccurrences(of: "&nbsp;", with: "&#160;")
+        let voidElements: Set<String> = [
+            "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
+            "param", "source", "track", "wbr",
+        ]
+        var output = ""
+        output.reserveCapacity(normalizedEntities.utf8.count)
+        var cursor = normalizedEntities.startIndex
+
+        while cursor < normalizedEntities.endIndex {
+            guard normalizedEntities[cursor] == "<" else {
+                output.append(normalizedEntities[cursor])
+                cursor = normalizedEntities.index(after: cursor)
+                continue
+            }
+
+            let tagStart = cursor
+            var tagEnd = normalizedEntities.index(after: cursor)
+            var quote: Character?
+            while tagEnd < normalizedEntities.endIndex {
+                let character = normalizedEntities[tagEnd]
+                if let activeQuote = quote {
+                    if character == activeQuote { quote = nil }
+                } else if character == "\"" || character == "'" {
+                    quote = character
+                } else if character == ">" {
+                    break
+                }
+                tagEnd = normalizedEntities.index(after: tagEnd)
+            }
+            guard tagEnd < normalizedEntities.endIndex else {
+                output.append(contentsOf: normalizedEntities[tagStart...])
+                break
+            }
+
+            let afterOpen = normalizedEntities.index(after: tagStart)
+            var nameStart = afterOpen
+            while nameStart < tagEnd, normalizedEntities[nameStart].isWhitespace {
+                nameStart = normalizedEntities.index(after: nameStart)
+            }
+            let isMarkupDeclaration = nameStart < tagEnd
+                && ["/", "!", "?"].contains(normalizedEntities[nameStart])
+            var nameEnd = nameStart
+            while nameEnd < tagEnd {
+                let character = normalizedEntities[nameEnd]
+                guard character.isLetter || character.isNumber || character == ":" else { break }
+                nameEnd = normalizedEntities.index(after: nameEnd)
+            }
+            let name = String(normalizedEntities[nameStart..<nameEnd]).lowercased()
+            var contentEnd = tagEnd
+            while contentEnd > tagStart {
+                let previous = normalizedEntities.index(before: contentEnd)
+                guard normalizedEntities[previous].isWhitespace else { break }
+                contentEnd = previous
+            }
+            let alreadySelfClosing = contentEnd > tagStart
+                && normalizedEntities[normalizedEntities.index(before: contentEnd)] == "/"
+
+            output.append(contentsOf: normalizedEntities[tagStart..<tagEnd])
+            if !isMarkupDeclaration, voidElements.contains(name), !alreadySelfClosing {
+                output.append("/")
+            }
+            output.append(">")
+            cursor = normalizedEntities.index(after: tagEnd)
+        }
+        return output
     }
 
     private func snapshot(
@@ -115,7 +189,7 @@ private nonisolated final class ArticleXHTMLSanitizerDelegate: NSObject, XMLPars
     private static let transparentElements: Set<String> = [
         "article", "body", "html", "main", "section", "div", "header", "footer", "aside", "nav",
         "ul", "ol", "figure", "figcaption", "a", "span", "strong", "b", "em", "i", "u", "small",
-        "sub", "sup", "br", "code",
+        "sub", "sup", "br", "code", "uni-article-paragraph",
     ]
     private static let xhtmlNamespace = "http://www.w3.org/1999/xhtml"
 
@@ -155,6 +229,19 @@ private nonisolated final class ArticleXHTMLSanitizerDelegate: NSObject, XMLPars
         if name == "figcaption", !figureContexts.isEmpty {
             flushActiveBlock(parser)
             isInCaption = true
+            return
+        }
+        if name == "br" {
+            if isInCaption, !figureContexts.isEmpty {
+                appendCollapsed(" ", to: &figureContexts[figureContexts.count - 1].caption)
+            } else if var block = activeBlock {
+                if block.kind == .code {
+                    block.text += "\n"
+                } else {
+                    appendCollapsed(" ", to: &block.text)
+                }
+                activeBlock = block
+            }
             return
         }
         if isInCaption { return }
