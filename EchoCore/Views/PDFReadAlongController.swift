@@ -21,7 +21,7 @@ final class PDFReadAlongController {
 
     private var timelineCache: [ReaderActiveBlockResolver.TimelineRow] = []
     private var wordCache: [ReaderActiveBlockResolver.WordRow] = []
-    /// Per-block binary-searchable index over `wordCache`, rebuilt alongside it
+    /// Per-block index over `wordCache`, rebuilt alongside it
     /// so `activeBlock(at:)` no longer linear-scans the whole book's word rows
     /// on every read-along tick.
     private var wordIndex = ReaderActiveBlockResolver.WordIndex(rows: [])

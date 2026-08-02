@@ -69,7 +69,7 @@ final class ReaderFeedViewModel {
     /// start time. Consumed by `ReaderActiveBlockResolver.activeWord` to drive
     /// karaoke highlighting within the active block.
     private var wordCache: [ReaderActiveBlockResolver.WordRow] = []
-    /// Per-block binary-searchable index over `wordCache`, rebuilt alongside it
+    /// Per-block index over `wordCache`, rebuilt alongside it
     /// so the 12.5 Hz `updateActiveBlock` tick no longer linear-scans the whole
     /// book's word rows.
     private var wordIndex = ReaderActiveBlockResolver.WordIndex(rows: [])

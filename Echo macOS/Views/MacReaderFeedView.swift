@@ -42,7 +42,7 @@ struct MacReaderFeedView: View {
     /// (the reader-cache order). Fed to `ReaderActiveBlockResolver.activeWord`
     /// for karaoke word highlighting within the active block.
     @State private var wordCache: [ReaderActiveBlockResolver.WordRow] = []
-    /// Per-block binary-searchable index over `wordCache`, rebuilt alongside it
+    /// Per-block index over `wordCache`, rebuilt alongside it
     /// so the 12.5 Hz tick in `trackCurrentBlock()` no longer linear-scans the
     /// whole book's word rows.
     @State private var wordIndex = ReaderActiveBlockResolver.WordIndex(rows: [])
