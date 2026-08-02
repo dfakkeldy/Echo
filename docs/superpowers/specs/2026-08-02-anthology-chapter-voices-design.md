@@ -1,11 +1,13 @@
 # Anthology Chapter Voices
 
-- **Status:** Design direction approved; written specification awaiting review
+- **Status:** Approved; implementation plan written
 - **Date:** 2026-08-02
 - **Author:** Dan Fakkeldy with Codex
 - **Branch base:** `origin/nightly` at `fca76dd0`
 - **Supersedes:** The unimplemented narration portion of Task 14 in
   `docs/superpowers/plans/2026-07-28-article-inbox-anthologies.md`
+- **Implementation plan:**
+  `docs/superpowers/plans/2026-08-02-anthology-chapter-voices.md`
 
 ## 1. Summary
 
