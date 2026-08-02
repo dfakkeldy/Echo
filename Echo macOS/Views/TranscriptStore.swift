@@ -12,7 +12,7 @@ struct GlobalTranscriptIndex: Codable {
 @Observable
 class TranscriptStore {
     var transcriptions: [String: [TranscriptionSegment]] = [:]
-    var fileMapping: [String: String] = [:] // Hash -> Title
+    var fileMapping: [String: String] = [:]  // Hash -> Title
     /// Per-hash word frequencies for the full transcript, computed on load.
     var wordClouds: [String: [WordFrequency]] = [:]
 
@@ -40,49 +40,51 @@ class TranscriptStore {
         reload()
     }
 
+    /// Kicks off an off-main scan+decode of the transcript directory and applies
+    /// the result on the main actor. Non-blocking: launch no longer waits while
+    /// every transcript JSON is decoded and word-frequency-counted (audit fix 4).
     func loadIndex() {
-        guard let files = try? FileManager.default.contentsOfDirectory(at: transcriptDir, includingPropertiesForKeys: nil) else {
-#if DEBUG
-            logger.debug("Could not list directory \(self.transcriptDir.lastPathComponent)")
-#endif
-            return
+        let dir = transcriptDir
+        Task(priority: .utility) { [weak self] in
+            let loaded = await Self.readIndex(from: dir)
+            guard let self else { return }
+            self.transcriptions = loaded.transcriptions
+            self.wordClouds = loaded.wordClouds
+            for hash in loaded.transcriptions.keys { self.fileMapping[hash] = "Audiobook" }
         }
+    }
 
-#if DEBUG
-        logger.debug("Loading from \(self.transcriptDir.lastPathComponent), found \(files.count) files")
-#endif
+    /// Pure directory scan + JSON decode + word-frequency compute, off-main.
+    nonisolated static func readIndex(from transcriptDir: URL) async -> (
+        transcriptions: [String: [TranscriptionSegment]],
+        wordClouds: [String: [WordFrequency]]
+    ) {
+        guard
+            let files = try? FileManager.default.contentsOfDirectory(
+                at: transcriptDir, includingPropertiesForKeys: nil)
+        else { return ([:], [:]) }
 
         var newTranscriptions: [String: [TranscriptionSegment]] = [:]
         var newWordClouds: [String: [WordFrequency]] = [:]
         for file in files where file.pathExtension == "json" {
             let stem = file.deletingPathExtension().lastPathComponent
-            // Skip word_frequencies sidecar files — loaded alongside their transcript.
             guard !stem.hasSuffix(".word_frequencies") else { continue }
-
             let hash = file.deletingPathExtension().deletingPathExtension().lastPathComponent
-            if let data = try? Data(contentsOf: file),
-               let segments = try? JSONDecoder().decode([TranscriptionSegment].self, from: data) {
-#if DEBUG
-                logger.debug("Loaded \(segments.count) segments for hash \(hash)")
-#endif
-                newTranscriptions[hash] = segments
-                // Prefer pre-computed word_frequencies.json sidecar.
-                let freqSidecar = transcriptDir.appendingPathComponent("\(hash).transcript.word_frequencies.json")
-                if let freqData = try? Data(contentsOf: freqSidecar),
-                   let freq = try? JSONDecoder().decode([WordFrequency].self, from: freqData) {
-                    newWordClouds[hash] = freq
-                } else {
-                    newWordClouds[hash] = Self.computeWordFrequencies(from: segments)
-                }
-                fileMapping[hash] = "Audiobook"
+            guard let data = try? Data(contentsOf: file),
+                let segments = try? JSONDecoder().decode([TranscriptionSegment].self, from: data)
+            else { continue }
+            newTranscriptions[hash] = segments
+            let freqSidecar = transcriptDir.appendingPathComponent(
+                "\(hash).transcript.word_frequencies.json")
+            if let freqData = try? Data(contentsOf: freqSidecar),
+                let freq = try? JSONDecoder().decode([WordFrequency].self, from: freqData)
+            {
+                newWordClouds[hash] = freq
             } else {
-#if DEBUG
-                logger.error("Failed to decode \(file.lastPathComponent)")
-#endif
+                newWordClouds[hash] = Self.computeWordFrequencies(from: segments)
             }
         }
-        self.transcriptions = newTranscriptions
-        self.wordClouds = newWordClouds
+        return (newTranscriptions, newWordClouds)
     }
 
     func reload() {
@@ -111,27 +113,33 @@ class TranscriptStore {
     // MARK: - Word frequencies
 
     /// Computes word frequencies from transcription segments with stop-word filtering.
-    static func computeWordFrequencies(from segments: [TranscriptionSegment]) -> [WordFrequency] {
+    nonisolated static func computeWordFrequencies(from segments: [TranscriptionSegment])
+        -> [WordFrequency]
+    {
         var counts: [String: Int] = [:]
         let combined = segments.map(\.text).joined(separator: " ")
 
-        for raw in combined.lowercased().split(whereSeparator: { $0.isWhitespace || $0.isPunctuation }) {
+        for raw in combined.lowercased().split(whereSeparator: {
+            $0.isWhitespace || $0.isPunctuation
+        }) {
             let word = raw.trimmingCharacters(in: .punctuationCharacters)
             guard !word.isEmpty,
-                  word.count >= 2,
-                  !stopWords.contains(word),
-                  word.rangeOfCharacter(from: .letters) != nil else { continue }
+                word.count >= 2,
+                !stopWords.contains(word),
+                word.rangeOfCharacter(from: .letters) != nil
+            else { continue }
             counts[word, default: 0] += 1
         }
 
-        return counts
+        return
+            counts
             .map { WordFrequency(word: $0.key, count: $0.value) }
             .sorted { $0.count > $1.count }
     }
 
     // MARK: - Stop words
 
-    private static let stopWords: Set<String> = [
+    private nonisolated static let stopWords: Set<String> = [
         "a", "about", "above", "after", "again", "against", "all", "am", "an", "and",
         "any", "are", "aren", "as", "at", "be", "because", "been", "before", "being",
         "below", "between", "both", "but", "by", "can", "could", "couldn", "did",
@@ -148,6 +156,6 @@ class TranscriptStore {
         "they", "this", "those", "through", "to", "too", "under", "until", "up",
         "ve", "very", "was", "wasn", "we", "were", "weren", "what", "when",
         "where", "which", "while", "who", "whom", "why", "will", "with", "won",
-        "would", "wouldn", "y", "you", "your", "yours", "yourself", "yourselves"
+        "would", "wouldn", "y", "you", "your", "yours", "yourself", "yourselves",
     ]
 }
