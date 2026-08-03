@@ -599,14 +599,35 @@ import Testing
         #expect(plan.pronunciationAuditDiagnostics.isEmpty)
     }
 
-    @Test(arguments: ["$2-3", "£2-3", "$2 bn", "€2 bn", "$2 quadrillion", "$1,23"])
-    func rejectedCurrencyReachesNarrationPlanAndAuditManifestIntact(source: String) throws {
+    @Test(arguments: [
+        ("$2-3", "$2"),
+        ("£2-3", "£2"),
+        ("$2 bn", "$2"),
+        ("€2 bn", "€2"),
+        ("$2 quadrillion", "$2"),
+        ("$1,23", "$1,23"),
+        ("A$5", "$5"),
+        ("--$2", "-$2"),
+        ("-$-2", "$-2"),
+    ])
+    func rejectedCurrencyReachesNarrationPlanAndAuditManifestIntact(
+        source: String,
+        rejectedSemanticSurface: String
+    ) throws {
         let plan = try NarrationRenderPlanner.make(
             blocks: [block(id: "currency", text: source, index: 0)],
             overrides: PronunciationOverrides(entries: [:]))
         let plannedBlock = try #require(plan.blocks.first)
         #expect(plannedBlock.synthesisChunks.count == 1)
         let chunk = try #require(plannedBlock.synthesisChunks.first)
+
+        #expect(chunk.displayText == source)
+        #expect(chunk.g2pInputText == source)
+        #expect(!chunk.phonemes.isEmpty)
+        #expect(!chunk.pronunciationTokenEvidence.contains {
+            $0.text == rejectedSemanticSurface && $0.rating == 4
+        })
+        #expect(plan.pronunciationAuditDiagnostics.count == 1)
         let diagnostic = try #require(plan.pronunciationAuditDiagnostics.first)
         let manifest = PronunciationAuditManifest.make(
             renderVersion: NarrationFileNaming.renderVersion,
@@ -621,10 +642,6 @@ import Testing
             decisions: plannedBlock.pronunciationDecisions,
             diagnostics: plan.pronunciationAuditDiagnostics)
 
-        #expect(chunk.displayText == source)
-        #expect(chunk.g2pInputText == source)
-        #expect(!chunk.phonemes.isEmpty)
-        #expect(plan.pronunciationAuditDiagnostics.count == 1)
         #expect(diagnostic.reason == .currencyNormalizationRejected)
         #expect(diagnostic.blockID == "currency")
         #expect(diagnostic.chunkIndex == 0)

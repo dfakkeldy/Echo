@@ -38,6 +38,7 @@ final public class EnglishG2P {
   static let punctuationTags: Set<NLTag> =  Set([.openQuote, .closeQuote, .openParenthesis, .closeParenthesis, .punctuation, .sentenceTerminator, .otherPunctuation])
   static let punctuactions: Set<Character> = Set(";:,.!?—…\"“”")
   static let currencyExpressionTerminators = punctuactions.union(Set("–)]}"))
+  static let currencyExpressionLeadingBoundaries = currencyExpressionTerminators.union(Set("([{"))
   
   // spaCy-style punctuation tags https://github.com/explosion/spaCy/blob/master/spacy/glossary.py
   static let punctuationTagPhonemes: [String: String] = [
@@ -471,6 +472,16 @@ final public class EnglishG2P {
       "m", "mm", "b", "bn", "k", "tn", "trn", "quadrillion",
       "usd", "gbp", "eur",
     ]
+
+    if startIndex > 0 {
+      let previous = tokens[startIndex - 1]
+      let hasLeadingBoundary = !previous.whitespace.isEmpty
+        || (!previous.text.isEmpty && previous.text.allSatisfy {
+          EnglishG2P.currencyExpressionLeadingBoundaries.contains($0)
+        })
+      guard hasLeadingBoundary else { return nil }
+    }
+
     var cursor = startIndex
 
     if tokens[cursor].text == "-" {

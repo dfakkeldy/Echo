@@ -199,6 +199,34 @@ import Testing
     #expect(result.tokens.allSatisfy { $0.`_`.currencyExpressionSource == nil })
   }
 
+  @Test(arguments: ["A$5", "--$2", "-$-2"])
+  func malformedCurrencyPrefixCannotReenterAtInnerSymbol(source: String) {
+    let result = g2p.phonemizeWithMetadata(text: source)
+
+    #expect(reconstructedSource(from: result.tokens) == source)
+    #expect(reconstructedSpokenSurface(from: result.tokens) == source)
+    #expect(result.tokens.allSatisfy { $0.`_`.currencyExpressionSource == nil })
+    #expect(result.tokens.allSatisfy { !$0.text.isEmpty })
+  }
+
+  @Test(arguments: [
+    ("($2)", "(two dollars)"),
+    ("“$2”", "“two dollars”"),
+    ("It cost $2.", "It cost two dollars."),
+  ])
+  func validLeadingBoundaryStillAcceptsCurrency(source: String, spoken: String) throws {
+    let result = g2p.phonemizeWithMetadata(text: source)
+    let semanticTokens = result.tokens.filter { $0.`_`.currencyExpressionSource != nil }
+    let semanticToken = try #require(semanticTokens.first)
+
+    #expect(semanticTokens.count == 1)
+    #expect(reconstructedSource(from: result.tokens) == source)
+    #expect(reconstructedSpokenSurface(from: result.tokens) == spoken)
+    #expect(semanticToken.text == "$2")
+    #expect(semanticToken.`_`.currencyExpressionSource == "$2")
+    #expect(String(source[semanticToken.tokenRange]) == "$2")
+  }
+
   @Test func nonCurrencyMagnitudeProseHasNoCurrencyMetadata() {
     let source = "100 billion people"
     let result = g2p.phonemizeWithMetadata(text: source)
