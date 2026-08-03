@@ -569,6 +569,38 @@ import Testing
         #expect(plan.blocks[0].trailingSilence == nil)
     }
 
+    @Test func currencyRejectionFlowsFromPlannerIntoAuditManifest() throws {
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "currency", text: "$1,23", index: 0)],
+            overrides: PronunciationOverrides(entries: [:]))
+        let plannedBlock = try #require(plan.blocks.first)
+        let diagnostic = try #require(plan.pronunciationAuditDiagnostics.first)
+        let manifest = PronunciationAuditManifest.make(
+            renderVersion: NarrationFileNaming.renderVersion,
+            voice: VoiceID("af_heart"),
+            captureCoverage: .complete,
+            legacyChapterIndexes: [],
+            audiobookURL: URL(fileURLWithPath: "/tmp/currency-rejection.m4b"),
+            reelURL: nil,
+            audiobookSHA256: String(repeating: "a", count: 64),
+            listeningReelSHA256: nil,
+            watchWords: [],
+            decisions: plannedBlock.pronunciationDecisions,
+            diagnostics: plan.pronunciationAuditDiagnostics)
+
+        #expect(plan.pronunciationAuditDiagnostics.count == 1)
+        #expect(diagnostic.reason == .currencyNormalizationRejected)
+        #expect(diagnostic.blockID == "currency")
+        #expect(diagnostic.chunkIndex == 0)
+        #expect(diagnostic.expectedDisplayText.isEmpty)
+        #expect(diagnostic.reconstructedSpokenSurface.isEmpty)
+        #expect(diagnostic.fallbackHits.isEmpty)
+        #expect(diagnostic.finalPhonemes == nil)
+        #expect(diagnostic.reconstructedTokenPhonemes == nil)
+        #expect(manifest.diagnostics == [diagnostic])
+        #expect(manifest.coverage == .incompleteEvidence)
+    }
+
     @Test func rawBlockOverloadResolvesCodeCueAndFallbackBeforePlanning() throws {
         var captioned = block(
             id: "captioned-code",

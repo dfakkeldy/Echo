@@ -229,9 +229,9 @@
         }
 
         /// Misaki attaches `currencyExpressionSource` only after its semantic
-        /// parser accepts a complete supported expression. A supported symbol
-        /// immediately followed by a numeric amount is therefore a rejected
-        /// candidate when no semantic token accounts for it. Keep the advisory
+        /// parser accepts a complete supported expression. Each supported symbol
+        /// starts exactly one candidate, so any source symbol not accounted for
+        /// by a semantic token is a rejected candidate. Keep the advisory
         /// content-free: callers need the controlled reason and count, never the
         /// private source text or selected phonemes.
         private static func currencyNormalizationDiagnostics(
@@ -241,28 +241,8 @@
                 result.append(contentsOf: token.text)
                 result.append(contentsOf: token.whitespace)
             }
-            let characters = Array(source)
             let supportedSymbols: Set<Character> = ["$", "£", "€"]
-            var candidateCount = 0
-
-            for index in characters.indices where supportedSymbols.contains(characters[index]) {
-                var amountIndex = index + 1
-                guard amountIndex < characters.count else { continue }
-                if characters[amountIndex] == "-" {
-                    amountIndex += 1
-                }
-                var sawDigit = false
-                while amountIndex < characters.count {
-                    let character = characters[amountIndex]
-                    guard character.isNumber || character == "." || character == "," else {
-                        break
-                    }
-                    sawDigit = sawDigit || character.isNumber
-                    amountIndex += 1
-                }
-                guard sawDigit else { continue }
-                candidateCount += 1
-            }
+            let candidateCount = source.lazy.filter(supportedSymbols.contains).count
 
             let acceptedCount = tokens.lazy.compactMap {
                 $0.`_`.currencyExpressionSource

@@ -105,6 +105,11 @@ import Testing
         #expect(TextNormalizer.normalize(input) == expected)
     }
 
+    @Test func malformedDollarGroupingRemainsForSemanticAudit() {
+        let input = "The malformed $1,23 stays literal."
+        #expect(TextNormalizer.normalize(input) == input)
+    }
+
     /// Word-level read-along indexes timings by the SOURCE block's
     /// whitespace-delimited words, so normalization must never add or drop one.
     /// A spaced dash is its own authored word; collapsing it onto the previous

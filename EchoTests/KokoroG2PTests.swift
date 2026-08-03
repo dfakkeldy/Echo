@@ -82,6 +82,29 @@ import Testing
         #expect(result.diagnostics.map(\.reason) == [.currencyNormalizationRejected])
     }
 
+    @Test(arguments: ["$", "$ 2", "$-x", "$--2"])
+    func everyRejectedSupportedSymbolCandidateProducesOneAdvisory(source: String) {
+        let result = KokoroG2P().result(for: source, displayText: source)
+
+        #expect(result.diagnostics.map(\.reason) == [.currencyNormalizationRejected])
+    }
+
+    @Test func mixedAcceptedAndRejectedCurrencyCandidatesAreCountedPerSymbol() {
+        let source = "$ and $ 2 and $-x and $--2 and $1,23 and €2 trillion"
+        let result = KokoroG2P().result(for: source, displayText: source)
+
+        #expect(result.diagnostics.count == 5)
+        #expect(result.diagnostics.allSatisfy { diagnostic in
+            diagnostic.reason == .currencyNormalizationRejected
+                && diagnostic.blockID.isEmpty
+                && diagnostic.expectedDisplayText.isEmpty
+                && diagnostic.reconstructedSpokenSurface.isEmpty
+                && diagnostic.fallbackHits.isEmpty
+                && diagnostic.finalPhonemes == nil
+                && diagnostic.reconstructedTokenPhonemes == nil
+        })
+    }
+
     @Test func oovClosedCompoundsReuseKnownComponentPronunciations() throws {
         let text = "Backpropagation tunes a hyperparameter without overfitting a headphone."
         let result = KokoroG2P().result(for: text, displayText: text)

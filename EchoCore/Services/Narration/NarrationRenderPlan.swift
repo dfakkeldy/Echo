@@ -30,6 +30,21 @@ struct NarrationPlannedBlock: Equatable, Sendable {
 
     var pronunciationAuditDiagnostics: [PronunciationAuditDiagnostic] {
         pronunciationDecisionDiagnostics
+            + synthesisChunks.enumerated().flatMap {
+                chunkIndex, chunk in
+                chunk.pronunciationAuditDiagnostics.map { diagnostic in
+                    PronunciationAuditDiagnostic(
+                        reason: diagnostic.reason,
+                        blockID: blockID,
+                        chunkIndex: chunkIndex,
+                        chapterIndex: diagnostic.chapterIndex,
+                        expectedDisplayText: diagnostic.expectedDisplayText,
+                        reconstructedSpokenSurface: diagnostic.reconstructedSpokenSurface,
+                        fallbackHits: diagnostic.fallbackHits,
+                        finalPhonemes: diagnostic.finalPhonemes,
+                        reconstructedTokenPhonemes: diagnostic.reconstructedTokenPhonemes)
+                }
+            }
             + synthesisChunks.enumerated().compactMap {
                 chunkIndex, chunk in
                 switch chunk.pronunciationEvidenceValidation {

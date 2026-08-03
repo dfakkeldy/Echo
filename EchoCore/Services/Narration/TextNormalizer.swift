@@ -220,7 +220,7 @@ nonisolated enum TextNormalizer {
         replacingMatches(
             in: s,
             pattern:
-                #"(?<![\p{L}\p{N}_])\$([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.([0-9]{2}))?(?![\p{L}\p{N}_]|\.[0-9]|%)"#
+                #"(?<![\p{L}\p{N}_])\$([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.([0-9]{2}))?(?![\p{L}\p{N}_]|[.,][0-9]|%)"#
         ) { match, text in
             guard let dollarsText = substring(match.range(at: 1), in: text),
                 let dollars = Int(dollarsText.replacingOccurrences(of: ",", with: ""))
