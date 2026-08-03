@@ -12,6 +12,7 @@ struct MacVideoExportView: View {
     let databaseWriter: DatabaseWriter
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(SettingsManager.self) private var settings
 
     @State private var isExporting = false
     @State private var fraction = 0.0
@@ -125,6 +126,9 @@ struct MacVideoExportView: View {
     }
 
     private func startExport(to panelURL: URL, configuration: MacVideoExportConfiguration) {
+        let preferredVoice =
+            settings.narrationVoiceID.isEmpty
+            ? VoiceCatalog.default.id : VoiceID(settings.narrationVoiceID)
         fraction = 0
         output = nil
         errorText = nil
@@ -160,6 +164,7 @@ struct MacVideoExportView: View {
                     bookTitle: bookTitle,
                     databaseWriter: databaseWriter,
                     cacheDirectory: NarrationCache.directory(),
+                    preferredVoice: preferredVoice,
                     outputDirectory: stagingDirectory,
                     mode: configuration.mode,
                     dimensions: configuration.dimensions,

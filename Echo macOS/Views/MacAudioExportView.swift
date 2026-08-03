@@ -10,6 +10,7 @@ struct MacAudioExportView: View {
     let databaseWriter: DatabaseWriter
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(SettingsManager.self) private var settings
     @State private var isExporting = false
     @State private var savedPath = ""
     @State private var errorText: String?
@@ -52,6 +53,9 @@ struct MacAudioExportView: View {
     /// Resolves the source, items, and metadata up front, then either exports
     /// silently (complete metadata) or shows the confirm sheet first.
     private func startExport() {
+        let preferredVoice =
+            settings.narrationVoiceID.isEmpty
+            ? VoiceCatalog.default.id : VoiceID(settings.narrationVoiceID)
         errorText = nil
         isExporting = true
         Task {
@@ -60,7 +64,8 @@ struct MacAudioExportView: View {
                 let source = ExportSourceResolver.resolve(
                     audiobookID: audiobookID,
                     databaseWriter: databaseWriter,
-                    cacheDirectory: NarrationCache.directory())
+                    cacheDirectory: NarrationCache.directory(),
+                    preferredVoice: preferredVoice)
                 let items = try await source.items()
                 let meta = await ExportMetadataResolver.resolve(
                     audiobookID: audiobookID, fallbackTitle: bookTitle,

@@ -96,7 +96,7 @@
             case .building:
                 return "Building"
             case .ready(let revision):
-                return "Ready, revision \(revision)"
+                return String(localized: "Ready, revision \(revision)")
             case .changesAvailable(let revision):
                 return "Changes available after revision \(revision)"
             case .failed(previousRevision: nil):

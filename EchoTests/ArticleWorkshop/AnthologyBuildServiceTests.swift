@@ -32,6 +32,22 @@ struct AnthologyBuildServiceTests {
         #expect(try fixture.taskTemporaryFiles().isEmpty)
     }
 
+    @Test func successfulReceiptStandardizesEPUBPathForResolverFallback() async throws {
+        let fixture = try AnthologyBuildServiceFixture(unstandardizedWorkshopRoot: true)
+        defer { fixture.removeFiles() }
+
+        let record = try await fixture.service().build(
+            anthologyID: fixture.anthologyID.uuidString)
+        let resolver = AnthologyNarrationManifestResolver(db: fixture.database.writer)
+
+        #expect(record.epubPath == fixture.finalURL.standardizedFileURL.path)
+        #expect(record.epubPath != fixture.finalURL.path)
+        #expect(
+            try resolver.resolve(
+                audiobookID: "ordinary-book",
+                epubURL: fixture.finalURL.standardizedFileURL) == fixture.manifest)
+    }
+
     @Test(
         "Failures preserve the prior coherent edition",
         arguments: AnthologyBuildFailurePoint.allCases)
@@ -587,10 +603,15 @@ private struct AnthologyBuildServiceFixture {
         editionDirectory.standardizedFileURL.absoluteString
     }
 
-    init() throws {
+    init(unstandardizedWorkshopRoot: Bool = false) throws {
         root = FileManager.default.temporaryDirectory
             .appending(path: "AnthologyBuildServiceTests-\(UUID().uuidString)")
-        workshopRoot = root.appending(path: "ArticleWorkshop", directoryHint: .isDirectory)
+        workshopRoot = unstandardizedWorkshopRoot
+            ? root
+                .appending(path: "nested", directoryHint: .isDirectory)
+                .appending(path: "..")
+                .appending(path: "ArticleWorkshop", directoryHint: .isDirectory)
+            : root.appending(path: "ArticleWorkshop", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: workshopRoot, withIntermediateDirectories: true)
         database = try DatabaseService(inMemory: ())
         anthologyDAO = AnthologyDAO(db: database.writer)

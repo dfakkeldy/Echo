@@ -27,7 +27,7 @@ import Testing
 
     @Test func firstChapterFirstSegmentIsSmall() {
         let blocks = (0..<5).map { block("x\($0)", chars: 150, chapter: 0, seq: $0) }
-        let chapter = NarrationChapterPlanner.PlannedChapter(
+        let chapter = renderPlan(
             index: 0, displayNumber: 1, blocks: blocks)
 
         let segments = NarrationSegmentPlanner.segments(
@@ -41,7 +41,7 @@ import Testing
 
     @Test func laterChapterFirstSegmentUsesLargeTarget() {
         let blocks = (0..<3).map { block("y\($0)", chars: 150, chapter: 2, seq: $0) }
-        let chapter = NarrationChapterPlanner.PlannedChapter(
+        let chapter = renderPlan(
             index: 2, displayNumber: 3, blocks: blocks)
 
         let segments = NarrationSegmentPlanner.segments(
@@ -51,9 +51,24 @@ import Testing
         #expect(segments[0].blocks.count == 3)
     }
 
+    @Test func stableKeyChapterAlwaysUsesSmallStreamingFirstSegment() {
+        let blocks = (0..<4).map { block("stable-\($0)", chars: 150, chapter: 2, seq: $0) }
+        let chapter = renderPlan(
+            index: 2, displayNumber: 3, blocks: blocks,
+            sourceChapterKey: "stable-entry")
+
+        let segments = NarrationSegmentPlanner.segments(
+            for: chapter, isFirstChapterOfBook: false)
+
+        #expect(
+            segments.map { $0.blocks.map(\.id) } == [
+                ["stable-0"], ["stable-1", "stable-2", "stable-3"],
+            ])
+    }
+
     @Test func everySegmentHasAtLeastOneBlockAndNoneAreLost() {
         let blocks = (0..<7).map { block("z\($0)", chars: 800, chapter: 1, seq: $0) }
-        let chapter = NarrationChapterPlanner.PlannedChapter(
+        let chapter = renderPlan(
             index: 1, displayNumber: 2, blocks: blocks)
 
         let segments = NarrationSegmentPlanner.segments(
@@ -64,10 +79,10 @@ import Testing
     }
 
     @Test func planMarksOnlyTheFirstChapterAsBookStart() {
-        let first = NarrationChapterPlanner.PlannedChapter(
+        let first = renderPlan(
             index: 0, displayNumber: 1,
             blocks: [block("a", chars: 150, chapter: 0, seq: 0)])
-        let second = NarrationChapterPlanner.PlannedChapter(
+        let second = renderPlan(
             index: 1, displayNumber: 2,
             blocks: (0..<4).map { block("b\($0)", chars: 150, chapter: 1, seq: $0) })
 
@@ -84,7 +99,7 @@ import Testing
                 text: "Chapter 1: Opening"),
             block("p", chars: 150, chapter: 0, seq: 1),
         ]
-        let chapter = NarrationChapterPlanner.PlannedChapter(
+        let chapter = renderPlan(
             index: 0, displayNumber: 1, blocks: blocks)
 
         let segments = NarrationSegmentPlanner.plan([chapter])
@@ -101,7 +116,7 @@ import Testing
             ),
             block("prose", chars: 150, chapter: 1, seq: 1),
         ]
-        let chapter = NarrationChapterPlanner.PlannedChapter(
+        let chapter = renderPlan(
             index: 1, displayNumber: 2, blocks: blocks)
 
         let segments = NarrationSegmentPlanner.segments(
@@ -144,17 +159,64 @@ import Testing
             NarrationSegmentPlanner.beforeResume(segments, startingAtChapterIndex: 99).isEmpty)
     }
 
+    @Test func stableKeyResumeUsesTheReorderedPlanInsteadOfChapterPositions() {
+        let plans = [
+            renderPlan(index: 8, displayNumber: 2, segmentCount: 1, sourceChapterKey: "beta"),
+            renderPlan(index: 3, displayNumber: 1, segmentCount: 2, sourceChapterKey: "alpha"),
+        ]
+        let segments = NarrationSegmentPlanner.plan(plans)
+
+        #expect(
+            NarrationSegmentPlanner.resume(segments, startingAtSourceChapterKey: "alpha")
+                .map(location) == ["3-0", "3-1"])
+        #expect(
+            NarrationSegmentPlanner.beforeResume(segments, startingAtSourceChapterKey: "alpha")
+                .map(location) == ["8-0"])
+    }
+
+    @Test func segmentsPreserveTheRenderPlanSourceKeyAndVoice() {
+        let plan = renderPlan(
+            index: 3,
+            displayNumber: 1,
+            segmentCount: 2,
+            sourceChapterKey: "stable-entry",
+            voice: VoiceID("bf_emma"))
+
+        let segments = NarrationSegmentPlanner.plan([plan])
+
+        #expect(segments.map(\.sourceChapterKey) == ["stable-entry", "stable-entry"])
+        #expect(segments.map(\.voice) == [VoiceID("bf_emma"), VoiceID("bf_emma")])
+    }
+
     private func chapter(
         index: Int,
         displayNumber: Int,
         segmentCount: Int
-    ) -> NarrationChapterPlanner.PlannedChapter {
-        NarrationChapterPlanner.PlannedChapter(
-            index: index,
-            displayNumber: displayNumber,
-            blocks: (0..<segmentCount).map { offset in
+    ) -> NarrationChapterRenderPlan {
+        renderPlan(index: index, displayNumber: displayNumber, segmentCount: segmentCount)
+    }
+
+    private func renderPlan(
+        index: Int,
+        displayNumber: Int,
+        blocks: [EPubBlockRecord]? = nil,
+        segmentCount: Int = 1,
+        sourceChapterKey: String? = nil,
+        voice: VoiceID = VoiceID("af_heart")
+    ) -> NarrationChapterRenderPlan {
+        let chapterBlocks =
+            blocks
+            ?? (0..<segmentCount).map { offset in
                 block("c\(index)-b\(offset)", chars: 800, chapter: index, seq: offset)
-            })
+            }
+        return NarrationChapterRenderPlan(
+            chapterIndex: index,
+            displayNumber: displayNumber,
+            sourceChapterKey: sourceChapterKey,
+            title: NarrationChapterPlanner.title(
+                displayNumber: displayNumber, blocks: chapterBlocks),
+            blocks: chapterBlocks,
+            voice: voice)
     }
 
     private func location(_ segment: NarrationSegmentPlanner.PlannedSegment) -> String {

@@ -36,3 +36,27 @@ enum NarrationOutlineBuilder {
         }
     }
 }
+
+nonisolated enum NarrationOutlineReadiness {
+    static func renderedChapterIndices(
+        expectedFileNamesByChapter: [Int: Set<String>],
+        existingFileNames: Set<String>
+    ) -> Set<Int> {
+        Set(expectedFileNamesByChapter.compactMap { chapterIndex, expectedFileNames in
+            guard !expectedFileNames.isEmpty,
+                expectedFileNames.isSubset(of: existingFileNames)
+            else { return nil }
+            return chapterIndex
+        })
+    }
+
+    static func removableQueueIndices(
+        fileNames: [String],
+        currentIndex: Int,
+        expectedFileNames: Set<String>
+    ) -> [Int] {
+        fileNames.indices.reversed().filter { index in
+            index != currentIndex && expectedFileNames.contains(fileNames[index])
+        }
+    }
+}

@@ -250,6 +250,7 @@ struct VideoExportServiceTests {
                     bookTitle: "No Audio",
                     databaseWriter: database.writer,
                     cacheDirectory: workDirectory,
+                    preferredVoice: VoiceCatalog.default.id,
                     outputDirectory: workDirectory)
                 Issue.record("Expected noAudio")
             } catch VideoExportService.ExportError.noAudio {
@@ -279,6 +280,7 @@ struct VideoExportServiceTests {
                     bookTitle: "No Alignment",
                     databaseWriter: database.writer,
                     cacheDirectory: workDirectory,
+                    preferredVoice: VoiceCatalog.default.id,
                     outputDirectory: workDirectory)
                 Issue.record("Expected noAlignment")
             } catch VideoExportService.ExportError.noAlignment {
@@ -358,6 +360,7 @@ struct VideoExportServiceTests {
                     bookTitle: "Enabled Slice No Alignment",
                     databaseWriter: database.writer,
                     cacheDirectory: workDirectory,
+                    preferredVoice: VoiceCatalog.default.id,
                     outputDirectory: workDirectory,
                     mode: .simple,
                     syncPoint: .begin,
@@ -386,6 +389,7 @@ struct VideoExportServiceTests {
                 bookTitle: fixture.title,
                 databaseWriter: fixture.database.writer,
                 cacheDirectory: workDirectory,
+                preferredVoice: VoiceCatalog.default.id,
                 outputDirectory: workDirectory,
                 mode: .simple,
                 syncPoint: .begin,
@@ -493,6 +497,7 @@ struct VideoExportServiceTests {
                 bookTitle: "Disabled M4B Slices",
                 databaseWriter: database.writer,
                 cacheDirectory: workDirectory,
+                preferredVoice: VoiceCatalog.default.id,
                 outputDirectory: workDirectory,
                 mode: .simple,
                 syncPoint: .begin,
@@ -527,6 +532,7 @@ struct VideoExportServiceTests {
                 bookTitle: "Disabled M4B Slices",
                 databaseWriter: database.writer,
                 cacheDirectory: workDirectory,
+                preferredVoice: VoiceCatalog.default.id,
                 outputDirectory: workDirectory,
                 mode: .simple,
                 syncPoint: .begin,
@@ -557,6 +563,7 @@ struct VideoExportServiceTests {
                 bookTitle: fixture.title,
                 databaseWriter: fixture.database.writer,
                 cacheDirectory: workDirectory,
+                preferredVoice: VoiceCatalog.default.id,
                 outputDirectory: workDirectory,
                 mode: .simple,
                 syncPoint: .begin,
@@ -588,6 +595,7 @@ struct VideoExportServiceTests {
                     bookTitle: fixture.title,
                     databaseWriter: fixture.database.writer,
                     cacheDirectory: workDirectory,
+                    preferredVoice: VoiceCatalog.default.id,
                     outputDirectory: workDirectory,
                     mode: .simple,
                     syncPoint: .begin,
@@ -634,6 +642,7 @@ struct VideoExportServiceTests {
                 bookTitle: "Skip Audio Less",
                 databaseWriter: database.writer,
                 cacheDirectory: workDirectory,
+                preferredVoice: VoiceCatalog.default.id,
                 outputDirectory: workDirectory,
                 mode: .simple,
                 syncPoint: .begin,
@@ -704,6 +713,7 @@ struct VideoExportServiceTests {
                 bookTitle: fixture.title,
                 databaseWriter: fixture.database.writer,
                 cacheDirectory: workDirectory.appendingPathComponent("no-cache"),
+                preferredVoice: VoiceCatalog.default.id,
                 outputDirectory: workDirectory,
                 mode: .simple,
                 syncPoint: .begin,
@@ -804,6 +814,7 @@ struct VideoExportServiceTests {
                     bookTitle: "Nonexistent",
                     databaseWriter: database.writer,
                     cacheDirectory: workDirectory,
+                    preferredVoice: VoiceCatalog.default.id,
                     outputDirectory: outputDirectory,
                     dimensions: .portrait)
                 Issue.record("Expected unsupportedVideoSettings")
@@ -834,6 +845,7 @@ struct VideoExportServiceTests {
                 bookTitle: fixture.title,
                 databaseWriter: fixture.database.writer,
                 cacheDirectory: workDirectory,
+                preferredVoice: VoiceCatalog.default.id,
                 outputDirectory: workDirectory,
                 mode: .simple,
                 syncPoint: .begin,
@@ -882,6 +894,7 @@ struct VideoExportServiceTests {
                 bookTitle: fixture.title,
                 databaseWriter: fixture.database.writer,
                 cacheDirectory: workDirectory,
+                preferredVoice: VoiceCatalog.default.id,
                 outputDirectory: landscapeDir,
                 mode: .simple,
                 syncPoint: .begin,
@@ -891,6 +904,7 @@ struct VideoExportServiceTests {
                 bookTitle: fixture.title,
                 databaseWriter: fixture.database.writer,
                 cacheDirectory: workDirectory,
+                preferredVoice: VoiceCatalog.default.id,
                 outputDirectory: portraitDir,
                 mode: .simple,
                 syncPoint: .begin,

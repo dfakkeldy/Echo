@@ -21,6 +21,7 @@
         let databaseWriter: DatabaseWriter
 
         @Environment(\.dismiss) private var dismiss
+        @Environment(SettingsManager.self) private var settings
 
         /// The immutable, structured-concurrency-safe unit of export work. Its
         /// unique `id` keys the `.task(id:)`, and its validated `dimensions`
@@ -150,6 +151,9 @@
         }
 
         private func runExport(_ request: VideoExportRequest) async {
+            let preferredVoice =
+                settings.narrationVoiceID.isEmpty
+                ? VoiceCatalog.default.id : VoiceID(settings.narrationVoiceID)
             let outputDirectory = FileManager.default.temporaryDirectory
                 .appendingPathComponent(
                     "video-export-\(UUID().uuidString)", isDirectory: true)
@@ -182,6 +186,7 @@
                     bookTitle: bookTitle,
                     databaseWriter: databaseWriter,
                     cacheDirectory: cacheDirectory,
+                    preferredVoice: preferredVoice,
                     outputDirectory: outputDirectory,
                     mode: .karaoke,
                     dimensions: request.dimensions,

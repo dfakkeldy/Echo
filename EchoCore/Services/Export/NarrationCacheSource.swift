@@ -9,8 +9,22 @@ struct NarrationCacheSource: ExportSource {
     let audiobookID: String
     let cacheDirectory: URL
     let databaseWriter: DatabaseWriter?
+    let preferredVoice: VoiceID
 
     func items() async throws -> [ExportItem] {
+        if let databaseWriter,
+            let anthology = try await AnthologyNarrationStatusService(
+                db: databaseWriter,
+                cacheDirectory: cacheDirectory
+            ).inventory(audiobookID: audiobookID, preferredVoice: preferredVoice)
+        {
+            guard anthology.missingChapterDisplayNumbers.isEmpty else {
+                throw AnthologyNarrationReadinessError.incomplete(
+                    chapterDisplayNumbers: anthology.missingChapterDisplayNumbers)
+            }
+            return anthology.exportItems
+        }
+
         let fm = FileManager.default
         let prefix = NarrationFileNaming.chapterPrefix(audiobookID: audiobookID)
         let files =

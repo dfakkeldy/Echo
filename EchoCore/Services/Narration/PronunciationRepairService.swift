@@ -41,6 +41,7 @@ final class PronunciationRepairService {
     private let db: DatabaseWriter
     private let cacheDirectory: URL
     private let voice: VoiceID
+    private let sourceChapterKey: String?
     /// Re-render exactly the given chapter index with the live override map.
     private let renderChapter: (Int) async throws -> Void
     /// Re-run narration QA over exactly the given chapter index.
@@ -53,6 +54,7 @@ final class PronunciationRepairService {
         db: DatabaseWriter,
         cacheDirectory: URL,
         voice: VoiceID,
+        sourceChapterKey: String? = nil,
         renderChapter: @escaping (Int) async throws -> Void,
         reRunQA: @escaping (Int) async throws -> Void
     ) {
@@ -61,6 +63,7 @@ final class PronunciationRepairService {
         self.db = db
         self.cacheDirectory = cacheDirectory
         self.voice = voice
+        self.sourceChapterKey = sourceChapterKey
         self.renderChapter = renderChapter
         self.reRunQA = reRunQA
     }
@@ -170,15 +173,39 @@ final class PronunciationRepairService {
         else {
             return
         }
-        for file in files
-        where NarrationFileNaming.isCurrentChapterCacheFileName(
+        for file in files where cacheFileMatches(
             file.lastPathComponent,
             audiobookID: audiobookID,
-            chapterIndex: chapterIndex,
-            voice: voice,
-            includingPartial: true)
+            chapterIndex: chapterIndex)
         {
             try? fm.removeItem(at: file)
         }
+    }
+
+    private func cacheFileMatches(
+        _ fileName: String,
+        audiobookID: String,
+        chapterIndex: Int
+    ) -> Bool {
+        let durableName: String
+        if fileName.hasSuffix(".partial") {
+            durableName = String(fileName.dropLast(".partial".count))
+        } else if fileName.hasPrefix(".") && fileName.hasSuffix(".partial.m4a") {
+            let partialName = fileName.dropFirst().dropLast(".partial.m4a".count)
+            durableName = "\(partialName).m4a"
+        } else {
+            durableName = fileName
+        }
+        guard
+            durableName.hasPrefix("\(NarrationFileNaming.safeToken(audiobookID))-"),
+            durableName.hasSuffix(
+                "-\(voice.rawValue)-v\(NarrationFileNaming.renderVersion).m4a"),
+            let location = NarrationFileNaming.location(fromFileName: durableName)
+        else { return false }
+        if let sourceChapterKey {
+            return location.stableChapterToken
+                == NarrationFileNaming.stableChapterToken(for: sourceChapterKey)
+        }
+        return location.chapterIndex == chapterIndex
     }
 }

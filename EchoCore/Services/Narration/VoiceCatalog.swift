@@ -119,3 +119,25 @@ nonisolated enum VoiceCatalog {
         }
     }
 }
+
+nonisolated enum ExportVideoPreferredVoiceRequestError: Error, Equatable, Sendable {
+    case unknownVoice(String)
+}
+
+/// Resolves one caller-supplied preferred voice at the video-export boundary.
+/// Anthology chapter overrides still take precedence later in render planning.
+nonisolated enum ExportVideoPreferredVoiceRequest {
+    static func resolve(_ rawValue: String?) throws -> VoiceID {
+        guard
+            let rawValue,
+            !rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return VoiceCatalog.default.id
+        }
+        let voiceID = VoiceID(rawValue)
+        guard VoiceCatalog.voice(for: voiceID) != nil else {
+            throw ExportVideoPreferredVoiceRequestError.unknownVoice(rawValue)
+        }
+        return voiceID
+    }
+}

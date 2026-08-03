@@ -2,13 +2,15 @@
 import Foundation
 
 /// Splits planned narration chapters into ordered render segments. The first
-/// segment of a book is intentionally small so playback can start quickly once
-/// the renderer learns to queue segment files; later segments are larger to keep
-/// file/track counts bounded.
+/// segment of an ordinary book is intentionally small. Stable-key anthology
+/// chapters each use the same small first-segment target so their file boundaries
+/// remain stable when the anthology is reordered.
 enum NarrationSegmentPlanner {
-    struct PlannedSegment: Equatable {
+    struct PlannedSegment: Equatable, Sendable {
         let chapterIndex: Int
         let chapterDisplayNumber: Int
+        let sourceChapterKey: String?
+        let voice: VoiceID
         let chapterTitle: String
         let segmentIndex: Int
         let blocks: [EPubBlockRecord]
@@ -16,17 +18,41 @@ enum NarrationSegmentPlanner {
         init(
             chapterIndex: Int,
             chapterDisplayNumber: Int,
+            sourceChapterKey: String?,
+            voice: VoiceID,
             segmentIndex: Int,
             blocks: [EPubBlockRecord],
             chapterTitle: String? = nil
         ) {
             self.chapterIndex = chapterIndex
             self.chapterDisplayNumber = chapterDisplayNumber
-            self.chapterTitle = chapterTitle
+            self.sourceChapterKey = sourceChapterKey
+            self.voice = voice
+            self.chapterTitle =
+                chapterTitle
                 ?? NarrationChapterPlanner.title(
                     displayNumber: chapterDisplayNumber, blocks: blocks)
             self.segmentIndex = segmentIndex
             self.blocks = blocks
+        }
+
+        /// Compatibility initializer for existing ordinary-book consumers that
+        /// have not yet adopted the shared render-plan boundary.
+        init(
+            chapterIndex: Int,
+            chapterDisplayNumber: Int,
+            segmentIndex: Int,
+            blocks: [EPubBlockRecord],
+            chapterTitle: String? = nil
+        ) {
+            self.init(
+                chapterIndex: chapterIndex,
+                chapterDisplayNumber: chapterDisplayNumber,
+                sourceChapterKey: nil,
+                voice: VoiceCatalog.default.id,
+                segmentIndex: segmentIndex,
+                blocks: blocks,
+                chapterTitle: chapterTitle)
         }
     }
 
@@ -34,12 +60,30 @@ enum NarrationSegmentPlanner {
     private static let firstSegmentTargetSeconds = 8.0
     private static let laterSegmentTargetSeconds = 50.0
 
-    static func plan(_ chapters: [NarrationChapterPlanner.PlannedChapter])
+    static func plan(_ chapters: [NarrationChapterRenderPlan])
         -> [PlannedSegment]
     {
         chapters.enumerated().flatMap { offset, chapter in
             segments(for: chapter, isFirstChapterOfBook: offset == 0)
         }
+    }
+
+    /// Compatibility path for existing ordinary-book callers until they switch
+    /// to the shared render-plan boundary. Anthology callers must resolve their
+    /// manifest through `NarrationChapterRenderPlanner` first.
+    static func plan(_ chapters: [NarrationChapterPlanner.PlannedChapter])
+        -> [PlannedSegment]
+    {
+        plan(
+            chapters.map {
+                NarrationChapterRenderPlan(
+                    chapterIndex: $0.index,
+                    displayNumber: $0.displayNumber,
+                    sourceChapterKey: nil,
+                    title: $0.title,
+                    blocks: $0.blocks,
+                    voice: VoiceCatalog.default.id)
+            })
     }
 
     /// Segments at or after `resumeIndex`, ascending. Resume intentionally starts
@@ -68,17 +112,40 @@ enum NarrationSegmentPlanner {
         return Array(segments[..<pos].reversed())
     }
 
+    static func resume(
+        _ segments: [PlannedSegment],
+        startingAtSourceChapterKey sourceChapterKey: String
+    ) -> [PlannedSegment] {
+        guard let pos = segments.firstIndex(where: { $0.sourceChapterKey == sourceChapterKey })
+        else {
+            return segments
+        }
+        return Array(segments[pos...])
+    }
+
+    static func beforeResume(
+        _ segments: [PlannedSegment],
+        startingAtSourceChapterKey sourceChapterKey: String
+    ) -> [PlannedSegment] {
+        guard let pos = segments.firstIndex(where: { $0.sourceChapterKey == sourceChapterKey })
+        else {
+            return []
+        }
+        return Array(segments[..<pos].reversed())
+    }
+
     static func segments(
-        for chapter: NarrationChapterPlanner.PlannedChapter,
+        for chapter: NarrationChapterRenderPlan,
         isFirstChapterOfBook: Bool
     ) -> [PlannedSegment] {
         var result: [PlannedSegment] = []
         var currentBlocks: [EPubBlockRecord] = []
         var currentSeconds = 0.0
         var segmentIndex = 0
+        let usesSmallFirstSegment = chapter.sourceChapterKey != nil || isFirstChapterOfBook
 
         func targetSeconds() -> Double {
-            isFirstChapterOfBook && segmentIndex == 0
+            usesSmallFirstSegment && segmentIndex == 0
                 ? firstSegmentTargetSeconds
                 : laterSegmentTargetSeconds
         }
@@ -87,8 +154,10 @@ enum NarrationSegmentPlanner {
             guard !currentBlocks.isEmpty else { return }
             result.append(
                 PlannedSegment(
-                    chapterIndex: chapter.index,
+                    chapterIndex: chapter.chapterIndex,
                     chapterDisplayNumber: chapter.displayNumber,
+                    sourceChapterKey: chapter.sourceChapterKey,
+                    voice: chapter.voice,
                     segmentIndex: segmentIndex,
                     blocks: currentBlocks,
                     chapterTitle: chapter.title

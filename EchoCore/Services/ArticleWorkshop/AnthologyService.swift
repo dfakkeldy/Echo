@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import CryptoKit
 import Foundation
 
 nonisolated struct AnthologyService: Sendable {
@@ -413,22 +412,23 @@ nonisolated struct AnthologyService: Sendable {
                 failures: captureAssets?.failures ?? [])
             imageAssets.append(contentsOf: published.assets)
             imageFailures.append(contentsOf: published.failures)
-            chapters.append(AnthologyChapterManifest(
-                entryID: entryID,
-                captureID: captureID,
-                articleRevisionID: revisionID,
-                stableSlot: value.entry.stableSlot,
-                order: order,
-                title: Self.optionalText(value.entry.chapterTitleOverride)
-                    ?? Self.requiredTitle(clean.metadata.title),
-                author: Self.optionalText(clean.metadata.author),
-                siteName: Self.optionalText(clean.metadata.siteName),
-                sourceURL: sourceURL,
-                capturedAt: capturedAt,
-                voiceID: Self.optionalText(value.entry.narrationVoiceID),
-                blocks: published.blocks,
-                readableContentSHA256: ArticleWorkshopDigest.readableContent(
-                    blocks: published.blocks)))
+            chapters.append(
+                AnthologyChapterManifest(
+                    entryID: entryID,
+                    captureID: captureID,
+                    articleRevisionID: revisionID,
+                    stableSlot: value.entry.stableSlot,
+                    order: order,
+                    title: Self.optionalText(value.entry.chapterTitleOverride)
+                        ?? Self.requiredTitle(clean.metadata.title),
+                    author: Self.optionalText(clean.metadata.author),
+                    siteName: Self.optionalText(clean.metadata.siteName),
+                    sourceURL: sourceURL,
+                    capturedAt: capturedAt,
+                    voiceID: Self.optionalText(value.entry.narrationVoiceID),
+                    blocks: published.blocks,
+                    readableContentSHA256: ArticleWorkshopDigest.readableContent(
+                        blocks: published.blocks)))
         }
         let languages = project.entries.map {
             Self.optionalText($0.cleanArticle?.metadata.language)
@@ -483,18 +483,19 @@ nonisolated struct AnthologyService: Sendable {
                 if let asset = assetsByBlock[block.id],
                     asset.sourceURL == block.imageCandidateURL
                 {
-                    publishedAssets.append(ArticleImageAssetDescriptor(
-                        owningBlockID: block.id,
-                        managedPath: asset.managedPath,
-                        archivePath: asset.archivePath,
-                        mediaType: asset.mediaType,
-                        sha256: asset.sha256,
-                        byteCount: asset.byteCount,
-                        pixelWidth: asset.pixelWidth,
-                        pixelHeight: asset.pixelHeight,
-                        sourceURL: asset.sourceURL,
-                        altText: optionalText(block.altText),
-                        caption: optionalText(block.caption)))
+                    publishedAssets.append(
+                        ArticleImageAssetDescriptor(
+                            owningBlockID: block.id,
+                            managedPath: asset.managedPath,
+                            archivePath: asset.archivePath,
+                            mediaType: asset.mediaType,
+                            sha256: asset.sha256,
+                            byteCount: asset.byteCount,
+                            pixelWidth: asset.pixelWidth,
+                            pixelHeight: asset.pixelHeight,
+                            sourceURL: asset.sourceURL,
+                            altText: optionalText(block.altText),
+                            caption: optionalText(block.caption)))
                     return block
                 }
                 if let failure = failuresByBlock[block.id] {
@@ -569,67 +570,11 @@ nonisolated struct AnthologyService: Sendable {
         -> AnthologyBuildManifest?
     {
         guard let build else { return nil }
-        guard build.status == "succeeded",
-            UUID(uuidString: build.id) != nil,
-            UUID(uuidString: build.anthologyID) != nil,
-            build.revision > 0,
-            Self.date(build.createdAt) != nil
-        else {
-            throw Error.invalidStoredData
-        }
-        let data = Data(build.manifestJSON.utf8)
-        guard Self.sha256(data) == build.manifestSHA256 else {
-            throw Error.invalidStoredData
-        }
-        let manifest: AnthologyBuildManifest
         do {
-            manifest = try JSONDecoder.articleWorkshop.decode(
-                AnthologyBuildManifest.self,
-                from: data)
+            return try AnthologyBuildManifestValidator.validate(build)
         } catch {
             throw Error.invalidStoredData
         }
-        guard [1, 2].contains(manifest.schemaVersion),
-            manifest.anthologyID.uuidString == build.anthologyID,
-            manifest.revision == build.revision,
-            manifest.epubIdentifier == build.epubIdentifier,
-            manifest.epubIdentifier == "urn:uuid:\(manifest.anthologyID.uuidString)",
-            Self.optionalText(manifest.title) != nil,
-            Self.optionalText(manifest.creator) != nil,
-            Self.validLanguage(manifest.language),
-            (try? Self.coverPath(manifest.coverPath)) == manifest.coverPath,
-            manifest.chapters.isEmpty == false,
-            manifest.chapters.map(\.order) == Array(0..<manifest.chapters.count),
-            Set(manifest.chapters.map(\.entryID)).count == manifest.chapters.count,
-            Set(manifest.chapters.map(\.captureID)).count == manifest.chapters.count,
-            Set(manifest.chapters.map(\.articleRevisionID)).count
-                == manifest.chapters.count,
-            Set(manifest.chapters.map(\.stableSlot)).count == manifest.chapters.count,
-            manifest.chapters.allSatisfy({
-                $0.stableSlot >= 0
-                    && Self.optionalText($0.title) != nil
-                    && Self.httpURL($0.sourceURL.absoluteString) == $0.sourceURL
-                    && ($0.voiceID.flatMap(Self.optionalText).map {
-                        VoiceCatalog.voice(for: VoiceID($0)) != nil
-                    } ?? true)
-                    && Self.validSHA256($0.readableContentSHA256)
-                    && $0.readableContentSHA256
-                        == ArticleWorkshopDigest.readableContent(blocks: $0.blocks)
-                    && Set($0.blocks.map(\.id)).count == $0.blocks.count
-                    && $0.blocks.allSatisfy { Self.optionalText($0.id) != nil }
-                    && $0.blocks.allSatisfy { block in
-                        (block.sourceURL.map {
-                            Self.httpURL($0.absoluteString) == $0
-                        } ?? true)
-                            && (block.imageCandidateURL.map {
-                                Self.httpURL($0.absoluteString) == $0
-                            } ?? true)
-                    }
-            })
-        else {
-            throw Error.invalidStoredData
-        }
-        return manifest
     }
 
     private static func differs(
@@ -689,10 +634,6 @@ nonisolated struct AnthologyService: Sendable {
             || value.range(
                 of: #"^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$"#,
                 options: .regularExpression) != nil
-    }
-
-    private static func validSHA256(_ value: String) -> Bool {
-        value.range(of: #"^[0-9a-f]{64}$"#, options: .regularExpression) != nil
     }
 
     private static func buildEligibleContentState(_ value: String) -> Bool {
@@ -787,10 +728,6 @@ nonisolated struct AnthologyService: Sendable {
         let encoder = JSONEncoder.articleWorkshop
         encoder.outputFormatting = [.sortedKeys]
         return String(decoding: try encoder.encode(value), as: UTF8.self)
-    }
-
-    private static func sha256(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     private static func mapDAOError(_ error: any Swift.Error) -> Error {

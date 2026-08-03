@@ -45,6 +45,64 @@ import Testing
         #expect(rows[0].title == "Chapter 1")
     }
 
+    @Test func exactPlaybackPlanReadinessDoesNotHideExcludedChapterRows() {
+        let blocks = [
+            block("p0", ch: 0, seq: 0, text: "rendered chapter"),
+            block("p1", ch: 1, seq: 1, text: "excluded chapter", hidden: true),
+            block("p2", ch: 2, seq: 2, text: "not rendered"),
+        ]
+        let exactlyRenderedChapterIndices: Set<Int> = [0]
+
+        let rows = NarrationOutlineBuilder.build(allBlocks: blocks) {
+            exactlyRenderedChapterIndices.contains($0)
+        }
+
+        #expect(rows.map(\.chapterIndex) == [0, 1, 2])
+        #expect(rows.map(\.isRendered) == [true, false, false])
+        #expect(rows.map(\.isExcluded) == [false, true, false])
+    }
+
+    @Test func readinessRecomputesFromEveryExactFilenameAfterRendering() {
+        let expectedByChapter: [Int: Set<String>] = [
+            0: ["chapter-0-segment-0.m4a", "chapter-0-segment-1.m4a"],
+            1: ["chapter-1-segment-0.m4a"],
+        ]
+
+        let initiallyRendered = NarrationOutlineReadiness.renderedChapterIndices(
+            expectedFileNamesByChapter: expectedByChapter,
+            existingFileNames: ["chapter-0-segment-0.m4a"])
+        let afterRendering = NarrationOutlineReadiness.renderedChapterIndices(
+            expectedFileNamesByChapter: expectedByChapter,
+            existingFileNames: [
+                "chapter-0-segment-0.m4a", "chapter-0-segment-1.m4a",
+                "chapter-1-segment-0.m4a",
+            ])
+
+        #expect(initiallyRendered.isEmpty)
+        #expect(afterRendering == [0, 1])
+    }
+
+    @Test func queueExclusionRemovesStablePlanFilesAndPreservesCurrentTrack() {
+        let entryKey = "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"
+        let exact = NarrationFileNaming.segmentFileName(
+            audiobookID: "book", chapterIndex: 7, sourceChapterKey: entryKey,
+            segmentIndex: 0, voice: VoiceID("bf_emma"), contentSignature: "current")
+        let second = NarrationFileNaming.segmentFileName(
+            audiobookID: "book", chapterIndex: 7, sourceChapterKey: entryKey,
+            segmentIndex: 1, voice: VoiceID("bf_emma"), contentSignature: "current")
+        let unrelated = NarrationFileNaming.segmentFileName(
+            audiobookID: "book", chapterIndex: 0, sourceChapterKey: nil,
+            segmentIndex: 0, voice: VoiceID("af_heart"), contentSignature: "other")
+
+        let removable = NarrationOutlineReadiness.removableQueueIndices(
+            fileNames: [exact, unrelated, second],
+            currentIndex: 2,
+            expectedFileNames: [exact, second])
+
+        #expect(removable == [0])
+        #expect(NarrationFileNaming.chapterIndex(fromFileName: exact) == nil)
+    }
+
     @Test func titlePreservesClosingParenthesisAfterDuplicateChapterPrefixCleanup() {
         var blocks: [EPubBlockRecord] = []
         for chapter in 0..<7 {

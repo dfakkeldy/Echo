@@ -512,12 +512,108 @@ struct PlayerModelTests {
     @Test("narration playback renders and queues segment files")
     func narrationPlaybackUsesSegmentPlan() throws {
         let source = try Self.source(named: "PlayerModel+Narration.swift")
-        #expect(source.contains("let segments = NarrationSegmentPlanner.plan(plan)"))
+        #expect(source.contains("let preparation = try await NarrationPlaybackPlanPreparation.prepare("))
+        #expect(source.contains("let segments = preparation.segments"))
         #expect(source.contains("NarrationSegmentPlanner.resume("))
         #expect(source.contains("NarrationSegmentPlanner.beforeResume("))
         #expect(source.contains("await service.segmentCacheURL("))
         #expect(source.contains("try await service.renderSegment("))
+        #expect(source.contains("sourceChapterKey: segment.sourceChapterKey"))
+        #expect(source.contains("voice: segment.voice"))
+        #expect(source.contains("NarrationCacheStore.staleFiles("))
+        #expect(!source.contains("voice: voice.id"))
+        #expect(!source.contains("narrationVoiceForFiles"))
         #expect(!source.contains("try await service.renderChapter("))
+
+        let preparationIndex = try #require(source.range(of: "let preparation = try await"))
+        let cleanupIndex = try #require(source.range(of: "NarrationCacheStore.staleFiles("))
+        let synthesisIndex = try #require(source.range(of: "self.narrationTTS.prepare("))
+        #expect(preparationIndex.lowerBound < cleanupIndex.lowerBound)
+        #expect(cleanupIndex.lowerBound < synthesisIndex.lowerBound)
+    }
+
+    @Test func narrationTaskGuardRejectsSwitchedBook() {
+        #expect(throws: CancellationError.self) {
+            try NarrationRenderPolicy.checkTaskIsActive(
+                currentFolderURL: "file:///new-book/",
+                audiobookID: "file:///old-book/")
+        }
+    }
+
+    @Test func sameBookRestartRejectsStalePreparationProgress() {
+        let model = PlayerModel()
+        let bookURL = URL(fileURLWithPath: "/same-book", isDirectory: true)
+        model.folderURL = bookURL
+        let staleOperation = model.replaceNarrationOperation()
+
+        model.handleNarrationPreparationProgress(
+            .ready,
+            operation: staleOperation,
+            audiobookID: bookURL.absoluteString)
+        #expect(model.narrationPlaybackState.phase == .preparingEngine)
+        #expect(model.narrationPlaybackState.progress == 1)
+
+        _ = model.replaceNarrationOperation()
+        model.narrationPlaybackState.update(
+            phase: .renderingAhead,
+            progress: 0.25,
+            statusMessage: "Current operation")
+        model.handleNarrationPreparationProgress(
+            .ready,
+            operation: staleOperation,
+            audiobookID: bookURL.absoluteString)
+
+        #expect(model.narrationPlaybackState.phase == .renderingAhead)
+        #expect(model.narrationPlaybackState.progress == 0.25)
+        #expect(model.narrationPlaybackState.statusMessage == "Current operation")
+    }
+
+    @Test func sameBookRestartRejectsStaleBlockProgress() {
+        let model = PlayerModel()
+        let bookURL = URL(fileURLWithPath: "/same-book", isDirectory: true)
+        model.folderURL = bookURL
+        let staleOperation = model.replaceNarrationOperation()
+
+        model.handleNarrationBlockProgress(
+            chapterDisplayNumber: 3,
+            fraction: 0.5,
+            operation: staleOperation,
+            audiobookID: bookURL.absoluteString)
+        #expect(model.state.currentSubtitle == "Preparing chapter 3… 50%")
+
+        _ = model.replaceNarrationOperation()
+        model.state.currentSubtitle = "Current operation"
+        model.handleNarrationBlockProgress(
+            chapterDisplayNumber: 8,
+            fraction: 0.75,
+            operation: staleOperation,
+            audiobookID: bookURL.absoluteString)
+
+        #expect(model.state.currentSubtitle == "Current operation")
+    }
+
+    @Test func narrationPreparationIsGuardedBeforeMutationAndTTS() throws {
+        let source = try Self.source(named: "PlayerModel+Narration.swift")
+        let importAwait = try #require(
+            source.range(of: "await self.playerLoadingCoordinator.documentImportTask?.value"))
+        let firstGuard = try #require(
+            source.range(
+                of: "try NarrationRenderPolicy.checkTaskIsActive(",
+                range: importAwait.upperBound..<source.endIndex))
+        let preparation = try #require(
+            source.range(of: "let preparation = try await NarrationPlaybackPlanPreparation.prepare("))
+        let postPreparationGuard = try #require(
+            source.range(
+                of: "try NarrationRenderPolicy.checkTaskIsActive(",
+                range: preparation.upperBound..<source.endIndex))
+        let stateMutation = try #require(source.range(of: "self.state.narrationDefaultVoice ="))
+        let ttsPreparation = try #require(source.range(of: "self.narrationTTS.prepare("))
+
+        #expect(importAwait.lowerBound < firstGuard.lowerBound)
+        #expect(firstGuard.lowerBound < preparation.lowerBound)
+        #expect(preparation.lowerBound < postPreparationGuard.lowerBound)
+        #expect(postPreparationGuard.lowerBound < stateMutation.lowerBound)
+        #expect(postPreparationGuard.lowerBound < ttsPreparation.lowerBound)
     }
 
     private static func source(named fileName: String) throws -> String {

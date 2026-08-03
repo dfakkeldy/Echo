@@ -184,11 +184,13 @@ final class NarrationService {
 
     func chapterCacheURL(
         chapterIndex: Int,
+        sourceChapterKey: String? = nil,
         blocks: [EPubBlockRecord],
         voice: VoiceID
     ) async -> URL {
         await chapterCacheURL(
             chapterIndex: chapterIndex,
+            sourceChapterKey: sourceChapterKey,
             blocks: blocks,
             voice: voice,
             overrides: pronunciationOverrides(),
@@ -199,12 +201,14 @@ final class NarrationService {
 
     func segmentCacheURL(
         chapterIndex: Int,
+        sourceChapterKey: String? = nil,
         segmentIndex: Int,
         blocks: [EPubBlockRecord],
         voice: VoiceID
     ) async -> URL {
         await segmentCacheURL(
             chapterIndex: chapterIndex,
+            sourceChapterKey: sourceChapterKey,
             segmentIndex: segmentIndex,
             blocks: blocks,
             voice: voice,
@@ -216,6 +220,7 @@ final class NarrationService {
 
     private func chapterCacheURL(
         chapterIndex: Int,
+        sourceChapterKey: String? = nil,
         blocks: [EPubBlockRecord],
         voice: VoiceID,
         overrides: PronunciationOverrides,
@@ -234,12 +239,14 @@ final class NarrationService {
             NarrationFileNaming.chapterFileName(
                 audiobookID: audiobookID,
                 chapterIndex: chapterIndex,
+                sourceChapterKey: sourceChapterKey,
                 voice: voice,
                 contentSignature: signature))
     }
 
     private func segmentCacheURL(
         chapterIndex: Int,
+        sourceChapterKey: String? = nil,
         segmentIndex: Int,
         blocks: [EPubBlockRecord],
         voice: VoiceID,
@@ -259,6 +266,7 @@ final class NarrationService {
             NarrationFileNaming.segmentFileName(
                 audiobookID: audiobookID,
                 chapterIndex: chapterIndex,
+                sourceChapterKey: sourceChapterKey,
                 segmentIndex: segmentIndex,
                 voice: voice,
                 contentSignature: signature))
@@ -397,15 +405,16 @@ final class NarrationService {
     /// Render one chapter. Cancellable between blocks; on cancel, nothing is persisted.
     /// Idempotent: re-rendering the same chapter (e.g. a voice change) upserts in place.
     ///
-    /// `chapterIndex` is the raw EPUB index — it keys the cache file, the track id,
-    /// and sort order, and must stay stable. `chapterNumber` is the human-facing
+    /// `chapterIndex` is the mutable EPUB order used for presentation; anthology
+    /// callers supply `sourceChapterKey` to keep cache and track identity stable.
+    /// `chapterNumber` is the human-facing
     /// 1-based position among *narratable* chapters (front matter excluded), used
     /// only for the title and status text so the first real chapter reads
     /// "Chapter 1". Defaults to `chapterIndex + 1` when omitted (tests that don't
     /// exercise numbering).
     @discardableResult
     func renderChapter(
-        chapterIndex: Int, chapterNumber: Int? = nil,
+        chapterIndex: Int, sourceChapterKey: String? = nil, chapterNumber: Int? = nil,
         blocks: [EPubBlockRecord], voice: VoiceID,
         chapterTitle: String? = nil,
         onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)? =
@@ -420,6 +429,7 @@ final class NarrationService {
         let fmEnabled = fmEnabled
         let fileURL = await chapterCacheURL(
             chapterIndex: chapterIndex,
+            sourceChapterKey: sourceChapterKey,
             blocks: blocks,
             voice: voice,
             overrides: overrides,
@@ -441,7 +451,11 @@ final class NarrationService {
             onBlockProgress: onBlockProgress)
         try await persistRenderedNarration(
             rendered,
-            trackID: "syn-\(audiobookID)-ch\(chapterIndex)",
+            trackID: NarrationFileNaming.trackID(
+                audiobookID: audiobookID,
+                chapterIndex: chapterIndex,
+                sourceChapterKey: sourceChapterKey,
+                segmentIndex: nil),
             title: savedTitle,
             sortOrder: chapterIndex,
             voice: voice)
@@ -459,6 +473,7 @@ final class NarrationService {
     /// collisions when segment files are eventually queued for playback.
     func renderSegment(
         chapterIndex: Int,
+        sourceChapterKey: String? = nil,
         chapterDisplayNumber: Int,
         segmentIndex: Int,
         blocks: [EPubBlockRecord],
@@ -471,6 +486,7 @@ final class NarrationService {
             displayNumber: chapterDisplayNumber, blocks: blocks, chapterTitle: chapterTitle)
         let rendered = try await renderSegmentFile(
             chapterIndex: chapterIndex,
+            sourceChapterKey: sourceChapterKey,
             chapterDisplayNumber: chapterDisplayNumber,
             segmentIndex: segmentIndex,
             blocks: blocks,
@@ -479,7 +495,11 @@ final class NarrationService {
 
         try await persistRenderedNarration(
             rendered,
-            trackID: "syn-\(audiobookID)-ch\(chapterIndex)-s\(segmentIndex)",
+            trackID: NarrationFileNaming.trackID(
+                audiobookID: audiobookID,
+                chapterIndex: chapterIndex,
+                sourceChapterKey: sourceChapterKey,
+                segmentIndex: segmentIndex),
             title: savedTitle,
             sortOrder: chapterIndex * 1000 + segmentIndex,
             voice: voice,
@@ -490,25 +510,96 @@ final class NarrationService {
 
     func updateCachedNarrationTitle(
         chapterIndex: Int,
+        sourceChapterKey: String? = nil,
         chapterDisplayNumber: Int,
         segmentIndex: Int? = nil,
         blocks: [EPubBlockRecord],
+        voice: VoiceID,
         chapterTitle: String? = nil
     ) async throws {
         let savedTitle = Self.savedTitle(
             displayNumber: chapterDisplayNumber, blocks: blocks, chapterTitle: chapterTitle)
-        let trackID: String
+        let fileURL: URL
         if let segmentIndex {
-            trackID = "syn-\(audiobookID)-ch\(chapterIndex)-s\(segmentIndex)"
+            fileURL = await segmentCacheURL(
+                chapterIndex: chapterIndex,
+                sourceChapterKey: sourceChapterKey,
+                segmentIndex: segmentIndex,
+                blocks: blocks,
+                voice: voice)
         } else {
-            trackID = "syn-\(audiobookID)-ch\(chapterIndex)"
+            fileURL = await chapterCacheURL(
+                chapterIndex: chapterIndex,
+                sourceChapterKey: sourceChapterKey,
+                blocks: blocks,
+                voice: voice)
         }
+        let trackID = NarrationFileNaming.trackID(
+            audiobookID: audiobookID,
+            chapterIndex: chapterIndex,
+            sourceChapterKey: sourceChapterKey,
+            segmentIndex: segmentIndex)
+        let sortOrder = segmentIndex.map { chapterIndex * 1000 + $0 } ?? chapterIndex
 
-        try await db.write { db in
-            try db.execute(
-                sql: "UPDATE track SET title = ? WHERE id = ? AND audiobook_id = ?",
-                arguments: [savedTitle, trackID, audiobookID])
+        do {
+            let duration = try await Self.validatedDuration(ofCachedFile: fileURL)
+            try Task.checkCancellation()
+            try await db.write { db in
+                let existing = try TrackRecord
+                    .filter(Column("id") == trackID && Column("audiobook_id") == audiobookID)
+                    .fetchOne(db)
+                var track = TrackRecord(
+                    id: trackID,
+                    audiobookID: audiobookID,
+                    title: savedTitle,
+                    duration: duration,
+                    filePath: fileURL.path,
+                    isEnabled: existing?.isEnabled ?? true,
+                    sortOrder: sortOrder,
+                    playlistPosition: existing?.playlistPosition,
+                    narrationVoice: voice.rawValue)
+                try track.save(db)
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            // A durable filename can survive process death after publish but before
+            // persistence. Reuse only when AVFoundation proves the file duration;
+            // otherwise discard the untrusted cache and rebuild this exact unit.
+            try? FileManager.default.removeItem(at: fileURL)
+            if let segmentIndex {
+                try await renderSegment(
+                    chapterIndex: chapterIndex,
+                    sourceChapterKey: sourceChapterKey,
+                    chapterDisplayNumber: chapterDisplayNumber,
+                    segmentIndex: segmentIndex,
+                    blocks: blocks,
+                    voice: voice,
+                    chapterTitle: chapterTitle)
+            } else {
+                try await renderChapter(
+                    chapterIndex: chapterIndex,
+                    sourceChapterKey: sourceChapterKey,
+                    chapterNumber: chapterDisplayNumber,
+                    blocks: blocks,
+                    voice: voice,
+                    chapterTitle: chapterTitle)
+            }
         }
+    }
+
+    private nonisolated static func validatedDuration(
+        ofCachedFile fileURL: URL
+    ) async throws -> TimeInterval {
+        let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
+        guard values.isRegularFile == true else {
+            throw CocoaError(.fileReadNoSuchFile)
+        }
+        let duration = CMTimeGetSeconds(try await AVURLAsset(url: fileURL).load(.duration))
+        guard duration.isFinite, duration > 0 else {
+            throw NarrationError.synthesisFailed
+        }
+        return duration
     }
 
     /// Render one complete segment file without mutating playback, alignment, or
@@ -517,6 +608,7 @@ final class NarrationService {
     /// read-along, and export semantics in later slices.
     func renderSegmentFile(
         chapterIndex: Int,
+        sourceChapterKey: String? = nil,
         chapterDisplayNumber: Int,
         segmentIndex: Int,
         blocks: [EPubBlockRecord],
@@ -529,6 +621,7 @@ final class NarrationService {
         let fmEnabled = fmEnabled
         let fileURL = await segmentCacheURL(
             chapterIndex: chapterIndex,
+            sourceChapterKey: sourceChapterKey,
             segmentIndex: segmentIndex,
             blocks: blocks,
             voice: voice,

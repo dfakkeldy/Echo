@@ -56,6 +56,64 @@ import Testing
         #expect(NarrationFileNaming.chapterIndex(fromFileName: name) == 3)
     }
 
+    @Test func legacyNamesLocationsAndTrackIDsStayByteForByteStable() {
+        let voice = VoiceID("af_heart")
+        #expect(
+            NarrationFileNaming.chapterFileName(
+                audiobookID: "book", chapterIndex: 3, voice: voice,
+                contentSignature: "abc")
+                == "book-ch3-habc-af_heart-v20.m4a")
+        #expect(
+            NarrationFileNaming.segmentFileName(
+                audiobookID: "book", chapterIndex: 3, segmentIndex: 2,
+                voice: voice, contentSignature: "abc")
+                == "book-ch3-s2-habc-af_heart-v20.m4a")
+        #expect(
+            NarrationFileNaming.location(fromFileName: "book-ch3-s2-habc-af_heart-v20.m4a")
+                == NarrationCacheLocation(
+                    chapterIndex: 3, stableChapterToken: nil, segmentIndex: 2))
+        #expect(
+            NarrationFileNaming.trackID(
+                audiobookID: "book", chapterIndex: 3, sourceChapterKey: nil, segmentIndex: 2)
+                == "syn-book-ch3-s2")
+    }
+
+    @Test func stableNameDoesNotChangeWhenChapterIndexChanges() {
+        let entryKey = "75D4AA19-0B16-4B27-A2CD-D4E19ED6B20A"
+        let first = NarrationFileNaming.segmentFileName(
+            audiobookID: "book", chapterIndex: 1, sourceChapterKey: entryKey,
+            segmentIndex: 0, voice: VoiceID("af_heart"), contentSignature: "abc")
+        let reordered = NarrationFileNaming.segmentFileName(
+            audiobookID: "book", chapterIndex: 9, sourceChapterKey: entryKey,
+            segmentIndex: 0, voice: VoiceID("af_heart"), contentSignature: "abc")
+
+        #expect(first == reordered)
+        #expect(
+            NarrationFileNaming.stableChapterToken(for: entryKey)
+                == "97d14f79c9575b190d779d03e1448164")
+        #expect(NarrationFileNaming.location(fromFileName: first)?.chapterIndex == nil)
+        #expect(NarrationFileNaming.location(fromFileName: first)?.stableChapterToken?.count == 32)
+        #expect(
+            NarrationFileNaming.trackID(
+                audiobookID: "book", chapterIndex: 9, sourceChapterKey: entryKey, segmentIndex: 0)
+                == "syn-book-ck\(NarrationFileNaming.stableChapterToken(for: entryKey))-s0")
+    }
+
+    @Test func stableLocationRejectsMalformedOrAmbiguousNames() {
+        #expect(NarrationFileNaming.location(fromFileName: "book-ckABC-s0-af_heart-v20.m4a") == nil)
+        #expect(
+            NarrationFileNaming.location(
+                fromFileName: "book-ck0123456789abcdef0123456789abcdef-s-af_heart-v20.m4a") == nil)
+        #expect(
+            NarrationFileNaming.location(
+                fromFileName: "book-ck0123456789abcdef0123456789abcdef-s0-s1-af_heart-v20.m4a") == nil)
+        #expect(
+            NarrationFileNaming.location(
+                fromFileName:
+                    "book-ck0123456789abcdef0123456789abcdef-s0-af_heart-v\(NarrationFileNaming.renderVersion - 1).m4a"
+            ) == nil)
+    }
+
     @Test func contentSignatureChangesWithRenderedTextBlockIdentityAndRenderParameters() {
         let spokenBlock = block(id: "b0", text: "Kubernetes ships.")
         let plain = NarrationFileNaming.contentSignature(

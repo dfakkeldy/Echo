@@ -142,6 +142,7 @@ actor VideoExportService {
         bookTitle: String,
         databaseWriter: DatabaseWriter,
         cacheDirectory: URL,
+        preferredVoice: VoiceID,
         outputDirectory: URL,
         mode: SlideshowExportMode = .karaoke,
         syncPoint: VisualListeningSyncPoint = .midpoint,
@@ -166,7 +167,8 @@ actor VideoExportService {
         let resolved = try await Self.resolveSourceItems(
             audiobookID: audiobookID,
             databaseWriter: databaseWriter,
-            cacheDirectory: cacheDirectory)
+            cacheDirectory: cacheDirectory,
+            preferredVoice: preferredVoice)
         let sourceItems = resolved.map(\.exportItem)
         guard !sourceItems.isEmpty else { throw ExportError.noAudio }
 
@@ -530,12 +532,14 @@ actor VideoExportService {
     private static func resolveSourceItems(
         audiobookID: String,
         databaseWriter: DatabaseWriter,
-        cacheDirectory: URL
+        cacheDirectory: URL,
+        preferredVoice: VoiceID
     ) async throws -> [ResolvedSourceItem] {
         let source = ExportSourceResolver.resolve(
             audiobookID: audiobookID,
             databaseWriter: databaseWriter,
-            cacheDirectory: cacheDirectory)
+            cacheDirectory: cacheDirectory,
+            preferredVoice: preferredVoice)
         return try await sourceItems(from: source).map(ResolvedSourceItem.init)
     }
 

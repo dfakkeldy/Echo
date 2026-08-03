@@ -237,6 +237,14 @@ struct NowPlayingTab: View {
         if model.isNarrationBook && NarrationCapability.supportsOnDeviceNarration {
             VStack(spacing: 8) {
                 NarrationStatusView(state: model.narrationPlaybackState)
+                    .accessibilityIdentifier("articleWorkshop.narrationReadiness")
+                if let summary = narrationVoiceSummary {
+                    Text(summary)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("articleWorkshop.narrationVoiceSummary")
+                }
                 // Offer narration only when the book has NO audio loaded yet.
                 if NarrationNudgePolicy.showsNudge(
                     tracksEmpty: model.tracks.isEmpty,
@@ -264,6 +272,26 @@ struct NowPlayingTab: View {
             .padding(.horizontal, NowPlayingLayout.horizontalPadding)
             .padding(.top, 12)
         }
+    }
+
+    private var narrationVoiceSummary: String? {
+        guard let voiceID = model.state.narrationDefaultVoice,
+            let voice = VoiceCatalog.voice(for: voiceID)
+        else { return nil }
+        let overrideCount = model.state.narrationVoiceOverrideCount
+        if overrideCount == 1 {
+            return String(
+                localized:
+                    "Default voice: \(voice.displayName) · \(overrideCount) chapter override"
+            )
+        }
+        if overrideCount > 1 {
+            return String(
+                localized:
+                    "Default voice: \(voice.displayName) · \(overrideCount) chapter overrides"
+            )
+        }
+        return String(localized: "Default voice: \(voice.displayName)")
     }
 
     private var artworkView: some View {

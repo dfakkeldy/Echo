@@ -10,6 +10,117 @@ import Testing
 /// macOS-clean `AlignmentService`.
 struct MacReaderParityTests {
 
+    @Test func articleWorkshopEditsInheritedAndExplicitChapterVoices() throws {
+        let workshop = try MacSource.read("Views/MacArticleWorkshopView.swift")
+        let editor = try MacSource.read("Views/MacAnthologyVoiceEditor.swift")
+
+        #expect(workshop.contains("private let anthologyService: AnthologyService"))
+        #expect(workshop.contains("Button(\"Edit Voices\""))
+        #expect(workshop.contains("service.loadProject"))
+        #expect(workshop.contains("MacAnthologyVoiceEditor("))
+        #expect(workshop.contains(".sheet("))
+        #expect(workshop.contains("articleWorkshop.editVoices."))
+
+        #expect(editor.contains("struct MacAnthologyVoiceEditor: View"))
+        #expect(editor.contains("@State internal var viewModel: AnthologyBuilderViewModel"))
+        #expect(editor.contains("let preferredVoice: VoiceID"))
+        #expect(editor.contains("Picker(\"Narration Voice\""))
+        #expect(editor.contains("Text(\"Echo Preferred Voice\").tag(String?.none)"))
+        #expect(editor.contains("viewModel.updateEntry("))
+        #expect(editor.contains("narrationVoiceID: voiceID"))
+        #expect(editor.contains("viewModel.isSaving"))
+        #expect(editor.contains("viewModel.userMessage"))
+        #expect(editor.contains("Inherited from Echo Preferred Voice"))
+        #expect(editor.contains("Explicit chapter voice:"))
+        #expect(editor.contains("articleWorkshop.chapterVoice."))
+    }
+
+    @Test func chapterVoiceSheetCannotDismissWhileSavingAndOnlySavingRowPickerDisables()
+        throws
+    {
+        let editor = try MacSource.read("Views/MacAnthologyVoiceEditor.swift")
+
+        #expect(
+            editor.contains(
+                "@State private var pendingSaveCountsByEntryID: [String: Int] = [:]"))
+        #expect(
+            editor.contains(
+                "viewModel.isSaving || pendingSaveCountsByEntryID.isEmpty == false"))
+        #expect(editor.contains(".interactiveDismissDisabled(saveIsPending)"))
+        #expect(editor.contains(".onExitCommand"))
+        #expect(editor.contains("guard saveIsPending == false else { return }"))
+        #expect(editor.contains("Button(\"Close\") { dismiss() }"))
+        #expect(editor.contains(".disabled(saveIsPending)"))
+        #expect(
+            editor.contains(
+                ".disabled((pendingSaveCountsByEntryID[entry.entry.id] ?? 0) > 0)"))
+        #expect(editor.contains("pendingSaveCountsByEntryID.removeValue(forKey: entryID)"))
+        #expect(editor.contains("if pendingSaveCount == 1"))
+        #expect(editor.contains("pendingSaveCountsByEntryID[entryID] = pendingSaveCount - 1"))
+        #expect(editor.contains("pendingSaveEntryIDs") == false)
+
+        let onChange = try #require(editor.range(of: ".onChange(of: voiceID)"))
+        let handlerRange = onChange.lowerBound..<editor.endIndex
+        let pendingRegistration = try #require(
+            editor.range(
+                of: "pendingSaveCountsByEntryID[entryID, default: 0] += 1",
+                range: handlerRange))
+        let taskCreation = try #require(
+            editor.range(
+                of: "Task {",
+                range: handlerRange))
+        let awaitedSave = try #require(
+            editor.range(
+                of: "await viewModel.updateEntry(",
+                range: handlerRange))
+        let pendingClear = try #require(
+            editor.range(
+                of: "if let pendingSaveCount = pendingSaveCountsByEntryID[entryID]",
+                range: handlerRange))
+        let finalPendingRemoval = try #require(
+            editor.range(
+                of: "pendingSaveCountsByEntryID.removeValue(forKey: entryID)",
+                range: handlerRange))
+        let intermediatePendingDecrement = try #require(
+            editor.range(
+                of: "pendingSaveCountsByEntryID[entryID] = pendingSaveCount - 1",
+                range: handlerRange))
+        #expect(
+            pendingRegistration.lowerBound < taskCreation.lowerBound,
+            "The editor must synchronously register the saving row before creating the task.")
+        #expect(taskCreation.lowerBound < awaitedSave.lowerBound)
+        #expect(
+            awaitedSave.lowerBound < pendingClear.lowerBound,
+            "The editor must retain the saving-row registration through the awaited save.")
+        #expect(pendingClear.lowerBound < finalPendingRemoval.lowerBound)
+        #expect(pendingClear.lowerBound < intermediatePendingDecrement.lowerBound)
+    }
+
+    @Test func chapterVoiceSaveAndParentLoadErrorsMoveAccessibilityFocusWithoutKeyboardFocus()
+        throws
+    {
+        let workshop = try MacSource.read("Views/MacArticleWorkshopView.swift")
+        let editor = try MacSource.read("Views/MacAnthologyVoiceEditor.swift")
+
+        #expect(editor.contains("@AccessibilityFocusState private var saveErrorIsFocused: Bool"))
+        #expect(editor.contains(".accessibilityFocused($saveErrorIsFocused)"))
+        #expect(editor.contains(".onChange(of: viewModel.retryActionAvailable)"))
+        #expect(editor.contains("saveErrorIsFocused = true"))
+        #expect(editor.contains("AccessibilityNotification.LayoutChanged().post()"))
+        #expect(editor.contains("AccessibilityNotification.Announcement") == false)
+
+        #expect(
+            workshop.contains(
+                "@AccessibilityFocusState private var voiceEditorLoadErrorIsFocused: Bool"))
+        #expect(workshop.contains(".accessibilityFocused($voiceEditorLoadErrorIsFocused)"))
+        #expect(workshop.contains(".onChange(of: voiceEditorLoadMessage)"))
+        #expect(workshop.contains("voiceEditorLoadErrorIsFocused = true"))
+        #expect(workshop.contains("AccessibilityNotification.LayoutChanged().post()"))
+        #expect(workshop.contains("AccessibilityNotification.Announcement") == false)
+
+        #expect(editor.contains("@FocusState private var pickerIsFocused: Bool"))
+    }
+
     @Test func macCommercialAudioAlignmentUsesCodeFilteringSourcePolicy() throws {
         let src = try MacSource.read("Services/MacAlignmentService.swift")
         #expect(
@@ -23,11 +134,26 @@ struct MacReaderParityTests {
     @Test func narrationSidecarWritersAttachSourceIdentity() throws {
         let batch = try MacSource.read("Services/MacBatchProcessingService.swift")
         #expect(batch.contains("sourceBlockIdentity: AlignmentSidecar.sourceIdentity(for: block)"))
+        #expect(batch.contains("NarrationPlanTrackOffsets.chapterOffsets("))
+        #expect(batch.contains("expectedFilePathsByTrackID"))
 
         let headless = try projectSource(
             "EchoCore/Services/Narration/HeadlessNarrationRunner.swift"
         )
         #expect(headless.contains("AlignmentSidecar.attachingSourceIdentities("))
+    }
+
+    @Test func batchNarrationUsesTrustedChapterPlanThroughRetry() throws {
+        let src = try MacSource.read("Services/MacBatchProcessingService.swift")
+
+        #expect(src.contains("AnthologyNarrationManifestResolver(db: dbService.writer).resolve("))
+        #expect(src.contains("epubURL: epubURL.standardizedFileURL"))
+        #expect(src.contains("NarrationChapterRenderPlanner.plan("))
+        #expect(src.contains("sourceChapterKey: chapter.sourceChapterKey"))
+        #expect(src.contains("voice: chapter.voice"))
+        #expect(src.contains("let failedChapter = chapter"))
+        #expect(src.contains("sourceChapterKey: failedChapter.sourceChapterKey"))
+        #expect(src.contains("voice: failedChapter.voice"))
     }
 
     @Test func readerHasAlignmentContextMenu() throws {

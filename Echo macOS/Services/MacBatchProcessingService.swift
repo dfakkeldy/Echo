@@ -253,8 +253,8 @@ final class MacBatchProcessingService {
 
                 let blocks =
                     (try? EPubBlockDAO(db: dbService.writer).blocks(for: audiobookID)) ?? []
-                let chapters = NarrationChapterPlanner.plan(from: blocks)
-                guard !chapters.isEmpty else {
+                let plannedChapters = NarrationChapterPlanner.plan(from: blocks)
+                guard !plannedChapters.isEmpty else {
                     throw BatchProcessingError.emptyImport(epubURL.lastPathComponent)
                 }
 
@@ -269,6 +269,13 @@ final class MacBatchProcessingService {
                 let voice =
                     VoiceCatalog.voice(for: VoiceID(settings.narrationVoiceID))?.id
                     ?? VoiceCatalog.default.id
+                let manifest = try AnthologyNarrationManifestResolver(db: dbService.writer).resolve(
+                    audiobookID: audiobookID,
+                    epubURL: epubURL.standardizedFileURL)
+                let chapters = try NarrationChapterRenderPlanner.plan(
+                    chapters: plannedChapters,
+                    preferredVoice: voice,
+                    manifest: manifest)
                 let pronunciationPack = await EnglishPronunciationPack.bundledOrEmpty()
                 // Built via a closure so a failed chapter can retry with a FRESH
                 // engine — re-initialising KokoroAne resets the ANE state that an
@@ -342,14 +349,17 @@ final class MacBatchProcessingService {
                     // cached on disk with its TrackRecord, so skip it instead of
                     // re-burning the ANE — mirrors the iOS render loop.
                     let cachedFile = await service.chapterCacheURL(
-                        chapterIndex: chapter.index,
+                        chapterIndex: chapter.chapterIndex,
+                        sourceChapterKey: chapter.sourceChapterKey,
                         blocks: chapter.blocks,
-                        voice: voice)
+                        voice: chapter.voice)
                     if FileManager.default.fileExists(atPath: cachedFile.path) {
                         try await service.updateCachedNarrationTitle(
-                            chapterIndex: chapter.index,
+                            chapterIndex: chapter.chapterIndex,
+                            sourceChapterKey: chapter.sourceChapterKey,
                             chapterDisplayNumber: chapter.displayNumber,
                             blocks: chapter.blocks,
+                            voice: chapter.voice,
                             chapterTitle: chapter.title)
                         continue
                     }
@@ -360,8 +370,11 @@ final class MacBatchProcessingService {
                         "Narrating chapter \(n + 1) of \(chapters.count)…")
                     do {
                         try await service.renderChapter(
-                            chapterIndex: chapter.index, chapterNumber: chapter.displayNumber,
-                            blocks: chapter.blocks, voice: voice, chapterTitle: chapter.title)
+                            chapterIndex: chapter.chapterIndex,
+                            sourceChapterKey: chapter.sourceChapterKey,
+                            chapterNumber: chapter.displayNumber,
+                            blocks: chapter.blocks, voice: chapter.voice,
+                            chapterTitle: chapter.title)
                     } catch is CancellationError {
                         throw CancellationError()
                     } catch {
@@ -372,11 +385,15 @@ final class MacBatchProcessingService {
                         logger.error(
                             "Narration chapter \(n + 1) failed (\(error.localizedDescription, privacy: .public)); retrying with a fresh engine."
                         )
+                        let failedChapter = chapter
                         service = makeService()
                         do {
                             try await service.renderChapter(
-                                chapterIndex: chapter.index, chapterNumber: chapter.displayNumber,
-                                blocks: chapter.blocks, voice: voice, chapterTitle: chapter.title)
+                                chapterIndex: failedChapter.chapterIndex,
+                                sourceChapterKey: failedChapter.sourceChapterKey,
+                                chapterNumber: failedChapter.displayNumber,
+                                blocks: failedChapter.blocks, voice: failedChapter.voice,
+                                chapterTitle: failedChapter.title)
                         } catch is CancellationError {
                             throw CancellationError()
                         } catch {
@@ -400,25 +417,39 @@ final class MacBatchProcessingService {
                 // Write the read-along sidecar next to the EPUB so a book narrated
                 // on the Mac gets read-along on the device on import. Narration's
                 // synthesized anchor times are per-chapter-relative; convert to
-                // ABSOLUTE using the summed track durations in sort-order (== chapter
-                // index, the same order the m4b exporter concatenates), and store the
-                // portable `s<i>-b<j>` suffix. Best-effort: never fail the book on it.
+                // ABSOLUTE using exact current-plan track IDs and durations in plan
+                // order (the same order the m4b exporter concatenates), and store
+                // the portable `s<i>-b<j>` suffix. Best-effort: never fail the book
+                // when the exact current inventory cannot be proven.
                 do {
                     let chapterOfBlock: [String: Int] = chapters.reduce(into: [:]) { acc, ch in
-                        for b in ch.blocks { acc[b.id] = ch.index }
+                        for b in ch.blocks { acc[b.id] = ch.chapterIndex }
                     }
                     let blockByID = Dictionary(
                         uniqueKeysWithValues: chapters.flatMap(\.blocks).map { ($0.id, $0) }
                     )
                     let tracks =
-                        ((try? TrackDAO(db: dbService.writer).tracks(for: audiobookID)) ?? [])
-                        .sorted { $0.sortOrder < $1.sortOrder }
-                    var offset: [Int: TimeInterval] = [:]
-                    var running: TimeInterval = 0
-                    for t in tracks {
-                        offset[t.sortOrder] = running
-                        running += t.duration
+                        (try? TrackDAO(db: dbService.writer).tracks(for: audiobookID)) ?? []
+                    var expectedFilePathsByTrackID: [String: String] = [:]
+                    for chapter in chapters {
+                        let trackID = NarrationFileNaming.trackID(
+                            audiobookID: audiobookID,
+                            chapterIndex: chapter.chapterIndex,
+                            sourceChapterKey: chapter.sourceChapterKey,
+                            segmentIndex: nil)
+                        expectedFilePathsByTrackID[trackID] = await service.chapterCacheURL(
+                            chapterIndex: chapter.chapterIndex,
+                            sourceChapterKey: chapter.sourceChapterKey,
+                            blocks: chapter.blocks,
+                            voice: chapter.voice).path
                     }
+                    guard
+                        let offset = NarrationPlanTrackOffsets.chapterOffsets(
+                            audiobookID: audiobookID,
+                            chapters: chapters,
+                            tracks: tracks,
+                            expectedFilePathsByTrackID: expectedFilePathsByTrackID)
+                    else { throw CocoaError(.fileReadCorruptFile) }
                     let sidecar: [AlignmentSidecar.Anchor] =
                         ((try? AlignmentAnchorDAO(db: dbService.writer).anchors(for: audiobookID))
                         ?? [])
