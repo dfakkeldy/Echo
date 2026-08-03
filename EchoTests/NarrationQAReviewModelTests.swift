@@ -187,16 +187,141 @@ import Testing
         _ = FileManager.default.createFile(atPath: unsignedURL.path, contents: Data())
 
         let dependencies = NarrationQAReviewModel.Dependencies(
+            narrationPlan: { _, _ in
+                [
+                    NarrationChapterRenderPlan(
+                        chapterIndex: 2, displayNumber: 1, sourceChapterKey: nil,
+                        title: "Chapter 1", blocks: [block], voice: voice)
+                ]
+            },
             narrationServiceFactory: { _, _ in service })
         let model = NarrationQAReviewModel(
             db: db.writer,
             audiobookID: bookID,
             dependencies: dependencies)
 
-        let chapters = try await model.renderedChaptersForQA(voice: voice)
+        let chapters = try await model.renderedChaptersForQA(
+            plans: try await dependencies.narrationPlan(bookID, voice))
 
         #expect(chapters.map(\.chapterIndex) == [2])
         #expect(chapters.map(\.fileURL) == [signedURL])
         #expect(chapters.first?.spokenBlockIDs == ["blk1"])
+    }
+
+    @Test func renderedChaptersForQAUsesEffectiveAnthologyVoiceAndStableKey() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let bookID = "anthology"
+        let sourceChapterKey = "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"
+        try await db.writer.write { database in
+            try database.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES (?, ?, ?)",
+                arguments: [bookID, "Anthology", 3600.0])
+        }
+        let block = EPubBlockRecord(
+            id: "blk-anthology", audiobookID: bookID, spineHref: "chapter.xhtml",
+            spineIndex: 0, blockIndex: 0, sequenceIndex: 0,
+            blockKind: EPubBlockRecord.Kind.paragraph.rawValue,
+            text: "A chapter with an explicit voice.", htmlContent: nil, cardColor: nil,
+            chapterThemeColor: nil, imagePath: nil, chapterIndex: 4,
+            isHidden: false, hiddenReason: nil, isFrontMatter: false, wordCount: nil,
+            markers: nil, textFormats: nil, narrationText: nil,
+            sourceChapterKey: sourceChapterKey, createdAt: nil, modifiedAt: nil)
+        try EPubBlockDAO(db: db.writer).insert(block)
+
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let effectiveVoice = VoiceID("bf_emma")
+        let service = NarrationService(
+            db: db.writer, audiobookID: bookID, tts: MockTTSEngine(),
+            audioWriter: MockAudioWriter(), cacheDirectory: tmp,
+            state: NarrationState(), fmEnabled: { false })
+        let plan = NarrationChapterRenderPlan(
+            chapterIndex: 4, displayNumber: 1, sourceChapterKey: sourceChapterKey,
+            title: "Chapter 1", blocks: [block], voice: effectiveVoice)
+        let signedURL = await service.chapterCacheURL(
+            chapterIndex: 4, sourceChapterKey: sourceChapterKey,
+            blocks: [block], voice: effectiveVoice)
+        _ = FileManager.default.createFile(atPath: signedURL.path, contents: Data())
+
+        let dependencies = NarrationQAReviewModel.Dependencies(
+            narrationPlan: { _, preferredVoice in
+                #expect(preferredVoice == VoiceID("af_heart"))
+                return [plan]
+            },
+            narrationServiceFactory: { _, _ in service })
+        let model = NarrationQAReviewModel(
+            db: db.writer, audiobookID: bookID, dependencies: dependencies)
+
+        let chapters = try await model.renderedChaptersForQA(
+            plans: try await dependencies.narrationPlan(bookID, VoiceID("af_heart")))
+
+        #expect(chapters.map(\.chapterIndex) == [4])
+        #expect(chapters.map(\.fileURL) == [signedURL])
+    }
+
+    @Test func fullQAAndAcceptFixUseIssueChaptersEffectiveVoice() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let bookID = "anthology-qa"
+        let sourceChapterKey = "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"
+        try seed(db, book: bookID)
+        let block = EPubBlockRecord(
+            id: "blk1", audiobookID: bookID, spineHref: "chapter.xhtml",
+            spineIndex: 0, blockIndex: 0, sequenceIndex: 0,
+            blockKind: EPubBlockRecord.Kind.paragraph.rawValue,
+            text: "Colonel.", htmlContent: nil, cardColor: nil,
+            chapterThemeColor: nil, imagePath: nil, chapterIndex: 6,
+            isHidden: false, hiddenReason: nil, isFrontMatter: false, wordCount: nil,
+            markers: nil, textFormats: nil, narrationText: nil,
+            sourceChapterKey: sourceChapterKey, createdAt: nil, modifiedAt: nil)
+        try EPubBlockDAO(db: db.writer).insert(block)
+
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let preferredVoice = VoiceID("af_heart")
+        let effectiveVoice = VoiceID("bf_emma")
+        let service = NarrationService(
+            db: db.writer, audiobookID: bookID, tts: MockTTSEngine(),
+            audioWriter: MockAudioWriter(), cacheDirectory: tmp,
+            state: NarrationState(), fmEnabled: { false })
+        let plan = NarrationChapterRenderPlan(
+            chapterIndex: 6, displayNumber: 1, sourceChapterKey: sourceChapterKey,
+            title: "Chapter 1", blocks: [block], voice: effectiveVoice)
+        let signedURL = await service.chapterCacheURL(
+            chapterIndex: 6, sourceChapterKey: sourceChapterKey,
+            blocks: [block], voice: effectiveVoice)
+        _ = FileManager.default.createFile(atPath: signedURL.path, contents: Data())
+
+        var qaFileURL: URL?
+        var repairVoice: VoiceID?
+        var repairSourceChapterKey: String?
+        let dependencies = NarrationQAReviewModel.Dependencies(
+            narrationVoice: { preferredVoice },
+            narrationPlan: { _, voice in
+                #expect(voice == preferredVoice)
+                return [plan]
+            },
+            runQA: { _, chapters, _ in
+                qaFileURL = chapters.first?.fileURL
+            },
+            applyRepair: { _, _, target, _, _ in
+                repairVoice = target.voice
+                repairSourceChapterKey = target.sourceChapterKey
+            },
+            narrationServiceFactory: { _, _ in service })
+        let model = NarrationQAReviewModel(
+            db: db.writer, audiobookID: bookID, dependencies: dependencies)
+
+        await model.runFullQA()
+        let issue = try #require(model.issues.first)
+        await model.acceptFix(issue: issue, scope: .book(bookID))
+
+        #expect(qaFileURL == signedURL)
+        #expect(qaFileURL?.lastPathComponent.contains("-bf_emma-") == true)
+        #expect(repairVoice == effectiveVoice)
+        #expect(repairSourceChapterKey == sourceChapterKey)
     }
 }

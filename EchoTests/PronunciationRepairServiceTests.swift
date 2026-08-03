@@ -332,4 +332,52 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: otherVoice.path))
         #expect(FileManager.default.fileExists(atPath: otherChapter.path))
     }
+
+    @MainActor
+    @Test func applyFixClearsOnlyMatchingStableChapterFiles() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let bookID = "anthology"
+        let blockID = "entry-b-block"
+        let entryA = "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"
+        let entryB = "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"
+        try seedBlock(audiobookID: bookID, blockID: blockID, chapterIndex: 3, db: db)
+        let issue = try issueWithFix(
+            id: "iss-stable-cache", audiobookID: bookID, blockID: blockID)
+        let issueDAO = NarrationQualityIssueDAO(db: db.writer)
+        try issueDAO.insert([issue])
+
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let voice = VoiceID("bf_emma")
+        let entryAFile = tmp.appendingPathComponent(
+            NarrationFileNaming.chapterFileName(
+                audiobookID: bookID, chapterIndex: 1, sourceChapterKey: entryA,
+                voice: voice, contentSignature: "aaaaaaaaaaaaaaaa"))
+        let entryBFile = tmp.appendingPathComponent(
+            NarrationFileNaming.chapterFileName(
+                audiobookID: bookID, chapterIndex: 3, sourceChapterKey: entryB,
+                voice: voice, contentSignature: "bbbbbbbbbbbbbbbb"))
+        let entryBPartial = tmp.appendingPathComponent(
+            ".\(entryBFile.deletingPathExtension().lastPathComponent).partial.m4a")
+        for url in [entryAFile, entryBFile, entryBPartial] {
+            _ = FileManager.default.createFile(atPath: url.path, contents: Data())
+        }
+
+        let service = PronunciationRepairService(
+            store: PronunciationOverrideStore(directory: tmp), issueDAO: issueDAO,
+            db: db.writer, cacheDirectory: tmp, voice: voice,
+            sourceChapterKey: entryB,
+            renderChapter: { _ in
+                _ = FileManager.default.createFile(
+                    atPath: entryBFile.path, contents: Data([0x42]))
+            }, reRunQA: { _ in })
+
+        try await service.applyFix(issue: issue, scope: .book(bookID))
+
+        #expect(FileManager.default.fileExists(atPath: entryAFile.path))
+        #expect(try Data(contentsOf: entryBFile) == Data([0x42]))
+        #expect(FileManager.default.fileExists(atPath: entryBPartial.path) == false)
+    }
 }

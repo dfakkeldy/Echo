@@ -30,6 +30,19 @@ struct MacReaderParityTests {
         #expect(headless.contains("AlignmentSidecar.attachingSourceIdentities("))
     }
 
+    @Test func batchNarrationUsesTrustedChapterPlanThroughRetry() throws {
+        let src = try MacSource.read("Services/MacBatchProcessingService.swift")
+
+        #expect(src.contains("AnthologyNarrationManifestResolver(db: dbService.writer).resolve("))
+        #expect(src.contains("epubURL: epubURL.standardizedFileURL"))
+        #expect(src.contains("NarrationChapterRenderPlanner.plan("))
+        #expect(src.contains("sourceChapterKey: chapter.sourceChapterKey"))
+        #expect(src.contains("voice: chapter.voice"))
+        #expect(src.contains("let failedChapter = chapter"))
+        #expect(src.contains("sourceChapterKey: failedChapter.sourceChapterKey"))
+        #expect(src.contains("voice: failedChapter.voice"))
+    }
+
     @Test func readerHasAlignmentContextMenu() throws {
         let src = try MacSource.read("Views/MacReaderFeedView.swift")
         #expect(
