@@ -63,6 +63,173 @@ struct LibraryOpenTarget {
     let scopedRoot: URL?  // root whose scope the caller must start/stop; nil for standalone books
 }
 
+/// The concrete loading intent for a resolved Library target. Document routes
+/// keep the readable payload separate from the durable audiobook identity.
+enum LibraryBookOpenRoute: Equatable {
+    case audioFolder(URL)
+    case audiolessDocument(documentURL: URL, audiobookIdentityURL: URL)
+}
+
+enum LibraryBookOpenError: LocalizedError, Equatable {
+    case missing(URL)
+    case unreadable(URL)
+    case unsupported(URL)
+    case empty(URL)
+
+    var errorDescription: String? {
+        switch self {
+        case .missing:
+            "This book can’t be opened because its file or folder is missing."
+        case .unreadable:
+            "This book can’t be opened because Echo can’t read it."
+        case .unsupported:
+            "This Library item doesn’t contain a supported audiobook or study document."
+        case .empty:
+            "This Library item is empty."
+        }
+    }
+}
+
+/// Concrete, closure-backed filesystem access for the Library open dispatcher.
+/// Tests can describe unreadable or unusual targets without changing real file
+/// permissions, while production uses the same Foundation calls as the loaders.
+struct LibraryOpenFileAccess {
+    enum ItemKind: Equatable {
+        case missing
+        case regularFile
+        case directory
+        case other
+    }
+
+    let kind: (URL) throws -> ItemKind
+    let isReadable: (URL) -> Bool
+    let directoryContents: (URL) throws -> [URL]
+
+    static let live = LibraryOpenFileAccess(
+        kind: { url in
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            else { return .missing }
+            if isDirectory.boolValue { return .directory }
+            let values = try url.resourceValues(forKeys: [.isRegularFileKey])
+            return values.isRegularFile == true ? .regularFile : .other
+        },
+        isReadable: { FileManager.default.isReadableFile(atPath: $0.path) },
+        directoryContents: {
+            try FileManager.default.contentsOfDirectory(
+                at: $0,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles])
+        })
+}
+
+/// Testable seam between Library resolution and platform player loading. It
+/// decides intent synchronously, before either loader mutates player state.
+struct LibraryBookOpenDispatcher {
+    private static let defaultAudioExtensions: Set<String> = [
+        "mp3", "m4b", "m4a", "wav", "flac",
+    ]
+    private static let documentExtensions: Set<String> = [
+        "epub", "pdf", "md", "markdown", "txt", "text",
+    ]
+
+    private let files: LibraryOpenFileAccess
+    private let audioExtensions: Set<String>
+
+    init(
+        files: LibraryOpenFileAccess = .live,
+        audioExtensions: Set<String> = Self.defaultAudioExtensions
+    ) {
+        self.files = files
+        self.audioExtensions = audioExtensions
+    }
+
+    func route(for target: LibraryOpenTarget) throws -> LibraryBookOpenRoute {
+        let url = target.url
+        switch try files.kind(url) {
+        case .missing:
+            throw LibraryBookOpenError.missing(url)
+        case .other:
+            throw LibraryBookOpenError.unsupported(url)
+        case .regularFile:
+            guard files.isReadable(url) else { throw LibraryBookOpenError.unreadable(url) }
+            guard Self.documentExtensions.contains(url.pathExtension.lowercased()) else {
+                throw LibraryBookOpenError.unsupported(url)
+            }
+            return .audiolessDocument(documentURL: url, audiobookIdentityURL: url)
+        case .directory:
+            guard files.isReadable(url) else { throw LibraryBookOpenError.unreadable(url) }
+            let contents: [URL]
+            do {
+                contents = try files.directoryContents(url)
+            } catch {
+                throw LibraryBookOpenError.unreadable(url)
+            }
+            guard !contents.isEmpty else { throw LibraryBookOpenError.empty(url) }
+
+            if contents.contains(where: {
+                (try? files.kind($0)) == .regularFile
+                    && audioExtensions.contains($0.pathExtension.lowercased())
+                    && files.isReadable($0)
+            }) {
+                return .audioFolder(url)
+            }
+
+            if let generatedEPUB = contents.first(where: {
+                $0.lastPathComponent.compare("book.epub", options: .caseInsensitive) == .orderedSame
+            }) {
+                guard (try? files.kind(generatedEPUB)) == .regularFile,
+                    files.isReadable(generatedEPUB)
+                else { throw LibraryBookOpenError.unreadable(generatedEPUB) }
+                return .audiolessDocument(
+                    documentURL: generatedEPUB,
+                    audiobookIdentityURL: url)
+            }
+
+            let documents = contents.filter {
+                (try? files.kind($0)) == .regularFile
+                    && Self.documentExtensions.contains($0.pathExtension.lowercased())
+                    && files.isReadable($0)
+            }
+            guard documents.count == 1, let document = documents.first else {
+                throw LibraryBookOpenError.unsupported(url)
+            }
+            return .audiolessDocument(
+                documentURL: document,
+                audiobookIdentityURL: url)
+        }
+    }
+
+    /// Retains the resolved root before inspecting the target. Successful opens
+    /// keep it alive for the player; failures balance it before propagating an
+    /// error back to the Library alert.
+    func open(
+        _ target: LibraryOpenTarget,
+        retainSecurityScope: (URL) -> Void,
+        releaseSecurityScope: () -> Void,
+        openAudioFolder: (URL) -> Void,
+        openAudiolessDocument: (URL, URL) -> Void
+    ) throws {
+        if let root = target.scopedRoot {
+            retainSecurityScope(root)
+        } else {
+            releaseSecurityScope()
+        }
+
+        do {
+            switch try route(for: target) {
+            case .audioFolder(let folder):
+                openAudioFolder(folder)
+            case .audiolessDocument(let document, let identity):
+                openAudiolessDocument(document, identity)
+            }
+        } catch {
+            if target.scopedRoot != nil { releaseSecurityScope() }
+            throw error
+        }
+    }
+}
+
 /// Owns the on-device Library: registers folder roots, rescans them for books
 /// (cheap shallow upsert), and resolves a book's URL for opening. A launcher
 /// layer above the single-book player — it does not change playback.

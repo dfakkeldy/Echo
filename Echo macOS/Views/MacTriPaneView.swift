@@ -134,7 +134,7 @@ struct MacTriPaneView: View {
     private var sidebarPane: some View {
         VStack(spacing: 0) {
             MacLibraryView(db: dbService) { target in
-                player.openLibraryBook(target)
+                try player.openLibraryBook(target)
             }
             .frame(minHeight: 220, idealHeight: 280, maxHeight: 360)
 

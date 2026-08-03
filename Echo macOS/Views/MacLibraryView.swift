@@ -6,7 +6,7 @@ struct MacLibraryView: View {
     @State private var libraryVM: LibraryViewModel
     @State private var rootsVM: LibraryRootsViewModel
 
-    init(db: DatabaseService, openBook: @escaping (LibraryOpenTarget) -> Void) {
+    init(db: DatabaseService, openBook: @escaping (LibraryOpenTarget) throws -> Void) {
         _libraryVM = State(initialValue: LibraryViewModel(db: db, openBook: openBook))
         _rootsVM = State(initialValue: LibraryRootsViewModel(db: db))
     }

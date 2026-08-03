@@ -818,13 +818,24 @@ final class MacPlayerModel {
         }
     }
 
-    func openLibraryBook(_ target: LibraryOpenTarget) {
-        if let scopedRoot = target.scopedRoot {
-            startLibraryRootScope(url: scopedRoot)
-        } else {
-            stopLibraryRootScope()
-        }
-        loadFolder(url: target.url, preserveLibraryRoot: true)
+    func openLibraryBook(_ target: LibraryOpenTarget) throws {
+        try LibraryBookOpenDispatcher().open(
+            target,
+            retainSecurityScope: { [unowned self] root in
+                _ = startLibraryRootScope(url: root)
+            },
+            releaseSecurityScope: { [unowned self] in
+                stopLibraryRootScope()
+            },
+            openAudioFolder: { [unowned self] folder in
+                loadFolder(url: folder, preserveLibraryRoot: true)
+            },
+            openAudiolessDocument: { [unowned self] document, identity in
+                loadAudiolessDocument(
+                    url: document,
+                    audiobookIdentityURL: identity,
+                    preserveLibraryRoot: true)
+            })
     }
 
     /// Loads a completed narrated book for playback by reading its rendered
@@ -851,24 +862,34 @@ final class MacPlayerModel {
         open(url: urls[currentTrackIndex])
     }
 
-    /// Opens a standalone document (EPUB / PDF / Markdown / plain text) as an
-    /// audio-less study book: imports its blocks into the shared database keyed by
-    /// the document's identity and surfaces them in the reader. No audio is loaded.
+    /// Opens a document (EPUB / PDF / Markdown / plain text) as an audio-less
+    /// study book. Standalone files use their own identity; Library-owned
+    /// containers can supply a distinct durable identity for existing blocks.
     /// Mirrors the iOS `PlayerLoadingCoordinator.importDocumentForAudiolessBook`
     /// — the macOS open path was previously audio-only.
-    func loadAudiolessDocument(url: URL) {
+    func loadAudiolessDocument(
+        url: URL,
+        audiobookIdentityURL: URL? = nil,
+        preserveLibraryRoot: Bool = false
+    ) {
         guard let db = dbService else { return }
 
-        // Tear down any current audio playback, then install the audio-less book
-        // state. `folderURL` is the document's identity (its `absoluteString` is the
-        // `audiobookID` the reader and importers key on); there is no audio track.
-        stop()
-        let didStart = url.startAccessingSecurityScopedResource()
+        if !preserveLibraryRoot {
+            stopLibraryRootScope()
+        }
 
-        let audiobookID = url.absoluteString
+        // Tear down any current audio playback, then install the audio-less book
+        // state. A generated anthology reads its child `book.epub` while retaining
+        // the containing edition directory as its durable audiobook identity.
+        stop()
+        let didStart = preserveLibraryRoot ? false : url.startAccessingSecurityScopedResource()
+
+        let identityURL = audiobookIdentityURL ?? url
+        let audiobookID = identityURL.absoluteString
+        let record = try? AudiobookDAO(db: db.writer).get(audiobookID)
         currentURL = nil
-        folderURL = url
-        let baseTitle = url.deletingPathExtension().lastPathComponent
+        folderURL = identityURL
+        let baseTitle = record?.title ?? url.deletingPathExtension().lastPathComponent
         fileTitle = baseTitle
         currentTitle = baseTitle
         tracks = []
@@ -876,14 +897,21 @@ final class MacPlayerModel {
         chapters = []
         currentChapterIndex = 0
         coverImage = nil
-        currentAuthor = nil
-        duration = 0
+        currentAuthor = record?.author
+        duration = record?.duration ?? 0
         currentTime = 0
+        loadLibraryCover(path: record?.coverArtPath, author: record?.author)
+
+        let alreadyImported = ((try? EPubBlockDAO(db: db.writer).count(for: audiobookID)) ?? 0) > 0
 
         let ext = url.pathExtension.lowercased()
         Task { @MainActor [weak self] in
             defer { if didStart { url.stopAccessingSecurityScopedResource() } }
-            if ext == "epub" {
+            if alreadyImported {
+                // Generated anthologies arrive with blocks already keyed to the
+                // containing edition directory. Opening is a state transition,
+                // not another import/finalization pass.
+            } else if ext == "epub" {
                 _ = await EPUBAutoImportScanner.importEPUBFile(
                     epubURL: url, audiobookID: audiobookID, databaseService: db,
                     chapters: [], duration: nil)
@@ -1649,6 +1677,28 @@ extension MacPlayerModel {
             self.updateNowPlaying()
         }
     }
+
+    /// Loads the cover already owned by the Library record without rewriting
+    /// metadata or deriving a new identity from the child document URL.
+    fileprivate func loadLibraryCover(path: String?, author: String?) {
+        let token = UUID()
+        artworkLoadToken = token
+        guard let path else {
+            currentAuthor = author
+            updateNowPlaying()
+            return
+        }
+        let url = FileLocations.libraryCoversDirectory.appending(path: path)
+        Task { @MainActor [weak self] in
+            let cgImage = await MacArtworkLoader.loadImage(at: url)
+            guard let self, self.artworkLoadToken == token else { return }
+            self.coverImage = cgImage.map {
+                NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height))
+            }
+            self.currentAuthor = author
+            self.updateNowPlaying()
+        }
+    }
 }
 
 /// macOS counterpart to the iOS-only `ArtworkCache` cover sourcing. Pure helpers
@@ -1716,6 +1766,12 @@ private nonisolated enum MacArtworkLoader {
         }
         if cgImage == nil { cgImage = folderArtworkImage(near: url) }
         return BookMetadata(cgImage: cgImage, author: author)
+    }
+
+    @concurrent
+    static func loadImage(at url: URL) async -> CGImage? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return MacImageDecode.downsampledCGImage(data: data, maxPixelSize: 600)
     }
 
     /// Falls back to a `cover.*` (or first, name-sorted) image file alongside the
