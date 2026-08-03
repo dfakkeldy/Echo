@@ -131,6 +131,33 @@ import Testing
     #expect(result.tokens.last?.text == punctuation)
   }
 
+  @Test(arguments: [("(", ")"), ("[", "]"), ("{", "}")])
+  func semanticCurrencySpanAllowsClosingDelimiter(
+    openingDelimiter: String,
+    closingDelimiter: String
+  ) throws {
+    let source = "It cost \(openingDelimiter)$2\(closingDelimiter)."
+    let result = g2p.phonemizeWithMetadata(text: source)
+    let semanticIndex = try #require(
+      result.tokens.firstIndex { $0.`_`.currencyExpressionSource != nil }
+    )
+    let semanticToken = result.tokens[semanticIndex]
+    let closerToken = try #require(result.tokens.dropFirst(semanticIndex + 1).first)
+
+    #expect(reconstructedSource(from: result.tokens) == source)
+    #expect(
+      reconstructedSpokenSurface(from: result.tokens)
+        == "It cost \(openingDelimiter)two dollars\(closingDelimiter)."
+    )
+    #expect(semanticToken.text == "$2")
+    #expect(semanticToken.`_`.currencyExpressionSource == "$2")
+    #expect(String(source[semanticToken.tokenRange]) == "$2")
+    #expect(semanticToken.whitespace.isEmpty)
+    #expect(closerToken.text == closingDelimiter)
+    #expect(String(source[closerToken.tokenRange]) == closingDelimiter)
+    #expect(closerToken.`_`.currencyExpressionSource == nil)
+  }
+
   @Test func semanticCurrencySpanCarriesTrailingBoundaryWhitespace() throws {
     let source = "It cost $2 today."
     let result = g2p.phonemizeWithMetadata(text: source)

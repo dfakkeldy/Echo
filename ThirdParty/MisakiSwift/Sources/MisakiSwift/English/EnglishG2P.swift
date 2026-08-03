@@ -37,6 +37,7 @@ final public class EnglishG2P {
     
   static let punctuationTags: Set<NLTag> =  Set([.openQuote, .closeQuote, .openParenthesis, .closeParenthesis, .punctuation, .sentenceTerminator, .otherPunctuation])
   static let punctuactions: Set<Character> = Set(";:,.!?—…\"“”")
+  static let currencyExpressionTerminators = punctuactions.union(Set("–)]}"))
   
   // spaCy-style punctuation tags https://github.com/explosion/spaCy/blob/master/spacy/glossary.py
   static let punctuationTagPhonemes: [String: String] = [
@@ -523,7 +524,7 @@ final public class EnglishG2P {
     if boundaryIndex < tokens.count, tokens[endIndex].whitespace.isEmpty {
       let boundaryText = tokens[boundaryIndex].text
       let isSentencePunctuation = !boundaryText.isEmpty && boundaryText.allSatisfy {
-        EnglishG2P.punctuactions.contains($0) || $0 == "–"
+        EnglishG2P.currencyExpressionTerminators.contains($0)
       }
       guard isSentencePunctuation else { return nil }
     }
