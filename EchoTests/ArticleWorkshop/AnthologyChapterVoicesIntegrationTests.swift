@@ -373,6 +373,7 @@ private final class ThreeVoiceAnthologyFixture {
 
 private final class FixtureAudioWriter: AudioFileWriting, @unchecked Sendable {
     private let lock = NSLock()
+    private let writer = AVFoundationAudioWriter()
     private var writes = 0
 
     var writeCallCount: Int {
@@ -382,65 +383,18 @@ private final class FixtureAudioWriter: AudioFileWriting, @unchecked Sendable {
     }
 
     func write(_ chunks: [TTSChunk], to url: URL) async throws -> TimeInterval {
-        let stream = try makeStream(to: url, sampleRate: chunks.first?.sampleRate ?? 24_000)
-        for chunk in chunks {
-            try await stream.append(chunk)
-        }
-        return try await stream.finalize()
+        recordWrite()
+        return try await writer.write(chunks, to: url)
     }
 
     func makeStream(to url: URL, sampleRate: Double) throws -> any AudioFileStream {
         recordWrite()
-        return FixtureAudioStream(url: url, sampleRate: sampleRate)
+        return try writer.makeStream(to: url, sampleRate: sampleRate)
     }
 
     private func recordWrite() {
         lock.lock()
         writes += 1
         lock.unlock()
-    }
-}
-
-private actor FixtureAudioStream: AudioFileStream {
-    private let url: URL
-    private let sampleRate: Double
-    private var duration: TimeInterval = 0
-
-    init(url: URL, sampleRate: Double) {
-        self.url = url
-        self.sampleRate = sampleRate
-    }
-
-    func append(_ chunk: TTSChunk) async throws {
-        duration += chunk.duration
-    }
-
-    func finalize() async throws -> TimeInterval {
-        let playbackDuration = max(duration, 120)
-        let sampleCount = Int(playbackDuration * sampleRate)
-        let dataByteCount = sampleCount * MemoryLayout<Int16>.size
-        var wave = Data()
-        wave.append(contentsOf: "RIFF".utf8)
-        wave.appendLittleEndian(UInt32(36 + dataByteCount))
-        wave.append(contentsOf: "WAVEfmt ".utf8)
-        wave.appendLittleEndian(UInt32(16))
-        wave.appendLittleEndian(UInt16(1))
-        wave.appendLittleEndian(UInt16(1))
-        wave.appendLittleEndian(UInt32(sampleRate))
-        wave.appendLittleEndian(UInt32(sampleRate) * UInt32(MemoryLayout<Int16>.size))
-        wave.appendLittleEndian(UInt16(MemoryLayout<Int16>.size))
-        wave.appendLittleEndian(UInt16(16))
-        wave.append(contentsOf: "data".utf8)
-        wave.appendLittleEndian(UInt32(dataByteCount))
-        wave.append(Data(count: dataByteCount))
-        try wave.write(to: url, options: .atomic)
-        return duration
-    }
-}
-
-extension Data {
-    fileprivate nonisolated mutating func appendLittleEndian<T: FixedWidthInteger>(_ value: T) {
-        var value = value.littleEndian
-        Swift.withUnsafeBytes(of: &value) { append(contentsOf: $0) }
     }
 }
