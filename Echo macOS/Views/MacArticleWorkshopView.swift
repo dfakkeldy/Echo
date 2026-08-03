@@ -18,6 +18,7 @@ struct MacArticleWorkshopView: View {
     @State private var loadingVoiceEditorID: String?
     @State private var voiceEditor: VoiceEditorPresentation?
     @State private var voiceEditorLoadMessage: String?
+    @AccessibilityFocusState private var voiceEditorLoadErrorIsFocused: Bool
 
     private let anthologyService: AnthologyService
 
@@ -61,8 +62,12 @@ struct MacArticleWorkshopView: View {
                 preferredVoice: preferredVoice)
         }
         .onChange(of: voiceEditorLoadMessage) { _, message in
-            guard let message else { return }
-            AccessibilityNotification.Announcement(message).post()
+            guard message != nil else {
+                voiceEditorLoadErrorIsFocused = false
+                return
+            }
+            voiceEditorLoadErrorIsFocused = true
+            AccessibilityNotification.LayoutChanged().post()
         }
     }
 
@@ -217,6 +222,7 @@ struct MacArticleWorkshopView: View {
                     .foregroundStyle(.red)
                     .padding(.horizontal)
                     .padding(.bottom, 8)
+                    .accessibilityFocused($voiceEditorLoadErrorIsFocused)
                     .accessibilityIdentifier("articleWorkshop.editVoices.error")
             }
 

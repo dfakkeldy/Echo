@@ -40,26 +40,66 @@ struct MacReaderParityTests {
     {
         let editor = try MacSource.read("Views/MacAnthologyVoiceEditor.swift")
 
-        #expect(editor.contains(".interactiveDismissDisabled(viewModel.isSaving)"))
+        #expect(editor.contains("@State private var pendingSaveEntryIDs: Set<String> = []"))
+        #expect(editor.contains("viewModel.isSaving || pendingSaveEntryIDs.isEmpty == false"))
+        #expect(editor.contains(".interactiveDismissDisabled(saveIsPending)"))
         #expect(editor.contains(".onExitCommand"))
-        #expect(editor.contains("guard viewModel.isSaving == false else { return }"))
+        #expect(editor.contains("guard saveIsPending == false else { return }"))
         #expect(editor.contains("Button(\"Close\") { dismiss() }"))
-        #expect(editor.contains(".disabled(viewModel.isSaving)"))
-        #expect(editor.contains(".disabled(isUpdating && viewModel.isSaving)"))
+        #expect(editor.contains(".disabled(saveIsPending)"))
+        #expect(editor.contains(".disabled(pendingSaveEntryIDs.contains(entry.entry.id))"))
+        #expect(editor.contains("pendingSaveEntryIDs.remove(entryID)"))
+
+        let onChange = try #require(editor.range(of: ".onChange(of: voiceID)"))
+        let handlerRange = onChange.lowerBound..<editor.endIndex
+        let pendingRegistration = try #require(
+            editor.range(
+                of: "pendingSaveEntryIDs.insert(entryID)",
+                range: handlerRange))
+        let taskCreation = try #require(
+            editor.range(
+                of: "Task {",
+                range: handlerRange))
+        let awaitedSave = try #require(
+            editor.range(
+                of: "await viewModel.updateEntry(",
+                range: handlerRange))
+        let pendingClear = try #require(
+            editor.range(
+                of: "pendingSaveEntryIDs.remove(entryID)",
+                range: handlerRange))
+        #expect(
+            pendingRegistration.lowerBound < taskCreation.lowerBound,
+            "The editor must synchronously register the saving row before creating the task.")
+        #expect(taskCreation.lowerBound < awaitedSave.lowerBound)
+        #expect(
+            awaitedSave.lowerBound < pendingClear.lowerBound,
+            "The editor must retain the saving-row registration through the awaited save.")
     }
 
-    @Test func chapterVoiceSaveAndParentLoadErrorsAreAnnouncedWithoutMovingKeyboardFocus()
+    @Test func chapterVoiceSaveAndParentLoadErrorsMoveAccessibilityFocusWithoutKeyboardFocus()
         throws
     {
         let workshop = try MacSource.read("Views/MacArticleWorkshopView.swift")
         let editor = try MacSource.read("Views/MacAnthologyVoiceEditor.swift")
 
+        #expect(editor.contains("@AccessibilityFocusState private var saveErrorIsFocused: Bool"))
+        #expect(editor.contains(".accessibilityFocused($saveErrorIsFocused)"))
         #expect(editor.contains(".onChange(of: viewModel.retryActionAvailable)"))
-        #expect(editor.contains("AccessibilityNotification.Announcement(message).post()"))
+        #expect(editor.contains("saveErrorIsFocused = true"))
+        #expect(editor.contains("AccessibilityNotification.LayoutChanged().post()"))
+        #expect(editor.contains("AccessibilityNotification.Announcement") == false)
+
+        #expect(
+            workshop.contains(
+                "@AccessibilityFocusState private var voiceEditorLoadErrorIsFocused: Bool"))
+        #expect(workshop.contains(".accessibilityFocused($voiceEditorLoadErrorIsFocused)"))
         #expect(workshop.contains(".onChange(of: voiceEditorLoadMessage)"))
-        #expect(workshop.contains("AccessibilityNotification.Announcement(message).post()"))
-        #expect(editor.contains("@AccessibilityFocusState") == false)
-        #expect(workshop.contains("@AccessibilityFocusState") == false)
+        #expect(workshop.contains("voiceEditorLoadErrorIsFocused = true"))
+        #expect(workshop.contains("AccessibilityNotification.LayoutChanged().post()"))
+        #expect(workshop.contains("AccessibilityNotification.Announcement") == false)
+
+        #expect(editor.contains("@FocusState private var pickerIsFocused: Bool"))
     }
 
     @Test func macCommercialAudioAlignmentUsesCodeFilteringSourcePolicy() throws {
