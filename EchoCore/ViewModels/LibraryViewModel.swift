@@ -17,14 +17,14 @@ final class LibraryViewModel {
     @ObservationIgnored let database: DatabaseService
     @ObservationIgnored private let service: LibraryService
     @ObservationIgnored private let mergeService: ReadAlongMergeService
-    @ObservationIgnored private let openBook: (LibraryOpenTarget) -> Void
+    @ObservationIgnored private let openBook: (LibraryOpenTarget) throws -> Void
     @ObservationIgnored private let logger = Logger(category: "LibraryViewModel")
     @ObservationIgnored private var siblingEditionsByBookID: [String: [AudiobookRecord]] = [:]
     @ObservationIgnored private var booksWithText: Set<String> = []
     @ObservationIgnored private var regroupTask: Task<Void, Never>?
     @ObservationIgnored private var mergeTask: Task<Void, Never>?
 
-    init(db: DatabaseService, openBook: @escaping (LibraryOpenTarget) -> Void) {
+    init(db: DatabaseService, openBook: @escaping (LibraryOpenTarget) throws -> Void) {
         self.database = db
         self.service = LibraryService(db: db)
         self.mergeService = ReadAlongMergeService(db: db)
@@ -99,10 +99,14 @@ final class LibraryViewModel {
         }
         do {
             let target = try service.urlForOpening(book)
-            openBook(target)
+            try openBook(target)
             errorMessage = nil
         } catch {
-            errorMessage = "This book can't be opened. Its folder may have moved."
+            if let openingError = error as? LibraryBookOpenError {
+                errorMessage = openingError.localizedDescription
+            } else {
+                errorMessage = "This book can't be opened. Its folder may have moved."
+            }
             logger.error("Open failed for \(book.id): \(error.localizedDescription)")
         }
     }

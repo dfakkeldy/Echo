@@ -270,4 +270,29 @@ struct LibraryViewModelTests {
         #expect(didOpen == false)
         #expect(vm.pendingRecoveryBook?.id == book.id)
     }
+
+    @Test func dispatcherFailureSurfacesItsLibraryError() throws {
+        let db = try DatabaseService(inMemory: ())
+        let document = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Unsupported-\(UUID().uuidString).pages")
+        try Data("unsupported".utf8).write(to: document)
+        defer { try? FileManager.default.removeItem(at: document) }
+        let book = AudiobookRecord(
+            id: document.absoluteString,
+            title: "Unsupported",
+            author: nil,
+            duration: 0,
+            fileCount: 0,
+            addedAt: "2026-08-03T00:00:00Z",
+            isAvailable: true)
+        let vm = LibraryViewModel(db: db) { target in
+            _ = try LibraryBookOpenDispatcher().route(for: target)
+        }
+
+        vm.open(book)
+
+        #expect(
+            vm.errorMessage
+                == "This Library item doesn’t contain a supported audiobook or study document.")
+    }
 }

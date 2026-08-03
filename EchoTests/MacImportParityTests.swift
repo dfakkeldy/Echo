@@ -120,6 +120,30 @@ struct MacImportParityTests {
         #expect(
             src.contains("bumpDocumentIngestionTrigger()"),
             "After import the model must bump the ingestion trigger so the reader populates.")
+        #expect(
+            src.contains("let identityURL = audiobookIdentityURL ?? url")
+                && src.contains("let audiobookID = identityURL.absoluteString")
+                && src.contains("folderURL = identityURL"),
+            "Audio-less Library opens must keep the durable container identity separate from the readable child document.")
+        #expect(
+            src.contains("if alreadyImported")
+                && src.contains("EPubBlockDAO(db: db.writer).count(for: audiobookID)"),
+            "Opening an already-imported generated anthology must surface existing blocks without re-importing them.")
+        #expect(
+            src.contains("AudiobookDAO(db: db.writer).get(audiobookID)")
+                && src.contains("let baseTitle = record?.title")
+                && src.contains("loadLibraryCover(path: record?.coverArtPath"),
+            "Audio-less Library opens must restore shelf-owned title and cover metadata from the existing record.")
+    }
+
+    @Test func primaryClickAndContextMenuUseTheSameLibraryDispatcher() throws {
+        let src = try MacSource.read("Views/MacLibraryView.swift")
+        #expect(
+            src.contains("libraryVM.open(book)"),
+            "The primary row click must enter LibraryViewModel.open.")
+        #expect(
+            src.contains("onSelectEdition: { libraryVM.open($0) }"),
+            "Context-menu edition Open must enter the same LibraryViewModel dispatcher.")
     }
 
     @Test func openPanelAcceptsDocuments() throws {
