@@ -627,6 +627,10 @@ final class PlayerModel {
     // scrubber all work). The TTS engine is reused across books so the one-time
     // ANE model compile is paid once, not per book.
     @ObservationIgnored lazy var narrationTTS: any TTSEngine = NarrationEngineFactory.make()
+    @ObservationIgnored var narrationAudioWriter: any AudioFileWriting = AVFoundationAudioWriter()
+    @ObservationIgnored var narrationCacheDirectoryProvider: () -> URL = {
+        NarrationCache.directory()
+    }
     @ObservationIgnored var narrationRenderTask: Task<Void, Never>?
     @ObservationIgnored var narrationOperation = NarrationOperationToken()
     @ObservationIgnored var narrationExpectedFileNamesByChapter: [Int: Set<String>] = [:]

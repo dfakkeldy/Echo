@@ -115,7 +115,7 @@
             state.currentSubtitle = String(localized: "Preparing narration…")
             progressPresenter.updateNowPlayingInfo(isPaused: true)
 
-            let cacheDirectory = Self.narrationCacheDirectory()
+            let cacheDirectory = narrationCacheDirectoryProvider()
             narrationRenderTask = Task { [weak self] in
                 guard let self else { return }
                 do {
@@ -146,7 +146,7 @@
                         audiobookID: audiobookID)
                     let service = NarrationService(
                         db: db, audiobookID: audiobookID, tts: narrationTTS,
-                        audioWriter: AVFoundationAudioWriter(), cacheDirectory: cacheDirectory,
+                        audioWriter: narrationAudioWriter, cacheDirectory: cacheDirectory,
                         state: narrationPlaybackState,
                         pronunciationOverrides: {
                             PronunciationOverrideStore.shared.overrides(
@@ -558,7 +558,7 @@
             NarrationBookClassifier.isNarrationBook(
                 hasEPUB: hasEPUB,
                 trackPaths: state.tracks.map { $0.url.path },
-                narrationCachePath: Self.narrationCacheDirectory().path)
+                narrationCachePath: narrationCacheDirectoryProvider().path)
         }
 
         /// True when playback chrome should be visible/enabled. Imported audio has
@@ -610,7 +610,7 @@
         }
 
         private func refreshNarrationOutline(allBlocks: [EPubBlockRecord]) {
-            let cacheDirectory = Self.narrationCacheDirectory()
+            let cacheDirectory = narrationCacheDirectoryProvider()
             let existingFileNames = Set(
                 (try? FileManager.default.contentsOfDirectory(
                     atPath: cacheDirectory.path)) ?? [])

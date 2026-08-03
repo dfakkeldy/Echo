@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import CryptoKit
 import Foundation
 import GRDB
 import Testing
@@ -11,56 +10,61 @@ import Testing
 struct AnthologyChapterVoicesIntegrationTests {
     @Test func threeVoiceWorkflowPreservesStableIdentityAndFailsClosed() async throws {
         let fixture = try await ThreeVoiceAnthologyFixture()
+        defer { fixture.remove() }
         let entryA = fixture.baseManifest.chapters[0].entryID.uuidString
         let entryB = fixture.baseManifest.chapters[1].entryID.uuidString
         let entryC = fixture.baseManifest.chapters[2].entryID.uuidString
-        var synthesisCallCounts: [Int] = []
+        var renderCallCounts: [Int] = []
 
         let initial = try await fixture.run(preferredVoice: VoiceID("af_heart"))
-        synthesisCallCounts.append(initial.synthesisCallCount)
+        renderCallCounts.append(initial.renderCallCount)
 
-        #expect(initial.segments.map(\.sourceChapterKey) == [entryA, entryB, entryC])
-        #expect(initial.segments.map(\.voice.rawValue) == ["af_heart", "bf_emma", "am_michael"])
-        #expect(initial.tracks.map(\.narrationVoice) == ["af_heart", "bf_emma", "am_michael"])
+        #expect(initial.importedSourceChapterKeys == [entryA, entryB, entryC])
+        #expect(initial.narrationPhase == .completed)
+        #expect(initial.narrationError == nil)
+        #expect(initial.persistedVoices == ["af_heart", "bf_emma", "am_michael"])
+        #expect(initial.effectiveDefaultVoice == VoiceID("af_heart"))
+        #expect(initial.voiceOverrideCount == 2)
         #expect(initial.tracks.map(\.sortOrder) == [0, 1000, 2000])
         #expect(initial.fileURLsBySourceKey.values.allSatisfy { fixture.fileExists(at: $0) })
+        #expect(
+            initial.fileURLsBySourceKey.values.allSatisfy {
+                $0.deletingLastPathComponent() == fixture.cacheDirectory
+            })
 
         let chapterTwoChanged = fixture.manifest(
             from: fixture.baseManifest,
             revision: 2,
             voiceByEntryID: [entryB: "af_nicole"])
-        try fixture.install(chapterTwoChanged)
+        try await fixture.install(chapterTwoChanged)
         let explicitOverride = try await fixture.run(preferredVoice: VoiceID("af_heart"))
-        synthesisCallCounts.append(explicitOverride.synthesisCallCount)
+        renderCallCounts.append(explicitOverride.renderCallCount)
 
         #expect(explicitOverride.synthesizedVoices == ["af_nicole"])
         #expect(explicitOverride.fileURLsBySourceKey[entryA] == initial.fileURLsBySourceKey[entryA])
         #expect(explicitOverride.fileURLsBySourceKey[entryC] == initial.fileURLsBySourceKey[entryC])
         #expect(explicitOverride.fileURLsBySourceKey[entryB] != initial.fileURLsBySourceKey[entryB])
-        #expect(explicitOverride.tracks.map(\.narrationVoice) == ["af_heart", "af_nicole", "am_michael"])
+        #expect(explicitOverride.persistedVoices == ["af_heart", "af_nicole", "am_michael"])
+
+        let savedEntryBURL = try #require(explicitOverride.fileURLsBySourceKey[entryB])
+        fixture.model.persistence.saveLastTrack(
+            for: fixture.audiobookID,
+            trackId: savedEntryBURL.absoluteString)
 
         let reordered = fixture.manifest(
             from: chapterTwoChanged,
             revision: 3,
             orderedEntryIDs: [entryC, entryA, entryB])
-        try fixture.install(reordered)
+        try await fixture.install(reordered)
         let reorderedRun = try await fixture.run(preferredVoice: VoiceID("af_heart"))
-        synthesisCallCounts.append(reorderedRun.synthesisCallCount)
+        renderCallCounts.append(reorderedRun.renderCallCount)
 
         #expect(reorderedRun.fileURLsBySourceKey == explicitOverride.fileURLsBySourceKey)
         #expect(reorderedRun.tracks.map(\.sortOrder) == [0, 1000, 2000])
-        #expect(reorderedRun.sourceKeysInTrackOrder == [entryC, entryA, entryB])
-        let savedEntryBURL = try #require(explicitOverride.fileURLsBySourceKey[entryB])
-        #expect(
-            NarrationResumeResolver.target(
-                fromLastTrackURL: savedEntryBURL,
-                plans: reorderedRun.chapters,
-                isAnthology: true) == .sourceChapterKey(entryB))
-        #expect(
-            NarrationSegmentPlanner.resume(
-                reorderedRun.segments,
-                startingAtSourceChapterKey: entryB
-            ).first?.sourceChapterKey == entryB)
+        #expect(reorderedRun.persistedSourceKeysInTrackOrder == [entryC, entryA, entryB])
+        #expect(reorderedRun.playbackQueueSourceKeys == [entryC, entryA, entryB])
+        #expect(reorderedRun.currentIndex == 2)
+        #expect(reorderedRun.currentTrackURL == savedEntryBURL)
 
         let exportItems = try await fixture.exportItems(preferredVoice: VoiceID("af_heart"))
         #expect(exportItems.map(\.emitsChapterMarker) == [true, true, true])
@@ -72,46 +76,70 @@ struct AnthologyChapterVoicesIntegrationTests {
             ])
 
         let preferredVoiceChanged = try await fixture.run(preferredVoice: VoiceID("af_bella"))
-        synthesisCallCounts.append(preferredVoiceChanged.synthesisCallCount)
+        renderCallCounts.append(preferredVoiceChanged.renderCallCount)
 
         #expect(preferredVoiceChanged.synthesizedVoices == ["af_bella"])
-        #expect(preferredVoiceChanged.fileURLsBySourceKey[entryA] != reorderedRun.fileURLsBySourceKey[entryA])
-        #expect(preferredVoiceChanged.fileURLsBySourceKey[entryB] == reorderedRun.fileURLsBySourceKey[entryB])
-        #expect(preferredVoiceChanged.fileURLsBySourceKey[entryC] == reorderedRun.fileURLsBySourceKey[entryC])
-        #expect(preferredVoiceChanged.tracks.map(\.narrationVoice) == ["am_michael", "af_bella", "af_nicole"])
+        #expect(
+            preferredVoiceChanged.fileURLsBySourceKey[entryA]
+                != reorderedRun.fileURLsBySourceKey[entryA])
+        #expect(
+            preferredVoiceChanged.fileURLsBySourceKey[entryB]
+                == reorderedRun.fileURLsBySourceKey[entryB])
+        #expect(
+            preferredVoiceChanged.fileURLsBySourceKey[entryC]
+                == reorderedRun.fileURLsBySourceKey[entryC])
+        #expect(preferredVoiceChanged.persistedVoices == ["am_michael", "af_bella", "af_nicole"])
+        #expect(preferredVoiceChanged.effectiveDefaultVoice == VoiceID("af_bella"))
 
         let provenAudioURLs = Set(preferredVoiceChanged.fileURLsBySourceKey.values)
+        let staleSentinel = try fixture.createStaleCacheSentinel()
+        #expect(
+            fixture.normalCleanupWouldDelete(
+                staleSentinel,
+                whileKeeping: provenAudioURLs))
         try fixture.corruptLatestReceiptDigest()
-        let callsBeforeInvalidReceipt = fixture.totalSynthesisCallCount
-        await #expect(throws: AnthologyBuildManifestValidationError.invalidReceipt) {
-            try await fixture.run(preferredVoice: VoiceID("af_bella"))
-        }
-        synthesisCallCounts.append(fixture.totalSynthesisCallCount - callsBeforeInvalidReceipt)
+        let invalidReceiptRun = try await fixture.run(preferredVoice: VoiceID("af_bella"))
+        renderCallCounts.append(invalidReceiptRun.renderCallCount)
 
+        #expect(invalidReceiptRun.narrationPhase == .failed)
+        #expect(invalidReceiptRun.narrationError != nil)
+        #expect(invalidReceiptRun.rawSynthesisCallCount == 0)
+        #expect(fixture.fileExists(at: staleSentinel))
         #expect(provenAudioURLs.allSatisfy { fixture.fileExists(at: $0) })
-        #expect(synthesisCallCounts == [3, 1, 0, 1, 0])
+        #expect(renderCallCounts == [3, 1, 0, 1, 0])
     }
 }
 
 @MainActor
 private final class ThreeVoiceAnthologyFixture {
     struct RunResult {
-        let synthesisCallCount: Int
+        let renderCallCount: Int
+        let rawSynthesisCallCount: Int
         let synthesizedVoices: [String]
-        let chapters: [NarrationChapterRenderPlan]
-        let segments: [NarrationSegmentPlanner.PlannedSegment]
+        let importedSourceChapterKeys: [String]
         let tracks: [TrackRecord]
+        let persistedVoices: [String]
         let fileURLsBySourceKey: [String: URL]
-        let sourceKeysInTrackOrder: [String]
+        let persistedSourceKeysInTrackOrder: [String]
+        let playbackQueueSourceKeys: [String]
+        let currentIndex: Int
+        let currentTrackURL: URL?
+        let effectiveDefaultVoice: VoiceID?
+        let voiceOverrideCount: Int
+        let narrationPhase: NarrationState.Phase
+        let narrationError: String?
     }
 
     let database: DatabaseService
     let baseManifest: AnthologyBuildManifest
     let cacheDirectory: URL
-    private let audiobookID = "three-voice-anthology-\(UUID().uuidString)"
+    let audiobookID: String
+    let model = PlayerModel()
+    private let root: URL
+    private let workshopRoot: URL
+    private let bookDirectory: URL
     private let tts = MockTTSEngine(secondsPerChar: 0.1)
-    private let audioWriter = DurableFixtureAudioWriter()
-    private let pronunciationPack: EnglishPronunciationPack
+    private let audioWriter = FixtureAudioWriter()
 
     init() async throws {
         let fixtureURL = URL(fileURLWithPath: #filePath)
@@ -122,13 +150,17 @@ private final class ThreeVoiceAnthologyFixture {
             AnthologyBuildManifest.self,
             from: data)
         database = try DatabaseService(inMemory: ())
-        pronunciationPack = await EnglishPronunciationPack.bundledOrEmpty()
-        cacheDirectory = FileManager.default.temporaryDirectory.appending(
-            path: "echo-three-voice-anthology-\(UUID().uuidString)",
-            directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(
-            at: cacheDirectory,
-            withIntermediateDirectories: true)
+        root = URL(
+            fileURLWithPath: "/tmp/echo-3v-\(UUID().uuidString)",
+            isDirectory: true)
+        workshopRoot = root.appending(path: "Workshop", directoryHint: .isDirectory)
+        bookDirectory = root.appending(path: "Book", directoryHint: .isDirectory)
+        cacheDirectory = root.appending(path: "Narration", directoryHint: .isDirectory)
+        for directory in [workshopRoot, bookDirectory, cacheDirectory] {
+            try FileManager.default.createDirectory(
+                at: directory, withIntermediateDirectories: true)
+        }
+        audiobookID = bookDirectory.absoluteString
         try await database.writer.write { db in
             try db.execute(
                 sql: "INSERT INTO audiobook (id, title, duration) VALUES (?, ?, 0)",
@@ -145,115 +177,57 @@ private final class ThreeVoiceAnthologyFixture {
                 latestBuildRevision: 0,
                 createdAt: "2026-08-02T12:00:00.000Z",
                 modifiedAt: "2026-08-02T12:00:00.000Z"))
-        try install(baseManifest)
+        model.databaseService = database
+        model.folderURL = bookDirectory
+        model.narrationTTS = tts
+        model.narrationAudioWriter = audioWriter
+        model.narrationCacheDirectoryProvider = { [cacheDirectory] in cacheDirectory }
+        try await install(baseManifest)
     }
 
-    deinit {
-        try? FileManager.default.removeItem(at: cacheDirectory)
+    func remove() {
+        model.narrationRenderTask?.cancel()
+        model.playbackController.stop()
+        UserDefaults.standard.removeObject(
+            forKey: "EchoAudiobooks.lastTrack.\(audiobookID)")
+        removeBookFiles(from: PlayerModel.narrationCacheDirectory())
+        try? FileManager.default.removeItem(at: root)
     }
-
-    var totalSynthesisCallCount: Int { tts.calls.count }
 
     func fileExists(at url: URL) -> Bool {
         FileManager.default.fileExists(atPath: url.path)
     }
 
     func run(preferredVoice: VoiceID) async throws -> RunResult {
-        let callsBeforeRun = tts.calls.count
+        let renderCallsBeforeRun = audioWriter.writeCallCount
+        let synthesisCallsBeforeRun = tts.calls.count
+        let voice = try #require(VoiceCatalog.voice(for: preferredVoice))
+        model.startNarrationPlayback(voice: voice)
+        await model.narrationRenderTask?.value
+
         let blocks = try EPubBlockDAO(db: database.writer).visibleBlocks(for: audiobookID)
-        let plannedChapters = NarrationChapterPlanner.plan(from: blocks)
-        let service = NarrationService(
-            db: database.writer,
-            audiobookID: audiobookID,
-            tts: tts,
-            audioWriter: audioWriter,
-            cacheDirectory: cacheDirectory,
-            state: NarrationState(),
-            pronunciationPack: pronunciationPack)
-        let existingFileNames = Set(
-            try FileManager.default.contentsOfDirectory(atPath: cacheDirectory.path))
-        let preparation = try await NarrationPlaybackPlanPreparation.prepare(
-            chapters: plannedChapters,
-            allChapters: plannedChapters,
-            preferredVoice: preferredVoice,
-            resolveManifest: {
-                try AnthologyNarrationManifestResolver(db: self.database.writer).resolve(
-                    audiobookID: self.audiobookID)
-            },
-            existingDurableFileNames: existingFileNames,
-            expectedFileName: { segment in
-                await service.segmentCacheURL(
-                    chapterIndex: segment.chapterIndex,
-                    sourceChapterKey: segment.sourceChapterKey,
-                    segmentIndex: segment.segmentIndex,
-                    blocks: segment.blocks,
-                    voice: segment.voice).lastPathComponent
-            },
-            cleanup: { expectedFileNames in
-                let bookPrefix = "\(NarrationFileNaming.safeToken(self.audiobookID))-"
-                for stale in NarrationCacheStore.staleFiles(
-                    Array(existingFileNames),
-                    bookPrefix: bookPrefix,
-                    expectedDurableFileNames: expectedFileNames)
-                {
-                    try FileManager.default.removeItem(
-                        at: self.cacheDirectory.appendingPathComponent(stale))
-                }
-            })
-
-        var fileURLsBySourceKey: [String: URL] = [:]
-        for segment in preparation.segments {
-            let fileURL = await service.segmentCacheURL(
-                chapterIndex: segment.chapterIndex,
-                sourceChapterKey: segment.sourceChapterKey,
-                segmentIndex: segment.segmentIndex,
-                blocks: segment.blocks,
-                voice: segment.voice)
-            if FileManager.default.fileExists(atPath: fileURL.path) {
-                try await service.updateCachedNarrationTitle(
-                    chapterIndex: segment.chapterIndex,
-                    sourceChapterKey: segment.sourceChapterKey,
-                    chapterDisplayNumber: segment.chapterDisplayNumber,
-                    segmentIndex: segment.segmentIndex,
-                    blocks: segment.blocks,
-                    voice: segment.voice,
-                    chapterTitle: segment.chapterTitle)
-            } else {
-                try await service.renderSegment(
-                    chapterIndex: segment.chapterIndex,
-                    sourceChapterKey: segment.sourceChapterKey,
-                    chapterDisplayNumber: segment.chapterDisplayNumber,
-                    segmentIndex: segment.segmentIndex,
-                    blocks: segment.blocks,
-                    voice: segment.voice,
-                    chapterTitle: segment.chapterTitle)
-            }
-            fileURLsBySourceKey[try #require(segment.sourceChapterKey)] = fileURL
-        }
-
         let tracks = try TrackDAO(db: database.writer).tracks(for: audiobookID)
-        let keyByTrackID = Dictionary(
-            uniqueKeysWithValues: preparation.segments.compactMap { segment in
-                segment.sourceChapterKey.map {
-                    (
-                        NarrationFileNaming.trackID(
-                            audiobookID: audiobookID,
-                            chapterIndex: segment.chapterIndex,
-                            sourceChapterKey: $0,
-                            segmentIndex: segment.segmentIndex),
-                        $0
-                    )
-                }
-            })
-        let newCalls = Array(tts.calls[callsBeforeRun...])
+        let fileURLsBySourceKey = fileURLsBySourceKey(from: tracks)
+        let newCalls = Array(tts.calls[synthesisCallsBeforeRun...])
         return RunResult(
-            synthesisCallCount: newCalls.count,
-            synthesizedVoices: newCalls.map(\.voice.rawValue),
-            chapters: preparation.chapters,
-            segments: preparation.segments,
+            renderCallCount: audioWriter.writeCallCount - renderCallsBeforeRun,
+            rawSynthesisCallCount: newCalls.count,
+            synthesizedVoices: orderedDistinct(newCalls.map(\.voice.rawValue)),
+            importedSourceChapterKeys: orderedDistinct(blocks.compactMap(\.sourceChapterKey)),
             tracks: tracks,
+            persistedVoices: tracks.compactMap(\.narrationVoice),
             fileURLsBySourceKey: fileURLsBySourceKey,
-            sourceKeysInTrackOrder: tracks.compactMap { keyByTrackID[$0.id] })
+            persistedSourceKeysInTrackOrder: tracks.compactMap {
+                sourceChapterKey(for: URL(fileURLWithPath: $0.filePath))
+            },
+            playbackQueueSourceKeys: model.tracks.compactMap { sourceChapterKey(for: $0.url) },
+            currentIndex: model.currentIndex,
+            currentTrackURL: model.tracks.indices.contains(model.currentIndex)
+                ? model.tracks[model.currentIndex].url : nil,
+            effectiveDefaultVoice: model.state.narrationDefaultVoice,
+            voiceOverrideCount: model.state.narrationVoiceOverrideCount,
+            narrationPhase: model.narrationPlaybackState.phase,
+            narrationError: model.narrationPlaybackState.errorMessage)
     }
 
     func exportItems(preferredVoice: VoiceID) async throws -> [ExportItem] {
@@ -265,53 +239,47 @@ private final class ThreeVoiceAnthologyFixture {
         ).items()
     }
 
-    func install(_ manifest: AnthologyBuildManifest) throws {
-        try EPubBlockDAO(db: database.writer).deleteAll(for: audiobookID)
-        let blocks = manifest.chapters.flatMap { chapter in
-            chapter.blocks.enumerated().map { blockIndex, block in
-                EPubBlockRecord(
-                    id: "\(audiobookID)-\(block.id)",
-                    audiobookID: audiobookID,
-                    spineHref: "chapter-\(chapter.stableSlot).xhtml",
-                    spineIndex: chapter.order,
-                    blockIndex: blockIndex,
-                    sequenceIndex: chapter.order * 100 + blockIndex,
-                    blockKind: block.kind.rawValue,
-                    text: block.text,
-                    htmlContent: nil,
-                    cardColor: nil,
-                    chapterThemeColor: nil,
-                    imagePath: nil,
-                    chapterIndex: chapter.order,
-                    isHidden: false,
-                    hiddenReason: nil,
-                    isFrontMatter: false,
-                    wordCount: nil,
-                    markers: nil,
-                    textFormats: nil,
-                    narrationText: nil,
-                    sourceChapterKey: chapter.entryID.uuidString,
-                    createdAt: nil,
-                    modifiedAt: nil)
-            }
-        }
-        try EPubBlockDAO(db: database.writer).insertAll(blocks)
-
-        let manifestData = try JSONEncoder.articleWorkshop.encode(manifest)
-        var build = AnthologyBuildRecord(
-            id: UUID().uuidString,
-            anthologyID: manifest.anthologyID.uuidString,
-            revision: manifest.revision,
-            epubIdentifier: manifest.epubIdentifier,
-            manifestJSON: String(decoding: manifestData, as: UTF8.self),
-            manifestSHA256: sha256(manifestData),
-            epubPath: nil,
-            epubSHA256: String(repeating: "a", count: 64),
+    func install(_ manifest: AnthologyBuildManifest) async throws {
+        let destination = root.appending(path: "revision-\(manifest.revision).epub")
+        let result = try AnthologyEPUBBuilder(workshopRoot: workshopRoot)
+            .build(manifest: manifest, to: destination)
+        _ = try await GeneratedAnthologyImportReconciler.importArchive(
+            at: destination,
             audiobookID: audiobookID,
-            status: "succeeded",
-            errorCode: nil,
-            createdAt: "2026-08-02T12:00:0\(manifest.revision).000Z")
-        try database.writer.write { db in try build.insert(db) }
+            identity: try GeneratedAnthologyImportIdentity(manifest: manifest),
+            databaseService: database)
+        let manifestEncoder = JSONEncoder.articleWorkshop
+        manifestEncoder.outputFormatting = [.sortedKeys]
+        let manifestData = try manifestEncoder.encode(manifest)
+        try AnthologyDAO(db: database.writer).saveBuild(
+            AnthologyBuildRecord(
+                id: UUID().uuidString,
+                anthologyID: manifest.anthologyID.uuidString,
+                revision: manifest.revision,
+                epubIdentifier: manifest.epubIdentifier,
+                manifestJSON: String(decoding: manifestData, as: UTF8.self),
+                manifestSHA256: result.manifestSHA256,
+                epubPath: destination.standardizedFileURL.path,
+                epubSHA256: result.epubSHA256,
+                audiobookID: audiobookID,
+                status: "succeeded",
+                errorCode: nil,
+                createdAt: "2026-08-02T12:00:0\(manifest.revision).000Z"))
+    }
+
+    func createStaleCacheSentinel() throws -> URL {
+        let name = "\(NarrationFileNaming.safeToken(audiobookID))-stale-sentinel.m4a"
+        let url = cacheDirectory.appendingPathComponent(name)
+        try Data("stale".utf8).write(to: url)
+        return url
+    }
+
+    func normalCleanupWouldDelete(_ sentinel: URL, whileKeeping audioURLs: Set<URL>) -> Bool {
+        NarrationCacheStore.staleFiles(
+            [sentinel.lastPathComponent],
+            bookPrefix: "\(NarrationFileNaming.safeToken(audiobookID))-",
+            expectedDurableFileNames: Set(audioURLs.map(\.lastPathComponent))
+        ) == [sentinel.lastPathComponent]
     }
 
     func corruptLatestReceiptDigest() throws {
@@ -340,7 +308,8 @@ private final class ThreeVoiceAnthologyFixture {
         let ids = orderedEntryIDs ?? source.chapters.map(\.entryID.uuidString)
         let chapters = ids.enumerated().compactMap { order, entryID -> AnthologyChapterManifest? in
             guard let chapter = chaptersByID[entryID] else { return nil }
-            let selectedVoice = voiceByEntryID.keys.contains(entryID)
+            let selectedVoice =
+                voiceByEntryID.keys.contains(entryID)
                 ? voiceByEntryID[entryID]!
                 : chapter.voiceID
             return AnthologyChapterManifest(
@@ -372,12 +341,46 @@ private final class ThreeVoiceAnthologyFixture {
             chapters: chapters)
     }
 
-    private func sha256(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    private func fileURLsBySourceKey(from tracks: [TrackRecord]) -> [String: URL] {
+        Dictionary(
+            uniqueKeysWithValues: tracks.compactMap { track in
+                let url = URL(fileURLWithPath: track.filePath)
+                return sourceChapterKey(for: url).map { ($0, url) }
+            })
+    }
+
+    private func sourceChapterKey(for url: URL) -> String? {
+        let name = url.lastPathComponent
+        return baseManifest.chapters.first { chapter in
+            name.contains(
+                "-ck\(NarrationFileNaming.stableChapterToken(for: chapter.entryID.uuidString))")
+        }?.entryID.uuidString
+    }
+
+    private func orderedDistinct(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        return values.filter { seen.insert($0).inserted }
+    }
+
+    private func removeBookFiles(from directory: URL) {
+        let prefix = NarrationFileNaming.safeToken(audiobookID)
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        for name in names where name.hasPrefix(prefix) || name.hasPrefix(".\(prefix)") {
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+        }
     }
 }
 
-private final class DurableFixtureAudioWriter: AudioFileWriting, @unchecked Sendable {
+private final class FixtureAudioWriter: AudioFileWriting, @unchecked Sendable {
+    private let lock = NSLock()
+    private var writes = 0
+
+    var writeCallCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return writes
+    }
+
     func write(_ chunks: [TTSChunk], to url: URL) async throws -> TimeInterval {
         let stream = try makeStream(to: url, sampleRate: chunks.first?.sampleRate ?? 24_000)
         for chunk in chunks {
@@ -387,22 +390,57 @@ private final class DurableFixtureAudioWriter: AudioFileWriting, @unchecked Send
     }
 
     func makeStream(to url: URL, sampleRate: Double) throws -> any AudioFileStream {
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true)
-        try Data("synthetic-audio".utf8).write(to: url)
-        return DurableFixtureAudioStream()
+        recordWrite()
+        return FixtureAudioStream(url: url, sampleRate: sampleRate)
+    }
+
+    private func recordWrite() {
+        lock.lock()
+        writes += 1
+        lock.unlock()
     }
 }
 
-private final class DurableFixtureAudioStream: AudioFileStream, @unchecked Sendable {
+private actor FixtureAudioStream: AudioFileStream {
+    private let url: URL
+    private let sampleRate: Double
     private var duration: TimeInterval = 0
+
+    init(url: URL, sampleRate: Double) {
+        self.url = url
+        self.sampleRate = sampleRate
+    }
 
     func append(_ chunk: TTSChunk) async throws {
         duration += chunk.duration
     }
 
     func finalize() async throws -> TimeInterval {
-        duration
+        let playbackDuration = max(duration, 120)
+        let sampleCount = Int(playbackDuration * sampleRate)
+        let dataByteCount = sampleCount * MemoryLayout<Int16>.size
+        var wave = Data()
+        wave.append(contentsOf: "RIFF".utf8)
+        wave.appendLittleEndian(UInt32(36 + dataByteCount))
+        wave.append(contentsOf: "WAVEfmt ".utf8)
+        wave.appendLittleEndian(UInt32(16))
+        wave.appendLittleEndian(UInt16(1))
+        wave.appendLittleEndian(UInt16(1))
+        wave.appendLittleEndian(UInt32(sampleRate))
+        wave.appendLittleEndian(UInt32(sampleRate) * UInt32(MemoryLayout<Int16>.size))
+        wave.appendLittleEndian(UInt16(MemoryLayout<Int16>.size))
+        wave.appendLittleEndian(UInt16(16))
+        wave.append(contentsOf: "data".utf8)
+        wave.appendLittleEndian(UInt32(dataByteCount))
+        wave.append(Data(count: dataByteCount))
+        try wave.write(to: url, options: .atomic)
+        return duration
+    }
+}
+
+extension Data {
+    fileprivate nonisolated mutating func appendLittleEndian<T: FixedWidthInteger>(_ value: T) {
+        var value = value.littleEndian
+        Swift.withUnsafeBytes(of: &value) { append(contentsOf: $0) }
     }
 }
