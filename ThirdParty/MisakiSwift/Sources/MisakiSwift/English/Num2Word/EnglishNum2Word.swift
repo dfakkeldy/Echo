@@ -137,8 +137,8 @@ struct EnglishNum2Word {
       }
     }
     
-    // Handle thousands and higher
-    for (value, word) in midNumWords.sorted(by: { $0.0 > $1.0 }) {
+    // Handle very large numbers using cards
+    for (value, word) in cards.sorted(by: { $0.key > $1.key }) {
       if number >= value {
         let quotient = number / value
         let remainder = number % value
@@ -151,8 +151,8 @@ struct EnglishNum2Word {
       }
     }
     
-    // Handle very large numbers using cards
-    for (value, word) in cards.sorted(by: { $0.key > $1.key }) {
+    // Handle thousands and higher
+    for (value, word) in midNumWords.sorted(by: { $0.0 > $1.0 }) {
       if number >= value {
         let quotient = number / value
         let remainder = number % value

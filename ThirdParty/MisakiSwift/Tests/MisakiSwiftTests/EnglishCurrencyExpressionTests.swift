@@ -22,6 +22,7 @@ import Testing
     ("-$2 billion", "minus two billion dollars"),
     ("$-2 billion", "minus two billion dollars"),
     ("$1,234.56", "one thousand, two hundred and thirty-four dollars and fifty-six cents"),
+    ("$1,000,000", "one million dollars"),
     ("$1.0 million", "one million dollars"),
     ("$5.50 million", "five point five million dollars"),
     ("$.5 million", "zero point five million dollars"),

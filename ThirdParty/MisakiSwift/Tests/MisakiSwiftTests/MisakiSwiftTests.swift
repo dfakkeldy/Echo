@@ -12,6 +12,14 @@ func cardinalTwentyRange(value: Int, expected: String) {
   #expect(EnglishNum2Word().convert(Decimal(value)) == expected)
 }
 
+@Test(arguments: [
+  (1_000_000, "one million"),
+  (1_000_000_000, "one billion"),
+])
+func cardinalHighNumberCards(value: Int, expected: String) {
+  #expect(EnglishNum2Word().convert(Decimal(value)) == expected)
+}
+
 let texts: [(originalText: String, requiredPhonemes: [String])] = [
   (
     "[Misaki](/misˈɑki/) is a G2P engine designed for [Kokoro](/kˈOkəɹO/) models.",
