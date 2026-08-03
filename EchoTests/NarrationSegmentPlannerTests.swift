@@ -51,6 +51,21 @@ import Testing
         #expect(segments[0].blocks.count == 3)
     }
 
+    @Test func stableKeyChapterAlwaysUsesSmallStreamingFirstSegment() {
+        let blocks = (0..<4).map { block("stable-\($0)", chars: 150, chapter: 2, seq: $0) }
+        let chapter = renderPlan(
+            index: 2, displayNumber: 3, blocks: blocks,
+            sourceChapterKey: "stable-entry")
+
+        let segments = NarrationSegmentPlanner.segments(
+            for: chapter, isFirstChapterOfBook: false)
+
+        #expect(
+            segments.map { $0.blocks.map(\.id) } == [
+                ["stable-0"], ["stable-1", "stable-2", "stable-3"],
+            ])
+    }
+
     @Test func everySegmentHasAtLeastOneBlockAndNoneAreLost() {
         let blocks = (0..<7).map { block("z\($0)", chars: 800, chapter: 1, seq: $0) }
         let chapter = renderPlan(
@@ -189,14 +204,17 @@ import Testing
         sourceChapterKey: String? = nil,
         voice: VoiceID = VoiceID("af_heart")
     ) -> NarrationChapterRenderPlan {
-        let chapterBlocks = blocks ?? (0..<segmentCount).map { offset in
-            block("c\(index)-b\(offset)", chars: 800, chapter: index, seq: offset)
-        }
+        let chapterBlocks =
+            blocks
+            ?? (0..<segmentCount).map { offset in
+                block("c\(index)-b\(offset)", chars: 800, chapter: index, seq: offset)
+            }
         return NarrationChapterRenderPlan(
             chapterIndex: index,
             displayNumber: displayNumber,
             sourceChapterKey: sourceChapterKey,
-            title: NarrationChapterPlanner.title(displayNumber: displayNumber, blocks: chapterBlocks),
+            title: NarrationChapterPlanner.title(
+                displayNumber: displayNumber, blocks: chapterBlocks),
             blocks: chapterBlocks,
             voice: voice)
     }

@@ -5,6 +5,26 @@ import GRDB
 nonisolated struct AnthologyNarrationManifestResolver: Sendable {
     let db: DatabaseWriter
 
+    func hasMatchingReceipt(
+        audiobookID: String,
+        epubURL: URL? = nil
+    ) throws -> Bool {
+        let epubPath = epubURL?.standardizedFileURL.path
+        return try db.read { database in
+            try Bool.fetchOne(
+                database,
+                sql: """
+                    SELECT EXISTS(
+                        SELECT 1 FROM anthology_build
+                        WHERE status = 'succeeded'
+                          AND (audiobook_id = ? OR (? IS NOT NULL AND epub_path = ?))
+                    )
+                    """,
+                arguments: [audiobookID, epubPath, epubPath]
+            ) ?? false
+        }
+    }
+
     func resolve(
         audiobookID: String,
         epubURL: URL? = nil

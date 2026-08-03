@@ -68,6 +68,27 @@ import Testing
         #expect(reordered.first?.chapterIndex == 0)
     }
 
+    @Test func reorderReusesEveryStableMultiSegmentFileWithoutReadinessInvalidation()
+        async throws
+    {
+        let originalChapters = multiBlockChapters(keys: [entryA.uuidString, entryB.uuidString])
+        let original = try await prepareForStableFilenameTest(
+            chapters: originalChapters,
+            existingDurableFileNames: [])
+        let reorderedChapters = multiBlockChapters(keys: [entryB.uuidString, entryA.uuidString])
+        var cleanupExpectedNames = Set<String>()
+
+        let reordered = try await prepareForStableFilenameTest(
+            chapters: reorderedChapters,
+            existingDurableFileNames: original.expectedDurableFileNames,
+            cleanup: { cleanupExpectedNames = $0 })
+
+        #expect(original.expectedDurableFileNames.count == 4)
+        #expect(reordered.expectedDurableFileNames == original.expectedDurableFileNames)
+        #expect(reordered.renderedChapterIndices == Set([0, 1]))
+        #expect(cleanupExpectedNames == original.expectedDurableFileNames)
+    }
+
     @Test func anthologyWithMissingStableResumeDoesNotFallBackToLegacyChapterIndex() throws {
         let plans = try NarrationChapterRenderPlanner.plan(
             chapters: chapters(keys: [entryA.uuidString, entryB.uuidString]),
@@ -218,6 +239,45 @@ import Testing
                 displayNumber: index + 1,
                 blocks: [block(index: index, sourceChapterKey: key)])
         }
+    }
+
+    private func multiBlockChapters(keys: [String]) -> [NarrationChapterPlanner.PlannedChapter] {
+        keys.enumerated().map { chapterIndex, key in
+            NarrationChapterPlanner.PlannedChapter(
+                index: chapterIndex,
+                displayNumber: chapterIndex + 1,
+                blocks: (0..<4).map { blockIndex in
+                    var record = block(index: chapterIndex, sourceChapterKey: key)
+                    record.id = "\(key)-block-\(blockIndex)"
+                    record.blockIndex = blockIndex
+                    record.sequenceIndex = chapterIndex * 10 + blockIndex
+                    record.text = String(repeating: "a", count: 150)
+                    return record
+                })
+        }
+    }
+
+    private func prepareForStableFilenameTest(
+        chapters: [NarrationChapterPlanner.PlannedChapter],
+        existingDurableFileNames: Set<String>,
+        cleanup: (Set<String>) throws -> Void = { _ in }
+    ) async throws -> PreparedNarrationPlaybackPlan {
+        try await NarrationPlaybackPlanPreparation.prepare(
+            chapters: chapters,
+            allChapters: chapters,
+            preferredVoice: VoiceID("af_heart"),
+            resolveManifest: {
+                manifest(entries: [(entryA, nil), (entryB, nil)])
+            },
+            existingDurableFileNames: existingDurableFileNames,
+            expectedFileName: { segment in
+                NarrationFileNaming.segmentFileName(
+                    audiobookID: "book", chapterIndex: segment.chapterIndex,
+                    sourceChapterKey: segment.sourceChapterKey,
+                    segmentIndex: segment.segmentIndex, voice: segment.voice,
+                    contentSignature: segment.blocks.map(\.id).joined(separator: "-"))
+            },
+            cleanup: cleanup)
     }
 
     private func block(index: Int, sourceChapterKey: String) -> EPubBlockRecord {

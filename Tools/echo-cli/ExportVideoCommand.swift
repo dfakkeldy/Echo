@@ -21,6 +21,10 @@ struct ExportVideoCommand: AsyncParsableCommand {
         name: .customLong("cache-dir"),
         help: "Narration cache directory (required for narrated books).")
     var cacheDir: String?
+    @Option(
+        name: .customLong("preferred-voice"),
+        help: "Kokoro voice id for anthology chapters without a voice override.")
+    var preferredVoice: String?
     @Flag(help: "Per-sentence frames instead of word karaoke (faster, smaller).")
     var simple = false
     @Option(help: "Output size as WxH, e.g. 1920x1080. Defaults to landscape.")
@@ -31,6 +35,13 @@ struct ExportVideoCommand: AsyncParsableCommand {
     var range: String?
 
     @MainActor func run() async throws {
+        let resolvedPreferredVoice: VoiceID
+        do {
+            resolvedPreferredVoice = try ExportVideoPreferredVoiceRequest.resolve(preferredVoice)
+        } catch ExportVideoPreferredVoiceRequestError.unknownVoice(let voice) {
+            throw ValidationError("Unknown Kokoro voice id '\(voice)'.")
+        }
+
         let dimensions: SlideshowVideoDimensions
         do {
             dimensions = try SlideshowVideoDimensionRequest.resolve(portrait: portrait, size: size)
@@ -66,7 +77,7 @@ struct ExportVideoCommand: AsyncParsableCommand {
 
         let database = try DatabaseService(databaseURL: URL(fileURLWithPath: db))
 
-        let narrated = ExportSourceResolver.isNarrated(
+        let narrated = ExportSourceResolver.usesNarrationCache(
             audiobookID: audiobookID, databaseWriter: database.writer)
         guard !narrated || cacheDir != nil else {
             throw ValidationError("This book is narrated; pass --cache-dir <narration cache>.")
@@ -97,7 +108,7 @@ struct ExportVideoCommand: AsyncParsableCommand {
             bookTitle: title,
             databaseWriter: database.writer,
             cacheDirectory: URL(fileURLWithPath: cacheDir ?? "/nonexistent-cache"),
-            preferredVoice: VoiceCatalog.default.id,
+            preferredVoice: resolvedPreferredVoice,
             outputDirectory: outDir,
             mode: simple ? .simple : .karaoke,
             dimensions: dimensions,

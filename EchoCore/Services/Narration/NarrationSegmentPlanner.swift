@@ -2,9 +2,9 @@
 import Foundation
 
 /// Splits planned narration chapters into ordered render segments. The first
-/// segment of a book is intentionally small so playback can start quickly once
-/// the renderer learns to queue segment files; later segments are larger to keep
-/// file/track counts bounded.
+/// segment of an ordinary book is intentionally small. Stable-key anthology
+/// chapters each use the same small first-segment target so their file boundaries
+/// remain stable when the anthology is reordered.
 enum NarrationSegmentPlanner {
     struct PlannedSegment: Equatable, Sendable {
         let chapterIndex: Int
@@ -28,7 +28,8 @@ enum NarrationSegmentPlanner {
             self.chapterDisplayNumber = chapterDisplayNumber
             self.sourceChapterKey = sourceChapterKey
             self.voice = voice
-            self.chapterTitle = chapterTitle
+            self.chapterTitle =
+                chapterTitle
                 ?? NarrationChapterPlanner.title(
                     displayNumber: chapterDisplayNumber, blocks: blocks)
             self.segmentIndex = segmentIndex
@@ -73,15 +74,16 @@ enum NarrationSegmentPlanner {
     static func plan(_ chapters: [NarrationChapterPlanner.PlannedChapter])
         -> [PlannedSegment]
     {
-        plan(chapters.map {
-            NarrationChapterRenderPlan(
-                chapterIndex: $0.index,
-                displayNumber: $0.displayNumber,
-                sourceChapterKey: nil,
-                title: $0.title,
-                blocks: $0.blocks,
-                voice: VoiceCatalog.default.id)
-        })
+        plan(
+            chapters.map {
+                NarrationChapterRenderPlan(
+                    chapterIndex: $0.index,
+                    displayNumber: $0.displayNumber,
+                    sourceChapterKey: nil,
+                    title: $0.title,
+                    blocks: $0.blocks,
+                    voice: VoiceCatalog.default.id)
+            })
     }
 
     /// Segments at or after `resumeIndex`, ascending. Resume intentionally starts
@@ -114,7 +116,8 @@ enum NarrationSegmentPlanner {
         _ segments: [PlannedSegment],
         startingAtSourceChapterKey sourceChapterKey: String
     ) -> [PlannedSegment] {
-        guard let pos = segments.firstIndex(where: { $0.sourceChapterKey == sourceChapterKey }) else {
+        guard let pos = segments.firstIndex(where: { $0.sourceChapterKey == sourceChapterKey })
+        else {
             return segments
         }
         return Array(segments[pos...])
@@ -124,7 +127,8 @@ enum NarrationSegmentPlanner {
         _ segments: [PlannedSegment],
         startingAtSourceChapterKey sourceChapterKey: String
     ) -> [PlannedSegment] {
-        guard let pos = segments.firstIndex(where: { $0.sourceChapterKey == sourceChapterKey }) else {
+        guard let pos = segments.firstIndex(where: { $0.sourceChapterKey == sourceChapterKey })
+        else {
             return []
         }
         return Array(segments[..<pos].reversed())
@@ -138,9 +142,10 @@ enum NarrationSegmentPlanner {
         var currentBlocks: [EPubBlockRecord] = []
         var currentSeconds = 0.0
         var segmentIndex = 0
+        let usesSmallFirstSegment = chapter.sourceChapterKey != nil || isFirstChapterOfBook
 
         func targetSeconds() -> Double {
-            isFirstChapterOfBook && segmentIndex == 0
+            usesSmallFirstSegment && segmentIndex == 0
                 ? firstSegmentTargetSeconds
                 : laterSegmentTargetSeconds
         }
