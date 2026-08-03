@@ -5,6 +5,48 @@ import Foundation
 /// Pure and deterministic — the unit with the highest naturalness ROI.
 nonisolated enum TextNormalizer {
     static func normalize(_ input: String) -> String {
+        let protectedRanges = currencyCandidateRanges(in: input)
+        guard !protectedRanges.isEmpty else { return normalizeUnprotected(input) }
+
+        var normalized = ""
+        normalized.reserveCapacity(input.utf8.count)
+        var cursor = input.startIndex
+        for range in protectedRanges {
+            if cursor < range.lowerBound {
+                normalized.append(
+                    contentsOf: normalizeUnprotected(String(input[cursor..<range.lowerBound])))
+            }
+            normalized.append(contentsOf: input[range])
+            cursor = range.upperBound
+        }
+        if cursor < input.endIndex {
+            normalized.append(contentsOf: normalizeUnprotected(String(input[cursor...])))
+        }
+        return normalized
+    }
+
+    /// Currency pronunciation belongs to Misaki's semantic parser. Protect the
+    /// exact source spans here so earlier prose/number rules cannot partially
+    /// consume a valid expression or hide a rejected supported-symbol candidate.
+    /// This is range-based rather than placeholder-based: source bytes are copied
+    /// directly, so authored text cannot collide with or corrupt a sentinel.
+    private static func currencyCandidateRanges(in input: String) -> [Range<String.Index>] {
+        let wholeRange = NSRange(input.startIndex..., in: input)
+        return currencyCandidatePattern.matches(in: input, range: wholeRange).compactMap {
+            Range($0.range, in: input)
+        }
+    }
+
+    /// Protect a symbol-bearing token (including an adjacent leading minus), or
+    /// a whitespace-separated amount after a bare symbol. A recognized or
+    /// explicitly rejected magnitude word is part of the same candidate. All
+    /// other surrounding prose remains available to the ordinary normalizer.
+    private static let currencyCandidatePattern = try! NSRegularExpression(
+        pattern:
+            #"-?[$£€](?:(?:[^\s]+|[ \t]+[.,_-]*[0-9][^\s]*)(?:[ \t]+(?i:thousand|million|billion|trillion|m|mm|b|bn|k|tn|trn|quadrillion|usd|gbp|eur)(?![\p{L}\p{N}_])[^\s]*)?)?"#
+    )
+
+    private static func normalizeUnprotected(_ input: String) -> String {
         var s = input
         s = expandAbbreviations(s)
         s = normalizeOrdinals(s)

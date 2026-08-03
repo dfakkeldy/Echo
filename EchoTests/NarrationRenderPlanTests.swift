@@ -569,11 +569,44 @@ import Testing
         #expect(plan.blocks[0].trailingSilence == nil)
     }
 
-    @Test func currencyRejectionFlowsFromPlannerIntoAuditManifest() throws {
+    @Test(arguments: [
+        ("$100 billion", "one hundred billion dollars"),
+        ("$5.50 million", "five point five million dollars"),
+        ("-$2 billion", "minus two billion dollars"),
+        (
+            "£1,234.56",
+            "one thousand, two hundred and thirty-four pounds and fifty-six pence"
+        ),
+        ("€2 trillion", "two trillion euros"),
+    ])
+    func validCurrencyReachesSemanticG2PThroughNarrationPlan(
+        source: String,
+        expectedSpoken: String
+    ) throws {
         let plan = try NarrationRenderPlanner.make(
-            blocks: [block(id: "currency", text: "$1,23", index: 0)],
+            blocks: [block(id: "currency", text: source, index: 0)],
             overrides: PronunciationOverrides(entries: [:]))
         let plannedBlock = try #require(plan.blocks.first)
+        #expect(plannedBlock.synthesisChunks.count == 1)
+        let chunk = try #require(plannedBlock.synthesisChunks.first)
+        let semanticEvidence = try #require(
+            chunk.pronunciationTokenEvidence.first { $0.text == source && $0.rating == 4 })
+
+        #expect(chunk.displayText == source)
+        #expect(chunk.g2pInputText == source)
+        #expect(chunk.phonemes == KokoroG2P().phonemes(for: expectedSpoken))
+        #expect(semanticEvidence.selectedPhonemes == chunk.phonemes)
+        #expect(plan.pronunciationAuditDiagnostics.isEmpty)
+    }
+
+    @Test(arguments: ["$2-3", "£2-3", "$2 bn", "€2 bn", "$2 quadrillion", "$1,23"])
+    func rejectedCurrencyReachesNarrationPlanAndAuditManifestIntact(source: String) throws {
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "currency", text: source, index: 0)],
+            overrides: PronunciationOverrides(entries: [:]))
+        let plannedBlock = try #require(plan.blocks.first)
+        #expect(plannedBlock.synthesisChunks.count == 1)
+        let chunk = try #require(plannedBlock.synthesisChunks.first)
         let diagnostic = try #require(plan.pronunciationAuditDiagnostics.first)
         let manifest = PronunciationAuditManifest.make(
             renderVersion: NarrationFileNaming.renderVersion,
@@ -588,6 +621,9 @@ import Testing
             decisions: plannedBlock.pronunciationDecisions,
             diagnostics: plan.pronunciationAuditDiagnostics)
 
+        #expect(chunk.displayText == source)
+        #expect(chunk.g2pInputText == source)
+        #expect(!chunk.phonemes.isEmpty)
         #expect(plan.pronunciationAuditDiagnostics.count == 1)
         #expect(diagnostic.reason == .currencyNormalizationRejected)
         #expect(diagnostic.blockID == "currency")
@@ -599,6 +635,24 @@ import Testing
         #expect(diagnostic.reconstructedTokenPhonemes == nil)
         #expect(manifest.diagnostics == [diagnostic])
         #expect(manifest.coverage == .incompleteEvidence)
+    }
+
+    @Test func currencyProtectionStillNormalizesNearbyProse() throws {
+        let source = "Dr. Ada reported $100 billion at 3:30."
+        let expected = "Doctor Ada reported $100 billion at three thirty."
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "currency-context", text: source, index: 0)],
+            overrides: PronunciationOverrides(entries: [:]))
+        let plannedBlock = try #require(plan.blocks.first)
+        #expect(plannedBlock.synthesisChunks.count == 1)
+        let chunk = try #require(plannedBlock.synthesisChunks.first)
+
+        #expect(chunk.displayText == expected)
+        #expect(chunk.g2pInputText == expected)
+        #expect(chunk.pronunciationTokenEvidence.contains {
+            $0.text == "$100 billion" && $0.rating == 4
+        })
+        #expect(plan.pronunciationAuditDiagnostics.isEmpty)
     }
 
     @Test func rawBlockOverloadResolvesCodeCueAndFallbackBeforePlanning() throws {
