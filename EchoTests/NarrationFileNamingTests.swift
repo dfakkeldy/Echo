@@ -107,6 +107,11 @@ import Testing
         #expect(
             NarrationFileNaming.location(
                 fromFileName: "book-ck0123456789abcdef0123456789abcdef-s0-s1-af_heart-v20.m4a") == nil)
+        #expect(
+            NarrationFileNaming.location(
+                fromFileName:
+                    "book-ck0123456789abcdef0123456789abcdef-s0-af_heart-v\(NarrationFileNaming.renderVersion - 1).m4a"
+            ) == nil)
     }
 
     @Test func contentSignatureChangesWithRenderedTextBlockIdentityAndRenderParameters() {

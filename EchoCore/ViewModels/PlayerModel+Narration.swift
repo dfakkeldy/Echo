@@ -646,11 +646,10 @@
                 return
             }
             if !currentlyExcluded {
-                let removableIndices = state.tracks.indices.reversed().filter { index in
-                    index != state.currentIndex
-                        && NarrationFileNaming.chapterIndex(
-                            fromFileName: state.tracks[index].url.lastPathComponent) == chapterIndex
-                }
+                let removableIndices = NarrationOutlineReadiness.removableQueueIndices(
+                    fileNames: state.tracks.map { $0.url.lastPathComponent },
+                    currentIndex: state.currentIndex,
+                    expectedFileNames: narrationExpectedFileNamesByChapter[chapterIndex] ?? [])
                 for removeAt in removableIndices {
                     state.tracks.remove(at: removeAt)
                     if removeAt < state.currentIndex { state.currentIndex -= 1 }

@@ -82,6 +82,27 @@ import Testing
         #expect(afterRendering == [0, 1])
     }
 
+    @Test func queueExclusionRemovesStablePlanFilesAndPreservesCurrentTrack() {
+        let entryKey = "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"
+        let exact = NarrationFileNaming.segmentFileName(
+            audiobookID: "book", chapterIndex: 7, sourceChapterKey: entryKey,
+            segmentIndex: 0, voice: VoiceID("bf_emma"), contentSignature: "current")
+        let second = NarrationFileNaming.segmentFileName(
+            audiobookID: "book", chapterIndex: 7, sourceChapterKey: entryKey,
+            segmentIndex: 1, voice: VoiceID("bf_emma"), contentSignature: "current")
+        let unrelated = NarrationFileNaming.segmentFileName(
+            audiobookID: "book", chapterIndex: 0, sourceChapterKey: nil,
+            segmentIndex: 0, voice: VoiceID("af_heart"), contentSignature: "other")
+
+        let removable = NarrationOutlineReadiness.removableQueueIndices(
+            fileNames: [exact, unrelated, second],
+            currentIndex: 2,
+            expectedFileNames: [exact, second])
+
+        #expect(removable == [0])
+        #expect(NarrationFileNaming.chapterIndex(fromFileName: exact) == nil)
+    }
+
     @Test func titlePreservesClosingParenthesisAfterDuplicateChapterPrefixCleanup() {
         var blocks: [EPubBlockRecord] = []
         for chapter in 0..<7 {

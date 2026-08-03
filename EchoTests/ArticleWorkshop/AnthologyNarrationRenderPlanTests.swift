@@ -105,6 +105,15 @@ import Testing
         }
     }
 
+    @Test func anthologyRejectsIncompleteImportedChapterSet() throws {
+        #expect(throws: NarrationChapterRenderPlanError.incompleteImportedChapterSet) {
+            try NarrationChapterRenderPlanner.plan(
+                chapters: chapters(keys: [entryA.uuidString]),
+                preferredVoice: VoiceID("af_heart"),
+                manifest: manifest(entries: [(entryA, nil), (entryB, nil)]))
+        }
+    }
+
     @Test func anthologyRejectsForcedStableTokenCollision() throws {
         #expect(throws: NarrationChapterRenderPlanError.duplicateStableToken("collision")) {
             try NarrationChapterRenderPlanner.plan(

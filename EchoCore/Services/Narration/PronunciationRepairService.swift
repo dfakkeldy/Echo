@@ -187,15 +187,6 @@ final class PronunciationRepairService {
         audiobookID: String,
         chapterIndex: Int
     ) -> Bool {
-        guard let sourceChapterKey else {
-            return NarrationFileNaming.isCurrentChapterCacheFileName(
-                fileName,
-                audiobookID: audiobookID,
-                chapterIndex: chapterIndex,
-                voice: voice,
-                includingPartial: true)
-        }
-
         let durableName: String
         if fileName.hasSuffix(".partial") {
             durableName = String(fileName.dropLast(".partial".count))
@@ -211,8 +202,10 @@ final class PronunciationRepairService {
                 "-\(voice.rawValue)-v\(NarrationFileNaming.renderVersion).m4a"),
             let location = NarrationFileNaming.location(fromFileName: durableName)
         else { return false }
-        return location.stableChapterToken
-            == NarrationFileNaming.stableChapterToken(for: sourceChapterKey)
-            && location.segmentIndex == nil
+        if let sourceChapterKey {
+            return location.stableChapterToken
+                == NarrationFileNaming.stableChapterToken(for: sourceChapterKey)
+        }
+        return location.chapterIndex == chapterIndex
     }
 }

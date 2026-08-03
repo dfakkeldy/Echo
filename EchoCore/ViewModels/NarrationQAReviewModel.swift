@@ -8,6 +8,47 @@ import os.log
     import FoundationModels
 #endif
 
+private struct NarrationCurrentRenderUnit {
+    let segmentIndex: Int?
+    let blocks: [EPubBlockRecord]
+    let fileURL: URL
+}
+
+@MainActor
+private func currentNarrationRenderUnits(
+    for plan: NarrationChapterRenderPlan,
+    isFirstChapterOfBook: Bool,
+    narration: NarrationService
+) async -> [NarrationCurrentRenderUnit] {
+    let fullURL = await narration.chapterCacheURL(
+        chapterIndex: plan.chapterIndex,
+        sourceChapterKey: plan.sourceChapterKey,
+        blocks: plan.blocks,
+        voice: plan.voice)
+    if FileManager.default.fileExists(atPath: fullURL.path) {
+        return [NarrationCurrentRenderUnit(segmentIndex: nil, blocks: plan.blocks, fileURL: fullURL)]
+    }
+
+    var units: [NarrationCurrentRenderUnit] = []
+    for segment in NarrationSegmentPlanner.segments(
+        for: plan, isFirstChapterOfBook: isFirstChapterOfBook)
+    {
+        let fileURL = await narration.segmentCacheURL(
+            chapterIndex: segment.chapterIndex,
+            sourceChapterKey: segment.sourceChapterKey,
+            segmentIndex: segment.segmentIndex,
+            blocks: segment.blocks,
+            voice: segment.voice)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { continue }
+        units.append(
+            NarrationCurrentRenderUnit(
+                segmentIndex: segment.segmentIndex,
+                blocks: segment.blocks,
+                fileURL: fileURL))
+    }
+    return units
+}
+
 /// Drives the per-book narration-QA review screen: loads open issues and applies
 /// ignore/resolve status changes (override + regenerate actions land in M4). Pure
 /// Foundation (no UIKit), so it bundles into every target without exclusion.
@@ -171,6 +212,13 @@ final class NarrationQAReviewModel {
                 },
                 applyRepair: { issue, scope, target, narration, classifier in
                     let qa = NarrationQAService(db: db, classifier: classifier)
+                    let units = await currentNarrationRenderUnits(
+                        for: target,
+                        isFirstChapterOfBook: target.displayNumber == 1,
+                        narration: narration)
+                    guard !units.isEmpty else {
+                        throw NarrationRepairError.sourceChapterUnavailable
+                    }
                     let repair = PronunciationRepairService(
                         store: PronunciationOverrideStore.shared,
                         issueDAO: NarrationQualityIssueDAO(db: db),
@@ -182,32 +230,60 @@ final class NarrationQAReviewModel {
                             guard chapterIndex == target.chapterIndex else {
                                 throw NarrationRepairError.sourceChapterUnavailable
                             }
-                            try await narration.renderChapter(
-                                chapterIndex: chapterIndex,
-                                sourceChapterKey: target.sourceChapterKey,
-                                chapterNumber: target.displayNumber,
-                                blocks: target.blocks,
-                                voice: target.voice,
-                                chapterTitle: target.title)
+                            for unit in units {
+                                if let segmentIndex = unit.segmentIndex {
+                                    try await narration.renderSegment(
+                                        chapterIndex: chapterIndex,
+                                        sourceChapterKey: target.sourceChapterKey,
+                                        chapterDisplayNumber: target.displayNumber,
+                                        segmentIndex: segmentIndex,
+                                        blocks: unit.blocks,
+                                        voice: target.voice,
+                                        chapterTitle: target.title)
+                                } else {
+                                    try await narration.renderChapter(
+                                        chapterIndex: chapterIndex,
+                                        sourceChapterKey: target.sourceChapterKey,
+                                        chapterNumber: target.displayNumber,
+                                        blocks: unit.blocks,
+                                        voice: target.voice,
+                                        chapterTitle: target.title)
+                                }
+                            }
                         },
                         reRunQA: { chapterIndex in
                             guard chapterIndex == target.chapterIndex else {
                                 throw NarrationRepairError.sourceChapterUnavailable
                             }
-                            let fileURL = await narration.chapterCacheURL(
-                                chapterIndex: chapterIndex,
-                                sourceChapterKey: target.sourceChapterKey,
-                                blocks: target.blocks,
-                                voice: target.voice)
-                            try await qa.runQA(
-                                audiobookID: issue.audiobookID,
-                                chapters: [
+                            var qaUnits: [
+                                (chapterIndex: Int, fileURL: URL, spokenBlockIDs: [String])
+                            ] = []
+                            for unit in units {
+                                let fileURL: URL
+                                if let segmentIndex = unit.segmentIndex {
+                                    fileURL = await narration.segmentCacheURL(
+                                        chapterIndex: chapterIndex,
+                                        sourceChapterKey: target.sourceChapterKey,
+                                        segmentIndex: segmentIndex,
+                                        blocks: unit.blocks,
+                                        voice: target.voice)
+                                } else {
+                                    fileURL = await narration.chapterCacheURL(
+                                        chapterIndex: chapterIndex,
+                                        sourceChapterKey: target.sourceChapterKey,
+                                        blocks: unit.blocks,
+                                        voice: target.voice)
+                                }
+                                qaUnits.append(
                                     (
                                         chapterIndex: chapterIndex,
                                         fileURL: fileURL,
-                                        spokenBlockIDs: target.blocks.map(\.id)
-                                    )
-                                ])
+                                        spokenBlockIDs: unit.blocks.filter { !$0.isHidden }.map(\.id)
+                                    ))
+                            }
+                            try await qa.runQA(
+                                audiobookID: issue.audiobookID,
+                                chapters: qaUnits)
                         })
                     try await repair.applyFix(issue: issue, scope: scope)
                 })
@@ -357,20 +433,19 @@ final class NarrationQAReviewModel {
             plans: [NarrationChapterRenderPlan]
         ) async throws -> [(chapterIndex: Int, fileURL: URL, spokenBlockIDs: [String])] {
             let narration = await narrationService()
-            let blocksByChapter = Dictionary(
-                uniqueKeysWithValues: plans.map { ($0.chapterIndex, $0.blocks) })
-            var fileURLsByChapter: [Int: URL] = [:]
-            for plan in plans {
-                fileURLsByChapter[plan.chapterIndex] = await narration.chapterCacheURL(
-                    chapterIndex: plan.chapterIndex,
-                    sourceChapterKey: plan.sourceChapterKey,
-                    blocks: plan.blocks,
-                    voice: plan.voice)
+            var chapters: [(chapterIndex: Int, fileURL: URL, spokenBlockIDs: [String])] = []
+            for (planIndex, plan) in plans.enumerated() {
+                let units = await currentNarrationRenderUnits(
+                    for: plan,
+                    isFirstChapterOfBook: planIndex == 0,
+                    narration: narration)
+                chapters.append(contentsOf: units.compactMap { unit in
+                    let spokenBlockIDs = unit.blocks.filter { !$0.isHidden }.map(\.id)
+                    guard !spokenBlockIDs.isEmpty else { return nil }
+                    return (plan.chapterIndex, unit.fileURL, spokenBlockIDs)
+                })
             }
-            return NarrationQAService.chaptersToQA(
-                blocksByChapter: blocksByChapter,
-                fileURL: { fileURLsByChapter[$0] ?? NarrationCache.directory() },
-                fileExists: { FileManager.default.fileExists(atPath: $0.path) })
+            return chapters
         }
     #endif
 

@@ -417,9 +417,10 @@ final class MacBatchProcessingService {
                 // Write the read-along sidecar next to the EPUB so a book narrated
                 // on the Mac gets read-along on the device on import. Narration's
                 // synthesized anchor times are per-chapter-relative; convert to
-                // ABSOLUTE using the summed track durations in sort-order (== chapter
-                // index, the same order the m4b exporter concatenates), and store the
-                // portable `s<i>-b<j>` suffix. Best-effort: never fail the book on it.
+                // ABSOLUTE using exact current-plan track IDs and durations in plan
+                // order (the same order the m4b exporter concatenates), and store
+                // the portable `s<i>-b<j>` suffix. Best-effort: never fail the book
+                // when the exact current inventory cannot be proven.
                 do {
                     let chapterOfBlock: [String: Int] = chapters.reduce(into: [:]) { acc, ch in
                         for b in ch.blocks { acc[b.id] = ch.chapterIndex }
@@ -428,14 +429,27 @@ final class MacBatchProcessingService {
                         uniqueKeysWithValues: chapters.flatMap(\.blocks).map { ($0.id, $0) }
                     )
                     let tracks =
-                        ((try? TrackDAO(db: dbService.writer).tracks(for: audiobookID)) ?? [])
-                        .sorted { $0.sortOrder < $1.sortOrder }
-                    var offset: [Int: TimeInterval] = [:]
-                    var running: TimeInterval = 0
-                    for t in tracks {
-                        offset[t.sortOrder] = running
-                        running += t.duration
+                        (try? TrackDAO(db: dbService.writer).tracks(for: audiobookID)) ?? []
+                    var expectedFilePathsByTrackID: [String: String] = [:]
+                    for chapter in chapters {
+                        let trackID = NarrationFileNaming.trackID(
+                            audiobookID: audiobookID,
+                            chapterIndex: chapter.chapterIndex,
+                            sourceChapterKey: chapter.sourceChapterKey,
+                            segmentIndex: nil)
+                        expectedFilePathsByTrackID[trackID] = await service.chapterCacheURL(
+                            chapterIndex: chapter.chapterIndex,
+                            sourceChapterKey: chapter.sourceChapterKey,
+                            blocks: chapter.blocks,
+                            voice: chapter.voice).path
                     }
+                    guard
+                        let offset = NarrationPlanTrackOffsets.chapterOffsets(
+                            audiobookID: audiobookID,
+                            chapters: chapters,
+                            tracks: tracks,
+                            expectedFilePathsByTrackID: expectedFilePathsByTrackID)
+                    else { throw CocoaError(.fileReadCorruptFile) }
                     let sidecar: [AlignmentSidecar.Anchor] =
                         ((try? AlignmentAnchorDAO(db: dbService.writer).anchors(for: audiobookID))
                         ?? [])

@@ -134,6 +134,8 @@ struct MacReaderParityTests {
     @Test func narrationSidecarWritersAttachSourceIdentity() throws {
         let batch = try MacSource.read("Services/MacBatchProcessingService.swift")
         #expect(batch.contains("sourceBlockIdentity: AlignmentSidecar.sourceIdentity(for: block)"))
+        #expect(batch.contains("NarrationPlanTrackOffsets.chapterOffsets("))
+        #expect(batch.contains("expectedFilePathsByTrackID"))
 
         let headless = try projectSource(
             "EchoCore/Services/Narration/HeadlessNarrationRunner.swift"

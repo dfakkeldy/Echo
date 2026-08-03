@@ -49,4 +49,14 @@ nonisolated enum NarrationOutlineReadiness {
             return chapterIndex
         })
     }
+
+    static func removableQueueIndices(
+        fileNames: [String],
+        currentIndex: Int,
+        expectedFileNames: Set<String>
+    ) -> [Int] {
+        fileNames.indices.reversed().filter { index in
+            index != currentIndex && expectedFileNames.contains(fileNames[index])
+        }
+    }
 }

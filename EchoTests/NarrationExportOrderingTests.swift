@@ -61,11 +61,11 @@ import Testing
     }
 
     @MainActor
-    @Test func anthologyExportUsesPersistedStableTracksInCurrentSortOrder() async throws {
+    @Test func anthologyExportUsesCurrentPlanOrderDespiteStaleTrackSortOrder() async throws {
         let fixture = try await NarrationExportAnthologyFixture()
         try await fixture.persistCurrentSegment(entryIndex: 0, sortOrder: 0)
         try await fixture.persistCurrentSegment(entryIndex: 1, sortOrder: 1000)
-        try fixture.updateSortOrders([0: 1000, 1: 0])
+        try fixture.reorderPlanWithoutUpdatingTracks()
 
         let items = try await NarrationCacheSource(
             audiobookID: fixture.audiobookID,
@@ -74,7 +74,8 @@ import Testing
             preferredVoice: fixture.preferredVoice
         ).items()
 
-        #expect(items.map(\.title) == ["Chapter 2", "Chapter 1"])
+        #expect(items.map(\.url) == [fixture.persistedURLs[1], fixture.persistedURLs[0]])
+        #expect(items.map(\.title) == ["Chapter 1", "Chapter 2"])
         #expect(items.allSatisfy { $0.url.lastPathComponent.contains("-ck") })
         #expect(items.allSatisfy { $0.emitsChapterMarker })
     }
@@ -131,6 +132,8 @@ private final class NarrationExportAnthologyFixture {
         UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
         UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!,
     ]
+    private var currentOrder = [0, 1]
+    private var revision = 1
     private var blocksByEntry: [[EPubBlockRecord]] = []
     private(set) var persistedURLs: [URL] = []
 
@@ -151,7 +154,7 @@ private final class NarrationExportAnthologyFixture {
                 creator: nil, coverPath: nil, nextStableSlot: 2, latestBuildRevision: 0,
                 createdAt: "2026-08-02T12:00:00Z", modifiedAt: "2026-08-02T12:00:00Z"))
         blocksByEntry = entryIDs.enumerated().map { index, entryID in
-            [block(entryIndex: index, entryID: entryID, blockIndex: 0)]
+            [block(entryIndex: index, entryID: entryID, chapterIndex: index, blockIndex: 0)]
         }
         try EPubBlockDAO(db: database.writer).insertAll(blocksByEntry.flatMap { $0 })
         try insertBuild()
@@ -230,51 +233,70 @@ private final class NarrationExportAnthologyFixture {
         }
     }
 
+    func reorderPlanWithoutUpdatingTracks() throws {
+        currentOrder = [1, 0]
+        revision += 1
+        blocksByEntry = entryIDs.enumerated().map { entryIndex, entryID in
+            let chapterIndex = currentOrder.firstIndex(of: entryIndex)!
+            return [
+                block(
+                    entryIndex: entryIndex, entryID: entryID,
+                    chapterIndex: chapterIndex, blockIndex: 0)
+            ]
+        }
+        try EPubBlockDAO(db: database.writer).deleteAll(for: audiobookID)
+        try EPubBlockDAO(db: database.writer).insertAll(blocksByEntry.flatMap { $0 })
+        try insertBuild()
+    }
+
     private func block(
         entryIndex: Int,
         entryID: UUID,
+        chapterIndex: Int? = nil,
         blockIndex: Int,
         text: String? = nil
     ) -> EPubBlockRecord {
         EPubBlockRecord(
             id: "export-block-\(entryIndex)-\(blockIndex)", audiobookID: audiobookID,
-            spineHref: "chapter-\(entryIndex).xhtml", spineIndex: entryIndex,
-            blockIndex: blockIndex, sequenceIndex: entryIndex * 100 + blockIndex,
+            spineHref: "chapter-\(entryIndex).xhtml", spineIndex: chapterIndex ?? entryIndex,
+            blockIndex: blockIndex,
+            sequenceIndex: (chapterIndex ?? entryIndex) * 100 + blockIndex,
             blockKind: "paragraph", text: text ?? "Export chapter \(entryIndex + 1).",
             htmlContent: nil, cardColor: nil, chapterThemeColor: nil, imagePath: nil,
-            chapterIndex: entryIndex, isHidden: false, hiddenReason: nil,
+            chapterIndex: chapterIndex ?? entryIndex, isHidden: false, hiddenReason: nil,
             isFrontMatter: false, wordCount: nil, markers: nil, textFormats: nil,
             narrationText: nil, sourceChapterKey: entryID.uuidString,
             createdAt: nil, modifiedAt: nil)
     }
 
     private func insertBuild() throws {
-        let chapters = entryIDs.enumerated().map { index, entryID in
+        let chapters = currentOrder.enumerated().map { index, entryIndex in
+            let entryID = entryIDs[entryIndex]
             let articleBlocks = [
                 ArticleBlock(
-                    id: "article-export-\(index)", stableOrdinal: 0, kind: .paragraph,
-                    text: "Export chapter \(index + 1).", sourceURL: nil,
+                    id: "article-export-\(entryIndex)", stableOrdinal: 0, kind: .paragraph,
+                    text: "Export chapter \(entryIndex + 1).", sourceURL: nil,
                     imageCandidateURL: nil, caption: nil, codeLanguage: nil)
             ]
             return AnthologyChapterManifest(
                 entryID: entryID,
                 captureID: UUID(uuidString: "00000000-0000-0000-0000-00000000000\(index + 1)")!,
                 articleRevisionID: UUID(
-                    uuidString: "11111111-1111-1111-1111-11111111111\(index + 1)")!,
-                stableSlot: index, order: index, title: "Chapter \(index + 1)", author: nil,
-                siteName: nil, sourceURL: URL(string: "https://example.test/\(index)")!,
+                    uuidString: "11111111-1111-1111-1111-11111111111\(entryIndex + 1)")!,
+                stableSlot: entryIndex, order: index, title: "Chapter \(entryIndex + 1)", author: nil,
+                siteName: nil, sourceURL: URL(string: "https://example.test/\(entryIndex)")!,
                 capturedAt: Date(timeIntervalSince1970: 1_775_000_000),
-                voiceID: index == 1 ? "bf_emma" : nil, blocks: articleBlocks,
+                voiceID: entryIndex == 1 ? "bf_emma" : nil, blocks: articleBlocks,
                 readableContentSHA256: ArticleWorkshopDigest.readableContent(blocks: articleBlocks))
         }
         let manifest = AnthologyBuildManifest(
-            schemaVersion: 1, anthologyID: anthologyID, revision: 1,
+            schemaVersion: 1, anthologyID: anthologyID, revision: revision,
             epubIdentifier: "urn:uuid:\(anthologyID.uuidString)", title: "Export Anthology",
             subtitle: nil, creator: "Various Authors", language: "en", coverPath: nil,
             modifiedAt: Date(timeIntervalSince1970: 1_775_000_000), chapters: chapters)
         let data = try JSONEncoder.articleWorkshop.encode(manifest)
         var build = AnthologyBuildRecord(
-            id: UUID().uuidString, anthologyID: anthologyID.uuidString, revision: 1,
+            id: UUID().uuidString, anthologyID: anthologyID.uuidString, revision: revision,
             epubIdentifier: manifest.epubIdentifier,
             manifestJSON: String(decoding: data, as: UTF8.self),
             manifestSHA256: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),

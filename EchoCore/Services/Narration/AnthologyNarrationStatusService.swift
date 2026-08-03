@@ -55,9 +55,11 @@ nonisolated struct AnthologyNarrationInventory: Sendable {
     var exportItems: [ExportItem] {
         exportUnits
             .sorted {
-                if $0.sortOrder != $1.sortOrder { return $0.sortOrder < $1.sortOrder }
                 if $0.planOrder != $1.planOrder { return $0.planOrder < $1.planOrder }
-                return ($0.segmentIndex ?? -1) < ($1.segmentIndex ?? -1)
+                if ($0.segmentIndex ?? -1) != ($1.segmentIndex ?? -1) {
+                    return ($0.segmentIndex ?? -1) < ($1.segmentIndex ?? -1)
+                }
+                return $0.sortOrder < $1.sortOrder
             }
             .map(\.exportItem)
     }
@@ -90,13 +92,29 @@ struct AnthologyNarrationStatusService: Sendable {
         }
         guard let manifest else { return nil }
 
-        let visibleBlocks = try EPubBlockDAO(db: db).visibleBlocks(for: audiobookID)
+        let blockDAO = EPubBlockDAO(db: db)
+        let allBlocks = try blockDAO.allBlocks(for: audiobookID)
+        let visibleBlocks = try blockDAO.visibleBlocks(for: audiobookID)
         let chapterPlans: [NarrationChapterRenderPlan]
         do {
-            chapterPlans = try NarrationChapterRenderPlanner.plan(
-                chapters: NarrationChapterPlanner.plan(from: visibleBlocks),
+            let allChapterPlans = try NarrationChapterRenderPlanner.plan(
+                chapters: NarrationChapterPlanner.plan(from: allBlocks),
                 preferredVoice: preferredVoice,
                 manifest: manifest)
+            let allPlansByIndex = Dictionary(
+                uniqueKeysWithValues: allChapterPlans.map { ($0.chapterIndex, $0) })
+            chapterPlans = try NarrationChapterPlanner.plan(from: visibleBlocks).map { visible in
+                guard let trusted = allPlansByIndex[visible.index] else {
+                    throw NarrationChapterRenderPlanError.incompleteImportedChapterSet
+                }
+                return NarrationChapterRenderPlan(
+                    chapterIndex: visible.index,
+                    displayNumber: visible.displayNumber,
+                    sourceChapterKey: trusted.sourceChapterKey,
+                    title: visible.title,
+                    blocks: visible.blocks,
+                    voice: trusted.voice)
+            }
         } catch is NarrationChapterRenderPlanError {
             throw AnthologyNarrationReadinessError.invalidPlan
         }

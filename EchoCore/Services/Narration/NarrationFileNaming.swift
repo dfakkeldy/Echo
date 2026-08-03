@@ -235,6 +235,9 @@ nonisolated enum NarrationFileNaming {
     static func location(fromFileName fileName: String) -> NarrationCacheLocation? {
         let range = NSRange(fileName.startIndex..., in: fileName)
         if let match = stableLocationPattern.firstMatch(in: fileName, range: range) {
+            guard integerCapture(match, at: 3, in: fileName) == renderVersion else {
+                return nil
+            }
             let tokenRange = Range(match.range(at: 1), in: fileName)!
             let segmentIndex = integerCapture(match, at: 2, in: fileName)
             return NarrationCacheLocation(
@@ -284,7 +287,7 @@ nonisolated enum NarrationFileNaming {
     }
 
     private static let stableLocationPattern = try! NSRegularExpression(
-        pattern: "^[A-Za-z0-9_]+-ck([0-9a-f]{32})(?:-s([0-9]+))?(?:-h[A-Za-z0-9]+)?-[A-Za-z0-9_]+-v20\\.m4a$")
+        pattern: "^[A-Za-z0-9_]+-ck([0-9a-f]{32})(?:-s([0-9]+))?(?:-h[A-Za-z0-9]+)?-[A-Za-z0-9_]+-v([0-9]+)\\.m4a$")
     private static let legacyLocationPattern = try! NSRegularExpression(
         pattern: "^[A-Za-z0-9_]+-ch([0-9]+)(?:-s([0-9]+))?(?:-h[A-Za-z0-9]+)?-[A-Za-z0-9_]+(?:-v[0-9]+)?\\.m4a$")
 

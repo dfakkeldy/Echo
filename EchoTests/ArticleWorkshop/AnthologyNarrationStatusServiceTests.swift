@@ -118,6 +118,16 @@ struct AnthologyNarrationStatusServiceTests {
         }
     }
 
+    @Test func incompleteImportedBlockSetFailsBeforeVisibleReadinessFiltering() async throws {
+        let fixture = try await StatusFixture()
+        try fixture.removeSecondImportedEntryWithoutRebuilding()
+
+        await #expect(throws: AnthologyNarrationReadinessError.invalidPlan) {
+            try await fixture.service.status(
+                audiobookID: fixture.audiobookID, preferredVoice: fixture.preferredVoice)
+        }
+    }
+
     @Test func ordinaryBookReturnsNil() async throws {
         let database = try DatabaseService(inMemory: ())
         let cacheDirectory = FileManager.default.temporaryDirectory.appending(
@@ -245,6 +255,14 @@ private final class StatusFixture {
             try db.execute(
                 sql: "UPDATE epub_block SET is_hidden = 1 WHERE id = ?",
                 arguments: ["block-1"])
+        }
+    }
+
+    func removeSecondImportedEntryWithoutRebuilding() throws {
+        try database.writer.write { db in
+            try db.execute(
+                sql: "DELETE FROM epub_block WHERE audiobook_id = ? AND source_chapter_key = ?",
+                arguments: [audiobookID, entryIDs[1].uuidString])
         }
     }
 

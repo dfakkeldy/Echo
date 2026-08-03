@@ -261,6 +261,68 @@ import Testing
         #expect(chapters.map(\.fileURL) == [signedURL])
     }
 
+    @Test func renderedChaptersForQAUsesOrderedSegmentOnlyInventoryAndBlockCoverage() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let bookID = "segment-only-qa"
+        let sourceChapterKey = "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"
+        try seed(db, book: bookID)
+        let blocks = [
+            EPubBlockRecord(
+                id: "seg-block-0", audiobookID: bookID, spineHref: "chapter.xhtml",
+                spineIndex: 0, blockIndex: 0, sequenceIndex: 0, blockKind: "paragraph",
+                text: String(repeating: "A", count: 120), htmlContent: nil, cardColor: nil,
+                chapterThemeColor: nil, imagePath: nil, chapterIndex: 2, isHidden: false,
+                hiddenReason: nil, isFrontMatter: false, wordCount: nil, markers: nil,
+                textFormats: nil, narrationText: nil, sourceChapterKey: sourceChapterKey,
+                createdAt: nil, modifiedAt: nil),
+            EPubBlockRecord(
+                id: "seg-block-1", audiobookID: bookID, spineHref: "chapter.xhtml",
+                spineIndex: 0, blockIndex: 1, sequenceIndex: 1, blockKind: "paragraph",
+                text: "Second segment.", htmlContent: nil, cardColor: nil,
+                chapterThemeColor: nil, imagePath: nil, chapterIndex: 2, isHidden: false,
+                hiddenReason: nil, isFrontMatter: false, wordCount: nil, markers: nil,
+                textFormats: nil, narrationText: nil, sourceChapterKey: sourceChapterKey,
+                createdAt: nil, modifiedAt: nil),
+        ]
+        try EPubBlockDAO(db: db.writer).insertAll(blocks)
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let voice = VoiceID("bf_emma")
+        let service = NarrationService(
+            db: db.writer, audiobookID: bookID, tts: MockTTSEngine(),
+            audioWriter: MockAudioWriter(), cacheDirectory: tmp,
+            state: NarrationState(), fmEnabled: { false })
+        let plan = NarrationChapterRenderPlan(
+            chapterIndex: 2, displayNumber: 1, sourceChapterKey: sourceChapterKey,
+            title: "Segmented", blocks: blocks, voice: voice)
+        let segments = NarrationSegmentPlanner.segments(for: plan, isFirstChapterOfBook: true)
+        var segmentURLs: [URL] = []
+        for segment in segments {
+            segmentURLs.append(
+                await service.segmentCacheURL(
+                    chapterIndex: segment.chapterIndex,
+                    sourceChapterKey: segment.sourceChapterKey,
+                    segmentIndex: segment.segmentIndex,
+                    blocks: segment.blocks,
+                    voice: segment.voice))
+        }
+        for url in segmentURLs {
+            _ = FileManager.default.createFile(atPath: url.path, contents: Data([0x01]))
+        }
+        let dependencies = NarrationQAReviewModel.Dependencies(
+            narrationPlan: { _, _ in [plan] },
+            narrationServiceFactory: { _, _ in service })
+        let model = NarrationQAReviewModel(
+            db: db.writer, audiobookID: bookID, dependencies: dependencies)
+
+        let chapters = try await model.renderedChaptersForQA(plans: [plan])
+
+        #expect(chapters.map(\.fileURL) == segmentURLs)
+        #expect(chapters.map(\.spokenBlockIDs) == segments.map { $0.blocks.map(\.id) })
+    }
+
     @Test func fullQAAndAcceptFixUseIssueChaptersEffectiveVoice() async throws {
         let db = try DatabaseService(inMemory: ())
         let bookID = "anthology-qa"

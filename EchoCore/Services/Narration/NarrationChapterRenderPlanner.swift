@@ -19,6 +19,7 @@ nonisolated enum NarrationChapterRenderPlanError: Error, Equatable, Sendable {
     case unknownSourceChapterKey(String)
     case duplicateSourceChapterKey(String)
     case duplicateStableToken(String)
+    case incompleteImportedChapterSet
     case unavailableVoice(String)
 }
 
@@ -35,7 +36,9 @@ nonisolated enum NarrationChapterRenderPlanner {
             chapters: chapters,
             preferredVoice: preferredVoice,
             manifest: manifest,
-            stableToken: { $0.uuidString })
+            stableToken: {
+                NarrationFileNaming.stableChapterToken(for: $0.uuidString)
+            })
     }
 
     static func plan(
@@ -63,7 +66,7 @@ nonisolated enum NarrationChapterRenderPlanner {
 
         var seenSourceChapterKeys = Set<String>()
         var seenStableTokens = Set<String>()
-        return try chapters.map { chapter in
+        let plans = try chapters.map { chapter in
             let sourceChapterKeys = Set(chapter.blocks.map(\.sourceChapterKey))
             guard sourceChapterKeys.contains(nil) == false else {
                 throw NarrationChapterRenderPlanError.missingSourceChapterKey(
@@ -102,5 +105,9 @@ nonisolated enum NarrationChapterRenderPlanner {
                 blocks: chapter.blocks,
                 voice: voice)
         }
+        guard seenSourceChapterKeys == Set(manifestChaptersByKey.keys) else {
+            throw NarrationChapterRenderPlanError.incompleteImportedChapterSet
+        }
+        return plans
     }
 }

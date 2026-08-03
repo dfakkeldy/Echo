@@ -334,7 +334,7 @@ import Testing
     }
 
     @MainActor
-    @Test func applyFixClearsOnlyMatchingStableChapterFiles() async throws {
+    @Test func applyFixClearsOnlyMatchingStableSegmentInventory() async throws {
         let db = try DatabaseService(inMemory: ())
         let bookID = "anthology"
         let blockID = "entry-b-block"
@@ -356,12 +356,16 @@ import Testing
                 audiobookID: bookID, chapterIndex: 1, sourceChapterKey: entryA,
                 voice: voice, contentSignature: "aaaaaaaaaaaaaaaa"))
         let entryBFile = tmp.appendingPathComponent(
-            NarrationFileNaming.chapterFileName(
+            NarrationFileNaming.segmentFileName(
                 audiobookID: bookID, chapterIndex: 3, sourceChapterKey: entryB,
-                voice: voice, contentSignature: "bbbbbbbbbbbbbbbb"))
+                segmentIndex: 0, voice: voice, contentSignature: "bbbbbbbbbbbbbbbb"))
+        let entryBSecondSegment = tmp.appendingPathComponent(
+            NarrationFileNaming.segmentFileName(
+                audiobookID: bookID, chapterIndex: 3, sourceChapterKey: entryB,
+                segmentIndex: 1, voice: voice, contentSignature: "cccccccccccccccc"))
         let entryBPartial = tmp.appendingPathComponent(
             ".\(entryBFile.deletingPathExtension().lastPathComponent).partial.m4a")
-        for url in [entryAFile, entryBFile, entryBPartial] {
+        for url in [entryAFile, entryBFile, entryBSecondSegment, entryBPartial] {
             _ = FileManager.default.createFile(atPath: url.path, contents: Data())
         }
 
@@ -378,6 +382,7 @@ import Testing
 
         #expect(FileManager.default.fileExists(atPath: entryAFile.path))
         #expect(try Data(contentsOf: entryBFile) == Data([0x42]))
+        #expect(FileManager.default.fileExists(atPath: entryBSecondSegment.path) == false)
         #expect(FileManager.default.fileExists(atPath: entryBPartial.path) == false)
     }
 }

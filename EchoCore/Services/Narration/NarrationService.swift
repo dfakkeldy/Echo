@@ -519,6 +519,21 @@ final class NarrationService {
     ) async throws {
         let savedTitle = Self.savedTitle(
             displayNumber: chapterDisplayNumber, blocks: blocks, chapterTitle: chapterTitle)
+        let fileURL: URL
+        if let segmentIndex {
+            fileURL = await segmentCacheURL(
+                chapterIndex: chapterIndex,
+                sourceChapterKey: sourceChapterKey,
+                segmentIndex: segmentIndex,
+                blocks: blocks,
+                voice: voice)
+        } else {
+            fileURL = await chapterCacheURL(
+                chapterIndex: chapterIndex,
+                sourceChapterKey: sourceChapterKey,
+                blocks: blocks,
+                voice: voice)
+        }
         let trackID = NarrationFileNaming.trackID(
             audiobookID: audiobookID,
             chapterIndex: chapterIndex,
@@ -526,15 +541,65 @@ final class NarrationService {
             segmentIndex: segmentIndex)
         let sortOrder = segmentIndex.map { chapterIndex * 1000 + $0 } ?? chapterIndex
 
-        try await db.write { db in
-            try db.execute(
-                sql: """
-                    UPDATE track
-                    SET title = ?, sort_order = ?, narration_voice = ?
-                    WHERE id = ? AND audiobook_id = ?
-                    """,
-                arguments: [savedTitle, sortOrder, voice.rawValue, trackID, audiobookID])
+        do {
+            let duration = try await Self.validatedDuration(ofCachedFile: fileURL)
+            try Task.checkCancellation()
+            try await db.write { db in
+                let existing = try TrackRecord
+                    .filter(Column("id") == trackID && Column("audiobook_id") == audiobookID)
+                    .fetchOne(db)
+                var track = TrackRecord(
+                    id: trackID,
+                    audiobookID: audiobookID,
+                    title: savedTitle,
+                    duration: duration,
+                    filePath: fileURL.path,
+                    isEnabled: existing?.isEnabled ?? true,
+                    sortOrder: sortOrder,
+                    playlistPosition: existing?.playlistPosition,
+                    narrationVoice: voice.rawValue)
+                try track.save(db)
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            // A durable filename can survive process death after publish but before
+            // persistence. Reuse only when AVFoundation proves the file duration;
+            // otherwise discard the untrusted cache and rebuild this exact unit.
+            try? FileManager.default.removeItem(at: fileURL)
+            if let segmentIndex {
+                try await renderSegment(
+                    chapterIndex: chapterIndex,
+                    sourceChapterKey: sourceChapterKey,
+                    chapterDisplayNumber: chapterDisplayNumber,
+                    segmentIndex: segmentIndex,
+                    blocks: blocks,
+                    voice: voice,
+                    chapterTitle: chapterTitle)
+            } else {
+                try await renderChapter(
+                    chapterIndex: chapterIndex,
+                    sourceChapterKey: sourceChapterKey,
+                    chapterNumber: chapterDisplayNumber,
+                    blocks: blocks,
+                    voice: voice,
+                    chapterTitle: chapterTitle)
+            }
         }
+    }
+
+    private nonisolated static func validatedDuration(
+        ofCachedFile fileURL: URL
+    ) async throws -> TimeInterval {
+        let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
+        guard values.isRegularFile == true else {
+            throw CocoaError(.fileReadNoSuchFile)
+        }
+        let duration = CMTimeGetSeconds(try await AVURLAsset(url: fileURL).load(.duration))
+        guard duration.isFinite, duration > 0 else {
+            throw NarrationError.synthesisFailed
+        }
+        return duration
     }
 
     /// Render one complete segment file without mutating playback, alignment, or
