@@ -74,8 +74,10 @@ struct EnglishCurrencyExpression: Equatable, Sendable {
           normalizedFraction.removeLast()
         }
         if !normalizedFraction.isEmpty {
-          let fractionWords = normalizedFraction.map { digit in
-            numberWords.convert(Decimal(Int(String(digit))!))
+          var fractionWords: [String] = []
+          for digit in normalizedFraction {
+            guard let digitValue = asciiDigitValue(digit) else { return nil }
+            fractionWords.append(numberWords.convert(Decimal(digitValue)))
           }
           amountWords += " point " + fractionWords.joined(separator: " ")
         }
@@ -145,6 +147,15 @@ struct EnglishCurrencyExpression: Equatable, Sendable {
   }
 
   private static func isASCIIDigit(_ character: Character) -> Bool {
-    character >= "0" && character <= "9"
+    asciiDigitValue(character) != nil
+  }
+
+  private static func asciiDigitValue(_ character: Character) -> Int? {
+    guard character.unicodeScalars.count == 1,
+          let scalar = character.unicodeScalars.first,
+          (48...57).contains(scalar.value) else {
+      return nil
+    }
+    return Int(scalar.value - 48)
   }
 }

@@ -36,4 +36,13 @@ import Testing
   func unsupportedIsNotConsumed(input: String) {
     #expect(EnglishCurrencyExpression.parse(input) == nil)
   }
+
+  @Test func multiScalarDigitGraphemeFailsClosed() {
+    #expect(EnglishCurrencyExpression.parse("$1.1️⃣ million") == nil)
+  }
+
+  @Test(arguments: ["$1.", "$1,"])
+  func sentencePunctuationIsNotPartOfTheAmount(input: String) {
+    #expect(EnglishCurrencyExpression.parse(input) == nil)
+  }
 }
