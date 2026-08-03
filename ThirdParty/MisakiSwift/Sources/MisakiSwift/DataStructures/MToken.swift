@@ -11,6 +11,8 @@ public class Underscore {
   public var stress: Double?
   /// Currency type if the token represents a monetary value.
   public var currency: String?
+  /// Exact source span when this token represents a complete semantic currency expression.
+  public var currencyExpressionSource: String?
   /// Flags related to numeric interpretation or formatting.
   public var num_flags: String
   /// Indicates whether whitespace should precede this token in output.
@@ -29,6 +31,7 @@ public class Underscore {
   ///   - alias: Alternative representation (defaults to `nil`).
   ///   - stress: Stress level for pronunciation (defaults to `nil`).
   ///   - currency: Currency type for monetary values (defaults to `nil`).
+  ///   - currencyExpressionSource: Exact semantic currency source span (defaults to `nil`).
   ///   - num_flags: Numeric interpretation flags (defaults to empty string).
   ///   - prespace: Whether to add preceding whitespace (defaults to `false`).
   ///   - rating: Quality or confidence rating (defaults to `nil`).
@@ -38,6 +41,7 @@ public class Underscore {
     alias: String? = nil,
     stress: Double? = nil,
     currency: String? = nil,
+    currencyExpressionSource: String? = nil,
     num_flags: String = "",
     prespace: Bool = false,
     rating: Int? = nil,
@@ -46,6 +50,7 @@ public class Underscore {
       self.alias = alias
       self.stress = stress
       self.currency = currency
+      self.currencyExpressionSource = currencyExpressionSource
       self.num_flags = num_flags
       self.prespace = prespace
       self.rating = rating
@@ -60,6 +65,7 @@ public class Underscore {
       alias: other.alias,
       stress: other.stress,
       currency: other.currency,
+      currencyExpressionSource: other.currencyExpressionSource,
       num_flags: other.num_flags,
       prespace: other.prespace,
       rating: other.rating,
