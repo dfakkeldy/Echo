@@ -656,6 +656,49 @@ private actor ShadowEvaluatorRecorder {
         #expect(plan.pronunciationAuditDiagnostics.isEmpty)
     }
 
+    @Test func plainURLMonitoredComponentDoesNotCreateContextualEvidenceIdentityMismatch()
+        async throws
+    {
+        let recorder = ShadowEvaluatorRecorder()
+        let service = NarrationService(
+            db: try DatabaseService(inMemory: ()).writer,
+            audiobookID: "b1",
+            tts: MockTTSEngine(),
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            contextualPronunciationEvaluator: { request in
+                await recorder.record(request)
+                return ContextualPronunciationBatchResult(
+                    availability: .available,
+                    selections: request.occurrences.map {
+                        ContextualModelSelection(
+                            occurrenceID: $0.occurrenceID,
+                            slot: .needsReview)
+                    },
+                    failure: nil,
+                    runtime: ContextualModelRuntime(
+                        platform: "test",
+                        osBuild: "test-build",
+                        qualifiedRuntimeFamilyID: "test-runtime"))
+            },
+            fmEnabled: { false })
+        let sourceBlock = block(
+            "b1",
+            id: "plain-url",
+            seq: 0,
+            text: "https://example.com/wp-content/uploads/report.pdf")
+
+        let plan = try await service.renderPlan(
+            for: [sourceBlock],
+            overrides: PronunciationOverrides(entries: [:]),
+            occurrenceOverrides: .empty,
+            fmEnabled: false)
+
+        #expect(await recorder.recordedTargetWords().isEmpty)
+        #expect(plan.pronunciationAuditDiagnostics.isEmpty)
+    }
+
     @Test func contextualCancellationStopsBeforeNarrationPlanFinalization() async throws {
         let service = NarrationService(
             db: try DatabaseService(inMemory: ()).writer,

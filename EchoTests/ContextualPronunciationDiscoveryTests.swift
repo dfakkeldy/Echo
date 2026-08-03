@@ -88,6 +88,16 @@ import Testing
         #expect(item.wordEnd == 3)
     }
 
+    @Test func plainURLComponentsAreExcludedFromDiscovery() {
+        let occurrences = ContextualPronunciationDiscovery.discover(
+            text:
+                "The content is available at "
+                + "https://example.com/wp-content/uploads/report.pdf.",
+            blockID: "b-plain-url")
+
+        #expect(occurrences.map(\.targetWord) == ["content"])
+    }
+
     @Test func occurrenceIDIsTheSpecifiedIndependentSHA256() throws {
         let first = try #require(
             ContextualPronunciationDiscovery.discover(text: "read", blockID: "b1").first)
