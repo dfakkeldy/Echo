@@ -90,7 +90,7 @@ import Testing
         #expect(first == reordered)
         #expect(
             NarrationFileNaming.stableChapterToken(for: entryKey)
-                == "97d14f79c9575b190d779d03e14481")
+                == "97d14f79c9575b190d779d03e1448164")
         #expect(NarrationFileNaming.location(fromFileName: first)?.chapterIndex == nil)
         #expect(NarrationFileNaming.location(fromFileName: first)?.stableChapterToken?.count == 32)
         #expect(
