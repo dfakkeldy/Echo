@@ -60,7 +60,9 @@ nonisolated enum NarrationFileNaming {
     /// v20 = common abbreviations are spelled out before G2P, so `km`, `hrs`,
     /// `Mt.`, `approx.`, and month abbreviations in date position are voiced as
     /// words instead of reaching the voice as unpronounceable letter strings.
-    static let renderVersion = 20
+    /// v21 = complete supported currency expressions are normalized to semantic
+    /// spoken forms before G2P, changing narration bytes for the same source text.
+    static let renderVersion = 21
     /// Stable renderer-family identity persisted beside headless captures. The
     /// cache render version tracks byte-affecting revisions within this family;
     /// this value prevents a different engine/G2P stack from inheriting them.
