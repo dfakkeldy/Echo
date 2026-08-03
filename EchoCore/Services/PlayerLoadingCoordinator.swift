@@ -827,78 +827,112 @@ final class PlayerLoadingCoordinator {
             guard self.isActiveLoad(state: state, bookURL: bookURL, trackURL: trackURL) else {
                 return
             }
-            await artworkCoordinator.generateThumbnail(for: trackURL)
-            guard self.isActiveLoad(state: state, bookURL: bookURL, trackURL: trackURL) else {
-                return
-            }
+            await Self.performReaderAndArtworkPostLoad(
+                readerWork: {
+                    guard
+                        self.isActiveLoad(
+                            state: state, bookURL: bookURL, trackURL: trackURL
+                        )
+                    else { return }
 
-            if let pending = state.pendingAggregatedChapter {
-                state.pendingAggregatedChapter = nil
-                let bookOffset =
-                    state.m4bBooks.indices.contains(pending.bookIndex)
-                    ? state.m4bBooks[pending.bookIndex].cumulativeStartOffset : 0
-                let intraBookTime = max(0, pending.startSeconds - bookOffset) + 0.05
-                audioEngine.seek(to: intraBookTime) { [weak self] _ in
-                    self?.playbackController?.resumeAfterSeek()
-                }
-            } else if autoplay {
-                playbackController.play()
-            }
-
-            if let db = self.databaseServiceProvider?() {
-                let currentChapters: [Chapter]
-                if state.isMultiM4B, !state.aggregatedChapters.isEmpty {
-                    currentChapters = state.aggregatedChapters.map { agg in
-                        Chapter(
-                            index: agg.chapterIndex, title: agg.chapterTitle,
-                            startSeconds: agg.startSeconds, endSeconds: agg.endSeconds,
-                            isEnabled: true)
+                    if let pending = state.pendingAggregatedChapter {
+                        state.pendingAggregatedChapter = nil
+                        let bookOffset =
+                            state.m4bBooks.indices.contains(pending.bookIndex)
+                            ? state.m4bBooks[pending.bookIndex].cumulativeStartOffset : 0
+                        let intraBookTime = max(0, pending.startSeconds - bookOffset) + 0.05
+                        audioEngine.seek(to: intraBookTime) { [weak self] _ in
+                            self?.playbackController?.resumeAfterSeek()
+                        }
+                    } else if autoplay {
+                        playbackController.play()
                     }
-                } else {
-                    currentChapters = state.chapters
-                }
-                let currentDuration =
-                    state.isMultiM4B ? state.totalBookDuration : state.durationSeconds
-                let didImport = await EPUBAutoImportScanner.scanAndImportIfNeeded(
-                    folderURL: bookURL, databaseService: db, chapters: currentChapters,
-                    duration: currentDuration
-                )
-                guard self.isActiveLoad(state: state, bookURL: bookURL, trackURL: trackURL) else {
-                    return
-                }
-                if didImport, let timelinePersistence = self.timelinePersistence {
-                    // A first-time import lands after the load-time ingestion pass,
-                    // so timeline_item has no EPUB-block rows yet. Rebuild it now
-                    // that blocks exist, or the reader/feed shows no timestamps
-                    // until the next load.
-                    await timelinePersistence.ingestTimelineItems(
-                        audiobookID: bookURL.absoluteString,
-                        audioURL: trackURL,
-                        chapters: currentChapters,
-                        transcription: state.transcription,
-                        enhancedTranscription: state.enhancedTranscription,
-                        folderURL: contentFolderURL
-                    )
-                }
 
-                // Also discover an m4b-keyed sidecar (`<m4b-base>.alignment.json`)
-                // sitting next to the audio. The EPUB scan above keys sidecar
-                // discovery off the .epub, so a book whose alignment file is named
-                // after the m4b — or an iCloud placeholder that only just finished
-                // downloading — would otherwise never light up word-level
-                // read-along. Keyed off `trackURL` so `<m4b-base>.alignment.json`
-                // resolves exactly. No-op when no sidecar/placeholder or no text
-                // blocks exist; idempotent when the EPUB scan already applied it.
-                _ =
-                    await DocumentImportFinalizer
-                    .finalizeExistingImportIfAlignmentSidecarPresent(
-                        audiobookID: bookURL.absoluteString,
-                        fileURL: trackURL,
-                        duration: currentDuration,
-                        databaseService: db
-                    )
-            }
+                    if let db = self.databaseServiceProvider?() {
+                        let currentChapters: [Chapter]
+                        if state.isMultiM4B, !state.aggregatedChapters.isEmpty {
+                            currentChapters = state.aggregatedChapters.map { agg in
+                                Chapter(
+                                    index: agg.chapterIndex, title: agg.chapterTitle,
+                                    startSeconds: agg.startSeconds, endSeconds: agg.endSeconds,
+                                    isEnabled: true)
+                            }
+                        } else {
+                            currentChapters = state.chapters
+                        }
+                        let currentDuration =
+                            state.isMultiM4B ? state.totalBookDuration : state.durationSeconds
+                        let didImport = await EPUBAutoImportScanner.scanAndImportIfNeeded(
+                            folderURL: bookURL, databaseService: db, chapters: currentChapters,
+                            duration: currentDuration
+                        )
+                        guard
+                            self.isActiveLoad(
+                                state: state, bookURL: bookURL, trackURL: trackURL
+                            )
+                        else { return }
+                        if didImport, let timelinePersistence = self.timelinePersistence {
+                            // A first-time import lands after the load-time ingestion pass,
+                            // so timeline_item has no EPUB-block rows yet. Rebuild it now
+                            // that blocks exist, or the reader/feed shows no timestamps
+                            // until the next load.
+                            await timelinePersistence.ingestTimelineItems(
+                                audiobookID: bookURL.absoluteString,
+                                audioURL: trackURL,
+                                chapters: currentChapters,
+                                transcription: state.transcription,
+                                enhancedTranscription: state.enhancedTranscription,
+                                folderURL: contentFolderURL
+                            )
+                            guard
+                                self.isActiveLoad(
+                                    state: state, bookURL: bookURL, trackURL: trackURL
+                                )
+                            else { return }
+                        }
+
+                        // Also discover an m4b-keyed sidecar (`<m4b-base>.alignment.json`)
+                        // sitting next to the audio. The EPUB scan above keys sidecar
+                        // discovery off the .epub, so a book whose alignment file is named
+                        // after the m4b — or an iCloud placeholder that only just finished
+                        // downloading — would otherwise never light up word-level
+                        // read-along. Keyed off `trackURL` so `<m4b-base>.alignment.json`
+                        // resolves exactly. No-op when no sidecar/placeholder or no text
+                        // blocks exist; idempotent when the EPUB scan already applied it.
+                        _ =
+                            await DocumentImportFinalizer
+                            .finalizeExistingImportIfAlignmentSidecarPresent(
+                                audiobookID: bookURL.absoluteString,
+                                fileURL: trackURL,
+                                duration: currentDuration,
+                                databaseService: db
+                            )
+                        guard
+                            self.isActiveLoad(
+                                state: state, bookURL: bookURL, trackURL: trackURL
+                            )
+                        else { return }
+
+                        // `hasEPUB` observes this generation. Invalidate it after both
+                        // first import and an already-imported Library reopen so Reader
+                        // routing re-evaluates the preserved folder identity and its
+                        // fully finalized read-along state.
+                        state.documentIngestionTrigger += 1
+                    }
+                },
+                artworkWork: {
+                    await artworkCoordinator.generateThumbnail(for: trackURL)
+                })
         }
+    }
+
+    static func performReaderAndArtworkPostLoad(
+        readerWork: @MainActor () async -> Void,
+        artworkWork: @MainActor () async -> Void
+    ) async {
+        async let artwork: Void = artworkWork()
+        await readerWork()
+        await artwork
     }
 
     private func isActiveLoad(state: PlaybackState, bookURL: URL, trackURL: URL) -> Bool {
