@@ -111,8 +111,9 @@ import Testing
     #expect(semanticToken.`_`.rating == 4)
   }
 
-  @Test func semanticCurrencySpanStopsBeforeFollowingPunctuation() throws {
-    let source = "Revenue was $100 billion."
+  @Test(arguments: [".", ","])
+  func semanticCurrencySpanStopsBeforeFollowingPunctuation(punctuation: String) throws {
+    let source = "Revenue was $100 billion\(punctuation)"
     let result = g2p.phonemizeWithMetadata(text: source)
     let semanticToken = try #require(
       result.tokens.first { $0.`_`.currencyExpressionSource != nil }
@@ -121,13 +122,13 @@ import Testing
     #expect(reconstructedSource(from: result.tokens) == source)
     #expect(
       reconstructedSpokenSurface(from: result.tokens)
-        == "Revenue was one hundred billion dollars."
+        == "Revenue was one hundred billion dollars\(punctuation)"
     )
     #expect(semanticToken.text == "$100 billion")
     #expect(semanticToken.`_`.currencyExpressionSource == "$100 billion")
     #expect(String(source[semanticToken.tokenRange]) == "$100 billion")
     #expect(semanticToken.whitespace.isEmpty)
-    #expect(result.tokens.last?.text == ".")
+    #expect(result.tokens.last?.text == punctuation)
   }
 
   @Test func semanticCurrencySpanCarriesTrailingBoundaryWhitespace() throws {
@@ -151,6 +152,8 @@ import Testing
     ("$2 quadrillion", ["$2 ", "quadrillion"]),
     ("$2bn", ["$2bn"]),
     ("$2million", ["$2million"]),
+    ("$2_000", ["$2_000"]),
+    ("$2-3", ["$2", "-", "3"]),
     ("$", ["$"]),
   ])
   func malformedSupportedSymbolCandidateRemainsIntact(

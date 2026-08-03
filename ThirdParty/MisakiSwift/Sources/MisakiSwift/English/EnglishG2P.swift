@@ -519,6 +519,15 @@ final public class EnglishG2P {
       }
     }
 
+    let boundaryIndex = endIndex + 1
+    if boundaryIndex < tokens.count, tokens[endIndex].whitespace.isEmpty {
+      let boundaryText = tokens[boundaryIndex].text
+      let isSentencePunctuation = !boundaryText.isEmpty && boundaryText.allSatisfy {
+        EnglishG2P.punctuactions.contains($0) || $0 == "–"
+      }
+      guard isSentencePunctuation else { return nil }
+    }
+
     return endIndex
   }
 
