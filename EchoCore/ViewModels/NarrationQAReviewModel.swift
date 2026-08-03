@@ -29,17 +29,20 @@ private func currentNarrationRenderUnits(
         return [NarrationCurrentRenderUnit(segmentIndex: nil, blocks: plan.blocks, fileURL: fullURL)]
     }
 
-    var units: [NarrationCurrentRenderUnit] = []
-    for segment in NarrationSegmentPlanner.segments(
+    let segments = NarrationSegmentPlanner.segments(
         for: plan, isFirstChapterOfBook: isFirstChapterOfBook)
-    {
+    guard !segments.isEmpty else { return [] }
+
+    var units: [NarrationCurrentRenderUnit] = []
+    units.reserveCapacity(segments.count)
+    for segment in segments {
         let fileURL = await narration.segmentCacheURL(
             chapterIndex: segment.chapterIndex,
             sourceChapterKey: segment.sourceChapterKey,
             segmentIndex: segment.segmentIndex,
             blocks: segment.blocks,
             voice: segment.voice)
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { continue }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
         units.append(
             NarrationCurrentRenderUnit(
                 segmentIndex: segment.segmentIndex,
@@ -189,8 +192,11 @@ final class NarrationQAReviewModel {
         static func live(db: DatabaseWriter) -> Self {
             Self(
                 narrationPlan: { audiobookID, preferredVoice in
-                    let blocks = try await EPubBlockDAO(db: db).blocks(for: audiobookID)
-                    let chapters = await NarrationChapterPlanner.plan(from: blocks)
+                    let blockDAO = EPubBlockDAO(db: db)
+                    let allBlocks = try blockDAO.allBlocks(for: audiobookID)
+                    let visibleBlocks = try blockDAO.visibleBlocks(for: audiobookID)
+                    let allChapters = await NarrationChapterPlanner.plan(from: allBlocks)
+                    let visibleChapters = await NarrationChapterPlanner.plan(from: visibleBlocks)
                     let audiobookURL = URL(string: audiobookID)
                     let epubURL = audiobookURL.flatMap {
                         $0.isFileURL
@@ -200,10 +206,24 @@ final class NarrationQAReviewModel {
                     let manifest = try AnthologyNarrationManifestResolver(db: db).resolve(
                         audiobookID: audiobookID,
                         epubURL: epubURL)
-                    return try NarrationChapterRenderPlanner.plan(
-                        chapters: chapters,
+                    let allRenderPlans = try NarrationChapterRenderPlanner.plan(
+                        chapters: allChapters,
                         preferredVoice: preferredVoice,
                         manifest: manifest)
+                    let allPlansByIndex = Dictionary(
+                        uniqueKeysWithValues: allRenderPlans.map { ($0.chapterIndex, $0) })
+                    return try visibleChapters.map { visible in
+                        guard let trusted = allPlansByIndex[visible.index] else {
+                            throw NarrationRepairError.sourceChapterUnavailable
+                        }
+                        return NarrationChapterRenderPlan(
+                            chapterIndex: visible.index,
+                            displayNumber: visible.displayNumber,
+                            sourceChapterKey: trusted.sourceChapterKey,
+                            title: visible.title,
+                            blocks: visible.blocks,
+                            voice: trusted.voice)
+                    }
                 },
                 runQA: { audiobookID, chapters, classifier in
                     try await NarrationQAService(db: db, classifier: classifier).runQA(

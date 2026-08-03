@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import CryptoKit
 import Foundation
 import GRDB
 import Testing
@@ -261,7 +262,7 @@ import Testing
         #expect(chapters.map(\.fileURL) == [signedURL])
     }
 
-    @Test func renderedChaptersForQAUsesOrderedSegmentOnlyInventoryAndBlockCoverage() async throws {
+    @Test func renderedChaptersForQARequiresCompleteOrderedSegmentInventory() async throws {
         let db = try DatabaseService(inMemory: ())
         let bookID = "segment-only-qa"
         let sourceChapterKey = "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"
@@ -321,6 +322,87 @@ import Testing
 
         #expect(chapters.map(\.fileURL) == segmentURLs)
         #expect(chapters.map(\.spokenBlockIDs) == segments.map { $0.blocks.map(\.id) })
+
+        try FileManager.default.removeItem(at: segmentURLs[1])
+        let partialChapters = try await model.renderedChaptersForQA(plans: [plan])
+        #expect(partialChapters.isEmpty)
+
+        let issue = try #require(
+            NarrationQualityIssueDAO(db: db.writer)
+                .issues(for: bookID, status: NarrationQAIssueStatus.open.rawValue).first)
+        let liveDependencies = NarrationQAReviewModel.Dependencies.live(db: db.writer)
+        await #expect(throws: NarrationRepairError.sourceChapterUnavailable) {
+            try await liveDependencies.applyRepair(
+                issue, .book(bookID), plan, service, MarkerClassifier())
+        }
+        #expect(FileManager.default.fileExists(atPath: segmentURLs[0].path))
+    }
+
+    @Test func livePlanProjectsHiddenBlocksExactlyLikePlayback() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let bookID = "hidden-block-qa"
+        let anthologyID = UUID(uuidString: "CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC")!
+        let entryID = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
+        try await db.writer.write { database in
+            try database.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES (?, ?, ?)",
+                arguments: [bookID, "Hidden Block Anthology", 3600.0])
+        }
+        let visible = EPubBlockRecord(
+            id: "visible-block", audiobookID: bookID, spineHref: "chapter.xhtml",
+            spineIndex: 0, blockIndex: 0, sequenceIndex: 0, blockKind: "paragraph",
+            text: String(repeating: "Visible source. ", count: 10), htmlContent: nil,
+            cardColor: nil, chapterThemeColor: nil, imagePath: nil, chapterIndex: 0,
+            isHidden: false, hiddenReason: nil, isFrontMatter: false, wordCount: nil,
+            markers: nil, textFormats: nil, narrationText: nil,
+            sourceChapterKey: entryID.uuidString, createdAt: nil, modifiedAt: nil)
+        let hidden = EPubBlockRecord(
+            id: "hidden-block", audiobookID: bookID, spineHref: "chapter.xhtml",
+            spineIndex: 0, blockIndex: 1, sequenceIndex: 1, blockKind: "paragraph",
+            text: String(repeating: "Excluded source. ", count: 10), htmlContent: nil,
+            cardColor: nil, chapterThemeColor: nil, imagePath: nil, chapterIndex: 0,
+            isHidden: true, hiddenReason: "Excluded from narration", isFrontMatter: false,
+            wordCount: nil, markers: nil, textFormats: nil, narrationText: nil,
+            sourceChapterKey: entryID.uuidString, createdAt: nil, modifiedAt: nil)
+        try EPubBlockDAO(db: db.writer).insertAll([visible, hidden])
+        let articleBlocks = [
+            ArticleBlock(
+                id: "article-visible", stableOrdinal: 0, kind: .paragraph,
+                text: visible.text ?? "", sourceURL: nil, imageCandidateURL: nil,
+                caption: nil, codeLanguage: nil),
+            ArticleBlock(
+                id: "article-hidden", stableOrdinal: 1, kind: .paragraph,
+                text: hidden.text ?? "", sourceURL: nil, imageCandidateURL: nil,
+                caption: nil, codeLanguage: nil),
+        ]
+        let manifest = try seedAnthologyBuild(
+            db: db, audiobookID: bookID, anthologyID: anthologyID,
+            entryID: entryID, articleBlocks: articleBlocks, voiceID: "bf_emma")
+        let allBlocks = try EPubBlockDAO(db: db.writer).allBlocks(for: bookID)
+        let visibleBlocks = try EPubBlockDAO(db: db.writer).visibleBlocks(for: bookID)
+        let playback = try await NarrationPlaybackPlanPreparation.prepare(
+            chapters: NarrationChapterPlanner.plan(from: visibleBlocks),
+            allChapters: NarrationChapterPlanner.plan(from: allBlocks),
+            preferredVoice: VoiceID("af_heart"),
+            resolveManifest: { manifest },
+            existingDurableFileNames: [],
+            expectedFileName: { segment in
+                segment.blocks.map(\.id).joined(separator: "-") + "-\(segment.segmentIndex)"
+            },
+            cleanup: { _ in })
+        let liveDependencies = NarrationQAReviewModel.Dependencies.live(db: db.writer)
+
+        let qaPlans = try await liveDependencies.narrationPlan(
+            bookID, VoiceID("af_heart"))
+
+        #expect(qaPlans.map { $0.blocks.map(\.id) } == [["visible-block"]])
+        #expect(qaPlans.map(\.voice) == [VoiceID("bf_emma")])
+        #expect(
+            qaPlans.map { $0.blocks.map(\.id) }
+                == playback.chapters.map { $0.blocks.map(\.id) })
+        #expect(
+            NarrationSegmentPlanner.plan(qaPlans).map { $0.blocks.map(\.id) }
+                == playback.segments.map { $0.blocks.map(\.id) })
     }
 
     @Test func fullQAAndAcceptFixUseIssueChaptersEffectiveVoice() async throws {
@@ -385,5 +467,46 @@ import Testing
         #expect(qaFileURL?.lastPathComponent.contains("-bf_emma-") == true)
         #expect(repairVoice == effectiveVoice)
         #expect(repairSourceChapterKey == sourceChapterKey)
+    }
+
+    private func seedAnthologyBuild(
+        db: DatabaseService,
+        audiobookID: String,
+        anthologyID: UUID,
+        entryID: UUID,
+        articleBlocks: [ArticleBlock],
+        voiceID: String?
+    ) throws -> AnthologyBuildManifest {
+        try AnthologyDAO(db: db.writer).save(
+            AnthologyRecord(
+                id: anthologyID.uuidString, title: "Hidden Block Anthology", subtitle: nil,
+                creator: nil, coverPath: nil, nextStableSlot: 1, latestBuildRevision: 0,
+                createdAt: "2026-08-02T12:00:00Z", modifiedAt: "2026-08-02T12:00:00Z"))
+        let chapter = AnthologyChapterManifest(
+            entryID: entryID,
+            captureID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+            articleRevisionID: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+            stableSlot: 0, order: 0, title: "Chapter 1", author: nil, siteName: nil,
+            sourceURL: URL(string: "https://example.test/hidden")!,
+            capturedAt: Date(timeIntervalSince1970: 1_775_000_000), voiceID: voiceID,
+            blocks: articleBlocks,
+            readableContentSHA256: ArticleWorkshopDigest.readableContent(blocks: articleBlocks))
+        let manifest = AnthologyBuildManifest(
+            schemaVersion: 1, anthologyID: anthologyID, revision: 1,
+            epubIdentifier: "urn:uuid:\(anthologyID.uuidString)", title: "Hidden Block Anthology",
+            subtitle: nil, creator: "Various Authors", language: "en", coverPath: nil,
+            modifiedAt: Date(timeIntervalSince1970: 1_775_000_000), chapters: [chapter])
+        let data = try JSONEncoder.articleWorkshop.encode(manifest)
+        var build = AnthologyBuildRecord(
+            id: UUID().uuidString, anthologyID: anthologyID.uuidString, revision: 1,
+            epubIdentifier: manifest.epubIdentifier,
+            manifestJSON: String(decoding: data, as: UTF8.self),
+            manifestSHA256: SHA256.hash(data: data)
+                .map { String(format: "%02x", $0) }.joined(),
+            epubPath: nil, epubSHA256: String(repeating: "a", count: 64),
+            audiobookID: audiobookID, status: "succeeded", errorCode: nil,
+            createdAt: "2026-08-02T12:00:00Z")
+        try db.writer.write { database in try build.insert(database) }
+        return manifest
     }
 }
