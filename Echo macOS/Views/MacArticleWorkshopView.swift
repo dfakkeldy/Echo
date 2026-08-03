@@ -18,11 +18,15 @@ struct MacArticleWorkshopView: View {
     init(db: DatabaseService) {
         let fileStore = ArticleWorkshopFileStore()
         let anthologyService = AnthologyService(db: db, fileStore: fileStore)
-        _inbox = State(initialValue: ArticleInboxViewModel(db: db, fileStore: fileStore))
+        let inbox = ArticleInboxViewModel(db: db, fileStore: fileStore)
+        _inbox = State(initialValue: inbox)
         _buildCoordinator = State(initialValue: MacArticleWorkshopBuildCoordinator(
             service: AnthologyBuildService(
                 anthologyService: anthologyService,
-                databaseService: db)))
+                databaseService: db),
+            onSuccessfulBuild: {
+                await inbox.reload()
+            }))
     }
 
     var body: some View {
@@ -45,7 +49,7 @@ struct MacArticleWorkshopView: View {
             guard didLoad == false else { return }
             didLoad = true
             await inbox.reload()
-            knownCaptureIDs = Set(inbox.articles.map(\.id))
+            knownCaptureIDs = inbox.allCaptureIDs
         }
     }
 
@@ -83,6 +87,13 @@ struct MacArticleWorkshopView: View {
                     inbox.selectAll()
                 }
                 .disabled(inbox.articles.isEmpty)
+
+                Toggle(
+                    "Show Used Captures",
+                    isOn: Binding(
+                        get: { inbox.showsUsedCaptures },
+                        set: { inbox.setShowsUsedCaptures($0) }))
+                    .toggleStyle(.checkbox)
 
                 if inbox.isImporting {
                     ProgressView()
@@ -155,6 +166,9 @@ struct MacArticleWorkshopView: View {
                             Text(site)
                         }
                         Label(article.state.title, systemImage: article.state.systemImage)
+                        if article.isUsed {
+                            Label("Used in EPUB", systemImage: "archivebox")
+                        }
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -249,7 +263,7 @@ struct MacArticleWorkshopView: View {
         for article in newlyImported where inbox.selectedIDs.contains(article.id) == false {
             inbox.toggleSelection(article.id)
         }
-        knownCaptureIDs = Set(inbox.articles.map(\.id))
+        knownCaptureIDs = inbox.allCaptureIDs
     }
 
     @MainActor
@@ -272,6 +286,7 @@ struct MacArticleWorkshopView: View {
 @Observable
 private final class MacArticleWorkshopBuildCoordinator {
     private let service: AnthologyBuildService
+    private let onSuccessfulBuild: @MainActor @Sendable () async -> Void
     private var tasks: [String: Task<Void, Never>] = [:]
     private var buildAllTask: Task<Void, Never>?
 
@@ -282,8 +297,12 @@ private final class MacArticleWorkshopBuildCoordinator {
         buildAllTask != nil || buildingIDs.isEmpty == false
     }
 
-    init(service: AnthologyBuildService) {
+    init(
+        service: AnthologyBuildService,
+        onSuccessfulBuild: @escaping @MainActor @Sendable () async -> Void
+    ) {
         self.service = service
+        self.onSuccessfulBuild = onSuccessfulBuild
     }
 
     func build(_ anthology: AnthologyRecord) {
@@ -326,12 +345,13 @@ private final class MacArticleWorkshopBuildCoordinator {
     private func finish(
         _ anthology: AnthologyRecord,
         with result: Result<AnthologyBuildRecord, Swift.Error>
-    ) {
+    ) async {
         buildingIDs.remove(anthology.id)
         tasks[anthology.id] = nil
         switch result {
         case .success(let record):
             messages[anthology.id] = "Built revision \(record.revision) and added it to Echo."
+            await onSuccessfulBuild()
         case .failure(let error):
             messages[anthology.id] = error.localizedDescription
         }

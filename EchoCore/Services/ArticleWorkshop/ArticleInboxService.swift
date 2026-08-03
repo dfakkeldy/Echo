@@ -81,9 +81,15 @@ nonisolated struct ArticleInboxService: Sendable {
         self.deletionHook = deletionHook
     }
 
-    func inboxItems() throws -> [ArticleInboxItem] {
+    func inboxItems(showUsedCaptures: Bool = false) throws -> [ArticleInboxItem] {
         try reconcileDeletionQuarantine()
         let records = try captureDAO.captures()
+        let usedCaptureIDs = try anthologyDAO.successfulBuilds().reduce(into: Set<UUID>()) {
+            result, build in
+            if let captureIDs = try? AnthologySuccessfulBuildEvidence.captureIDs(in: build) {
+                result.formUnion(captureIDs)
+            }
+        }
         return
             records
             .sorted {
@@ -92,8 +98,15 @@ nonisolated struct ArticleInboxService: Sendable {
                 }
                 return $0.id < $1.id
             }
+            .filter { record in
+                showUsedCaptures
+                    || UUID(uuidString: record.id).map(usedCaptureIDs.contains) != true
+            }
             .map { record in
-                item(for: record, among: records)
+                item(
+                    for: record,
+                    among: records,
+                    isUsed: UUID(uuidString: record.id).map(usedCaptureIDs.contains) == true)
             }
     }
 
@@ -122,7 +135,10 @@ nonisolated struct ArticleInboxService: Sendable {
         guard try captureDAO.capture(id: id) != nil else {
             throw Error.captureNotFound(id)
         }
-        let names = try anthologyDAO.referencingAnthologies(captureID: id)
+        let names = try (
+            anthologyDAO.referencingAnthologies(captureID: id)
+                + anthologyDAO.historicallyReferencingAnthologies(captureID: id)
+        )
             .map(\.title)
             .uniqued()
             .sorted()
@@ -305,7 +321,8 @@ nonisolated struct ArticleInboxService: Sendable {
 
     private func item(
         for record: ArticleCaptureRecord,
-        among records: [ArticleCaptureRecord]
+        among records: [ArticleCaptureRecord],
+        isUsed: Bool
     ) -> ArticleInboxItem {
         var warnings: [String]
         var warningDecodeFailed = false
@@ -352,7 +369,8 @@ nonisolated struct ArticleInboxService: Sendable {
             state: state,
             warnings: warnings,
             isPossibleDuplicate: isDuplicate,
-            keepBothAvailable: true
+            keepBothAvailable: true,
+            isUsed: isUsed
         )
     }
 

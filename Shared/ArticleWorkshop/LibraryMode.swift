@@ -72,6 +72,35 @@ nonisolated struct ArticleInboxItem: Equatable, Hashable, Identifiable, Sendable
     let warnings: [String]
     let isPossibleDuplicate: Bool
     let keepBothAvailable: Bool
+    let isUsed: Bool
+
+    init(
+        id: String,
+        title: String,
+        author: String?,
+        siteName: String?,
+        sourceURL: String,
+        canonicalURL: String?,
+        capturedAt: String,
+        state: ArticleInboxPresentationState,
+        warnings: [String],
+        isPossibleDuplicate: Bool,
+        keepBothAvailable: Bool,
+        isUsed: Bool = false
+    ) {
+        self.id = id
+        self.title = title
+        self.author = author
+        self.siteName = siteName
+        self.sourceURL = sourceURL
+        self.canonicalURL = canonicalURL
+        self.capturedAt = capturedAt
+        self.state = state
+        self.warnings = warnings
+        self.isPossibleDuplicate = isPossibleDuplicate
+        self.keepBothAvailable = keepBothAvailable
+        self.isUsed = isUsed
+    }
 
     var isAnthologyEligible: Bool {
         state != .captureFailed

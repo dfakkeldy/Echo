@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import Foundation
 import GRDB
 
 nonisolated enum ArticleCaptureDeletionResult: Equatable, Sendable {
@@ -178,7 +179,7 @@ nonisolated struct ArticleCaptureDAO: Sendable {
 
     func deleteCaptureIfUnreferenced(id: String) throws -> ArticleCaptureDeletionResult {
         try db.write { db in
-            let projectNames = try String.fetchAll(
+            var projectNames = try String.fetchAll(
                 db,
                 sql: """
                     SELECT DISTINCT anthology.title
@@ -189,6 +190,30 @@ nonisolated struct ArticleCaptureDAO: Sendable {
                     """,
                 arguments: [id]
             )
+            if let captureID = UUID(uuidString: id) {
+                let successfulBuilds = try AnthologyBuildRecord.fetchAll(
+                    db,
+                    sql: """
+                        SELECT * FROM anthology_build
+                        WHERE status = 'succeeded'
+                        ORDER BY created_at, id
+                        """
+                )
+                for build in successfulBuilds {
+                    guard
+                        let captureIDs = try AnthologySuccessfulBuildEvidence.captureIDs(in: build),
+                        captureIDs.contains(captureID),
+                        let title = try String.fetchOne(
+                            db,
+                            sql: "SELECT title FROM anthology WHERE id = ?",
+                            arguments: [build.anthologyID])
+                    else {
+                        continue
+                    }
+                    projectNames.append(title)
+                }
+                projectNames = Array(Set(projectNames)).sorted()
+            }
             guard projectNames.isEmpty else {
                 return .referenced(projectNames: projectNames)
             }
