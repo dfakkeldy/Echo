@@ -1,5 +1,16 @@
+import Foundation
 import Testing
 @testable import MisakiSwift
+
+@Test(arguments: [
+  (20, "twenty"),
+  (21, "twenty-one"),
+  (22, "twenty-two"),
+  (29, "twenty-nine"),
+])
+func cardinalTwentyRange(value: Int, expected: String) {
+  #expect(EnglishNum2Word().convert(Decimal(value)) == expected)
+}
 
 let texts: [(originalText: String, requiredPhonemes: [String])] = [
   (
