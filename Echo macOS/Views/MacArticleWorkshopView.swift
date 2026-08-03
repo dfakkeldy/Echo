@@ -11,6 +11,8 @@ struct MacArticleWorkshopView: View {
 
     @State private var inbox: ArticleInboxViewModel
     @State private var websiteCapture: ArticleWebsiteCaptureCoordinator
+    @State private var linkBatch: ArticleLinkBatchCoordinator
+    @State private var showsLinkBatch = false
     @State private var mode: LibraryMode = .inbox
     @State private var anthologyTitle = ""
     @State private var knownCaptureIDs: Set<String> = []
@@ -32,6 +34,7 @@ struct MacArticleWorkshopView: View {
         let inbox = ArticleInboxViewModel(db: db, fileStore: fileStore)
         _inbox = State(initialValue: inbox)
         _websiteCapture = State(initialValue: ArticleWebsiteCaptureCoordinator(inbox: inbox))
+        _linkBatch = State(initialValue: ArticleLinkBatchCoordinator(inbox: inbox))
         _buildCoordinator = State(
             initialValue: MacArticleWorkshopBuildCoordinator(
                 service: AnthologyBuildService(
@@ -77,6 +80,13 @@ struct MacArticleWorkshopView: View {
             MacAnthologyVoiceEditor(
                 viewModel: presentation.viewModel,
                 preferredVoice: preferredVoice)
+        }
+        .sheet(isPresented: $showsLinkBatch) {
+            MacArticleLinkBatchSheet(coordinator: linkBatch) { anthology in
+                knownCaptureIDs = inbox.allCaptureIDs
+                mode = .anthologies
+                showsLinkBatch = false
+            }
         }
         .onChange(of: voiceEditorLoadMessage) { _, message in
             guard message != nil else {
@@ -192,8 +202,17 @@ struct MacArticleWorkshopView: View {
 
     private var websiteCaptureForm: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Add Website")
-                .font(.headline)
+            HStack {
+                Text("Add Website")
+                    .font(.headline)
+                Spacer()
+                Button("New Anthology from Links…", systemImage: "list.bullet.clipboard") {
+                    linkBatch = ArticleLinkBatchCoordinator(inbox: inbox)
+                    showsLinkBatch = true
+                }
+                .accessibilityIdentifier("articleWorkshop.newAnthologyFromLinks")
+                .disabled(inbox.isImporting || websiteCapture.isBusy)
+            }
 
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 TextField(
@@ -448,6 +467,281 @@ struct MacArticleWorkshopView: View {
         }
     }
 
+}
+
+@MainActor
+private struct MacArticleLinkBatchSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var coordinator: ArticleLinkBatchCoordinator
+    let onCreated: (AnthologyRecord) -> Void
+
+    @State private var workTask: Task<Void, Never>?
+
+    private var uniqueLinkCount: Int {
+        coordinator.rows.count { row in
+            switch row.status {
+            case .queued, .capturing, .succeeded, .failed:
+                true
+            case .duplicate, .invalid:
+                false
+            }
+        }
+    }
+
+    private var successCount: Int {
+        coordinator.rows.count { row in
+            if case .succeeded = row.status { return true }
+            return false
+        }
+    }
+
+    private var failureCount: Int {
+        coordinator.rows.count { row in
+            if case .failed = row.status { return true }
+            return false
+        }
+    }
+
+    private var invalidCount: Int {
+        coordinator.rows.count { $0.status == .invalid }
+    }
+
+    private var duplicateCount: Int {
+        coordinator.rows.count { row in
+            if case .duplicate = row.status { return true }
+            return false
+        }
+    }
+
+    private var hasStarted: Bool {
+        coordinator.rows.contains { row in
+            switch row.status {
+            case .capturing, .succeeded, .failed:
+                true
+            case .queued, .duplicate, .invalid:
+                false
+            }
+        }
+    }
+
+    private var primaryTitle: String {
+        if failureCount > 0 { return "Retry Failed" }
+        if coordinator.creationError != nil, successCount > 0 { return "Retry Create" }
+        return "Capture & Create Anthology"
+    }
+
+    private var primaryDisabled: Bool {
+        if coordinator.isRunning || workTask != nil { return true }
+        if failureCount > 0 { return false }
+        if coordinator.creationError != nil, successCount > 0 { return false }
+        return coordinator.canStart == false
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Anthology Title")
+                        .font(.headline)
+                    TextField("Anthology title", text: $coordinator.title)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(coordinator.isRunning || hasStarted)
+                        .accessibilityIdentifier("articleWorkshop.linkBatch.title")
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Article Links")
+                        .font(.headline)
+                    Text("Paste one public HTTP(S) link per line. Blank lines are ignored.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextEditor(text: $coordinator.linkText)
+                        .font(.body.monospaced())
+                        .frame(minHeight: 150)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(.separator, lineWidth: 1)
+                        }
+                        .disabled(coordinator.isRunning || hasStarted)
+                        .accessibilityIdentifier("articleWorkshop.linkBatch.links")
+                }
+
+                validationSummary
+
+                if coordinator.rows.isEmpty == false {
+                    linkRows
+                }
+
+                if let creationError = coordinator.creationError {
+                    Label(creationError, systemImage: "exclamationmark.octagon.fill")
+                        .foregroundStyle(.red)
+                        .accessibilityIdentifier("articleWorkshop.linkBatch.creationError")
+                }
+
+                if failureCount > 0, successCount > 0 {
+                    HStack {
+                        Text("You can retry the failures or create an anthology from the captured links.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Create with \(successCount) of \(uniqueLinkCount)") {
+                            coordinator.createWithSuccesses()
+                            finishIfCreated()
+                        }
+                        .accessibilityIdentifier("articleWorkshop.linkBatch.createWithSuccesses")
+                    }
+                }
+            }
+            .padding(20)
+            .navigationTitle("New Anthology from Links")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: cancel)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(primaryTitle, action: performPrimaryAction)
+                        .disabled(primaryDisabled)
+                        .accessibilityIdentifier("articleWorkshop.linkBatch.primaryAction")
+                }
+            }
+        }
+        .frame(minWidth: 680, minHeight: 620)
+        .interactiveDismissDisabled(coordinator.isRunning)
+        .onDisappear {
+            workTask?.cancel()
+        }
+    }
+
+    @ViewBuilder
+    private var validationSummary: some View {
+        if invalidCount > 0 {
+            Label(
+                "Correct \(invalidCount) invalid link\(invalidCount == 1 ? "" : "s") before starting.",
+                systemImage: "exclamationmark.triangle.fill"
+            )
+            .font(.caption)
+            .foregroundStyle(.red)
+        } else if uniqueLinkCount > 0 {
+            HStack(spacing: 12) {
+                Label("\(uniqueLinkCount) link\(uniqueLinkCount == 1 ? "" : "s") ready", systemImage: "link")
+                if duplicateCount > 0 {
+                    Label(
+                        "\(duplicateCount) duplicate\(duplicateCount == 1 ? "" : "s") skipped",
+                        systemImage: "doc.on.doc")
+                        .foregroundStyle(.orange)
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private var linkRows: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(coordinator.rows) { row in
+                    HStack(alignment: .top, spacing: 10) {
+                        Text("\(row.lineNumber)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 26, alignment: .trailing)
+                        rowStatus(row)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(row.originalText)
+                                .lineLimit(2)
+                                .textSelection(.enabled)
+                            Text(statusDescription(row.status))
+                                .font(.caption)
+                                .foregroundStyle(statusColor(row.status))
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 8)
+                    if row.id != coordinator.rows.last?.id {
+                        Divider()
+                    }
+                }
+            }
+            .padding(.horizontal, 10)
+        }
+        .frame(minHeight: 160, maxHeight: 240)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityIdentifier("articleWorkshop.linkBatch.rows")
+    }
+
+    @ViewBuilder
+    private func rowStatus(_ row: ArticleLinkBatchCoordinator.Row) -> some View {
+        if row.status == .capturing {
+            ProgressView()
+                .controlSize(.small)
+        } else {
+            Image(systemName: statusSymbol(row.status))
+                .foregroundStyle(statusColor(row.status))
+        }
+    }
+
+    private func statusSymbol(_ status: ArticleLinkBatchCoordinator.Status) -> String {
+        switch status {
+        case .queued: "circle"
+        case .capturing: "arrow.down.circle"
+        case .succeeded: "checkmark.circle.fill"
+        case .failed: "xmark.octagon.fill"
+        case .duplicate: "doc.on.doc"
+        case .invalid: "exclamationmark.triangle.fill"
+        }
+    }
+
+    private func statusDescription(_ status: ArticleLinkBatchCoordinator.Status) -> String {
+        switch status {
+        case .queued: "Ready"
+        case .capturing: "Capturing…"
+        case .succeeded: "Captured"
+        case .failed(let message): message
+        case .duplicate(let firstLineNumber): "Duplicate of line \(firstLineNumber); skipped"
+        case .invalid: "Enter a valid public HTTP(S) URL"
+        }
+    }
+
+    private func statusColor(_ status: ArticleLinkBatchCoordinator.Status) -> Color {
+        switch status {
+        case .succeeded: .green
+        case .failed, .invalid: .red
+        case .duplicate: .orange
+        case .queued, .capturing: .secondary
+        }
+    }
+
+    private func performPrimaryAction() {
+        if failureCount > 0 {
+            startWork { await coordinator.retryFailures() }
+        } else if coordinator.creationError != nil, successCount > 0 {
+            coordinator.createWithSuccesses()
+            finishIfCreated()
+        } else {
+            startWork { await coordinator.captureAndCreate() }
+        }
+    }
+
+    private func startWork(_ operation: @escaping @MainActor () async -> Void) {
+        guard workTask == nil else { return }
+        workTask = Task { @MainActor in
+            await operation()
+            guard Task.isCancelled == false else { return }
+            workTask = nil
+            finishIfCreated()
+        }
+    }
+
+    private func finishIfCreated() {
+        guard let anthology = coordinator.createdAnthology else { return }
+        onCreated(anthology)
+        dismiss()
+    }
+
+    private func cancel() {
+        workTask?.cancel()
+        dismiss()
+    }
 }
 
 @MainActor

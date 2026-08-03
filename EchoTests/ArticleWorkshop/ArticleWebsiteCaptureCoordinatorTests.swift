@@ -118,6 +118,34 @@ import Testing
         #expect(coordinator.phase == .success)
     }
 
+    @Test func batchCaptureReturnsImportedIDWithoutChangingInboxSelection() async throws {
+        let fixture = try Fixture()
+        defer { fixture.removeFiles() }
+        let existingID = "00000000-0000-0000-0000-000000000001"
+        let existing = inboxItem(id: existingID)
+        let imported = inboxItem(id: captureID.uuidString)
+        let capture = CaptureStub(results: [.success(payload())])
+        let stage = StageStub()
+        let inbox = fixture.inbox(articles: [existing, imported])
+        inbox.articles = [existing]
+        inbox.selectedIDs = [existingID]
+        let coordinator = ArticleWebsiteCaptureCoordinator(
+            inbox: inbox,
+            capture: { try await capture.capture(url: $0) },
+            stage: { try await stage.stage($0) },
+            now: { capturedAt },
+            makeCaptureID: { captureID },
+            sourceApplication: "com.echo.audiobooks",
+            selectOnSuccess: false)
+        coordinator.urlText = "https://example.com/article"
+
+        let importedID = await coordinator.submit()
+
+        #expect(importedID == captureID.uuidString)
+        #expect(inbox.selectedIDs == [existingID])
+        #expect(coordinator.phase == .success)
+    }
+
     @Test func ingestionRetryDoesNotRecaptureOrRestageDuplicate() async throws {
         let fixture = try Fixture()
         defer { fixture.removeFiles() }
