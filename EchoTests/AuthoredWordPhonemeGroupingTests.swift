@@ -89,4 +89,25 @@ import Testing
         let counts = try #require(plan.authoredWordGroupCounts)
         #expect(counts == [2, 1])
     }
+
+    @Test func semanticCurrencyKeepsOneTimingSpanForItsAuthoredWord() throws {
+        let plan = try PronunciationPlanner().planResolved("The fee was $45.")
+        let semanticEvidence = try #require(
+            plan.pronunciationTokenEvidence.first { $0.text == "$45" && $0.rating == 4 })
+        let counts = try #require(plan.authoredWordGroupCounts)
+        let timings = try #require(
+            KokoroWordTimer.wordTimings(
+                ids: plan.phonemeIDs,
+                perTokenFrames: [Float](repeating: 1, count: plan.phonemeIDs.count),
+                wordCount: plan.wordCount,
+                wordGroupCounts: counts,
+                sampleCount: 24_000,
+                sampleRate: 24_000))
+
+        #expect(!semanticEvidence.selectedPhonemes.isEmpty)
+        #expect(counts == [1, 1, 1, 3])
+        #expect(timings.count == 4)
+        #expect(timings.map(\.wordIndex) == [0, 1, 2, 3])
+        #expect(timings[3].end > timings[3].start)
+    }
 }
