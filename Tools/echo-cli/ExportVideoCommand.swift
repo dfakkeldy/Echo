@@ -97,6 +97,7 @@ struct ExportVideoCommand: AsyncParsableCommand {
             bookTitle: title,
             databaseWriter: database.writer,
             cacheDirectory: URL(fileURLWithPath: cacheDir ?? "/nonexistent-cache"),
+            preferredVoice: VoiceCatalog.default.id,
             outputDirectory: outDir,
             mode: simple ? .simple : .karaoke,
             dimensions: dimensions,

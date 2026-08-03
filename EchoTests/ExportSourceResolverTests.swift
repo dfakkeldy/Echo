@@ -24,7 +24,8 @@ import Testing
         #expect(ExportSourceResolver.isNarrated(audiobookID: "bk", databaseWriter: db.writer))
         let source = ExportSourceResolver.resolve(
             audiobookID: "bk", databaseWriter: db.writer,
-            cacheDirectory: URL(fileURLWithPath: "/tmp"))
+            cacheDirectory: URL(fileURLWithPath: "/tmp"),
+            preferredVoice: VoiceCatalog.default.id)
         #expect(source is NarrationCacheSource)
     }
 
@@ -34,7 +35,8 @@ import Testing
         #expect(!ExportSourceResolver.isNarrated(audiobookID: "bk", databaseWriter: db.writer))
         let source = ExportSourceResolver.resolve(
             audiobookID: "bk", databaseWriter: db.writer,
-            cacheDirectory: URL(fileURLWithPath: "/tmp"))
+            cacheDirectory: URL(fileURLWithPath: "/tmp"),
+            preferredVoice: VoiceCatalog.default.id)
         #expect(source is ImportedBookSource)
     }
 }

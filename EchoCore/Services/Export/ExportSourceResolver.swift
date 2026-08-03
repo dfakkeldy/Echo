@@ -14,12 +14,13 @@ enum ExportSourceResolver {
     static func resolve(
         audiobookID: String,
         databaseWriter: DatabaseWriter,
-        cacheDirectory: URL
+        cacheDirectory: URL,
+        preferredVoice: VoiceID
     ) -> ExportSource {
         if isNarrated(audiobookID: audiobookID, databaseWriter: databaseWriter) {
             return NarrationCacheSource(
                 audiobookID: audiobookID, cacheDirectory: cacheDirectory,
-                databaseWriter: databaseWriter)
+                databaseWriter: databaseWriter, preferredVoice: preferredVoice)
         }
         return ImportedBookSource(audiobookID: audiobookID, databaseWriter: databaseWriter)
     }
