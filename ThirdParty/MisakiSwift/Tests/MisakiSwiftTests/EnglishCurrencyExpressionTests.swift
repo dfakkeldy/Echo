@@ -116,13 +116,24 @@ import Testing
   }
 
   @Test(arguments: [
-    "$1,23", "$1.2.3", "$1.001", "$2 bn", "$2 quadrillion", "$",
+    ("$1,23", ["$1,23"]),
+    ("$1.2.3", ["$1.2.3"]),
+    ("$1.001", ["$1.001"]),
+    ("$2 bn", ["$2 ", "bn"]),
+    ("$2 quadrillion", ["$2 ", "quadrillion"]),
+    ("$2bn", ["$2bn"]),
+    ("$2million", ["$2million"]),
+    ("$", ["$"]),
   ])
-  func malformedSupportedSymbolCandidateRemainsIntact(source: String) {
+  func malformedSupportedSymbolCandidateRemainsIntact(
+    source: String,
+    expectedTokenSurfaces: [String]
+  ) {
     let result = g2p.phonemizeWithMetadata(text: source)
 
     #expect(reconstructedSource(from: result.tokens) == source)
     #expect(reconstructedSpokenSurface(from: result.tokens) == source)
+    #expect(result.tokens.map { $0.text + $0.whitespace } == expectedTokenSurfaces)
     #expect(result.tokens.allSatisfy { !$0.text.isEmpty })
     #expect(result.tokens.allSatisfy {
       !$0.text.contains(where: \.isLetter) || !($0.phonemes ?? "").isEmpty

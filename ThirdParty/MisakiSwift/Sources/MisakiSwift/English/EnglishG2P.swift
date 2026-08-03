@@ -508,8 +508,8 @@ final public class EnglishG2P {
     guard cursor > amountStart else { return nil }
 
     var endIndex = cursor - 1
-    if cursor < tokens.count, !tokens[endIndex].whitespace.isEmpty,
-       tokens[cursor].text.contains(where: \.isLetter) {
+    if cursor < tokens.count, tokens[cursor].text.contains(where: \.isLetter) {
+      guard !tokens[endIndex].whitespace.isEmpty else { return nil }
       let followingWord = tokens[cursor].text.lowercased()
       if EnglishCurrencyExpression.Magnitude(rawValue: followingWord) != nil {
         guard tokens[endIndex].whitespace == " " else { return nil }
