@@ -35,6 +35,33 @@ struct MacReaderParityTests {
         #expect(editor.contains("articleWorkshop.chapterVoice."))
     }
 
+    @Test func chapterVoiceSheetCannotDismissWhileSavingAndOnlySavingRowPickerDisables()
+        throws
+    {
+        let editor = try MacSource.read("Views/MacAnthologyVoiceEditor.swift")
+
+        #expect(editor.contains(".interactiveDismissDisabled(viewModel.isSaving)"))
+        #expect(editor.contains(".onExitCommand"))
+        #expect(editor.contains("guard viewModel.isSaving == false else { return }"))
+        #expect(editor.contains("Button(\"Close\") { dismiss() }"))
+        #expect(editor.contains(".disabled(viewModel.isSaving)"))
+        #expect(editor.contains(".disabled(isUpdating && viewModel.isSaving)"))
+    }
+
+    @Test func chapterVoiceSaveAndParentLoadErrorsAreAnnouncedWithoutMovingKeyboardFocus()
+        throws
+    {
+        let workshop = try MacSource.read("Views/MacArticleWorkshopView.swift")
+        let editor = try MacSource.read("Views/MacAnthologyVoiceEditor.swift")
+
+        #expect(editor.contains(".onChange(of: viewModel.retryActionAvailable)"))
+        #expect(editor.contains("AccessibilityNotification.Announcement(message).post()"))
+        #expect(workshop.contains(".onChange(of: voiceEditorLoadMessage)"))
+        #expect(workshop.contains("AccessibilityNotification.Announcement(message).post()"))
+        #expect(editor.contains("@AccessibilityFocusState") == false)
+        #expect(workshop.contains("@AccessibilityFocusState") == false)
+    }
+
     @Test func macCommercialAudioAlignmentUsesCodeFilteringSourcePolicy() throws {
         let src = try MacSource.read("Services/MacAlignmentService.swift")
         #expect(

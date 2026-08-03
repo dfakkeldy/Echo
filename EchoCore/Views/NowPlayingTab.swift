@@ -279,7 +279,13 @@ struct NowPlayingTab: View {
             let voice = VoiceCatalog.voice(for: voiceID)
         else { return nil }
         let overrideCount = model.state.narrationVoiceOverrideCount
-        if overrideCount > 0 {
+        if overrideCount == 1 {
+            return String(
+                localized:
+                    "Default voice: \(voice.displayName) · \(overrideCount) chapter override"
+            )
+        }
+        if overrideCount > 1 {
             return String(
                 localized:
                     "Default voice: \(voice.displayName) · \(overrideCount) chapter overrides"

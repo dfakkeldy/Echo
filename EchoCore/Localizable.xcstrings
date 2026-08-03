@@ -1583,6 +1583,24 @@
         }
       }
     },
+    "Default voice: %@ · %lld chapter override" : {
+      "comment" : "Narration summary with the default voice and one explicit chapter override.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Default voice: %1$@ · %2$lld chapter override"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Standaardstem: %1$@ · %2$lld hoofdstukoverschrijving"
+          }
+        }
+      }
+    },
     "Default voice: %@ · %lld chapter overrides" : {
       "comment" : "Narration summary with the default voice and number of explicit chapter overrides.",
       "extractionState" : "manual",

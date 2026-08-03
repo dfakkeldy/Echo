@@ -47,8 +47,18 @@ struct MacAnthologyVoiceEditor: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
+                        .disabled(viewModel.isSaving)
                 }
             }
+        }
+        .interactiveDismissDisabled(viewModel.isSaving)
+        .onExitCommand {
+            guard viewModel.isSaving == false else { return }
+            dismiss()
+        }
+        .onChange(of: viewModel.retryActionAvailable) { _, retryActionAvailable in
+            guard retryActionAvailable, let message = viewModel.userMessage else { return }
+            AccessibilityNotification.Announcement(message).post()
         }
         .frame(minWidth: 620, minHeight: 480)
     }

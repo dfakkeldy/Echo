@@ -21,10 +21,12 @@ extension AnthologyNarrationReadinessError: LocalizedError {
     nonisolated var errorDescription: String? {
         switch self {
         case .invalidPlan:
-            return "Rebuild this anthology to refresh its narration plan, then try again."
+            return String(
+                localized: "Rebuild this anthology to refresh its narration plan, then try again."
+            )
         case .incomplete(let chapterDisplayNumbers):
             let chapters = chapterDisplayNumbers.map(String.init).joined(separator: ", ")
-            return "Narration is incomplete for chapter(s) \(chapters)."
+            return String(localized: "Narration is incomplete for chapter(s) \(chapters).")
         }
     }
 }

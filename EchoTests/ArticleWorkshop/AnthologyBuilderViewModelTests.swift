@@ -533,6 +533,7 @@ struct AnthologyBuilderViewModelTests {
         #expect(nowPlayingSource.contains("model.state.narrationDefaultVoice"))
         #expect(nowPlayingSource.contains("model.state.narrationVoiceOverrideCount"))
         #expect(nowPlayingSource.contains("Default voice:"))
+        #expect(nowPlayingSource.contains("chapter override\""))
         #expect(nowPlayingSource.contains("chapter overrides"))
         #expect(nowPlayingSource.contains("articleWorkshop.narrationVoiceSummary"))
         #expect(nowPlayingSource.contains("articleWorkshop.narrationReadiness"))
@@ -548,6 +549,10 @@ struct AnthologyBuilderViewModelTests {
     }
 
     @Test func chapterVoiceReadinessAndErrorStringsAreLocalized() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
         let catalogURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -560,6 +565,7 @@ struct AnthologyBuilderViewModelTests {
 
         let requiredKeys = [
             "Default voice: %@",
+            "Default voice: %@ · %lld chapter override",
             "Default voice: %@ · %lld chapter overrides",
             "Echo Preferred Voice",
             "Edit Voices",
@@ -574,6 +580,42 @@ struct AnthologyBuilderViewModelTests {
         for key in requiredKeys {
             #expect(strings[key] != nil, "Missing localized string: \(key)")
         }
+
+        let readinessSource = try String(
+            contentsOf: repositoryRoot.appending(
+                path: "EchoCore/Services/Narration/AnthologyNarrationStatusService.swift"),
+            encoding: .utf8)
+        #expect(
+            readinessSource.contains(
+                "localized: \"Rebuild this anthology to refresh its narration plan, then try again.\""
+            ))
+        #expect(
+            readinessSource.contains(
+                "return \"Rebuild this anthology to refresh its narration plan, then try again.\"")
+                == false)
+        #expect(
+            readinessSource.contains(
+                "String(localized: \"Narration is incomplete for chapter(s) \\(chapters).\")"
+            ))
+        #expect(
+            readinessSource.contains(
+                "return \"Narration is incomplete for chapter(s) \\(chapters).\"") == false)
+
+        let detailSource = try String(
+            contentsOf: repositoryRoot.appending(
+                path: "EchoCore/Views/ArticleWorkshop/AnthologyDetailView.swift"),
+            encoding: .utf8)
+        #expect(
+            detailSource.contains(
+                "String(localized: \"Ready, revision \\(revision)\")"))
+
+        let playerSource = try String(
+            contentsOf: repositoryRoot.appending(
+                path: "EchoCore/ViewModels/PlayerModel+Narration.swift"),
+            encoding: .utf8)
+        #expect(
+            playerSource.contains(
+                "statusMessage: String(localized: \"Voice models ready\")"))
     }
 }
 

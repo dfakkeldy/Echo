@@ -48,7 +48,7 @@
             case .ready:
                 narrationPlaybackState.update(
                     phase: .preparingEngine, progress: 1.0,
-                    statusMessage: "Voice models ready")
+                    statusMessage: String(localized: "Voice models ready"))
             }
         }
 

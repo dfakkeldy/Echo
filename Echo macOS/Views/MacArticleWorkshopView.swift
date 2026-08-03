@@ -60,6 +60,10 @@ struct MacArticleWorkshopView: View {
                 viewModel: presentation.viewModel,
                 preferredVoice: preferredVoice)
         }
+        .onChange(of: voiceEditorLoadMessage) { _, message in
+            guard let message else { return }
+            AccessibilityNotification.Announcement(message).post()
+        }
     }
 
     private var header: some View {
