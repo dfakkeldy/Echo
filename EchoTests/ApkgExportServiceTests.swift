@@ -372,7 +372,9 @@ struct ApkgExportServiceTests {
         let writer = try makeTestDB()
         let deckID = UUID().uuidString
         let audiobookID = "apkg-due-\(deckID.prefix(8))"
-        let nextReviewDate = Date().addingTimeInterval(3 * 86_400).ISO8601Format()
+        // Keep the fixture inside due-day 3 instead of exactly on its lower boundary.
+        // Export work may cross a wall-clock second on a loaded CI runner.
+        let nextReviewDate = Date().addingTimeInterval((3 * 86_400) + 3_600).ISO8601Format()
         try writer.write { db in
             try db.execute(
                 sql: """

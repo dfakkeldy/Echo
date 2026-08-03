@@ -57,6 +57,7 @@ final class ArticleWebsiteCaptureCoordinator {
     @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private let makeCaptureID: @Sendable () -> UUID
     @ObservationIgnored private let sourceApplication: String?
+    @ObservationIgnored private let selectOnSuccess: Bool
     @ObservationIgnored private var pendingEnvelope: ArticleCaptureEnvelope?
     @ObservationIgnored private var isStaged = false
 
@@ -91,7 +92,8 @@ final class ArticleWebsiteCaptureCoordinator {
         stage: @escaping ArticleWebsiteStagingOperation,
         now: @escaping @Sendable () -> Date = Date.init,
         makeCaptureID: @escaping @Sendable () -> UUID = UUID.init,
-        sourceApplication: String?
+        sourceApplication: String?,
+        selectOnSuccess: Bool = true
     ) {
         self.inbox = inbox
         self.capture = capture
@@ -99,11 +101,13 @@ final class ArticleWebsiteCaptureCoordinator {
         self.now = now
         self.makeCaptureID = makeCaptureID
         self.sourceApplication = sourceApplication
+        self.selectOnSuccess = selectOnSuccess
     }
 
     convenience init(
         inbox: ArticleInboxViewModel,
-        sourceApplication: String? = Bundle.main.bundleIdentifier
+        sourceApplication: String? = Bundle.main.bundleIdentifier,
+        selectOnSuccess: Bool = true
     ) {
         let captureService = ArticleURLCaptureService()
         let stagingWorker = ArticleWebsiteCaptureStagingWorker { envelope in
@@ -118,21 +122,24 @@ final class ArticleWebsiteCaptureCoordinator {
             stage: { envelope in
                 try await stagingWorker.stage(envelope)
             },
-            sourceApplication: sourceApplication)
+            sourceApplication: sourceApplication,
+            selectOnSuccess: selectOnSuccess)
     }
 
-    func submit() async {
-        guard isBusy == false, let url = normalizedURL else { return }
+    @discardableResult
+    func submit() async -> String? {
+        guard isBusy == false, let url = normalizedURL else { return nil }
         if retryAvailable == false {
             pendingEnvelope = nil
             isStaged = false
         }
-        await run(url: url)
+        return await run(url: url)
     }
 
-    func retry() async {
-        guard retryAvailable, isBusy == false, let url = normalizedURL else { return }
-        await run(url: url)
+    @discardableResult
+    func retry() async -> String? {
+        guard retryAvailable, isBusy == false, let url = normalizedURL else { return nil }
+        return await run(url: url)
     }
 
     private var normalizedURL: URL? {
@@ -141,7 +148,7 @@ final class ArticleWebsiteCaptureCoordinator {
         return ArticleNetworkURLPolicy.normalized(url)
     }
 
-    private func run(url: URL) async {
+    private func run(url: URL) async -> String? {
         let envelope: ArticleCaptureEnvelope
         if let pendingEnvelope {
             envelope = pendingEnvelope
@@ -160,10 +167,10 @@ final class ArticleWebsiteCaptureCoordinator {
                 pendingEnvelope = envelope
             } catch is CancellationError {
                 phase = .idle
-                return
+                return nil
             } catch {
                 phase = .failure(stage: .capture, message: Self.captureMessage(for: error))
-                return
+                return nil
             }
         }
 
@@ -175,23 +182,23 @@ final class ArticleWebsiteCaptureCoordinator {
                 isStaged = true
             } catch is CancellationError {
                 phase = .idle
-                return
+                return nil
             } catch {
                 phase = .failure(stage: .staging, message: Self.stagingMessage(for: error))
-                return
+                return nil
             }
         }
 
         await inbox.reload()
         guard Task.isCancelled == false else {
             phase = .idle
-            return
+            return nil
         }
         if let message = inbox.errorMessage {
             phase = .failure(
                 stage: .ingestion,
                 message: Self.ingestionMessage(detail: message))
-            return
+            return nil
         }
 
         let captureID = envelope.captureID.uuidString
@@ -200,7 +207,7 @@ final class ArticleWebsiteCaptureCoordinator {
                 stage: .ingestion,
                 message: Self.ingestionMessage(
                     detail: String(localized: "The staged capture was not found after reloading.")))
-            return
+            return nil
         }
         guard imported.isAnthologyEligible else {
             phase = .failure(
@@ -209,14 +216,15 @@ final class ArticleWebsiteCaptureCoordinator {
                     detail: String(
                         localized: "The imported capture needs attention before it can be selected."
                     )))
-            return
+            return nil
         }
-        if inbox.selectedIDs.contains(captureID) == false {
+        if selectOnSuccess, inbox.selectedIDs.contains(captureID) == false {
             inbox.toggleSelection(captureID)
         }
         pendingEnvelope = nil
         isStaged = false
         phase = .success
+        return captureID
     }
 
     private static func captureMessage(for error: any Swift.Error) -> String {

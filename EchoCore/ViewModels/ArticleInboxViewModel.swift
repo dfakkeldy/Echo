@@ -182,12 +182,22 @@ final class ArticleInboxViewModel {
         let orderedIDs = articles.lazy
             .map(\.id)
             .filter(selectedIDs.contains)
+        let anthology = try createAnthology(
+            title: title,
+            orderedCaptureIDs: Array(orderedIDs))
+        selectedIDs.removeAll()
+        return anthology
+    }
+
+    @discardableResult
+    func createAnthology(
+        title: String,
+        orderedCaptureIDs: [String]
+    ) throws -> AnthologyRecord {
         let anthology = try service.createAnthologySeed(
             title: title,
-            captureIDs: Array(orderedIDs)
-        )
+            captureIDs: orderedCaptureIDs)
         anthologies = try service.anthologies()
-        selectedIDs.removeAll()
         errorMessage = nil
         return anthology
     }

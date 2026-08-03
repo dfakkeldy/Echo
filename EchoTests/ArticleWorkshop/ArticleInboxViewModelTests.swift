@@ -271,6 +271,34 @@ import Testing
         #expect(viewModel.anthologies.map(\.id) == [anthology.id])
     }
 
+    @Test func explicitCaptureOrderCreatesBatchAnthologyWithoutChangingInboxSelection() async throws {
+        let fixture = try ViewModelFixture()
+        defer { fixture.removeFiles() }
+        let first = "00000000-0000-0000-0000-000000000001"
+        let second = "00000000-0000-0000-0000-000000000002"
+        let unrelated = "00000000-0000-0000-0000-000000000003"
+        try fixture.saveBuildEligibleCapture(
+            id: first, capturedAt: "2026-07-28T12:01:00Z")
+        try fixture.saveBuildEligibleCapture(
+            id: second, capturedAt: "2026-07-28T12:02:00Z")
+        try fixture.saveBuildEligibleCapture(
+            id: unrelated, capturedAt: "2026-07-28T12:03:00Z")
+        let viewModel = ArticleInboxViewModel(service: fixture.service, drainStaging: {})
+        await viewModel.reload()
+        viewModel.toggleSelection(unrelated)
+
+        let anthology = try viewModel.createAnthology(
+            title: "Pasted Order",
+            orderedCaptureIDs: [first, second])
+
+        #expect(
+            try fixture.anthologyDAO.entries(anthologyID: anthology.id).map(\.captureID) == [
+                first, second,
+            ])
+        #expect(viewModel.selectedIDs == [unrelated])
+        #expect(viewModel.anthologies.map(\.id) == [anthology.id])
+    }
+
     @Test func failedInboxRowsCannotEnterAnthologySelection() async throws {
         let fixture = try ViewModelFixture()
         defer { fixture.removeFiles() }
@@ -317,6 +345,160 @@ import Testing
         #expect(viewModel.selectedIDs.isEmpty)
         #expect(viewModel.errorMessage != nil)
         #expect(try fixture.captureDAO.capture(id: captureID) == nil)
+    }
+}
+
+@MainActor
+@Suite struct ArticleLinkBatchCoordinatorTests {
+    @Test func successfulCapturesCreateAnthologyInPastedOrder() async throws {
+        let fixture = try ViewModelFixture()
+        defer { fixture.removeFiles() }
+        let firstID = "00000000-0000-0000-0000-000000000001"
+        let secondID = "00000000-0000-0000-0000-000000000002"
+        try fixture.saveBuildEligibleCapture(
+            id: firstID, capturedAt: "2026-07-28T12:01:00Z")
+        try fixture.saveBuildEligibleCapture(
+            id: secondID, capturedAt: "2026-07-28T12:02:00Z")
+        let inbox = ArticleInboxViewModel(service: fixture.service, drainStaging: {})
+        let idsByURL = [
+            URL(string: "https://example.com/first")!: firstID,
+            URL(string: "https://example.com/second")!: secondID,
+        ]
+        let coordinator = ArticleLinkBatchCoordinator(
+            inbox: inbox,
+            captureFactory: { url in
+                ArticleLinkBatchCoordinator.CaptureAttempt {
+                    guard let captureID = idsByURL[url] else { return .cancelled }
+                    return .success(captureID: captureID)
+                }
+            })
+        coordinator.title = "  Weekly Reading  "
+        coordinator.linkText = """
+            https://example.com/first
+            https://example.com/second
+            """
+
+        await coordinator.captureAndCreate()
+
+        let anthology = try #require(coordinator.createdAnthology)
+        #expect(anthology.title == "Weekly Reading")
+        #expect(
+            try fixture.anthologyDAO.entries(anthologyID: anthology.id).map(\.captureID) == [
+                firstID, secondID,
+            ])
+        #expect(coordinator.rows.map(\.status) == [
+            .succeeded(captureID: firstID),
+            .succeeded(captureID: secondID),
+        ])
+    }
+
+    @Test func retryingFailedCaptureCompletesFullAnthologyInPastedOrder() async throws {
+        let fixture = try ViewModelFixture()
+        defer { fixture.removeFiles() }
+        let firstID = "00000000-0000-0000-0000-000000000001"
+        let secondID = "00000000-0000-0000-0000-000000000002"
+        try fixture.saveBuildEligibleCapture(
+            id: firstID, capturedAt: "2026-07-28T12:01:00Z")
+        try fixture.saveBuildEligibleCapture(
+            id: secondID, capturedAt: "2026-07-28T12:02:00Z")
+        let firstURL = URL(string: "https://example.com/first")!
+        let secondURL = URL(string: "https://example.com/second")!
+        let plan = BatchCapturePlan(results: [
+            firstURL: [.success(captureID: firstID)],
+            secondURL: [
+                .failure(message: "The website is temporarily unavailable."),
+                .success(captureID: secondID),
+            ],
+        ])
+        let inbox = ArticleInboxViewModel(service: fixture.service, drainStaging: {})
+        let coordinator = ArticleLinkBatchCoordinator(
+            inbox: inbox,
+            captureFactory: plan.attempt(for:))
+        coordinator.title = "Retry Reading"
+        coordinator.linkText = """
+            https://example.com/first
+            https://example.com/second
+            """
+
+        await coordinator.captureAndCreate()
+
+        #expect(coordinator.createdAnthology == nil)
+        #expect(coordinator.rows.map(\.status) == [
+            .succeeded(captureID: firstID),
+            .failed(message: "The website is temporarily unavailable."),
+        ])
+
+        await coordinator.retryFailures()
+
+        let anthology = try #require(coordinator.createdAnthology)
+        #expect(
+            try fixture.anthologyDAO.entries(anthologyID: anthology.id).map(\.captureID) == [
+                firstID, secondID,
+            ])
+        #expect(coordinator.rows.map(\.status) == [
+            .succeeded(captureID: firstID),
+            .succeeded(captureID: secondID),
+        ])
+    }
+
+    @Test func creatingWithSuccessesOmitsFailedRowsAndPreservesPastedOrder() async throws {
+        let fixture = try ViewModelFixture()
+        defer { fixture.removeFiles() }
+        let firstID = "00000000-0000-0000-0000-000000000001"
+        let thirdID = "00000000-0000-0000-0000-000000000003"
+        try fixture.saveBuildEligibleCapture(
+            id: firstID, capturedAt: "2026-07-28T12:01:00Z")
+        try fixture.saveBuildEligibleCapture(
+            id: thirdID, capturedAt: "2026-07-28T12:03:00Z")
+        let firstURL = URL(string: "https://example.com/first")!
+        let secondURL = URL(string: "https://example.com/second")!
+        let thirdURL = URL(string: "https://example.com/third")!
+        let plan = BatchCapturePlan(results: [
+            firstURL: [.success(captureID: firstID)],
+            secondURL: [.failure(message: "The article could not be extracted.")],
+            thirdURL: [.success(captureID: thirdID)],
+        ])
+        let inbox = ArticleInboxViewModel(service: fixture.service, drainStaging: {})
+        let coordinator = ArticleLinkBatchCoordinator(
+            inbox: inbox,
+            captureFactory: plan.attempt(for:))
+        coordinator.title = "Available Reading"
+        coordinator.linkText = """
+            https://example.com/first
+            https://example.com/second
+            https://example.com/third
+            """
+
+        await coordinator.captureAndCreate()
+
+        #expect(coordinator.createdAnthology == nil)
+        coordinator.createWithSuccesses()
+
+        let anthology = try #require(coordinator.createdAnthology)
+        #expect(
+            try fixture.anthologyDAO.entries(anthologyID: anthology.id).map(\.captureID) == [
+                firstID, thirdID,
+            ])
+    }
+}
+
+@MainActor
+private final class BatchCapturePlan {
+    private var results: [URL: [ArticleLinkBatchCoordinator.CaptureOutcome]]
+
+    init(results: [URL: [ArticleLinkBatchCoordinator.CaptureOutcome]]) {
+        self.results = results
+    }
+
+    func attempt(for url: URL) -> ArticleLinkBatchCoordinator.CaptureAttempt {
+        ArticleLinkBatchCoordinator.CaptureAttempt { [self] in
+            guard var remaining = results[url], remaining.isEmpty == false else {
+                return .cancelled
+            }
+            let next = remaining.removeFirst()
+            results[url] = remaining
+            return next
+        }
     }
 }
 
