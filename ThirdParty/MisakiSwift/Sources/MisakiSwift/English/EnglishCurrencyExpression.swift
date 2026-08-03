@@ -12,6 +12,11 @@ struct EnglishCurrencyExpression: Equatable, Sendable {
     case thousand, million, billion, trillion
   }
 
+  private static let cardinalScaleWords = [
+    "", "thousand", "million", "billion", "trillion", "quadrillion",
+    "quintillion", "sextillion", "septillion", "octillion", "nonillion", "decillion",
+  ]
+
   let source: String
   let symbol: Character
   let isNegative: Bool
@@ -59,15 +64,25 @@ struct EnglishCurrencyExpression: Equatable, Sendable {
     }
 
     guard let digits = parseDigits(String(amountAndMagnitude[0])),
-          magnitude != nil || (digits.fractional?.count ?? 0) <= 2,
-          let integerValue = Int(digits.integer) else {
+          magnitude != nil || (digits.fractional?.count ?? 0) <= 2 else {
       return nil
     }
 
     let numberWords = EnglishNum2Word()
+    let significantIntegerDigits = digits.integer.drop(while: { $0 == "0" })
+    let normalizedIntegerDigits = significantIntegerDigits.isEmpty
+      ? "0"
+      : String(significantIntegerDigits)
+    guard let integerWords = cardinalWords(
+      for: normalizedIntegerDigits,
+      using: numberWords
+    ) else {
+      return nil
+    }
+
     let unsignedSpokenForm: String
     if let magnitude {
-      var amountWords = numberWords.convert(Decimal(integerValue))
+      var amountWords = integerWords
       if let fractionalDigits = digits.fractional {
         var normalizedFraction = fractionalDigits
         while normalizedFraction.last == "0" {
@@ -89,9 +104,11 @@ struct EnglishCurrencyExpression: Equatable, Sendable {
       guard let minorValue = Int(minorDigits.isEmpty ? "0" : minorDigits) else { return nil }
 
       var components: [String] = []
-      if integerValue != 0 || minorValue == 0 {
-        let unit = integerValue == 1 ? unitForms.majorSingular : unitForms.majorPlural
-        components.append("\(numberWords.convert(Decimal(integerValue))) \(unit)")
+      if normalizedIntegerDigits != "0" || minorValue == 0 {
+        let unit = normalizedIntegerDigits == "1"
+          ? unitForms.majorSingular
+          : unitForms.majorPlural
+        components.append("\(integerWords) \(unit)")
       }
       if minorValue != 0 {
         let unit = minorValue == 1 ? unitForms.minorSingular : unitForms.minorPlural
@@ -144,6 +161,34 @@ struct EnglishCurrencyExpression: Equatable, Sendable {
     }
 
     return (integerDigits, fractionalPart)
+  }
+
+  private static func cardinalWords(
+    for digits: String,
+    using numberWords: EnglishNum2Word
+  ) -> String? {
+    guard digits.count <= cardinalScaleWords.count * 3 else { return nil }
+
+    var groups: [Substring] = []
+    var groupEnd = digits.endIndex
+    while groupEnd > digits.startIndex {
+      let groupLength = min(3, digits.distance(from: digits.startIndex, to: groupEnd))
+      let groupStart = digits.index(groupEnd, offsetBy: -groupLength)
+      groups.append(digits[groupStart..<groupEnd])
+      groupEnd = groupStart
+    }
+
+    var phrases: [String] = []
+    for (scaleIndex, group) in groups.enumerated() {
+      guard let groupValue = Int(group) else { return nil }
+      guard groupValue != 0 else { continue }
+
+      let groupWords = numberWords.convert(Decimal(groupValue))
+      let scaleWord = cardinalScaleWords[scaleIndex]
+      phrases.append(scaleWord.isEmpty ? groupWords : "\(groupWords) \(scaleWord)")
+    }
+
+    return phrases.isEmpty ? numberWords.convert(Decimal(0)) : phrases.reversed().joined(separator: ", ")
   }
 
   private static func isASCIIDigit(_ character: Character) -> Bool {

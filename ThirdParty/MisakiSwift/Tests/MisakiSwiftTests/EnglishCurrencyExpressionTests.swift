@@ -33,6 +33,33 @@ import Testing
   }
 
   @Test(arguments: [
+    (
+      "$9,223,372,036,854,775,808",
+      "nine quintillion, two hundred and twenty-three quadrillion, three hundred and seventy-two trillion, thirty-six billion, eight hundred and fifty-four million, seven hundred and seventy-five thousand, eight hundred and eight dollars"
+    ),
+    (
+      "$9,223,372,036,854,775,808.50 million",
+      "nine quintillion, two hundred and twenty-three quadrillion, three hundred and seventy-two trillion, thirty-six billion, eight hundred and fifty-four million, seven hundred and seventy-five thousand, eight hundred and eight point five million dollars"
+    ),
+    (
+      "$1,000,000,000,000,000,000,000,000,000,000,000",
+      "one decillion dollars"
+    ),
+  ])
+  func valuesBeyondSignedIntRangeUseExactDigitSpeech(input: String, spoken: String) throws {
+    let expression = try #require(EnglishCurrencyExpression.parse(input))
+    #expect(expression.spokenForm == spoken)
+  }
+
+  @Test func valuesAboveNamedScaleCeilingFailClosed() {
+    #expect(
+      EnglishCurrencyExpression.parse(
+        "$1,000,000,000,000,000,000,000,000,000,000,000,000"
+      ) == nil
+    )
+  }
+
+  @Test(arguments: [
     "$1,23", "$1.2.3", "$1.001", "$2 bn", "$2 quadrillion",
     "¥2", "$", "100 billion people",
   ])
