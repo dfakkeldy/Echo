@@ -10,6 +10,31 @@ import Testing
 /// macOS-clean `AlignmentService`.
 struct MacReaderParityTests {
 
+    @Test func articleWorkshopEditsInheritedAndExplicitChapterVoices() throws {
+        let workshop = try MacSource.read("Views/MacArticleWorkshopView.swift")
+        let editor = try MacSource.read("Views/MacAnthologyVoiceEditor.swift")
+
+        #expect(workshop.contains("private let anthologyService: AnthologyService"))
+        #expect(workshop.contains("Button(\"Edit Voices\""))
+        #expect(workshop.contains("service.loadProject"))
+        #expect(workshop.contains("MacAnthologyVoiceEditor("))
+        #expect(workshop.contains(".sheet("))
+        #expect(workshop.contains("articleWorkshop.editVoices."))
+
+        #expect(editor.contains("struct MacAnthologyVoiceEditor: View"))
+        #expect(editor.contains("@State internal var viewModel: AnthologyBuilderViewModel"))
+        #expect(editor.contains("let preferredVoice: VoiceID"))
+        #expect(editor.contains("Picker(\"Narration Voice\""))
+        #expect(editor.contains("Text(\"Echo Preferred Voice\").tag(String?.none)"))
+        #expect(editor.contains("viewModel.updateEntry("))
+        #expect(editor.contains("narrationVoiceID: voiceID"))
+        #expect(editor.contains("viewModel.isSaving"))
+        #expect(editor.contains("viewModel.userMessage"))
+        #expect(editor.contains("Inherited from Echo Preferred Voice"))
+        #expect(editor.contains("Explicit chapter voice:"))
+        #expect(editor.contains("articleWorkshop.chapterVoice."))
+    }
+
     @Test func macCommercialAudioAlignmentUsesCodeFilteringSourcePolicy() throws {
         let src = try MacSource.read("Services/MacAlignmentService.swift")
         #expect(

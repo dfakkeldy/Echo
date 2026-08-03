@@ -457,7 +457,9 @@
                     }
 
                 Picker("Narration Voice", selection: $voiceID) {
-                    Text("Project Default").tag(String?.none)
+                    Text("Echo Preferred Voice")
+                        .tag(String?.none)
+                        .accessibilityIdentifier("articleWorkshop.chapterVoice.inherited")
                     ForEach(VoiceCatalog.sections) { section in
                         Section(section.title) {
                             ForEach(section.voices) { voice in
@@ -470,6 +472,16 @@
                 .onChange(of: voiceID) {
                     onUpdate(titleOverride, voiceID)
                 }
+                .accessibilityIdentifier("articleWorkshop.chapterVoice.\(entry.entry.id)")
+                .accessibilityValue(Text(voiceAccessibilityValue))
+
+                Text(
+                    "Uses your current Echo narration voice. Changing that preference updates inherited chapters the next time they are narrated."
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("articleWorkshop.chapterVoice.help")
 
                 HStack {
                     Button("Move Up", systemImage: "arrow.up", action: onMoveUp)
@@ -513,6 +525,15 @@
                 }
                 Button("Remove from Anthology", action: onRemove)
             }
+        }
+
+        private var voiceAccessibilityValue: String {
+            guard let voiceID,
+                let voice = VoiceCatalog.voice(for: VoiceID(voiceID))
+            else {
+                return String(localized: "Inherited from Echo Preferred Voice")
+            }
+            return String(localized: "Explicit chapter voice: \(voice.displayName)")
         }
 
         private var resolvedTitle: String {

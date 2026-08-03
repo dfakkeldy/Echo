@@ -512,6 +512,30 @@ struct AnthologyBuilderViewModelTests {
         #expect(source.contains("stableSlot"))
         #expect(source.contains("Using Chosen Image"))
         #expect(source.contains("Using \\(filename)") == false)
+        #expect(source.contains("Echo Preferred Voice"))
+        #expect(
+            source.contains(
+                "Uses your current Echo narration voice. Changing that preference updates inherited chapters the next time they are narrated."
+            ))
+        #expect(source.contains("Inherited from Echo Preferred Voice"))
+        #expect(source.contains("Explicit chapter voice:"))
+        #expect(source.contains(".accessibilityValue"))
+        #expect(source.contains("articleWorkshop.chapterVoice.inherited"))
+        #expect(source.contains("articleWorkshop.chapterVoice.help"))
+
+        let nowPlayingSource = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appending(path: "EchoCore/Views/NowPlayingTab.swift"),
+            encoding: .utf8)
+        #expect(nowPlayingSource.contains("model.state.narrationDefaultVoice"))
+        #expect(nowPlayingSource.contains("model.state.narrationVoiceOverrideCount"))
+        #expect(nowPlayingSource.contains("Default voice:"))
+        #expect(nowPlayingSource.contains("chapter overrides"))
+        #expect(nowPlayingSource.contains("articleWorkshop.narrationVoiceSummary"))
+        #expect(nowPlayingSource.contains("articleWorkshop.narrationReadiness"))
 
         let listSource = try String(
             contentsOf: URL(fileURLWithPath: #filePath)
@@ -521,6 +545,35 @@ struct AnthologyBuilderViewModelTests {
                 .appending(path: "EchoCore/Views/ArticleWorkshop/AnthologyListView.swift"),
             encoding: .utf8)
         #expect(listSource.contains(".onAppear"))
+    }
+
+    @Test func chapterVoiceReadinessAndErrorStringsAreLocalized() throws {
+        let catalogURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "EchoCore/Localizable.xcstrings")
+        let data = try Data(contentsOf: catalogURL)
+        let root = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let strings = try #require(root["strings"] as? [String: Any])
+
+        let requiredKeys = [
+            "Default voice: %@",
+            "Default voice: %@ · %lld chapter overrides",
+            "Echo Preferred Voice",
+            "Edit Voices",
+            "Explicit chapter voice: %@",
+            "Inherited from Echo Preferred Voice",
+            "Inherited from Echo Preferred Voice: %@",
+            "Narration is incomplete for chapter(s) %@.",
+            "Ready, revision %lld",
+            "Rebuild this anthology to refresh its narration plan, then try again.",
+            "Uses your current Echo narration voice. Changing that preference updates inherited chapters the next time they are narrated.",
+        ]
+        for key in requiredKeys {
+            #expect(strings[key] != nil, "Missing localized string: \(key)")
+        }
     }
 }
 

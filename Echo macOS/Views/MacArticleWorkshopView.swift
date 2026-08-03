@@ -7,17 +7,25 @@ import SwiftUI
 /// needs its own presentation while continuing to share ingestion, anthology,
 /// EPUB-build, and library-import behavior.
 struct MacArticleWorkshopView: View {
+    @Environment(SettingsManager.self) private var settings
+
     @State private var inbox: ArticleInboxViewModel
     @State private var mode: LibraryMode = .inbox
     @State private var anthologyTitle = ""
     @State private var knownCaptureIDs: Set<String> = []
     @State private var buildCoordinator: MacArticleWorkshopBuildCoordinator
     @State private var didLoad = false
+    @State private var loadingVoiceEditorID: String?
+    @State private var voiceEditor: VoiceEditorPresentation?
+    @State private var voiceEditorLoadMessage: String?
+
+    private let anthologyService: AnthologyService
 
     @MainActor
     init(db: DatabaseService) {
         let fileStore = ArticleWorkshopFileStore()
         let anthologyService = AnthologyService(db: db, fileStore: fileStore)
+        self.anthologyService = anthologyService
         _inbox = State(initialValue: ArticleInboxViewModel(db: db, fileStore: fileStore))
         _buildCoordinator = State(initialValue: MacArticleWorkshopBuildCoordinator(
             service: AnthologyBuildService(
@@ -46,6 +54,11 @@ struct MacArticleWorkshopView: View {
             didLoad = true
             await inbox.reload()
             knownCaptureIDs = Set(inbox.articles.map(\.id))
+        }
+        .sheet(item: $voiceEditor) { presentation in
+            MacAnthologyVoiceEditor(
+                viewModel: presentation.viewModel,
+                preferredVoice: preferredVoice)
         }
     }
 
@@ -195,6 +208,14 @@ struct MacArticleWorkshopView: View {
             }
             .padding()
 
+            if let voiceEditorLoadMessage {
+                Label(voiceEditorLoadMessage, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.red)
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+                    .accessibilityIdentifier("articleWorkshop.editVoices.error")
+            }
+
             Divider()
 
             if inbox.anthologies.isEmpty {
@@ -227,6 +248,15 @@ struct MacArticleWorkshopView: View {
                             ProgressView()
                                 .controlSize(.small)
                         }
+                        if loadingVoiceEditorID == anthology.id {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        Button("Edit Voices") {
+                            Task { await loadVoiceEditor(for: anthology) }
+                        }
+                        .disabled(loadingVoiceEditorID == anthology.id)
+                        .accessibilityIdentifier("articleWorkshop.editVoices.\(anthology.id)")
                         Button("Build EPUB") {
                             buildCoordinator.build(anthology)
                         }
@@ -237,6 +267,36 @@ struct MacArticleWorkshopView: View {
                 }
                 .listStyle(.inset)
             }
+        }
+    }
+
+    private var preferredVoice: VoiceID {
+        guard settings.narrationVoiceID.isEmpty == false,
+            let voice = VoiceCatalog.voice(for: VoiceID(settings.narrationVoiceID))
+        else { return VoiceCatalog.default.id }
+        return voice.id
+    }
+
+    @MainActor
+    private func loadVoiceEditor(for anthology: AnthologyRecord) async {
+        guard loadingVoiceEditorID == nil else { return }
+        loadingVoiceEditorID = anthology.id
+        voiceEditorLoadMessage = nil
+        defer { loadingVoiceEditorID = nil }
+        do {
+            let service = anthologyService
+            let project = try await Task.detached {
+                try service.loadProject(id: anthology.id)
+            }.value
+            voiceEditor = VoiceEditorPresentation(
+                id: anthology.id,
+                viewModel: AnthologyBuilderViewModel(
+                    project: project,
+                    service: anthologyService))
+        } catch {
+            voiceEditorLoadMessage = String(
+                localized: "This anthology's voices could not be loaded. Try again."
+            )
         }
     }
 
@@ -263,6 +323,12 @@ struct MacArticleWorkshopView: View {
         }
     }
 
+}
+
+@MainActor
+private struct VoiceEditorPresentation: Identifiable {
+    let id: String
+    let viewModel: AnthologyBuilderViewModel
 }
 
 /// Owns workshop build tasks independently of the sheet's presentation
