@@ -9,35 +9,47 @@
         @State private var deletionImpact: ArticleDeletionImpact?
 
         var body: some View {
-            Group {
-                if viewModel.articles.isEmpty, viewModel.isImporting == false {
-                    ContentUnavailableView(
-                        "Article Inbox",
-                        systemImage: "tray",
-                        description: Text(
-                            "Articles you capture from Safari will appear here."
+            VStack(spacing: 0) {
+                Toggle("Show Used Captures", isOn: showsUsedCaptures)
+                    .padding(.horizontal)
+                    .padding(.vertical, 10)
+                    .accessibilityHint(
+                        "Shows captured source articles already used in a successful EPUB build")
+
+                Divider()
+
+                Group {
+                    if viewModel.articles.isEmpty, viewModel.isImporting == false {
+                        ContentUnavailableView(
+                            viewModel.showsUsedCaptures ? "No Article Captures" : "Inbox is Clear",
+                            systemImage: "tray",
+                            description: Text(
+                                viewModel.showsUsedCaptures
+                                    ? "Articles you capture from Safari will appear here."
+                                    : "New captures and captures not yet built into an EPUB appear here."
+                            )
                         )
-                    )
-                } else {
-                    List(viewModel.articles) { article in
-                        articleRow(article)
-                            .swipeActions {
-                                Button(
-                                    "Delete",
-                                    systemImage: "trash",
-                                    role: .destructive
-                                ) {
+                    } else {
+                        List(viewModel.articles) { article in
+                            articleRow(article)
+                                .swipeActions {
+                                    Button(
+                                        "Delete",
+                                        systemImage: "trash",
+                                        role: .destructive
+                                    ) {
+                                        prepareDeletion(article)
+                                    }
+                                }
+                                .accessibilityAction(named: "Delete") {
                                     prepareDeletion(article)
                                 }
-                            }
-                            .accessibilityAction(named: "Delete") {
-                                prepareDeletion(article)
-                            }
-                    }
-                    .navigationDestination(for: ArticleInboxItem.self) { article in
-                        ArticleDetailView(
-                            article: article,
-                            cleanupContext: viewModel.cleanupContext)
+                        }
+                        .navigationDestination(for: ArticleInboxItem.self) { article in
+                            ArticleDetailView(
+                                article: article,
+                                cleanupContext: viewModel.cleanupContext)
+                        }
                     }
                 }
             }
@@ -118,6 +130,12 @@
 
                             Label(article.state.title, systemImage: article.state.systemImage)
                                 .font(.subheadline)
+
+                            if article.isUsed {
+                                Label("Used in EPUB", systemImage: "archivebox")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                     .accessibilityHint("Opens article details and cleanup")
@@ -149,6 +167,13 @@
                         viewModel.errorMessage = nil
                     }
                 }
+            )
+        }
+
+        private var showsUsedCaptures: Binding<Bool> {
+            Binding(
+                get: { viewModel.showsUsedCaptures },
+                set: { viewModel.setShowsUsedCaptures($0) }
             )
         }
 

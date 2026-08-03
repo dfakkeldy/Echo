@@ -8,6 +8,7 @@
         let buildService: AnthologyBuildService
         let openBook: (LibraryOpenTarget) -> Void
         let cleanupContext: ArticleCleanupContext?
+        let onSuccessfulBuild: @MainActor @Sendable () async -> Void
 
         var body: some View {
             Group {
@@ -27,7 +28,8 @@
                                 service: service,
                                 buildService: buildService,
                                 openBook: openBook,
-                                cleanupContext: cleanupContext)
+                                cleanupContext: cleanupContext,
+                                onSuccessfulBuild: onSuccessfulBuild)
                         } label: {
                             VStack(alignment: .leading, spacing: 4) {
                                 Label(

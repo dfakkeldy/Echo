@@ -223,7 +223,10 @@
                 service: anthologyService,
                 buildService: anthologyBuildService,
                 openBook: openBook,
-                cleanupContext: articleInboxViewModel.cleanupContext)
+                cleanupContext: articleInboxViewModel.cleanupContext,
+                onSuccessfulBuild: {
+                    await articleInboxViewModel.reload()
+                })
         }
     }
 

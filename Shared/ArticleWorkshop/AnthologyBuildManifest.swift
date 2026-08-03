@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import CryptoKit
 import Foundation
 
 nonisolated enum ArticleImageLocalizationWarning: String, Codable, Equatable, Sendable {
@@ -88,6 +89,42 @@ nonisolated struct AnthologyBuildManifest: Codable, Equatable, Sendable {
     var imageInclusionSummary: String? {
         guard candidateImageCount > 0 else { return nil }
         return "\(includedImageCount) of \(candidateImageCount) pictures included."
+    }
+}
+
+/// Validates the durable receipt that proves which stable capture identities
+/// were frozen into a successfully published EPUB build.
+nonisolated enum AnthologySuccessfulBuildEvidence {
+    enum Error: Swift.Error, Equatable {
+        case invalidManifest
+        case manifestDigestMismatch
+        case receiptMismatch
+    }
+
+    static func captureIDs(in record: AnthologyBuildRecord) throws -> Set<UUID>? {
+        guard record.status == "succeeded" else { return nil }
+
+        let data = Data(record.manifestJSON.utf8)
+        let digest = SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        guard digest == record.manifestSHA256 else {
+            throw Error.manifestDigestMismatch
+        }
+        guard
+            let manifest = try? JSONDecoder.articleWorkshop.decode(
+                AnthologyBuildManifest.self,
+                from: data)
+        else {
+            throw Error.invalidManifest
+        }
+        guard UUID(uuidString: record.anthologyID) == manifest.anthologyID,
+            record.revision == manifest.revision,
+            record.epubIdentifier == manifest.epubIdentifier
+        else {
+            throw Error.receiptMismatch
+        }
+        return Set(manifest.chapters.map(\.captureID))
     }
 }
 
