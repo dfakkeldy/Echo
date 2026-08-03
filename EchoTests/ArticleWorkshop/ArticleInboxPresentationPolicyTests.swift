@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import Foundation
 import Testing
 
 @testable import Echo
@@ -32,5 +33,35 @@ import Testing
             item.warningOccurrences.map(\.text) == [
                 "Image unavailable", "Image unavailable",
             ])
+    }
+
+    @Test func usedCaptureViewIsDiscoverableOnSharedAndMacInboxSurfaces() throws {
+        let shared = try source(named: "EchoCore/Views/ArticleWorkshop/ArticleInboxView.swift")
+        let mac = try source(named: "Echo macOS/Views/MacArticleWorkshopView.swift")
+
+        #expect(shared.contains("Show Used Captures"))
+        #expect(mac.contains("Show Used Captures"))
+        #expect(shared.contains("Used in EPUB"))
+        #expect(mac.contains("Used in EPUB"))
+    }
+
+    @Test func successfulBuildRefreshesSharedAndMacInboxPresentations() throws {
+        let detail = try source(named: "EchoCore/Views/ArticleWorkshop/AnthologyDetailView.swift")
+        let library = try source(named: "EchoCore/Views/Library/LibraryView.swift")
+        let mac = try source(named: "Echo macOS/Views/MacArticleWorkshopView.swift")
+
+        #expect(detail.contains("await onSuccessfulBuild()"))
+        #expect(library.contains("await articleInboxViewModel.reload()"))
+        #expect(mac.contains("await inbox.reload()"))
+    }
+
+    private func source(named relativePath: String) throws -> String {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        return try String(
+            contentsOf: repositoryRoot.appending(path: relativePath),
+            encoding: .utf8)
     }
 }

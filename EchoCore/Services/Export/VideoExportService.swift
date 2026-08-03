@@ -175,9 +175,9 @@ actor VideoExportService {
         let timeline = try TimelineRowLoader.rows(
             audiobookID: audiobookID, db: databaseWriter)
         guard !timeline.isEmpty else { throw ExportError.noAlignment }
-        let blocks = try await EPubBlockDAO(db: databaseWriter).visibleBlocks(for: audiobookID)
+        let blocks = try EPubBlockDAO(db: databaseWriter).visibleBlocks(for: audiobookID)
         let words: [ReaderActiveBlockResolver.WordRow] =
-            (try? await WordTimingDAO(db: databaseWriter).words(forAudiobook: audiobookID))?
+            (try? WordTimingDAO(db: databaseWriter).words(forAudiobook: audiobookID))?
             .map {
                 (
                     start: $0.audioStartTime,

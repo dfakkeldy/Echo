@@ -32,7 +32,7 @@ nonisolated enum AnthologyBuildManifestValidator {
             throw AnthologyBuildManifestValidationError.invalidManifest
         }
 
-        guard manifest.schemaVersion == 1,
+        guard [1, 2].contains(manifest.schemaVersion),
             manifest.anthologyID.uuidString == build.anthologyID,
             manifest.revision == build.revision,
             manifest.epubIdentifier == build.epubIdentifier,

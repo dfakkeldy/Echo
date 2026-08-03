@@ -165,6 +165,100 @@ struct AnthologyServiceTests {
                 == ArticleWorkshopDigest.readableContent(blocks: blocks))
     }
 
+    @Test func manifestPreservesLocalizedImageBlockAndImmutableAssetEvidence() throws {
+        let fixture = try AnthologyServiceFixture()
+        defer { fixture.removeFiles() }
+        let suffix = 119
+        let captureID = UUID(
+            uuidString: String(format: "00000000-0000-0000-0000-%012d", suffix))!
+        let data = Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")!
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let localizationRoot = fixture.root.appending(
+            path: "Localized-\(suffix)",
+            directoryHint: .isDirectory)
+        let images = localizationRoot.appending(path: "images", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: images, withIntermediateDirectories: true)
+        try data.write(to: images.appending(path: "\(digest).png"))
+        let sourceURL = URL(string: "https://example.test/meaningful.png")!
+        let descriptor = ArticleImageAssetDescriptor(
+            owningBlockID: "article-\(captureID.uuidString)-b1",
+            managedPath: "images/\(digest).png",
+            archivePath: "EPUB/images/article-\(digest).png",
+            mediaType: "image/png",
+            sha256: digest,
+            byteCount: data.count,
+            pixelWidth: 1,
+            pixelHeight: 1,
+            sourceURL: sourceURL,
+            altText: "Harbour at sunrise",
+            caption: "Fishing boats returning home.")
+        let capture = try fixture.installCapture(
+            suffix: suffix,
+            title: "Illustrated",
+            recipe: .init(),
+            contentXHTML: """
+                <article><p>Before.</p><figure><img src="\(sourceURL.absoluteString)" alt="Harbour at sunrise"><figcaption>Fishing boats returning home.</figcaption></figure></article>
+                """,
+            imageLocalization: ArticleImageLocalization(
+                localURLs: [images.appending(path: "\(digest).png")],
+                warnings: [],
+                assets: [descriptor]),
+            localizationRoot: localizationRoot)
+        let service = fixture.service()
+        let project = try service.createProject(title: "Book", captureIDs: [capture.id])
+
+        let manifest = try service.prepareManifest(anthologyID: project.anthology.id)
+
+        #expect(manifest.schemaVersion == 2)
+        #expect(manifest.chapters[0].blocks.map(\.kind) == [.paragraph, .image])
+        #expect(manifest.imageAssets == [descriptor])
+        #expect(manifest.imageFailures == [])
+        #expect(manifest.imageInclusionSummary == "1 of 1 pictures included.")
+    }
+
+    @Test func failedImageStaysVisibleInBuildEvidenceWhileCaptionRemainsReadable() throws {
+        let fixture = try AnthologyServiceFixture()
+        defer { fixture.removeFiles() }
+        let suffix = 120
+        let captureID = UUID(
+            uuidString: String(format: "00000000-0000-0000-0000-%012d", suffix))!
+        let sourceURL = URL(string: "https://example.test/missing.png")!
+        let localizationRoot = fixture.root.appending(
+            path: "Localized-\(suffix)",
+            directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: localizationRoot,
+            withIntermediateDirectories: true)
+        let failure = ArticleImageFailureDescriptor(
+            owningBlockID: "article-\(captureID.uuidString)-b1",
+            sourceURL: sourceURL,
+            reason: .downloadFailed)
+        let capture = try fixture.installCapture(
+            suffix: suffix,
+            title: "Partially illustrated",
+            recipe: .init(),
+            contentXHTML: """
+                <article><p>Before.</p><figure><img src="\(sourceURL.absoluteString)"><figcaption>Still readable.</figcaption></figure></article>
+                """,
+            imageLocalization: ArticleImageLocalization(
+                localURLs: [],
+                warnings: [.downloadFailed],
+                failures: [failure]),
+            localizationRoot: localizationRoot)
+        let service = fixture.service()
+        let project = try service.createProject(title: "Book", captureIDs: [capture.id])
+
+        let manifest = try service.prepareManifest(anthologyID: project.anthology.id)
+
+        #expect(manifest.schemaVersion == 2)
+        #expect(manifest.chapters[0].blocks.map(\.kind) == [.paragraph, .paragraph])
+        #expect(manifest.chapters[0].blocks.compactMap(\.text) == ["Before.", "Still readable."])
+        #expect(manifest.imageAssets == [])
+        #expect(manifest.imageFailures == [failure])
+        #expect(manifest.imageInclusionSummary == "0 of 1 pictures included.")
+    }
+
     @Test func manifestOmitsEmptyReadableBlocksButPreservesSeparators() throws {
         let fixture = try AnthologyServiceFixture()
         defer { fixture.removeFiles() }
@@ -969,7 +1063,9 @@ private final class AnthologyServiceFixture: @unchecked Sendable {
         language: String? = "en",
         recipe: ArticleEditRecipe? = nil,
         contentXHTML: String? = nil,
-        recordState: ArticleContentState = .ready
+        recordState: ArticleContentState = .ready,
+        imageLocalization: ArticleImageLocalization? = nil,
+        localizationRoot: URL? = nil
     ) throws -> ArticleCaptureRecord {
         let id = UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", suffix))!
         let envelope = ArticleCaptureEnvelope(
@@ -993,7 +1089,16 @@ private final class AnthologyServiceFixture: @unchecked Sendable {
                 imageURLs: []))
         let staging = root.appending(path: "Staging-\(suffix)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
-        let package = try ArticleCaptureStagingWriter(root: staging).stage(envelope)
+        let writer = ArticleCaptureStagingWriter(root: staging)
+        let package: URL
+        if let imageLocalization, let localizationRoot {
+            package = try writer.stage(
+                envelope,
+                imageLocalization: imageLocalization,
+                localizationRoot: localizationRoot)
+        } else {
+            package = try writer.stage(envelope)
+        }
         let imported = try fileStore.importEnvelope(at: package)
         var record = ArticleCaptureRecord(
             id: id.uuidString,

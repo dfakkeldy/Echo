@@ -3,7 +3,7 @@ import Foundation
 
 /// Converts written prose into a speakable form before phonemization.
 /// Pure and deterministic — the unit with the highest naturalness ROI.
-enum TextNormalizer {
+nonisolated enum TextNormalizer {
     static func normalize(_ input: String) -> String {
         var s = input
         s = expandAbbreviations(s)

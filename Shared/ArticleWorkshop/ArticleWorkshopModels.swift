@@ -35,8 +35,31 @@ nonisolated struct ArticleBlock: Codable, Equatable, Identifiable, Sendable {
     let text: String?
     let sourceURL: URL?
     let imageCandidateURL: URL?
+    let altText: String?
     let caption: String?
     let codeLanguage: String?
+
+    init(
+        id: String,
+        stableOrdinal: Int,
+        kind: ArticleBlockKind,
+        text: String?,
+        sourceURL: URL?,
+        imageCandidateURL: URL?,
+        altText: String? = nil,
+        caption: String?,
+        codeLanguage: String?
+    ) {
+        self.id = id
+        self.stableOrdinal = stableOrdinal
+        self.kind = kind
+        self.text = text
+        self.sourceURL = sourceURL
+        self.imageCandidateURL = imageCandidateURL
+        self.altText = altText
+        self.caption = caption
+        self.codeLanguage = codeLanguage
+    }
 
     func withCaption(_ caption: String?) -> ArticleBlock {
         ArticleBlock(
@@ -46,6 +69,7 @@ nonisolated struct ArticleBlock: Codable, Equatable, Identifiable, Sendable {
             text: text,
             sourceURL: sourceURL,
             imageCandidateURL: imageCandidateURL,
+            altText: altText,
             caption: caption,
             codeLanguage: codeLanguage)
     }

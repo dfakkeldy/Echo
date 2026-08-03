@@ -359,11 +359,17 @@ private struct BookmarkImagePreviewSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             if let cgImage {
-                Image(decorative: cgImage, scale: 1)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding()
+                // Not `Image(decorative:)`: this sheet's sole purpose is showing
+                // this picture, so it must carry a real accessibility label
+                // instead of being hidden from VoiceOver.
+                Image(
+                    cgImage, scale: 1,
+                    label: Text(String(localized: "Bookmark picture: \(preview.title)"))
+                )
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding()
             } else {
                 ContentUnavailableView("Picture Unavailable", systemImage: "photo")
             }

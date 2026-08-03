@@ -8,15 +8,15 @@ nonisolated struct ArticleInboxReloadResult: Sendable {
 }
 
 actor ArticleInboxReloadWorker {
-    private let operation: @Sendable () throws -> ArticleInboxReloadResult
+    private let operation: @Sendable () async throws -> ArticleInboxReloadResult
 
-    init(operation: @escaping @Sendable () throws -> ArticleInboxReloadResult) {
+    init(operation: @escaping @Sendable () async throws -> ArticleInboxReloadResult) {
         self.operation = operation
     }
 
     func load() async throws -> ArticleInboxReloadResult {
         try Task.checkCancellation()
-        let result = try operation()
+        let result = try await operation()
         try Task.checkCancellation()
         return result
     }
@@ -30,11 +30,17 @@ final class ArticleInboxViewModel {
     var selectedIDs: Set<String> = []
     var isImporting = false
     var errorMessage: String?
+    private(set) var showsUsedCaptures = false
 
     @ObservationIgnored private let service: ArticleInboxService
     @ObservationIgnored private let reloadWorker: ArticleInboxReloadWorker
     @ObservationIgnored let cleanupContext: ArticleCleanupContext?
     @ObservationIgnored private var reloadGeneration = 0
+    @ObservationIgnored private var allArticles: [ArticleInboxItem] = []
+
+    var allCaptureIDs: Set<String> {
+        Set(allArticles.map(\.id))
+    }
 
     init(db: DatabaseService, fileStore: ArticleWorkshopFileStore) {
         let captureDAO = ArticleCaptureDAO(db: db.writer)
@@ -50,13 +56,13 @@ final class ArticleInboxViewModel {
         reloadWorker = ArticleInboxReloadWorker {
             try Task.checkCancellation()
             let stagingRoot = try FileLocations.articleCaptureStagingDirectory()
-            try ArticleInboxIngestionService(
+            try await ArticleInboxIngestionService(
                 captureDAO: captureDAO,
                 fileStore: fileStore,
                 stagingRoot: stagingRoot
-            ).drainStaging()
+            ).drainStagingLocalizingImages()
             try Task.checkCancellation()
-            let articles = try service.inboxItems()
+            let articles = try service.inboxItems(showUsedCaptures: true)
             try Task.checkCancellation()
             let anthologies = try service.anthologies()
             try Task.checkCancellation()
@@ -78,7 +84,7 @@ final class ArticleInboxViewModel {
             try Task.checkCancellation()
             try drainStaging()
             try Task.checkCancellation()
-            let articles = try service.inboxItems()
+            let articles = try service.inboxItems(showUsedCaptures: true)
             try Task.checkCancellation()
             let anthologies = try service.anthologies()
             try Task.checkCancellation()
@@ -106,10 +112,11 @@ final class ArticleInboxViewModel {
                 isImporting = false
                 return
             }
-            articles = result.articles
+            allArticles = result.articles
+            applyArticleFilter()
             anthologies = result.anthologies
             selectedIDs.formIntersection(
-                result.articles.lazy.filter(\.isAnthologyEligible).map(\.id))
+                articles.lazy.filter(\.isAnthologyEligible).map(\.id))
             errorMessage = nil
             isImporting = false
         } catch is CancellationError {
@@ -143,6 +150,13 @@ final class ArticleInboxViewModel {
         }
     }
 
+    func setShowsUsedCaptures(_ showsUsedCaptures: Bool) {
+        self.showsUsedCaptures = showsUsedCaptures
+        applyArticleFilter()
+        selectedIDs.formIntersection(
+            articles.lazy.filter(\.isAnthologyEligible).map(\.id))
+    }
+
     func deletionImpact(for id: String) throws -> ArticleDeletionImpact {
         try service.deletionImpact(for: id)
     }
@@ -154,6 +168,7 @@ final class ArticleInboxViewModel {
                 try deletionService.delete(id: id)
             }.value
             reloadGeneration &+= 1
+            allArticles.removeAll { $0.id == id }
             articles.removeAll { $0.id == id }
             selectedIDs.remove(id)
             await reload()
@@ -175,5 +190,11 @@ final class ArticleInboxViewModel {
         selectedIDs.removeAll()
         errorMessage = nil
         return anthology
+    }
+
+    private func applyArticleFilter() {
+        articles = showsUsedCaptures
+            ? allArticles
+            : allArticles.filter { $0.isUsed == false }
     }
 }

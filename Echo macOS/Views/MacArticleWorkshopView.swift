@@ -10,6 +10,7 @@ struct MacArticleWorkshopView: View {
     @Environment(SettingsManager.self) private var settings
 
     @State private var inbox: ArticleInboxViewModel
+    @State private var websiteCapture: ArticleWebsiteCaptureCoordinator
     @State private var mode: LibraryMode = .inbox
     @State private var anthologyTitle = ""
     @State private var knownCaptureIDs: Set<String> = []
@@ -19,6 +20,7 @@ struct MacArticleWorkshopView: View {
     @State private var voiceEditor: VoiceEditorPresentation?
     @State private var voiceEditorLoadMessage: String?
     @AccessibilityFocusState private var voiceEditorLoadErrorIsFocused: Bool
+    @State private var websiteSubmissionID = 0
 
     private let anthologyService: AnthologyService
 
@@ -27,11 +29,17 @@ struct MacArticleWorkshopView: View {
         let fileStore = ArticleWorkshopFileStore()
         let anthologyService = AnthologyService(db: db, fileStore: fileStore)
         self.anthologyService = anthologyService
-        _inbox = State(initialValue: ArticleInboxViewModel(db: db, fileStore: fileStore))
-        _buildCoordinator = State(initialValue: MacArticleWorkshopBuildCoordinator(
-            service: AnthologyBuildService(
-                anthologyService: anthologyService,
-                databaseService: db)))
+        let inbox = ArticleInboxViewModel(db: db, fileStore: fileStore)
+        _inbox = State(initialValue: inbox)
+        _websiteCapture = State(initialValue: ArticleWebsiteCaptureCoordinator(inbox: inbox))
+        _buildCoordinator = State(
+            initialValue: MacArticleWorkshopBuildCoordinator(
+                service: AnthologyBuildService(
+                    anthologyService: anthologyService,
+                    databaseService: db),
+                onSuccessfulBuild: {
+                    await inbox.reload()
+                }))
     }
 
     var body: some View {
@@ -54,7 +62,16 @@ struct MacArticleWorkshopView: View {
             guard didLoad == false else { return }
             didLoad = true
             await inbox.reload()
-            knownCaptureIDs = Set(inbox.articles.map(\.id))
+            knownCaptureIDs = inbox.allCaptureIDs
+        }
+        .task(id: websiteSubmissionID) {
+            guard websiteSubmissionID > 0 else { return }
+            if websiteCapture.retryAvailable {
+                await websiteCapture.retry()
+            } else {
+                await websiteCapture.submit()
+            }
+            knownCaptureIDs = inbox.allCaptureIDs
         }
         .sheet(item: $voiceEditor) { presentation in
             MacAnthologyVoiceEditor(
@@ -94,17 +111,29 @@ struct MacArticleWorkshopView: View {
 
     private var inboxContent: some View {
         VStack(spacing: 0) {
+            websiteCaptureForm
+
+            Divider()
+
             HStack {
                 Button("Refresh & Select New") {
                     Task { await refreshAndSelectNew() }
                 }
                 .accessibilityIdentifier("articleWorkshop.refreshAndSelectNew")
-                .disabled(inbox.isImporting)
+                .disabled(inbox.isImporting || websiteCapture.isBusy)
 
                 Button(inbox.selectedIDs.isEmpty ? "Select All" : "Clear Selection") {
                     inbox.selectAll()
                 }
                 .disabled(inbox.articles.isEmpty)
+
+                Toggle(
+                    "Show Used Captures",
+                    isOn: Binding(
+                        get: { inbox.showsUsedCaptures },
+                        set: { inbox.setShowsUsedCaptures($0) })
+                )
+                .toggleStyle(.checkbox)
 
                 if inbox.isImporting {
                     ProgressView()
@@ -124,8 +153,10 @@ struct MacArticleWorkshopView: View {
                 ContentUnavailableView(
                     "No Article Captures",
                     systemImage: "tray",
-                    description: Text("Place capture packages in Echo’s staging folder, then refresh."))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    description: Text(
+                        "Place capture packages in Echo’s staging folder, then refresh.")
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(inbox.articles) { article in
                     articleRow(article)
@@ -159,15 +190,90 @@ struct MacArticleWorkshopView: View {
         }
     }
 
+    private var websiteCaptureForm: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Add Website")
+                .font(.headline)
+
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                TextField(
+                    "Website URL",
+                    text: $websiteCapture.urlText,
+                    prompt: Text("https://example.com/article")
+                )
+                .textFieldStyle(.roundedBorder)
+                .autocorrectionDisabled()
+                .onSubmit(requestWebsiteCapture)
+                .accessibilityIdentifier("articleWorkshop.websiteURL")
+                .accessibilityHint("Enter a public HTTP or HTTPS article URL.")
+                .disabled(websiteCapture.isBusy || inbox.isImporting)
+
+                Button("Add Website", action: requestWebsiteCapture)
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier("articleWorkshop.addWebsite")
+                    .accessibilityHint(
+                        "Captures the website and adds it through the Article Inbox."
+                    )
+                    .disabled(websiteCapture.canSubmit == false || inbox.isImporting)
+            }
+
+            if let validationMessage = websiteCapture.validationMessage {
+                Label(validationMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .accessibilityIdentifier("articleWorkshop.websiteValidation")
+            } else {
+                Text("Add a public HTTP(S) article. Signed-in pages are not supported.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            websiteCaptureStatus
+        }
+        .padding()
+    }
+
+    @ViewBuilder
+    private var websiteCaptureStatus: some View {
+        switch websiteCapture.phase {
+        case .idle:
+            EmptyView()
+        case .capturing:
+            ProgressView("Capturing website…")
+                .accessibilityIdentifier("articleWorkshop.websiteCapturing")
+        case .loading:
+            ProgressView("Adding capture to Inbox…")
+                .accessibilityIdentifier("articleWorkshop.websiteLoading")
+        case .success:
+            Label("Website added and selected.", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .accessibilityIdentifier("articleWorkshop.websiteSuccess")
+        case .failure(_, let message):
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Label(message, systemImage: "exclamationmark.octagon.fill")
+                    .foregroundStyle(.red)
+                    .accessibilityIdentifier("articleWorkshop.websiteFailure")
+                Spacer()
+                Button("Retry", action: requestWebsiteCapture)
+                    .accessibilityIdentifier("articleWorkshop.websiteRetry")
+                    .accessibilityHint(
+                        "Retries from the failed step without duplicating completed work.")
+            }
+        }
+    }
+
     private func articleRow(_ article: ArticleInboxItem) -> some View {
         Button {
             inbox.toggleSelection(article.id)
         } label: {
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: inbox.selectedIDs.contains(article.id)
-                    ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(
-                        inbox.selectedIDs.contains(article.id) ? Color.accentColor : .secondary)
+                Image(
+                    systemName: inbox.selectedIDs.contains(article.id)
+                        ? "checkmark.circle.fill" : "circle"
+                )
+                .foregroundStyle(
+                    inbox.selectedIDs.contains(article.id) ? Color.accentColor : .secondary)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(article.title)
                         .font(.headline)
@@ -177,6 +283,9 @@ struct MacArticleWorkshopView: View {
                             Text(site)
                         }
                         Label(article.state.title, systemImage: article.state.systemImage)
+                        if article.isUsed {
+                            Label("Used in EPUB", systemImage: "archivebox")
+                        }
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -232,8 +341,9 @@ struct MacArticleWorkshopView: View {
                 ContentUnavailableView(
                     "No Anthologies",
                     systemImage: "text.book.closed",
-                    description: Text("Select captures in the Inbox to create one."))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    description: Text("Select captures in the Inbox to create one.")
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(inbox.anthologies, id: \.id) { anthology in
                     HStack(spacing: 12) {
@@ -319,7 +429,12 @@ struct MacArticleWorkshopView: View {
         for article in newlyImported where inbox.selectedIDs.contains(article.id) == false {
             inbox.toggleSelection(article.id)
         }
-        knownCaptureIDs = Set(inbox.articles.map(\.id))
+        knownCaptureIDs = inbox.allCaptureIDs
+    }
+
+    private func requestWebsiteCapture() {
+        guard websiteCapture.canSubmit, inbox.isImporting == false else { return }
+        websiteSubmissionID &+= 1
     }
 
     @MainActor
@@ -348,6 +463,7 @@ private struct VoiceEditorPresentation: Identifiable {
 @Observable
 private final class MacArticleWorkshopBuildCoordinator {
     private let service: AnthologyBuildService
+    private let onSuccessfulBuild: @MainActor @Sendable () async -> Void
     private var tasks: [String: Task<Void, Never>] = [:]
     private var buildAllTask: Task<Void, Never>?
 
@@ -358,8 +474,12 @@ private final class MacArticleWorkshopBuildCoordinator {
         buildAllTask != nil || buildingIDs.isEmpty == false
     }
 
-    init(service: AnthologyBuildService) {
+    init(
+        service: AnthologyBuildService,
+        onSuccessfulBuild: @escaping @MainActor @Sendable () async -> Void
+    ) {
         self.service = service
+        self.onSuccessfulBuild = onSuccessfulBuild
     }
 
     func build(_ anthology: AnthologyRecord) {
@@ -402,12 +522,13 @@ private final class MacArticleWorkshopBuildCoordinator {
     private func finish(
         _ anthology: AnthologyRecord,
         with result: Result<AnthologyBuildRecord, Swift.Error>
-    ) {
+    ) async {
         buildingIDs.remove(anthology.id)
         tasks[anthology.id] = nil
         switch result {
         case .success(let record):
             messages[anthology.id] = "Built revision \(record.revision) and added it to Echo."
+            await onSuccessfulBuild()
         case .failure(let error):
             messages[anthology.id] = error.localizedDescription
         }

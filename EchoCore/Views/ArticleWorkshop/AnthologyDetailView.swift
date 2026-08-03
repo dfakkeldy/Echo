@@ -160,6 +160,7 @@
         let buildService: AnthologyBuildService
         let openBook: (LibraryOpenTarget) -> Void
         let cleanupContext: ArticleCleanupContext?
+        let onSuccessfulBuild: @MainActor @Sendable () async -> Void
 
         @State private var viewModel: AnthologyBuilderViewModel?
         @State private var userMessage: String?
@@ -371,6 +372,7 @@
                     project: project,
                     service: service)
                 apply(snapshot)
+                await onSuccessfulBuild()
                 epubMessage = nil
             } catch is CancellationError {
                 return

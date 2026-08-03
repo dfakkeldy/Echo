@@ -2,6 +2,10 @@
 import Foundation
 import os.log
 
+#if DEBUG
+    import Synchronization
+#endif
+
 struct GlobalTranscriptIndex: Codable {
     let fileHash: String
     let fileName: String
@@ -41,8 +45,25 @@ class TranscriptStore {
         reload()
     }
 
-    /// Kicks off an off-main scan+decode of the transcript directory and applies
-    /// the result on the main actor. Non-blocking: launch no longer waits while
+    #if DEBUG
+        /// Test/harness-only observation seam: records whether the most recent
+        /// `readIndex` call executed its body on the main thread. Mutex-protected
+        /// (not `nonisolated(unsafe)`) because `readIndex` isn't provably
+        /// single-caller: production `loadIndex()` and any direct test call both
+        /// reach it. Exists so the off-main guarantee is verified empirically
+        /// instead of trusted from the `@concurrent` annotation alone. Not
+        /// compiled into release builds.
+        nonisolated static let debugReadIndexRanOnMainThread = Mutex<Bool?>(nil)
+        /// `Thread.isMainThread` is `NS_SWIFT_UNAVAILABLE_FROM_ASYNC` — reading it
+        /// directly inside an `async` function body doesn't compile. This
+        /// synchronous wrapper is the sanctioned way to read it from async code.
+        nonisolated private static func debugIsMainThread() -> Bool { Thread.isMainThread }
+    #endif
+
+    /// Kicks off an off-main scan+decode of the transcript directory (via
+    /// `readIndex`, which is `@concurrent` — see its doc comment for why that
+    /// attribute, not just `nonisolated async`, is required) and applies the
+    /// result on the main actor. Non-blocking: launch no longer waits while
     /// every transcript JSON is decoded and word-frequency-counted (audit fix 4).
     func loadIndex() {
         loadGeneration += 1
@@ -58,11 +79,24 @@ class TranscriptStore {
         }
     }
 
-    /// Pure directory scan + JSON decode + word-frequency compute, off-main.
+    /// Pure directory scan + JSON decode + word-frequency compute, off the main
+    /// actor. `@concurrent` (not plain `nonisolated async`) is what actually
+    /// moves this onto the cooperative pool: this project builds with
+    /// `SWIFT_APPROACHABLE_CONCURRENCY = YES`, which enables
+    /// `NonisolatedNonsendingByDefault` — under that mode a plain `nonisolated
+    /// async` function called from this `@MainActor` class's `Task { ... }`
+    /// (an unstructured `Task` inherits the enclosing actor) runs ON the main
+    /// thread, not off it. Do not drop `@concurrent` under the assumption that
+    /// `nonisolated async` alone suspends off-main; it does not, here.
+    @concurrent
     nonisolated static func readIndex(from transcriptDir: URL) async -> (
         transcriptions: [String: [TranscriptionSegment]],
         wordClouds: [String: [WordFrequency]]
     )? {
+        #if DEBUG
+            let isMainThread = Self.debugIsMainThread()
+            Self.debugReadIndexRanOnMainThread.withLock { $0 = isMainThread }
+        #endif
         guard
             let files = try? FileManager.default.contentsOfDirectory(
                 at: transcriptDir, includingPropertiesForKeys: nil)

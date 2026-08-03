@@ -391,7 +391,10 @@ nonisolated struct AnthologyService: Sendable {
         else {
             throw Error.invalidStoredData
         }
-        let chapters = try project.entries.enumerated().map { order, value in
+        var chapters: [AnthologyChapterManifest] = []
+        var imageAssets: [ArticleImageAssetDescriptor] = []
+        var imageFailures: [ArticleImageFailureDescriptor] = []
+        for (order, value) in project.entries.enumerated() {
             guard let entryID = UUID(uuidString: value.entry.id),
                 let captureID = UUID(uuidString: value.capture.id),
                 let revision = value.revision,
@@ -402,23 +405,30 @@ nonisolated struct AnthologyService: Sendable {
             else {
                 throw Error.invalidStoredData
             }
-            let publishedBlocks = Self.publishedBlocks(clean.blocks)
-            return AnthologyChapterManifest(
-                entryID: entryID,
-                captureID: captureID,
-                articleRevisionID: revisionID,
-                stableSlot: value.entry.stableSlot,
-                order: order,
-                title: Self.optionalText(value.entry.chapterTitleOverride)
-                    ?? Self.requiredTitle(clean.metadata.title),
-                author: Self.optionalText(clean.metadata.author),
-                siteName: Self.optionalText(clean.metadata.siteName),
-                sourceURL: sourceURL,
-                capturedAt: capturedAt,
-                voiceID: Self.optionalText(value.entry.narrationVoiceID),
-                blocks: publishedBlocks,
-                readableContentSHA256: ArticleWorkshopDigest.readableContent(
-                    blocks: publishedBlocks))
+            let captureAssets = try fileStore.loadImageAssetManifest(captureID: captureID)
+            let published = Self.publishedContent(
+                clean.blocks,
+                assets: captureAssets?.assets ?? [],
+                failures: captureAssets?.failures ?? [])
+            imageAssets.append(contentsOf: published.assets)
+            imageFailures.append(contentsOf: published.failures)
+            chapters.append(
+                AnthologyChapterManifest(
+                    entryID: entryID,
+                    captureID: captureID,
+                    articleRevisionID: revisionID,
+                    stableSlot: value.entry.stableSlot,
+                    order: order,
+                    title: Self.optionalText(value.entry.chapterTitleOverride)
+                        ?? Self.requiredTitle(clean.metadata.title),
+                    author: Self.optionalText(clean.metadata.author),
+                    siteName: Self.optionalText(clean.metadata.siteName),
+                    sourceURL: sourceURL,
+                    capturedAt: capturedAt,
+                    voiceID: Self.optionalText(value.entry.narrationVoiceID),
+                    blocks: published.blocks,
+                    readableContentSHA256: ArticleWorkshopDigest.readableContent(
+                        blocks: published.blocks)))
         }
         let languages = project.entries.map {
             Self.optionalText($0.cleanArticle?.metadata.language)
@@ -435,7 +445,7 @@ nonisolated struct AnthologyService: Sendable {
             forcedRevision
             ?? ((project.latestSuccessfulBuild?.revision ?? 0) + 1)
         return AnthologyBuildManifest(
-            schemaVersion: 1,
+            schemaVersion: imageAssets.isEmpty && imageFailures.isEmpty ? 1 : 2,
             anthologyID: anthologyID,
             revision: publishedRevision,
             epubIdentifier: "urn:uuid:\(anthologyID.uuidString)",
@@ -448,15 +458,49 @@ nonisolated struct AnthologyService: Sendable {
                 anthologyID: project.anthology.id,
                 storedData: true),
             modifiedAt: modifiedAt,
-            chapters: chapters)
+            chapters: chapters,
+            imageAssets: imageAssets.isEmpty && imageFailures.isEmpty ? nil : imageAssets,
+            imageFailures: imageAssets.isEmpty && imageFailures.isEmpty ? nil : imageFailures)
     }
 
-    /// Remote image candidates are capture-time editing hints, not publishable
-    /// EPUB assets. Preserve useful captions as narration text and omit bare
-    /// placeholders before the strict EPUB builder validates the manifest.
-    private static func publishedBlocks(_ blocks: [ArticleBlock]) -> [ArticleBlock] {
-        blocks.compactMap { block in
+    private static func publishedContent(
+        _ blocks: [ArticleBlock],
+        assets: [ArticleImageAssetDescriptor],
+        failures: [ArticleImageFailureDescriptor]
+    ) -> (
+        blocks: [ArticleBlock],
+        assets: [ArticleImageAssetDescriptor],
+        failures: [ArticleImageFailureDescriptor]
+    ) {
+        let assetsByBlock = Dictionary(
+            uniqueKeysWithValues: assets.map { ($0.owningBlockID, $0) })
+        let failuresByBlock = Dictionary(
+            uniqueKeysWithValues: failures.map { ($0.owningBlockID, $0) })
+        var publishedAssets: [ArticleImageAssetDescriptor] = []
+        var publishedFailures: [ArticleImageFailureDescriptor] = []
+        let publishedBlocks = blocks.compactMap { block in
             if block.kind == .image {
+                if let asset = assetsByBlock[block.id],
+                    asset.sourceURL == block.imageCandidateURL
+                {
+                    publishedAssets.append(
+                        ArticleImageAssetDescriptor(
+                            owningBlockID: block.id,
+                            managedPath: asset.managedPath,
+                            archivePath: asset.archivePath,
+                            mediaType: asset.mediaType,
+                            sha256: asset.sha256,
+                            byteCount: asset.byteCount,
+                            pixelWidth: asset.pixelWidth,
+                            pixelHeight: asset.pixelHeight,
+                            sourceURL: asset.sourceURL,
+                            altText: optionalText(block.altText),
+                            caption: optionalText(block.caption)))
+                    return block
+                }
+                if let failure = failuresByBlock[block.id] {
+                    publishedFailures.append(failure)
+                }
                 guard let caption = optionalText(block.caption) else { return nil }
                 return ArticleBlock(
                     id: block.id,
@@ -473,6 +517,7 @@ nonisolated struct AnthologyService: Sendable {
             }
             return block
         }
+        return (publishedBlocks, publishedAssets, publishedFailures)
     }
 
     private func validate(_ snapshot: AnthologyDatabaseSnapshot) throws {

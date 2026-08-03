@@ -22,6 +22,15 @@ struct AnthologyNarrationManifestResolverTests {
         #expect(try fixture.resolver.resolve(audiobookID: "book-1") == expected)
     }
 
+    @Test func validSchemaV2AnthologyReturnsFrozenManifestByAudiobookID() throws {
+        let fixture = try ManifestResolverFixture()
+        let expected = try fixture.insertSuccessfulBuild(
+            audiobookID: "book-1",
+            schemaVersion: 2)
+
+        #expect(try fixture.resolver.resolve(audiobookID: "book-1") == expected)
+    }
+
     @Test func matchingTamperedReceiptThrows() throws {
         let fixture = try ManifestResolverFixture()
         try fixture.insertTamperedBuild(audiobookID: "book-1")
@@ -43,14 +52,17 @@ struct AnthologyNarrationManifestResolverTests {
             .appending(path: fixture.epubURL.lastPathComponent)
 
         #expect(
-            try fixture.resolver.resolve(audiobookID: "book-1", epubURL: nonstandardURL) == expected)
+            try fixture.resolver.resolve(audiobookID: "book-1", epubURL: nonstandardURL) == expected
+        )
     }
 
-    @Test("Invalid successful manifests are rejected", arguments: [
-        ManifestResolverMutation.unavailableVoice,
-        .duplicateEntry,
-        .readableContentDigest,
-    ])
+    @Test(
+        "Invalid successful manifests are rejected",
+        arguments: [
+            ManifestResolverMutation.unavailableVoice,
+            .duplicateEntry,
+            .readableContentDigest,
+        ])
     func invalidSuccessfulManifestThrows(
         mutation: ManifestResolverMutation
     ) throws {
@@ -107,9 +119,13 @@ private struct ManifestResolverFixture {
         audiobookID: String,
         epubPath: String? = nil,
         revision: Int = 1,
+        schemaVersion: Int = 1,
         mutation: ManifestResolverMutation? = nil
     ) throws -> AnthologyBuildManifest {
-        let manifest = try manifest(revision: revision, mutation: mutation)
+        let manifest = try manifest(
+            revision: revision,
+            schemaVersion: schemaVersion,
+            mutation: mutation)
         let data = try JSONEncoder.articleWorkshop.encode(manifest)
         var build = AnthologyBuildRecord(
             id: UUID().uuidString,
@@ -168,6 +184,7 @@ private struct ManifestResolverFixture {
 
     private func manifest(
         revision: Int,
+        schemaVersion: Int = 1,
         mutation: ManifestResolverMutation?
     ) throws -> AnthologyBuildManifest {
         let blocks = [
@@ -220,7 +237,7 @@ private struct ManifestResolverFixture {
             chapters = [chapter]
         }
         return AnthologyBuildManifest(
-            schemaVersion: 1,
+            schemaVersion: schemaVersion,
             anthologyID: anthologyID,
             revision: revision,
             epubIdentifier: "urn:uuid:\(anthologyID.uuidString)",

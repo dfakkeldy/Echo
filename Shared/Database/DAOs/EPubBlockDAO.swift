@@ -4,9 +4,13 @@ import GRDB
 
 /// DAO for EPUB block records — headings, paragraphs, sentences, and images
 /// parsed from the EPUB spine and stored in structural reading order.
-struct EPubBlockDAO {
+nonisolated struct EPubBlockDAO {
     let db: DatabaseWriter
-    private static let isoFormatter = ISO8601DateFormatter()
+    // Computed rather than a cached `static let`: `ISO8601DateFormatter` is not
+    // Sendable, and this DAO is `nonisolated` so a shared static instance would be
+    // unsynchronized global mutable state. Construction is cheap; this keeps every
+    // call read-only-safe without an unsafe concurrency escape hatch.
+    private static var isoFormatter: ISO8601DateFormatter { ISO8601DateFormatter() }
 
     // MARK: - Insert
 

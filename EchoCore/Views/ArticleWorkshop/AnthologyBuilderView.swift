@@ -113,6 +113,15 @@
                     ProgressView("Saving…")
                 }
 
+                if let summary = viewModel.preparedManifest?.imageInclusionSummary {
+                    Label(
+                        summary,
+                        systemImage: viewModel.preparedManifest?.imageFailures?.isEmpty == false
+                            ? "exclamationmark.triangle"
+                            : "photo.on.rectangle.angled")
+                        .foregroundStyle(.secondary)
+                }
+
                 if let message = viewModel.userMessage {
                     Label(message, systemImage: "exclamationmark.triangle")
                     if viewModel.retryActionAvailable {

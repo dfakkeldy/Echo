@@ -1,5 +1,42 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import CryptoKit
 import Foundation
+
+nonisolated enum ArticleImageLocalizationWarning: String, Codable, Equatable, Sendable {
+    case invalidURL
+    case downloadFailed
+    case invalidContentType
+    case responseTooLarge
+    case invalidImage
+    case totalByteLimitReached
+    case unsafeDestination
+}
+
+nonisolated struct ArticleImageLocalization: Sendable {
+    let localURLs: [URL]
+    let warnings: [ArticleImageLocalizationWarning]
+    let assets: [ArticleImageAssetDescriptor]
+    let failures: [ArticleImageFailureDescriptor]
+
+    init(
+        localURLs: [URL],
+        warnings: [ArticleImageLocalizationWarning],
+        assets: [ArticleImageAssetDescriptor] = [],
+        failures: [ArticleImageFailureDescriptor] = []
+    ) {
+        self.localURLs = localURLs
+        self.warnings = warnings
+        self.assets = assets
+        self.failures = failures
+    }
+}
+
+nonisolated struct ArticleImageCandidate: Equatable, Sendable {
+    let owningBlockID: String
+    let sourceURL: URL
+    let altText: String?
+    let caption: String?
+}
 
 nonisolated struct AnthologyBuildManifest: Codable, Equatable, Sendable {
     let schemaVersion: Int
@@ -13,6 +50,112 @@ nonisolated struct AnthologyBuildManifest: Codable, Equatable, Sendable {
     let coverPath: String?
     let modifiedAt: Date
     let chapters: [AnthologyChapterManifest]
+    let imageAssets: [ArticleImageAssetDescriptor]?
+    let imageFailures: [ArticleImageFailureDescriptor]?
+
+    init(
+        schemaVersion: Int,
+        anthologyID: UUID,
+        revision: Int,
+        epubIdentifier: String,
+        title: String,
+        subtitle: String?,
+        creator: String,
+        language: String,
+        coverPath: String?,
+        modifiedAt: Date,
+        chapters: [AnthologyChapterManifest],
+        imageAssets: [ArticleImageAssetDescriptor]? = nil,
+        imageFailures: [ArticleImageFailureDescriptor]? = nil
+    ) {
+        self.schemaVersion = schemaVersion
+        self.anthologyID = anthologyID
+        self.revision = revision
+        self.epubIdentifier = epubIdentifier
+        self.title = title
+        self.subtitle = subtitle
+        self.creator = creator
+        self.language = language
+        self.coverPath = coverPath
+        self.modifiedAt = modifiedAt
+        self.chapters = chapters
+        self.imageAssets = imageAssets
+        self.imageFailures = imageFailures
+    }
+
+    var includedImageCount: Int { imageAssets?.count ?? 0 }
+    var candidateImageCount: Int { includedImageCount + (imageFailures?.count ?? 0) }
+
+    var imageInclusionSummary: String? {
+        guard candidateImageCount > 0 else { return nil }
+        return "\(includedImageCount) of \(candidateImageCount) pictures included."
+    }
+}
+
+/// Validates the durable receipt that proves which stable capture identities
+/// were frozen into a successfully published EPUB build.
+nonisolated enum AnthologySuccessfulBuildEvidence {
+    enum Error: Swift.Error, Equatable {
+        case invalidManifest
+        case manifestDigestMismatch
+        case receiptMismatch
+    }
+
+    static func captureIDs(in record: AnthologyBuildRecord) throws -> Set<UUID>? {
+        guard record.status == "succeeded" else { return nil }
+
+        let data = Data(record.manifestJSON.utf8)
+        let digest = SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        guard digest == record.manifestSHA256 else {
+            throw Error.manifestDigestMismatch
+        }
+        guard
+            let manifest = try? JSONDecoder.articleWorkshop.decode(
+                AnthologyBuildManifest.self,
+                from: data)
+        else {
+            throw Error.invalidManifest
+        }
+        guard UUID(uuidString: record.anthologyID) == manifest.anthologyID,
+            record.revision == manifest.revision,
+            record.epubIdentifier == manifest.epubIdentifier
+        else {
+            throw Error.receiptMismatch
+        }
+        return Set(manifest.chapters.map(\.captureID))
+    }
+}
+
+/// Immutable per-block evidence for one accepted managed image. Identical bytes
+/// may deliberately share `managedPath` and `archivePath`; ownership and
+/// accessibility metadata remain block-specific.
+nonisolated struct ArticleImageAssetDescriptor: Codable, Equatable, Sendable {
+    let owningBlockID: String
+    let managedPath: String
+    let archivePath: String
+    let mediaType: String
+    let sha256: String
+    let byteCount: Int
+    let pixelWidth: Int?
+    let pixelHeight: Int?
+    let sourceURL: URL
+    let altText: String?
+    let caption: String?
+}
+
+nonisolated struct ArticleImageFailureDescriptor: Codable, Equatable, Sendable {
+    let owningBlockID: String
+    let sourceURL: URL
+    let reason: ArticleImageLocalizationWarning
+}
+
+nonisolated struct ArticleImageAssetManifest: Codable, Equatable, Sendable {
+    let schemaVersion: Int
+    let captureID: UUID
+    let assets: [ArticleImageAssetDescriptor]
+    let failures: [ArticleImageFailureDescriptor]
 }
 
 nonisolated struct AnthologyChapterManifest: Codable, Equatable, Sendable {

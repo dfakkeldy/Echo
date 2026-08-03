@@ -1,11 +1,112 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import CryptoKit
 import Foundation
+import GRDB
 import Testing
 
 @testable import Echo
 
 @MainActor
 @Suite struct ArticleInboxServiceTests {
+    @Test func newDraftOnlyAndFailedBuildCapturesRemainInInbox() throws {
+        let fixture = try Fixture()
+        defer { fixture.removeFiles() }
+        let newCapture = "00000000-0000-0000-0000-000000000001"
+        let draftCapture = "00000000-0000-0000-0000-000000000002"
+        let failedCapture = "00000000-0000-0000-0000-000000000003"
+        try fixture.saveBuildEligibleCapture(id: newCapture)
+        try fixture.saveBuildEligibleCapture(id: draftCapture)
+        try fixture.saveBuildEligibleCapture(id: failedCapture)
+        _ = try fixture.service.createAnthologySeed(
+            title: "Draft Only",
+            captureIDs: [draftCapture])
+        _ = try fixture.saveBuild(
+            captureIDs: [failedCapture],
+            status: "failed",
+            title: "Rolled Back")
+
+        let items = try fixture.service.inboxItems()
+
+        #expect(Set(items.map(\.id)) == [newCapture, draftCapture, failedCapture])
+        #expect(items.allSatisfy { $0.isUsed == false })
+    }
+
+    @Test func successfulBuildArchivesWithoutMutatingCapturePackageOrBuildArtifacts() throws {
+        let fixture = try Fixture()
+        defer { fixture.removeFiles() }
+        let captureID = "00000000-0000-0000-0000-000000000001"
+        try fixture.saveBuildEligibleCapture(id: captureID)
+        let captureBefore = try #require(try fixture.captureDAO.capture(id: captureID))
+        let snapshotURL = URL(fileURLWithPath: captureBefore.packagePath)
+            .appending(path: "snapshot.json")
+        let packageBytesBefore = try Data(contentsOf: snapshotURL)
+        let evidence = try fixture.saveBuild(
+            captureIDs: [captureID],
+            status: "succeeded",
+            title: "Built Once")
+        let captureAfterBuild = try #require(try fixture.captureDAO.capture(id: captureID))
+        let epubBytesBefore = try Data(contentsOf: evidence.epubURL)
+
+        #expect(try fixture.service.inboxItems().isEmpty)
+        let archived = try fixture.service.inboxItems(showUsedCaptures: true)
+        #expect(archived.map(\.id) == [captureID])
+        #expect(archived.map(\.isUsed) == [true])
+        #expect(try fixture.captureDAO.capture(id: captureID) == captureAfterBuild)
+        #expect(try Data(contentsOf: snapshotURL) == packageBytesBefore)
+        #expect(
+            try fixture.anthologyDAO.latestSuccessfulBuild(
+                anthologyID: evidence.record.anthologyID) == evidence.record)
+        #expect(try Data(contentsOf: evidence.epubURL) == epubBytesBefore)
+    }
+
+    @Test func reusedCaptureHasOneStableArchivedSourceIdentity() throws {
+        let fixture = try Fixture()
+        defer { fixture.removeFiles() }
+        let captureID = "00000000-0000-0000-0000-000000000001"
+        try fixture.saveBuildEligibleCapture(id: captureID)
+        let packagePath = try #require(try fixture.captureDAO.capture(id: captureID)).packagePath
+        _ = try fixture.saveBuild(
+            captureIDs: [captureID],
+            status: "succeeded",
+            title: "First Collection")
+        _ = try fixture.saveBuild(
+            captureIDs: [captureID],
+            status: "succeeded",
+            title: "Second Collection")
+
+        let archived = try fixture.service.inboxItems(showUsedCaptures: true)
+
+        #expect(archived.map(\.id) == [captureID])
+        #expect(try fixture.captureDAO.captures().map(\.id) == [captureID])
+        #expect(try fixture.captureDAO.capture(id: captureID)?.packagePath == packagePath)
+    }
+
+    @Test func builtCaptureCannotBeDeletedAfterRemovalFromCurrentDraft() throws {
+        let fixture = try Fixture()
+        defer { fixture.removeFiles() }
+        let captureID = "00000000-0000-0000-0000-000000000001"
+        try fixture.saveBuildEligibleCapture(id: captureID)
+        let evidence = try fixture.saveBuild(
+            captureIDs: [captureID],
+            status: "succeeded",
+            title: "Historical Edition")
+        let entry = try #require(
+            try fixture.anthologyDAO.entries(anthologyID: evidence.record.anthologyID).first)
+        try fixture.anthologyDAO.removeEntry(
+            id: entry.id,
+            anthologyID: evidence.record.anthologyID)
+        let capture = try #require(try fixture.captureDAO.capture(id: captureID))
+
+        let impact = try fixture.service.deletionImpact(for: captureID)
+
+        #expect(impact == .referenced(projectNames: ["Historical Edition"]))
+        #expect(throws: ArticleInboxService.Error.self) {
+            try fixture.service.delete(id: captureID)
+        }
+        #expect(try fixture.captureDAO.capture(id: captureID) == capture)
+        #expect(FileManager.default.fileExists(atPath: capture.packagePath))
+    }
+
     @Test func inboxOrdersNewestFirstAndShowsReadyReviewAndFailedStates() throws {
         let fixture = try Fixture()
         defer { fixture.removeFiles() }
@@ -289,6 +390,41 @@ import Testing
         #expect(try fixture.captureDAO.capture(id: captureID) != nil)
         #expect(FileManager.default.fileExists(atPath: package.path))
         #expect(try fixture.anthologyDAO.entries(anthologyID: anthology.id).count == 1)
+        #expect(try fixture.deletionQuarantineContents().isEmpty)
+    }
+
+    @Test func successfulBuildAppearingBeforeTransactionalDeleteRestoresPackageAndRow() throws {
+        let fixture = try Fixture()
+        defer { fixture.removeFiles() }
+        let captureID = "00000000-0000-0000-0000-000000000001"
+        try fixture.saveBuildEligibleCapture(id: captureID)
+        let evidence = try fixture.saveBuild(
+            captureIDs: [captureID],
+            status: "succeeded",
+            title: "Late Historical Edition")
+        let entry = try #require(
+            try fixture.anthologyDAO.entries(anthologyID: evidence.record.anthologyID).first)
+        try fixture.anthologyDAO.removeEntry(
+            id: entry.id,
+            anthologyID: evidence.record.anthologyID)
+        try fixture.database.writer.write { db in
+            try db.execute(
+                sql: "DELETE FROM anthology_build WHERE id = ?",
+                arguments: [evidence.record.id])
+        }
+        let anthologyDAO = fixture.anthologyDAO
+        let service = fixture.makeService { point, _ in
+            guard point == .beforeDatabaseCommit else { return }
+            try anthologyDAO.saveBuild(evidence.record)
+        }
+        let capture = try #require(try fixture.captureDAO.capture(id: captureID))
+
+        #expect(throws: ArticleInboxService.Error.self) {
+            try service.delete(id: captureID)
+        }
+
+        #expect(try fixture.captureDAO.capture(id: captureID) == capture)
+        #expect(FileManager.default.fileExists(atPath: capture.packagePath))
         #expect(try fixture.deletionQuarantineContents().isEmpty)
     }
 
@@ -596,6 +732,47 @@ private final class Fixture {
                 id: id,
                 digest: imported.sha256,
                 packagePath: imported.snapshotURL.deletingLastPathComponent().path))
+    }
+
+    func saveBuild(
+        captureIDs: [String],
+        status: String,
+        title: String
+    ) throws -> (record: AnthologyBuildRecord, epubURL: URL) {
+        let anthology = try service.createAnthologySeed(
+            title: title,
+            captureIDs: captureIDs)
+        let manifest = try AnthologyService(
+            captureDAO: captureDAO,
+            anthologyDAO: anthologyDAO,
+            fileStore: fileStore,
+            now: { Date(timeIntervalSince1970: 1_775_000_000) },
+            makeID: UUID.init
+        ).prepareManifest(anthologyID: anthology.id)
+        let encoder = JSONEncoder.articleWorkshop
+        encoder.outputFormatting = [.sortedKeys]
+        let manifestData = try encoder.encode(manifest)
+        let epubURL = root.appending(path: "\(anthology.id).epub")
+        let epubBytes = Data("epub-\(anthology.id)-\(manifest.revision)".utf8)
+        try epubBytes.write(to: epubURL)
+        let record = AnthologyBuildRecord(
+            id: UUID().uuidString,
+            anthologyID: anthology.id,
+            revision: manifest.revision,
+            epubIdentifier: manifest.epubIdentifier,
+            manifestJSON: String(decoding: manifestData, as: UTF8.self),
+            manifestSHA256: SHA256.hash(data: manifestData)
+                .map { String(format: "%02x", $0) }.joined(),
+            epubPath: status == "succeeded" ? epubURL.path : nil,
+            epubSHA256: status == "succeeded"
+                ? SHA256.hash(data: epubBytes).map { String(format: "%02x", $0) }.joined()
+                : nil,
+            audiobookID: status == "succeeded" ? "fixture-\(anthology.id)" : nil,
+            status: status,
+            errorCode: status == "failed" ? "build_failed" : nil,
+            createdAt: "2026-07-28T12:05:00Z")
+        try anthologyDAO.saveBuild(record)
+        return (record, epubURL)
     }
 }
 

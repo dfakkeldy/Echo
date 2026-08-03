@@ -245,12 +245,15 @@ struct MacReaderParityTests {
             modifiedAt: nil)
     }
 
+    /// Reads a non-macOS source, applying the same whitespace normalization as
+    /// `MacSource.read` so these assertions tolerate formatter line-wrapping.
     private func projectSource(_ relativePath: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         while directory.path != "/" {
             let candidate = directory.deletingLastPathComponent().appending(path: relativePath)
             if FileManager.default.fileExists(atPath: candidate.path) {
-                return try String(contentsOf: candidate, encoding: .utf8)
+                return MacSource.normalized(
+                    try String(contentsOf: candidate, encoding: .utf8))
             }
             directory.deleteLastPathComponent()
         }

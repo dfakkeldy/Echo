@@ -452,6 +452,47 @@ nonisolated struct AnthologyDAO {
         }
     }
 
+    func successfulBuilds() throws -> [AnthologyBuildRecord] {
+        try db.read { db in
+            try AnthologyBuildRecord.fetchAll(
+                db,
+                sql: """
+                    SELECT * FROM anthology_build
+                    WHERE status = 'succeeded'
+                    ORDER BY created_at, id
+                    """
+            )
+        }
+    }
+
+    func historicallyReferencingAnthologies(captureID: String) throws -> [AnthologyRecord] {
+        guard let captureUUID = UUID(uuidString: captureID) else { return [] }
+        return try db.read { db in
+            let builds = try AnthologyBuildRecord.fetchAll(
+                db,
+                sql: """
+                    SELECT * FROM anthology_build
+                    WHERE status = 'succeeded'
+                    ORDER BY created_at, id
+                    """
+            )
+            let anthologyIDs = try Set(builds.compactMap { build -> String? in
+                guard
+                    let captureIDs = try AnthologySuccessfulBuildEvidence.captureIDs(in: build),
+                    captureIDs.contains(captureUUID)
+                else {
+                    return nil
+                }
+                return build.anthologyID
+            })
+            guard anthologyIDs.isEmpty == false else { return [] }
+            return try AnthologyRecord
+                .filter(anthologyIDs.contains(Column("id")))
+                .order(Column("created_at").desc, Column("id"))
+                .fetchAll(db)
+        }
+    }
+
     func referencingAnthologies(captureID: String) throws -> [AnthologyRecord] {
         try db.read { db in
             try AnthologyRecord.fetchAll(

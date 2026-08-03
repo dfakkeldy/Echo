@@ -53,6 +53,74 @@ nonisolated struct ArticleInboxIngestionService {
         try drainStaging(enrichment: nil)
     }
 
+    /// Localizes retained Readability image blocks before the ordinary durable
+    /// import drains and removes their staging packages.
+    func drainStagingLocalizingImages(
+        downloader: ArticleImageDownloader = ArticleImageDownloader()
+    ) async throws {
+        let fileManager = FileManager.default
+        let normalizedRoot = stagingRoot.standardizedFileURL
+        guard fileManager.fileExists(atPath: normalizedRoot.path) else { return }
+        guard try safeDirectory(normalizedRoot) else {
+            throw Error.unsafeStagingRoot(normalizedRoot)
+        }
+        let packages = try fileManager.contentsOfDirectory(
+            at: normalizedRoot,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: [])
+        for package in packages {
+            try Task.checkCancellation()
+            guard UUID(uuidString: package.lastPathComponent) != nil,
+                package.standardizedFileURL.deletingLastPathComponent() == normalizedRoot,
+                try safeDirectory(package),
+                fileManager.fileExists(atPath: package.appending(path: "complete").path)
+            else { continue }
+            let validated = try fileStore.validateEnvelope(at: package)
+            let durablePackage = fileStore.root
+                .appending(path: "Captures", directoryHint: .isDirectory)
+                .appending(
+                    path: validated.envelope.captureID.uuidString,
+                    directoryHint: .isDirectory)
+            guard fileManager.fileExists(atPath: durablePackage.path) == false else {
+                continue
+            }
+            let snapshot = try ArticleBlockSanitizer().sanitize(
+                envelope: validated.envelope)
+            let candidates = snapshot.blocks.compactMap {
+                block -> ArticleImageCandidate? in
+                guard block.kind == .image,
+                    let sourceURL = block.imageCandidateURL
+                else { return nil }
+                return ArticleImageCandidate(
+                    owningBlockID: block.id,
+                    sourceURL: sourceURL,
+                    altText: block.altText,
+                    caption: block.caption)
+            }
+            guard candidates.isEmpty == false else { continue }
+            let temporary = fileManager.temporaryDirectory.appending(
+                path: "Echo-ArticleImages-\(UUID().uuidString)",
+                directoryHint: .isDirectory)
+            try fileManager.createDirectory(
+                at: temporary,
+                withIntermediateDirectories: false)
+            do {
+                let localization = await downloader.localize(
+                    candidates: candidates,
+                    into: temporary)
+                _ = try fileStore.importEnvelope(
+                    at: package,
+                    imageLocalization: localization,
+                    localizationRoot: temporary)
+                try fileManager.removeItem(at: temporary)
+            } catch {
+                try? fileManager.removeItem(at: temporary)
+                throw error
+            }
+        }
+        try drainStaging()
+    }
+
     private func drainStaging(
         enrichment: (snapshot: ArticleSnapshot, warnings: [ArticleImageLocalizationWarning])?
     ) throws {
@@ -277,6 +345,20 @@ nonisolated struct ArticleInboxIngestionService {
     {
         let envelope = imported.envelope
         let timestamp = envelope.capturedAt.ISO8601Format()
+        let imageWarnings = imported.imageAssets?.failures.map {
+            "image.\($0.reason.rawValue)"
+        } ?? []
+        let snapshot = try? ArticleBlockSanitizer().sanitize(envelope: envelope)
+        let sanitizerWarnings = snapshot?.warnings.map {
+            "sanitizer.\($0.rawValue)"
+        } ?? []
+        let warnings = Array(Set(sanitizerWarnings + imageWarnings)).sorted()
+        let warningsJSON = String(
+            decoding: (try? JSONEncoder().encode(warnings)) ?? Data("[]".utf8),
+            as: UTF8.self)
+        let state = presentationState(
+            sanitizerState: snapshot?.contentState ?? .reviewSuggested,
+            hasImageWarnings: imageWarnings.isEmpty == false)
         return ArticleCaptureRecord(
             id: envelope.captureID.uuidString,
             sourceURL: envelope.payload.sourceURL,
@@ -291,8 +373,8 @@ nonisolated struct ArticleInboxIngestionService {
             packagePath: imported.snapshotURL.deletingLastPathComponent().path,
             contentSHA256: imported.sha256,
             extractorVersion: "schema-\(envelope.schemaVersion)",
-            contentState: "ready",
-            warningsJSON: "[]",
+            contentState: state,
+            warningsJSON: warningsJSON,
             currentRevisionID: nil,
             createdAt: timestamp,
             modifiedAt: timestamp

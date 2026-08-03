@@ -1653,17 +1653,45 @@ extension MacPlayerModel {
 
 /// macOS counterpart to the iOS-only `ArtworkCache` cover sourcing. Pure helpers
 /// with no shared mutable state, returning `CGImage` (Sendable) so `load` can
-/// run off the main actor; the caller wraps the result in `NSImage`.
+/// run off the main actor; the caller wraps the result in `NSImage`. `@concurrent`
+/// (not plain `nonisolated async`) is what actually leaves the caller's actor:
+/// this project builds with `SWIFT_APPROACHABLE_CONCURRENCY = YES`, which
+/// enables `NonisolatedNonsendingByDefault` — under that mode a plain
+/// `nonisolated async` function called from the `Task { @MainActor in ... }`
+/// in `loadCoverArt(for:)` above runs ON the main thread, not off it. Do not
+/// drop `@concurrent` under the assumption that `nonisolated async` alone
+/// suspends off-main; it does not, here.
 private nonisolated enum MacArtworkLoader {
-    struct BookMetadata {
+    /// Explicitly `Sendable`: crossing back from the `@concurrent` cooperative
+    /// pool to the caller's `@MainActor` Task requires it, and CGImage/String?
+    /// are both Sendable value types.
+    struct BookMetadata: Sendable {
         let cgImage: CGImage?
         let author: String?
     }
 
+    #if DEBUG
+        /// Test/harness-only observation seam: records whether the most recent
+        /// `load` call executed its body on the main thread. Exists so the
+        /// off-main guarantee is verified empirically instead of trusted from
+        /// the `@concurrent` annotation alone. Not compiled into release builds.
+        nonisolated static let debugLoadRanOnMainThread = Mutex<Bool?>(nil)
+        /// `Thread.isMainThread` is `NS_SWIFT_UNAVAILABLE_FROM_ASYNC` — reading it
+        /// directly inside an `async` function body doesn't compile. This
+        /// synchronous wrapper is the sanctioned way to read it from async code.
+        nonisolated private static func debugIsMainThread() -> Bool { Thread.isMainThread }
+    #endif
+
     /// Reads the audio file's embedded cover art (`.commonKeyArtwork`) and author
     /// (`.commonKeyArtist`) in a single metadata pass, falling back to a sibling
-    /// folder cover image when the file has no embedded artwork.
+    /// folder cover image when the file has no embedded artwork. See the type's
+    /// doc comment: `@concurrent` is what makes this run off the main actor.
+    @concurrent
     static func load(for url: URL, scopedRoot: URL?) async -> BookMetadata {
+        #if DEBUG
+            let isMainThread = Self.debugIsMainThread()
+            Self.debugLoadRanOnMainThread.withLock { $0 = isMainThread }
+        #endif
         // Keep the library root reachable while reading (folder/library books hold
         // a long-lived root scope; ad-hoc single-file opens no-op here and rely on
         // the file already being open for playback).

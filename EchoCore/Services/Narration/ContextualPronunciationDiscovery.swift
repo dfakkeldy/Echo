@@ -277,8 +277,26 @@ nonisolated enum ContextualPronunciationDiscovery {
         let sourceTokens = tokens(
             in: text,
             authoredLinks: sourceSnapshot.authoredLinks)
+        let protectedRanges = NarrationTextChunker.pronunciationProtectedRanges(in: text)
+            .sorted {
+                if $0.lowerBound == $1.lowerBound {
+                    return $0.upperBound > $1.upperBound
+                }
+                return $0.lowerBound < $1.lowerBound
+            }
+        var protectedRangeIndex = 0
         let familyTokenIndexes = sourceTokens.indices.filter {
-            ContextualPronunciationFamilies.family(for: sourceTokens[$0].normalized) != nil
+            let token = sourceTokens[$0]
+            while protectedRangeIndex < protectedRanges.count,
+                protectedRanges[protectedRangeIndex].upperBound <= token.range.lowerBound
+            {
+                protectedRangeIndex += 1
+            }
+            let isProtected =
+                protectedRangeIndex < protectedRanges.count
+                && protectedRanges[protectedRangeIndex].overlaps(token.range)
+            return !isProtected
+                && ContextualPronunciationFamilies.family(for: token.normalized) != nil
         }
         guard !familyTokenIndexes.isEmpty else { return [] }
 
@@ -314,8 +332,9 @@ nonisolated enum ContextualPronunciationDiscovery {
             guard let wordSpan,
                 wordSpan.lowerBound == wordSpan.upperBound,
                 sourceSnapshot.displayWords.indices.contains(wordSpan.lowerBound),
-                PronunciationAuditContext.normalizedWord(
-                    sourceSnapshot.displayWords[wordSpan.lowerBound]) == token.normalized,
+                canonicalWord(
+                    sourceSnapshot.displayWords[wordSpan.lowerBound],
+                    matches: token),
                 let sentenceIndex
             else {
                 continue
@@ -344,6 +363,28 @@ nonisolated enum ContextualPronunciationDiscovery {
                     deterministicStrength: analysis.strength))
         }
         return occurrences
+    }
+
+    private static func canonicalWord(
+        _ canonicalWord: String,
+        matches token: SourceToken
+    ) -> Bool {
+        if PronunciationAuditContext.normalizedWord(canonicalWord) == token.normalized {
+            return true
+        }
+
+        let fullRange = NSRange(
+            canonicalWord.startIndex..<canonicalWord.endIndex, in: canonicalWord)
+        let monitoredComponents = wordRegex.matches(in: canonicalWord, range: fullRange).compactMap
+        {
+            match -> String? in
+            guard let range = Range(match.range, in: canonicalWord) else { return nil }
+            let normalized = PronunciationAuditContext.canonicalEnglishKeySpelling(
+                String(canonicalWord[range]))
+            return ContextualPronunciationFamilies.family(for: normalized) == nil
+                ? nil : normalized
+        }
+        return monitoredComponents == [token.normalized]
     }
 
     private static func tokens(

@@ -109,12 +109,16 @@ struct MacVisualListeningParityTests {
         case privateStructNotFound(String)
     }
 
+    /// Reads a non-macOS source for the iOS/macOS parity checks below, applying
+    /// the same whitespace normalization as `MacSource.read` so both sides of a
+    /// parity assertion tolerate formatter line-wrapping.
     private static func readProjectSource(_ relativePath: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         while directory.path != "/" {
             let candidate = directory.deletingLastPathComponent().appending(path: relativePath)
             if FileManager.default.fileExists(atPath: candidate.path) {
-                return try String(contentsOf: candidate, encoding: .utf8)
+                return MacSource.normalized(
+                    try String(contentsOf: candidate, encoding: .utf8))
             }
             directory.deleteLastPathComponent()
         }
@@ -127,8 +131,10 @@ struct MacVisualListeningParityTests {
             throw SourceError.privateStructNotFound(name)
         }
         let remainder = source[start.lowerBound...]
+        // `source` is whitespace-normalized, so the newline that used to anchor
+        // this end marker to the start of a line is now a single space.
         let end =
-            remainder.dropFirst(marker.count).range(of: "\nprivate struct ")?.lowerBound
+            remainder.dropFirst(marker.count).range(of: " private struct ")?.lowerBound
             ?? source.endIndex
         return String(source[start.lowerBound..<end])
     }

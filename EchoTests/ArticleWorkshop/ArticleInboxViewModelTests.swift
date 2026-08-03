@@ -220,6 +220,33 @@ import Testing
         #expect(viewModel.isImporting == false)
     }
 
+    @Test func usedCapturesAreHiddenByDefaultAndRemainSelectableWhenShown() async throws {
+        let fixture = try ViewModelFixture()
+        defer { fixture.removeFiles() }
+        let pending = fixture.inboxItem(id: "pending")
+        let used = fixture.inboxItem(id: "used", isUsed: true)
+        let worker = ArticleInboxReloadWorker {
+            ArticleInboxReloadResult(
+                articles: [pending, used],
+                anthologies: [])
+        }
+        let viewModel = ArticleInboxViewModel(
+            service: fixture.service,
+            reloadWorker: worker)
+
+        await viewModel.reload()
+        #expect(viewModel.articles.map(\.id) == ["pending"])
+
+        viewModel.setShowsUsedCaptures(true)
+        #expect(viewModel.articles.map(\.id) == ["pending", "used"])
+        viewModel.toggleSelection("used")
+        #expect(viewModel.selectedIDs == ["used"])
+
+        viewModel.setShowsUsedCaptures(false)
+        #expect(viewModel.articles.map(\.id) == ["pending"])
+        #expect(viewModel.selectedIDs.isEmpty)
+    }
+
     @Test func selectedVisibleOrderCreatesDeterministicAnthologySeed() async throws {
         let fixture = try ViewModelFixture()
         defer { fixture.removeFiles() }
@@ -348,7 +375,7 @@ private final class ViewModelFixture {
         )
     }
 
-    func inboxItem(id: String) -> ArticleInboxItem {
+    func inboxItem(id: String, isUsed: Bool = false) -> ArticleInboxItem {
         ArticleInboxItem(
             id: id,
             title: "Article \(id)",
@@ -360,7 +387,8 @@ private final class ViewModelFixture {
             state: .ready,
             warnings: [],
             isPossibleDuplicate: false,
-            keepBothAvailable: true
+            keepBothAvailable: true,
+            isUsed: isUsed
         )
     }
 

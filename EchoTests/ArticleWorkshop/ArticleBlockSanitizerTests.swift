@@ -171,6 +171,37 @@ import Testing
         #expect(snapshot.blocks[1].caption == "Cover.")
     }
 
+    @Test func retainsMeaningfulReadabilityImagesWithAltSrcsetAndSkipsRelatedFurniture() throws {
+        let envelope = fixtureEnvelope(contentXHTML: """
+            <article>
+              <p>Lead text.</p>
+              <figure>
+                <img src="/images/preview.jpg"
+                     srcset="/images/preview.jpg 320w, https://cdn.example.test/photo.jpg 1280w"
+                     alt="Harbour at sunrise">
+                <figcaption>Fishing boats returning home.</figcaption>
+              </figure>
+              <img src="/images/inline.png" alt="Useful inline diagram">
+              <aside class="related-stories">
+                <img src="/images/unrelated-thumbnail.jpg" alt="Another story">
+              </aside>
+              <p>Closing text.</p>
+            </article>
+            """)
+
+        let snapshot = try ArticleBlockSanitizer().sanitize(envelope: envelope)
+        let images = snapshot.blocks.filter { $0.kind == .image }
+
+        #expect(snapshot.warnings.contains(.parserFailure) == false)
+        #expect(images.count == 2)
+        #expect(images[0].imageCandidateURL == URL(string: "https://cdn.example.test/photo.jpg"))
+        #expect(images[0].altText == "Harbour at sunrise")
+        #expect(images[0].caption == "Fishing boats returning home.")
+        #expect(images[1].imageCandidateURL == URL(string: "https://example.test/images/inline.png"))
+        #expect(images[1].altText == "Useful inline diagram")
+        #expect(snapshot.blocks.compactMap(\.text) == ["Lead text.", "Closing text."])
+    }
+
     @Test func keepsParagraphsInsideGoogleArticleParagraphContainers() throws {
         let envelope = fixtureEnvelope(contentXHTML: """
             <article><uni-article-paragraph><div><p>Satellite article text.</p></div></uni-article-paragraph></article>

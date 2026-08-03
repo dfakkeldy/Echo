@@ -72,7 +72,7 @@ struct ArticleURLCaptureService {
         }
     }
 
-    static func ephemeralConfiguration() -> URLSessionConfiguration {
+    nonisolated static func ephemeralConfiguration() -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpCookieStorage = nil
         configuration.httpShouldSetCookies = false

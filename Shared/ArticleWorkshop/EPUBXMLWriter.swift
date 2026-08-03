@@ -41,7 +41,8 @@ nonisolated enum EPUBXMLWriter {
         manifest: AnthologyBuildManifest,
         manifestSHA256: String,
         chapters: [AnthologyChapterManifest],
-        cover: CoverAsset
+        cover: CoverAsset,
+        articleImages: [ArticleImageAssetDescriptor] = []
     ) -> String {
         let modified = timestamp(manifest.modifiedAt)
         let chapterItems = chapters.map {
@@ -51,6 +52,12 @@ nonisolated enum EPUBXMLWriter {
         }.joined(separator: "\n")
         let spine = chapters.map {
             #"    <itemref idref="chapter-s\#($0.stableSlot)"/>"#
+        }.joined(separator: "\n")
+        var emittedImagePaths = Set<String>()
+        let imageItems = articleImages.compactMap { image -> String? in
+            guard emittedImagePaths.insert(image.archivePath).inserted else { return nil }
+            let href = String(image.archivePath.dropFirst("EPUB/".count))
+            return "    <item id=\"article-image-\(image.sha256)\" href=\"\(escapeAttribute(href))\" media-type=\"\(image.mediaType)\"/>"
         }.joined(separator: "\n")
         let subtitle =
             manifest.subtitle.map {
@@ -79,6 +86,7 @@ nonisolated enum EPUBXMLWriter {
                 <item id="styles" href="styles.css" media-type="text/css"/>
                 <item id="cover-page" href="cover.xhtml" media-type="\(xhtmlMediaType)"/>
                 <item id="cover-image" href="images/\(cover.filename)" media-type="\(cover.mediaType)" properties="cover-image"/>
+            \(imageItems)
             \(chapterItems)
               </manifest>
               <spine>
@@ -142,7 +150,8 @@ nonisolated enum EPUBXMLWriter {
 
     static func chapter(
         _ chapter: AnthologyChapterManifest,
-        language: String
+        language: String,
+        articleImages: [ArticleImageAssetDescriptor] = []
     ) -> String {
         let slot = chapter.stableSlot
         var content = [
@@ -171,7 +180,11 @@ nonisolated enum EPUBXMLWriter {
                 slot: slot,
                 index: 2,
                 text: publication))
-        content.append(contentsOf: chapter.blocks.map { block($0, slot: slot) })
+        let imagesByBlockID = Dictionary(
+            uniqueKeysWithValues: articleImages.map { ($0.owningBlockID, $0) })
+        content.append(contentsOf: chapter.blocks.map {
+            block($0, slot: slot, image: imagesByBlockID[$0.id])
+        })
         let source = escapeAttribute(chapter.sourceURL.absoluteString)
         content.append(
             """
@@ -221,7 +234,11 @@ nonisolated enum EPUBXMLWriter {
             + "\(escapeText(text))</\(tag)>"
     }
 
-    private static func block(_ block: ArticleBlock, slot: Int) -> String {
+    private static func block(
+        _ block: ArticleBlock,
+        slot: Int,
+        image: ArticleImageAssetDescriptor?
+    ) -> String {
         let index = 1000 + block.stableOrdinal
         let text = escapeText(block.text ?? "")
         let attributes =
@@ -245,7 +262,13 @@ nonisolated enum EPUBXMLWriter {
         case .separator:
             return "<hr \(attributes)/>"
         case .image:
-            return "<span \(attributes)></span>"
+            guard let image else { return "<span \(attributes)></span>" }
+            let href = "../" + String(image.archivePath.dropFirst("EPUB/".count))
+            let alt = escapeAttribute(image.altText ?? "")
+            let caption = image.caption.map {
+                "<figcaption>\(escapeText($0))</figcaption>"
+            } ?? ""
+            return "<figure><img \(attributes) src=\"\(escapeAttribute(href))\" alt=\"\(alt)\"/>\(caption)</figure>"
         }
     }
 
