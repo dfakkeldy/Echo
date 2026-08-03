@@ -40,21 +40,30 @@ struct MacReaderParityTests {
     {
         let editor = try MacSource.read("Views/MacAnthologyVoiceEditor.swift")
 
-        #expect(editor.contains("@State private var pendingSaveEntryIDs: Set<String> = []"))
-        #expect(editor.contains("viewModel.isSaving || pendingSaveEntryIDs.isEmpty == false"))
+        #expect(
+            editor.contains(
+                "@State private var pendingSaveCountsByEntryID: [String: Int] = [:]"))
+        #expect(
+            editor.contains(
+                "viewModel.isSaving || pendingSaveCountsByEntryID.isEmpty == false"))
         #expect(editor.contains(".interactiveDismissDisabled(saveIsPending)"))
         #expect(editor.contains(".onExitCommand"))
         #expect(editor.contains("guard saveIsPending == false else { return }"))
         #expect(editor.contains("Button(\"Close\") { dismiss() }"))
         #expect(editor.contains(".disabled(saveIsPending)"))
-        #expect(editor.contains(".disabled(pendingSaveEntryIDs.contains(entry.entry.id))"))
-        #expect(editor.contains("pendingSaveEntryIDs.remove(entryID)"))
+        #expect(
+            editor.contains(
+                ".disabled((pendingSaveCountsByEntryID[entry.entry.id] ?? 0) > 0)"))
+        #expect(editor.contains("pendingSaveCountsByEntryID.removeValue(forKey: entryID)"))
+        #expect(editor.contains("if pendingSaveCount == 1"))
+        #expect(editor.contains("pendingSaveCountsByEntryID[entryID] = pendingSaveCount - 1"))
+        #expect(editor.contains("pendingSaveEntryIDs") == false)
 
         let onChange = try #require(editor.range(of: ".onChange(of: voiceID)"))
         let handlerRange = onChange.lowerBound..<editor.endIndex
         let pendingRegistration = try #require(
             editor.range(
-                of: "pendingSaveEntryIDs.insert(entryID)",
+                of: "pendingSaveCountsByEntryID[entryID, default: 0] += 1",
                 range: handlerRange))
         let taskCreation = try #require(
             editor.range(
@@ -66,7 +75,15 @@ struct MacReaderParityTests {
                 range: handlerRange))
         let pendingClear = try #require(
             editor.range(
-                of: "pendingSaveEntryIDs.remove(entryID)",
+                of: "if let pendingSaveCount = pendingSaveCountsByEntryID[entryID]",
+                range: handlerRange))
+        let finalPendingRemoval = try #require(
+            editor.range(
+                of: "pendingSaveCountsByEntryID.removeValue(forKey: entryID)",
+                range: handlerRange))
+        let intermediatePendingDecrement = try #require(
+            editor.range(
+                of: "pendingSaveCountsByEntryID[entryID] = pendingSaveCount - 1",
                 range: handlerRange))
         #expect(
             pendingRegistration.lowerBound < taskCreation.lowerBound,
@@ -75,6 +92,8 @@ struct MacReaderParityTests {
         #expect(
             awaitedSave.lowerBound < pendingClear.lowerBound,
             "The editor must retain the saving-row registration through the awaited save.")
+        #expect(pendingClear.lowerBound < finalPendingRemoval.lowerBound)
+        #expect(pendingClear.lowerBound < intermediatePendingDecrement.lowerBound)
     }
 
     @Test func chapterVoiceSaveAndParentLoadErrorsMoveAccessibilityFocusWithoutKeyboardFocus()

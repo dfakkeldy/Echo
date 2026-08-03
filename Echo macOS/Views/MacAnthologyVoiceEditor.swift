@@ -3,7 +3,7 @@ import SwiftUI
 
 struct MacAnthologyVoiceEditor: View {
     @State internal var viewModel: AnthologyBuilderViewModel
-    @State private var pendingSaveEntryIDs: Set<String> = []
+    @State private var pendingSaveCountsByEntryID: [String: Int] = [:]
     @State private var retryIsPending = false
     @AccessibilityFocusState private var saveErrorIsFocused: Bool
     let preferredVoice: VoiceID
@@ -29,7 +29,7 @@ struct MacAnthologyVoiceEditor: View {
                             entry: entry,
                             viewModel: viewModel,
                             preferredVoice: preferredVoice,
-                            pendingSaveEntryIDs: $pendingSaveEntryIDs)
+                            pendingSaveCountsByEntryID: $pendingSaveCountsByEntryID)
                     }
                 }
 
@@ -77,7 +77,7 @@ struct MacAnthologyVoiceEditor: View {
     }
 
     private var saveIsPending: Bool {
-        viewModel.isSaving || pendingSaveEntryIDs.isEmpty == false || retryIsPending
+        viewModel.isSaving || pendingSaveCountsByEntryID.isEmpty == false || retryIsPending
     }
 }
 
@@ -87,20 +87,20 @@ private struct MacAnthologyVoiceRow: View {
     let preferredVoice: VoiceID
 
     @State private var voiceID: String?
-    @Binding private var pendingSaveEntryIDs: Set<String>
+    @Binding private var pendingSaveCountsByEntryID: [String: Int]
     @FocusState private var pickerIsFocused: Bool
 
     init(
         entry: AnthologyProjectEntry,
         viewModel: AnthologyBuilderViewModel,
         preferredVoice: VoiceID,
-        pendingSaveEntryIDs: Binding<Set<String>>
+        pendingSaveCountsByEntryID: Binding<[String: Int]>
     ) {
         self.entry = entry
         self.viewModel = viewModel
         self.preferredVoice = preferredVoice
         _voiceID = State(initialValue: entry.entry.narrationVoiceID)
-        _pendingSaveEntryIDs = pendingSaveEntryIDs
+        _pendingSaveCountsByEntryID = pendingSaveCountsByEntryID
     }
 
     var body: some View {
@@ -130,19 +130,25 @@ private struct MacAnthologyVoiceRow: View {
                 }
             }
             .focused($pickerIsFocused)
-            .disabled(pendingSaveEntryIDs.contains(entry.entry.id))
+            .disabled((pendingSaveCountsByEntryID[entry.entry.id] ?? 0) > 0)
             .accessibilityIdentifier("articleWorkshop.chapterVoice.\(entry.entry.id)")
             .accessibilityValue(Text(voiceAccessibilityValue))
             .onChange(of: voiceID) { _, voiceID in
                 let entryID = entry.entry.id
                 let restoreFocus = pickerIsFocused
-                pendingSaveEntryIDs.insert(entryID)
+                pendingSaveCountsByEntryID[entryID, default: 0] += 1
                 Task {
                     await viewModel.updateEntry(
                         id: entryID,
                         chapterTitleOverride: entry.entry.chapterTitleOverride,
                         narrationVoiceID: voiceID)
-                    pendingSaveEntryIDs.remove(entryID)
+                    if let pendingSaveCount = pendingSaveCountsByEntryID[entryID] {
+                        if pendingSaveCount == 1 {
+                            pendingSaveCountsByEntryID.removeValue(forKey: entryID)
+                        } else {
+                            pendingSaveCountsByEntryID[entryID] = pendingSaveCount - 1
+                        }
+                    }
                     if restoreFocus {
                         pickerIsFocused = true
                     }
