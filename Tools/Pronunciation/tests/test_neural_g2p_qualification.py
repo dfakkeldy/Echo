@@ -29,6 +29,8 @@ CATEGORIES = (
     "loanword",
     "adversarial",
 )
+REVIEWER_A_REF = hashlib.sha256(b"test-only-reviewer-a").hexdigest()
+REVIEWER_B_REF = hashlib.sha256(b"test-only-reviewer-b").hexdigest()
 
 
 def load_tool():
@@ -66,6 +68,9 @@ def trusted_receipt(row, **overrides):
         "labelA": "təst",
         "labelB": "təst",
         "adjudicated": None,
+        "reviewerARef": REVIEWER_A_REF,
+        "reviewerBRef": REVIEWER_B_REF,
+        "adjudicatorRef": None,
         "rawModelTop1": "T EH1 S T",
         "convertedOutputs": [selected_ipa, selected_ipa],
         "mappedTokenIDs": [62, 83, 61, 62],
@@ -113,6 +118,19 @@ def authority_digest(rows, receipts):
     return hashlib.sha256(canonical).hexdigest()
 
 
+def authority_record(rows, receipts, **overrides):
+    authority = {
+        "schemaVersion": 1,
+        "authorityKind": "user-controlled-out-of-repository",
+        "authorizationPurpose": "neural-g2p-human-evidence-qualification",
+        "evidenceBundleSHA256": authority_digest(rows, receipts),
+        "reviewerIndependenceAttested": True,
+        "reviewerReferenceScheme": "sha256-v1",
+    }
+    authority.update(overrides)
+    return authority
+
+
 def write_jsonl(path, rows):
     path.write_text(
         "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
@@ -138,12 +156,13 @@ class NeuralG2PQualificationTests(unittest.TestCase):
         result = tool.qualification_status(
             rows,
             receipts,
-            authority_digest(rows, receipts),
+            authority_record(rows, receipts),
             LOCK_PATH,
             VOCAB_PATH,
         )
 
         self.assertEqual("QUALIFIED", result["status"])
+        self.assertEqual("QUALIFIED", result["proofStates"]["human"])
         self.assertEqual(500, result["reviewedCount"])
         self.assertEqual(500, result["automaticCount"])
         self.assertEqual(500, result["correctAutomaticCount"])
@@ -173,7 +192,7 @@ class NeuralG2PQualificationTests(unittest.TestCase):
         result = tool.qualification_status(
             rows,
             receipts,
-            authority_digest(rows, receipts),
+            authority_record(rows, receipts),
             LOCK_PATH,
             VOCAB_PATH,
         )
@@ -211,7 +230,7 @@ class NeuralG2PQualificationTests(unittest.TestCase):
         result = tool.qualification_status(
             rows,
             receipts,
-            authority_digest(rows, receipts),
+            authority_record(rows, receipts),
             LOCK_PATH,
             VOCAB_PATH,
         )
@@ -287,7 +306,7 @@ class NeuralG2PQualificationTests(unittest.TestCase):
             tool.qualification_status(
                 [row],
                 receipts,
-                authority_digest([row], receipts),
+                authority_record([row], receipts),
                 LOCK_PATH,
                 VOCAB_PATH,
             )
@@ -313,7 +332,7 @@ class NeuralG2PQualificationTests(unittest.TestCase):
                     tool.qualification_status(
                         [row],
                         [receipt],
-                        authority_digest([row], [receipt]),
+                        authority_record([row], [receipt]),
                         LOCK_PATH,
                         VOCAB_PATH,
                     )
@@ -325,7 +344,7 @@ class NeuralG2PQualificationTests(unittest.TestCase):
         result = tool.qualification_status(
             rows,
             receipts,
-            authority_digest(rows, receipts),
+            authority_record(rows, receipts),
             LOCK_PATH,
             VOCAB_PATH,
         )
@@ -361,6 +380,8 @@ class NeuralG2PQualificationTests(unittest.TestCase):
                         "authorityKind": "user-controlled-out-of-repository",
                         "authorizationPurpose": "neural-g2p-human-evidence-qualification",
                         "evidenceBundleSHA256": "0" * 64,
+                        "reviewerIndependenceAttested": True,
+                        "reviewerReferenceScheme": "sha256-v1",
                     }
                 ),
                 encoding="utf-8",
@@ -408,6 +429,122 @@ class NeuralG2PQualificationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "changed while it was read"):
                 tool.load_external_evidence(Path("/tmp/receipt"), Path("/tmp/authority"))
 
+    def test_duplicate_reviewer_identity_cannot_satisfy_independent_review(self):
+        tool = load_tool()
+        row = candidate()
+        receipt = trusted_receipt(row, reviewerBRef=REVIEWER_A_REF)
+
+        with self.assertRaisesRegex(ValueError, "distinct reviewer references"):
+            tool.qualification_status(
+                [row],
+                [receipt],
+                authority_record([row], [receipt]),
+                LOCK_PATH,
+                VOCAB_PATH,
+            )
+
+    def test_adjudicator_must_be_distinct_from_both_reviewers(self):
+        tool = load_tool()
+        row = candidate()
+        receipt = trusted_receipt(
+            row,
+            labelB="bæd",
+            adjudicated="təst",
+            adjudicatorRef=REVIEWER_A_REF,
+        )
+
+        with self.assertRaisesRegex(ValueError, "distinct adjudicator reference"):
+            tool.qualification_status(
+                [row],
+                [receipt],
+                authority_record([row], [receipt]),
+                LOCK_PATH,
+                VOCAB_PATH,
+            )
+
+    def test_human_authority_must_attest_reviewer_independence(self):
+        tool = load_tool()
+        row = candidate()
+        receipt = trusted_receipt(row)
+        untrusted = authority_record(
+            [row], [receipt], reviewerIndependenceAttested=False
+        )
+
+        with self.assertRaisesRegex(ValueError, "reviewer independence attestation"):
+            tool.qualification_status(
+                [row], [receipt], untrusted, LOCK_PATH, VOCAB_PATH
+            )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            receipts_path = root / "receipts.jsonl"
+            authority_path = root / "authority.json"
+            write_jsonl(receipts_path, [receipt])
+            authority_path.write_text(json.dumps(untrusted), encoding="utf-8")
+            with self.assertRaisesRegex(
+                ValueError, "reviewer independence attestation"
+            ):
+                tool.load_external_evidence(
+                    receipts_path, authority_path, candidates=[row]
+                )
+
+    def test_resource_identity_and_validation_use_one_stable_snapshot_each(self):
+        tool = load_tool()
+        lock_bytes = LOCK_PATH.read_bytes()
+        vocab_bytes = VOCAB_PATH.read_bytes()
+        reads = []
+
+        def snapshot(path, *, name):
+            resolved = Path(path)
+            reads.append((resolved, name))
+            if resolved == LOCK_PATH:
+                return lock_bytes
+            if resolved == VOCAB_PATH:
+                return vocab_bytes
+            raise AssertionError(f"unexpected resource path {resolved}")
+
+        with mock.patch.object(
+            tool,
+            "_read_stable_regular_bytes",
+            create=True,
+            side_effect=snapshot,
+        ):
+            result = tool.qualification_status(
+                [candidate()], [], None, LOCK_PATH, VOCAB_PATH
+            )
+
+        self.assertEqual(
+            [(LOCK_PATH, "model lock"), (VOCAB_PATH, "Kokoro vocabulary")],
+            reads,
+        )
+        self.assertEqual(
+            hashlib.sha256(lock_bytes).hexdigest(),
+            result["modelIdentity"]["lockSHA256"],
+        )
+        self.assertEqual(
+            hashlib.sha256(vocab_bytes).hexdigest(),
+            result["modelIdentity"]["vocabSHA256"],
+        )
+
+    def test_resource_snapshot_change_fails_closed(self):
+        tool = load_tool()
+
+        def changing_snapshot(path, *, name):
+            if name == "Kokoro vocabulary":
+                raise ValueError("Kokoro vocabulary changed while it was read")
+            return Path(path).read_bytes()
+
+        with mock.patch.object(
+            tool,
+            "_read_stable_regular_bytes",
+            create=True,
+            side_effect=changing_snapshot,
+        ):
+            with self.assertRaisesRegex(ValueError, "changed while it was read"):
+                tool.qualification_status(
+                    [candidate()], [], None, LOCK_PATH, VOCAB_PATH
+                )
+
     def test_cli_waits_without_external_human_evidence(self):
         completed = subprocess.run(
             [
@@ -431,10 +568,21 @@ class NeuralG2PQualificationTests(unittest.TestCase):
         self.assertEqual(0, receipt["reviewedCount"])
         self.assertEqual("", completed.stderr)
 
-    def test_report_separates_unrun_performance_and_device_proof(self):
+    def test_receipt_and_report_separate_all_closed_proof_states(self):
         tool = load_tool()
         receipt = tool.qualification_status(
             [candidate()], [], None, LOCK_PATH, VOCAB_PATH
+        )
+
+        self.assertEqual(
+            {
+                "corpus": "CONTRACT_VALID",
+                "human": "WAITING_FOR_HUMAN_LABELS",
+                "performance": "NOT_RUN_NO_RUNTIME",
+                "device": "NOT_RUN_NO_RUNTIME",
+                "render": "NOT_RUN_NO_RUNTIME",
+            },
+            receipt.get("proofStates"),
         )
 
         report = tool.render_report(
@@ -444,9 +592,57 @@ class NeuralG2PQualificationTests(unittest.TestCase):
         )
 
         self.assertIn("Qualification status: `WAITING_FOR_HUMAN_LABELS`", report)
+        self.assertIn("Corpus proof: `CONTRACT_VALID`", report)
+        self.assertIn("Human proof: `WAITING_FOR_HUMAN_LABELS`", report)
         self.assertIn("Performance proof: `NOT_RUN_NO_RUNTIME`", report)
         self.assertIn("Device proof: `NOT_RUN_NO_RUNTIME`", report)
+        self.assertIn("Render proof: `NOT_RUN_NO_RUNTIME`", report)
         self.assertNotIn("Syntheticproper", report)
+
+    def test_report_rejects_hostile_free_form_proof_states(self):
+        tool = load_tool()
+        receipt = tool.qualification_status(
+            [candidate()], [], None, LOCK_PATH, VOCAB_PATH
+        )
+        baseline = {
+            "corpus": "CONTRACT_VALID",
+            "human": "WAITING_FOR_HUMAN_LABELS",
+            "performance": "NOT_RUN_NO_RUNTIME",
+            "device": "NOT_RUN_NO_RUNTIME",
+            "render": "NOT_RUN_NO_RUNTIME",
+        }
+        hostile_values = (
+            "/Users/example/private/book.epub",
+            "person@example.test",
+            "`INJECTED`\n## Private evidence",
+            ["NOT_RUN_NO_RUNTIME"],
+            {"state": "NOT_RUN_NO_RUNTIME"},
+        )
+
+        for lane in baseline:
+            for hostile in hostile_values:
+                malformed = dict(receipt)
+                malformed["proofStates"] = {**baseline, lane: hostile}
+                with self.subTest(lane=lane, hostile=hostile):
+                    try:
+                        with self.assertRaisesRegex(ValueError, "proof state"):
+                            tool.render_report(
+                                malformed,
+                                performance_proof_state="NOT_RUN_NO_RUNTIME",
+                                device_proof_state="NOT_RUN_NO_RUNTIME",
+                            )
+                    except TypeError as error:
+                        self.fail(f"proof-state validation leaked TypeError: {error}")
+
+        for argument in ("performance_proof_state", "device_proof_state"):
+            with self.subTest(argument=argument):
+                values = {
+                    "performance_proof_state": "NOT_RUN_NO_RUNTIME",
+                    "device_proof_state": "NOT_RUN_NO_RUNTIME",
+                }
+                values[argument] = "/Users/example/private/evidence.json"
+                with self.assertRaisesRegex(ValueError, "proof state"):
+                    tool.render_report(receipt, **values)
 
 
 if __name__ == "__main__":

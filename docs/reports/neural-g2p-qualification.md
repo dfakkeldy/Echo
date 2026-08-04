@@ -38,7 +38,10 @@ words, contexts, human labels, and model output strings are intentionally absent
 
 ## Separate proof states
 
+- Corpus proof: `CONTRACT_VALID`
+- Human proof: `WAITING_FOR_HUMAN_LABELS`
 - Performance proof: `NOT_RUN_NO_RUNTIME`
 - Device proof: `NOT_RUN_NO_RUNTIME`
+- Render proof: `NOT_RUN_NO_RUNTIME`
 
 These states are not inferred from corpus validation or human-label qualification.

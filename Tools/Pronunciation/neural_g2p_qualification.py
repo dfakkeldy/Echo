@@ -7,7 +7,9 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import re
+import stat
 from collections import Counter
 from pathlib import Path
 from typing import Any, Iterable
@@ -46,6 +48,20 @@ VALIDATION_VERSION = "kokoro-vocab-validation-v1"
 SELECTION_VERSION = "neural-oov-complete-selection-v1"
 AUTHORIZATION_PURPOSE = "neural-g2p-human-evidence-qualification"
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+PROOF_STATE_VOCABULARY = {
+    "corpus": frozenset({"CONTRACT_VALID"}),
+    "human": frozenset({"WAITING_FOR_HUMAN_LABELS", "FAILED", "QUALIFIED"}),
+    "performance": frozenset(
+        {"NOT_RUN_NO_RUNTIME", "NOT_PROVIDED", "FAILED", "VERIFIED"}
+    ),
+    "device": frozenset(
+        {"NOT_RUN_NO_RUNTIME", "NOT_PROVIDED", "FAILED", "VERIFIED"}
+    ),
+    "render": frozenset(
+        {"NOT_RUN_NO_RUNTIME", "NOT_PROVIDED", "FAILED", "VERIFIED"}
+    ),
+}
+DEFAULT_RUNTIME_PROOF_STATE = "NOT_RUN_NO_RUNTIME"
 
 CANDIDATE_REQUIRED_FIELDS = {
     "caseID",
@@ -66,6 +82,9 @@ TRUSTED_RECEIPT_FIELDS = {
     "labelA",
     "labelB",
     "adjudicated",
+    "reviewerARef",
+    "reviewerBRef",
+    "adjudicatorRef",
     "rawModelTop1",
     "convertedOutputs",
     "mappedTokenIDs",
@@ -83,6 +102,8 @@ AUTHORITY_FIELDS = {
     "authorityKind",
     "authorizationPurpose",
     "evidenceBundleSHA256",
+    "reviewerIndependenceAttested",
+    "reviewerReferenceScheme",
 }
 
 
@@ -190,6 +211,8 @@ def validate_trusted_receipts(
             "evidenceKind",
             "labelA",
             "labelB",
+            "reviewerARef",
+            "reviewerBRef",
             "rawModelTop1",
             "selectionOutcome",
             "modelRevision",
@@ -205,6 +228,13 @@ def validate_trusted_receipts(
             raise ValueError(f"trusted receipt {index} category is invalid")
         if SHA256_PATTERN.fullmatch(receipt["wordSHA256"]) is None:
             raise ValueError(f"trusted receipt {index} wordSHA256 is invalid")
+        for field in ("reviewerARef", "reviewerBRef"):
+            if SHA256_PATTERN.fullmatch(receipt[field]) is None:
+                raise ValueError(f"trusted receipt {index} {field} is invalid")
+        if receipt["reviewerARef"] == receipt["reviewerBRef"]:
+            raise ValueError(
+                f"trusted receipt {index} requires distinct reviewer references"
+            )
         if re.fullmatch(r"[0-9a-f]{40}", receipt["modelRevision"]) is None:
             raise ValueError(f"trusted receipt {index} modelRevision is invalid")
         for field in ("modelLockSHA256", "vocabSHA256"):
@@ -227,6 +257,21 @@ def validate_trusted_receipts(
         ):
             raise ValueError(
                 f"trusted receipt {index} label disagreement requires adjudication"
+            )
+        if receipt["labelA"] != receipt["labelB"]:
+            if (
+                not isinstance(receipt["adjudicatorRef"], str)
+                or SHA256_PATTERN.fullmatch(receipt["adjudicatorRef"]) is None
+                or receipt["adjudicatorRef"]
+                in {receipt["reviewerARef"], receipt["reviewerBRef"]}
+            ):
+                raise ValueError(
+                    f"trusted receipt {index} requires a distinct adjudicator reference"
+                )
+        elif receipt["adjudicatorRef"] is not None:
+            raise ValueError(
+                f"trusted receipt {index} cannot declare an adjudicator without "
+                "reviewer disagreement"
             )
         if (
             receipt["labelA"] == receipt["labelB"]
@@ -277,6 +322,41 @@ def evidence_authority_digest(
     )
 
 
+def validate_human_evidence_authority(
+    raw_authority: Any,
+    *,
+    candidates: list[dict[str, Any]] | None = None,
+    receipts: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if (
+        not isinstance(raw_authority, dict)
+        or set(raw_authority) != AUTHORITY_FIELDS
+        or raw_authority.get("schemaVersion") != 1
+        or raw_authority.get("authorityKind")
+        != "user-controlled-out-of-repository"
+        or raw_authority.get("authorizationPurpose") != AUTHORIZATION_PURPOSE
+        or not isinstance(raw_authority.get("evidenceBundleSHA256"), str)
+        or SHA256_PATTERN.fullmatch(raw_authority["evidenceBundleSHA256"]) is None
+    ):
+        raise ValueError("human evidence authority is invalid")
+    if (
+        raw_authority.get("reviewerIndependenceAttested") is not True
+        or raw_authority.get("reviewerReferenceScheme") != "sha256-v1"
+    ):
+        raise ValueError(
+            "human evidence authority lacks reviewer independence attestation"
+        )
+    if (candidates is None) != (receipts is None):
+        raise ValueError("authority binding requires candidates and receipts together")
+    if candidates is not None and receipts is not None:
+        expected_digest = evidence_authority_digest(candidates, receipts)
+        if raw_authority["evidenceBundleSHA256"] != expected_digest:
+            raise ValueError(
+                "trusted receipts require an exact human evidence authority binding"
+            )
+    return dict(raw_authority)
+
+
 def _decode_external_jsonl(content: bytes, name: str) -> list[dict[str, Any]]:
     try:
         text = content.decode("utf-8")
@@ -298,7 +378,7 @@ def load_external_evidence(
     human_evidence_authority: Path | str | None,
     *,
     candidates: list[dict[str, Any]] | None = None,
-) -> tuple[list[dict[str, Any]], str | None]:
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
     if trusted_receipts is None and human_evidence_authority is None:
         return [], None
     if trusted_receipts is None:
@@ -320,25 +400,12 @@ def load_external_evidence(
     except UnicodeDecodeError as error:
         raise ValueError("human evidence authority is not valid UTF-8") from error
     authority = _strict_json_loads(authority_text, "human evidence authority")
-    if (
-        not isinstance(authority, dict)
-        or set(authority) != AUTHORITY_FIELDS
-        or authority.get("schemaVersion") != 1
-        or authority.get("authorityKind")
-        != "user-controlled-out-of-repository"
-        or authority.get("authorizationPurpose") != AUTHORIZATION_PURPOSE
-        or not isinstance(authority.get("evidenceBundleSHA256"), str)
-        or SHA256_PATTERN.fullmatch(authority["evidenceBundleSHA256"]) is None
-    ):
-        raise ValueError("human evidence authority is invalid")
-    digest = authority["evidenceBundleSHA256"]
-    if candidates is not None and digest != evidence_authority_digest(
-        candidates, receipts
-    ):
-        raise ValueError(
-            "trusted receipts require an exact human evidence authority binding"
-        )
-    return receipts, digest
+    validated_authority = validate_human_evidence_authority(
+        authority,
+        candidates=candidates,
+        receipts=receipts if candidates is not None else None,
+    )
+    return receipts, validated_authority
 
 
 def wilson_lower_bound(successes: int, trials: int) -> float:
@@ -356,12 +423,56 @@ def wilson_lower_bound(successes: int, trials: int) -> float:
     return (centre - margin) / denominator
 
 
-def _load_json(path: Path) -> Any:
+def _stable_metadata(metadata: os.stat_result) -> tuple[int, ...]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        stat.S_IFMT(metadata.st_mode),
+        metadata.st_nlink,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def _read_stable_regular_bytes(path: Path | str, *, name: str) -> bytes:
+    candidate = Path(path)
+    if candidate.is_symlink():
+        raise ValueError(f"{name} cannot be a symlink")
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise ValueError(f"{name} cannot be read without symlink protection")
     try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as error:
-        raise ValueError(f"{path} is unavailable or invalid UTF-8") from error
-    return _strict_json_loads(text, path.name)
+        resolved = candidate.resolve(strict=True)
+        path_before = resolved.lstat()
+        if not stat.S_ISREG(path_before.st_mode):
+            raise ValueError(f"{name} must be a regular file")
+        descriptor = os.open(resolved, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(descriptor, "rb") as source:
+            descriptor_before = os.fstat(source.fileno())
+            if _stable_metadata(path_before) != _stable_metadata(descriptor_before):
+                raise ValueError(f"{name} changed before it could be read")
+            content = source.read()
+            descriptor_after = os.fstat(source.fileno())
+        path_after = resolved.lstat()
+    except ValueError:
+        raise
+    except OSError as error:
+        raise ValueError(f"{name} is unavailable") from error
+    expected = _stable_metadata(path_before)
+    if (
+        _stable_metadata(descriptor_after) != expected
+        or _stable_metadata(path_after) != expected
+    ):
+        raise ValueError(f"{name} changed while it was read")
+    return content
+
+
+def _decode_json_snapshot(content: bytes, *, name: str) -> Any:
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{name} is not valid UTF-8") from error
+    return _strict_json_loads(text, name)
 
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -372,11 +483,15 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     return _decode_external_jsonl(content, path.name)
 
 
-def _model_identity(lock_path: Path | str, vocab_path: Path | str) -> dict[str, Any]:
-    lock_file = Path(lock_path)
-    vocab_file = Path(vocab_path)
-    lock = _load_json(lock_file)
-    vocab_document = _load_json(vocab_file)
+def _load_qualification_resources(
+    lock_path: Path | str, vocab_path: Path | str
+) -> tuple[dict[str, Any], dict[str, int]]:
+    lock_bytes = _read_stable_regular_bytes(lock_path, name="model lock")
+    vocab_bytes = _read_stable_regular_bytes(vocab_path, name="Kokoro vocabulary")
+    lock = _decode_json_snapshot(lock_bytes, name="model lock")
+    vocab_document = _decode_json_snapshot(
+        vocab_bytes, name="Kokoro vocabulary"
+    )
     if (
         not isinstance(lock, dict)
         or lock.get("schema_version") != 1
@@ -397,40 +512,31 @@ def _model_identity(lock_path: Path | str, vocab_path: Path | str) -> dict[str, 
         ):
             raise ValueError("model lock artifact identity is invalid")
         artifact_hashes[artifact["path"]] = artifact["sha256"]
+    vocab = vocab_document.get("vocab") if isinstance(vocab_document, dict) else None
     if (
         not isinstance(vocab_document, dict)
         or set(vocab_document) != {"vocab"}
-        or not isinstance(vocab_document["vocab"], dict)
-    ):
-        raise ValueError("Kokoro vocabulary is invalid")
-    return {
-        "model": lock["model"],
-        "revision": lock["revision"],
-        "lockSHA256": hashlib.sha256(lock_file.read_bytes()).hexdigest(),
-        "artifactSHA256": {
-            path: artifact_hashes[path] for path in sorted(artifact_hashes)
-        },
-        "vocabSHA256": hashlib.sha256(vocab_file.read_bytes()).hexdigest(),
-    }
-
-
-def _vocabulary(vocab_path: Path | str) -> dict[str, int]:
-    document = _load_json(Path(vocab_path))
-    if (
-        not isinstance(document, dict)
-        or set(document) != {"vocab"}
-        or not isinstance(document["vocab"], dict)
+        or not isinstance(vocab, dict)
         or any(
             not isinstance(symbol, str)
             or len(symbol) != 1
             or not isinstance(token_id, int)
             or isinstance(token_id, bool)
             or token_id < 0
-            for symbol, token_id in document["vocab"].items()
+            for symbol, token_id in vocab.items()
         )
     ):
         raise ValueError("Kokoro vocabulary is invalid")
-    return document["vocab"]
+    identity = {
+        "model": lock["model"],
+        "revision": lock["revision"],
+        "lockSHA256": hashlib.sha256(lock_bytes).hexdigest(),
+        "artifactSHA256": {
+            path: artifact_hashes[path] for path in sorted(artifact_hashes)
+        },
+        "vocabSHA256": hashlib.sha256(vocab_bytes).hexdigest(),
+    }
+    return identity, vocab
 
 
 def _gold_label(receipt: dict[str, Any]) -> str:
@@ -440,25 +546,43 @@ def _gold_label(receipt: dict[str, Any]) -> str:
     return receipt["adjudicated"]
 
 
+def validate_proof_states(raw_states: Any) -> dict[str, str]:
+    if not isinstance(raw_states, dict) or set(raw_states) != set(
+        PROOF_STATE_VOCABULARY
+    ):
+        raise ValueError("proof state schema is invalid")
+    for lane, allowed_states in PROOF_STATE_VOCABULARY.items():
+        if (
+            not isinstance(raw_states[lane], str)
+            or raw_states[lane] not in allowed_states
+        ):
+            raise ValueError(f"{lane} proof state is invalid")
+    return {lane: raw_states[lane] for lane in PROOF_STATE_VOCABULARY}
+
+
 def qualification_status(
     raw_candidates: Iterable[dict[str, Any]],
     raw_receipts: Iterable[dict[str, Any]],
-    trusted_authority_digest: str | None,
+    trusted_authority: dict[str, Any] | None,
     lock_path: Path | str,
     vocab_path: Path | str,
+    *,
+    performance_proof_state: str = DEFAULT_RUNTIME_PROOF_STATE,
+    device_proof_state: str = DEFAULT_RUNTIME_PROOF_STATE,
+    render_proof_state: str = DEFAULT_RUNTIME_PROOF_STATE,
 ) -> dict[str, Any]:
     candidates = validate_candidates(raw_candidates)
     receipts = validate_trusted_receipts(raw_receipts)
     if receipts:
-        expected_digest = evidence_authority_digest(candidates, receipts)
-        if trusted_authority_digest != expected_digest:
-            raise ValueError(
-                "trusted receipts require an exact human evidence authority binding"
-            )
-    elif trusted_authority_digest is not None:
+        validate_human_evidence_authority(
+            trusted_authority,
+            candidates=candidates,
+            receipts=receipts,
+        )
+    elif trusted_authority is not None:
         raise ValueError("human evidence authority cannot bind empty trusted receipts")
 
-    model_identity = _model_identity(lock_path, vocab_path)
+    model_identity, vocab = _load_qualification_resources(lock_path, vocab_path)
     expected_receipt_identity = {
         "modelRevision": model_identity["revision"],
         "modelLockSHA256": model_identity["lockSHA256"],
@@ -468,7 +592,6 @@ def qualification_status(
         "selectionVersion": SELECTION_VERSION,
     }
     candidates_by_id = {row["caseID"]: row for row in candidates}
-    vocab = _vocabulary(vocab_path)
     reviewed_categories: Counter[str] = Counter()
     qualifying_categories: Counter[str] = Counter()
     invalid_counts = {
@@ -568,9 +691,20 @@ def qualification_status(
     else:
         status = "FAILED"
 
+    proof_states = validate_proof_states(
+        {
+            "corpus": "CONTRACT_VALID",
+            "human": status,
+            "performance": performance_proof_state,
+            "device": device_proof_state,
+            "render": render_proof_state,
+        }
+    )
+
     return {
         "schemaVersion": 1,
         "status": status,
+        "proofStates": proof_states,
         "corpusSHA256": _canonical_sha256(candidates),
         "categoryCounts": {
             category: qualifying_categories[category] for category in CATEGORIES
@@ -600,13 +734,22 @@ def qualification_status(
 def render_report(
     receipt: dict[str, Any],
     *,
-    performance_proof_state: str,
-    device_proof_state: str,
+    performance_proof_state: str | None = None,
+    device_proof_state: str | None = None,
+    render_proof_state: str | None = None,
 ) -> str:
-    if not _nonempty_string(performance_proof_state):
-        raise ValueError("performance proof state must be nonempty")
-    if not _nonempty_string(device_proof_state):
-        raise ValueError("device proof state must be nonempty")
+    proof_states = validate_proof_states(receipt.get("proofStates"))
+    if receipt.get("status") != proof_states["human"]:
+        raise ValueError("human proof state does not match qualification status")
+    overrides = {
+        "performance": performance_proof_state,
+        "device": device_proof_state,
+        "render": render_proof_state,
+    }
+    for lane, value in overrides.items():
+        if value is not None:
+            proof_states[lane] = value
+    proof_states = validate_proof_states(proof_states)
     category_lines = "\n".join(
         f"- `{category}`: {receipt['categoryCounts'][category]} qualifying cases"
         for category in CATEGORIES
@@ -657,8 +800,11 @@ words, contexts, human labels, and model output strings are intentionally absent
 
 ## Separate proof states
 
-- Performance proof: `{performance_proof_state}`
-- Device proof: `{device_proof_state}`
+- Corpus proof: `{proof_states['corpus']}`
+- Human proof: `{proof_states['human']}`
+- Performance proof: `{proof_states['performance']}`
+- Device proof: `{proof_states['device']}`
+- Render proof: `{proof_states['render']}`
 
 These states are not inferred from corpus validation or human-label qualification.
 """
@@ -681,14 +827,25 @@ def main(argv: list[str] | None = None) -> int:
         if command == "report":
             command_parser.add_argument("--output", type=Path, required=True)
             command_parser.add_argument(
-                "--performance-proof-state", required=True
+                "--performance-proof-state",
+                choices=sorted(PROOF_STATE_VOCABULARY["performance"]),
+                required=True,
             )
-            command_parser.add_argument("--device-proof-state", required=True)
+            command_parser.add_argument(
+                "--device-proof-state",
+                choices=sorted(PROOF_STATE_VOCABULARY["device"]),
+                required=True,
+            )
+            command_parser.add_argument(
+                "--render-proof-state",
+                choices=sorted(PROOF_STATE_VOCABULARY["render"]),
+                required=True,
+            )
     arguments = parser.parse_args(argv)
 
     try:
         candidates = validate_candidates(_load_jsonl(arguments.corpus))
-        receipts, authority_digest = load_external_evidence(
+        receipts, authority = load_external_evidence(
             arguments.trusted_receipts,
             arguments.human_evidence_authority,
             candidates=candidates,
@@ -696,16 +853,27 @@ def main(argv: list[str] | None = None) -> int:
         receipt = qualification_status(
             candidates,
             receipts,
-            authority_digest,
+            authority,
             arguments.lock,
             arguments.vocab,
+            performance_proof_state=(
+                arguments.performance_proof_state
+                if arguments.command == "report"
+                else DEFAULT_RUNTIME_PROOF_STATE
+            ),
+            device_proof_state=(
+                arguments.device_proof_state
+                if arguments.command == "report"
+                else DEFAULT_RUNTIME_PROOF_STATE
+            ),
+            render_proof_state=(
+                arguments.render_proof_state
+                if arguments.command == "report"
+                else DEFAULT_RUNTIME_PROOF_STATE
+            ),
         )
         if arguments.command == "report":
-            report = render_report(
-                receipt,
-                performance_proof_state=arguments.performance_proof_state,
-                device_proof_state=arguments.device_proof_state,
-            )
+            report = render_report(receipt)
             arguments.output.write_text(report, encoding="utf-8")
         _print_receipt(receipt)
     except (OSError, ValueError) as error:
