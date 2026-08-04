@@ -867,6 +867,16 @@ import Testing
         }
     }
 
+    @Test func rejectedRawG2PClassificationStripsOOVMarkersBeforeValidation() {
+        let marker = String(KokoroPhonemeVocab.oovMarker)
+
+        #expect(PronunciationAuditContext.isRejectedRawG2POutput(""))
+        #expect(!PronunciationAuditContext.isRejectedRawG2POutput(marker))
+        #expect(!PronunciationAuditContext.isRejectedRawG2POutput(marker + marker))
+        #expect(!PronunciationAuditContext.isRejectedRawG2POutput(marker + "ə"))
+        #expect(PronunciationAuditContext.isRejectedRawG2POutput(marker + "\u{0000}"))
+    }
+
     @Test func schemaThreeLegacyLimitationRemainsStronger() throws {
         var root = try #require(
             JSONSerialization.jsonObject(

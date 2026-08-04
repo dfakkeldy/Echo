@@ -1216,16 +1216,22 @@ nonisolated enum PronunciationAuditContext {
     }
 
     /// The marker is deliberately stripped by `PronunciationPlanner` before
-    /// strict vocabulary validation. A marker-only result therefore carries no
-    /// audit decision at all: it is neither a rejected raw G2P receipt nor a
-    /// normal materialized pronunciation.
+    /// strict vocabulary validation. Any nonempty raw output whose marker-
+    /// stripped remainder is empty therefore carries no audit decision at all:
+    /// it is neither a rejected raw G2P receipt nor a normal materialized
+    /// pronunciation.
     nonisolated static func isIntentionalOOVMarkerOutput(_ phonemes: String) -> Bool {
-        phonemes == String(KokoroPhonemeVocab.oovMarker)
+        !phonemes.isEmpty
+            && phonemes.allSatisfy { $0 == KokoroPhonemeVocab.oovMarker }
     }
 
     nonisolated static func isRejectedRawG2POutput(_ phonemes: String) -> Bool {
-        guard !isIntentionalOOVMarkerOutput(phonemes) else { return false }
-        return hasUnencodableSelectedOutput(phonemes)
+        guard !phonemes.isEmpty else { return true }
+        let markerStrippedPhonemes = phonemes.filter {
+            $0 != KokoroPhonemeVocab.oovMarker
+        }
+        guard !markerStrippedPhonemes.isEmpty else { return false }
+        return hasUnencodableSelectedOutput(markerStrippedPhonemes)
     }
 
     private static func isAcronym(_ word: String) -> Bool {

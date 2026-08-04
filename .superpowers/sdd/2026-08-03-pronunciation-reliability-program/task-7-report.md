@@ -329,3 +329,44 @@ render-plan passed 44/44 in 33.561 seconds; and headless passed 49/49 in
 The marker exception is deliberately exact-match only. It preserves the
 existing isolated marker stripping behavior without broadening the set of
 unsupported raw output that may become a normal synthesis result.
+
+## Fix round 5: marker-stripped raw-output classification
+
+### Delivered
+
+- The shared rejected-raw-G2P predicate now removes every OOV marker before
+  vocabulary classification. Empty raw output remains rejected; a nonempty
+  marker-only raw output remains the historical non-error; marker plus a fully
+  encodable remainder is also a normal output; and marker plus a genuinely
+  unsupported remainder remains rejected.
+- The production-path regression injects matched `❓ə` evidence and verifies a
+  normal stripped `ə` synthesis chunk, an ordinary materialized decision with
+  nonempty token IDs, no mismatch diagnostic, a sealable capture, and a schema
+  five manifest that decodes unchanged. The standalone marker regression is
+  retained.
+
+### TDD and final verification
+
+The new classification test was RED after rebuilding: `PronunciationAuditTests`
+ran 25 tests, with exactly one failure because `❓ə` was still classified as a
+rejected raw output. The predicate-only change made the audit suite green at
+25/25. It also retains the negative `❓` plus NUL case.
+
+The first mixed render regression run reached the production planner but had
+one fixture error: its injected phoneme range counted the raw marker (`0..<2`)
+instead of the repository's marker-stripped token stream (`0..<1`), so no
+materialized selection was expected. The range was corrected. The final
+governed build-for-testing succeeded after that correction. Per coordinator
+direction, no further render-plan test was started; its final green execution
+is therefore not claimed in this round.
+
+Final executed commands, through the governed Apple build slot:
+
+```sh
+XBG_ALLOW_NOW=1 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+XBG_ALLOW_NOW=1 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PronunciationAuditTests
+```
+
+Result: build-for-testing passed and `PronunciationAuditTests` passed 25/25.
+`NarrationRenderPlanTests` is explicitly unrun after the fixture-only range
+correction; the earlier run was 44 passed, 1 failed because of that range.
