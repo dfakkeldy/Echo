@@ -45,6 +45,34 @@ import Testing
         }
         """#
 
+    private func advisoryEvidence(
+        alternatives: [PronunciationAdvisoryEvidence.Alternative] = [
+            .init(
+                candidateID: "record.noun",
+                ipa: "ɹˈɛkəɹd",
+                source: "fixture",
+                authority: .qualified,
+                validation: .shadow,
+                policyVersion: "policy-v1"),
+            .init(
+                candidateID: "record.verb",
+                ipa: "ɹəkˈɔɹd",
+                source: "fixture",
+                authority: .qualified,
+                validation: .shadow,
+                policyVersion: "policy-v1"),
+        ]
+    ) -> PronunciationAdvisoryEvidence {
+        PronunciationAdvisoryEvidence(
+            category: .contextual,
+            selectedAuthority: .qualified,
+            selectedCandidateID: "record.verb",
+            alternatives: alternatives,
+            selectionReason: .qualifiedDeterministicContext,
+            overrideSuppressedAutomation: false,
+            policyVersion: "policy-v1")
+    }
+
     private func decision(
         word: String,
         ruleID: String,
@@ -178,7 +206,7 @@ import Testing
             decisions: [first, second],
             diagnostics: [])
 
-        #expect(manifest.schemaVersion == 4)
+        #expect(manifest.schemaVersion == 5)
         #expect(manifest.renderVersion == 11)
         #expect(manifest.voice == "af_heart")
         #expect(manifest.coverage == .complete)
@@ -665,17 +693,44 @@ import Testing
         #expect(throws: Error.self) { _ = try unpaired.encoded() }
     }
 
-    @Test func schemaThreeAuditDecodesAsIncompleteEvidence() throws {
+    @Test func schemaThreeAndFourAuditsDecodeWithoutAdvisoryEvidenceAndReencodeAsSchemaFive()
+        throws
+    {
+        let manifest = PronunciationAuditManifest.make(
+            renderVersion: 15,
+            voice: VoiceID("af_heart"),
+            captureCoverage: .complete,
+            legacyChapterIndexes: [],
+            audiobookURL: URL(fileURLWithPath: "/tmp/book.m4b"),
+            reelURL: nil,
+            audiobookSHA256: String(repeating: "a", count: 64),
+            listeningReelSHA256: nil,
+            watchWords: [],
+            decisions: [decision(word: "verified", ruleID: "legacy", chapterIndex: 0)],
+            diagnostics: [])
+        let encoded = try manifest.encoded()
+        var schemaThree = try #require(
+            JSONSerialization.jsonObject(
+                with: encoded) as? [String: Any])
+        schemaThree["schemaVersion"] = 3
+        var schemaFour = schemaThree
+        schemaFour["schemaVersion"] = 4
         let decoded = try JSONDecoder().decode(
             PronunciationAuditManifest.self,
-            from: Data(Self.schemaThreeManifestJSON.utf8))
+            from: JSONSerialization.data(withJSONObject: schemaThree))
+        let decodedFour = try JSONDecoder().decode(
+            PronunciationAuditManifest.self,
+            from: JSONSerialization.data(withJSONObject: schemaFour))
         let reencoded = try #require(
             JSONSerialization.jsonObject(with: decoded.encoded())
                 as? [String: Any])
 
         #expect(decoded.schemaVersion == 3)
+        #expect(decodedFour.schemaVersion == 4)
         #expect(decoded.coverage == .incompleteEvidence)
-        #expect(reencoded["schemaVersion"] as? Int == 4)
+        #expect(decoded.decisions.first?.advisoryEvidence == nil)
+        #expect(decodedFour.decisions.first?.advisoryEvidence == nil)
+        #expect(reencoded["schemaVersion"] as? Int == 5)
         #expect(reencoded["coverage"] as? String == "incompleteEvidence")
     }
 
@@ -696,7 +751,7 @@ import Testing
     }
 
     @Test func unsupportedAuditSchemasAreRejectedDuringDecoding() throws {
-        for schemaVersion in [2, 5] {
+        for schemaVersion in [2, 6] {
             var root = try #require(
                 JSONSerialization.jsonObject(
                     with: Data(Self.schemaThreeManifestJSON.utf8)) as? [String: Any])
@@ -755,7 +810,7 @@ import Testing
             from: manifest.encoded())
         let decision = try #require(decoded.decisions.first)
 
-        #expect(decoded.schemaVersion == 4)
+        #expect(decoded.schemaVersion == 5)
         #expect(decision.candidateID == "morphology.startable.0123456789ab")
         #expect(
             decision.candidatePackVersion
@@ -795,6 +850,97 @@ import Testing
                 == "sha256:" + String(repeating: "b", count: 64))
         #expect(decision.derivationBase == nil)
         #expect(decision.derivationRuleID == nil)
+    }
+
+    @Test func advisoryEvidenceSurvivesMaterializationAndBothTimingCopies() throws {
+        let evidence = advisoryEvidence()
+        let decision = PronunciationDecisionSeed(
+            blockID: "context",
+            wordStart: 1,
+            wordEnd: 1,
+            normalizedWord: "record",
+            sourceWord: "record",
+            sourceContext: "Private context must remain on the audit decision only.",
+            selectedIPA: "ɹəkˈɔɹd",
+            source: .contextualHomograph,
+            ruleID: "homograph.record.verb",
+            rationale: "Fixture.",
+            advisoryEvidence: evidence)
+        .materialized(selectedIPA: "ɹəkˈɔɹd", kokoroTokenIDs: [1])
+        .attachingRenderTiming(
+            chapterIndex: 2,
+            chapterRelativeAudioRange: .init(start: 1, end: 1.2),
+            timingPrecision: .exactSynthesisWord)
+        .attachingBookTiming(chapterIndex: 2, chapterOffset: 10)
+
+        #expect(decision.advisoryEvidence == evidence)
+        #expect(decision.chapterRelativeAudioRange == .init(start: 1, end: 1.2))
+        #expect(decision.bookRelativeAudioRange == .init(start: 11, end: 11.2))
+    }
+
+    @Test func manifestRejectsDuplicateAdvisoryCandidateIDsAndIPAs() {
+        let duplicateCandidateID = advisoryEvidence(alternatives: [
+            .init(
+                candidateID: "record.same",
+                ipa: "ɹˈɛkəɹd",
+                source: "fixture-a",
+                authority: .qualified,
+                validation: .shadow,
+                policyVersion: "policy-v1"),
+            .init(
+                candidateID: "record.same",
+                ipa: "ɹəkˈɔɹd",
+                source: "fixture-b",
+                authority: .uncertain,
+                validation: .rejected,
+                policyVersion: "policy-v1"),
+        ])
+        let duplicateIPA = advisoryEvidence(alternatives: [
+            .init(
+                candidateID: "record.noun",
+                ipa: "ɹˈɛkəɹd",
+                source: "fixture-a",
+                authority: .qualified,
+                validation: .shadow,
+                policyVersion: "policy-v1"),
+            .init(
+                candidateID: "record.alias",
+                ipa: "ɹˈɛkəɹd",
+                source: "fixture-b",
+                authority: .uncertain,
+                validation: .rejected,
+                policyVersion: "policy-v1"),
+        ])
+
+        for evidence in [duplicateCandidateID, duplicateIPA] {
+            let manifest = PronunciationAuditManifest.make(
+                renderVersion: 15,
+                voice: VoiceID("af_heart"),
+                captureCoverage: .complete,
+                legacyChapterIndexes: [],
+                audiobookURL: URL(fileURLWithPath: "/tmp/book.m4b"),
+                reelURL: nil,
+                audiobookSHA256: String(repeating: "a", count: 64),
+                listeningReelSHA256: nil,
+                watchWords: [],
+                decisions: [
+                    PronunciationAuditDecision(
+                        blockID: "context",
+                        wordStart: 1,
+                        wordEnd: 1,
+                        normalizedWord: "record",
+                        sourceWord: "record",
+                        sourceContext: "bounded context",
+                        selectedIPA: "ɹəkˈɔɹd",
+                        kokoroTokenIDs: [1],
+                        source: .contextualHomograph,
+                        ruleID: "homograph.record.verb",
+                        rationale: "Fixture.",
+                        advisoryEvidence: evidence),
+                ],
+                diagnostics: [])
+            #expect(throws: (any Error).self) { _ = try manifest.encoded() }
+        }
     }
 
     @Test func universalDecisionsRejectIncompleteProvenanceCombinations() throws {

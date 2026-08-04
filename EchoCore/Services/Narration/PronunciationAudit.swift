@@ -190,6 +190,7 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
     let derivationBase: String?
     let derivationRuleID: String?
     let contextualEvidence: ContextualPronunciationEvidence?
+    let advisoryEvidence: PronunciationAdvisoryEvidence?
     let chapterIndex: Int?
     let chapterRelativeAudioRange: AudioRange?
     let bookRelativeAudioRange: AudioRange?
@@ -212,6 +213,7 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
         derivationBase: String? = nil,
         derivationRuleID: String? = nil,
         contextualEvidence: ContextualPronunciationEvidence? = nil,
+        advisoryEvidence: PronunciationAdvisoryEvidence? = nil,
         chapterIndex: Int? = nil,
         chapterRelativeAudioRange: AudioRange? = nil,
         bookRelativeAudioRange: AudioRange? = nil,
@@ -233,6 +235,7 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
         self.derivationBase = derivationBase
         self.derivationRuleID = derivationRuleID
         self.contextualEvidence = contextualEvidence
+        self.advisoryEvidence = advisoryEvidence
         self.chapterIndex = chapterIndex
         self.chapterRelativeAudioRange = chapterRelativeAudioRange
         self.bookRelativeAudioRange = bookRelativeAudioRange
@@ -261,6 +264,7 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
             derivationBase: derivationBase,
             derivationRuleID: derivationRuleID,
             contextualEvidence: contextualEvidence,
+            advisoryEvidence: advisoryEvidence,
             chapterIndex: chapterIndex,
             chapterRelativeAudioRange: chapterRelativeAudioRange,
             bookRelativeAudioRange: bookRelativeAudioRange,
@@ -296,6 +300,7 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
             derivationBase: derivationBase,
             derivationRuleID: derivationRuleID,
             contextualEvidence: contextualEvidence,
+            advisoryEvidence: advisoryEvidence,
             chapterIndex: chapterIndex,
             chapterRelativeAudioRange: chapterRelativeAudioRange,
             bookRelativeAudioRange: bookRelativeAudioRange,
@@ -316,7 +321,7 @@ nonisolated enum PronunciationAuditCoverage: String, Codable, Equatable, Sendabl
 /// completed narration render. File references deliberately contain names only:
 /// the manifest can move with its sibling audiobook without leaking a local path.
 nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
-    static let currentSchemaVersion = 4
+    static let currentSchemaVersion = 5
 
     let schemaVersion: Int
     let renderVersion: Int
@@ -515,6 +520,13 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
                         "contextual pronunciation evidence is incomplete")
                 }
             }
+            if schemaVersion == Self.currentSchemaVersion,
+                let evidence = decision.advisoryEvidence,
+                !evidence.isValid()
+            {
+                throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                    "advisory pronunciation evidence is invalid")
+            }
         }
     }
 
@@ -674,6 +686,7 @@ nonisolated struct PronunciationDecisionSeed: Equatable, Sendable {
     let derivationBase: String?
     let derivationRuleID: String?
     let contextualEvidence: ContextualPronunciationEvidence?
+    let advisoryEvidence: PronunciationAdvisoryEvidence?
 
     init(
         blockID: String,
@@ -690,7 +703,8 @@ nonisolated struct PronunciationDecisionSeed: Equatable, Sendable {
         candidatePackVersion: String? = nil,
         derivationBase: String? = nil,
         derivationRuleID: String? = nil,
-        contextualEvidence: ContextualPronunciationEvidence? = nil
+        contextualEvidence: ContextualPronunciationEvidence? = nil,
+        advisoryEvidence: PronunciationAdvisoryEvidence? = nil
     ) {
         self.blockID = blockID
         self.wordStart = wordStart
@@ -707,6 +721,7 @@ nonisolated struct PronunciationDecisionSeed: Equatable, Sendable {
         self.derivationBase = derivationBase
         self.derivationRuleID = derivationRuleID
         self.contextualEvidence = contextualEvidence
+        self.advisoryEvidence = advisoryEvidence
     }
 
     func materialized(
@@ -729,7 +744,8 @@ nonisolated struct PronunciationDecisionSeed: Equatable, Sendable {
             candidatePackVersion: candidatePackVersion,
             derivationBase: derivationBase,
             derivationRuleID: derivationRuleID,
-            contextualEvidence: contextualEvidence)
+            contextualEvidence: contextualEvidence,
+            advisoryEvidence: advisoryEvidence)
     }
 
     func attachingContextualEvidence(
@@ -750,7 +766,8 @@ nonisolated struct PronunciationDecisionSeed: Equatable, Sendable {
             candidatePackVersion: candidatePackVersion,
             derivationBase: derivationBase,
             derivationRuleID: derivationRuleID,
-            contextualEvidence: contextualEvidence)
+            contextualEvidence: contextualEvidence,
+            advisoryEvidence: advisoryEvidence)
     }
 }
 
