@@ -693,7 +693,7 @@ import Testing
         #expect(throws: Error.self) { _ = try unpaired.encoded() }
     }
 
-    @Test func schemaThreeAndFourAuditsDecodeWithoutAdvisoryEvidenceAndReencodeAsSchemaFive()
+    @Test func schemaThreeAndFourAuditsDiscardInjectedAdvisoryEvidenceAndReencodeAsSchemaFive()
         throws
     {
         let manifest = PronunciationAuditManifest.make(
@@ -715,23 +715,58 @@ import Testing
         schemaThree["schemaVersion"] = 3
         var schemaFour = schemaThree
         schemaFour["schemaVersion"] = 4
-        let decoded = try JSONDecoder().decode(
-            PronunciationAuditManifest.self,
-            from: JSONSerialization.data(withJSONObject: schemaThree))
-        let decodedFour = try JSONDecoder().decode(
-            PronunciationAuditManifest.self,
-            from: JSONSerialization.data(withJSONObject: schemaFour))
-        let reencoded = try #require(
-            JSONSerialization.jsonObject(with: decoded.encoded())
-                as? [String: Any])
+        let wellFormedEvidence = try #require(
+            JSONSerialization.jsonObject(
+                with: JSONEncoder().encode(advisoryEvidence())) as? [String: Any])
+        let injectedPayloads: [[String: Any]] = [
+            wellFormedEvidence,
+            ["category": "future-category"],
+        ]
 
-        #expect(decoded.schemaVersion == 3)
-        #expect(decodedFour.schemaVersion == 4)
-        #expect(decoded.coverage == .incompleteEvidence)
-        #expect(decoded.decisions.first?.advisoryEvidence == nil)
-        #expect(decodedFour.decisions.first?.advisoryEvidence == nil)
-        #expect(reencoded["schemaVersion"] as? Int == 5)
-        #expect(reencoded["coverage"] as? String == "incompleteEvidence")
+        for legacyRoot in [schemaThree, schemaFour] {
+            for injectedPayload in injectedPayloads {
+                var root = legacyRoot
+                var decisions = try #require(root["decisions"] as? [[String: Any]])
+                decisions[0]["advisoryEvidence"] = injectedPayload
+                root["decisions"] = decisions
+
+                let decoded = try JSONDecoder().decode(
+                    PronunciationAuditManifest.self,
+                    from: JSONSerialization.data(withJSONObject: root))
+                let reencoded = try #require(
+                    JSONSerialization.jsonObject(with: decoded.encoded())
+                        as? [String: Any])
+                let reencodedDecisions = try #require(
+                    reencoded["decisions"] as? [[String: Any]])
+
+                #expect(decoded.schemaVersion == root["schemaVersion"] as? Int)
+                #expect(decoded.coverage == (decoded.schemaVersion == 3
+                    ? .incompleteEvidence
+                    : .complete))
+                #expect(decoded.decisions.first?.advisoryEvidence == nil)
+                #expect(reencoded["schemaVersion"] as? Int == 5)
+                #expect(reencodedDecisions.first?["advisoryEvidence"] == nil)
+            }
+        }
+
+        var schemaFive = schemaThree
+        schemaFive["schemaVersion"] = 5
+        var schemaFiveDecisions = try #require(schemaFive["decisions"] as? [[String: Any]])
+        schemaFiveDecisions[0]["advisoryEvidence"] = wellFormedEvidence
+        schemaFive["decisions"] = schemaFiveDecisions
+        let current = try JSONDecoder().decode(
+            PronunciationAuditManifest.self,
+            from: JSONSerialization.data(withJSONObject: schemaFive))
+
+        #expect(current.decisions.first?.advisoryEvidence == advisoryEvidence())
+
+        schemaFiveDecisions[0]["advisoryEvidence"] = ["category": "future-category"]
+        schemaFive["decisions"] = schemaFiveDecisions
+        #expect(throws: (any Error).self) {
+            _ = try JSONDecoder().decode(
+                PronunciationAuditManifest.self,
+                from: JSONSerialization.data(withJSONObject: schemaFive))
+        }
     }
 
     @Test func schemaThreeLegacyLimitationRemainsStronger() throws {

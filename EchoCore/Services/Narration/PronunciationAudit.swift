@@ -589,6 +589,77 @@ extension PronunciationAuditManifest {
         case diagnostics
     }
 
+    /// Schemas 3 and 4 predate advisory evidence. Decode their decision shape
+    /// explicitly so an injected future field is ignored rather than preserved
+    /// or allowed to make an otherwise-valid legacy receipt undecodable.
+    private struct LegacyDecision: Decodable {
+        private enum CodingKeys: String, CodingKey {
+            case blockID
+            case wordStart
+            case wordEnd
+            case normalizedWord
+            case sourceWord
+            case sourceContext
+            case selectedIPA
+            case kokoroTokenIDs
+            case source
+            case ruleID
+            case rationale
+            case candidateID
+            case candidatePackVersion
+            case derivationBase
+            case derivationRuleID
+            case contextualEvidence
+            case chapterIndex
+            case chapterRelativeAudioRange
+            case bookRelativeAudioRange
+            case timingPrecision
+        }
+
+        let decision: PronunciationAuditDecision
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            decision = PronunciationAuditDecision(
+                blockID: try container.decode(String.self, forKey: .blockID),
+                wordStart: try container.decode(Int.self, forKey: .wordStart),
+                wordEnd: try container.decode(Int.self, forKey: .wordEnd),
+                normalizedWord: try container.decode(String.self, forKey: .normalizedWord),
+                sourceWord: try container.decode(String.self, forKey: .sourceWord),
+                sourceContext: try container.decode(String.self, forKey: .sourceContext),
+                selectedIPA: try container.decode(String.self, forKey: .selectedIPA),
+                kokoroTokenIDs: try container.decode([Int32].self, forKey: .kokoroTokenIDs),
+                source: try container.decode(
+                    PronunciationAuditDecision.Source.self,
+                    forKey: .source),
+                ruleID: try container.decode(String.self, forKey: .ruleID),
+                rationale: try container.decode(String.self, forKey: .rationale),
+                candidateID: try container.decodeIfPresent(String.self, forKey: .candidateID),
+                candidatePackVersion: try container.decodeIfPresent(
+                    String.self,
+                    forKey: .candidatePackVersion),
+                derivationBase: try container.decodeIfPresent(
+                    String.self,
+                    forKey: .derivationBase),
+                derivationRuleID: try container.decodeIfPresent(
+                    String.self,
+                    forKey: .derivationRuleID),
+                contextualEvidence: try container.decodeIfPresent(
+                    ContextualPronunciationEvidence.self,
+                    forKey: .contextualEvidence),
+                chapterIndex: try container.decodeIfPresent(Int.self, forKey: .chapterIndex),
+                chapterRelativeAudioRange: try container.decodeIfPresent(
+                    PronunciationAuditDecision.AudioRange.self,
+                    forKey: .chapterRelativeAudioRange),
+                bookRelativeAudioRange: try container.decodeIfPresent(
+                    PronunciationAuditDecision.AudioRange.self,
+                    forKey: .bookRelativeAudioRange),
+                timingPrecision: try container.decodeIfPresent(
+                    PronunciationAuditDecision.TimingPrecision.self,
+                    forKey: .timingPrecision))
+        }
+    }
+
     nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
@@ -627,9 +698,16 @@ extension PronunciationAuditManifest {
         watchCounts = try container.decode(
             [String: Int].self,
             forKey: .watchCounts)
-        decisions = try container.decode(
-            [PronunciationAuditDecision].self,
-            forKey: .decisions)
+        if schemaVersion == Self.currentSchemaVersion {
+            decisions = try container.decode(
+                [PronunciationAuditDecision].self,
+                forKey: .decisions)
+        } else {
+            decisions = try container.decode(
+                [LegacyDecision].self,
+                forKey: .decisions)
+            .map(\.decision)
+        }
         diagnostics = try container.decode(
             [PronunciationAuditDiagnostic].self,
             forKey: .diagnostics)
