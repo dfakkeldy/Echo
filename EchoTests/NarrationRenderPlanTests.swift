@@ -267,6 +267,44 @@ import Testing
         }
     }
 
+    @Test func verifiedInvalidRawG2PUsesOneDeterministicSpellingRescueChunk() throws {
+        let rawResult = KokoroG2P.Result(
+            phonemes: "\u{0000}",
+            fallbackHits: [.init(word: "ordinary", ipa: "\u{0000}")],
+            tokenEvidence: [.init(
+                text: "ordinary",
+                selectedPhonemes: "\u{0000}",
+                lexicalTag: nil,
+                rating: 1,
+                displayCharacterRange: 0..<8,
+                phonemeCharacterRange: 0..<1,
+                usedFallback: true)],
+            pronunciationEvidenceValidation: .matched)
+        let planner = try PronunciationPlanner(g2pResult: { _, _ in rawResult })
+
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "invalid-g2p-rescue", text: "ordinary", index: 0)],
+            overrides: PronunciationOverrides.withBuiltInDefaults([:]),
+            pronunciationPlanner: planner)
+        let plannedBlock = try #require(plan.blocks.first)
+        let chunk = try #require(plannedBlock.synthesisChunks.first)
+        let decision = try #require(plannedBlock.pronunciationDecisions.first)
+
+        #expect(plannedBlock.synthesisChunks.count == 1)
+        #expect(chunk.displayText == "ordinary")
+        #expect(chunk.g2pInputText == "o r d i n a r y")
+        #expect(!chunk.phonemes.isEmpty)
+        #expect(!chunk.phonemeIDs.isEmpty)
+        #expect(chunk.wordCount == 1)
+        #expect(
+            plannedBlock.synthesisChunks.flatMap {
+                WordTokenizer.words(in: $0.displayText).map(String.init)
+            } == ["ordinary"])
+        #expect(decision.selectedIPA == "\u{0000}")
+        #expect(decision.kokoroTokenIDs.isEmpty)
+        #expect(decision.isEvidenceOnlyInvalidOutputAdvisory)
+    }
+
     @Test func matchedOOVMarkerKeepsTheHistoricalSynthesisPathOutOfInvalidOutputReceipts()
         throws
     {

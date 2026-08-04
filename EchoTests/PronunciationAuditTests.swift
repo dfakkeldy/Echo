@@ -54,13 +54,6 @@ import Testing
                 authority: .qualified,
                 validation: .shadow,
                 policyVersion: "policy-v1"),
-            .init(
-                candidateID: "record.verb",
-                ipa: "ɹəkˈɔɹd",
-                source: "fixture",
-                authority: .qualified,
-                validation: .shadow,
-                policyVersion: "policy-v1"),
         ]
     ) -> PronunciationAdvisoryEvidence {
         PronunciationAdvisoryEvidence(
@@ -69,6 +62,25 @@ import Testing
             selectedCandidateID: "record.verb",
             alternatives: alternatives,
             selectionReason: .qualifiedDeterministicContext,
+            overrideSuppressedAutomation: false,
+            policyVersion: "policy-v1")
+    }
+
+    private func monitoredLexiconAdvisoryEvidence() -> PronunciationAdvisoryEvidence {
+        PronunciationAdvisoryEvidence(
+            category: .lexical,
+            selectedAuthority: .trusted,
+            selectedCandidateID: "record.verb",
+            alternatives: [
+                .init(
+                    candidateID: "record.noun",
+                    ipa: "ɹˈɛkəɹd",
+                    source: "fixture",
+                    authority: .qualified,
+                    validation: .shadow,
+                    policyVersion: "policy-v1")
+            ],
+            selectionReason: .sourceDisagreement,
             overrideSuppressedAutomation: false,
             policyVersion: "policy-v1")
     }
@@ -541,11 +553,8 @@ import Testing
             #expect(throws: (any Error).self) {
                 _ = try manifest.encoded()
             }
-            let rawSchemaFour = try JSONEncoder().encode(manifest)
             #expect(throws: (any Error).self) {
-                _ = try JSONDecoder().decode(
-                    PronunciationAuditManifest.self,
-                    from: rawSchemaFour)
+                _ = try JSONEncoder().encode(manifest)
             }
         }
     }
@@ -595,11 +604,8 @@ import Testing
                 #expect(throws: (any Error).self) {
                     _ = try receipt.encoded()
                 }
-                let rawSchemaFour = try JSONEncoder().encode(receipt)
                 #expect(throws: (any Error).self) {
-                    _ = try JSONDecoder().decode(
-                        PronunciationAuditManifest.self,
-                        from: rawSchemaFour)
+                    _ = try JSONEncoder().encode(receipt)
                 }
             } else {
                 #expect(receipt.coverage == .complete)
@@ -797,16 +803,44 @@ import Testing
             }
         }
 
-        var schemaFive = schemaThree
-        schemaFive["schemaVersion"] = 5
+        let currentManifest = PronunciationAuditManifest.make(
+            renderVersion: 15,
+            voice: VoiceID("af_heart"),
+            captureCoverage: .complete,
+            legacyChapterIndexes: [],
+            audiobookURL: URL(fileURLWithPath: "/tmp/book.m4b"),
+            reelURL: nil,
+            audiobookSHA256: String(repeating: "a", count: 64),
+            listeningReelSHA256: nil,
+            watchWords: [],
+            decisions: [PronunciationAuditDecision(
+                blockID: "context",
+                wordStart: 1,
+                wordEnd: 1,
+                normalizedWord: "record",
+                sourceWord: "record",
+                sourceContext: "bounded context",
+                selectedIPA: "ɹəkˈɔɹd",
+                kokoroTokenIDs: [1],
+                source: .monitoredLexicon,
+                ruleID: "g2p.lexicon.record",
+                rationale: "Fixture.",
+                candidateID: "record.verb",
+                candidatePackVersion: "fixture-v1")],
+            diagnostics: [])
+        var schemaFive = try #require(
+            JSONSerialization.jsonObject(with: currentManifest.encoded()) as? [String: Any])
         var schemaFiveDecisions = try #require(schemaFive["decisions"] as? [[String: Any]])
-        schemaFiveDecisions[0]["advisoryEvidence"] = wellFormedEvidence
+        let monitoredEvidence = try #require(
+            JSONSerialization.jsonObject(
+                with: JSONEncoder().encode(monitoredLexiconAdvisoryEvidence())) as? [String: Any])
+        schemaFiveDecisions[0]["advisoryEvidence"] = monitoredEvidence
         schemaFive["decisions"] = schemaFiveDecisions
         let current = try JSONDecoder().decode(
             PronunciationAuditManifest.self,
             from: JSONSerialization.data(withJSONObject: schemaFive))
 
-        #expect(current.decisions.first?.advisoryEvidence == advisoryEvidence())
+        #expect(current.decisions.first?.advisoryEvidence == monitoredLexiconAdvisoryEvidence())
 
         schemaFiveDecisions[0]["advisoryEvidence"] = ["category": "future-category"]
         schemaFive["decisions"] = schemaFiveDecisions
@@ -815,6 +849,94 @@ import Testing
                 PronunciationAuditManifest.self,
                 from: JSONSerialization.data(withJSONObject: schemaFive))
         }
+    }
+
+    @Test func schemaFiveBindsAdvisoryEvidenceToTheSelectedDecision() throws {
+        let selected = PronunciationAuditDecision(
+            blockID: "context",
+            wordStart: 1,
+            wordEnd: 1,
+            normalizedWord: "record",
+            sourceWord: "record",
+            sourceContext: "bounded context",
+            selectedIPA: "ɹəkˈɔɹd",
+            kokoroTokenIDs: [1],
+            source: .monitoredLexicon,
+            ruleID: "g2p.lexicon.record",
+            rationale: "Fixture.",
+            candidateID: "record.verb",
+            candidatePackVersion: "fixture-v1",
+            advisoryEvidence: monitoredLexiconAdvisoryEvidence())
+        let encoded = try manifest(with: [selected]).encoded()
+        #expect(try JSONDecoder().decode(
+            PronunciationAuditManifest.self, from: encoded).decisions == [selected])
+
+        let validRoot = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        var malformedRoots: [[String: Any]] = []
+
+        var wrongIdentity = validRoot
+        var wrongIdentityDecisions = try #require(
+            wrongIdentity["decisions"] as? [[String: Any]])
+        var wrongIdentityEvidence = try #require(
+            wrongIdentityDecisions[0]["advisoryEvidence"] as? [String: Any])
+        wrongIdentityEvidence["selectedCandidateID"] = "record.other"
+        wrongIdentityDecisions[0]["advisoryEvidence"] = wrongIdentityEvidence
+        wrongIdentity["decisions"] = wrongIdentityDecisions
+        malformedRoots.append(wrongIdentity)
+
+        var wrongAuthority = validRoot
+        var wrongAuthorityDecisions = try #require(
+            wrongAuthority["decisions"] as? [[String: Any]])
+        var wrongAuthorityEvidence = try #require(
+            wrongAuthorityDecisions[0]["advisoryEvidence"] as? [String: Any])
+        wrongAuthorityEvidence["selectedAuthority"] = "uncertain"
+        wrongAuthorityDecisions[0]["advisoryEvidence"] = wrongAuthorityEvidence
+        wrongAuthority["decisions"] = wrongAuthorityDecisions
+        malformedRoots.append(wrongAuthority)
+
+        var wrongSource = validRoot
+        var wrongSourceDecisions = try #require(
+            wrongSource["decisions"] as? [[String: Any]])
+        wrongSourceDecisions[0]["source"] = "fallback"
+        wrongSource["decisions"] = wrongSourceDecisions
+        malformedRoots.append(wrongSource)
+
+        var selectedIPACollision = validRoot
+        var selectedIPADecisions = try #require(
+            selectedIPACollision["decisions"] as? [[String: Any]])
+        var selectedIPAEvidence = try #require(
+            selectedIPADecisions[0]["advisoryEvidence"] as? [String: Any])
+        var alternatives = try #require(
+            selectedIPAEvidence["alternatives"] as? [[String: Any]])
+        alternatives[0]["ipa"] = " ɹəkˈɔɹd "
+        selectedIPAEvidence["alternatives"] = alternatives
+        selectedIPADecisions[0]["advisoryEvidence"] = selectedIPAEvidence
+        selectedIPACollision["decisions"] = selectedIPADecisions
+        malformedRoots.append(selectedIPACollision)
+
+        for malformed in malformedRoots {
+            #expect(throws: (any Error).self) {
+                _ = try JSONDecoder().decode(
+                    PronunciationAuditManifest.self,
+                    from: JSONSerialization.data(withJSONObject: malformed))
+            }
+        }
+    }
+
+    @Test func legacyReceiptCannotReencodeAnInvalidCurrentSchemaFiveShape() throws {
+        var legacyRoot = try #require(
+            JSONSerialization.jsonObject(
+                with: manifest(with: [invalidRawG2PDecision()]).encoded()) as? [String: Any])
+        legacyRoot["schemaVersion"] = 4
+
+        let decoded = try JSONDecoder().decode(
+            PronunciationAuditManifest.self,
+            from: JSONSerialization.data(withJSONObject: legacyRoot))
+
+        #expect(decoded.schemaVersion == 4)
+        #expect(decoded.decisions.first?.advisoryEvidence == nil)
+        #expect(throws: (any Error).self) { _ = try decoded.encoded() }
     }
 
     @Test func schemaFiveRejectsMalformedInvalidG2PReceiptsAndRetainsTheVerifiedShape()
@@ -1143,11 +1265,8 @@ import Testing
                 decisions: [decision],
                 diagnostics: [])
             #expect(throws: (any Error).self) { _ = try manifest.encoded() }
-            let rawSchemaFour = try JSONEncoder().encode(manifest)
             #expect(throws: (any Error).self) {
-                _ = try JSONDecoder().decode(
-                    PronunciationAuditManifest.self,
-                    from: rawSchemaFour)
+                _ = try JSONEncoder().encode(manifest)
             }
         }
     }

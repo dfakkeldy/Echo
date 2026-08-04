@@ -14,7 +14,7 @@ import Testing
     ) -> PronunciationAdvisoryEvidence {
         PronunciationAdvisoryEvidence(
             category: category,
-            selectedAuthority: .qualified,
+            selectedAuthority: .trusted,
             selectedCandidateID: candidateID,
             alternatives: [
                 .init(
@@ -25,7 +25,7 @@ import Testing
                     validation: .shadow,
                     policyVersion: "policy-v1")
             ],
-            selectionReason: .shadowCandidate,
+            selectionReason: .sourceDisagreement,
             overrideSuppressedAutomation: false,
             policyVersion: "policy-v1")
     }
@@ -36,6 +36,7 @@ import Testing
         normalizedWord: String = "content",
         sourceWord: String = "Content",
         advisoryEvidence: PronunciationAdvisoryEvidence,
+        source: PronunciationAuditDecision.Source = .supplementalLexicon,
         sourceContext: String = "Private source sentence must not persist."
     ) -> PronunciationAuditDecision {
         PronunciationAuditDecision(
@@ -47,7 +48,7 @@ import Testing
             sourceContext: sourceContext,
             selectedIPA: "kˈɑntɛnt",
             kokoroTokenIDs: [1, 2],
-            source: .supplementalLexicon,
+            source: source,
             ruleID: "private-rule-id",
             rationale: "private rationale",
             candidateID: advisoryEvidence.selectedCandidateID,
@@ -87,7 +88,7 @@ import Testing
         #expect(decodedEvidence.selectedCandidate?.candidateID == "candidate.primary")
         #expect(decodedEvidence.selectedCandidate?.ipa == "kˈɑntɛnt")
         #expect(decodedEvidence.selectedCandidate?.source == .supplementalLexicon)
-        #expect(decodedEvidence.selectedCandidate?.authority == .qualified)
+        #expect(decodedEvidence.selectedCandidate?.authority == .trusted)
         #expect(decodedEvidence.selectedCandidate?.validation == .eligible)
         #expect(record.status == NarrationQAIssueStatus.open.rawValue)
     }
@@ -122,6 +123,58 @@ import Testing
             audiobookID: "book", decisions: [second, first], diagnostics: [], createdAt: createdAt)
 
         #expect(forward.map(\.id) == reverse.map(\.id))
+    }
+
+    @Test func stableIDChangesWithMaterialEvidenceButNotAlternativeOrdering() throws {
+        func advisory(
+            alternatives: [PronunciationAdvisoryEvidence.Alternative]
+        ) -> PronunciationAdvisoryEvidence {
+            PronunciationAdvisoryEvidence(
+                category: .lexical,
+                selectedAuthority: .trusted,
+                selectedCandidateID: "candidate.primary",
+                alternatives: alternatives,
+                selectionReason: .sourceDisagreement,
+                overrideSuppressedAutomation: false,
+                policyVersion: "policy-v1")
+        }
+        let firstAlternative = PronunciationAdvisoryEvidence.Alternative(
+            candidateID: "candidate.a",
+            ipa: "kəntˈɛnt",
+            source: "fixture-a",
+            authority: .qualified,
+            validation: .shadow,
+            policyVersion: "policy-v1")
+        let secondAlternative = PronunciationAdvisoryEvidence.Alternative(
+            candidateID: "candidate.b",
+            ipa: "kˈɑntənt",
+            source: "fixture-b",
+            authority: .uncertain,
+            validation: .rejected,
+            policyVersion: "policy-v1")
+        let changedAlternative = PronunciationAdvisoryEvidence.Alternative(
+            candidateID: "candidate.a",
+            ipa: "kəntˈɪnt",
+            source: "fixture-a",
+            authority: .qualified,
+            validation: .shadow,
+            policyVersion: "policy-v1")
+        let builder = PronunciationAdvisoryIssueBuilder()
+        func id(for evidence: PronunciationAdvisoryEvidence) throws -> String {
+            try #require(builder.records(
+                audiobookID: "book",
+                decisions: [decision(
+                    blockID: "blk1", wordStart: 2, advisoryEvidence: evidence)],
+                diagnostics: [],
+                createdAt: createdAt).first?.id)
+        }
+
+        let forward = try id(for: advisory(alternatives: [firstAlternative, secondAlternative]))
+        let reversed = try id(for: advisory(alternatives: [secondAlternative, firstAlternative]))
+        let changed = try id(for: advisory(alternatives: [changedAlternative, secondAlternative]))
+
+        #expect(forward == reversed)
+        #expect(changed != forward)
     }
 
     @Test func recordsGenericDiagnosticsWithoutPrivateBookText() {
@@ -182,7 +235,11 @@ import Testing
         let record = try #require(PronunciationAdvisoryIssueBuilder().records(
             audiobookID: "book",
             decisions: [
-                decision(blockID: "blk1", wordStart: 2, advisoryEvidence: undecided)
+                decision(
+                    blockID: "blk1",
+                    wordStart: 2,
+                    advisoryEvidence: undecided,
+                    source: .fallback)
             ],
             diagnostics: [],
             createdAt: createdAt).first)
@@ -274,6 +331,15 @@ import Testing
                 source: .supplementalLexicon,
                 authority: .qualified,
                 validation: .eligible)).isValid())
+        #expect(!PronunciationAdvisoryIssueEvidence(
+            advisoryEvidence: advisory,
+            occurrenceCount: 1,
+            selectedCandidate: .init(
+                candidateID: "candidate.primary",
+                ipa: "kˈɑntɛnt",
+                source: .supplementalLexicon,
+                authority: .trusted,
+                validation: .shadow)).isValid())
     }
 
     @Test func rejectsEvidenceWhoseSelectedCandidateDoesNotMatchTheDecision() {

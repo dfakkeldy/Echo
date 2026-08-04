@@ -104,7 +104,11 @@ final class NarrationService {
     /// Test seam for the non-blocking advisory report write. Production uses the
     /// origin-scoped DAO path below.
     private let advisoryReportWriter: (([NarrationQualityIssueRecord], [String]) throws -> Void)?
-    private let fallbackDiscoveryWriter: (([RenderedPronunciationFallbackHit]) throws -> Void)?
+    /// Test seam for computing the fallback portion of an atomic report
+    /// snapshot. Production uses `PronunciationFallbackDiscovery.records`.
+    private let fallbackDiscoveryRecordBuilder: ((
+        [RenderedPronunciationFallbackHit], String
+    ) throws -> [NarrationQualityIssueRecord])?
 
     init(
         db: DatabaseWriter, audiobookID: String, tts: TTSEngine,
@@ -120,7 +124,9 @@ final class NarrationService {
         contextualPronunciationEvaluator: @escaping ContextualPronunciationBatchEvaluator =
             FoundationModelsContextualPronunciationEvaluator.makeBatchEvaluator(),
         advisoryReportWriter: (([NarrationQualityIssueRecord], [String]) throws -> Void)? = nil,
-        fallbackDiscoveryWriter: (([RenderedPronunciationFallbackHit]) throws -> Void)? = nil,
+        fallbackDiscoveryRecordBuilder: ((
+            [RenderedPronunciationFallbackHit], String
+        ) throws -> [NarrationQualityIssueRecord])? = nil,
         fmEnabled: @escaping () -> Bool = {
             UserDefaults.standard.string(forKey: "narrationQAClassifier") ?? "auto" == "auto"
         }
@@ -137,7 +143,7 @@ final class NarrationService {
         self.pronunciationAuditPack = pronunciationAuditPack
         self.contextualPronunciationEvaluator = contextualPronunciationEvaluator
         self.advisoryReportWriter = advisoryReportWriter
-        self.fallbackDiscoveryWriter = fallbackDiscoveryWriter
+        self.fallbackDiscoveryRecordBuilder = fallbackDiscoveryRecordBuilder
         self.fmEnabledProvider = fmEnabled
     }
 
@@ -701,52 +707,58 @@ final class NarrationService {
         // (recalc opens its own `db.write`, so it must not be nested). A recalc
         // failure must not fail the render — the audio is already on disk and the
         // anchors persisted; log and continue.
-        do {
-            let records = PronunciationAdvisoryIssueBuilder().records(
-                audiobookID: audiobookID,
-                decisions: rendered.pronunciationDecisions,
-                diagnostics: rendered.pronunciationAuditDiagnostics,
-                createdAt: Self.iso8601.string(from: Date()))
-            if let advisoryReportWriter {
-                try advisoryReportWriter(records, rendered.auditedBlockIDs)
-            } else {
-                let issueDAO = NarrationQualityIssueDAO(db: db)
-                try issueDAO.replaceOpen(
-                    for: audiobookID,
-                    blockIDs: rendered.auditedBlockIDs,
-                    replacements: [
-                        .init(
-                            origin: .pronunciationPreflight,
-                            records: records.filter {
-                                $0.origin == NarrationQualityIssueOrigin.pronunciationPreflight.rawValue
-                            }),
-                        .init(
-                            origin: .acoustic,
-                            records: records.filter {
-                                $0.origin == NarrationQualityIssueOrigin.acoustic.rawValue
-                            }),
-                    ])
-            }
-        } catch {
-            let message = "Operational report-write error: \(error.localizedDescription)"
-            logger.error("\(message)")
-            state.log(message)
+        let reportCreatedAt = Self.iso8601.string(from: Date())
+        let advisoryRecords = PronunciationAdvisoryIssueBuilder().records(
+            audiobookID: audiobookID,
+            decisions: rendered.pronunciationDecisions,
+            diagnostics: rendered.pronunciationAuditDiagnostics,
+            createdAt: reportCreatedAt)
+        let advisoryPreflightRecords = advisoryRecords.filter {
+            $0.origin == NarrationQualityIssueOrigin.pronunciationPreflight.rawValue
         }
-
+        let fallbackRecords: [NarrationQualityIssueRecord]?
         do {
-            if let fallbackDiscoveryWriter {
-                try fallbackDiscoveryWriter(rendered.pronunciationFallbackHits)
+            if let fallbackDiscoveryRecordBuilder {
+                fallbackRecords = try fallbackDiscoveryRecordBuilder(
+                    rendered.pronunciationFallbackHits, reportCreatedAt)
             } else {
-                try PronunciationFallbackDiscovery.persist(
+                fallbackRecords = PronunciationFallbackDiscovery.records(
                     audiobookID: audiobookID,
                     hits: rendered.pronunciationFallbackHits,
-                    createdAt: Self.iso8601.string(from: Date()),
-                    db: db)
+                    createdAt: reportCreatedAt,
+                    excluding: advisoryPreflightRecords)
             }
         } catch {
             let message = "Operational report-write error: pronunciation fallback discovery failed: \(error.localizedDescription)"
             logger.error("\(message)")
             state.log(message)
+            fallbackRecords = nil
+        }
+
+        if let fallbackRecords {
+            do {
+                let preflightRecords = advisoryPreflightRecords + fallbackRecords
+                let acousticRecords = advisoryRecords.filter {
+                    $0.origin == NarrationQualityIssueOrigin.acoustic.rawValue
+                }
+                if let advisoryReportWriter {
+                    try advisoryReportWriter(
+                        preflightRecords + acousticRecords,
+                        rendered.auditedBlockIDs)
+                } else {
+                    try NarrationQualityIssueDAO(db: db).replaceOpen(
+                        for: audiobookID,
+                        blockIDs: rendered.auditedBlockIDs,
+                        replacements: [
+                            .init(origin: .pronunciationPreflight, records: preflightRecords),
+                            .init(origin: .acoustic, records: acousticRecords),
+                        ])
+                }
+            } catch {
+                let message = "Operational report-write error: \(error.localizedDescription)"
+                logger.error("\(message)")
+                state.log(message)
+            }
         }
 
         do {

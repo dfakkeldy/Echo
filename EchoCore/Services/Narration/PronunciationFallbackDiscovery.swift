@@ -63,6 +63,29 @@ enum PronunciationFallbackDiscovery {
         }
     }
 
+    /// Produces the fallback portion of one report snapshot while preferring
+    /// richer advisory rows for the same normalized word and source block.
+    static func records(
+        audiobookID: String,
+        hits: [RenderedPronunciationFallbackHit],
+        createdAt: String,
+        excluding preferredRecords: [NarrationQualityIssueRecord]
+    ) -> [NarrationQualityIssueRecord] {
+        let occupiedWords = Set(preferredRecords.compactMap { record -> String? in
+            guard let blockID = record.sourceBlockID,
+                let word = canonicalKey(record.expectedText)
+            else { return nil }
+            return "\(blockID)\u{1F}\(word)"
+        })
+        return records(audiobookID: audiobookID, hits: hits, createdAt: createdAt)
+            .filter { record in
+                guard let blockID = record.sourceBlockID,
+                    let word = canonicalKey(record.expectedText)
+                else { return false }
+                return !occupiedWords.contains("\(blockID)\u{1F}\(word)")
+            }
+    }
+
     static func persist(
         audiobookID: String,
         hits: [RenderedPronunciationFallbackHit],

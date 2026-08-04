@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import CryptoKit
 import Foundation
 
 /// Immutable token-level evidence copied from Misaki's final mutable token list.
@@ -482,6 +483,7 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
 
     func encoded() throws -> Data {
         try validateFields()
+        try currentSchemaEncodingProjection().validateFields()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         return try encoder.encode(self)
@@ -604,7 +606,7 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
             }
             if schemaVersion == Self.currentSchemaVersion,
                 let evidence = decision.advisoryEvidence,
-                !evidence.isValid()
+                !evidence.isValid(for: decision)
             {
                 throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
                     "advisory pronunciation evidence is invalid")
@@ -814,6 +816,7 @@ extension PronunciationAuditManifest {
     }
 
     nonisolated func encode(to encoder: Encoder) throws {
+        try currentSchemaEncodingProjection().validateFields()
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(Self.currentSchemaVersion, forKey: .schemaVersion)
         try container.encode(renderVersion, forKey: .renderVersion)
@@ -832,6 +835,25 @@ extension PronunciationAuditManifest {
         try container.encode(watchCounts, forKey: .watchCounts)
         try container.encode(decisions, forKey: .decisions)
         try container.encode(diagnostics, forKey: .diagnostics)
+    }
+
+    /// Encoding always writes the current schema number, so validate the exact
+    /// current-schema projection before making that claim for a legacy receipt.
+    nonisolated private func currentSchemaEncodingProjection() -> PronunciationAuditManifest {
+        PronunciationAuditManifest(
+            schemaVersion: Self.currentSchemaVersion,
+            renderVersion: renderVersion,
+            voice: voice,
+            chapterVoices: chapterVoices,
+            coverage: coverage,
+            legacyChapterIndexes: legacyChapterIndexes,
+            audiobookFileName: audiobookFileName,
+            audiobookSHA256: audiobookSHA256,
+            listeningReelFileName: listeningReelFileName,
+            listeningReelSHA256: listeningReelSHA256,
+            watchCounts: watchCounts,
+            decisions: decisions,
+            diagnostics: diagnostics)
     }
 }
 
@@ -1190,6 +1212,10 @@ nonisolated enum PronunciationAuditContext {
             rationale =
                 "Watched ordinary-lexicon pronunciation selected for “\(evidence.text)”."
         }
+        let selectedIdentity = selectedCandidateIdentity(
+            normalizedWord: normalizedWord,
+            selectedIPA: evidence.selectedPhonemes,
+            source: source)
         return PronunciationDecisionSeed(
             blockID: blockID,
             wordStart: wordStart,
@@ -1203,7 +1229,33 @@ nonisolated enum PronunciationAuditContext {
             selectedIPA: evidence.selectedPhonemes,
             source: source,
             ruleID: "g2p.\(ruleKind).\(ruleComponent(evidence.text))",
-            rationale: rationale)
+            rationale: rationale,
+            candidateID: selectedIdentity?.candidateID,
+            candidatePackVersion: selectedIdentity?.packVersion)
+    }
+
+    private static func selectedCandidateIdentity(
+        normalizedWord: String,
+        selectedIPA: String,
+        source: PronunciationAuditDecision.Source
+    ) -> (candidateID: String, packVersion: String)? {
+        let packVersion = "misaki.us.lexicon.v1"
+        let normalizedIPA = selectedIPA.precomposedStringWithCanonicalMapping
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard source == .monitoredLexicon,
+            !normalizedWord.isEmpty,
+            !normalizedIPA.isEmpty,
+            !isRejectedRawG2POutput(normalizedIPA),
+            !isIntentionalOOVMarkerOutput(normalizedIPA)
+        else {
+            return nil
+        }
+        let payload = [packVersion, normalizedWord, normalizedIPA]
+            .joined(separator: "\u{1F}")
+        let digest = SHA256.hash(data: Data(payload.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return ("\(packVersion).sha256:\(digest)", packVersion)
     }
 
     /// Invalid raw token output is audit-worthy even when it did not arise from

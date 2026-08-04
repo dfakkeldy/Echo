@@ -72,6 +72,42 @@ nonisolated final class PronunciationPlanner {
         )
     }
 
+    /// Last-resort speech preservation for a verified invalid raw G2P result.
+    /// The authored surface remains the chunk display text, while the trusted
+    /// bundled engine speaks its words letter by letter. Token evidence is
+    /// intentionally omitted because the spelling input does not address the
+    /// authored word ranges; the rejected raw result remains the audit receipt.
+    func planDeterministicSpellingRescue(displayText: String) throws -> PlannedSynthesisChunk {
+        let spellingInput = WordTokenizer.words(in: displayText)
+            .map { word in
+                word.filter { $0.isLetter || $0.isNumber }
+                    .map(String.init)
+                    .joined(separator: " ")
+            }
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
+        guard !spellingInput.isEmpty else {
+            throw PlanningError.invalidRawG2POutput(
+                KokoroG2P.Result(
+                    phonemes: "",
+                    fallbackHits: [],
+                    tokenEvidence: [],
+                    pronunciationEvidenceValidation: .matched))
+        }
+
+        let result = g2p.result(for: spellingInput)
+        let phonemes = result.phonemes.filter { $0 != KokoroPhonemeVocab.oovMarker }
+        let phonemeIDs = try vocab.validatedIDs(forPhonemes: phonemes)
+        return PlannedSynthesisChunk(
+            displayText: displayText,
+            g2pInputText: spellingInput,
+            phonemes: phonemes,
+            phonemeIDs: phonemeIDs,
+            wordCount: WordTokenizer.words(in: displayText).count,
+            pronunciationFallbackHits: [],
+            pronunciationEvidenceValidation: .matched)
+    }
+
     /// Phoneme count for `text`, reusing the planner's already-loaded G2P.
     ///
     /// Chunkers need this to size splits; routing it through the planner keeps

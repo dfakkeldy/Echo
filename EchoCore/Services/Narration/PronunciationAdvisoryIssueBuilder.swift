@@ -37,8 +37,9 @@ nonisolated struct PronunciationAdvisoryIssueBuilder: Sendable {
         createdAt: String
     ) -> [NarrationQualityIssueRecord] {
         let candidates = decisions.compactMap { decision -> DecisionCandidate? in
-            guard let evidence = decision.advisoryEvidence, evidence.isValid() else { return nil }
-            guard evidence.selectedCandidateID == decision.candidateID else { return nil }
+            guard let evidence = decision.advisoryEvidence,
+                evidence.isValid(for: decision)
+            else { return nil }
             guard !isSpecializedFallbackOverlap(decision: decision, evidence: evidence) else {
                 return nil
             }
@@ -216,11 +217,46 @@ nonisolated struct PronunciationAdvisoryIssueBuilder: Sendable {
                     decision.blockID,
                     String(decision.wordStart),
                     String(decision.wordEnd),
+                    semanticEvidenceIdentity,
                 ].joined(separator: "\u{1F}")
             case .lexical, .acoustic:
-                [evidence.category.rawValue, decision.normalizedWord, selectedCandidate]
+                [
+                    evidence.category.rawValue,
+                    decision.normalizedWord,
+                    selectedCandidate,
+                    semanticEvidenceIdentity,
+                ]
                     .joined(separator: "\u{1F}")
             }
+        }
+
+        /// Canonical portable evidence only. Private source context, rationale,
+        /// and authored surrounding text deliberately never enter this digest.
+        var semanticEvidenceIdentity: String {
+            var components = [
+                evidence.category.rawValue,
+                evidence.selectedAuthority.rawValue,
+                evidence.selectedCandidateID ?? "",
+                evidence.selectionReason.rawValue,
+                evidence.overrideSuppressedAutomation ? "1" : "0",
+                evidence.policyVersion,
+                decision.source.rawValue,
+                decision.candidateID ?? "",
+                decision.candidatePackVersion ?? "",
+                normalizedIPA(decision.selectedIPA),
+                PronunciationAdvisoryEvidence.Validation.eligible.rawValue,
+            ]
+            for alternative in evidence.alternatives {
+                components.append(contentsOf: [
+                    alternative.candidateID,
+                    normalizedIPA(alternative.ipa),
+                    alternative.source,
+                    alternative.authority.rawValue,
+                    alternative.validation.rawValue,
+                    alternative.policyVersion,
+                ])
+            }
+            return components.map(Self.framed).joined()
         }
 
         /// Group identity deliberately excludes source locations for lexical and
@@ -243,6 +279,15 @@ nonisolated struct PronunciationAdvisoryIssueBuilder: Sendable {
                 return lhs.decision.wordStart < rhs.decision.wordStart
             }
             return lhs.decision.wordEnd < rhs.decision.wordEnd
+        }
+
+        private func normalizedIPA(_ ipa: String) -> String {
+            ipa.precomposedStringWithCanonicalMapping
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        private static func framed(_ value: String) -> String {
+            "\(value.utf8.count):\(value)"
         }
     }
 }

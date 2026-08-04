@@ -80,26 +80,66 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
     /// Manifest validation is deliberately strict for schema 5. Older schemas
     /// predate this optional evidence and therefore bypass this gate.
     func isValid() -> Bool {
-        guard !policyVersion.isEmpty,
+        let normalizedPolicyVersion = policyVersion.trimmingCharacters(
+            in: .whitespacesAndNewlines)
+        guard !normalizedPolicyVersion.isEmpty,
+            normalizedPolicyVersion == policyVersion,
             alternatives == alternatives.sorted(by: Self.isOrderedBefore)
         else {
             return false
         }
 
         var candidateIDs: Set<String> = []
+        if let selectedCandidateID {
+            candidateIDs.insert(
+                selectedCandidateID.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
         var ipas: Set<String> = []
         for alternative in alternatives {
-            guard !alternative.candidateID.isEmpty,
-                !alternative.ipa.isEmpty,
-                !alternative.source.isEmpty,
-                !alternative.policyVersion.isEmpty,
-                candidateIDs.insert(alternative.candidateID).inserted,
-                ipas.insert(alternative.ipa).inserted
+            let candidateID = alternative.candidateID.trimmingCharacters(
+                in: .whitespacesAndNewlines)
+            let ipa = Self.normalizedIPA(alternative.ipa)
+            let source = alternative.source.trimmingCharacters(in: .whitespacesAndNewlines)
+            let alternativePolicyVersion = alternative.policyVersion.trimmingCharacters(
+                in: .whitespacesAndNewlines)
+            guard !candidateID.isEmpty,
+                candidateID == alternative.candidateID,
+                !ipa.isEmpty,
+                !source.isEmpty,
+                source == alternative.source,
+                !alternativePolicyVersion.isEmpty,
+                alternativePolicyVersion == alternative.policyVersion,
+                candidateIDs.insert(candidateID).inserted,
+                ipas.insert(ipa).inserted
             else {
                 return false
             }
         }
-        return selectedCandidateID.map { !$0.isEmpty } ?? true
+        return selectedCandidateID.map {
+            !$0.isEmpty && $0 == $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        } ?? true
+    }
+
+    /// Schema-five evidence is meaningful only when its accepted identity is
+    /// bound to the exact synthesis decision stored beside it.
+    func isValid(for decision: PronunciationAuditDecision) -> Bool {
+        guard isValid(),
+            selectedCandidateID == decision.candidateID,
+            selectedAuthority == Self.expectedAuthority(for: decision)
+        else {
+            return false
+        }
+
+        // Evidence-only advisories intentionally accept no candidate. The
+        // synthesized decision IPA may still appear among the alternatives,
+        // but it is not an advisory selection and therefore cannot collide.
+        guard selectedCandidateID != nil else { return true }
+
+        let selectedIPA = Self.normalizedIPA(decision.selectedIPA)
+        guard !selectedIPA.isEmpty else { return false }
+        return !alternatives.contains { alternative in
+            Self.normalizedIPA(alternative.ipa) == selectedIPA
+        }
     }
 
     private static func isOrderedBefore(_ lhs: Alternative, _ rhs: Alternative) -> Bool {
@@ -109,6 +149,26 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
         if lhs.authority != rhs.authority { return lhs.authority.rawValue < rhs.authority.rawValue }
         if lhs.validation != rhs.validation { return lhs.validation.rawValue < rhs.validation.rawValue }
         return lhs.policyVersion < rhs.policyVersion
+    }
+
+    private static func normalizedIPA(_ ipa: String) -> String {
+        ipa.precomposedStringWithCanonicalMapping
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func expectedAuthority(
+        for decision: PronunciationAuditDecision
+    ) -> Authority {
+        switch decision.source {
+        case .fallback:
+            return .uncertain
+        case .contextualHomograph:
+            return decision.contextualEvidence?.familyState == .graduated
+                ? .qualified : .uncertain
+        case .occurrenceOverride, .bookOverride, .globalOverride, .builtInOverride,
+            .supplementalLexicon, .derivedMorphology, .monitoredLexicon:
+            return .trusted
+        }
     }
 }
 
@@ -150,6 +210,10 @@ nonisolated struct PronunciationAdvisoryIssueEvidence: Codable, Equatable, Senda
         guard !candidateID.isEmpty,
             !selectedIPA.isEmpty,
             !selectedCandidate.source.rawValue.isEmpty,
+            selectedCandidate.validation == .eligible,
+            Self.authorityIsValid(
+                selectedCandidate.authority,
+                for: selectedCandidate.source),
             advisoryEvidence.selectedCandidateID == selectedCandidate.candidateID,
             advisoryEvidence.selectedAuthority == selectedCandidate.authority
         else {
@@ -165,5 +229,20 @@ nonisolated struct PronunciationAdvisoryIssueEvidence: Codable, Equatable, Senda
     static func normalizedIPA(_ ipa: String) -> String {
         ipa.precomposedStringWithCanonicalMapping
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func authorityIsValid(
+        _ authority: PronunciationAdvisoryEvidence.Authority,
+        for source: PronunciationAuditDecision.Source
+    ) -> Bool {
+        switch source {
+        case .fallback:
+            return authority == .uncertain
+        case .contextualHomograph:
+            return authority == .qualified || authority == .uncertain
+        case .occurrenceOverride, .bookOverride, .globalOverride, .builtInOverride,
+            .supplementalLexicon, .derivedMorphology, .monitoredLexicon:
+            return authority == .trusted
+        }
     }
 }

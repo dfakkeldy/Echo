@@ -233,9 +233,10 @@ enum NarrationRenderPlanner {
                                             for: normalizedWord) == nil))
                     }
                     decisionSeeds = uniqueDecisionSeeds(decisionSeeds + rawTokenDecisionSeeds)
-                    wordBase += WordTokenizer.words(
-                        in: MisakiPronunciationMarkup.displayText(from: fragment)
-                    ).count
+                    let rescueChunk = try planner.planDeterministicSpellingRescue(
+                        displayText: MisakiPronunciationMarkup.displayText(from: fragment))
+                    synthesisChunks.append(rescueChunk)
+                    wordBase += rescueChunk.wordCount
                     continue
                 }
                 let tokenDecisionSeeds = chunk.pronunciationTokenEvidence.compactMap { evidence in

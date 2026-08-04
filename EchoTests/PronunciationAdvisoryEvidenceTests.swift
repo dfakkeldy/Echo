@@ -30,10 +30,8 @@ import Testing
                 selectedCandidateID: "lexical.primary",
                 alternatives: [
                     alternative(
-                        candidateID: "lexical.primary",
-                        ipa: "lˈɛksɪkəl",
-                        authority: .trusted,
-                        validation: .eligible),
+                        candidateID: "lexical.shadow",
+                        ipa: "lɛksˈɪkəl"),
                 ],
                 selectionReason: .trustedLexicon,
                 overrideSuppressedAutomation: false,
@@ -44,8 +42,8 @@ import Testing
                 selectedCandidateID: "contextual.primary",
                 alternatives: [
                     alternative(
-                        candidateID: "contextual.primary",
-                        ipa: "kənˈtɛkstʃuəl",
+                        candidateID: "contextual.shadow",
+                        ipa: "kˈɑntɛkstʃuəl",
                         authority: .qualified,
                         validation: .shadow),
                 ],
@@ -79,14 +77,14 @@ import Testing
     @Test func alternativesAreCanonicalizedByStablePortableIdentity() {
         let evidence = PronunciationAdvisoryEvidence(
             category: .lexical,
-            selectedAuthority: .qualified,
-            selectedCandidateID: "candidate.b",
+            selectedAuthority: .uncertain,
+            selectedCandidateID: "candidate.primary",
             alternatives: [
                 alternative(candidateID: "candidate.b", ipa: "b"),
                 alternative(candidateID: "candidate.a", ipa: "z"),
                 alternative(candidateID: "candidate.a2", ipa: "a"),
             ],
-            selectionReason: .deterministicFallback,
+            selectionReason: .sourceDisagreement,
             overrideSuppressedAutomation: false,
             policyVersion: "policy-v1")
 
@@ -95,5 +93,61 @@ import Testing
             "candidate.a2",
             "candidate.b",
         ])
+    }
+
+    @Test func rejectsSelectedIdentityAndCanonicallyEquivalentAlternativeIPAs() {
+        let selectedCollision = PronunciationAdvisoryEvidence(
+            category: .lexical,
+            selectedAuthority: .trusted,
+            selectedCandidateID: "candidate.primary",
+            alternatives: [
+                alternative(candidateID: "candidate.primary", ipa: "different")
+            ],
+            selectionReason: .sourceDisagreement,
+            overrideSuppressedAutomation: false,
+            policyVersion: "policy-v1")
+        let normalizedIPACollision = PronunciationAdvisoryEvidence(
+            category: .lexical,
+            selectedAuthority: .trusted,
+            selectedCandidateID: "candidate.primary",
+            alternatives: [
+                alternative(candidateID: "candidate.a", ipa: " e\u{301} "),
+                alternative(candidateID: "candidate.b", ipa: "é"),
+            ],
+            selectionReason: .sourceDisagreement,
+            overrideSuppressedAutomation: false,
+            policyVersion: "policy-v1")
+
+        #expect(!selectedCollision.isValid())
+        #expect(!normalizedIPACollision.isValid())
+    }
+
+    @Test func evidenceOnlyAdvisoryMayReportTheSynthesizedIPAAsAnAlternative() {
+        let evidence = PronunciationAdvisoryEvidence(
+            category: .lexical,
+            selectedAuthority: .uncertain,
+            selectedCandidateID: nil,
+            alternatives: [
+                alternative(candidateID: "candidate.possible", ipa: "kˈɑntɛnt")
+            ],
+            selectionReason: .sourceDisagreement,
+            overrideSuppressedAutomation: false,
+            policyVersion: "policy-v1")
+        let decision = PronunciationAuditDecision(
+            blockID: "blk1",
+            wordStart: 0,
+            wordEnd: 0,
+            normalizedWord: "content",
+            sourceWord: "content",
+            sourceContext: "content",
+            selectedIPA: "kˈɑntɛnt",
+            kokoroTokenIDs: [1],
+            source: .fallback,
+            ruleID: "fixture",
+            rationale: "fixture",
+            candidateID: nil,
+            advisoryEvidence: evidence)
+
+        #expect(evidence.isValid(for: decision))
     }
 }

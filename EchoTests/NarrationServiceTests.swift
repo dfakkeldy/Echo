@@ -533,19 +533,15 @@ private actor ShadowEvaluatorRecorder {
             fmEnabled: false)
         let auditedDecision = try #require(
             auditedPlan.blocks.first?.pronunciationDecisions.first {
-                $0.normalizedWord == "record"
+                $0.normalizedWord == "enough"
             })
-        let unauditedDecision = try #require(
-            unauditedPlan.blocks.first?.pronunciationDecisions.first {
-                $0.normalizedWord == "record"
-            })
-
-        #expect(auditedDecision.selectedIPA == unauditedDecision.selectedIPA)
+        let selectedCandidateID = try #require(auditedDecision.candidateID)
+        #expect(selectedCandidateID.hasPrefix("misaki.us.lexicon.v1.sha256:"))
+        #expect(auditedDecision.source == .monitoredLexicon)
         #expect(
             auditedPlan.blocks.first?.synthesisChunks.map(\.phonemes)
                 == unauditedPlan.blocks.first?.synthesisChunks.map(\.phonemes))
         #expect(auditedDecision.advisoryEvidence?.alternatives.isEmpty == false)
-        #expect(unauditedDecision.advisoryEvidence?.alternatives.isEmpty == true)
 
         _ = try await audited.renderChapter(
             chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
@@ -562,8 +558,17 @@ private actor ShadowEvaluatorRecorder {
         #expect(persistedEvidence.advisoryEvidence == auditedDecision.advisoryEvidence)
         #expect(persistedEvidence.isValid())
         #expect(persistedEvidence.occurrenceCount == 1)
-        #expect(persistedEvidence.advisoryEvidence.selectedCandidateID == nil)
-        #expect(persistedIssue.suggestedFixJSON == nil)
+        #expect(persistedEvidence.advisoryEvidence.selectedCandidateID == selectedCandidateID)
+        #expect(persistedEvidence.selectedCandidate?.candidateID == selectedCandidateID)
+        #expect(persistedEvidence.selectedCandidate?.ipa == auditedDecision.selectedIPA)
+        #expect(persistedEvidence.selectedCandidate?.source == .monitoredLexicon)
+        #expect(persistedEvidence.selectedCandidate?.authority == .trusted)
+        #expect(persistedEvidence.selectedCandidate?.validation == .eligible)
+        let suggestedFix = try JSONDecoder().decode(
+            SuggestedFix.self,
+            from: try #require(persistedIssue.suggestedFixJSON?.data(using: .utf8)))
+        #expect(suggestedFix.spokenForm == auditedDecision.sourceWord)
+        #expect(suggestedFix.ipa == auditedDecision.selectedIPA)
 
         let auditedCacheURL = await audited.chapterCacheURL(
             chapterIndex: 0,
@@ -2212,11 +2217,34 @@ private actor ShadowEvaluatorRecorder {
         enum FallbackFailure: Error { case unavailable }
         let db = try DatabaseService(inMemory: ())
         let blocks = try seed(db, ["A rendered chapter survives fallback persistence failure."])
+        let issueDAO = NarrationQualityIssueDAO(db: db.writer)
+        let oldPreflight = NarrationQualityIssueRecord(
+            id: "old-preflight", audiobookID: "b1", sourceBlockID: "blk0",
+            sourceWordStart: nil, sourceWordEnd: nil,
+            audioStartTime: 0, audioEndTime: 1,
+            expectedText: "legacy", heardText: "G2P fallback",
+            issueType: NarrationQAIssueType.pronunciation.rawValue,
+            confidence: 0.25, suggestedFixJSON: nil,
+            origin: NarrationQualityIssueOrigin.pronunciationPreflight.rawValue,
+            evidenceJSON: nil, status: NarrationQAIssueStatus.open.rawValue,
+            createdAt: "old", resolvedAt: nil)
+        let oldAcoustic = NarrationQualityIssueRecord(
+            id: "old-acoustic", audiobookID: "b1", sourceBlockID: "blk0",
+            sourceWordStart: nil, sourceWordEnd: nil,
+            audioStartTime: 0, audioEndTime: 1,
+            expectedText: "legacy", heardText: "qualityRejected",
+            issueType: NarrationQAIssueType.pronunciation.rawValue,
+            confidence: 0, suggestedFixJSON: nil,
+            origin: NarrationQualityIssueOrigin.acoustic.rawValue,
+            evidenceJSON: nil, status: NarrationQAIssueStatus.open.rawValue,
+            createdAt: "old", resolvedAt: nil)
+        try issueDAO.insert([oldPreflight, oldAcoustic])
         let state = NarrationState()
         let service = NarrationService(
             db: db.writer, audiobookID: "b1", tts: MockTTSEngine(secondsPerChar: 0.1),
             audioWriter: MockAudioWriter(), cacheDirectory: FileManager.default.temporaryDirectory,
-            state: state, fallbackDiscoveryWriter: { _ in throw FallbackFailure.unavailable },
+            state: state,
+            fallbackDiscoveryRecordBuilder: { _, _ in throw FallbackFailure.unavailable },
             fmEnabled: { false })
         _ = try await service.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
         let track = try db.read { database in
@@ -2224,6 +2252,65 @@ private actor ShadowEvaluatorRecorder {
         }
         #expect(track != nil)
         #expect(state.debugLog.contains { $0.contains("pronunciation fallback discovery failed") })
+        #expect(Set(try issueDAO.issues(for: "b1").map(\.id)) == [
+            oldPreflight.id, oldAcoustic.id,
+        ])
+    }
+
+    @Test func fallbackSnapshotInsertFailureRollsBackEveryReportLane() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["A rendered chapter survives atomic report rollback."])
+        try await db.writer.write { database in
+            try database.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES (?, ?, ?)",
+                arguments: ["b2", "Other", 1.0])
+        }
+        let issueDAO = NarrationQualityIssueDAO(db: db.writer)
+        func record(
+            id: String,
+            book: String,
+            origin: NarrationQualityIssueOrigin
+        ) -> NarrationQualityIssueRecord {
+            NarrationQualityIssueRecord(
+                id: id, audiobookID: book, sourceBlockID: "blk0",
+                sourceWordStart: nil, sourceWordEnd: nil,
+                audioStartTime: 0, audioEndTime: 1,
+                expectedText: "legacy", heardText: "report",
+                issueType: NarrationQAIssueType.pronunciation.rawValue,
+                confidence: 0.25, suggestedFixJSON: nil,
+                origin: origin.rawValue, evidenceJSON: nil,
+                status: NarrationQAIssueStatus.open.rawValue,
+                createdAt: "old", resolvedAt: nil)
+        }
+        let oldPreflight = record(
+            id: "old-preflight", book: "b1", origin: .pronunciationPreflight)
+        let oldAcoustic = record(id: "old-acoustic", book: "b1", origin: .acoustic)
+        let conflictingExisting = record(id: "conflict", book: "b2", origin: .asr)
+        try issueDAO.insert([oldPreflight, oldAcoustic, conflictingExisting])
+        let conflictingFallback = record(
+            id: conflictingExisting.id,
+            book: "b1",
+            origin: .pronunciationPreflight)
+        let state = NarrationState()
+        let service = NarrationService(
+            db: db.writer, audiobookID: "b1", tts: MockTTSEngine(secondsPerChar: 0.1),
+            audioWriter: MockAudioWriter(), cacheDirectory: FileManager.default.temporaryDirectory,
+            state: state,
+            fallbackDiscoveryRecordBuilder: { _, _ in [conflictingFallback] },
+            fmEnabled: { false })
+
+        _ = try await service.renderChapter(
+            chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
+
+        #expect(Set(try issueDAO.issues(for: "b1").map(\.id)) == [
+            oldPreflight.id, oldAcoustic.id,
+        ])
+        #expect(try issueDAO.issues(for: "b2").map(\.id) == [conflictingExisting.id])
+        #expect(state.debugLog.contains { $0.contains("Operational report-write error") })
+        let track = try db.read { database in
+            try TrackRecord.filter(Column("audiobook_id") == "b1").fetchOne(database)
+        }
+        #expect(track != nil)
     }
 
     @Test func renderedFileKeepsAuditedBlocksWhenNoBlockProducedAudio() {

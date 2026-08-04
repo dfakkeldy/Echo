@@ -30,21 +30,25 @@ import Testing
             createdAt: "2026-06-29T00:00:00Z", resolvedAt: nil)
     }
 
-    private func advisoryRecords(for blockID: String, wordStart: Int) -> [NarrationQualityIssueRecord] {
+    private func advisoryRecords(
+        for blockID: String,
+        wordStart: Int,
+        alternativeIPA: String = "kəntˈɛnt"
+    ) -> [NarrationQualityIssueRecord] {
         let evidence = PronunciationAdvisoryEvidence(
             category: .lexical,
-            selectedAuthority: .qualified,
+            selectedAuthority: .trusted,
             selectedCandidateID: "candidate.content",
             alternatives: [
                 .init(
                     candidateID: "candidate.content.shadow",
-                    ipa: "kəntˈɛnt",
+                    ipa: alternativeIPA,
                     source: "fixture",
                     authority: .qualified,
                     validation: .shadow,
                     policyVersion: "policy-v1")
             ],
-            selectionReason: .shadowCandidate,
+            selectionReason: .sourceDisagreement,
             overrideSuppressedAutomation: false,
             policyVersion: "policy-v1")
         let decision = PronunciationAuditDecision(
@@ -202,6 +206,44 @@ import Testing
 
         let open = try dao.issues(for: "b1", status: NarrationQAIssueStatus.open.rawValue)
         #expect(open.map(\.id) == secondUnit.map(\.id))
+    }
+
+    @Test func unchangedEvidenceKeepsTriageButChangedEvidenceReopensReview() throws {
+        let db = try DatabaseService(inMemory: ())
+        try seedBook("b1", db: db)
+        let dao = NarrationQualityIssueDAO(db: db.writer)
+        let original = try #require(advisoryRecords(for: "blk1", wordStart: 1).first)
+        try dao.replaceOpen(
+            for: "b1",
+            blockIDs: ["blk1"],
+            origin: .pronunciationPreflight,
+            with: [original])
+        try dao.updateStatus(
+            id: original.id,
+            status: NarrationQAIssueStatus.ignored.rawValue,
+            resolvedAt: "triaged")
+
+        try dao.replaceOpen(
+            for: "b1",
+            blockIDs: ["blk1"],
+            origin: .pronunciationPreflight,
+            with: advisoryRecords(for: "blk1", wordStart: 1))
+        #expect(try dao.issues(
+            for: "b1", status: NarrationQAIssueStatus.open.rawValue).isEmpty)
+
+        let changed = try #require(advisoryRecords(
+            for: "blk1", wordStart: 1, alternativeIPA: "kəntˈɪnt").first)
+        #expect(changed.id != original.id)
+        try dao.replaceOpen(
+            for: "b1",
+            blockIDs: ["blk1"],
+            origin: .pronunciationPreflight,
+            with: [changed])
+
+        #expect(try dao.issues(
+            for: "b1", status: NarrationQAIssueStatus.ignored.rawValue).map(\.id) == [original.id])
+        #expect(try dao.issues(
+            for: "b1", status: NarrationQAIssueStatus.open.rawValue).map(\.id) == [changed.id])
     }
 
     @Test func rangeFreeDiagnosticPersistsAndAZeroRefreshClearsItsAuditedBlock() throws {

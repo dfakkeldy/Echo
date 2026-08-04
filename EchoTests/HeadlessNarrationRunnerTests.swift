@@ -1054,7 +1054,7 @@ import ZIPFoundation
         }
     }
 
-    @Test func injectedG2PInvalidOutputRoutesThroughPlannerToSealedAuditWithoutASynthesisChunk() throws {
+    @Test func injectedG2PInvalidOutputPreservesSealedEvidenceAndSpeaksOneDeterministicRescueChunk() throws {
         let workDir = FileManager.default.temporaryDirectory.appendingPathComponent(
             UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
@@ -1094,7 +1094,17 @@ import ZIPFoundation
         let plannedBlock = try #require(renderPlan.blocks.first)
         let decision = try #require(plannedBlock.pronunciationDecisions.first)
 
-        #expect(plannedBlock.synthesisChunks.isEmpty)
+        let rescueChunk = try #require(plannedBlock.synthesisChunks.first)
+        #expect(plannedBlock.synthesisChunks.count == 1)
+        #expect(rescueChunk.displayText == "ordinary")
+        #expect(rescueChunk.g2pInputText == "o r d i n a r y")
+        #expect(!rescueChunk.phonemes.isEmpty)
+        #expect(!rescueChunk.phonemeIDs.isEmpty)
+        #expect(rescueChunk.wordCount == 1)
+        #expect(
+            plannedBlock.synthesisChunks.flatMap {
+                WordTokenizer.words(in: $0.displayText).map(String.init)
+            } == ["ordinary"])
         #expect(decision.selectedIPA == "\u{0000}")
         #expect(decision.source == .fallback)
         #expect(decision.ruleID == "g2p.fallback.ordinary")
@@ -1103,7 +1113,7 @@ import ZIPFoundation
         #expect(decision.advisoryEvidence?.selectedAuthority == .uncertain)
         #expect(decision.advisoryEvidence?.selectionReason == .deterministicFallback)
         #expect(plannedBlock.pronunciationDecisionDiagnostics.map(\.reason) == [.decisionEvidenceMismatch])
-        #expect(plannedBlock.pronunciationDecisionDiagnostics.first?.chunkIndex == -1)
+        #expect(plannedBlock.pronunciationDecisionDiagnostics.first?.chunkIndex == 0)
         let capturedDecision = decision.attachingRenderTiming(
             chapterIndex: 0,
             chapterRelativeAudioRange: nil,
