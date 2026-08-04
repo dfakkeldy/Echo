@@ -7,6 +7,13 @@ import Testing
 @testable import Echo
 
 @MainActor @Suite struct NarrationQAReviewModelTests {
+    private actor CallCounter {
+        private var value = 0
+
+        func increment() { value += 1 }
+        func count() -> Int { value }
+    }
+
     private struct MarkerClassifier: DivergenceClassifier {
         func classify(_ window: DivergenceWindow) async -> DivergenceClassification {
             DivergenceClassification(
@@ -33,12 +40,400 @@ import Testing
         ])
     }
 
+    private func json<T: Encodable>(_ value: T) throws -> String {
+        String(decoding: try JSONEncoder().encode(value), as: UTF8.self)
+    }
+
+    private func pronunciationIssue(
+        evidence: PronunciationAdvisoryIssueEvidence,
+        selectedIPA: String? = "kˈɑntɛnt",
+        spokenForm: String = "Content"
+    ) throws -> NarrationQualityIssueRecord {
+        NarrationQualityIssueRecord(
+            id: "pronunciation-issue", audiobookID: "b1", sourceBlockID: "blk1",
+            sourceWordStart: 2, sourceWordEnd: 2, audioStartTime: 4, audioEndTime: 5,
+            expectedText: "Content", heardText: "",
+            issueType: NarrationQAIssueType.pronunciation.rawValue, confidence: 1,
+            suggestedFixJSON: try selectedIPA.map {
+                try json(SuggestedFix(spokenForm: spokenForm, ipa: $0))
+            },
+            origin: NarrationQualityIssueOrigin.pronunciationPreflight.rawValue,
+            evidenceJSON: try json(evidence), status: NarrationQAIssueStatus.open.rawValue,
+            createdAt: "2026-08-04T00:00:00Z", resolvedAt: nil)
+    }
+
     @Test func loadShowsOpenIssues() throws {
         let db = try DatabaseService(inMemory: ())
         try seed(db, book: "b1")
         let model = NarrationQAReviewModel(db: db.writer, audiobookID: "b1")
         model.load()
         #expect(model.issues.count == 1)
+    }
+
+    @Test func loadFailurePreservesTheVisibleQueueAndSurfacesAnError() throws {
+        let db = try DatabaseService(inMemory: ())
+        try seed(db, book: "b1")
+        let model = NarrationQAReviewModel(db: db.writer, audiobookID: "b1")
+        model.load()
+        let visibleIssues = model.issues
+        try db.writer.write { database in
+            try database.execute(sql: "DROP TABLE narration_quality_issue")
+        }
+
+        model.load()
+
+        #expect(model.issues == visibleIssues)
+        #expect(model.lastError != nil)
+    }
+
+    @Test func pronunciationPresentationUsesOnlyPersistedAdvisoryEvidence() throws {
+        let db = try DatabaseService(inMemory: ())
+        let advisory = PronunciationAdvisoryEvidence(
+            category: .lexical,
+            selectedAuthority: .trusted,
+            selectedCandidateID: "current.lexicon",
+            alternatives: [
+                .init(
+                    candidateID: "alternative.eligible", ipa: "kˈɒntɛnt",
+                    source: "neural-oov", authority: .qualified, validation: .eligible,
+                    policyVersion: "policy-v1"),
+                .init(
+                    candidateID: "alternative.shadow", ipa: "kəntˈɛnt",
+                    source: "shadow-model", authority: .uncertain, validation: .shadow,
+                    policyVersion: "policy-v1"),
+            ],
+            selectionReason: .trustedLexicon,
+            overrideSuppressedAutomation: false,
+            policyVersion: "policy-v1")
+        let issue = try pronunciationIssue(
+            evidence: PronunciationAdvisoryIssueEvidence(
+                advisoryEvidence: advisory,
+                occurrenceCount: 3,
+                selectedCandidate: .init(
+                    candidateID: "current.lexicon",
+                    ipa: "kˈɑntɛnt",
+                    source: .supplementalLexicon,
+                    authority: .trusted,
+                    validation: .eligible)),
+            selectedIPA: "kˈɑntɛnt")
+        let model = NarrationQAReviewModel(db: db.writer, audiobookID: "b1")
+
+        let presentation = try #require(model.pronunciationPresentation(for: issue))
+
+        #expect(presentation.id == issue.id)
+        #expect(presentation.category == .lexical)
+        #expect(presentation.selectedCandidate?.ipa == "kˈɑntɛnt")
+        #expect(presentation.selectedCandidate?.candidateID == "current.lexicon")
+        #expect(presentation.selectedCandidate?.source == .supplementalLexicon)
+        #expect(presentation.selectedCandidate?.authority == .trusted)
+        #expect(presentation.selectedCandidate?.validation == .eligible)
+        #expect(presentation.selectionReason == .trustedLexicon)
+        #expect(presentation.alternatives == advisory.alternatives)
+        #expect(presentation.occurrenceCount == 3)
+        #expect(presentation.chosenCandidateID == "current.lexicon")
+    }
+
+    @Test func evidenceOnlyPresentationKeepsCategoryReasonCountAndNonActionableAlternatives() throws {
+        let db = try DatabaseService(inMemory: ())
+        let alternatives = [
+            PronunciationAdvisoryEvidence.Alternative(
+                candidateID: "alternative.shadow", ipa: "kəntˈɛnt", source: "model",
+                authority: .uncertain, validation: .shadow, policyVersion: "policy-v1"),
+            PronunciationAdvisoryEvidence.Alternative(
+                candidateID: "alternative.rejected", ipa: "kˈɒntɛnt", source: "model",
+                authority: .uncertain, validation: .rejected, policyVersion: "policy-v1"),
+        ]
+        let advisory = PronunciationAdvisoryEvidence(
+            category: .acoustic,
+            selectedAuthority: .uncertain,
+            selectedCandidateID: nil,
+            alternatives: alternatives,
+            selectionReason: .acousticRetryRejected,
+            overrideSuppressedAutomation: false,
+            policyVersion: "policy-v1")
+        var issue = try pronunciationIssue(
+            evidence: PronunciationAdvisoryIssueEvidence(
+                advisoryEvidence: advisory,
+                occurrenceCount: 4,
+                selectedCandidate: nil),
+            selectedIPA: nil)
+        issue.origin = NarrationQualityIssueOrigin.acoustic.rawValue
+        let model = NarrationQAReviewModel(db: db.writer, audiobookID: "b1")
+
+        let presentation = try #require(model.pronunciationPresentation(for: issue))
+
+        #expect(presentation.category == .acoustic)
+        #expect(presentation.selectionReason == .acousticRetryRejected)
+        #expect(presentation.occurrenceCount == 4)
+        #expect(presentation.selectedCandidate == nil)
+        #expect(presentation.chosenCandidateID == nil)
+        #expect(presentation.alternatives == advisory.alternatives)
+    }
+
+    @Test func pronunciationPresentationFailsClosedWithoutTruthfulEnvelopeMetadata() throws {
+        let db = try DatabaseService(inMemory: ())
+        let advisory = PronunciationAdvisoryEvidence(
+            category: .lexical, selectedAuthority: .trusted,
+            selectedCandidateID: "current.lexicon", alternatives: [],
+            selectionReason: .trustedLexicon, overrideSuppressedAutomation: false,
+            policyVersion: "policy-v1")
+        let model = NarrationQAReviewModel(db: db.writer, audiobookID: "b1")
+
+        var legacy = try pronunciationIssue(
+            evidence: PronunciationAdvisoryIssueEvidence(
+                advisoryEvidence: advisory, occurrenceCount: 1))
+        let olderPresentation = try #require(model.pronunciationPresentation(for: legacy))
+        #expect(olderPresentation.selectedCandidate == nil)
+        #expect(olderPresentation.chosenCandidateID == "current.lexicon")
+        #expect(!model.canAcceptCurrentCandidate(for: legacy))
+
+        legacy.evidenceJSON = try json(advisory)
+        #expect(model.pronunciationPresentation(for: legacy) == nil)
+
+        var nonPositiveCount = try pronunciationIssue(
+            evidence: PronunciationAdvisoryIssueEvidence(
+                advisoryEvidence: advisory, occurrenceCount: 0))
+        #expect(model.pronunciationPresentation(for: nonPositiveCount) == nil)
+
+        nonPositiveCount.evidenceJSON = "{malformed"
+        #expect(model.pronunciationPresentation(for: nonPositiveCount) == nil)
+    }
+
+    @Test func eligibleAlternativeWithoutStoredFixChangesOnlyTheTemporarySuggestedFix() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let bookID = "b1"
+        try await db.writer.write { database in
+            try database.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES (?, ?, ?)",
+                arguments: [bookID, "Test", 3600.0])
+        }
+        let block = EPubBlockRecord(
+            id: "blk1", audiobookID: bookID, spineHref: "chapter.xhtml",
+            spineIndex: 0, blockIndex: 0, sequenceIndex: 0,
+            blockKind: EPubBlockRecord.Kind.paragraph.rawValue,
+            text: "Content.", htmlContent: nil, cardColor: nil, chapterThemeColor: nil,
+            imagePath: nil, chapterIndex: 0, isHidden: false, hiddenReason: nil,
+            isFrontMatter: false, wordCount: nil, markers: nil, textFormats: nil,
+            narrationText: nil, sourceChapterKey: nil, createdAt: nil, modifiedAt: nil)
+        try EPubBlockDAO(db: db.writer).insert(block)
+
+        let alternative = PronunciationAdvisoryEvidence.Alternative(
+            candidateID: "alternative.eligible", ipa: "kəntˈɛnt",
+            source: "neural-oov", authority: .qualified, validation: .eligible,
+            policyVersion: "policy-v1")
+        let advisory = PronunciationAdvisoryEvidence(
+            category: .lexical, selectedAuthority: .uncertain,
+            selectedCandidateID: nil, alternatives: [alternative],
+            selectionReason: .sourceDisagreement, overrideSuppressedAutomation: false,
+            policyVersion: "policy-v1")
+        let issue = try pronunciationIssue(
+            evidence: PronunciationAdvisoryIssueEvidence(
+                advisoryEvidence: advisory, occurrenceCount: 1,
+                selectedCandidate: nil),
+            selectedIPA: nil)
+
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let voice = VoiceID("af_heart")
+        let service = NarrationService(
+            db: db.writer, audiobookID: bookID, tts: MockTTSEngine(),
+            audioWriter: MockAudioWriter(), cacheDirectory: tmp,
+            state: NarrationState(), fmEnabled: { false })
+        let plan = NarrationChapterRenderPlan(
+            chapterIndex: 0, displayNumber: 1, sourceChapterKey: nil,
+            title: "Chapter", blocks: [block], voice: voice)
+        var acceptedIssue: NarrationQualityIssueRecord?
+        var acceptedScope: FixScope?
+        let dependencies = NarrationQAReviewModel.Dependencies(
+            narrationVoice: { voice }, narrationPlan: { _, _ in [plan] },
+            applyRepair: { candidateIssue, scope, _, _, _ in
+                acceptedIssue = candidateIssue
+                acceptedScope = scope
+            },
+            narrationServiceFactory: { _, _ in service })
+        let model = NarrationQAReviewModel(
+            db: db.writer, audiobookID: bookID, dependencies: dependencies)
+
+        await model.acceptCandidate(
+            alternative.candidateID, for: issue, scope: .global)
+
+        var acceptedIssueWithoutCandidateFix = try #require(acceptedIssue)
+        let acceptedFixData = try #require(
+            acceptedIssueWithoutCandidateFix.suggestedFixJSON?.data(using: .utf8))
+        let acceptedFix = try JSONDecoder().decode(SuggestedFix.self, from: acceptedFixData)
+        acceptedIssueWithoutCandidateFix.suggestedFixJSON = nil
+
+        #expect(acceptedIssueWithoutCandidateFix == issue)
+        #expect(acceptedFix == SuggestedFix(spokenForm: "Content", ipa: alternative.ipa))
+        #expect(acceptedScope == .global)
+        #expect(issue.suggestedFixJSON == nil)
+    }
+
+    @Test func acceptCandidateRejectsShadowAndRejectedAlternatives() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let alternatives = [
+            PronunciationAdvisoryEvidence.Alternative(
+                candidateID: "alternative.shadow", ipa: "kəntˈɛnt", source: "model",
+                authority: .uncertain, validation: .shadow, policyVersion: "policy-v1"),
+            PronunciationAdvisoryEvidence.Alternative(
+                candidateID: "alternative.rejected", ipa: "kˈɒntɛnt", source: "model",
+                authority: .uncertain, validation: .rejected, policyVersion: "policy-v1"),
+        ]
+        let advisory = PronunciationAdvisoryEvidence(
+            category: .lexical, selectedAuthority: .uncertain,
+            selectedCandidateID: nil, alternatives: alternatives,
+            selectionReason: .sourceDisagreement, overrideSuppressedAutomation: false,
+            policyVersion: "policy-v1")
+        let issue = try pronunciationIssue(
+            evidence: PronunciationAdvisoryIssueEvidence(
+                advisoryEvidence: advisory, occurrenceCount: 1,
+                selectedCandidate: nil),
+            selectedIPA: nil)
+        let planCalls = CallCounter()
+        let dependencies = NarrationQAReviewModel.Dependencies(
+            narrationPlan: { _, _ in
+                await planCalls.increment()
+                return []
+            })
+        let model = NarrationQAReviewModel(
+            db: db.writer, audiobookID: "b1", dependencies: dependencies)
+
+        await model.acceptCandidate(alternatives[0].candidateID, for: issue, scope: .global)
+        await model.acceptCandidate(alternatives[1].candidateID, for: issue, scope: .global)
+
+        let planCallCount = await planCalls.count()
+        #expect(planCallCount == 0)
+        #expect(model.pronunciationPresentation(for: issue)?.alternatives == advisory.alternatives)
+    }
+
+    @Test func currentCandidateActionRejectsFixMismatchAndNonEligibleMetadata() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let advisory = PronunciationAdvisoryEvidence(
+            category: .lexical,
+            selectedAuthority: .trusted,
+            selectedCandidateID: "current.lexicon",
+            alternatives: [],
+            selectionReason: .trustedLexicon,
+            overrideSuppressedAutomation: false,
+            policyVersion: "policy-v1")
+        let eligibleEvidence = PronunciationAdvisoryIssueEvidence(
+            advisoryEvidence: advisory,
+            occurrenceCount: 1,
+            selectedCandidate: .init(
+                candidateID: "current.lexicon",
+                ipa: "kˈɑntɛnt",
+                source: .supplementalLexicon,
+                authority: .trusted,
+                validation: .eligible))
+        let shadowEvidence = PronunciationAdvisoryIssueEvidence(
+            advisoryEvidence: advisory,
+            occurrenceCount: 1,
+            selectedCandidate: .init(
+                candidateID: "current.lexicon",
+                ipa: "kˈɑntɛnt",
+                source: .supplementalLexicon,
+                authority: .trusted,
+                validation: .shadow))
+        let wrongIPA = try pronunciationIssue(
+            evidence: eligibleEvidence,
+            selectedIPA: "kəntˈɛnt")
+        let wrongWord = try pronunciationIssue(
+            evidence: eligibleEvidence,
+            selectedIPA: "kˈɑntɛnt",
+            spokenForm: "Different")
+        let punctuatedWord = try pronunciationIssue(
+            evidence: eligibleEvidence,
+            selectedIPA: "kˈɑntɛnt",
+            spokenForm: "Content!")
+        let nonEligible = try pronunciationIssue(
+            evidence: shadowEvidence,
+            selectedIPA: "kˈɑntɛnt")
+        let planCalls = CallCounter()
+        let model = NarrationQAReviewModel(
+            db: db.writer,
+            audiobookID: "b1",
+            dependencies: .init(narrationPlan: { _, _ in
+                await planCalls.increment()
+                return []
+            }))
+
+        for issue in [wrongIPA, wrongWord, punctuatedWord, nonEligible] {
+            #expect(!model.canAcceptCurrentCandidate(for: issue))
+            await model.acceptCurrentCandidate(for: issue, scope: .global)
+        }
+
+        #expect(await planCalls.count() == 0)
+    }
+
+    @Test func currentCandidateActionPreservesTheIssueAndRequestedScope() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let bookID = "b1"
+        try await db.writer.write { database in
+            try database.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES (?, ?, ?)",
+                arguments: [bookID, "Test", 3600.0])
+        }
+        let block = EPubBlockRecord(
+            id: "blk1", audiobookID: bookID, spineHref: "chapter.xhtml",
+            spineIndex: 0, blockIndex: 0, sequenceIndex: 0,
+            blockKind: EPubBlockRecord.Kind.paragraph.rawValue,
+            text: "Content.", htmlContent: nil, cardColor: nil, chapterThemeColor: nil,
+            imagePath: nil, chapterIndex: 0, isHidden: false, hiddenReason: nil,
+            isFrontMatter: false, wordCount: nil, markers: nil, textFormats: nil,
+            narrationText: nil, sourceChapterKey: nil, createdAt: nil, modifiedAt: nil)
+        try EPubBlockDAO(db: db.writer).insert(block)
+
+        let advisory = PronunciationAdvisoryEvidence(
+            category: .lexical,
+            selectedAuthority: .trusted,
+            selectedCandidateID: "current.lexicon",
+            alternatives: [],
+            selectionReason: .trustedLexicon,
+            overrideSuppressedAutomation: false,
+            policyVersion: "policy-v1")
+        let issue = try pronunciationIssue(
+            evidence: PronunciationAdvisoryIssueEvidence(
+                advisoryEvidence: advisory,
+                occurrenceCount: 1,
+                selectedCandidate: .init(
+                    candidateID: "current.lexicon",
+                    ipa: "kˈɑntɛnt",
+                    source: .supplementalLexicon,
+                    authority: .trusted,
+                    validation: .eligible)))
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let voice = VoiceID("af_heart")
+        let service = NarrationService(
+            db: db.writer, audiobookID: bookID, tts: MockTTSEngine(),
+            audioWriter: MockAudioWriter(), cacheDirectory: tmp,
+            state: NarrationState(), fmEnabled: { false })
+        let plan = NarrationChapterRenderPlan(
+            chapterIndex: 0, displayNumber: 1, sourceChapterKey: nil,
+            title: "Chapter", blocks: [block], voice: voice)
+        var acceptedIssue: NarrationQualityIssueRecord?
+        var acceptedScope: FixScope?
+        let model = NarrationQAReviewModel(
+            db: db.writer,
+            audiobookID: bookID,
+            dependencies: .init(
+                narrationVoice: { voice },
+                narrationPlan: { _, _ in [plan] },
+                applyRepair: { repairIssue, scope, _, _, _ in
+                    acceptedIssue = repairIssue
+                    acceptedScope = scope
+                },
+                narrationServiceFactory: { _, _ in service }))
+
+        #expect(model.canAcceptCurrentCandidate(for: issue))
+        await model.acceptCurrentCandidate(for: issue, scope: .book(bookID))
+
+        #expect(acceptedIssue == issue)
+        #expect(acceptedScope == .book(bookID))
     }
 
     @Test func ignoreRemovesFromOpenList() throws {
@@ -80,10 +475,13 @@ import Testing
         let db = try DatabaseService(inMemory: ())
         try seed(db, book: "b1")
         let model = NarrationQAReviewModel(db: db.writer, audiobookID: "b1")
+        model.load()
+        let visibleIssues = model.issues
         await model.runFullQA(
             chapters: [(0, URL(fileURLWithPath: "/tmp/x.m4a"), ["blk1"])]
         ) { _, _ in throw Boom() }
         #expect(model.lastError != nil)
+        #expect(model.issues == visibleIssues)
     }
 
     @Test func runFullQASuccessReloadsAndClearsError() async throws {

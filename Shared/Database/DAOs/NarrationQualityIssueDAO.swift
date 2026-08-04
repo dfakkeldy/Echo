@@ -1,7 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import GRDB
 
+enum NarrationQualityIssueDAOError: Error, Equatable {
+    case replacementOriginMismatch
+    case replacementAudiobookMismatch
+    case replacementBlockMismatch
+    case replacementStatusMismatch
+    case emptyReplacementBlockIDs
+    case duplicateReplacementOrigin
+}
+
 struct NarrationQualityIssueDAO {
+    struct OpenReplacement: Sendable {
+        let origin: NarrationQualityIssueOrigin
+        let records: [NarrationQualityIssueRecord]
+    }
     let db: DatabaseWriter
 
     func insert(_ records: [NarrationQualityIssueRecord]) throws {
@@ -16,17 +29,61 @@ struct NarrationQualityIssueDAO {
     func replaceOpen(
         for audiobookID: String,
         blockIDs: [String],
+        origin: NarrationQualityIssueOrigin,
         with records: [NarrationQualityIssueRecord]
     ) throws {
-        guard !blockIDs.isEmpty else { return }
+        try replaceOpen(for: audiobookID, blockIDs: blockIDs, replacements: [
+            OpenReplacement(origin: origin, records: records)
+        ])
+    }
+
+    /// Replaces multiple lanes atomically. Every batch is fully validated
+    /// before any deletion, so one bad lane cannot leave a partial report.
+    func replaceOpen(
+        for audiobookID: String,
+        blockIDs: [String],
+        replacements: [OpenReplacement]
+    ) throws {
+        if blockIDs.isEmpty {
+            guard replacements.contains(where: { !$0.records.isEmpty }) else { return }
+            throw NarrationQualityIssueDAOError.emptyReplacementBlockIDs
+        }
+        var origins: Set<NarrationQualityIssueOrigin> = []
+        for replacement in replacements {
+            guard origins.insert(replacement.origin).inserted else {
+                throw NarrationQualityIssueDAOError.duplicateReplacementOrigin
+            }
+            guard replacement.records.allSatisfy({ $0.origin == replacement.origin.rawValue }) else {
+                throw NarrationQualityIssueDAOError.replacementOriginMismatch
+            }
+            guard replacement.records.allSatisfy({ $0.audiobookID == audiobookID }) else {
+                throw NarrationQualityIssueDAOError.replacementAudiobookMismatch
+            }
+            guard replacement.records.allSatisfy({
+                $0.sourceBlockID.map(blockIDs.contains) ?? false
+            }) else { throw NarrationQualityIssueDAOError.replacementBlockMismatch }
+            guard replacement.records.allSatisfy({ $0.status == NarrationQAIssueStatus.open.rawValue }) else {
+                throw NarrationQualityIssueDAOError.replacementStatusMismatch
+            }
+        }
         try db.write { db in
-            _ = try NarrationQualityIssueRecord
-                .filter(Column("audiobook_id") == audiobookID)
-                .filter(blockIDs.contains(Column("source_block_id")))
-                .filter(Column("status") == NarrationQAIssueStatus.open.rawValue)
-                .deleteAll(db)
-            for var record in records {
-                try record.insert(db)
+            for replacement in replacements {
+                let preservedIDs = Set(try NarrationQualityIssueRecord
+                    .filter(Column("audiobook_id") == audiobookID)
+                    .filter(blockIDs.contains(Column("source_block_id")))
+                    .filter(Column("origin") == replacement.origin.rawValue)
+                    .filter(Column("status") != NarrationQAIssueStatus.open.rawValue)
+                    .fetchAll(db)
+                    .map(\.id))
+                _ = try NarrationQualityIssueRecord
+                    .filter(Column("audiobook_id") == audiobookID)
+                    .filter(blockIDs.contains(Column("source_block_id")))
+                    .filter(Column("status") == NarrationQAIssueStatus.open.rawValue)
+                    .filter(Column("origin") == replacement.origin.rawValue)
+                    .deleteAll(db)
+                for var record in replacement.records where !preservedIDs.contains(record.id) {
+                    try record.insert(db)
+                }
             }
         }
     }

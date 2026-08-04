@@ -1,16 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 nonisolated final class PronunciationPlanner {
+    enum PlanningError: Error {
+        case invalidRawG2POutput(KokoroG2P.Result)
+    }
+
     private let g2p: KokoroG2P
+    private let injectedG2PResult: ((String, String) -> KokoroG2P.Result)?
     private let vocab: KokoroPhonemeVocab
 
     init() throws {
         self.g2p = KokoroG2P()
+        self.injectedG2PResult = nil
+        self.vocab = try KokoroPhonemeVocab()
+    }
+
+    /// Concrete G2P-result injection for planner integration tests. The
+    /// renderer still owns all chunking, audit, and synthesis decisions.
+    init(
+        g2pResult: @escaping (String, String) -> KokoroG2P.Result
+    ) throws {
+        self.g2p = KokoroG2P()
+        self.injectedG2PResult = g2pResult
         self.vocab = try KokoroPhonemeVocab()
     }
 
     func plan(displayText: String, g2pInputText: String) throws -> PlannedSynthesisChunk {
-        let result = g2p.result(for: g2pInputText, displayText: displayText)
+        let result = result(for: g2pInputText, displayText: displayText)
         // Defense-in-depth: drop MisakiSwift's out-of-vocabulary marker before
         // validation so a stray unencodable glyph can never abort the whole chapter
         // render via `validatedIDs`. In today's MisakiSwift the fallback network
@@ -22,7 +38,20 @@ nonisolated final class PronunciationPlanner {
         // else, so a genuine authoring bug (e.g. a bad built-in default) still fails
         // loudly. Dropping the marker matches the historical lenient `ids()` behavior.
         let phonemes = result.phonemes.filter { $0 != KokoroPhonemeVocab.oovMarker }
-        let phonemeIDs = try vocab.validatedIDs(forPhonemes: phonemes)
+        let phonemeIDs: [Int32]
+        do {
+            phonemeIDs = try vocab.validatedIDs(forPhonemes: phonemes)
+        } catch {
+            guard case .matched = result.pronunciationEvidenceValidation,
+                result.tokenEvidence.contains(where: {
+                    PronunciationAuditContext.isRejectedRawG2POutput(
+                        $0.selectedPhonemes)
+                })
+            else {
+                throw error
+            }
+            throw PlanningError.invalidRawG2POutput(result)
+        }
         return PlannedSynthesisChunk(
             displayText: displayText,
             g2pInputText: g2pInputText,
@@ -41,6 +70,42 @@ nonisolated final class PronunciationPlanner {
             displayText: MisakiPronunciationMarkup.displayText(from: resolvedText),
             g2pInputText: resolvedText
         )
+    }
+
+    /// Last-resort speech preservation for a verified invalid raw G2P result.
+    /// The authored surface remains the chunk display text, while the trusted
+    /// bundled engine speaks its words letter by letter. Token evidence is
+    /// intentionally omitted because the spelling input does not address the
+    /// authored word ranges; the rejected raw result remains the audit receipt.
+    func planDeterministicSpellingRescue(displayText: String) throws -> PlannedSynthesisChunk {
+        let spellingInput = WordTokenizer.words(in: displayText)
+            .map { word in
+                word.filter { $0.isLetter || $0.isNumber }
+                    .map(String.init)
+                    .joined(separator: " ")
+            }
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
+        guard !spellingInput.isEmpty else {
+            throw PlanningError.invalidRawG2POutput(
+                KokoroG2P.Result(
+                    phonemes: "",
+                    fallbackHits: [],
+                    tokenEvidence: [],
+                    pronunciationEvidenceValidation: .matched))
+        }
+
+        let result = g2p.result(for: spellingInput)
+        let phonemes = result.phonemes.filter { $0 != KokoroPhonemeVocab.oovMarker }
+        let phonemeIDs = try vocab.validatedIDs(forPhonemes: phonemes)
+        return PlannedSynthesisChunk(
+            displayText: displayText,
+            g2pInputText: spellingInput,
+            phonemes: phonemes,
+            phonemeIDs: phonemeIDs,
+            wordCount: WordTokenizer.words(in: displayText).count,
+            pronunciationFallbackHits: [],
+            pronunciationEvidenceValidation: .matched)
     }
 
     /// Phoneme count for `text`, reusing the planner's already-loaded G2P.
@@ -72,5 +137,12 @@ nonisolated final class PronunciationPlanner {
     /// synthetic boundary tokens required around a complete synthesis request.
     func phonemeIDs(forIPA ipa: String) throws -> [Int32] {
         Array(try vocab.validatedIDs(forPhonemes: ipa).dropFirst().dropLast())
+    }
+
+    private func result(for input: String, displayText: String) -> KokoroG2P.Result {
+        if let injectedG2PResult {
+            return injectedG2PResult(input, displayText)
+        }
+        return g2p.result(for: input, displayText: displayText)
     }
 }

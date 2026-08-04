@@ -111,6 +111,43 @@ nonisolated enum PronunciationListeningReel {
     static let maximumSampleCount = 16
     static let exactTimingEdgePadding: TimeInterval = 0.25
 
+    /// Metadata-only reel entry. It omits the audit decision's source context
+    /// and rationale so public reel receipts cannot disclose private prose.
+    nonisolated struct Entry: Equatable, Sendable {
+        let title: String
+        let candidateIDs: [String]
+        let category: PronunciationAdvisoryEvidence.Category?
+        let selectedAuthority: PronunciationAdvisoryEvidence.Authority?
+        let audioRange: PronunciationAuditDecision.AudioRange
+        private let audiobookURL: URL
+        private let exportTimeRange: CMTimeRange
+
+        init(
+            title: String,
+            candidateIDs: [String],
+            category: PronunciationAdvisoryEvidence.Category?,
+            selectedAuthority: PronunciationAdvisoryEvidence.Authority?,
+            audioRange: PronunciationAuditDecision.AudioRange,
+            audiobookURL: URL,
+            exportTimeRange: CMTimeRange
+        ) {
+            self.title = title
+            self.candidateIDs = candidateIDs
+            self.category = category
+            self.selectedAuthority = selectedAuthority
+            self.audioRange = audioRange
+            self.audiobookURL = audiobookURL
+            self.exportTimeRange = exportTimeRange
+        }
+
+        var exportItem: ExportItem {
+            ExportItem(
+                title: title,
+                url: audiobookURL,
+                timeRange: exportTimeRange)
+        }
+    }
+
     private struct SampleKey: Hashable {
         let normalizedWord: String
         let selectedIPA: String
@@ -122,12 +159,24 @@ nonisolated enum PronunciationListeningReel {
         audiobookURL: URL,
         sourceDuration: CMTime
     ) -> [ExportItem] {
+        entries(
+            decisions: decisions,
+            audiobookURL: audiobookURL,
+            sourceDuration: sourceDuration)
+        .map(\.exportItem)
+    }
+
+    static func entries(
+        decisions: [PronunciationAuditDecision],
+        audiobookURL: URL,
+        sourceDuration: CMTime
+    ) -> [Entry] {
         let sourceDurationSeconds = sourceDuration.seconds
         guard sourceDurationSeconds.isFinite, sourceDurationSeconds > 0 else { return [] }
 
         let preferredTimescale: CMTimeScale = max(sourceDuration.timescale, 600_000)
         var seen: Set<SampleKey> = []
-        var items: [ExportItem] = []
+        var entries: [Entry] = []
 
         let rankedDecisions = decisions.enumerated().sorted { lhs, rhs in
             let lhsRank = riskRank(lhs.element)
@@ -136,7 +185,7 @@ nonisolated enum PronunciationListeningReel {
         }.map(\.element)
 
         for decision in rankedDecisions {
-            guard items.count < maximumSampleCount else { break }
+            guard entries.count < maximumSampleCount else { break }
             let key = SampleKey(
                 normalizedWord: decision.normalizedWord,
                 selectedIPA: decision.selectedIPA,
@@ -185,16 +234,27 @@ nonisolated enum PronunciationListeningReel {
 
             // Invalid earlier occurrences must not shadow a later valid sample.
             seen.insert(key)
-            let sampleNumber = items.count + 1
-            items.append(
-                ExportItem(
+            let sampleNumber = entries.count + 1
+            let evidence = decision.advisoryEvidence
+            let candidateIDs = Set(
+                (evidence?.alternatives.map(\.candidateID) ?? [])
+                    + (evidence?.selectedCandidateID.map { [$0] } ?? []))
+                .sorted()
+            entries.append(
+                Entry(
                     title:
                         "\(sampleNumber). \(decision.normalizedWord) — \(decision.ruleID) — /\(decision.selectedIPA)/",
-                    url: audiobookURL,
-                    timeRange: CMTimeRange(start: start, end: end)))
+                    candidateIDs: candidateIDs,
+                    category: evidence?.category,
+                    selectedAuthority: evidence?.selectedAuthority,
+                    audioRange: .init(
+                        start: CMTimeGetSeconds(start),
+                        end: CMTimeGetSeconds(end)),
+                    audiobookURL: audiobookURL,
+                    exportTimeRange: CMTimeRange(start: start, end: end)))
         }
 
-        return items
+        return entries
     }
 
     private static func riskRank(

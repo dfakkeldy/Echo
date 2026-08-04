@@ -225,14 +225,8 @@ struct BookSettingsView: View {
                         let audiobookID = model.bookIdentityURL?.absoluteString
                     {
                         Section("Narration") {
-                            NavigationLink {
-                                NarrationQAReviewView(
-                                    model: NarrationQAReviewModel(db: db, audiobookID: audiobookID))
-                            } label: {
-                                Label(
-                                    "Narration QA",
-                                    systemImage: "waveform.badge.magnifyingglass")
-                            }
+                            NarrationQASettingsLink(db: db, audiobookID: audiobookID)
+                                .id(audiobookID)
                         }
                     }
                 #endif
@@ -314,6 +308,37 @@ struct BookSettingsView: View {
         )
     }
 }
+
+#if os(iOS)
+    private struct NarrationQASettingsLink: View {
+        @State private var qaModel: NarrationQAReviewModel
+
+        init(db: DatabaseWriter, audiobookID: String) {
+            _qaModel = State(
+                initialValue: NarrationQAReviewModel(db: db, audiobookID: audiobookID))
+        }
+
+        var body: some View {
+            NavigationLink {
+                NarrationQAReviewView(model: qaModel)
+            } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Label(
+                        "Narration QA",
+                        systemImage: "waveform.badge.magnifyingglass")
+                    if qaModel.hasPronunciationReviewIssues {
+                        Label(
+                            "Pronunciation review available",
+                            systemImage: "textformat.abc")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .task { qaModel.load() }
+        }
+    }
+#endif
 
 private struct EchoDeckBuilderRefreshKey: Equatable {
     var folderURL: URL?

@@ -95,10 +95,12 @@ enum NarrationRenderPlanner {
         blocks: [EPubBlockRecord],
         overrides: PronunciationOverrides,
         pronunciationPack: EnglishPronunciationPack = .empty,
+        pronunciationAuditPack: EnglishPronunciationAuditPack = .empty,
         contextualEvidence: [ContextualPronunciationKey: ContextualPronunciationEvidence] = [:],
         requiresContextualEvidence: Bool = false,
         maxChars: Int = 350,
-        maxPhonemes: Int = 420
+        maxPhonemes: Int = 420,
+        pronunciationPlanner: PronunciationPlanner? = nil
     ) throws -> NarrationRenderPlan {
         try make(
             preparedBlocks: blocks.map { block in
@@ -112,25 +114,37 @@ enum NarrationRenderPlanner {
             },
             overrides: overrides,
             pronunciationPack: pronunciationPack,
+            pronunciationAuditPack: pronunciationAuditPack,
             contextualEvidence: contextualEvidence,
             requiresContextualEvidence: requiresContextualEvidence,
             maxChars: maxChars,
-            maxPhonemes: maxPhonemes)
+            maxPhonemes: maxPhonemes,
+            pronunciationPlanner: pronunciationPlanner)
     }
 
     static func make(
         preparedBlocks: [NarrationPreparedBlock],
         overrides: PronunciationOverrides,
         pronunciationPack: EnglishPronunciationPack = .empty,
+        pronunciationAuditPack: EnglishPronunciationAuditPack = .empty,
         contextualEvidence: [ContextualPronunciationKey: ContextualPronunciationEvidence] = [:],
         requiresContextualEvidence: Bool = false,
         maxChars: Int = 350,
-        maxPhonemes: Int = 420
+        maxPhonemes: Int = 420,
+        pronunciationPlanner: PronunciationPlanner? = nil
     ) throws -> NarrationRenderPlan {
         // One planner owns the single `KokoroG2P` (and its ~12 MB lexicon) for
         // this render unit; the chunker sizes splits via its phoneme count.
-        let pronunciationPlanner = try PronunciationPlanner()
-        let resolvedPhonemeCount = pronunciationPlanner.phonemeCount(for:)
+        let planner: PronunciationPlanner
+        if let pronunciationPlanner {
+            planner = pronunciationPlanner
+        } else {
+            planner = try PronunciationPlanner()
+        }
+        let candidateAnalyzer = PronunciationCandidateAnalyzer(
+            productionPack: pronunciationPack,
+            auditPack: pronunciationAuditPack)
+        let resolvedPhonemeCount = planner.phonemeCount(for:)
         let candidates = preparedBlocks.filter { preparedBlock in
             let block = preparedBlock.block
             guard block.text?.isEmpty == false else { return false }
@@ -172,7 +186,7 @@ enum NarrationRenderPlanner {
                     to: overrideResult.text,
                     blockID: block.id,
                     pack: pronunciationPack,
-                    basePronunciation: pronunciationPlanner.validatedBaseIPA(for:))
+                    basePronunciation: planner.validatedBaseIPA(for:))
                 let homographResult = HomographPronunciationResolver.rewrite(
                     to: universalResult.text,
                     blockID: block.id)
@@ -191,14 +205,53 @@ enum NarrationRenderPlanner {
             var synthesisChunks: [PlannedSynthesisChunk] = []
             var wordBase = 0
             for fragment in fragments {
-                let chunk = try pronunciationPlanner.planResolved(fragment)
+                let chunk: PlannedSynthesisChunk
+                do {
+                    chunk = try planner.planResolved(fragment)
+                } catch let error as PronunciationPlanner.PlanningError {
+                    guard case .invalidRawG2POutput(let rawResult) = error else {
+                        throw error
+                    }
+                    let rawTokenDecisionSeeds: [PronunciationDecisionSeed] =
+                        rawResult.tokenEvidence.compactMap { evidence -> PronunciationDecisionSeed? in
+                        let normalizedWord = PronunciationAuditContext.normalizedWord(evidence.text)
+                        guard PronunciationAuditContext.isRejectedRawG2POutput(
+                            evidence.selectedPhonemes)
+                        else {
+                            return nil
+                        }
+                        return PronunciationAuditContext.decisionSeed(
+                            for: evidence,
+                            blockID: block.id,
+                            chunkDisplayText: MisakiPronunciationMarkup.displayText(from: fragment),
+                            blockDisplayText: blockDisplayText,
+                            wordBase: wordBase,
+                            isComparisonCandidate:
+                                !pronunciationAuditPack.alternatives(for: normalizedWord).isEmpty
+                                    || (pronunciationPack.hasExplicitCandidate(for: normalizedWord)
+                                        && pronunciationPack.automaticCandidate(
+                                            for: normalizedWord) == nil))
+                    }
+                    decisionSeeds = uniqueDecisionSeeds(decisionSeeds + rawTokenDecisionSeeds)
+                    let rescueChunk = try planner.planDeterministicSpellingRescue(
+                        displayText: MisakiPronunciationMarkup.displayText(from: fragment))
+                    synthesisChunks.append(rescueChunk)
+                    wordBase += rescueChunk.wordCount
+                    continue
+                }
                 let tokenDecisionSeeds = chunk.pronunciationTokenEvidence.compactMap { evidence in
-                    PronunciationAuditContext.decisionSeed(
+                    let normalizedWord = PronunciationAuditContext.normalizedWord(evidence.text)
+                    return PronunciationAuditContext.decisionSeed(
                         for: evidence,
                         blockID: block.id,
                         chunkDisplayText: chunk.displayText,
                         blockDisplayText: blockDisplayText,
-                        wordBase: wordBase)
+                        wordBase: wordBase,
+                        isComparisonCandidate:
+                            !pronunciationAuditPack.alternatives(for: normalizedWord).isEmpty
+                                || (pronunciationPack.hasExplicitCandidate(for: normalizedWord)
+                                    && pronunciationPack.automaticCandidate(
+                                        for: normalizedWord) == nil))
                 }
                 // Explicit rewrite-stage decisions remain first so they win any
                 // collision with evidence emitted by the final G2P pass.
@@ -219,6 +272,17 @@ enum NarrationRenderPlanner {
                 }
                 try validateContextualEvidence(evidence, for: seed)
                 return seed.attachingContextualEvidence(evidence)
+            }
+            let fallbackHits = synthesisChunks.flatMap(\.pronunciationFallbackHits)
+            decisionSeeds = decisionSeeds.map { seed in
+                guard let evidence = candidateAnalyzer.evidence(
+                    for: seed,
+                    fallbackHits: fallbackHits,
+                    isWatchWord: PronunciationWatchVocabulary.words.contains(seed.normalizedWord))
+                else {
+                    return seed
+                }
+                return seed.attachingAdvisoryEvidence(evidence)
             }
             let pronunciationMaterialization = materializedPronunciationEvidence(
                 from: decisionSeeds,
@@ -257,6 +321,18 @@ enum NarrationRenderPlanner {
         var diagnostics: [PronunciationAuditDiagnostic] = []
 
         for seed in seeds {
+            if requiresEvidenceOnlyMaterialization(seed) {
+                decisions.append(seed.evidenceOnlyMaterialized())
+                let owner = owningMatchedChunk(for: seed, in: synthesisChunks)
+                diagnostics.append(
+                    decisionEvidenceMismatchDiagnostic(
+                        for: seed,
+                        chunkIndex: owner?.index ?? -1,
+                        fallbackHits: owner?.chunk.pronunciationFallbackHits ?? [],
+                        finalIPA: nil))
+                continue
+            }
+
             var wordBase = 0
             var selections: [FinalPronunciationSelection] = []
             for (chunkIndex, chunk) in synthesisChunks.enumerated() {
@@ -320,6 +396,24 @@ enum NarrationRenderPlanner {
         return PronunciationDecisionMaterialization(
             decisions: decisions,
             diagnostics: diagnostics)
+    }
+
+    private static func requiresEvidenceOnlyMaterialization(
+        _ seed: PronunciationDecisionSeed
+    ) -> Bool {
+        guard let advisoryEvidence = seed.advisoryEvidence else { return false }
+        return InvalidG2PAuditReceipt.hasVerifiedProvenance(
+            normalizedWord: seed.normalizedWord,
+            sourceWord: seed.sourceWord,
+            selectedIPA: seed.selectedIPA,
+            source: seed.source,
+            ruleID: seed.ruleID,
+            candidateID: seed.candidateID,
+            candidatePackVersion: seed.candidatePackVersion,
+            derivationBase: seed.derivationBase,
+            derivationRuleID: seed.derivationRuleID,
+            contextualEvidence: seed.contextualEvidence,
+            advisoryEvidence: advisoryEvidence)
     }
 
     private static func validateContextualEvidence(

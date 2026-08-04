@@ -21,6 +21,7 @@
 		63A268C4D6C82D38A8373D2B /* AudioMarker in Frameworks */ = {isa = PBXBuildFile; productRef = 87D2A7D1EE33E445A60EBDA0 /* AudioMarker */; };
 		7D78649F9DA726D16DBDA244 /* _kokoro_vocab.json in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = 739F167A96954DC602A63519 /* _kokoro_vocab.json */; };
 		E2A200000000000000000001 /* us_pronunciation_pack.json in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = E2A200000000000000000011 /* us_pronunciation_pack.json */; };
+		E2A200000000000000000005 /* us_pronunciation_audit_pack.json in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = E2A200000000000000000013 /* us_pronunciation_audit_pack.json */; };
 		E2A200000000000000000002 /* THIRD_PARTY_NOTICES.md in Resources */ = {isa = PBXBuildFile; fileRef = E2A200000000000000000012 /* THIRD_PARTY_NOTICES.md */; };
 		E2A200000000000000000003 /* THIRD_PARTY_NOTICES.md in Resources */ = {isa = PBXBuildFile; fileRef = E2A200000000000000000012 /* THIRD_PARTY_NOTICES.md */; };
 		E2A200000000000000000004 /* THIRD_PARTY_NOTICES.md in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = E2A200000000000000000012 /* THIRD_PARTY_NOTICES.md */; };
@@ -115,6 +116,7 @@
 				048C9931BF4F80013AF7961E /* af_heart.f32 in Copy Narration Resources */,
 				29039D80BE70D0549D63283A /* af_heart.rows in Copy Narration Resources */,
 				E2A200000000000000000001 /* us_pronunciation_pack.json in Copy Narration Resources */,
+				E2A200000000000000000005 /* us_pronunciation_audit_pack.json in Copy Narration Resources */,
 				E2A200000000000000000004 /* THIRD_PARTY_NOTICES.md in Copy Narration Resources */,
 			);
 			name = "Copy Narration Resources";
@@ -153,6 +155,7 @@
 		486ED82EADFDDE51ED2283A1 /* us_gold.json */ = {isa = PBXFileReference; includeInIndex = 1; name = us_gold.json; path = EchoCore/Services/Narration/MisakiResources/us_gold.json; sourceTree = SOURCE_ROOT; };
 		739F167A96954DC602A63519 /* _kokoro_vocab.json */ = {isa = PBXFileReference; includeInIndex = 1; name = _kokoro_vocab.json; path = EchoCore/Services/Narration/_kokoro_vocab.json; sourceTree = SOURCE_ROOT; };
 		E2A200000000000000000011 /* us_pronunciation_pack.json */ = {isa = PBXFileReference; includeInIndex = 1; name = us_pronunciation_pack.json; path = EchoCore/Services/Narration/PronunciationResources/us_pronunciation_pack.json; sourceTree = SOURCE_ROOT; };
+		E2A200000000000000000013 /* us_pronunciation_audit_pack.json */ = {isa = PBXFileReference; includeInIndex = 1; name = us_pronunciation_audit_pack.json; path = EchoCore/Services/Narration/PronunciationResources/us_pronunciation_audit_pack.json; sourceTree = SOURCE_ROOT; };
 		E2A200000000000000000012 /* THIRD_PARTY_NOTICES.md */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = net.daringfireball.markdown; path = THIRD_PARTY_NOTICES.md; sourceTree = SOURCE_ROOT; };
 		B17D0C0FE17AC0DE0F0FE002 /* kokoro_dur_head.onnx */ = {isa = PBXFileReference; includeInIndex = 1; name = kokoro_dur_head.onnx; path = EchoCore/Services/Narration/kokoro_dur_head.onnx; sourceTree = SOURCE_ROOT; };
 		756754EC2DEBE3CB3DA81491 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
@@ -677,6 +680,7 @@
 				486ED82EADFDDE51ED2283A1 /* us_gold.json */,
 				A3CB4FF9D3E73BABC2FE8E7B /* us_silver.json */,
 				E2A200000000000000000011 /* us_pronunciation_pack.json */,
+				E2A200000000000000000013 /* us_pronunciation_audit_pack.json */,
 				E2A200000000000000000012 /* THIRD_PARTY_NOTICES.md */,
 				841D8CAEB031B6361813E665 /* af_heart.f32 */,
 				E3831A65448E14AF9E50D78F /* af_heart.rows */,

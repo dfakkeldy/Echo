@@ -685,13 +685,16 @@ struct NarrationRunResult {
         var previousExactDecisionStart: TimeInterval = 0
         var previousBlockFallbackDecisionStart: TimeInterval = 0
         for decision in capture.pronunciationEvidence?.decisions ?? [] {
-            guard decision.wordStart >= 0,
-                decision.wordEnd >= decision.wordStart,
-                !decision.normalizedWord.isEmpty,
-                !decision.selectedIPA.isEmpty,
-                !decision.kokoroTokenIDs.isEmpty,
-                decision.bookRelativeAudioRange == nil,
-                (decision.chapterRelativeAudioRange == nil) == (decision.timingPrecision == nil)
+            let hasValidLocation = decision.wordStart >= 0
+                && decision.wordEnd >= decision.wordStart
+                && !decision.normalizedWord.isEmpty
+                && decision.bookRelativeAudioRange == nil
+            let hasValidOrdinaryEvidence = !decision.selectedIPA.isEmpty
+                && !decision.kokoroTokenIDs.isEmpty
+                && (decision.chapterRelativeAudioRange == nil)
+                    == (decision.timingPrecision == nil)
+            guard hasValidLocation,
+                (hasValidOrdinaryEvidence || decision.isEvidenceOnlyInvalidOutputAdvisory)
             else {
                 throw NarrationRunError.captureIdentity(
                     "capture pronunciation decision is semantically invalid")
@@ -1090,6 +1093,9 @@ struct NarrationRunResult {
         pronunciationPackLoader: @escaping @Sendable () async -> EnglishPronunciationPack = {
             await EnglishPronunciationPack.bundledOrEmpty()
         },
+        pronunciationAuditPackLoader: @escaping @Sendable () async -> EnglishPronunciationAuditPack = {
+            await EnglishPronunciationAuditPack.bundledOrEmpty()
+        },
         reviewGenerator:
             @escaping @MainActor (PronunciationReviewRequest) async throws ->
             PronunciationReviewOutcome = { request in
@@ -1101,6 +1107,7 @@ struct NarrationRunResult {
         defer { withExtendedLifetime(runLease) {} }
         let fm = FileManager.default
         let pronunciationPack = await pronunciationPackLoader()
+        let pronunciationAuditPack = await pronunciationAuditPackLoader()
 
         let source = try resolveNarrationSource(at: config.epubURL)
         let sourceURL = source.sourceURL
@@ -1387,6 +1394,7 @@ struct NarrationRunResult {
                         pronunciationOverrides: { overrides },
                         pronunciationOccurrenceOverrides: { occurrenceOverrides },
                         pronunciationPack: pronunciationPack,
+                        pronunciationAuditPack: pronunciationAuditPack,
                         fmEnabled: { config.enableFMNormalization })
                     while cursor.next < batch.count {
                         let pos = cursor.next

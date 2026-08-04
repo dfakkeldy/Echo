@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import CryptoKit
 import Foundation
 
 /// Immutable token-level evidence copied from Misaki's final mutable token list.
@@ -190,6 +191,7 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
     let derivationBase: String?
     let derivationRuleID: String?
     let contextualEvidence: ContextualPronunciationEvidence?
+    let advisoryEvidence: PronunciationAdvisoryEvidence?
     let chapterIndex: Int?
     let chapterRelativeAudioRange: AudioRange?
     let bookRelativeAudioRange: AudioRange?
@@ -212,6 +214,7 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
         derivationBase: String? = nil,
         derivationRuleID: String? = nil,
         contextualEvidence: ContextualPronunciationEvidence? = nil,
+        advisoryEvidence: PronunciationAdvisoryEvidence? = nil,
         chapterIndex: Int? = nil,
         chapterRelativeAudioRange: AudioRange? = nil,
         bookRelativeAudioRange: AudioRange? = nil,
@@ -233,6 +236,7 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
         self.derivationBase = derivationBase
         self.derivationRuleID = derivationRuleID
         self.contextualEvidence = contextualEvidence
+        self.advisoryEvidence = advisoryEvidence
         self.chapterIndex = chapterIndex
         self.chapterRelativeAudioRange = chapterRelativeAudioRange
         self.bookRelativeAudioRange = bookRelativeAudioRange
@@ -261,6 +265,7 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
             derivationBase: derivationBase,
             derivationRuleID: derivationRuleID,
             contextualEvidence: contextualEvidence,
+            advisoryEvidence: advisoryEvidence,
             chapterIndex: chapterIndex,
             chapterRelativeAudioRange: chapterRelativeAudioRange,
             bookRelativeAudioRange: bookRelativeAudioRange,
@@ -296,10 +301,93 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
             derivationBase: derivationBase,
             derivationRuleID: derivationRuleID,
             contextualEvidence: contextualEvidence,
+            advisoryEvidence: advisoryEvidence,
             chapterIndex: chapterIndex,
             chapterRelativeAudioRange: chapterRelativeAudioRange,
             bookRelativeAudioRange: bookRelativeAudioRange,
             timingPrecision: timingPrecision)
+    }
+
+    /// An advisory receipt for raw G2P output that could not be safely
+    /// dispatched to Kokoro. It remains reviewable in the audit, but has no
+    /// token IDs or audio timing and therefore cannot produce a listening-reel
+    /// sample or bypass ordinary capture validation.
+    var isEvidenceOnlyInvalidOutputAdvisory: Bool {
+        guard let advisoryEvidence,
+            advisoryEvidence.isValid(),
+            kokoroTokenIDs.isEmpty,
+            chapterRelativeAudioRange == nil,
+            bookRelativeAudioRange == nil,
+            timingPrecision == nil
+        else {
+            return false
+        }
+        return InvalidG2PAuditReceipt.hasVerifiedProvenance(
+            normalizedWord: normalizedWord,
+            sourceWord: sourceWord,
+            selectedIPA: selectedIPA,
+            source: source,
+            ruleID: ruleID,
+            candidateID: candidateID,
+            candidatePackVersion: candidatePackVersion,
+            derivationBase: derivationBase,
+            derivationRuleID: derivationRuleID,
+            contextualEvidence: contextualEvidence,
+            advisoryEvidence: advisoryEvidence)
+    }
+}
+
+/// Shared integrity boundary for a no-synthesis receipt of raw G2P output.
+/// The permitted shapes are exactly the ones `decisionSeed(for:)` can create
+/// directly from Misaki token evidence; rewrite and override provenance cannot
+/// enter this audit-only path.
+nonisolated enum InvalidG2PAuditReceipt {
+    static func hasVerifiedProvenance(
+        normalizedWord: String,
+        sourceWord: String,
+        selectedIPA: String,
+        source: PronunciationAuditDecision.Source,
+        ruleID: String,
+        candidateID: String?,
+        candidatePackVersion: String?,
+        derivationBase: String?,
+        derivationRuleID: String?,
+        contextualEvidence: ContextualPronunciationEvidence?,
+        advisoryEvidence: PronunciationAdvisoryEvidence
+    ) -> Bool {
+        guard
+            PronunciationAuditContext.normalizedWord(sourceWord) == normalizedWord,
+            PronunciationAuditContext.isRejectedRawG2POutput(selectedIPA),
+            advisoryEvidence.category == .lexical,
+            advisoryEvidence.selectedCandidateID == nil,
+            !advisoryEvidence.overrideSuppressedAutomation,
+            candidateID == nil,
+            candidatePackVersion == nil,
+            derivationBase == nil,
+            derivationRuleID == nil,
+            contextualEvidence == nil
+        else {
+            return false
+        }
+
+        switch source {
+        case .fallback:
+            return ruleID == "g2p.fallback.\(PronunciationAuditContext.ruleComponent(sourceWord))"
+                && advisoryEvidence.selectedAuthority == .uncertain
+                && advisoryEvidence.selectionReason == .deterministicFallback
+        case .monitoredLexicon:
+            let validSelection =
+                (advisoryEvidence.selectionReason == .trustedLexicon
+                    && advisoryEvidence.alternatives.isEmpty)
+                || (advisoryEvidence.selectionReason == .sourceDisagreement
+                    && !advisoryEvidence.alternatives.isEmpty)
+            return ruleID == "g2p.lexicon.\(PronunciationAuditContext.ruleComponent(sourceWord))"
+                && advisoryEvidence.selectedAuthority == .trusted
+                && validSelection
+        case .occurrenceOverride, .bookOverride, .globalOverride, .builtInOverride,
+            .contextualHomograph, .supplementalLexicon, .derivedMorphology:
+            return false
+        }
     }
 }
 
@@ -316,7 +404,7 @@ nonisolated enum PronunciationAuditCoverage: String, Codable, Equatable, Sendabl
 /// completed narration render. File references deliberately contain names only:
 /// the manifest can move with its sibling audiobook without leaking a local path.
 nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
-    static let currentSchemaVersion = 4
+    static let currentSchemaVersion = 5
 
     let schemaVersion: Int
     let renderVersion: Int
@@ -395,6 +483,7 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
 
     func encoded() throws -> Data {
         try validateFields()
+        try currentSchemaEncodingProjection().validateFields()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         return try encoder.encode(self)
@@ -515,6 +604,20 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
                         "contextual pronunciation evidence is incomplete")
                 }
             }
+            if schemaVersion == Self.currentSchemaVersion,
+                let evidence = decision.advisoryEvidence,
+                !evidence.isValid(for: decision)
+            {
+                throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                    "advisory pronunciation evidence is invalid")
+            }
+            if schemaVersion == Self.currentSchemaVersion,
+                PronunciationAuditContext.isRejectedRawG2POutput(decision.selectedIPA),
+                !decision.isEvidenceOnlyInvalidOutputAdvisory
+            {
+                throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                    "rejected raw G2P output has invalid audit provenance")
+            }
         }
     }
 
@@ -577,6 +680,77 @@ extension PronunciationAuditManifest {
         case diagnostics
     }
 
+    /// Schemas 3 and 4 predate advisory evidence. Decode their decision shape
+    /// explicitly so an injected future field is ignored rather than preserved
+    /// or allowed to make an otherwise-valid legacy receipt undecodable.
+    private struct LegacyDecision: Decodable {
+        private enum CodingKeys: String, CodingKey {
+            case blockID
+            case wordStart
+            case wordEnd
+            case normalizedWord
+            case sourceWord
+            case sourceContext
+            case selectedIPA
+            case kokoroTokenIDs
+            case source
+            case ruleID
+            case rationale
+            case candidateID
+            case candidatePackVersion
+            case derivationBase
+            case derivationRuleID
+            case contextualEvidence
+            case chapterIndex
+            case chapterRelativeAudioRange
+            case bookRelativeAudioRange
+            case timingPrecision
+        }
+
+        let decision: PronunciationAuditDecision
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            decision = PronunciationAuditDecision(
+                blockID: try container.decode(String.self, forKey: .blockID),
+                wordStart: try container.decode(Int.self, forKey: .wordStart),
+                wordEnd: try container.decode(Int.self, forKey: .wordEnd),
+                normalizedWord: try container.decode(String.self, forKey: .normalizedWord),
+                sourceWord: try container.decode(String.self, forKey: .sourceWord),
+                sourceContext: try container.decode(String.self, forKey: .sourceContext),
+                selectedIPA: try container.decode(String.self, forKey: .selectedIPA),
+                kokoroTokenIDs: try container.decode([Int32].self, forKey: .kokoroTokenIDs),
+                source: try container.decode(
+                    PronunciationAuditDecision.Source.self,
+                    forKey: .source),
+                ruleID: try container.decode(String.self, forKey: .ruleID),
+                rationale: try container.decode(String.self, forKey: .rationale),
+                candidateID: try container.decodeIfPresent(String.self, forKey: .candidateID),
+                candidatePackVersion: try container.decodeIfPresent(
+                    String.self,
+                    forKey: .candidatePackVersion),
+                derivationBase: try container.decodeIfPresent(
+                    String.self,
+                    forKey: .derivationBase),
+                derivationRuleID: try container.decodeIfPresent(
+                    String.self,
+                    forKey: .derivationRuleID),
+                contextualEvidence: try container.decodeIfPresent(
+                    ContextualPronunciationEvidence.self,
+                    forKey: .contextualEvidence),
+                chapterIndex: try container.decodeIfPresent(Int.self, forKey: .chapterIndex),
+                chapterRelativeAudioRange: try container.decodeIfPresent(
+                    PronunciationAuditDecision.AudioRange.self,
+                    forKey: .chapterRelativeAudioRange),
+                bookRelativeAudioRange: try container.decodeIfPresent(
+                    PronunciationAuditDecision.AudioRange.self,
+                    forKey: .bookRelativeAudioRange),
+                timingPrecision: try container.decodeIfPresent(
+                    PronunciationAuditDecision.TimingPrecision.self,
+                    forKey: .timingPrecision))
+        }
+    }
+
     nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
@@ -615,9 +789,16 @@ extension PronunciationAuditManifest {
         watchCounts = try container.decode(
             [String: Int].self,
             forKey: .watchCounts)
-        decisions = try container.decode(
-            [PronunciationAuditDecision].self,
-            forKey: .decisions)
+        if schemaVersion == Self.currentSchemaVersion {
+            decisions = try container.decode(
+                [PronunciationAuditDecision].self,
+                forKey: .decisions)
+        } else {
+            decisions = try container.decode(
+                [LegacyDecision].self,
+                forKey: .decisions)
+            .map(\.decision)
+        }
         diagnostics = try container.decode(
             [PronunciationAuditDiagnostic].self,
             forKey: .diagnostics)
@@ -635,6 +816,7 @@ extension PronunciationAuditManifest {
     }
 
     nonisolated func encode(to encoder: Encoder) throws {
+        try currentSchemaEncodingProjection().validateFields()
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(Self.currentSchemaVersion, forKey: .schemaVersion)
         try container.encode(renderVersion, forKey: .renderVersion)
@@ -653,6 +835,25 @@ extension PronunciationAuditManifest {
         try container.encode(watchCounts, forKey: .watchCounts)
         try container.encode(decisions, forKey: .decisions)
         try container.encode(diagnostics, forKey: .diagnostics)
+    }
+
+    /// Encoding always writes the current schema number, so validate the exact
+    /// current-schema projection before making that claim for a legacy receipt.
+    nonisolated private func currentSchemaEncodingProjection() -> PronunciationAuditManifest {
+        PronunciationAuditManifest(
+            schemaVersion: Self.currentSchemaVersion,
+            renderVersion: renderVersion,
+            voice: voice,
+            chapterVoices: chapterVoices,
+            coverage: coverage,
+            legacyChapterIndexes: legacyChapterIndexes,
+            audiobookFileName: audiobookFileName,
+            audiobookSHA256: audiobookSHA256,
+            listeningReelFileName: listeningReelFileName,
+            listeningReelSHA256: listeningReelSHA256,
+            watchCounts: watchCounts,
+            decisions: decisions,
+            diagnostics: diagnostics)
     }
 }
 
@@ -674,6 +875,7 @@ nonisolated struct PronunciationDecisionSeed: Equatable, Sendable {
     let derivationBase: String?
     let derivationRuleID: String?
     let contextualEvidence: ContextualPronunciationEvidence?
+    let advisoryEvidence: PronunciationAdvisoryEvidence?
 
     init(
         blockID: String,
@@ -690,7 +892,8 @@ nonisolated struct PronunciationDecisionSeed: Equatable, Sendable {
         candidatePackVersion: String? = nil,
         derivationBase: String? = nil,
         derivationRuleID: String? = nil,
-        contextualEvidence: ContextualPronunciationEvidence? = nil
+        contextualEvidence: ContextualPronunciationEvidence? = nil,
+        advisoryEvidence: PronunciationAdvisoryEvidence? = nil
     ) {
         self.blockID = blockID
         self.wordStart = wordStart
@@ -707,6 +910,7 @@ nonisolated struct PronunciationDecisionSeed: Equatable, Sendable {
         self.derivationBase = derivationBase
         self.derivationRuleID = derivationRuleID
         self.contextualEvidence = contextualEvidence
+        self.advisoryEvidence = advisoryEvidence
     }
 
     func materialized(
@@ -729,7 +933,15 @@ nonisolated struct PronunciationDecisionSeed: Equatable, Sendable {
             candidatePackVersion: candidatePackVersion,
             derivationBase: derivationBase,
             derivationRuleID: derivationRuleID,
-            contextualEvidence: contextualEvidence)
+            contextualEvidence: contextualEvidence,
+            advisoryEvidence: advisoryEvidence)
+    }
+
+    /// Produces an audit-only receipt for empty or unencodable G2P output.
+    /// Unlike `materialized(selectedIPA:kokoroTokenIDs:)`, this does not claim
+    /// a final synthesis-token slice.
+    func evidenceOnlyMaterialized() -> PronunciationAuditDecision {
+        materialized(selectedIPA: selectedIPA, kokoroTokenIDs: [])
     }
 
     func attachingContextualEvidence(
@@ -750,7 +962,30 @@ nonisolated struct PronunciationDecisionSeed: Equatable, Sendable {
             candidatePackVersion: candidatePackVersion,
             derivationBase: derivationBase,
             derivationRuleID: derivationRuleID,
-            contextualEvidence: contextualEvidence)
+            contextualEvidence: contextualEvidence,
+            advisoryEvidence: advisoryEvidence)
+    }
+
+    func attachingAdvisoryEvidence(
+        _ advisoryEvidence: PronunciationAdvisoryEvidence
+    ) -> PronunciationDecisionSeed {
+        PronunciationDecisionSeed(
+            blockID: blockID,
+            wordStart: wordStart,
+            wordEnd: wordEnd,
+            normalizedWord: normalizedWord,
+            sourceWord: sourceWord,
+            sourceContext: sourceContext,
+            selectedIPA: selectedIPA,
+            source: source,
+            ruleID: ruleID,
+            rationale: rationale,
+            candidateID: candidateID,
+            candidatePackVersion: candidatePackVersion,
+            derivationBase: derivationBase,
+            derivationRuleID: derivationRuleID,
+            contextualEvidence: contextualEvidence,
+            advisoryEvidence: advisoryEvidence)
     }
 }
 
@@ -937,13 +1172,17 @@ nonisolated enum PronunciationAuditContext {
         blockID: String,
         chunkDisplayText: String,
         blockDisplayText: String,
-        wordBase: Int
+        wordBase: Int,
+        isComparisonCandidate: Bool = false
     ) -> PronunciationDecisionSeed? {
-        guard !evidence.selectedPhonemes.isEmpty else { return nil }
         let normalizedWord = normalizedWord(evidence.text)
         guard
             !normalizedWord.isEmpty,
-            evidence.usedFallback || PronunciationWatchVocabulary.words.contains(normalizedWord),
+            !isIntentionalOOVMarkerOutput(evidence.selectedPhonemes),
+            evidence.usedFallback || isComparisonCandidate
+                || PronunciationWatchVocabulary.words.contains(normalizedWord)
+                || isAcronym(evidence.text)
+                || isRejectedRawG2POutput(evidence.selectedPhonemes),
             let localWordSpan = wordSpan(
                 overlappingDisplayCharacterRange: evidence.displayCharacterRange,
                 in: chunkDisplayText)
@@ -973,6 +1212,10 @@ nonisolated enum PronunciationAuditContext {
             rationale =
                 "Watched ordinary-lexicon pronunciation selected for “\(evidence.text)”."
         }
+        let selectedIdentity = selectedCandidateIdentity(
+            normalizedWord: normalizedWord,
+            selectedIPA: evidence.selectedPhonemes,
+            source: source)
         return PronunciationDecisionSeed(
             blockID: blockID,
             wordStart: wordStart,
@@ -986,6 +1229,66 @@ nonisolated enum PronunciationAuditContext {
             selectedIPA: evidence.selectedPhonemes,
             source: source,
             ruleID: "g2p.\(ruleKind).\(ruleComponent(evidence.text))",
-            rationale: rationale)
+            rationale: rationale,
+            candidateID: selectedIdentity?.candidateID,
+            candidatePackVersion: selectedIdentity?.packVersion)
+    }
+
+    private static func selectedCandidateIdentity(
+        normalizedWord: String,
+        selectedIPA: String,
+        source: PronunciationAuditDecision.Source
+    ) -> (candidateID: String, packVersion: String)? {
+        let packVersion = "misaki.us.lexicon.v1"
+        let normalizedIPA = selectedIPA.precomposedStringWithCanonicalMapping
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard source == .monitoredLexicon,
+            !normalizedWord.isEmpty,
+            !normalizedIPA.isEmpty,
+            !isRejectedRawG2POutput(normalizedIPA),
+            !isIntentionalOOVMarkerOutput(normalizedIPA)
+        else {
+            return nil
+        }
+        let payload = [packVersion, normalizedWord, normalizedIPA]
+            .joined(separator: "\u{1F}")
+        let digest = SHA256.hash(data: Data(payload.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return ("\(packVersion).sha256:\(digest)", packVersion)
+    }
+
+    /// Invalid raw token output is audit-worthy even when it did not arise from
+    /// an ordinary fallback/watch/comparison route. This is a receipt-only
+    /// predicate; `PronunciationPlanner` remains the strict synthesis boundary.
+    nonisolated static func hasUnencodableSelectedOutput(_ phonemes: String) -> Bool {
+        guard !phonemes.isEmpty else { return true }
+        guard let vocabulary = try? KokoroPhonemeVocab() else { return true }
+        return (try? vocabulary.validatedIDs(forPhonemes: phonemes)) == nil
+    }
+
+    /// The marker is deliberately stripped by `PronunciationPlanner` before
+    /// strict vocabulary validation. Any nonempty raw output whose marker-
+    /// stripped remainder is empty therefore carries no audit decision at all:
+    /// it is neither a rejected raw G2P receipt nor a normal materialized
+    /// pronunciation.
+    nonisolated static func isIntentionalOOVMarkerOutput(_ phonemes: String) -> Bool {
+        !phonemes.isEmpty
+            && phonemes.allSatisfy { $0 == KokoroPhonemeVocab.oovMarker }
+    }
+
+    nonisolated static func isRejectedRawG2POutput(_ phonemes: String) -> Bool {
+        guard !phonemes.isEmpty else { return true }
+        let markerStrippedPhonemes = phonemes.filter {
+            $0 != KokoroPhonemeVocab.oovMarker
+        }
+        guard !markerStrippedPhonemes.isEmpty else { return false }
+        return hasUnencodableSelectedOutput(markerStrippedPhonemes)
+    }
+
+    private static func isAcronym(_ word: String) -> Bool {
+        let letters = word.filter(\.isLetter)
+        guard letters.count > 1 else { return false }
+        return letters.allSatisfy(\.isUppercase)
     }
 }

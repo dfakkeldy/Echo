@@ -9,13 +9,21 @@
 //  Resolve / Save Override (acceptFix).
 //
 
+import Foundation
 import GRDB
 import SwiftUI
 
 struct MacNarrationQAReviewView: View {
+    private enum PronunciationAction {
+        case legacy
+        case currentAdvisory
+        case alternative(String)
+    }
+
     @State private var model: NarrationQAReviewModel
     @State private var selectedIssueID: String?
     @State private var isRunning = false
+    @State private var applyingIssueID: String?
 
     init(db: DatabaseWriter, audiobookID: String) {
         _model = State(initialValue: NarrationQAReviewModel(db: db, audiobookID: audiobookID))
@@ -77,7 +85,7 @@ struct MacNarrationQAReviewView: View {
     private func issueRow(_ issue: NarrationQualityIssueRecord) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(issue.issueType)
+                Label(issueLabel(issue), systemImage: issueIcon(issue))
                     .font(.caption.bold())
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
@@ -102,6 +110,10 @@ struct MacNarrationQAReviewView: View {
                 }
             }
 
+            if let presentation = model.pronunciationPresentation(for: issue) {
+                pronunciationEvidence(presentation, issue: issue)
+            }
+
             HStack(spacing: 8) {
                 Spacer()
                 Button("Ignore") {
@@ -110,14 +122,20 @@ struct MacNarrationQAReviewView: View {
                 .buttonStyle(.borderless)
                 .controlSize(.small)
 
-                if issue.suggestedFixJSON != nil {
-                    Button("Save Override") {
-                        Task {
-                            await model.acceptFix(issue: issue, scope: .book(issue.audiobookID))
-                        }
+                if model.canAcceptCurrentCandidate(for: issue) {
+                    Menu("Save Override") {
+                        pronunciationScopeButtons(issue: issue, action: .currentAdvisory)
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
+                    .disabled(applyingIssueID != nil)
+                } else if hasLegacyActionablePronunciationFix(issue) {
+                    Menu("Save Override") {
+                        pronunciationScopeButtons(issue: issue, action: .legacy)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(applyingIssueID != nil)
                 }
 
                 Button("Resolved") {
@@ -128,6 +146,196 @@ struct MacNarrationQAReviewView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private func pronunciationEvidence(
+        _ presentation: NarrationQAReviewModel.PronunciationReviewPresentation,
+        issue: NarrationQualityIssueRecord
+    ) -> some View {
+        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
+            GridRow {
+                Text("Category")
+                    .foregroundStyle(.secondary)
+                Text(displayName(presentation.category.rawValue))
+            }
+            GridRow {
+                Text("Reason")
+                    .foregroundStyle(.secondary)
+                Text(displayName(presentation.selectionReason.rawValue))
+            }
+            GridRow {
+                Text("Occurrences")
+                    .foregroundStyle(.secondary)
+                Text(String(presentation.occurrenceCount))
+            }
+
+            if let selected = presentation.selectedCandidate {
+                GridRow {
+                    Text("Current IPA")
+                        .foregroundStyle(.secondary)
+                    Text(selected.ipa)
+                        .font(.body.monospaced())
+                        .accessibilityLabel("Current IPA, \(selected.ipa)")
+                }
+                GridRow {
+                    Text("Candidate ID")
+                        .foregroundStyle(.secondary)
+                    Text(selected.candidateID)
+                }
+                GridRow {
+                    Text("Source")
+                        .foregroundStyle(.secondary)
+                    Text(displayName(selected.source.rawValue))
+                }
+                GridRow {
+                    Text("Authority")
+                        .foregroundStyle(.secondary)
+                    Text(displayName(selected.authority.rawValue))
+                }
+                GridRow {
+                    Text("Validation")
+                        .foregroundStyle(.secondary)
+                    Text(displayName(selected.validation.rawValue))
+                }
+            } else if presentation.chosenCandidateID != nil {
+                GridRow {
+                    Text("Decision")
+                        .foregroundStyle(.secondary)
+                    Text("Current candidate details unavailable")
+                        .fontWeight(.semibold)
+                }
+            } else {
+                GridRow {
+                    Text("Decision")
+                        .foregroundStyle(.secondary)
+                    Text("No candidate accepted")
+                        .fontWeight(.semibold)
+                }
+            }
+        }
+        .font(.callout)
+
+        if !presentation.alternatives.isEmpty {
+            Text("Alternatives")
+                .font(.subheadline.weight(.semibold))
+                .padding(.top, 4)
+
+            ForEach(presentation.alternatives, id: \.candidateID) { alternative in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(alternative.ipa)
+                        .font(.body.monospaced())
+                        .accessibilityLabel("Alternative IPA, \(alternative.ipa)")
+                    Text(
+                        "\(alternative.source) \u{2022} "
+                            + "\(displayName(alternative.authority.rawValue)) authority \u{2022} "
+                            + displayName(alternative.validation.rawValue)
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    if alternative.validation == .eligible {
+                        Menu("Use Candidate") {
+                            pronunciationScopeButtons(
+                                issue: issue,
+                                action: .alternative(alternative.candidateID))
+                        }
+                        .controlSize(.small)
+                        .disabled(applyingIssueID != nil)
+                        .accessibilityLabel(
+                            "Use pronunciation \(alternative.ipa) from \(alternative.source)")
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func pronunciationScopeButtons(
+        issue: NarrationQualityIssueRecord,
+        action: PronunciationAction
+    ) -> some View {
+        if hasSourceOccurrence(issue) {
+            Button("This Occurrence") {
+                applyPronunciation(issue, action: action, scope: .occurrence)
+            }
+        }
+        Button("This Book") {
+            applyPronunciation(
+                issue, action: action, scope: .book(issue.audiobookID))
+        }
+        Button("All Books") {
+            applyPronunciation(issue, action: action, scope: .global)
+        }
+    }
+
+    private func applyPronunciation(
+        _ issue: NarrationQualityIssueRecord,
+        action: PronunciationAction,
+        scope: FixScope
+    ) {
+        applyingIssueID = issue.id
+        Task { @MainActor in
+            switch action {
+            case .legacy:
+                await model.acceptFix(issue: issue, scope: scope)
+            case .currentAdvisory:
+                await model.acceptCurrentCandidate(for: issue, scope: scope)
+            case .alternative(let candidateID):
+                await model.acceptCandidate(candidateID, for: issue, scope: scope)
+            }
+            applyingIssueID = nil
+        }
+    }
+
+    private func hasLegacyActionablePronunciationFix(
+        _ issue: NarrationQualityIssueRecord
+    ) -> Bool {
+        guard issue.evidenceJSON == nil,
+            issue.issueType == NarrationQAIssueType.pronunciation.rawValue,
+            issue.origin != NarrationQualityIssueOrigin.acoustic.rawValue,
+            let json = issue.suggestedFixJSON,
+            let data = json.data(using: .utf8),
+            let fix = try? JSONDecoder().decode(SuggestedFix.self, from: data),
+            fix.ipa?.isEmpty == false
+        else { return false }
+        return true
+    }
+
+    private func hasSourceOccurrence(_ issue: NarrationQualityIssueRecord) -> Bool {
+        issue.sourceBlockID != nil && issue.sourceWordStart != nil && issue.sourceWordEnd != nil
+    }
+
+    private func issueLabel(_ issue: NarrationQualityIssueRecord) -> String {
+        if issue.origin == NarrationQualityIssueOrigin.acoustic.rawValue {
+            return "Acoustic pronunciation review"
+        }
+        if issue.origin == NarrationQualityIssueOrigin.pronunciationPreflight.rawValue {
+            return "Pronunciation review"
+        }
+        return issue.issueType
+    }
+
+    private func issueIcon(_ issue: NarrationQualityIssueRecord) -> String {
+        if issue.origin == NarrationQualityIssueOrigin.acoustic.rawValue {
+            return "waveform.badge.exclamationmark"
+        }
+        if issue.issueType == NarrationQAIssueType.pronunciation.rawValue {
+            return "textformat.abc"
+        }
+        return "waveform.badge.magnifyingglass"
+    }
+
+    private func displayName(_ rawValue: String) -> String {
+        rawValue
+            .replacingOccurrences(
+                of: "([a-z0-9])([A-Z])",
+                with: "$1 $2",
+                options: .regularExpression)
+            .replacingOccurrences(of: "-", with: " ")
+            .capitalized
     }
 
     private func issueTypeColor(_ type: String) -> Color {

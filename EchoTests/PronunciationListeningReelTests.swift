@@ -12,6 +12,7 @@ import Testing
         ruleID: String? = nil,
         source: PronunciationAuditDecision.Source = .monitoredLexicon,
         contextualEvidence: ContextualPronunciationEvidence? = nil,
+        advisoryEvidence: PronunciationAdvisoryEvidence? = nil,
         range: PronunciationAuditDecision.AudioRange?,
         precision: PronunciationAuditDecision.TimingPrecision?
     ) -> PronunciationAuditDecision {
@@ -28,6 +29,7 @@ import Testing
             ruleID: ruleID ?? "rule.\(word)",
             rationale: "Synthetic reel fixture.",
             contextualEvidence: contextualEvidence,
+            advisoryEvidence: advisoryEvidence,
             chapterIndex: 0,
             chapterRelativeAudioRange: range,
             bookRelativeAudioRange: range,
@@ -35,6 +37,54 @@ import Testing
     }
 
     private let sourceURL = URL(fileURLWithPath: "/tmp/public-synthetic.m4b")
+
+    @Test func entriesCarryStructuredAdvisoryIdentityWithoutSourceContext() throws {
+        let decision = decision(
+            word: "record",
+            ipa: "ɹəkˈɔɹd",
+            source: .contextualHomograph,
+            advisoryEvidence: PronunciationAdvisoryEvidence(
+                category: .contextual,
+                selectedAuthority: .qualified,
+                selectedCandidateID: "record.verb",
+                alternatives: [
+                    .init(
+                        candidateID: "record.verb",
+                        ipa: "ɹəkˈɔɹd",
+                        source: "fixture",
+                        authority: .qualified,
+                        validation: .shadow,
+                        policyVersion: "policy-v1"),
+                    .init(
+                        candidateID: "record.noun",
+                        ipa: "ɹˈɛkəɹd",
+                        source: "fixture",
+                        authority: .qualified,
+                        validation: .shadow,
+                        policyVersion: "policy-v1"),
+                ],
+                selectionReason: .qualifiedDeterministicContext,
+                overrideSuppressedAutomation: false,
+                policyVersion: "policy-v1"),
+            range: .init(start: 1, end: 1.2),
+            precision: .exactSynthesisWord)
+        let entries = PronunciationListeningReel.entries(
+            decisions: [decision],
+            audiobookURL: sourceURL,
+            sourceDuration: CMTime(seconds: 30, preferredTimescale: 600))
+        let exports = PronunciationListeningReel.exportItems(
+            decisions: [decision],
+            audiobookURL: sourceURL,
+            sourceDuration: CMTime(seconds: 30, preferredTimescale: 600))
+        let entry = try #require(entries.first)
+
+        #expect(entry.candidateIDs == ["record.noun", "record.verb"])
+        #expect(entry.category == .contextual)
+        #expect(entry.selectedAuthority == .qualified)
+        #expect(entry.audioRange == .init(start: 0.75, end: 1.45))
+        #expect(!entry.title.contains("Synthetic reel fixture"))
+        #expect(exports == entries.map(\.exportItem))
+    }
 
     private func shadowDisagreementEvidence() -> ContextualPronunciationEvidence {
         ContextualPronunciationEvidence(

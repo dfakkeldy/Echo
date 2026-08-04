@@ -29,7 +29,7 @@ struct DivergenceClassification: Equatable, Sendable {
 /// Produced by `NarrationQAService.encodeFix` (this milestone) and decoded by
 /// `ContributionPayloadFilter` (M5) — this is the single source of truth for that JSON.
 /// Keep it minimal: `confidence`/`issueType` already live on the issue row's columns.
-struct SuggestedFix: Codable, Equatable, Sendable {
+nonisolated struct SuggestedFix: Codable, Equatable, Sendable {
     let spokenForm: String?
     let ipa: String?
 }

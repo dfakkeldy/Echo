@@ -32,10 +32,10 @@ enum PronunciationFallbackDiscovery {
             guard
                 let displayWord = displayWord(for: hit.fallback.word),
                 let canonical = canonicalKey(displayWord),
-                !seen.contains(canonical),
+                !seen.contains("\(hit.blockID)\u{1F}\(canonical)"),
                 !hit.fallback.ipa.isEmpty
             else { return nil }
-            seen.insert(canonical)
+            seen.insert("\(hit.blockID)\u{1F}\(canonical)")
 
             let fix = SuggestedFix(spokenForm: displayWord, ipa: hit.fallback.ipa)
             guard
@@ -44,7 +44,7 @@ enum PronunciationFallbackDiscovery {
             else { return nil }
 
             return NarrationQualityIssueRecord(
-                id: issueID(audiobookID: audiobookID, canonicalWord: canonical),
+                id: issueID(audiobookID: audiobookID, blockID: hit.blockID, canonicalWord: canonical),
                 audiobookID: audiobookID,
                 sourceBlockID: hit.blockID,
                 sourceWordStart: nil,
@@ -56,10 +56,34 @@ enum PronunciationFallbackDiscovery {
                 issueType: NarrationQAIssueType.pronunciation.rawValue,
                 confidence: confidence,
                 suggestedFixJSON: fixJSON,
+                origin: NarrationQualityIssueOrigin.pronunciationPreflight.rawValue,
                 status: NarrationQAIssueStatus.open.rawValue,
                 createdAt: createdAt,
                 resolvedAt: nil)
         }
+    }
+
+    /// Produces the fallback portion of one report snapshot while preferring
+    /// richer advisory rows for the same normalized word and source block.
+    static func records(
+        audiobookID: String,
+        hits: [RenderedPronunciationFallbackHit],
+        createdAt: String,
+        excluding preferredRecords: [NarrationQualityIssueRecord]
+    ) -> [NarrationQualityIssueRecord] {
+        let occupiedWords = Set(preferredRecords.compactMap { record -> String? in
+            guard let blockID = record.sourceBlockID,
+                let word = canonicalKey(record.expectedText)
+            else { return nil }
+            return "\(blockID)\u{1F}\(word)"
+        })
+        return records(audiobookID: audiobookID, hits: hits, createdAt: createdAt)
+            .filter { record in
+                guard let blockID = record.sourceBlockID,
+                    let word = canonicalKey(record.expectedText)
+                else { return false }
+                return !occupiedWords.contains("\(blockID)\u{1F}\(word)")
+            }
     }
 
     static func persist(
@@ -75,17 +99,24 @@ enum PronunciationFallbackDiscovery {
             let existingPronunciationIssues = try NarrationQualityIssueRecord
                 .filter(Column("audiobook_id") == audiobookID)
                 .filter(Column("issue_type") == NarrationQAIssueType.pronunciation.rawValue)
+                .filter(Column("origin") == NarrationQualityIssueOrigin.pronunciationPreflight.rawValue)
                 .fetchAll(database)
-            var existingWords = Set(
-                existingPronunciationIssues.compactMap { canonicalKey($0.expectedText) })
+            var existingWords: Set<String> = Set(
+                existingPronunciationIssues.compactMap { issue in
+                    guard let blockID = issue.sourceBlockID, let word = canonicalKey(issue.expectedText) else {
+                        return nil
+                    }
+                    return "\(blockID)\u{1F}\(word)"
+                })
 
             for var candidate in candidates {
                 guard
                     let canonical = canonicalKey(candidate.expectedText),
-                    !existingWords.contains(canonical)
+                    let blockID = candidate.sourceBlockID,
+                    !existingWords.contains("\(blockID)\u{1F}\(canonical)")
                 else { continue }
                 try candidate.insert(database)
-                existingWords.insert(canonical)
+                existingWords.insert("\(blockID)\u{1F}\(canonical)")
             }
         }
     }
@@ -105,8 +136,8 @@ enum PronunciationFallbackDiscovery {
             locale: canonicalLocale)
     }
 
-    private static func issueID(audiobookID: String, canonicalWord: String) -> String {
-        let payload = "\(audiobookID)\u{1F}\(canonicalWord)"
+    private static func issueID(audiobookID: String, blockID: String, canonicalWord: String) -> String {
+        let payload = "\(audiobookID)\u{1F}\(blockID)\u{1F}\(canonicalWord)"
         let hash = SHA256.hash(data: Data(payload.utf8))
             .map { String(format: "%02x", $0) }
             .joined()
