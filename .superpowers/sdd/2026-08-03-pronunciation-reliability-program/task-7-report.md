@@ -100,3 +100,67 @@ advisory-only conservative limitation until a real proper-name signal exists.
 
 Pending the coherent Task 7 commit:
 `feat(narration): surface shadow pronunciation alternatives`
+
+## Fix round 1: retain invalid G2P advisory receipts
+
+### Delivered
+
+- Empty or unsupported selected G2P output with advisory evidence now creates an
+  explicit evidence-only audit decision. It preserves the raw selected value
+  for review, has no Kokoro IDs, and is never matched to a synthesis chunk.
+- The materializer emits the corresponding mismatch diagnostic, which makes the
+  manifest coverage incomplete rather than presenting the review receipt as
+  fully evidenced.
+- Render timing explicitly preserves this decision as untimed, so the listening
+  reel cannot derive a sample from it. Existing matched-token decisions retain
+  their exact final IPA/ID and timing behavior.
+- Added production-path planner/materializer/manifest regressions for both
+  empty and unsupported output. They assert valid planned synthesis phonemes
+  remain unchanged, the advisory receipt survives JSON manifest round-trip, the
+  coverage is incomplete, and the reel has no entry.
+
+### TDD and final verification
+
+RED first added the empty and unsupported materialization expectations; the
+pre-change materializer produced no decision for either case, so the required
+decision assertion failed.
+
+Final commands, each through the governed Apple build slot:
+
+```sh
+XBG_ALLOW_NOW=1 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+XBG_ALLOW_NOW=1 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationRenderPlanTests
+XBG_ALLOW_NOW=1 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationServiceTests
+XBG_ALLOW_NOW=1 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PronunciationAuditTests
+```
+
+Result: all final commands completed successfully. The final focused source
+suites contain 44 render-plan, 53 narration-service, and 23 pronunciation-audit
+tests (120 declared tests total). `git diff --check` passed.
+
+### Fix-round self-review
+
+- Evidence-only materialization is limited to advisory-bearing seeds whose
+  dispatch-normalized phonemes are empty or fail Kokoro vocabulary validation;
+  it does not change chunks, selected normal pronunciation authority, or cache
+  identity.
+- Normal final-token matching still requires its exact matched token evidence.
+  Evidence-only receipts deliberately carry an empty ID list and no render
+  timing, and `PronunciationListeningReel` additionally requires a bounded
+  book-relative range before it emits a sample.
+- Unsupported raw output is retained only in the audit decision. The synthesis
+  chunk stays derived from the already-sanitized planner output; the regression
+  uses a null character specifically to prove it never becomes speakable.
+
+### Fix-round concern
+
+The evidence-only receipt intentionally stores the raw unsupported selected
+string so reviewers can inspect what G2P returned. JSON encoding safely escapes
+control characters (covered by the manifest round-trip test), but any future
+human-facing audit UI should render control characters visibly rather than
+inserting them as literal display text.
+
+### Fix-round commit
+
+Pending final commit:
+`fix(narration): retain invalid G2P advisory evidence`

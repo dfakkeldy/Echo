@@ -280,6 +280,19 @@ enum NarrationRenderPlanner {
         var diagnostics: [PronunciationAuditDiagnostic] = []
 
         for seed in seeds {
+            if requiresEvidenceOnlyMaterialization(seed) {
+                decisions.append(seed.evidenceOnlyMaterialized())
+                if let owner = owningMatchedChunk(for: seed, in: synthesisChunks) {
+                    diagnostics.append(
+                        decisionEvidenceMismatchDiagnostic(
+                            for: seed,
+                            chunkIndex: owner.index,
+                            fallbackHits: owner.chunk.pronunciationFallbackHits,
+                            finalIPA: nil))
+                }
+                continue
+            }
+
             var wordBase = 0
             var selections: [FinalPronunciationSelection] = []
             for (chunkIndex, chunk) in synthesisChunks.enumerated() {
@@ -343,6 +356,18 @@ enum NarrationRenderPlanner {
         return PronunciationDecisionMaterialization(
             decisions: decisions,
             diagnostics: diagnostics)
+    }
+
+    private static func requiresEvidenceOnlyMaterialization(
+        _ seed: PronunciationDecisionSeed
+    ) -> Bool {
+        guard seed.advisoryEvidence != nil else { return false }
+        let dispatchIPA = dispatchNormalizedIPA(
+            seed.selectedIPA,
+            forWord: seed.normalizedWord)
+        guard !dispatchIPA.isEmpty else { return true }
+        guard let vocabulary = try? KokoroPhonemeVocab() else { return true }
+        return (try? vocabulary.validatedIDs(forPhonemes: dispatchIPA)) == nil
     }
 
     private static func validateContextualEvidence(

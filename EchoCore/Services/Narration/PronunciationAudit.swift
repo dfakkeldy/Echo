@@ -306,6 +306,13 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
             bookRelativeAudioRange: bookRelativeAudioRange,
             timingPrecision: timingPrecision)
     }
+
+    /// An advisory receipt for output that could not be safely dispatched to
+    /// Kokoro. It remains reviewable in the audit, but has no token IDs or
+    /// audio timing and therefore cannot produce a listening-reel sample.
+    var isEvidenceOnlyAdvisory: Bool {
+        advisoryEvidence != nil && kokoroTokenIDs.isEmpty
+    }
 }
 
 /// Whether every completed chapter capture contains the exact render receipt.
@@ -826,6 +833,13 @@ nonisolated struct PronunciationDecisionSeed: Equatable, Sendable {
             advisoryEvidence: advisoryEvidence)
     }
 
+    /// Produces an audit-only receipt for empty or unencodable G2P output.
+    /// Unlike `materialized(selectedIPA:kokoroTokenIDs:)`, this does not claim
+    /// a final synthesis-token slice.
+    func evidenceOnlyMaterialized() -> PronunciationAuditDecision {
+        materialized(selectedIPA: selectedIPA, kokoroTokenIDs: [])
+    }
+
     func attachingContextualEvidence(
         _ contextualEvidence: ContextualPronunciationEvidence
     ) -> PronunciationDecisionSeed {
@@ -1057,7 +1071,6 @@ nonisolated enum PronunciationAuditContext {
         wordBase: Int,
         isComparisonCandidate: Bool = false
     ) -> PronunciationDecisionSeed? {
-        guard !evidence.selectedPhonemes.isEmpty else { return nil }
         let normalizedWord = normalizedWord(evidence.text)
         guard
             !normalizedWord.isEmpty,

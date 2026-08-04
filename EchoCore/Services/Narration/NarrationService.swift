@@ -1320,6 +1320,12 @@ final class NarrationService {
 
         return plan.blocks.flatMap { plannedBlock in
             plannedBlock.pronunciationDecisions.map { decision in
+                guard !decision.isEvidenceOnlyAdvisory else {
+                    return decision.attachingRenderTiming(
+                        chapterIndex: chapterIndex,
+                        chapterRelativeAudioRange: nil,
+                        timingPrecision: nil)
+                }
                 let spans = renderedSpansByBlock[decision.blockID] ?? []
                 guard decision.wordStart >= 0, decision.wordEnd >= decision.wordStart,
                     (decision.wordStart...decision.wordEnd).allSatisfy({ wordIndex in
