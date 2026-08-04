@@ -552,12 +552,17 @@ private actor ShadowEvaluatorRecorder {
         let persistedIssue = try #require(
             NarrationQualityIssueDAO(db: db.writer).issues(
                 for: "b1", status: NarrationQAIssueStatus.open.rawValue
-            ).first { $0.origin == NarrationQualityIssueOrigin.pronunciationPreflight.rawValue })
+            ).first {
+                $0.origin == NarrationQualityIssueOrigin.pronunciationPreflight.rawValue
+                    && $0.expectedText == auditedDecision.sourceWord
+            })
         let evidenceData = try #require(persistedIssue.evidenceJSON?.data(using: .utf8))
         let persistedEvidence = try JSONDecoder().decode(
-            PronunciationAdvisoryEvidence.self, from: evidenceData)
+            PronunciationAdvisoryIssueEvidence.self, from: evidenceData)
+        #expect(persistedEvidence.advisoryEvidence == auditedDecision.advisoryEvidence)
         #expect(persistedEvidence.isValid())
-        #expect(persistedEvidence.selectedCandidateID == nil)
+        #expect(persistedEvidence.occurrenceCount == 1)
+        #expect(persistedEvidence.advisoryEvidence.selectedCandidateID == nil)
         #expect(persistedIssue.suggestedFixJSON == nil)
 
         let auditedCacheURL = await audited.chapterCacheURL(

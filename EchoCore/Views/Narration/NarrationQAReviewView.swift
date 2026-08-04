@@ -6,9 +6,14 @@ import SwiftUI
 /// transcriber heard, the issue label, ignore/resolve actions, and accepted
 /// pronunciation fixes. iOS-only (excluded from macOS/echo-cli).
 struct NarrationQAReviewView: View {
+    private struct PendingPronunciationAction {
+        let issue: NarrationQualityIssueRecord
+        let candidateID: String?
+    }
+
     @State private var model: NarrationQAReviewModel
     @State private var isRunning = false
-    @State private var pendingPronunciationFix: NarrationQualityIssueRecord?
+    @State private var pendingPronunciationAction: PendingPronunciationAction?
     @State private var applyingIssueID: String?
 
     init(model: NarrationQAReviewModel) {
@@ -30,14 +35,22 @@ struct NarrationQAReviewView: View {
             } else {
                 ForEach(model.issues) { issue in
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(issue.issueType.capitalized)
-                            .font(.caption).foregroundStyle(.secondary)
+                        Label(
+                            issueLabel(issue),
+                            systemImage: issueIcon(issue)
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                         LabeledContent("Expected", value: issue.expectedText)
                         LabeledContent(
                             "Heard", value: issue.heardText.isEmpty ? "\u{2014}" : issue.heardText)
-                        if hasActionablePronunciationFix(issue) {
+
+                        if let presentation = model.pronunciationPresentation(for: issue) {
+                            pronunciationEvidence(presentation, issue: issue)
+                        } else if hasLegacyActionablePronunciationFix(issue) {
                             Button("Add Pronunciation", systemImage: "textformat.abc") {
-                                pendingPronunciationFix = issue
+                                pendingPronunciationAction = PendingPronunciationAction(
+                                    issue: issue, candidateID: nil)
                             }
                             .buttonStyle(.bordered)
                             .disabled(applyingIssueID != nil)
@@ -52,29 +65,30 @@ struct NarrationQAReviewView: View {
         }
         .navigationTitle("Narration QA")
         .confirmationDialog(
-            "Add Pronunciation",
+            "Apply Pronunciation",
             isPresented: Binding(
-                get: { pendingPronunciationFix != nil },
+                get: { pendingPronunciationAction != nil },
                 set: { isPresented in
-                    if !isPresented { pendingPronunciationFix = nil }
+                    if !isPresented { pendingPronunciationAction = nil }
                 }),
             titleVisibility: .visible
         ) {
-            if let issue = pendingPronunciationFix {
-                if hasSourceOccurrence(issue) {
+            if let action = pendingPronunciationAction {
+                if hasSourceOccurrence(action.issue) {
                     Button("This Occurrence") {
-                        applyPronunciationFix(issue, scope: .occurrence)
+                        applyPronunciationAction(action, scope: .occurrence)
                     }
                 }
                 Button("This Book") {
-                    applyPronunciationFix(issue, scope: .book(issue.audiobookID))
+                    applyPronunciationAction(
+                        action, scope: .book(action.issue.audiobookID))
                 }
                 Button("All Books") {
-                    applyPronunciationFix(issue, scope: .global)
+                    applyPronunciationAction(action, scope: .global)
                 }
             }
             Button("Cancel", role: .cancel) {
-                pendingPronunciationFix = nil
+                pendingPronunciationAction = nil
             }
         }
         .toolbar {
@@ -98,8 +112,77 @@ struct NarrationQAReviewView: View {
         .onAppear { model.load() }
     }
 
-    private func hasActionablePronunciationFix(_ issue: NarrationQualityIssueRecord) -> Bool {
-        guard issue.issueType == NarrationQAIssueType.pronunciation.rawValue,
+    @ViewBuilder
+    private func pronunciationEvidence(
+        _ presentation: NarrationQAReviewModel.PronunciationReviewPresentation,
+        issue: NarrationQualityIssueRecord
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider()
+            Text("Current decision")
+                .font(.subheadline.weight(.semibold))
+            LabeledContent("IPA") {
+                Text(presentation.selectedIPA)
+                    .font(.body.monospaced())
+                    .accessibilityLabel("Current IPA, \(presentation.selectedIPA)")
+            }
+            LabeledContent(
+                "Candidate ID",
+                value: presentation.chosenCandidateID ?? "Recorded decision")
+            LabeledContent("Authority", value: displayName(presentation.selectedAuthority.rawValue))
+            LabeledContent("Reason", value: displayName(presentation.selectionReason.rawValue))
+            LabeledContent(
+                "Occurrences",
+                value: String(presentation.occurrenceCount))
+
+            Button("Use Current Pronunciation", systemImage: "textformat.abc") {
+                pendingPronunciationAction = PendingPronunciationAction(
+                    issue: issue, candidateID: nil)
+            }
+            .buttonStyle(.bordered)
+            .disabled(applyingIssueID != nil)
+
+            if !presentation.alternatives.isEmpty {
+                Text("Alternatives")
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.top, 2)
+                ForEach(presentation.alternatives, id: \.candidateID) { alternative in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(alternative.ipa)
+                            .font(.body.monospaced())
+                            .accessibilityLabel("Alternative IPA, \(alternative.ipa)")
+                        Text(
+                            "\(alternative.source) \u{2022} "
+                                + "\(displayName(alternative.authority.rawValue)) authority \u{2022} "
+                                + displayName(alternative.validation.rawValue)
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                        if alternative.validation == .eligible {
+                            Button("Use This Candidate") {
+                                pendingPronunciationAction = PendingPronunciationAction(
+                                    issue: issue,
+                                    candidateID: alternative.candidateID)
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(applyingIssueID != nil)
+                            .accessibilityLabel(
+                                "Use pronunciation \(alternative.ipa) from \(alternative.source)")
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+    }
+
+    private func hasLegacyActionablePronunciationFix(
+        _ issue: NarrationQualityIssueRecord
+    ) -> Bool {
+        guard issue.evidenceJSON == nil,
+            issue.issueType == NarrationQAIssueType.pronunciation.rawValue,
+            issue.origin != NarrationQualityIssueOrigin.acoustic.rawValue,
             let json = issue.suggestedFixJSON,
             let data = json.data(using: .utf8),
             let fix = try? JSONDecoder().decode(SuggestedFix.self, from: data),
@@ -108,15 +191,52 @@ struct NarrationQAReviewView: View {
         return true
     }
 
+    private func issueLabel(_ issue: NarrationQualityIssueRecord) -> String {
+        if issue.origin == NarrationQualityIssueOrigin.acoustic.rawValue {
+            return "Acoustic pronunciation review"
+        }
+        if issue.origin == NarrationQualityIssueOrigin.pronunciationPreflight.rawValue {
+            return "Pronunciation review"
+        }
+        return issue.issueType.capitalized
+    }
+
+    private func issueIcon(_ issue: NarrationQualityIssueRecord) -> String {
+        if issue.origin == NarrationQualityIssueOrigin.acoustic.rawValue {
+            return "waveform.badge.exclamationmark"
+        }
+        if issue.issueType == NarrationQAIssueType.pronunciation.rawValue {
+            return "textformat.abc"
+        }
+        return "waveform.badge.magnifyingglass"
+    }
+
+    private func displayName(_ rawValue: String) -> String {
+        rawValue
+            .replacingOccurrences(
+                of: "([a-z0-9])([A-Z])",
+                with: "$1 $2",
+                options: .regularExpression)
+            .replacingOccurrences(of: "-", with: " ")
+            .capitalized
+    }
+
     private func hasSourceOccurrence(_ issue: NarrationQualityIssueRecord) -> Bool {
         issue.sourceBlockID != nil && issue.sourceWordStart != nil && issue.sourceWordEnd != nil
     }
 
-    private func applyPronunciationFix(_ issue: NarrationQualityIssueRecord, scope: FixScope) {
-        pendingPronunciationFix = nil
-        applyingIssueID = issue.id
+    private func applyPronunciationAction(
+        _ action: PendingPronunciationAction,
+        scope: FixScope
+    ) {
+        pendingPronunciationAction = nil
+        applyingIssueID = action.issue.id
         Task { @MainActor in
-            await model.acceptFix(issue: issue, scope: scope)
+            if let candidateID = action.candidateID {
+                await model.acceptCandidate(candidateID, for: action.issue, scope: scope)
+            } else {
+                await model.acceptFix(issue: action.issue, scope: scope)
+            }
             applyingIssueID = nil
         }
     }

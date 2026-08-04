@@ -58,6 +58,17 @@ private func currentNarrationRenderUnits(
 @MainActor
 @Observable
 final class NarrationQAReviewModel {
+    struct PronunciationReviewPresentation: Identifiable, Equatable {
+        let id: String
+        let category: PronunciationAdvisoryEvidence.Category
+        let selectedIPA: String
+        let selectedAuthority: PronunciationAdvisoryEvidence.Authority
+        let selectionReason: PronunciationAdvisoryEvidence.SelectionReason
+        let alternatives: [PronunciationAdvisoryEvidence.Alternative]
+        let occurrenceCount: Int
+        var chosenCandidateID: String?
+    }
+
     struct Dependencies {
         typealias ClassifierFactory =
             @MainActor (_ preference: String, _ availabilityIsAvailable: Bool)
@@ -339,6 +350,14 @@ final class NarrationQAReviewModel {
     /// no rendered audio, repair failure). `nil` when the last action succeeded.
     var lastError: String?
 
+    var hasPronunciationReviewIssues: Bool {
+        issues.contains { issue in
+            issue.issueType == NarrationQAIssueType.pronunciation.rawValue
+                && (issue.origin == NarrationQualityIssueOrigin.pronunciationPreflight.rawValue
+                    || issue.origin == NarrationQualityIssueOrigin.acoustic.rawValue)
+        }
+    }
+
     private let db: DatabaseWriter
     private let audiobookID: String
     @ObservationIgnored private let dependencies: Dependencies
@@ -363,9 +382,99 @@ final class NarrationQAReviewModel {
         do {
             issues = try NarrationQualityIssueDAO(db: db)
                 .issues(for: audiobookID, status: NarrationQAIssueStatus.open.rawValue)
+            lastError = nil
         } catch {
             logger.error("load failed: \(error.localizedDescription)")
-            issues = []
+            lastError = "Couldn't refresh narration QA: \(error.localizedDescription)"
+        }
+    }
+
+    /// Projects only complete, builder-authored advisory envelopes into shared
+    /// review state. Legacy direct evidence remains visible as a normal QA row,
+    /// but cannot truthfully expose an occurrence count and therefore fails
+    /// closed without candidate controls.
+    func pronunciationPresentation(
+        for issue: NarrationQualityIssueRecord
+    ) -> PronunciationReviewPresentation? {
+        guard issue.issueType == NarrationQAIssueType.pronunciation.rawValue,
+            let evidenceJSON = issue.evidenceJSON,
+            let evidenceData = evidenceJSON.data(using: .utf8),
+            let fixJSON = issue.suggestedFixJSON,
+            let fixData = fixJSON.data(using: .utf8)
+        else { return nil }
+
+        do {
+            let issueEvidence = try JSONDecoder().decode(
+                PronunciationAdvisoryIssueEvidence.self, from: evidenceData)
+            let fix = try JSONDecoder().decode(SuggestedFix.self, from: fixData)
+            let advisory = issueEvidence.advisoryEvidence
+            guard issueEvidence.isValid(),
+                let selectedIPA = fix.ipa?.trimmingCharacters(in: .whitespacesAndNewlines),
+                !selectedIPA.isEmpty,
+                let selectedCandidateID = advisory.selectedCandidateID,
+                !selectedCandidateID.isEmpty,
+                originMatchesCategory(issue.origin, category: advisory.category)
+            else { return nil }
+
+            return PronunciationReviewPresentation(
+                id: issue.id,
+                category: advisory.category,
+                selectedIPA: selectedIPA,
+                selectedAuthority: advisory.selectedAuthority,
+                selectionReason: advisory.selectionReason,
+                alternatives: advisory.alternatives,
+                occurrenceCount: issueEvidence.occurrenceCount,
+                chosenCandidateID: selectedCandidateID)
+        } catch {
+            logger.debug("pronunciation evidence unavailable: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func originMatchesCategory(
+        _ origin: String,
+        category: PronunciationAdvisoryEvidence.Category
+    ) -> Bool {
+        switch category {
+        case .lexical, .contextual:
+            origin == NarrationQualityIssueOrigin.pronunciationPreflight.rawValue
+        case .acoustic:
+            origin == NarrationQualityIssueOrigin.acoustic.rawValue
+        }
+    }
+
+    /// Accepts only policy-eligible alternatives from a valid advisory
+    /// presentation. The temporary issue changes one field and then follows the
+    /// existing acceptFix path, preserving its scope and regeneration semantics.
+    func acceptCandidate(
+        _ candidateID: String,
+        for issue: NarrationQualityIssueRecord,
+        scope: FixScope
+    ) async {
+        guard let presentation = pronunciationPresentation(for: issue),
+            let alternative = presentation.alternatives.first(where: {
+                $0.candidateID == candidateID && $0.validation == .eligible
+            }),
+            let fixJSON = issue.suggestedFixJSON,
+            let fixData = fixJSON.data(using: .utf8)
+        else {
+            lastError = "This pronunciation candidate isn't eligible to apply."
+            return
+        }
+
+        do {
+            let currentFix = try JSONDecoder().decode(SuggestedFix.self, from: fixData)
+            let candidateFix = SuggestedFix(
+                spokenForm: currentFix.spokenForm,
+                ipa: alternative.ipa)
+            let candidateFixData = try JSONEncoder().encode(candidateFix)
+            var candidateIssue = issue
+            candidateIssue.suggestedFixJSON = String(
+                decoding: candidateFixData, as: UTF8.self)
+            await acceptFix(issue: candidateIssue, scope: scope)
+        } catch {
+            logger.error("acceptCandidate failed: \(error.localizedDescription)")
+            lastError = "This pronunciation candidate couldn't be applied."
         }
     }
 

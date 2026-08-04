@@ -80,9 +80,10 @@ import Testing
             from: try #require(record.suggestedFixJSON?.data(using: .utf8)))
         #expect(fix == SuggestedFix(spokenForm: "Content", ipa: "kˈɑntɛnt"))
         let decodedEvidence = try JSONDecoder().decode(
-            PronunciationAdvisoryEvidence.self,
+            PronunciationAdvisoryIssueEvidence.self,
             from: try #require(record.evidenceJSON?.data(using: .utf8)))
-        #expect(decodedEvidence == advisory)
+        #expect(decodedEvidence.advisoryEvidence == advisory)
+        #expect(decodedEvidence.occurrenceCount == 2)
         #expect(record.status == NarrationQAIssueStatus.open.rawValue)
     }
 

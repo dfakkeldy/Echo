@@ -111,3 +111,15 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
         return lhs.policyVersion < rhs.policyVersion
     }
 }
+
+/// Issue-local metadata that cannot be reconstructed after advisory decisions
+/// are grouped into one review row. The advisory receipt stays unchanged so it
+/// can continue to round-trip through audit manifests and older decoders.
+nonisolated struct PronunciationAdvisoryIssueEvidence: Codable, Equatable, Sendable {
+    let advisoryEvidence: PronunciationAdvisoryEvidence
+    let occurrenceCount: Int
+
+    func isValid() -> Bool {
+        occurrenceCount > 0 && advisoryEvidence.isValid()
+    }
+}

@@ -55,6 +55,7 @@ nonisolated struct PronunciationAdvisoryIssueBuilder: Sendable {
             return decisionRow(
                 audiobookID: audiobookID,
                 candidate: representative,
+                occurrenceCount: orderedGroup.count,
                 occurrenceIdentity: orderedGroup.map(\.locationIdentity)
                     .joined(separator: "\u{1E}"),
                 createdAt: createdAt)
@@ -74,11 +75,15 @@ nonisolated struct PronunciationAdvisoryIssueBuilder: Sendable {
     private func decisionRow(
         audiobookID: String,
         candidate: DecisionCandidate,
+        occurrenceCount: Int,
         occurrenceIdentity: String,
         createdAt: String
     ) -> NarrationQualityIssueRecord? {
         guard
-            let evidenceJSON = json(candidate.evidence),
+            let evidenceJSON = json(
+                PronunciationAdvisoryIssueEvidence(
+                    advisoryEvidence: candidate.evidence,
+                    occurrenceCount: occurrenceCount)),
             let origin = origin(for: candidate.evidence.category)
         else { return nil }
         let suggestedFixJSON = candidate.evidence.selectedCandidateID.flatMap { _ in
