@@ -32,7 +32,7 @@ words, contexts, human labels, and model output strings are intentionally absent
 - Revision: `f277d1e0597e7e7d33fa1d6d27d764bc4d7acb06`
 - Lock SHA-256: `3c4a6f8f61d3d0b2070add2337f9aed23f5174327a3dfb0c9c62920ee6ca84e8`
 - Kokoro vocabulary SHA-256: `ba536e2187cf4a12827b4e6138f29c17b795fcc3f8155386408d8d4edc229a41`
-- Conversion version: `mini-bart-arpabet-to-kokoro-ipa-v1`
+- Conversion version: `mini-bart-arpabet-to-kokoro-v1`
 - Validation version: `kokoro-vocab-validation-v1`
 - Selection version: `neural-oov-complete-selection-v1`
 

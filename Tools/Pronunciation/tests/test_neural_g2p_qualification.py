@@ -79,7 +79,7 @@ def trusted_receipt(row, **overrides):
         "modelRevision": "f277d1e0597e7e7d33fa1d6d27d764bc4d7acb06",
         "modelLockSHA256": hashlib.sha256(LOCK_PATH.read_bytes()).hexdigest(),
         "vocabSHA256": hashlib.sha256(VOCAB_PATH.read_bytes()).hexdigest(),
-        "conversionVersion": "mini-bart-arpabet-to-kokoro-ipa-v1",
+        "conversionVersion": "mini-bart-arpabet-to-kokoro-v1",
         "validationVersion": "kokoro-vocab-validation-v1",
         "selectionVersion": "neural-oov-complete-selection-v1",
     }
@@ -360,7 +360,7 @@ class NeuralG2PQualificationTests(unittest.TestCase):
         )
         self.assertRegex(result["corpusSHA256"], r"^[0-9a-f]{64}$")
         self.assertRegex(result["modelIdentity"]["lockSHA256"], r"^[0-9a-f]{64}$")
-        self.assertEqual("mini-bart-arpabet-to-kokoro-ipa-v1", result["conversionVersion"])
+        self.assertEqual("mini-bart-arpabet-to-kokoro-v1", result["conversionVersion"])
         self.assertEqual("kokoro-vocab-validation-v1", result["validationVersion"])
         self.assertEqual("neural-oov-complete-selection-v1", result["selectionVersion"])
 
