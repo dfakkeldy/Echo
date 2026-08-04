@@ -220,17 +220,32 @@ nonisolated struct EnglishPronunciationAuditPack: Equatable, Sendable {
                 !entry.candidates.isEmpty,
                 entry.candidates.count <= maximumCandidatesPerEntry
             else { throw ValidationError.invalid("entry") }
+
+            var candidateIDs = Set<String>()
+            var ipaBySource = [String: Set<String>]()
             for candidate in entry.candidates {
                 guard isBounded(candidate.candidateID, maximum: 256),
                     !candidate.candidateID.contains(where: \.isWhitespace),
                     isBounded(candidate.ipa, maximum: 256),
                     sourceIDs.contains(candidate.sourceID),
+                    candidate.candidateID == expectedCandidateID(
+                        sourceID: candidate.sourceID, word: word, ipa: candidate.ipa),
+                    candidateIDs.insert(candidate.candidateID).inserted,
                     candidate.authority == "uncertain",
                     candidate.validation == "shadow",
                     !candidate.automaticEligible
                 else { throw ValidationError.invalid("candidate") }
                 _ = try vocabulary.validatedIDs(forPhonemes: candidate.ipa)
+                ipaBySource[candidate.sourceID, default: []].insert(candidate.ipa)
             }
+            let cmudictIPAs = ipaBySource["cmudict"] ?? []
+            let comparisonIPAs = ["echo-us-gold", "echo-us-silver"].compactMap {
+                ipaBySource[$0]
+            }
+            guard !cmudictIPAs.isEmpty,
+                !comparisonIPAs.isEmpty,
+                comparisonIPAs.contains(where: { $0 != cmudictIPAs })
+            else { throw ValidationError.invalid("audit invariant") }
             candidates += entry.candidates.count
         }
         guard candidates == manifest.candidateCount,
@@ -297,6 +312,11 @@ nonisolated struct EnglishPronunciationAuditPack: Equatable, Sendable {
 
     private static func sha256Hex(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func expectedCandidateID(sourceID: String, word: String, ipa: String) -> String {
+        let digest = String(sha256Hex(Data("\(sourceID)\0\(word)\0\(ipa)".utf8)).prefix(12))
+        return "\(sourceID).\(word).\(digest)"
     }
 
     private static func isSHA256(_ value: String) -> Bool {
