@@ -491,6 +491,73 @@ private actor ShadowEvaluatorRecorder {
         #expect(cacheURL.lastPathComponent.contains("-h\(expectedSignature)-"))
     }
 
+    @Test func auditPackAddsAdvisoryEvidenceWithoutChangingPlanOrCacheIdentity() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["Please record enough words."])
+        let auditPack = await EnglishPronunciationAuditPack.bundledOrEmpty()
+        let evaluator: ContextualPronunciationBatchEvaluator = { _ in
+            ContextualPronunciationBatchResult(
+                availability: .deviceNotEligible,
+                selections: [],
+                failure: nil,
+                runtime: ContextualModelRuntime(
+                    platform: "test",
+                    osBuild: "test-build",
+                    qualifiedRuntimeFamilyID: "test-runtime"))
+        }
+        func service(auditPack: EnglishPronunciationAuditPack) -> NarrationService {
+            NarrationService(
+                db: db.writer,
+                audiobookID: "b1",
+                tts: MockTTSEngine(),
+                audioWriter: MockAudioWriter(),
+                cacheDirectory: FileManager.default.temporaryDirectory,
+                state: NarrationState(),
+                pronunciationPack: .empty,
+                pronunciationAuditPack: auditPack,
+                contextualPronunciationEvaluator: evaluator,
+                fmEnabled: { false })
+        }
+
+        let audited = service(auditPack: auditPack)
+        let unaudited = service(auditPack: .empty)
+        let auditedPlan = try await audited.renderPlan(
+            for: blocks,
+            overrides: PronunciationOverrides(entries: [:]),
+            occurrenceOverrides: .empty,
+            fmEnabled: false)
+        let unauditedPlan = try await unaudited.renderPlan(
+            for: blocks,
+            overrides: PronunciationOverrides(entries: [:]),
+            occurrenceOverrides: .empty,
+            fmEnabled: false)
+        let auditedDecision = try #require(
+            auditedPlan.blocks.first?.pronunciationDecisions.first {
+                $0.normalizedWord == "record"
+            })
+        let unauditedDecision = try #require(
+            unauditedPlan.blocks.first?.pronunciationDecisions.first {
+                $0.normalizedWord == "record"
+            })
+
+        #expect(auditedDecision.selectedIPA == unauditedDecision.selectedIPA)
+        #expect(
+            auditedPlan.blocks.first?.synthesisChunks.map(\.phonemes)
+                == unauditedPlan.blocks.first?.synthesisChunks.map(\.phonemes))
+        #expect(auditedDecision.advisoryEvidence?.alternatives.isEmpty == false)
+        #expect(unauditedDecision.advisoryEvidence?.alternatives.isEmpty == true)
+        let auditedCacheURL = await audited.chapterCacheURL(
+            chapterIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+        let unauditedCacheURL = await unaudited.chapterCacheURL(
+            chapterIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+
+        #expect(auditedCacheURL == unauditedCacheURL)
+    }
+
     @Test func contextualShadowOutcomesCannotChangeNarrationOrCacheIdentity() async throws {
         let sourceBlocks = [
             block(

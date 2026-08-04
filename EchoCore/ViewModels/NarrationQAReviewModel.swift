@@ -314,6 +314,7 @@ final class NarrationQAReviewModel {
                 db: DatabaseWriter, audiobookID: String
             ) async -> NarrationService {
                 let pronunciationPack = await EnglishPronunciationPack.bundledOrEmpty()
+                let pronunciationAuditPack = await EnglishPronunciationAuditPack.bundledOrEmpty()
                 return NarrationService(
                     db: db, audiobookID: audiobookID,
                     tts: NarrationEngineFactory.make(),
@@ -327,7 +328,8 @@ final class NarrationQAReviewModel {
                         PronunciationOverrideStore.shared.occurrenceOverrides(
                             forBookID: audiobookID)
                     },
-                    pronunciationPack: pronunciationPack)
+                    pronunciationPack: pronunciationPack,
+                    pronunciationAuditPack: pronunciationAuditPack)
             }
         #endif
     }

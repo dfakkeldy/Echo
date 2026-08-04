@@ -95,6 +95,7 @@ enum NarrationRenderPlanner {
         blocks: [EPubBlockRecord],
         overrides: PronunciationOverrides,
         pronunciationPack: EnglishPronunciationPack = .empty,
+        pronunciationAuditPack: EnglishPronunciationAuditPack = .empty,
         contextualEvidence: [ContextualPronunciationKey: ContextualPronunciationEvidence] = [:],
         requiresContextualEvidence: Bool = false,
         maxChars: Int = 350,
@@ -112,6 +113,7 @@ enum NarrationRenderPlanner {
             },
             overrides: overrides,
             pronunciationPack: pronunciationPack,
+            pronunciationAuditPack: pronunciationAuditPack,
             contextualEvidence: contextualEvidence,
             requiresContextualEvidence: requiresContextualEvidence,
             maxChars: maxChars,
@@ -122,6 +124,7 @@ enum NarrationRenderPlanner {
         preparedBlocks: [NarrationPreparedBlock],
         overrides: PronunciationOverrides,
         pronunciationPack: EnglishPronunciationPack = .empty,
+        pronunciationAuditPack: EnglishPronunciationAuditPack = .empty,
         contextualEvidence: [ContextualPronunciationKey: ContextualPronunciationEvidence] = [:],
         requiresContextualEvidence: Bool = false,
         maxChars: Int = 350,
@@ -130,6 +133,9 @@ enum NarrationRenderPlanner {
         // One planner owns the single `KokoroG2P` (and its ~12 MB lexicon) for
         // this render unit; the chunker sizes splits via its phoneme count.
         let pronunciationPlanner = try PronunciationPlanner()
+        let candidateAnalyzer = PronunciationCandidateAnalyzer(
+            productionPack: pronunciationPack,
+            auditPack: pronunciationAuditPack)
         let resolvedPhonemeCount = pronunciationPlanner.phonemeCount(for:)
         let candidates = preparedBlocks.filter { preparedBlock in
             let block = preparedBlock.block
@@ -193,12 +199,18 @@ enum NarrationRenderPlanner {
             for fragment in fragments {
                 let chunk = try pronunciationPlanner.planResolved(fragment)
                 let tokenDecisionSeeds = chunk.pronunciationTokenEvidence.compactMap { evidence in
-                    PronunciationAuditContext.decisionSeed(
+                    let normalizedWord = PronunciationAuditContext.normalizedWord(evidence.text)
+                    return PronunciationAuditContext.decisionSeed(
                         for: evidence,
                         blockID: block.id,
                         chunkDisplayText: chunk.displayText,
                         blockDisplayText: blockDisplayText,
-                        wordBase: wordBase)
+                        wordBase: wordBase,
+                        isComparisonCandidate:
+                            !pronunciationAuditPack.alternatives(for: normalizedWord).isEmpty
+                                || (pronunciationPack.hasExplicitCandidate(for: normalizedWord)
+                                    && pronunciationPack.automaticCandidate(
+                                        for: normalizedWord) == nil))
                 }
                 // Explicit rewrite-stage decisions remain first so they win any
                 // collision with evidence emitted by the final G2P pass.
@@ -219,6 +231,17 @@ enum NarrationRenderPlanner {
                 }
                 try validateContextualEvidence(evidence, for: seed)
                 return seed.attachingContextualEvidence(evidence)
+            }
+            let fallbackHits = synthesisChunks.flatMap(\.pronunciationFallbackHits)
+            decisionSeeds = decisionSeeds.map { seed in
+                guard let evidence = candidateAnalyzer.evidence(
+                    for: seed,
+                    fallbackHits: fallbackHits,
+                    isWatchWord: PronunciationWatchVocabulary.words.contains(seed.normalizedWord))
+                else {
+                    return seed
+                }
+                return seed.attachingAdvisoryEvidence(evidence)
             }
             let pronunciationMaterialization = materializedPronunciationEvidence(
                 from: decisionSeeds,

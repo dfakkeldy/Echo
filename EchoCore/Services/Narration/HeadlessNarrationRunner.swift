@@ -1090,6 +1090,9 @@ struct NarrationRunResult {
         pronunciationPackLoader: @escaping @Sendable () async -> EnglishPronunciationPack = {
             await EnglishPronunciationPack.bundledOrEmpty()
         },
+        pronunciationAuditPackLoader: @escaping @Sendable () async -> EnglishPronunciationAuditPack = {
+            await EnglishPronunciationAuditPack.bundledOrEmpty()
+        },
         reviewGenerator:
             @escaping @MainActor (PronunciationReviewRequest) async throws ->
             PronunciationReviewOutcome = { request in
@@ -1101,6 +1104,7 @@ struct NarrationRunResult {
         defer { withExtendedLifetime(runLease) {} }
         let fm = FileManager.default
         let pronunciationPack = await pronunciationPackLoader()
+        let pronunciationAuditPack = await pronunciationAuditPackLoader()
 
         let source = try resolveNarrationSource(at: config.epubURL)
         let sourceURL = source.sourceURL
@@ -1387,6 +1391,7 @@ struct NarrationRunResult {
                         pronunciationOverrides: { overrides },
                         pronunciationOccurrenceOverrides: { occurrenceOverrides },
                         pronunciationPack: pronunciationPack,
+                        pronunciationAuditPack: pronunciationAuditPack,
                         fmEnabled: { config.enableFMNormalization })
                     while cursor.next < batch.count {
                         let pos = cursor.next

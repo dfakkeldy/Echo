@@ -7,6 +7,10 @@ struct NarrationPronunciationCandidate: Codable, Equatable, Sendable {
         case acronym
         case fallbackPronunciation
         case properNoun
+        case sourceDisagreement
+        case multipleTrustedPronunciations
+        case contextualFamily
+        case unsupportedPhonemes
     }
 
     let word: String

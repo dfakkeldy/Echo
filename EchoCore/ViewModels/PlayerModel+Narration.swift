@@ -141,6 +141,7 @@
                     }
 
                     let pronunciationPack = await EnglishPronunciationPack.bundledOrEmpty()
+                    let pronunciationAuditPack = await EnglishPronunciationAuditPack.bundledOrEmpty()
                     try NarrationRenderPolicy.checkTaskIsActive(
                         currentFolderURL: self.bookIdentityURL?.absoluteString,
                         audiobookID: audiobookID)
@@ -156,7 +157,8 @@
                             PronunciationOverrideStore.shared.occurrenceOverrides(
                                 forBookID: audiobookID)
                         },
-                        pronunciationPack: pronunciationPack)
+                        pronunciationPack: pronunciationPack,
+                        pronunciationAuditPack: pronunciationAuditPack)
                     let existingFileNames = Set(
                         (try? FileManager.default.contentsOfDirectory(
                             atPath: cacheDirectory.path)) ?? [])

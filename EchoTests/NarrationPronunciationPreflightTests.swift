@@ -47,7 +47,15 @@ import Testing
         let candidates = [
             NarrationPronunciationCandidate(
                 word: "Xcode",
-                reasons: [.emptyPhonemes, .fallbackPronunciation, .properNoun],
+                reasons: [
+                    .emptyPhonemes,
+                    .fallbackPronunciation,
+                    .properNoun,
+                    .sourceDisagreement,
+                    .multipleTrustedPronunciations,
+                    .contextualFamily,
+                    .unsupportedPhonemes,
+                ],
                 occurrenceCount: 4)
         ]
 
@@ -59,5 +67,9 @@ import Testing
         #expect(json.contains("emptyPhonemes"))
         #expect(json.contains("fallbackPronunciation"))
         #expect(json.contains("properNoun"))
+        #expect(json.contains("sourceDisagreement"))
+        #expect(json.contains("multipleTrustedPronunciations"))
+        #expect(json.contains("contextualFamily"))
+        #expect(json.contains("unsupportedPhonemes"))
     }
 }

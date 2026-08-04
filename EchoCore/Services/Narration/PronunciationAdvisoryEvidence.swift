@@ -103,9 +103,9 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
     }
 
     private static func isOrderedBefore(_ lhs: Alternative, _ rhs: Alternative) -> Bool {
+        if lhs.source != rhs.source { return lhs.source < rhs.source }
         if lhs.candidateID != rhs.candidateID { return lhs.candidateID < rhs.candidateID }
         if lhs.ipa != rhs.ipa { return lhs.ipa < rhs.ipa }
-        if lhs.source != rhs.source { return lhs.source < rhs.source }
         if lhs.authority != rhs.authority { return lhs.authority.rawValue < rhs.authority.rawValue }
         if lhs.validation != rhs.validation { return lhs.validation.rawValue < rhs.validation.rawValue }
         return lhs.policyVersion < rhs.policyVersion

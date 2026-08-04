@@ -366,6 +366,36 @@ import Testing
                     pronunciationPolicySignature: second.productionPolicySignature))
     }
 
+    @Test func auditPackVersionCannotChangeNarrationFilenameOrContentSignature() async {
+        let production = EnglishPronunciationPack.emptyForTesting(
+            packVersion:
+                "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            kokoroVocabularyVersion:
+                "sha256:1111111111111111111111111111111111111111111111111111111111111111")
+        let audit = await EnglishPronunciationAuditPack.bundledOrEmpty()
+        let block = block(id: "b0", text: "Stable text.")
+        func identity(for auditPack: EnglishPronunciationAuditPack) -> (String, String) {
+            // The audit version is intentionally observed only here: shadow
+            // evidence must not enter either production identity.
+            _ = auditPack.auditPackVersion
+            let signature = NarrationFileNaming.contentSignature(
+                spokenBlocks: [block],
+                renderedTexts: ["Stable text."],
+                includeLeadOutPad: false,
+                pronunciationPolicySignature: production.productionPolicySignature)
+            return (
+                signature,
+                NarrationFileNaming.chapterFileName(
+                    audiobookID: "book",
+                    chapterIndex: 0,
+                    voice: VoiceID("af_heart"),
+                    contentSignature: signature))
+        }
+
+        #expect(audit.auditPackVersion != EnglishPronunciationAuditPack.empty.auditPackVersion)
+        #expect(identity(for: audit) == identity(for: .empty))
+    }
+
     @Test func contentSignedFileNamesStillRoundTripLocations() {
         let signature = "0123456789abcdef"
         let segment = NarrationFileNaming.segmentFileName(

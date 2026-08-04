@@ -847,6 +847,28 @@ nonisolated struct PronunciationDecisionSeed: Equatable, Sendable {
             contextualEvidence: contextualEvidence,
             advisoryEvidence: advisoryEvidence)
     }
+
+    func attachingAdvisoryEvidence(
+        _ advisoryEvidence: PronunciationAdvisoryEvidence
+    ) -> PronunciationDecisionSeed {
+        PronunciationDecisionSeed(
+            blockID: blockID,
+            wordStart: wordStart,
+            wordEnd: wordEnd,
+            normalizedWord: normalizedWord,
+            sourceWord: sourceWord,
+            sourceContext: sourceContext,
+            selectedIPA: selectedIPA,
+            source: source,
+            ruleID: ruleID,
+            rationale: rationale,
+            candidateID: candidateID,
+            candidatePackVersion: candidatePackVersion,
+            derivationBase: derivationBase,
+            derivationRuleID: derivationRuleID,
+            contextualEvidence: contextualEvidence,
+            advisoryEvidence: advisoryEvidence)
+    }
 }
 
 nonisolated struct PronunciationRewriteResult: Equatable, Sendable {
@@ -1032,13 +1054,16 @@ nonisolated enum PronunciationAuditContext {
         blockID: String,
         chunkDisplayText: String,
         blockDisplayText: String,
-        wordBase: Int
+        wordBase: Int,
+        isComparisonCandidate: Bool = false
     ) -> PronunciationDecisionSeed? {
         guard !evidence.selectedPhonemes.isEmpty else { return nil }
         let normalizedWord = normalizedWord(evidence.text)
         guard
             !normalizedWord.isEmpty,
-            evidence.usedFallback || PronunciationWatchVocabulary.words.contains(normalizedWord),
+            evidence.usedFallback || isComparisonCandidate
+                || PronunciationWatchVocabulary.words.contains(normalizedWord)
+                || isLikelyAcronymOrProperNoun(evidence.text),
             let localWordSpan = wordSpan(
                 overlappingDisplayCharacterRange: evidence.displayCharacterRange,
                 in: chunkDisplayText)
@@ -1082,5 +1107,12 @@ nonisolated enum PronunciationAuditContext {
             source: source,
             ruleID: "g2p.\(ruleKind).\(ruleComponent(evidence.text))",
             rationale: rationale)
+    }
+
+    private static func isLikelyAcronymOrProperNoun(_ word: String) -> Bool {
+        let letters = word.filter(\.isLetter)
+        guard letters.count > 1 else { return false }
+        return letters.allSatisfy(\.isUppercase)
+            || (letters.first?.isUppercase == true && !letters.allSatisfy(\.isUppercase))
     }
 }

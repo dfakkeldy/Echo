@@ -436,6 +436,79 @@ import ZIPFoundation
         #expect(Set(request.watchWords) == PronunciationWatchVocabulary.words)
     }
 
+    @Test func headlessAndAppPlanningCarryEquivalentAdvisoryEvidence() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let epub = try TestEPUBFixture.twoChapters(in: tmp)
+        let chapterURL = epub.appending(path: "OEBPS/chap01.xhtml")
+        let original = try String(contentsOf: chapterURL, encoding: .utf8)
+        try original.replacingOccurrences(
+            of: "It contains enough words for narration synthesis to produce a non-trivial output.",
+            with: "Please record enough words.")
+            .write(to: chapterURL, atomically: true, encoding: .utf8)
+
+        let auditPack = await EnglishPronunciationAuditPack.bundledOrEmpty()
+        let appBlock = EPubBlockRecord(
+            id: "app-record",
+            audiobookID: "app-book",
+            spineHref: "chap01.xhtml",
+            spineIndex: 0,
+            blockIndex: 1,
+            sequenceIndex: 1,
+            blockKind: EPubBlockRecord.Kind.paragraph.rawValue,
+            text: "Please record enough words.",
+            htmlContent: nil,
+            cardColor: nil,
+            chapterThemeColor: nil,
+            imagePath: nil,
+            chapterIndex: 0,
+            isHidden: false,
+            hiddenReason: nil,
+            isFrontMatter: false,
+            wordCount: nil,
+            markers: nil,
+            textFormats: nil,
+            createdAt: nil,
+            modifiedAt: nil)
+        let appPlan = try NarrationRenderPlanner.make(
+            blocks: [appBlock],
+            overrides: PronunciationOverrides(entries: [:]),
+            pronunciationPack: .empty,
+            pronunciationAuditPack: auditPack)
+        let appEvidence = try #require(
+            appPlan.blocks.first?.pronunciationDecisions.first {
+                $0.normalizedWord == "record"
+            }?.advisoryEvidence)
+
+        let config = NarrationRunConfig(
+            epubURL: epub,
+            outM4BURL: tmp.appendingPathComponent("equivalent.m4b"),
+            sidecarURL: nil,
+            workDir: tmp.appendingPathComponent("equivalent-work"),
+            voice: VoiceID("af_heart"),
+            title: "Equivalence",
+            author: "Tester",
+            maxNewChaptersPerRun: nil)
+        var capturedRequest: PronunciationReviewRequest?
+        _ = try await HeadlessNarrationRunner().run(
+            config,
+            tts: StubEngine(),
+            pronunciationPackLoader: { .empty },
+            pronunciationAuditPackLoader: { auditPack },
+            reviewGenerator: { request in
+                capturedRequest = request
+                return .auditOnly(auditURL: request.auditURL)
+            })
+
+        let headlessEvidence = try #require(
+            capturedRequest?.decisions.first {
+                $0.normalizedWord == "record"
+            }?.advisoryEvidence)
+        #expect(headlessEvidence == appEvidence)
+    }
+
     private enum ReviewFixtureError: Error {
         case failed
     }

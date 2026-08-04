@@ -98,6 +98,8 @@ final class NarrationService {
     private let pronunciationOccurrenceOverrides: () -> PronunciationOccurrenceOverrides
     /// Immutable pronunciation source snapshot shared by planning and cache identity.
     private let pronunciationPack: EnglishPronunciationPack
+    /// Advisory-only pronunciation source snapshot. It is never part of cache identity.
+    private let pronunciationAuditPack: EnglishPronunciationAuditPack
     private let contextualPronunciationEvaluator: ContextualPronunciationBatchEvaluator
 
     init(
@@ -110,6 +112,7 @@ final class NarrationService {
             .empty
         },
         pronunciationPack: EnglishPronunciationPack = .empty,
+        pronunciationAuditPack: EnglishPronunciationAuditPack = .empty,
         contextualPronunciationEvaluator: @escaping ContextualPronunciationBatchEvaluator =
             FoundationModelsContextualPronunciationEvaluator.makeBatchEvaluator(),
         fmEnabled: @escaping () -> Bool = {
@@ -125,6 +128,7 @@ final class NarrationService {
         self.pronunciationOverrides = pronunciationOverrides
         self.pronunciationOccurrenceOverrides = pronunciationOccurrenceOverrides
         self.pronunciationPack = pronunciationPack
+        self.pronunciationAuditPack = pronunciationAuditPack
         self.contextualPronunciationEvaluator = contextualPronunciationEvaluator
         self.fmEnabledProvider = fmEnabled
     }
@@ -1060,6 +1064,7 @@ final class NarrationService {
             preparedBlocks: preparedBlocks,
             overrides: overrides,
             pronunciationPack: pronunciationPack,
+            pronunciationAuditPack: pronunciationAuditPack,
             contextualEvidence: contextualEvidenceByKey,
             requiresContextualEvidence: true)
     }

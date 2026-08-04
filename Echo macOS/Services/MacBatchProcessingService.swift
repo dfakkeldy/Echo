@@ -277,6 +277,7 @@ final class MacBatchProcessingService {
                     preferredVoice: voice,
                     manifest: manifest)
                 let pronunciationPack = await EnglishPronunciationPack.bundledOrEmpty()
+                let pronunciationAuditPack = await EnglishPronunciationAuditPack.bundledOrEmpty()
                 // Built via a closure so a failed chapter can retry with a FRESH
                 // engine — re-initialising KokoroAne resets the ANE state that an
                 // inference failure (e.g. the Kokoro vocoder tripping on the Neural
@@ -297,7 +298,8 @@ final class MacBatchProcessingService {
                         cacheDirectory: NarrationCache.directory(), state: NarrationState(),
                         pronunciationOverrides: overrideClosures.overrides,
                         pronunciationOccurrenceOverrides: overrideClosures.occurrenceOverrides,
-                        pronunciationPack: pronunciationPack)
+                        pronunciationPack: pronunciationPack,
+                        pronunciationAuditPack: pronunciationAuditPack)
                 }
                 var service = makeService()
                 // One-time engine prepare (download + compile the CoreML model set) BEFORE the
