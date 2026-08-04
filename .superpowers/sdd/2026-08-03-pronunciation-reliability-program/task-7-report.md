@@ -356,17 +356,27 @@ The first mixed render regression run reached the production planner but had
 one fixture error: its injected phoneme range counted the raw marker (`0..<2`)
 instead of the repository's marker-stripped token stream (`0..<1`), so no
 materialized selection was expected. The range was corrected. The final
-governed build-for-testing succeeded after that correction. Per coordinator
-direction, no further render-plan test was started; its final green execution
-is therefore not claimed in this round.
+governed build-for-testing succeeded after that correction. A verification-only
+follow-up then ran the corrected focused suite without making further changes.
 
 Final executed commands, through the governed Apple build slot:
 
 ```sh
 XBG_ALLOW_NOW=1 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
 XBG_ALLOW_NOW=1 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PronunciationAuditTests
+XBG_ALLOW_NOW=1 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationRenderPlanTests
 ```
 
-Result: build-for-testing passed and `PronunciationAuditTests` passed 25/25.
-`NarrationRenderPlanTests` is explicitly unrun after the fixture-only range
-correction; the earlier run was 44 passed, 1 failed because of that range.
+Result: build-for-testing passed, `PronunciationAuditTests` passed 25/25, and
+the corrected `NarrationRenderPlanTests` passed 45/45 with zero failures.
+
+### Final independent review
+
+The fifth and final scoped re-review found no correctness issues. It confirmed
+that the shared marker-stripped predicate governs seed creation, typed invalid
+output handling, receipt materialization, schema-five validation, and capture
+sealing. It also confirmed the four boundary cases: empty output is rejected,
+marker-only output is non-error, marker plus valid IPA remains on the normal
+synthesis path, and marker plus genuinely invalid output is rejected.
+
+Final verdict: `SAFE` at `66fb22764b3144cf8d245ae4f997b8cba56abc46`.
