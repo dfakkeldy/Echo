@@ -1320,7 +1320,7 @@ final class NarrationService {
 
         return plan.blocks.flatMap { plannedBlock in
             plannedBlock.pronunciationDecisions.map { decision in
-                guard !decision.isEvidenceOnlyAdvisory else {
+                guard !decision.isEvidenceOnlyInvalidOutputAdvisory else {
                     return decision.attachingRenderTiming(
                         chapterIndex: chapterIndex,
                         chapterRelativeAudioRange: nil,

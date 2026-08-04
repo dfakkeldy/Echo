@@ -307,11 +307,22 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
             timingPrecision: timingPrecision)
     }
 
-    /// An advisory receipt for output that could not be safely dispatched to
-    /// Kokoro. It remains reviewable in the audit, but has no token IDs or
-    /// audio timing and therefore cannot produce a listening-reel sample.
-    var isEvidenceOnlyAdvisory: Bool {
-        advisoryEvidence != nil && kokoroTokenIDs.isEmpty
+    /// An advisory receipt for raw G2P output that could not be safely
+    /// dispatched to Kokoro. It remains reviewable in the audit, but has no
+    /// token IDs or audio timing and therefore cannot produce a listening-reel
+    /// sample or bypass ordinary capture validation.
+    var isEvidenceOnlyInvalidOutputAdvisory: Bool {
+        guard let advisoryEvidence,
+            advisoryEvidence.category == .lexical,
+            advisoryEvidence.isValid(),
+            kokoroTokenIDs.isEmpty,
+            chapterRelativeAudioRange == nil,
+            bookRelativeAudioRange == nil,
+            timingPrecision == nil
+        else {
+            return false
+        }
+        return PronunciationAuditContext.hasUnencodableSelectedOutput(selectedIPA)
     }
 }
 
@@ -1076,7 +1087,8 @@ nonisolated enum PronunciationAuditContext {
             !normalizedWord.isEmpty,
             evidence.usedFallback || isComparisonCandidate
                 || PronunciationWatchVocabulary.words.contains(normalizedWord)
-                || isLikelyAcronymOrProperNoun(evidence.text),
+                || isLikelyAcronymOrProperNoun(evidence.text)
+                || hasUnencodableSelectedOutput(evidence.selectedPhonemes),
             let localWordSpan = wordSpan(
                 overlappingDisplayCharacterRange: evidence.displayCharacterRange,
                 in: chunkDisplayText)
@@ -1120,6 +1132,15 @@ nonisolated enum PronunciationAuditContext {
             source: source,
             ruleID: "g2p.\(ruleKind).\(ruleComponent(evidence.text))",
             rationale: rationale)
+    }
+
+    /// Invalid raw token output is audit-worthy even when it did not arise from
+    /// an ordinary fallback/watch/comparison route. This is a receipt-only
+    /// predicate; `PronunciationPlanner` remains the strict synthesis boundary.
+    nonisolated static func hasUnencodableSelectedOutput(_ phonemes: String) -> Bool {
+        guard !phonemes.isEmpty else { return true }
+        guard let vocabulary = try? KokoroPhonemeVocab() else { return true }
+        return (try? vocabulary.validatedIDs(forPhonemes: phonemes)) == nil
     }
 
     private static func isLikelyAcronymOrProperNoun(_ word: String) -> Bool {

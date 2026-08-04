@@ -282,14 +282,13 @@ enum NarrationRenderPlanner {
         for seed in seeds {
             if requiresEvidenceOnlyMaterialization(seed) {
                 decisions.append(seed.evidenceOnlyMaterialized())
-                if let owner = owningMatchedChunk(for: seed, in: synthesisChunks) {
-                    diagnostics.append(
-                        decisionEvidenceMismatchDiagnostic(
-                            for: seed,
-                            chunkIndex: owner.index,
-                            fallbackHits: owner.chunk.pronunciationFallbackHits,
-                            finalIPA: nil))
-                }
+                let owner = owningMatchedChunk(for: seed, in: synthesisChunks)
+                diagnostics.append(
+                    decisionEvidenceMismatchDiagnostic(
+                        for: seed,
+                        chunkIndex: owner?.index ?? -1,
+                        fallbackHits: owner?.chunk.pronunciationFallbackHits ?? [],
+                        finalIPA: nil))
                 continue
             }
 

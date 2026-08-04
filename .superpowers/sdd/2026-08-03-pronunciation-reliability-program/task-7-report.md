@@ -164,3 +164,56 @@ inserting them as literal display text.
 
 Pending final commit:
 `fix(narration): retain invalid G2P advisory evidence`
+
+## Fix round 2: seal invalid-output evidence without synthesis
+
+### Delivered
+
+- `PronunciationAuditContext` now admits a seed when its selected output is
+  empty or cannot be encoded by the Kokoro vocabulary, even without fallback,
+  watch-word, acronym, or pack-disagreement evidence. Planner vocabulary rules
+  remain unchanged.
+- The materializer retains that seed as advisory evidence and always emits an
+  explicit `decisionEvidenceMismatch` diagnostic. With no matching synthesis
+  chunk the diagnostic has `chunkIndex == -1`; it does not invent a chunk.
+- Headless capture sealing accepts only this strict evidence-only class:
+  valid lexical advisory, valid location, unencodable selected output, no
+  token IDs, and no timing/range fields. Ordinary malformed empty decisions,
+  including a contextual advisory, remain rejected.
+- The end-to-end headless regression uses real token evidence for `""` and a
+  NUL output, invokes the analyzer, materializes with no synthesis chunks, and
+  seals/validates then encodes and decodes the current schema-5 manifest. It
+  proves incomplete coverage, the `-1` mismatch diagnostic, an empty listening
+  reel, and the unchanged chapter content signature/cache key.
+- Removed the earlier misleading render-plan tests that paired invalid seeds
+  with unrelated valid synthesis chunks.
+
+### TDD and verification
+
+The initial RED run of the new headless regression was `47 total, 46 passed,
+1 failed`: empty selected output produced no decision seed. The first GREEN
+attempt exposed only a fixture provenance omission (the deliberate unowned
+diagnostic needed its chapter stamped); after that concrete correction the
+full terminal suite passed.
+
+Final commands, through the governed Apple build slot:
+
+```sh
+XBG_ALLOW_NOW=1 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+XBG_ALLOW_NOW=1 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/HeadlessNarrationRunnerTests
+```
+
+Result: build-for-testing succeeded, and `HeadlessNarrationRunnerTests` passed
+47/47 in 428.962 seconds. `git diff --check` passed.
+
+### Fix-round concern
+
+The strict sealed-capture exception is intentionally restricted to lexical,
+valid advisory evidence whose raw selected output is unencodable and whose
+render timing is entirely absent. Future advisory categories must not reuse
+this path without a separate capture integrity rule.
+
+### Fix-round commit
+
+Pending final commit:
+`fix(narration): seal invalid G2P audit evidence`
