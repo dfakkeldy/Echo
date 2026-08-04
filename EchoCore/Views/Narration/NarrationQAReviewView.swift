@@ -7,8 +7,14 @@ import SwiftUI
 /// pronunciation fixes. iOS-only (excluded from macOS/echo-cli).
 struct NarrationQAReviewView: View {
     private struct PendingPronunciationAction {
+        enum Kind {
+            case legacy
+            case currentAdvisory
+            case alternative(String)
+        }
+
         let issue: NarrationQualityIssueRecord
-        let candidateID: String?
+        let kind: Kind
     }
 
     @State private var model: NarrationQAReviewModel
@@ -50,7 +56,7 @@ struct NarrationQAReviewView: View {
                         } else if hasLegacyActionablePronunciationFix(issue) {
                             Button("Add Pronunciation", systemImage: "textformat.abc") {
                                 pendingPronunciationAction = PendingPronunciationAction(
-                                    issue: issue, candidateID: nil)
+                                    issue: issue, kind: .legacy)
                             }
                             .buttonStyle(.bordered)
                             .disabled(applyingIssueID != nil)
@@ -119,28 +125,45 @@ struct NarrationQAReviewView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Divider()
-            Text("Current decision")
+            Text("Pronunciation evidence")
                 .font(.subheadline.weight(.semibold))
-            LabeledContent("IPA") {
-                Text(presentation.selectedIPA)
-                    .font(.body.monospaced())
-                    .accessibilityLabel("Current IPA, \(presentation.selectedIPA)")
-            }
-            LabeledContent(
-                "Candidate ID",
-                value: presentation.chosenCandidateID ?? "Recorded decision")
-            LabeledContent("Authority", value: displayName(presentation.selectedAuthority.rawValue))
+            LabeledContent("Category", value: displayName(presentation.category.rawValue))
             LabeledContent("Reason", value: displayName(presentation.selectionReason.rawValue))
             LabeledContent(
                 "Occurrences",
                 value: String(presentation.occurrenceCount))
 
-            Button("Use Current Pronunciation", systemImage: "textformat.abc") {
-                pendingPronunciationAction = PendingPronunciationAction(
-                    issue: issue, candidateID: nil)
+            if let selected = presentation.selectedCandidate {
+                Text("Current decision")
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.top, 2)
+                LabeledContent("IPA") {
+                    Text(selected.ipa)
+                        .font(.body.monospaced())
+                        .accessibilityLabel("Current IPA, \(selected.ipa)")
+                }
+                LabeledContent("Candidate ID", value: selected.candidateID)
+                LabeledContent("Source", value: displayName(selected.source.rawValue))
+                LabeledContent("Authority", value: displayName(selected.authority.rawValue))
+                LabeledContent("Validation", value: displayName(selected.validation.rawValue))
+
+                if model.canAcceptCurrentCandidate(for: issue) {
+                    Button("Use Current Pronunciation", systemImage: "textformat.abc") {
+                        pendingPronunciationAction = PendingPronunciationAction(
+                            issue: issue, kind: .currentAdvisory)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(applyingIssueID != nil)
+                }
+            } else if presentation.chosenCandidateID != nil {
+                Text("Current candidate details unavailable")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("No candidate accepted")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.secondary)
             }
-            .buttonStyle(.bordered)
-            .disabled(applyingIssueID != nil)
 
             if !presentation.alternatives.isEmpty {
                 Text("Alternatives")
@@ -163,7 +186,7 @@ struct NarrationQAReviewView: View {
                             Button("Use This Candidate") {
                                 pendingPronunciationAction = PendingPronunciationAction(
                                     issue: issue,
-                                    candidateID: alternative.candidateID)
+                                    kind: .alternative(alternative.candidateID))
                             }
                             .buttonStyle(.bordered)
                             .disabled(applyingIssueID != nil)
@@ -232,10 +255,13 @@ struct NarrationQAReviewView: View {
         pendingPronunciationAction = nil
         applyingIssueID = action.issue.id
         Task { @MainActor in
-            if let candidateID = action.candidateID {
-                await model.acceptCandidate(candidateID, for: action.issue, scope: scope)
-            } else {
+            switch action.kind {
+            case .legacy:
                 await model.acceptFix(issue: action.issue, scope: scope)
+            case .currentAdvisory:
+                await model.acceptCurrentCandidate(for: action.issue, scope: scope)
+            case .alternative(let candidateID):
+                await model.acceptCandidate(candidateID, for: action.issue, scope: scope)
             }
             applyingIssueID = nil
         }

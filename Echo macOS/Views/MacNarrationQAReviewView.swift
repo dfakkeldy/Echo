@@ -14,6 +14,12 @@ import GRDB
 import SwiftUI
 
 struct MacNarrationQAReviewView: View {
+    private enum PronunciationAction {
+        case legacy
+        case currentAdvisory
+        case alternative(String)
+    }
+
     @State private var model: NarrationQAReviewModel
     @State private var selectedIssueID: String?
     @State private var isRunning = false
@@ -116,11 +122,16 @@ struct MacNarrationQAReviewView: View {
                 .buttonStyle(.borderless)
                 .controlSize(.small)
 
-                if model.pronunciationPresentation(for: issue) != nil
-                    || hasLegacyActionablePronunciationFix(issue)
-                {
+                if model.canAcceptCurrentCandidate(for: issue) {
                     Menu("Save Override") {
-                        pronunciationScopeButtons(issue: issue, candidateID: nil)
+                        pronunciationScopeButtons(issue: issue, action: .currentAdvisory)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(applyingIssueID != nil)
+                } else if hasLegacyActionablePronunciationFix(issue) {
+                    Menu("Save Override") {
+                        pronunciationScopeButtons(issue: issue, action: .legacy)
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
@@ -144,21 +155,9 @@ struct MacNarrationQAReviewView: View {
     ) -> some View {
         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
             GridRow {
-                Text("Current IPA")
+                Text("Category")
                     .foregroundStyle(.secondary)
-                Text(presentation.selectedIPA)
-                    .font(.body.monospaced())
-                    .accessibilityLabel("Current IPA, \(presentation.selectedIPA)")
-            }
-            GridRow {
-                Text("Candidate ID")
-                    .foregroundStyle(.secondary)
-                Text(presentation.chosenCandidateID ?? "Recorded decision")
-            }
-            GridRow {
-                Text("Authority")
-                    .foregroundStyle(.secondary)
-                Text(displayName(presentation.selectedAuthority.rawValue))
+                Text(displayName(presentation.category.rawValue))
             }
             GridRow {
                 Text("Reason")
@@ -169,6 +168,50 @@ struct MacNarrationQAReviewView: View {
                 Text("Occurrences")
                     .foregroundStyle(.secondary)
                 Text(String(presentation.occurrenceCount))
+            }
+
+            if let selected = presentation.selectedCandidate {
+                GridRow {
+                    Text("Current IPA")
+                        .foregroundStyle(.secondary)
+                    Text(selected.ipa)
+                        .font(.body.monospaced())
+                        .accessibilityLabel("Current IPA, \(selected.ipa)")
+                }
+                GridRow {
+                    Text("Candidate ID")
+                        .foregroundStyle(.secondary)
+                    Text(selected.candidateID)
+                }
+                GridRow {
+                    Text("Source")
+                        .foregroundStyle(.secondary)
+                    Text(displayName(selected.source.rawValue))
+                }
+                GridRow {
+                    Text("Authority")
+                        .foregroundStyle(.secondary)
+                    Text(displayName(selected.authority.rawValue))
+                }
+                GridRow {
+                    Text("Validation")
+                        .foregroundStyle(.secondary)
+                    Text(displayName(selected.validation.rawValue))
+                }
+            } else if presentation.chosenCandidateID != nil {
+                GridRow {
+                    Text("Decision")
+                        .foregroundStyle(.secondary)
+                    Text("Current candidate details unavailable")
+                        .fontWeight(.semibold)
+                }
+            } else {
+                GridRow {
+                    Text("Decision")
+                        .foregroundStyle(.secondary)
+                    Text("No candidate accepted")
+                        .fontWeight(.semibold)
+                }
             }
         }
         .font(.callout)
@@ -197,7 +240,7 @@ struct MacNarrationQAReviewView: View {
                         Menu("Use Candidate") {
                             pronunciationScopeButtons(
                                 issue: issue,
-                                candidateID: alternative.candidateID)
+                                action: .alternative(alternative.candidateID))
                         }
                         .controlSize(.small)
                         .disabled(applyingIssueID != nil)
@@ -212,33 +255,36 @@ struct MacNarrationQAReviewView: View {
     @ViewBuilder
     private func pronunciationScopeButtons(
         issue: NarrationQualityIssueRecord,
-        candidateID: String?
+        action: PronunciationAction
     ) -> some View {
         if hasSourceOccurrence(issue) {
             Button("This Occurrence") {
-                applyPronunciation(issue, candidateID: candidateID, scope: .occurrence)
+                applyPronunciation(issue, action: action, scope: .occurrence)
             }
         }
         Button("This Book") {
             applyPronunciation(
-                issue, candidateID: candidateID, scope: .book(issue.audiobookID))
+                issue, action: action, scope: .book(issue.audiobookID))
         }
         Button("All Books") {
-            applyPronunciation(issue, candidateID: candidateID, scope: .global)
+            applyPronunciation(issue, action: action, scope: .global)
         }
     }
 
     private func applyPronunciation(
         _ issue: NarrationQualityIssueRecord,
-        candidateID: String?,
+        action: PronunciationAction,
         scope: FixScope
     ) {
         applyingIssueID = issue.id
         Task { @MainActor in
-            if let candidateID {
-                await model.acceptCandidate(candidateID, for: issue, scope: scope)
-            } else {
+            switch action {
+            case .legacy:
                 await model.acceptFix(issue: issue, scope: scope)
+            case .currentAdvisory:
+                await model.acceptCurrentCandidate(for: issue, scope: scope)
+            case .alternative(let candidateID):
+                await model.acceptCandidate(candidateID, for: issue, scope: scope)
             }
             applyingIssueID = nil
         }

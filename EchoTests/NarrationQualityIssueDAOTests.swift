@@ -37,8 +37,8 @@ import Testing
             selectedCandidateID: "candidate.content",
             alternatives: [
                 .init(
-                    candidateID: "candidate.content",
-                    ipa: "kˈɑntɛnt",
+                    candidateID: "candidate.content.shadow",
+                    ipa: "kəntˈɛnt",
                     source: "fixture",
                     authority: .qualified,
                     validation: .shadow,

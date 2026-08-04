@@ -116,10 +116,54 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
 /// are grouped into one review row. The advisory receipt stays unchanged so it
 /// can continue to round-trip through audit manifests and older decoders.
 nonisolated struct PronunciationAdvisoryIssueEvidence: Codable, Equatable, Sendable {
+    struct SelectedCandidate: Codable, Equatable, Sendable {
+        let candidateID: String
+        let ipa: String
+        let source: PronunciationAuditDecision.Source
+        let authority: PronunciationAdvisoryEvidence.Authority
+        let validation: PronunciationAdvisoryEvidence.Validation
+    }
+
     let advisoryEvidence: PronunciationAdvisoryEvidence
     let occurrenceCount: Int
+    /// Builder-authored metadata for the accepted decision. Older advisory
+    /// envelopes and evidence-only decisions legitimately omit this field.
+    let selectedCandidate: SelectedCandidate?
+
+    init(
+        advisoryEvidence: PronunciationAdvisoryEvidence,
+        occurrenceCount: Int,
+        selectedCandidate: SelectedCandidate? = nil
+    ) {
+        self.advisoryEvidence = advisoryEvidence
+        self.occurrenceCount = occurrenceCount
+        self.selectedCandidate = selectedCandidate
+    }
 
     func isValid() -> Bool {
-        occurrenceCount > 0 && advisoryEvidence.isValid()
+        guard occurrenceCount > 0, advisoryEvidence.isValid() else { return false }
+        guard let selectedCandidate else { return true }
+
+        let candidateID = selectedCandidate.candidateID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let selectedIPA = Self.normalizedIPA(selectedCandidate.ipa)
+        guard !candidateID.isEmpty,
+            !selectedIPA.isEmpty,
+            !selectedCandidate.source.rawValue.isEmpty,
+            advisoryEvidence.selectedCandidateID == selectedCandidate.candidateID,
+            advisoryEvidence.selectedAuthority == selectedCandidate.authority
+        else {
+            return false
+        }
+
+        return !advisoryEvidence.alternatives.contains { alternative in
+            alternative.candidateID == selectedCandidate.candidateID
+                || Self.normalizedIPA(alternative.ipa) == selectedIPA
+        }
+    }
+
+    static func normalizedIPA(_ ipa: String) -> String {
+        ipa.precomposedStringWithCanonicalMapping
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

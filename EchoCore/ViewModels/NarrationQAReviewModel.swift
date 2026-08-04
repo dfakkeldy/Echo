@@ -61,12 +61,11 @@ final class NarrationQAReviewModel {
     struct PronunciationReviewPresentation: Identifiable, Equatable {
         let id: String
         let category: PronunciationAdvisoryEvidence.Category
-        let selectedIPA: String
-        let selectedAuthority: PronunciationAdvisoryEvidence.Authority
+        let selectedCandidate: PronunciationAdvisoryIssueEvidence.SelectedCandidate?
         let selectionReason: PronunciationAdvisoryEvidence.SelectionReason
         let alternatives: [PronunciationAdvisoryEvidence.Alternative]
         let occurrenceCount: Int
-        var chosenCandidateID: String?
+        let chosenCandidateID: String?
     }
 
     struct Dependencies {
@@ -398,37 +397,67 @@ final class NarrationQAReviewModel {
     ) -> PronunciationReviewPresentation? {
         guard issue.issueType == NarrationQAIssueType.pronunciation.rawValue,
             let evidenceJSON = issue.evidenceJSON,
-            let evidenceData = evidenceJSON.data(using: .utf8),
-            let fixJSON = issue.suggestedFixJSON,
-            let fixData = fixJSON.data(using: .utf8)
+            let evidenceData = evidenceJSON.data(using: .utf8)
         else { return nil }
 
         do {
             let issueEvidence = try JSONDecoder().decode(
                 PronunciationAdvisoryIssueEvidence.self, from: evidenceData)
-            let fix = try JSONDecoder().decode(SuggestedFix.self, from: fixData)
             let advisory = issueEvidence.advisoryEvidence
             guard issueEvidence.isValid(),
-                let selectedIPA = fix.ipa?.trimmingCharacters(in: .whitespacesAndNewlines),
-                !selectedIPA.isEmpty,
-                let selectedCandidateID = advisory.selectedCandidateID,
-                !selectedCandidateID.isEmpty,
                 originMatchesCategory(issue.origin, category: advisory.category)
             else { return nil }
 
             return PronunciationReviewPresentation(
                 id: issue.id,
                 category: advisory.category,
-                selectedIPA: selectedIPA,
-                selectedAuthority: advisory.selectedAuthority,
+                selectedCandidate: issueEvidence.selectedCandidate,
                 selectionReason: advisory.selectionReason,
                 alternatives: advisory.alternatives,
                 occurrenceCount: issueEvidence.occurrenceCount,
-                chosenCandidateID: selectedCandidateID)
+                chosenCandidateID: advisory.selectedCandidateID)
         } catch {
             logger.debug("pronunciation evidence unavailable: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    /// Revalidates the persisted accepted candidate and fix payload. Views use
+    /// this both to decide whether to offer the action and again when applying it.
+    func canAcceptCurrentCandidate(
+        for issue: NarrationQualityIssueRecord
+    ) -> Bool {
+        guard let presentation = pronunciationPresentation(for: issue),
+            let selected = presentation.selectedCandidate,
+            selected.validation == .eligible,
+            let fixJSON = issue.suggestedFixJSON,
+            let fixData = fixJSON.data(using: .utf8),
+            let fix = try? JSONDecoder().decode(SuggestedFix.self, from: fixData),
+            let fixIPA = fix.ipa,
+            let spokenForm = fix.spokenForm
+        else {
+            return false
+        }
+
+        let expectedWord = issue.expectedText.precomposedStringWithCanonicalMapping
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let persistedWord = spokenForm.precomposedStringWithCanonicalMapping
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return !expectedWord.isEmpty
+            && persistedWord == expectedWord
+            && PronunciationAdvisoryIssueEvidence.normalizedIPA(fixIPA)
+                == PronunciationAdvisoryIssueEvidence.normalizedIPA(selected.ipa)
+    }
+
+    func acceptCurrentCandidate(
+        for issue: NarrationQualityIssueRecord,
+        scope: FixScope
+    ) async {
+        guard canAcceptCurrentCandidate(for: issue) else {
+            lastError = "This pronunciation decision isn't eligible to apply."
+            return
+        }
+        await acceptFix(issue: issue, scope: scope)
     }
 
     private func originMatchesCategory(
@@ -455,17 +484,15 @@ final class NarrationQAReviewModel {
             let alternative = presentation.alternatives.first(where: {
                 $0.candidateID == candidateID && $0.validation == .eligible
             }),
-            let fixJSON = issue.suggestedFixJSON,
-            let fixData = fixJSON.data(using: .utf8)
+            !issue.expectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else {
             lastError = "This pronunciation candidate isn't eligible to apply."
             return
         }
 
         do {
-            let currentFix = try JSONDecoder().decode(SuggestedFix.self, from: fixData)
             let candidateFix = SuggestedFix(
-                spokenForm: currentFix.spokenForm,
+                spokenForm: issue.expectedText,
                 ipa: alternative.ipa)
             let candidateFixData = try JSONEncoder().encode(candidateFix)
             var candidateIssue = issue

@@ -79,11 +79,13 @@ nonisolated struct PronunciationAdvisoryIssueBuilder: Sendable {
         occurrenceIdentity: String,
         createdAt: String
     ) -> NarrationQualityIssueRecord? {
+        let issueEvidence = PronunciationAdvisoryIssueEvidence(
+            advisoryEvidence: candidate.evidence,
+            occurrenceCount: occurrenceCount,
+            selectedCandidate: selectedCandidate(for: candidate))
         guard
-            let evidenceJSON = json(
-                PronunciationAdvisoryIssueEvidence(
-                    advisoryEvidence: candidate.evidence,
-                    occurrenceCount: occurrenceCount)),
+            issueEvidence.isValid(),
+            let evidenceJSON = json(issueEvidence),
             let origin = origin(for: candidate.evidence.category)
         else { return nil }
         let suggestedFixJSON = candidate.evidence.selectedCandidateID.flatMap { _ in
@@ -113,6 +115,23 @@ nonisolated struct PronunciationAdvisoryIssueBuilder: Sendable {
             status: NarrationQAIssueStatus.open.rawValue,
             createdAt: createdAt,
             resolvedAt: nil)
+    }
+
+    private func selectedCandidate(
+        for candidate: DecisionCandidate
+    ) -> PronunciationAdvisoryIssueEvidence.SelectedCandidate? {
+        guard let evidenceCandidateID = candidate.evidence.selectedCandidateID,
+            let decisionCandidateID = candidate.decision.candidateID,
+            evidenceCandidateID == decisionCandidateID
+        else {
+            return nil
+        }
+        return PronunciationAdvisoryIssueEvidence.SelectedCandidate(
+            candidateID: decisionCandidateID,
+            ipa: candidate.decision.selectedIPA,
+            source: candidate.decision.source,
+            authority: candidate.evidence.selectedAuthority,
+            validation: .eligible)
     }
 
     private func diagnosticRow(

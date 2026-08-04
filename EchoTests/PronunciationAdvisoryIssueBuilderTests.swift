@@ -18,8 +18,8 @@ import Testing
             selectedCandidateID: candidateID,
             alternatives: [
                 .init(
-                    candidateID: candidateID,
-                    ipa: ipa,
+                    candidateID: "candidate.alternative",
+                    ipa: ipa == "kˈɑntɛnt" ? "kəntˈɛnt" : "kˈɑntɛnt",
                     source: "fixture",
                     authority: .qualified,
                     validation: .shadow,
@@ -84,6 +84,11 @@ import Testing
             from: try #require(record.evidenceJSON?.data(using: .utf8)))
         #expect(decodedEvidence.advisoryEvidence == advisory)
         #expect(decodedEvidence.occurrenceCount == 2)
+        #expect(decodedEvidence.selectedCandidate?.candidateID == "candidate.primary")
+        #expect(decodedEvidence.selectedCandidate?.ipa == "kˈɑntɛnt")
+        #expect(decodedEvidence.selectedCandidate?.source == .supplementalLexicon)
+        #expect(decodedEvidence.selectedCandidate?.authority == .qualified)
+        #expect(decodedEvidence.selectedCandidate?.validation == .eligible)
         #expect(record.status == NarrationQAIssueStatus.open.rawValue)
     }
 
@@ -184,6 +189,91 @@ import Testing
 
         #expect(record.suggestedFixJSON == nil)
         #expect(record.evidenceJSON != nil)
+        let decodedEvidence = try JSONDecoder().decode(
+            PronunciationAdvisoryIssueEvidence.self,
+            from: try #require(record.evidenceJSON?.data(using: .utf8)))
+        #expect(decodedEvidence.selectedCandidate == nil)
+        #expect(decodedEvidence.isValid())
+    }
+
+    @Test func selectedCandidateCannotCollideWithAnAlternativeIdentityOrNormalizedIPA() {
+        let selected = PronunciationAdvisoryIssueEvidence.SelectedCandidate(
+            candidateID: "candidate.primary",
+            ipa: " e\u{301} ",
+            source: .supplementalLexicon,
+            authority: .qualified,
+            validation: .eligible)
+        let matchingIdentity = PronunciationAdvisoryEvidence(
+            category: .lexical,
+            selectedAuthority: .qualified,
+            selectedCandidateID: selected.candidateID,
+            alternatives: [
+                .init(
+                    candidateID: selected.candidateID,
+                    ipa: "different",
+                    source: "fixture",
+                    authority: .uncertain,
+                    validation: .shadow,
+                    policyVersion: "policy-v1")
+            ],
+            selectionReason: .sourceDisagreement,
+            overrideSuppressedAutomation: false,
+            policyVersion: "policy-v1")
+        let matchingNormalizedIPA = PronunciationAdvisoryEvidence(
+            category: .lexical,
+            selectedAuthority: .qualified,
+            selectedCandidateID: selected.candidateID,
+            alternatives: [
+                .init(
+                    candidateID: "candidate.alternative",
+                    ipa: "é",
+                    source: "fixture",
+                    authority: .uncertain,
+                    validation: .shadow,
+                    policyVersion: "policy-v1")
+            ],
+            selectionReason: .sourceDisagreement,
+            overrideSuppressedAutomation: false,
+            policyVersion: "policy-v1")
+
+        #expect(!PronunciationAdvisoryIssueEvidence(
+            advisoryEvidence: matchingIdentity,
+            occurrenceCount: 1,
+            selectedCandidate: selected).isValid())
+        #expect(!PronunciationAdvisoryIssueEvidence(
+            advisoryEvidence: matchingNormalizedIPA,
+            occurrenceCount: 1,
+            selectedCandidate: selected).isValid())
+    }
+
+    @Test func selectedCandidateMustMatchTheAdvisoryIdentityAndAuthority() {
+        let advisory = PronunciationAdvisoryEvidence(
+            category: .lexical,
+            selectedAuthority: .trusted,
+            selectedCandidateID: "candidate.primary",
+            alternatives: [],
+            selectionReason: .trustedLexicon,
+            overrideSuppressedAutomation: false,
+            policyVersion: "policy-v1")
+
+        #expect(!PronunciationAdvisoryIssueEvidence(
+            advisoryEvidence: advisory,
+            occurrenceCount: 1,
+            selectedCandidate: .init(
+                candidateID: "candidate.other",
+                ipa: "kˈɑntɛnt",
+                source: .supplementalLexicon,
+                authority: .trusted,
+                validation: .eligible)).isValid())
+        #expect(!PronunciationAdvisoryIssueEvidence(
+            advisoryEvidence: advisory,
+            occurrenceCount: 1,
+            selectedCandidate: .init(
+                candidateID: "candidate.primary",
+                ipa: "kˈɑntɛnt",
+                source: .supplementalLexicon,
+                authority: .qualified,
+                validation: .eligible)).isValid())
     }
 
     @Test func rejectsEvidenceWhoseSelectedCandidateDoesNotMatchTheDecision() {
