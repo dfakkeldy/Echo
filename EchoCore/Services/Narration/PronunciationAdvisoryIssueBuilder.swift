@@ -16,8 +16,14 @@ nonisolated struct PronunciationAdvisoryIssueBuilder: Sendable {
             audiobookID: audiobookID,
             decisions: decisions,
             createdAt: createdAt)
-        let diagnosticRows = diagnostics.compactMap {
-            diagnosticRow(audiobookID: audiobookID, diagnostic: $0, createdAt: createdAt)
+        var seenDiagnostics: Set<String> = []
+        var diagnosticRows: [NarrationQualityIssueRecord] = []
+        for diagnostic in diagnostics {
+            let chapter = diagnostic.chapterIndex.map { String($0) } ?? "none"
+            let identity = "\(diagnostic.reason.rawValue)\u{1F}\(diagnostic.blockID)\u{1F}\(diagnostic.chunkIndex)\u{1F}\(chapter)"
+            guard seenDiagnostics.insert(identity).inserted else { continue }
+            diagnosticRows.append(
+                diagnosticRow(audiobookID: audiobookID, diagnostic: diagnostic, createdAt: createdAt))
         }
         return (decisionRows + diagnosticRows).sorted { lhs, rhs in
             if lhs.origin != rhs.origin { return lhs.origin < rhs.origin }
@@ -32,6 +38,7 @@ nonisolated struct PronunciationAdvisoryIssueBuilder: Sendable {
     ) -> [NarrationQualityIssueRecord] {
         let candidates = decisions.compactMap { decision -> DecisionCandidate? in
             guard let evidence = decision.advisoryEvidence, evidence.isValid() else { return nil }
+            guard evidence.selectedCandidateID == decision.candidateID else { return nil }
             guard !isSpecializedFallbackOverlap(decision: decision, evidence: evidence) else {
                 return nil
             }

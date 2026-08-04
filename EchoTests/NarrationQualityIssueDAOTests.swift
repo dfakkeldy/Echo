@@ -150,6 +150,30 @@ import Testing
         }
     }
 
+    @Test func replacementRejectsEveryOutOfScopeRecordBeforeMutating() throws {
+        let db = try DatabaseService(inMemory: ())
+        try seedBook("b1", db: db)
+        try seedBook("b2", db: db)
+        let dao = NarrationQualityIssueDAO(db: db.writer)
+        try dao.insert([make("old", book: "b1", status: "open")])
+        let invalid: [(NarrationQualityIssueRecord, NarrationQualityIssueDAOError)] = [
+            (make("book", book: "b2", status: "open"), .replacementAudiobookMismatch),
+            (make("block", book: "b1", status: "open", blockID: "other"), .replacementBlockMismatch),
+            (make("status", book: "b1", status: "resolved"), .replacementStatusMismatch),
+        ]
+        for (record, error) in invalid {
+            #expect(throws: error) {
+                try dao.replaceOpen(for: "b1", blockIDs: ["blk1"], origin: .asr, with: [record])
+            }
+            #expect(try dao.issues(for: "b1").map(\.id) == ["old"])
+        }
+        #expect(throws: NarrationQualityIssueDAOError.emptyReplacementBlockIDs) {
+            try dao.replaceOpen(for: "b1", blockIDs: [], origin: .asr, with: [make("new", book: "b1", status: "open")])
+        }
+        try dao.replaceOpen(for: "b1", blockIDs: [], replacements: [])
+        #expect(try dao.issues(for: "b1").map(\.id) == ["old"])
+    }
+
     @Test func sequentialNonContextualUnitsDoNotCollideAndZeroRefreshRemovesOnlyItsUnit()
         throws
     {
@@ -209,5 +233,52 @@ import Testing
             origin: .pronunciationPreflight,
             with: [])
         #expect(try dao.issues(for: "b1").isEmpty)
+    }
+
+    @Test func fallbackDiscoveryIsPreflightScopedAndBlockScoped() throws {
+        let db = try DatabaseService(inMemory: ())
+        try seedBook("b1", db: db)
+        let dao = NarrationQualityIssueDAO(db: db.writer)
+        try dao.insert([make("asr-jacqui", book: "b1", status: "open", origin: .asr)])
+        let hit = PronunciationFallbackHit(word: "Jacqui", ipa: "ʤˈækɪ")
+        let hits = [
+            RenderedPronunciationFallbackHit(blockID: "blk1", audioStartTime: 0, audioEndTime: 1, fallback: hit),
+            RenderedPronunciationFallbackHit(blockID: "blk1", audioStartTime: 1, audioEndTime: 2, fallback: hit),
+            RenderedPronunciationFallbackHit(blockID: "blk2", audioStartTime: 0, audioEndTime: 1, fallback: hit),
+        ]
+        try PronunciationFallbackDiscovery.persist(audiobookID: "b1", hits: hits, createdAt: "t", db: db.writer)
+        try PronunciationFallbackDiscovery.persist(audiobookID: "b1", hits: hits, createdAt: "t", db: db.writer)
+        let issues = try dao.issues(for: "b1")
+        #expect(issues.filter { $0.origin == NarrationQualityIssueOrigin.asr.rawValue }.count == 1)
+        let fallbackRows = issues.filter { $0.heardText == "G2P fallback" }
+        #expect(fallbackRows.count == 2)
+        #expect(Set(fallbackRows.map(\.sourceBlockID)) == ["blk1", "blk2"])
+        #expect(fallbackRows.allSatisfy {
+            $0.origin == NarrationQualityIssueOrigin.pronunciationPreflight.rawValue
+        })
+    }
+
+    @Test func multiLaneReplacementRollsBackWhenOneLaneCannotInsert() throws {
+        let db = try DatabaseService(inMemory: ())
+        try seedBook("b1", db: db)
+        try seedBook("b2", db: db)
+        let dao = NarrationQualityIssueDAO(db: db.writer)
+        try dao.insert([
+            make("old-pre", book: "b1", status: "open", origin: .pronunciationPreflight),
+            make("old-acoustic", book: "b1", status: "open", origin: .acoustic),
+            make("conflict", book: "b2", status: "open"),
+        ])
+        #expect(throws: Error.self) {
+            try dao.replaceOpen(for: "b1", blockIDs: ["blk1"], replacements: [
+                .init(origin: .pronunciationPreflight, records: [
+                    make("new-pre", book: "b1", status: "open", origin: .pronunciationPreflight)
+                ]),
+                .init(origin: .acoustic, records: [
+                    make("conflict", book: "b1", status: "open", origin: .acoustic)
+                ]),
+            ])
+        }
+        let remaining = try dao.issues(for: "b1").map(\.id)
+        #expect(Set(remaining) == ["old-pre", "old-acoustic"])
     }
 }

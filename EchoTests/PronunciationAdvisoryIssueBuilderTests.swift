@@ -184,4 +184,23 @@ import Testing
         #expect(record.suggestedFixJSON == nil)
         #expect(record.evidenceJSON != nil)
     }
+
+    @Test func rejectsEvidenceWhoseSelectedCandidateDoesNotMatchTheDecision() {
+        let advisory = evidence(candidateID: "candidate.a")
+        let mismatched = PronunciationAuditDecision(
+            blockID: "blk1", wordStart: 0, wordEnd: 0, normalizedWord: "content",
+            sourceWord: "Content", sourceContext: "private", selectedIPA: "kˈɑntɛnt",
+            kokoroTokenIDs: [], source: .supplementalLexicon, ruleID: "r", rationale: "r",
+            candidateID: "candidate.b", advisoryEvidence: advisory)
+        #expect(PronunciationAdvisoryIssueBuilder().records(
+            audiobookID: "book", decisions: [mismatched], diagnostics: [], createdAt: createdAt).isEmpty)
+    }
+
+    @Test func deduplicatesIdenticalDiagnostics() {
+        let diagnostic = PronunciationAuditDiagnostic(
+            reason: .decisionEvidenceMismatch, blockID: "blk", chunkIndex: 1,
+            expectedDisplayText: "private", reconstructedSpokenSurface: "", fallbackHits: [])
+        #expect(PronunciationAdvisoryIssueBuilder().records(
+            audiobookID: "book", decisions: [], diagnostics: [diagnostic, diagnostic], createdAt: createdAt).count == 1)
+    }
 }

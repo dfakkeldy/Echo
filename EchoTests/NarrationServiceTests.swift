@@ -2133,9 +2133,14 @@ private actor ShadowEvaluatorRecorder {
         let issues = try issueDAO.issues(
             for: "b1",
             status: NarrationQAIssueStatus.open.rawValue)
-        // The specialized fallback discovery row remains one book-level
-        // suggestion across rerenders, now in the preflight origin lane.
-        #expect(issues.count == 1)
+        // Same-block fallback hits collapse, while separate render units keep
+        // distinct durable rows in the preflight lane.
+        #expect(issues.count == 2)
+        #expect(Set(issues.map(\.sourceBlockID)) == ["blk0", "blk1"])
+        #expect(Set(issues.map(\.id)).count == 2)
+        #expect(issues.allSatisfy {
+            $0.origin == NarrationQualityIssueOrigin.pronunciationPreflight.rawValue
+        })
         let issue = try #require(issues.first)
         #expect(issue.issueType == NarrationQAIssueType.pronunciation.rawValue)
         #expect(issue.sourceBlockID == "blk0")
@@ -2166,9 +2171,10 @@ private actor ShadowEvaluatorRecorder {
         #expect(store.overrides(forBookID: "b1").entries["Jacqui"] == "ʤˈækɪ")
         #expect(renderedChapters == [0])
         #expect(qaChapters == [0])
-        #expect(
-            try issueDAO.issues(for: "b1", status: NarrationQAIssueStatus.open.rawValue)
-                .isEmpty)
+        let remaining = try issueDAO.issues(for: "b1", status: NarrationQAIssueStatus.open.rawValue)
+        #expect(remaining.count == 1)
+        #expect(!remaining.contains { $0.sourceBlockID == "blk0" })
+        #expect(remaining.first?.sourceBlockID == "blk1")
     }
 
     @Test func advisoryReportWriteFailureDoesNotBlockTheRenderedChapter() async throws {
@@ -2195,6 +2201,24 @@ private actor ShadowEvaluatorRecorder {
         }
         #expect(persistedTrack != nil)
         #expect(state.debugLog.contains { $0.contains("Operational report-write error") })
+    }
+
+    @Test func fallbackDiscoveryFailureDoesNotBlockTheRenderedChapter() async throws {
+        enum FallbackFailure: Error { case unavailable }
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["A rendered chapter survives fallback persistence failure."])
+        let state = NarrationState()
+        let service = NarrationService(
+            db: db.writer, audiobookID: "b1", tts: MockTTSEngine(secondsPerChar: 0.1),
+            audioWriter: MockAudioWriter(), cacheDirectory: FileManager.default.temporaryDirectory,
+            state: state, fallbackDiscoveryWriter: { _ in throw FallbackFailure.unavailable },
+            fmEnabled: { false })
+        _ = try await service.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
+        let track = try db.read { database in
+            try TrackRecord.filter(Column("audiobook_id") == "b1").fetchOne(database)
+        }
+        #expect(track != nil)
+        #expect(state.debugLog.contains { $0.contains("pronunciation fallback discovery failed") })
     }
 
     @Test func renderedFileKeepsAuditedBlocksWhenNoBlockProducedAudio() {
