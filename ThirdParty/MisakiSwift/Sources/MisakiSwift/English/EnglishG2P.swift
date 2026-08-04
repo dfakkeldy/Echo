@@ -484,7 +484,7 @@ final public class EnglishG2P {
 
     var cursor = startIndex
 
-    if tokens[cursor].text == "-" {
+    if tokens[cursor].text == "-" || tokens[cursor].text == "+" {
       guard tokens[cursor].whitespace.isEmpty else { return nil }
       cursor += 1
       guard cursor < tokens.count else { return nil }

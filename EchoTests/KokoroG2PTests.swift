@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Testing
+
 @testable import Echo
 
 @Suite struct KokoroG2PTests {
@@ -75,6 +76,14 @@ import Testing
         #expect(result.diagnostics.isEmpty)
     }
 
+    @Test func explicitPositiveCurrencyProducesNoCurrencyDiagnostic() {
+        let source = "+£1 billion"
+        let result = KokoroG2P().result(for: source, displayText: source)
+
+        #expect(result.phonemes == KokoroG2P().phonemes(for: "plus one billion pounds"))
+        #expect(result.diagnostics.isEmpty)
+    }
+
     @Test func validLeadingDecimalDoesNotMaskMalformedCurrencyCandidate() {
         let source = "$.5 million and $1,23"
         let result = KokoroG2P().result(for: source, displayText: source)
@@ -94,15 +103,16 @@ import Testing
         let result = KokoroG2P().result(for: source, displayText: source)
 
         #expect(result.diagnostics.count == 5)
-        #expect(result.diagnostics.allSatisfy { diagnostic in
-            diagnostic.reason == .currencyNormalizationRejected
-                && diagnostic.blockID.isEmpty
-                && diagnostic.expectedDisplayText.isEmpty
-                && diagnostic.reconstructedSpokenSurface.isEmpty
-                && diagnostic.fallbackHits.isEmpty
-                && diagnostic.finalPhonemes == nil
-                && diagnostic.reconstructedTokenPhonemes == nil
-        })
+        #expect(
+            result.diagnostics.allSatisfy { diagnostic in
+                diagnostic.reason == .currencyNormalizationRejected
+                    && diagnostic.blockID.isEmpty
+                    && diagnostic.expectedDisplayText.isEmpty
+                    && diagnostic.reconstructedSpokenSurface.isEmpty
+                    && diagnostic.fallbackHits.isEmpty
+                    && diagnostic.finalPhonemes == nil
+                    && diagnostic.reconstructedTokenPhonemes == nil
+            })
     }
 
     @Test func oovClosedCompoundsReuseKnownComponentPronunciations() throws {

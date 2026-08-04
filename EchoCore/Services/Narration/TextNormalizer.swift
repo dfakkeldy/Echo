@@ -43,7 +43,7 @@ nonisolated enum TextNormalizer {
     /// other surrounding prose remains available to the ordinary normalizer.
     private static let currencyCandidatePattern = try! NSRegularExpression(
         pattern:
-            #"-?[$£€](?:(?:[^\s]+|[ \t]+[.,_-]*[0-9][^\s]*)(?:[ \t]+(?i:thousand|million|billion|trillion|m|mm|b|bn|k|tn|trn|quadrillion|usd|gbp|eur)(?![\p{L}\p{N}_])[^\s]*)?)?"#
+            #"[+-]?[$£€](?:(?:[^\s]+|[ \t]+[.,_-]*[0-9][^\s]*)(?:[ \t]+(?i:thousand|million|billion|trillion|m|mm|b|bn|k|tn|trn|quadrillion|usd|gbp|eur)(?![\p{L}\p{N}_])[^\s]*)?)?"#
     )
 
     private static func normalizeUnprotected(_ input: String) -> String {

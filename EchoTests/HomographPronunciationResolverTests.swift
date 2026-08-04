@@ -130,6 +130,21 @@ import Testing
                 == "The [live](/lˈIv/) [content](/kˈɑntɛnt/) shipped today.")
     }
 
+    @Test func resolvesWeatherLinkLiveProductName() throws {
+        let source = "Align requested access to the Weather Link Live data."
+        let result = HomographPronunciationResolver.rewrite(
+            to: source,
+            blockID: "weather-link-live")
+        let decision = try #require(
+            result.decisionSeeds.first { $0.normalizedWord == "live" })
+
+        #expect(
+            result.text
+                == "Align requested access to the Weather Link [Live](/lˈIv/) data.")
+        #expect(decision.selectedIPA == "lˈIv")
+        #expect(decision.ruleID == "homograph.live.product.weather-link-live")
+    }
+
     @Test func resolvesLivesVerbAndNounContexts() {
         #expect(
             HomographPronunciationResolver.apply(to: "She lives in Halifax.")
@@ -163,7 +178,8 @@ import Testing
         #expect(decision.ruleID == "homograph.lives.noun.one-of-superlative")
         #expect(
             decision.rationale
-                == "Plural-noun pronunciation selected in the descriptive superlative phrase “one of the strangest lives”.")
+                == "Plural-noun pronunciation selected in the descriptive superlative phrase “one of the strangest lives”."
+        )
         #expect(
             HomographPronunciationResolver.apply(
                 to: "His was one of the greatest lives in the story.")

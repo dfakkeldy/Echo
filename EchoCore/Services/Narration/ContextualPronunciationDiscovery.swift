@@ -320,7 +320,6 @@ nonisolated enum ContextualPronunciationDiscovery {
         for (familyOffset, tokenIndex) in familyTokenIndexes.enumerated() {
             let token = sourceTokens[tokenIndex]
             guard !token.isAuthoredLinkDisplay,
-                !properNameRisks[familyOffset],
                 let family = ContextualPronunciationFamilies.family(for: token.normalized)
             else {
                 continue
@@ -342,6 +341,11 @@ nonisolated enum ContextualPronunciationDiscovery {
 
             let analysis = homographContext.analysis(
                 atWordStart: wordSpan.lowerBound)
+            let isExactWeatherLinkLiveProduct =
+                analysis.ruleID == "homograph.live.product.weather-link-live"
+            guard !properNameRisks[familyOffset] || isExactWeatherLinkLiveProduct else {
+                continue
+            }
             occurrences.append(
                 ContextualPronunciationOccurrence(
                     occurrenceID: ContextualPronunciationOccurrenceID.make(

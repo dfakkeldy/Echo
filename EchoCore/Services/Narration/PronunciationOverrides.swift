@@ -177,6 +177,9 @@ nonisolated struct PronunciationOverrides: Equatable, Sendable {
         // (a user entry for the same word always wins — see `withBuiltInDefaults`).
         "Fakkeldy": "fˈækəldi",
         "Campbell": "kˈæmbəl",
+        "DeepMind's": "dˈipmˌIndz",
+        "DeepMind’s": "dˈipmˌIndz",
+        "DeepMind": "dˈipmˌInd",
         "Xcode": "ˈɛks kˈOd",
         "xcassets": "ˈɛks sˈi ˈæsˌɛts",
         "timeframe": "tˈImfɹˌAm",

@@ -169,6 +169,19 @@ import Testing
         #expect(sentenceStart.map(\.targetWord) == ["Read"])
     }
 
+    @Test func discoveryAdmitsExactWeatherLinkLiveProductEvidence() throws {
+        let occurrence = try #require(
+            ContextualPronunciationDiscovery.discover(
+                text: "Request access to a Weather Link Live platform.",
+                blockID: "weather-link-live"
+            ).first)
+
+        #expect(occurrence.targetWord == "Live")
+        #expect(occurrence.familyID == "live")
+        #expect(occurrence.deterministicCandidateID == "live.adjective")
+        #expect(occurrence.deterministicRuleID == "homograph.live.product.weather-link-live")
+    }
+
     @Test func hiddenAndCodeCueInputsAreExplicitlyExcluded() {
         #expect(
             ContextualPronunciationDiscovery.discover(
