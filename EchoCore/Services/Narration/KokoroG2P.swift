@@ -113,6 +113,21 @@
             let fallbackHits: [PronunciationFallbackHit]
             let tokenEvidence: [PronunciationTokenEvidence]
             let pronunciationEvidenceValidation: PronunciationEvidenceValidation
+            let diagnostics: [PronunciationAuditDiagnostic]
+
+            init(
+                phonemes: String,
+                fallbackHits: [PronunciationFallbackHit],
+                tokenEvidence: [PronunciationTokenEvidence],
+                pronunciationEvidenceValidation: PronunciationEvidenceValidation,
+                diagnostics: [PronunciationAuditDiagnostic] = []
+            ) {
+                self.phonemes = phonemes
+                self.fallbackHits = fallbackHits
+                self.tokenEvidence = tokenEvidence
+                self.pronunciationEvidenceValidation = pronunciationEvidenceValidation
+                self.diagnostics = diagnostics
+            }
         }
 
         private let engine: EnglishG2P
@@ -146,6 +161,8 @@
         /// token text plus whitespace exactly reconstructs `displayText`.
         func result(for text: String, displayText: String) -> Result {
             let misakiResult = engine.phonemizeWithMetadata(text: text)
+            let diagnostics = Self.currencyNormalizationDiagnostics(
+                from: misakiResult.tokens)
             // Copy reference-typed `MToken`s immediately; no mutable Misaki object
             // crosses this wrapper or an isolation boundary.
             let rawSnapshots = misakiResult.tokens.map { token in
@@ -171,7 +188,8 @@
                         rawFallbackHits,
                         matching: rawTokenResult),
                     tokenEvidence: rawTokenResult.evidence,
-                    pronunciationEvidenceValidation: rawTokenResult.validation)
+                    pronunciationEvidenceValidation: rawTokenResult.validation,
+                    diagnostics: diagnostics)
             }
 
             let snapshots = rawSnapshots.map { snapshot in
@@ -206,7 +224,39 @@
                     rawFallbackHits,
                     matching: tokenResult),
                 tokenEvidence: tokenResult.evidence,
-                pronunciationEvidenceValidation: tokenResult.validation)
+                pronunciationEvidenceValidation: tokenResult.validation,
+                diagnostics: diagnostics)
+        }
+
+        /// Misaki attaches `currencyExpressionSource` only after its semantic
+        /// parser accepts a complete supported expression. Each supported symbol
+        /// starts exactly one candidate, so any source symbol not accounted for
+        /// by a semantic token is a rejected candidate. Keep the advisory
+        /// content-free: callers need the controlled reason and count, never the
+        /// private source text or selected phonemes.
+        private static func currencyNormalizationDiagnostics(
+            from tokens: [MToken]
+        ) -> [PronunciationAuditDiagnostic] {
+            let source = tokens.reduce(into: "") { result, token in
+                result.append(contentsOf: token.text)
+                result.append(contentsOf: token.whitespace)
+            }
+            let supportedSymbols: Set<Character> = ["$", "£", "€"]
+            let candidateCount = source.lazy.filter(supportedSymbols.contains).count
+
+            let acceptedCount = tokens.lazy.compactMap {
+                $0.`_`.currencyExpressionSource
+            }.count
+            let rejectedCount = max(0, candidateCount - acceptedCount)
+            return (0..<rejectedCount).map { _ in
+                PronunciationAuditDiagnostic(
+                    reason: .currencyNormalizationRejected,
+                    blockID: "",
+                    chunkIndex: 0,
+                    expectedDisplayText: "",
+                    reconstructedSpokenSurface: "",
+                    fallbackHits: [])
+            }
         }
 
         /// Misaki's aggregate fallback array is not guaranteed to be in source

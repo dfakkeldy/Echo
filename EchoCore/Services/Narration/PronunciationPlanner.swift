@@ -31,7 +31,8 @@ nonisolated final class PronunciationPlanner {
             wordCount: WordTokenizer.words(in: displayText).count,
             pronunciationFallbackHits: result.fallbackHits,
             pronunciationTokenEvidence: result.tokenEvidence,
-            pronunciationEvidenceValidation: result.pronunciationEvidenceValidation)
+            pronunciationEvidenceValidation: result.pronunciationEvidenceValidation,
+            pronunciationAuditDiagnostics: result.diagnostics)
     }
 
     /// Plans text whose pronunciation choices have already been resolved.

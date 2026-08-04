@@ -5,6 +5,28 @@ import Testing
 @testable import Echo
 
 @Suite struct PronunciationAuditTests {
+    @Test func diagnosticReasonVocabularyIncludesRejectedCurrencyNormalization() {
+        let reasons: Set<PronunciationAuditDiagnostic.Reason> = [
+            .spokenSurfaceMismatch,
+            .phonemeSequenceMismatch,
+            .decisionEvidenceMismatch,
+            .incompleteRender,
+            .qualityRejected,
+            .missingContextualEvidence,
+            .currencyNormalizationRejected,
+        ]
+
+        #expect(reasons.map(\.rawValue).sorted() == [
+            "currencyNormalizationRejected",
+            "decisionEvidenceMismatch",
+            "incompleteRender",
+            "missingContextualEvidence",
+            "phonemeSequenceMismatch",
+            "qualityRejected",
+            "spokenSurfaceMismatch",
+        ])
+    }
+
     private static let schemaThreeManifestJSON = #"""
         {
           "schemaVersion": 3,

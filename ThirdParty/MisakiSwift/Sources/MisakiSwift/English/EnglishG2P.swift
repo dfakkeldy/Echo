@@ -37,6 +37,8 @@ final public class EnglishG2P {
     
   static let punctuationTags: Set<NLTag> =  Set([.openQuote, .closeQuote, .openParenthesis, .closeParenthesis, .punctuation, .sentenceTerminator, .otherPunctuation])
   static let punctuactions: Set<Character> = Set(";:,.!?—…\"“”")
+  static let currencyExpressionTerminators = punctuactions.union(Set("–)]}"))
+  static let currencyExpressionLeadingBoundaries = currencyExpressionTerminators.union(Set("([{"))
   
   // spaCy-style punctuation tags https://github.com/explosion/spaCy/blob/master/spacy/glossary.py
   static let punctuationTagPhonemes: [String: String] = [
@@ -292,6 +294,7 @@ final public class EnglishG2P {
   func mergeTokens(_ tokens: [MToken], unk: String? = nil) -> MToken {
     let stressSet = Set(tokens.compactMap { $0._.stress })
     let currencySet = Set(tokens.compactMap { $0._.currency })
+    let currencyExpressionSourceSet = Set(tokens.compactMap { $0._.currencyExpressionSource })
     let ratings: Set<Int?> = Set(tokens.map { $0._.rating })
         
     var phonemes: String? = nil
@@ -335,6 +338,9 @@ final public class EnglishG2P {
         alias: nil,
         stress: (stressSet.count == 1 ? stressSet.first : nil),
         currency: currencySet.max(),
+        currencyExpressionSource: currencyExpressionSourceSet.count == 1
+          ? currencyExpressionSourceSet.first
+          : nil,
         num_flags: String(flagChars.sorted()),
         prespace: tokens.first?._.prespace ?? false,
         rating: ratings.contains(where: { $0 == nil }) ? nil : ratings.compactMap { $0 }.min()
@@ -380,19 +386,8 @@ final public class EnglishG2P {
     return parts
   }
 
-  private func canCarryPendingCurrency(_ text: String) -> Bool {
-    let characters = Array(text)
-    guard characters.contains(where: { $0.isNumber }) else { return false }
-
-    return characters.enumerated().allSatisfy { index, character in
-      character.isNumber || character == "," || character == "." || (index == 0 && character == "-")
-    }
-  }
-  
-  func retokenize(_ tokens: [MToken]) -> [Any] {
-    var words: [Any] = []
-    var currency: String? = nil
-    
+  private func flattenInitialSplitTokens(_ tokens: [MToken]) -> [MToken] {
+    var flattened: [MToken] = []
     for token in tokens {
       let needsSplit = (token.`_`.alias == nil && token.phonemes == nil)
       var subtokens: [MToken] = []
@@ -411,57 +406,188 @@ final public class EnglishG2P {
         subtokens = [token]
       }
       subtokens.last?.whitespace = token.whitespace
-          
-      for j in 0..<subtokens.count {
-        let token = subtokens[j]
-      
-        if token.`_`.alias != nil || token.phonemes != nil {
-          // Do nothing at his point
-        } else if token.tag == .otherWord, Lexicon.currencies[token.text] != nil {
-          currency = token.text
-          token.phonemes = ""
-          token.`_`.rating = 4
-        } else if token.tag == .dash || (token.tag == .punctuation && token.text == "–") {
-          // A plain hyphen ("-") joins word parts in a compound like
-          // "rough-and-ready" and must read as a brief word break, NOT the long
-          // em-dash pause "—". Only a real em/en dash is a pause. (Spaced dashes
-          // used as sentence pauses are normalized to commas upstream.)
-          let isRealDash = token.text.contains("—") || token.text.contains("–")
-          token.phonemes = isRealDash ? "—" : " "
-          token.`_`.rating = 3
-        } else if let tag = token.tag, EnglishG2P.punctuationTags.contains(tag), !token.text.lowercased().unicodeScalars.allSatisfy({ (97...122).contains(Int($0.value)) }) {
-          if let val = EnglishG2P.punctuationTagPhonemes[token.text] {
-            token.phonemes = val
-          } else {
-            token.phonemes = token.text.filter { EnglishG2P.punctuactions.contains($0) }
-          }
-          token.`_`.rating = 4
-        } else if let pendingCurrency = currency {
-          if canCarryPendingCurrency(token.text) {
-            token.`_`.currency = pendingCurrency
-          } else {
-            currency = nil
-          }
-        } else if j > 0 && j < subtokens.count - 1 && token.text == "2" {
-          let prev = subtokens[j - 1].text
-          let next = subtokens[j + 1].text
-          if (prev.last.map { String($0) } ?? "" + (next.first.map { String($0) } ?? "")).allSatisfy({ $0.isLetter }) ||
-             (prev == "-" && next == "-") {
-            token.`_`.alias = "to"
-          }
+
+      flattened.append(contentsOf: subtokens)
+    }
+    return flattened
+  }
+
+  private func semanticCurrencyTokens(_ tokens: [MToken]) -> [MToken] {
+    var result: [MToken] = []
+    var index = 0
+
+    while index < tokens.count {
+      guard let endIndex = currencyExpressionEnd(in: tokens, startingAt: index) else {
+        result.append(tokens[index])
+        index += 1
+        continue
+      }
+
+      let consumed = Array(tokens[index...endIndex])
+      let source = consumed.dropLast().map { $0.text + $0.whitespace }.joined()
+        + (consumed.last?.text ?? "")
+      guard let expression = EnglishCurrencyExpression.parse(source) else {
+        result.append(tokens[index])
+        index += 1
+        continue
+      }
+      let spokenPhonemes = phonemizeWithMetadata(text: expression.spokenForm).phonemes
+
+      let first = consumed[0]
+      let last = consumed[consumed.count - 1]
+      result.append(
+        MToken(
+          text: source,
+          tokenRange: Range<String.Index>(
+            uncheckedBounds: (
+              lower: first.tokenRange.lowerBound,
+              upper: last.tokenRange.upperBound
+            )
+          ),
+          tag: first.tag,
+          whitespace: last.whitespace,
+          phonemes: spokenPhonemes,
+          start_ts: first.start_ts,
+          end_ts: last.end_ts,
+          underscore: Underscore(
+            is_head: first.`_`.is_head,
+            alias: expression.spokenForm,
+            stress: first.`_`.stress,
+            currencyExpressionSource: source,
+            num_flags: first.`_`.num_flags,
+            prespace: first.`_`.prespace,
+            rating: 4
+          )
+        )
+      )
+      index = endIndex + 1
+    }
+
+    return result
+  }
+
+  private func currencyExpressionEnd(in tokens: [MToken], startingAt startIndex: Int) -> Int? {
+    let supportedSymbols = Set(Lexicon.currencies.keys)
+    let unsupportedMagnitudeWords: Set<String> = [
+      "m", "mm", "b", "bn", "k", "tn", "trn", "quadrillion",
+      "usd", "gbp", "eur",
+    ]
+
+    if startIndex > 0 {
+      let previous = tokens[startIndex - 1]
+      let hasLeadingBoundary = !previous.whitespace.isEmpty
+        || (!previous.text.isEmpty && previous.text.allSatisfy {
+          EnglishG2P.currencyExpressionLeadingBoundaries.contains($0)
+        })
+      guard hasLeadingBoundary else { return nil }
+    }
+
+    var cursor = startIndex
+
+    if tokens[cursor].text == "-" {
+      guard tokens[cursor].whitespace.isEmpty else { return nil }
+      cursor += 1
+      guard cursor < tokens.count else { return nil }
+    }
+
+    guard supportedSymbols.contains(tokens[cursor].text),
+          tokens[cursor].whitespace.isEmpty else {
+      return nil
+    }
+    cursor += 1
+    guard cursor < tokens.count else { return nil }
+
+    if tokens[cursor].text == "-" {
+      guard tokens[cursor].whitespace.isEmpty else { return nil }
+      cursor += 1
+      guard cursor < tokens.count else { return nil }
+    }
+
+    let amountStart = cursor
+    while cursor < tokens.count {
+      let allowsLeadingSign = cursor == amountStart
+      let characters = Array(tokens[cursor].text)
+      let isAmountFragment = characters.contains(where: { $0.isNumber })
+        && characters.enumerated().allSatisfy { offset, character in
+          character.isNumber || character == "," || character == "."
+            || (allowsLeadingSign && offset == 0 && character == "-")
         }
-           
-        if token.`_`.alias != nil || token.phonemes != nil {
-          words.append(token)
-        } else if let last = words.last as? [MToken], last.last?.whitespace.isEmpty == true {
-          var arr = last
-          token.`_`.is_head = false
-          arr.append(token)
-          _ = words.popLast()
-          words.append(arr)
+      guard isAmountFragment else { break }
+
+      cursor += 1
+      if !tokens[cursor - 1].whitespace.isEmpty { break }
+    }
+    guard cursor > amountStart else { return nil }
+
+    var endIndex = cursor - 1
+    if cursor < tokens.count, tokens[cursor].text.contains(where: \.isLetter) {
+      guard !tokens[endIndex].whitespace.isEmpty else { return nil }
+      let followingWord = tokens[cursor].text.lowercased()
+      if EnglishCurrencyExpression.Magnitude(rawValue: followingWord) != nil {
+        guard tokens[endIndex].whitespace == " " else { return nil }
+        endIndex = cursor
+      } else if unsupportedMagnitudeWords.contains(followingWord) {
+        return nil
+      }
+    }
+
+    let boundaryIndex = endIndex + 1
+    if boundaryIndex < tokens.count, tokens[endIndex].whitespace.isEmpty {
+      let boundaryText = tokens[boundaryIndex].text
+      let isSentencePunctuation = !boundaryText.isEmpty && boundaryText.allSatisfy {
+        EnglishG2P.currencyExpressionTerminators.contains($0)
+      }
+      guard isSentencePunctuation else { return nil }
+    }
+
+    return endIndex
+  }
+
+  func retokenize(_ tokens: [MToken]) -> [Any] {
+    var words: [Any] = []
+    let subtokens = semanticCurrencyTokens(flattenInitialSplitTokens(tokens))
+
+    for j in 0..<subtokens.count {
+      let token = subtokens[j]
+
+      if token.`_`.alias != nil || token.phonemes != nil {
+        // Do nothing at his point
+      } else if token.tag == .dash || (token.tag == .punctuation && token.text == "–") {
+        // A plain hyphen ("-") joins word parts in a compound like
+        // "rough-and-ready" and must read as a brief word break, NOT the long
+        // em-dash pause "—". Only a real em/en dash is a pause. (Spaced dashes
+        // used as sentence pauses are normalized to commas upstream.)
+        let isRealDash = token.text.contains("—") || token.text.contains("–")
+        token.phonemes = isRealDash ? "—" : " "
+        token.`_`.rating = 3
+      } else if let tag = token.tag, EnglishG2P.punctuationTags.contains(tag), !token.text.lowercased().unicodeScalars.allSatisfy({ (97...122).contains(Int($0.value)) }) {
+        if let val = EnglishG2P.punctuationTagPhonemes[token.text] {
+          token.phonemes = val
         } else {
-          if token.whitespace.isEmpty { words.append([token]) } else { words.append(token) }
+          token.phonemes = token.text.filter { EnglishG2P.punctuactions.contains($0) }
         }
+        token.`_`.rating = 4
+      } else if j > 0 && j < subtokens.count - 1 && token.text == "2" {
+        let prev = subtokens[j - 1].text
+        let next = subtokens[j + 1].text
+        if subtokens[j - 1].whitespace.isEmpty,
+           token.whitespace.isEmpty,
+           ((prev.last.map { String($0) } ?? "" + (next.first.map { String($0) } ?? "")).allSatisfy({ $0.isLetter }) ||
+            (prev == "-" && next == "-")) {
+          token.`_`.alias = "to"
+        }
+      }
+
+      if token.`_`.alias != nil || token.phonemes != nil {
+        words.append(token)
+      } else if let last = words.last as? [MToken], last.last?.whitespace.isEmpty == true {
+        var arr = last
+        token.`_`.is_head = false
+        arr.append(token)
+        _ = words.popLast()
+        words.append(arr)
+      } else {
+        if token.whitespace.isEmpty { words.append([token]) } else { words.append(token) }
       }
     }
                 

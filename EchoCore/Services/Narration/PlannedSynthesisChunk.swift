@@ -10,6 +10,7 @@ nonisolated struct PlannedSynthesisChunk: Equatable, Sendable {
     let pronunciationFallbackHits: [PronunciationFallbackHit]
     let pronunciationTokenEvidence: [PronunciationTokenEvidence]
     let pronunciationEvidenceValidation: PronunciationEvidenceValidation
+    let pronunciationAuditDiagnostics: [PronunciationAuditDiagnostic]
 
     init(
         displayText: String,
@@ -19,7 +20,8 @@ nonisolated struct PlannedSynthesisChunk: Equatable, Sendable {
         wordCount: Int,
         pronunciationFallbackHits: [PronunciationFallbackHit],
         pronunciationTokenEvidence: [PronunciationTokenEvidence] = [],
-        pronunciationEvidenceValidation: PronunciationEvidenceValidation
+        pronunciationEvidenceValidation: PronunciationEvidenceValidation,
+        pronunciationAuditDiagnostics: [PronunciationAuditDiagnostic] = []
     ) {
         self.displayText = displayText
         self.g2pInputText = g2pInputText
@@ -29,6 +31,7 @@ nonisolated struct PlannedSynthesisChunk: Equatable, Sendable {
         self.pronunciationFallbackHits = pronunciationFallbackHits
         self.pronunciationTokenEvidence = pronunciationTokenEvidence
         self.pronunciationEvidenceValidation = pronunciationEvidenceValidation
+        self.pronunciationAuditDiagnostics = pronunciationAuditDiagnostics
     }
 
     /// How many space-delimited phoneme groups each authored (whitespace-delimited)

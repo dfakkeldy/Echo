@@ -42,7 +42,10 @@ import Testing
             ("Completion hit 100%.", [1, 1, 3]),
             ("A 1.6% lift became 2500%.", [1, 4, 1, 1, 5]),
             ("Use a wedge, e.g. a doorstop.", [1, 1, 1, 2, 1, 1]),
-            ("The fee was $45.", [1, 1, 1, 2]),
+            // Currency stays one-to-one here. Misaki expands it semantically
+            // later, and `authoredWordGroupCounts` folds that speech back onto
+            // the single authored currency word.
+            ("The fee was $45.", [1, 1, 1, 1]),
             ("The train leaves at 3:15.", [1, 1, 1, 1, 2]),
             // A replacement word that also occurs earlier must not steal the anchor.
             ("The word percent appears before 40% here.", [1, 1, 1, 1, 1, 2, 1]),

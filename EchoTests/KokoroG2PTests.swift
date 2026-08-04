@@ -37,6 +37,72 @@ import Testing
         #expect(!result.phonemes.isEmpty)
         #expect(result.fallbackHits.contains { $0.word == "Jacqui" && !$0.ipa.isEmpty })
         #expect(!result.fallbackHits.contains { $0.word.lowercased().contains("hello") })
+        #expect(result.diagnostics.isEmpty)
+    }
+
+    @Test func resultDiagnosticsDefaultToEmptyForExistingCallers() {
+        let result = KokoroG2P.Result(
+            phonemes: "həlˈO",
+            fallbackHits: [],
+            tokenEvidence: [],
+            pronunciationEvidenceValidation: .matched)
+
+        #expect(result.diagnostics.isEmpty)
+    }
+
+    @Test func malformedCurrencyRemainsVoicedAndProducesContentFreeAdvisory() throws {
+        let source = "$1,23"
+        let result = KokoroG2P().result(for: source, displayText: source)
+        #expect(result.diagnostics.count == 1)
+        let diagnostic = try #require(result.diagnostics.first)
+
+        #expect(!result.phonemes.isEmpty)
+        #expect(result.tokenEvidence.contains { !$0.selectedPhonemes.isEmpty })
+        #expect(diagnostic.reason == .currencyNormalizationRejected)
+        #expect(diagnostic.blockID.isEmpty)
+        #expect(diagnostic.expectedDisplayText.isEmpty)
+        #expect(diagnostic.reconstructedSpokenSurface.isEmpty)
+        #expect(diagnostic.fallbackHits.isEmpty)
+        #expect(diagnostic.finalPhonemes == nil)
+        #expect(diagnostic.reconstructedTokenPhonemes == nil)
+    }
+
+    @Test func supportedCurrencyExpressionProducesNoCurrencyDiagnostic() {
+        let source = "$100 billion"
+        let result = KokoroG2P().result(for: source, displayText: source)
+
+        #expect(!result.phonemes.isEmpty)
+        #expect(result.diagnostics.isEmpty)
+    }
+
+    @Test func validLeadingDecimalDoesNotMaskMalformedCurrencyCandidate() {
+        let source = "$.5 million and $1,23"
+        let result = KokoroG2P().result(for: source, displayText: source)
+
+        #expect(result.diagnostics.map(\.reason) == [.currencyNormalizationRejected])
+    }
+
+    @Test(arguments: ["$", "$ 2", "$-x", "$--2"])
+    func everyRejectedSupportedSymbolCandidateProducesOneAdvisory(source: String) {
+        let result = KokoroG2P().result(for: source, displayText: source)
+
+        #expect(result.diagnostics.map(\.reason) == [.currencyNormalizationRejected])
+    }
+
+    @Test func mixedAcceptedAndRejectedCurrencyCandidatesAreCountedPerSymbol() {
+        let source = "$ and $ 2 and $-x and $--2 and $1,23 and €2 trillion"
+        let result = KokoroG2P().result(for: source, displayText: source)
+
+        #expect(result.diagnostics.count == 5)
+        #expect(result.diagnostics.allSatisfy { diagnostic in
+            diagnostic.reason == .currencyNormalizationRejected
+                && diagnostic.blockID.isEmpty
+                && diagnostic.expectedDisplayText.isEmpty
+                && diagnostic.reconstructedSpokenSurface.isEmpty
+                && diagnostic.fallbackHits.isEmpty
+                && diagnostic.finalPhonemes == nil
+                && diagnostic.reconstructedTokenPhonemes == nil
+        })
     }
 
     @Test func oovClosedCompoundsReuseKnownComponentPronunciations() throws {

@@ -66,6 +66,7 @@ nonisolated struct PronunciationAuditDiagnostic: Codable, Equatable, Sendable {
         case incompleteRender
         case qualityRejected
         case missingContextualEvidence
+        case currencyNormalizationRejected
     }
 
     let reason: Reason

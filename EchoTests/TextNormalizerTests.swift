@@ -40,17 +40,19 @@ import Testing
     }
 
     @Test(arguments: [
-        ("$5", "five dollars"),
-        ("$5.25", "five dollars and twenty-five cents"),
-        ("$1.00", "one dollar"),
-        ("$0.99", "ninety-nine cents"),
-        (
-            "The grant was $1,200.50.",
-            "The grant was one thousand two hundred dollars and fifty cents."
-        ),
+        "$5", "$5.25", "$1.00", "$0.99", "$100 billion", "$5.50 million",
+        "-$2 billion", "£1,234.56", "€2 trillion", "$2-3", "£2-3", "$2 bn", "€2 bn",
+        "$2 quadrillion",
     ])
-    func expandsDeterministicDollarAmounts(_ input: String, _ expected: String) {
-        #expect(TextNormalizer.normalize(input) == expected)
+    func preservesCurrencyCandidatesForSemanticG2P(_ input: String) {
+        #expect(TextNormalizer.normalize(input) == input)
+    }
+
+    @Test func normalizesProseAroundProtectedCurrencyCandidate() {
+        #expect(
+            TextNormalizer.normalize("Dr. Ada reported $100 billion at 3:30.")
+                == "Doctor Ada reported $100 billion at three thirty."
+        )
     }
 
     @Test(arguments: [
@@ -103,6 +105,11 @@ import Testing
     ])
     func leavesAmbiguousNaturalnessFormsAlone(_ input: String, _ expected: String) {
         #expect(TextNormalizer.normalize(input) == expected)
+    }
+
+    @Test func malformedDollarGroupingRemainsForSemanticAudit() {
+        let input = "The malformed $1,23 stays literal."
+        #expect(TextNormalizer.normalize(input) == input)
     }
 
     /// Word-level read-along indexes timings by the SOURCE block's

@@ -13,10 +13,19 @@ final class Lexicon {
   static let vowelSet: Set<Character> = Set("AIOQWYaiuæɑɒɔəɛɜɪʊʌᵻ")
   static let symbolSet: [String: String] = ["%": "percent", "&": "and", "+": "plus", "@": "at"]
   static let usTaus: Set<Character> = Set("AIOWYiuæɑəɛɪɹʊʌ")
-  static let currencies: [String: (String, String)] = [
-      "$": ("dollar", "cent"),
-      "£": ("pound", "pence"),
-      "€": ("euro", "cent")
+  static let currencies: [String: EnglishCurrencyUnitForms] = [
+      "$": EnglishCurrencyUnitForms(
+        majorSingular: "dollar", majorPlural: "dollars",
+        minorSingular: "cent", minorPlural: "cents"
+      ),
+      "£": EnglishCurrencyUnitForms(
+        majorSingular: "pound", majorPlural: "pounds",
+        minorSingular: "penny", minorPlural: "pence"
+      ),
+      "€": EnglishCurrencyUnitForms(
+        majorSingular: "euro", majorPlural: "euros",
+        minorSingular: "cent", minorPlural: "cents"
+      )
   ]
   
   private let british: Bool
@@ -554,7 +563,7 @@ final class Lexicon {
     guard let phoneme, let currency else { return phoneme }
     
     if let pair = Lexicon.currencies[currency] {
-      if let plural = stem_s(pair.0 + "s", tag: nil, stress: nil, ctx: nil).phoneme {
+      if let plural = stem_s(pair.majorSingular + "s", tag: nil, stress: nil, ctx: nil).phoneme {
         return phoneme + " " + plural
       }
     }
@@ -671,7 +680,8 @@ final class Lexicon {
           let parts = word.replacingOccurrences(of: ",", with: "").split(separator: ".")
           let a = parts.indices.contains(0) ? Int(parts[0]) ?? 0 : 0
           let b = parts.indices.contains(1) ? Int(parts[1]) ?? 0 : 0
-          pairs = [(a, units.0), (b, units.1)].filter { _ in true }
+          let legacyMinorUnit = curr == "£" ? units.minorPlural : units.minorSingular
+          pairs = [(a, units.majorSingular), (b, legacyMinorUnit)].filter { _ in true }
           if pairs.count > 1 {
               if pairs[1].0 == 0 { pairs = Array(pairs.prefix(1)) }
               else if pairs[0].0 == 0 { pairs = Array(pairs.suffix(1)) }
