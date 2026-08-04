@@ -41,7 +41,7 @@ import Testing
 
     @Test(arguments: [
         "$5", "$5.25", "$1.00", "$0.99", "$100 billion", "$5.50 million",
-        "-$2 billion", "£1,234.56", "€2 trillion", "$2-3", "£2-3", "$2 bn", "€2 bn",
+        "-$2 billion", "+£1 billion", "£1,234.56", "€2 trillion", "$2-3", "£2-3", "$2 bn", "€2 bn",
         "$2 quadrillion",
     ])
     func preservesCurrencyCandidatesForSemanticG2P(_ input: String) {

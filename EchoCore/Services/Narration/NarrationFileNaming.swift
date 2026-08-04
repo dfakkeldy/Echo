@@ -62,7 +62,9 @@ nonisolated enum NarrationFileNaming {
     /// words instead of reaching the voice as unpronounceable letter strings.
     /// v21 = complete supported currency expressions are normalized to semantic
     /// spoken forms before G2P, changing narration bytes for the same source text.
-    static let renderVersion = 21
+    /// v22 = explicit-positive supported currency expressions retain their plus
+    /// semantics through G2P, changing narration bytes for the same source text.
+    static let renderVersion = 22
     /// Stable renderer-family identity persisted beside headless captures. The
     /// cache render version tracks byte-affecting revisions within this family;
     /// this value prevents a different engine/G2P stack from inheriting them.
@@ -289,9 +291,13 @@ nonisolated enum NarrationFileNaming {
     }
 
     private static let stableLocationPattern = try! NSRegularExpression(
-        pattern: "^[A-Za-z0-9_]+-ck([0-9a-f]{32})(?:-s([0-9]+))?(?:-h[A-Za-z0-9]+)?-[A-Za-z0-9_]+-v([0-9]+)\\.m4a$")
+        pattern:
+            "^[A-Za-z0-9_]+-ck([0-9a-f]{32})(?:-s([0-9]+))?(?:-h[A-Za-z0-9]+)?-[A-Za-z0-9_]+-v([0-9]+)\\.m4a$"
+    )
     private static let legacyLocationPattern = try! NSRegularExpression(
-        pattern: "^[A-Za-z0-9_]+-ch([0-9]+)(?:-s([0-9]+))?(?:-h[A-Za-z0-9]+)?-[A-Za-z0-9_]+(?:-v[0-9]+)?\\.m4a$")
+        pattern:
+            "^[A-Za-z0-9_]+-ch([0-9]+)(?:-s([0-9]+))?(?:-h[A-Za-z0-9]+)?-[A-Za-z0-9_]+(?:-v[0-9]+)?\\.m4a$"
+    )
 
     private static func integerCapture(
         _ match: NSTextCheckingResult,

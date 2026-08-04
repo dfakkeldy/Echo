@@ -28,8 +28,12 @@ struct EnglishCurrencyExpression: Equatable, Sendable {
   static func parse(_ source: String) -> Self? {
     var remainder = source[...]
     var isNegative = false
+    var isExplicitlyPositive = false
 
-    if remainder.first == "-" {
+    if remainder.first == "+" {
+      isExplicitlyPositive = true
+      remainder.removeFirst()
+    } else if remainder.first == "-" {
       isNegative = true
       remainder.removeFirst()
     }
@@ -41,7 +45,7 @@ struct EnglishCurrencyExpression: Equatable, Sendable {
     remainder.removeFirst()
 
     if remainder.first == "-" {
-      guard !isNegative else { return nil }
+      guard !isNegative, !isExplicitlyPositive else { return nil }
       isNegative = true
       remainder.removeFirst()
     }
@@ -117,7 +121,14 @@ struct EnglishCurrencyExpression: Equatable, Sendable {
       unsignedSpokenForm = components.joined(separator: " and ")
     }
 
-    let spokenForm = isNegative ? "minus \(unsignedSpokenForm)" : unsignedSpokenForm
+    let spokenForm: String
+    if isNegative {
+      spokenForm = "minus \(unsignedSpokenForm)"
+    } else if isExplicitlyPositive {
+      spokenForm = "plus \(unsignedSpokenForm)"
+    } else {
+      spokenForm = unsignedSpokenForm
+    }
     return Self(
       source: source,
       symbol: symbol,

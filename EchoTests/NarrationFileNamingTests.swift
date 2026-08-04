@@ -5,18 +5,18 @@ import Testing
 @testable import Echo
 
 @Suite struct NarrationFileNamingTests {
-    @Test func renderVersionRegeneratesCachesForCurrencyNormalizationRefresh() {
-        // v21 semantically voices complete currency expressions, so v20 audio
-        // and pronunciation evidence may not be reused.
-        #expect(NarrationFileNaming.renderVersion == 21)
+    @Test func renderVersionRegeneratesCachesForExplicitPositiveCurrencyRefresh() {
+        // v22 semantically voices explicit-positive currency expressions, so
+        // v21 audio and pronunciation evidence may not be reused.
+        #expect(NarrationFileNaming.renderVersion == 22)
         let current = NarrationFileNaming.chapterFileName(
             audiobookID: "book",
             chapterIndex: 0,
             voice: VoiceID("af_heart"),
             contentSignature: "0123456789abcdef")
-        let previous = current.replacing("-v21.m4a", with: "-v20.m4a")
+        let previous = current.replacing("-v22.m4a", with: "-v21.m4a")
 
-        #expect(current.hasSuffix("-v21.m4a"))
+        #expect(current.hasSuffix("-v22.m4a"))
         #expect(
             NarrationFileNaming.isCurrentChapterCacheFileName(
                 current,
@@ -61,14 +61,14 @@ import Testing
             NarrationFileNaming.chapterFileName(
                 audiobookID: "book", chapterIndex: 3, voice: voice,
                 contentSignature: "abc")
-                == "book-ch3-habc-af_heart-v21.m4a")
+                == "book-ch3-habc-af_heart-v22.m4a")
         #expect(
             NarrationFileNaming.segmentFileName(
                 audiobookID: "book", chapterIndex: 3, segmentIndex: 2,
                 voice: voice, contentSignature: "abc")
-                == "book-ch3-s2-habc-af_heart-v21.m4a")
+                == "book-ch3-s2-habc-af_heart-v22.m4a")
         #expect(
-            NarrationFileNaming.location(fromFileName: "book-ch3-s2-habc-af_heart-v21.m4a")
+            NarrationFileNaming.location(fromFileName: "book-ch3-s2-habc-af_heart-v22.m4a")
                 == NarrationCacheLocation(
                     chapterIndex: 3, stableChapterToken: nil, segmentIndex: 2))
         #expect(
@@ -99,13 +99,14 @@ import Testing
     }
 
     @Test func stableLocationRejectsMalformedOrAmbiguousNames() {
-        #expect(NarrationFileNaming.location(fromFileName: "book-ckABC-s0-af_heart-v21.m4a") == nil)
+        #expect(NarrationFileNaming.location(fromFileName: "book-ckABC-s0-af_heart-v22.m4a") == nil)
         #expect(
             NarrationFileNaming.location(
-                fromFileName: "book-ck0123456789abcdef0123456789abcdef-s-af_heart-v21.m4a") == nil)
+                fromFileName: "book-ck0123456789abcdef0123456789abcdef-s-af_heart-v22.m4a") == nil)
         #expect(
             NarrationFileNaming.location(
-                fromFileName: "book-ck0123456789abcdef0123456789abcdef-s0-s1-af_heart-v21.m4a") == nil)
+                fromFileName: "book-ck0123456789abcdef0123456789abcdef-s0-s1-af_heart-v22.m4a")
+                == nil)
         #expect(
             NarrationFileNaming.location(
                 fromFileName:

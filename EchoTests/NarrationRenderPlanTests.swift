@@ -573,6 +573,7 @@ import Testing
         ("$100 billion", "one hundred billion dollars"),
         ("$5.50 million", "five point five million dollars"),
         ("-$2 billion", "minus two billion dollars"),
+        ("+£1 billion", "plus one billion pounds"),
         (
             "£1,234.56",
             "one thousand, two hundred and thirty-four pounds and fifty-six pence"
@@ -624,9 +625,10 @@ import Testing
         #expect(chunk.displayText == source)
         #expect(chunk.g2pInputText == source)
         #expect(!chunk.phonemes.isEmpty)
-        #expect(!chunk.pronunciationTokenEvidence.contains {
-            $0.text == rejectedSemanticSurface && $0.rating == 4
-        })
+        #expect(
+            !chunk.pronunciationTokenEvidence.contains {
+                $0.text == rejectedSemanticSurface && $0.rating == 4
+            })
         #expect(plan.pronunciationAuditDiagnostics.count == 1)
         let diagnostic = try #require(plan.pronunciationAuditDiagnostics.first)
         let manifest = PronunciationAuditManifest.make(
@@ -666,9 +668,10 @@ import Testing
 
         #expect(chunk.displayText == expected)
         #expect(chunk.g2pInputText == expected)
-        #expect(chunk.pronunciationTokenEvidence.contains {
-            $0.text == "$100 billion" && $0.rating == 4
-        })
+        #expect(
+            chunk.pronunciationTokenEvidence.contains {
+                $0.text == "$100 billion" && $0.rating == 4
+            })
         #expect(plan.pronunciationAuditDiagnostics.isEmpty)
     }
 
