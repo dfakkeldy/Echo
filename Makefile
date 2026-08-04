@@ -1,4 +1,4 @@
-.PHONY: help docs architecture whats-new devlog-update devlog-pr-body doc-automation-test pronunciation-corpus-test pronunciation-corpus-qualification pronunciation-program-report pronunciation-pack pronunciation-pack-test pronunciation-audit-pack pronunciation-audit-pack-test pronunciation-audio-judge-test test build-tests test-only hooks-test echo-cli renderer-install-test install-renderer verify-renderer promote-renderer repair-renderer
+.PHONY: help docs architecture whats-new devlog-update devlog-pr-body doc-automation-test pronunciation-corpus-test pronunciation-corpus-qualification pronunciation-program-report pronunciation-pack pronunciation-pack-test pronunciation-audit-pack pronunciation-audit-pack-test pronunciation-audio-judge-test neural-g2p-fetch-test neural-g2p-fetch test build-tests test-only hooks-test echo-cli renderer-install-test install-renderer verify-renderer promote-renderer repair-renderer
 
 help: ## List available targets
 	@echo "Echo: Audiobook Study Player — available targets:"
@@ -88,6 +88,16 @@ pronunciation-audit-pack-test: ## Test and deterministically verify the audit-on
 
 pronunciation-audio-judge-test: ## Test the development-only public/synthetic audio judge
 	python3 -m unittest discover -s Tools/Pronunciation/tests -p 'test_audio_judge.py'
+
+neural-g2p-fetch-test: ## Test the pinned neural G2P artifact fetch/check contract
+	python3 -m unittest discover -s Tools/Pronunciation/tests -p 'test_fetch_mini_bart_g2p.py' -v
+
+neural-g2p-fetch: ## Fetch pinned neural G2P artifacts (requires NEURAL_G2P_DEST)
+	@test -n "$(NEURAL_G2P_DEST)" || \
+		(echo "NEURAL_G2P_DEST is required; choose an explicit temporary destination" >&2; exit 2)
+	python3 Tools/Pronunciation/fetch_mini_bart_g2p.py fetch \
+		--lock Tools/Pronunciation/mini_bart_g2p.lock.json \
+		--destination "$(NEURAL_G2P_DEST)"
 
 SIM_DEST = platform=iOS Simulator,name=iPhone 17
 

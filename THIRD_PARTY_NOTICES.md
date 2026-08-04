@@ -50,3 +50,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 The Gold and Silver pronunciation data compared by the audit-only pack are
 bundled from MisakiSwift under the Apache License, Version 2.0. The complete
 license is preserved in `ThirdParty/MisakiSwift/LICENSE`.
+
+## mini-bart-g2p
+
+Project: mini-bart-g2p
+
+Upstream: https://huggingface.co/jonschneider/mini-bart-g2p
+
+Pinned revision: `f277d1e0597e7e7d33fa1d6d27d764bc4d7acb06`
+
+The model is licensed under the Apache License, Version 2.0. The exact upstream
+license is a required, hash-locked artifact named `LICENSE`; any distribution
+that bundles the model must include that license file. License terms are also
+available at https://www.apache.org/licenses/LICENSE-2.0.
+
+The upstream model card identifies LibriSpeech Alignments and CMUdict as its
+training sources.
+
+LibriSpeech Alignments, version 1.0, was created by Loren Lugosch and is licensed
+under Creative Commons Attribution 4.0 International:
+https://doi.org/10.5281/zenodo.2619474
+
+The complete CMUdict copyright notice, redistribution conditions, funding
+acknowledgment, and disclaimer are reproduced in the CMUdict section above.
