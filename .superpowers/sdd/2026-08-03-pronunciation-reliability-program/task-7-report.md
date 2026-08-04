@@ -276,3 +276,56 @@ ID/timing, and diagnostic gates are intentionally fail-closed.
 ### Fix-round commit
 
 Deferred pending independent re-review; no push.
+
+## Fix round 4: schema-five rejected-output proof and marker exclusion
+
+### Delivered
+
+- Schema 5 manifest decoding now requires every rejected raw G2P selected
+  output to carry the same exact evidence-only invalid-output provenance used
+  by capture sealing. This rejects an occurrence override, a wrong
+  source/rule pairing, partial timing, and a fabricated nonempty token-ID
+  payload; schemas 3 and 4 retain their legacy behavior of ignoring advisory
+  fields.
+- Added one shared semantic predicate for a rejected raw G2P output. The
+  planner, render-plan mapping, candidate-analysis scope, receipt validation,
+  and manifest validation now agree on that boundary.
+- The exact standalone `KokoroPhonemeVocab.oovMarker` is deliberately excluded
+  from the rejected-output predicate. Its established planner stripping path
+  therefore remains synthesizeable and produces no invalid-output decision,
+  diagnostic, zero-ID receipt, or capture warning. A raw string that combines
+  the marker with another unsupported character is still rejected, preserving
+  the fail-closed boundary for non-marker invalid output.
+
+### TDD and final verification
+
+The RED audit test initially showed that schema-five decoding accepted three
+of the adversarial receipt shapes: occurrence override, wrong source/rule,
+and partial timing. The RED render-plan test showed the marker-only result
+still created a zero-ID fallback advisory even though its synthesizeable
+phoneme payload was empty.
+
+While making the legacy-schema test meaningful, the general decision fixture
+was corrected from an invalid placeholder IPA to valid `ə`; invalid-output
+tests now opt into an explicit NUL raw value. The final schema-five test also
+supplies a fabricated `[42]` token ID, so the stricter rule is exercised with
+nonempty fake IDs rather than relying on the historical empty-ID case.
+
+Final commands, all through the governed Apple build slot:
+
+```sh
+XBG_ALLOW_NOW=1 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+XBG_ALLOW_NOW=1 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PronunciationAuditTests
+XBG_ALLOW_NOW=1 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationRenderPlanTests
+XBG_ALLOW_NOW=1 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/HeadlessNarrationRunnerTests
+```
+
+Result: build-for-testing passed; audit passed 24/24 in 11.371 seconds;
+render-plan passed 44/44 in 33.561 seconds; and headless passed 49/49 in
+440.594 seconds. `git diff --check` passed.
+
+### Fix-round concern
+
+The marker exception is deliberately exact-match only. It preserves the
+existing isolated marker stripping behavior without broadening the set of
+unsupported raw output that may become a normal synthesis result.

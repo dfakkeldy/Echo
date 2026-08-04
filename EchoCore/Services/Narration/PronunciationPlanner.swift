@@ -44,7 +44,7 @@ nonisolated final class PronunciationPlanner {
         } catch {
             guard case .matched = result.pronunciationEvidenceValidation,
                 result.tokenEvidence.contains(where: {
-                    PronunciationAuditContext.hasUnencodableSelectedOutput(
+                    PronunciationAuditContext.isRejectedRawG2POutput(
                         $0.selectedPhonemes)
                 })
             else {

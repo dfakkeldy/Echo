@@ -267,6 +267,64 @@ import Testing
         }
     }
 
+    @Test func matchedOOVMarkerKeepsTheHistoricalSynthesisPathOutOfInvalidOutputReceipts()
+        throws
+    {
+        let marker = String(KokoroPhonemeVocab.oovMarker)
+        let planner = try PronunciationPlanner(
+            g2pResult: { _, _ in
+                KokoroG2P.Result(
+                    phonemes: marker,
+                    fallbackHits: [.init(word: "ordinary", ipa: marker)],
+                    tokenEvidence: [.init(
+                        text: "ordinary",
+                        selectedPhonemes: marker,
+                        lexicalTag: nil,
+                        rating: 1,
+                        displayCharacterRange: 0..<8,
+                        phonemeCharacterRange: 0..<1,
+                        usedFallback: true)],
+                    pronunciationEvidenceValidation: .matched)
+            })
+
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "marker", text: "ordinary", index: 0)],
+            overrides: PronunciationOverrides.withBuiltInDefaults([:]),
+            pronunciationPlanner: planner)
+        let plannedBlock = try #require(plan.blocks.first)
+        let chunk = try #require(plannedBlock.synthesisChunks.first)
+
+        #expect(chunk.phonemes.isEmpty)
+        #expect(plannedBlock.pronunciationDecisions.isEmpty)
+        #expect(plannedBlock.pronunciationDecisionDiagnostics.isEmpty)
+        #expect(!plannedBlock.pronunciationDecisions.contains {
+            $0.kokoroTokenIDs.isEmpty && $0.selectedIPA == marker
+        })
+
+        let capture = HeadlessNarrationRunner.ChapterCapture(
+            duration: 1,
+            anchors: [],
+            pronunciationEvidence: .init(
+                decisions: plannedBlock.pronunciationDecisions,
+                diagnostics: plannedBlock.pronunciationDecisionDiagnostics))
+        #expect(try HeadlessNarrationRunner.capturePayloadSHA256(capture).count == 64)
+        let manifest = PronunciationAuditManifest.make(
+            renderVersion: 15,
+            voice: VoiceID("af_heart"),
+            captureCoverage: .incompleteEvidence,
+            legacyChapterIndexes: [],
+            audiobookURL: URL(fileURLWithPath: "/tmp/oov-marker.m4b"),
+            reelURL: nil,
+            audiobookSHA256: String(repeating: "a", count: 64),
+            listeningReelSHA256: nil,
+            watchWords: [],
+            decisions: plannedBlock.pronunciationDecisions,
+            diagnostics: plannedBlock.pronunciationDecisionDiagnostics)
+        #expect(try JSONDecoder().decode(
+            PronunciationAuditManifest.self,
+            from: manifest.encoded()) == manifest)
+    }
+
     @Test func sameSpanWrongFinalIPASuppressesRuleAndMakesAuditIncomplete() throws {
         let chunk = try PronunciationPlanner().planResolved("[record](/ɹəkˈɔɹd/)")
         let seed = PronunciationDecisionSeed(

@@ -215,7 +215,7 @@ enum NarrationRenderPlanner {
                     let rawTokenDecisionSeeds: [PronunciationDecisionSeed] =
                         rawResult.tokenEvidence.compactMap { evidence -> PronunciationDecisionSeed? in
                         let normalizedWord = PronunciationAuditContext.normalizedWord(evidence.text)
-                        guard PronunciationAuditContext.hasUnencodableSelectedOutput(
+                        guard PronunciationAuditContext.isRejectedRawG2POutput(
                             evidence.selectedPhonemes)
                         else {
                             return nil

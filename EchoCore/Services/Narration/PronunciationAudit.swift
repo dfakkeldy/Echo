@@ -356,7 +356,7 @@ nonisolated enum InvalidG2PAuditReceipt {
     ) -> Bool {
         guard
             PronunciationAuditContext.normalizedWord(sourceWord) == normalizedWord,
-            PronunciationAuditContext.hasUnencodableSelectedOutput(selectedIPA),
+            PronunciationAuditContext.isRejectedRawG2POutput(selectedIPA),
             advisoryEvidence.category == .lexical,
             advisoryEvidence.selectedCandidateID == nil,
             !advisoryEvidence.overrideSuppressedAutomation,
@@ -608,6 +608,13 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
             {
                 throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
                     "advisory pronunciation evidence is invalid")
+            }
+            if schemaVersion == Self.currentSchemaVersion,
+                PronunciationAuditContext.isRejectedRawG2POutput(decision.selectedIPA),
+                !decision.isEvidenceOnlyInvalidOutputAdvisory
+            {
+                throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                    "rejected raw G2P output has invalid audit provenance")
             }
         }
     }
@@ -1149,10 +1156,11 @@ nonisolated enum PronunciationAuditContext {
         let normalizedWord = normalizedWord(evidence.text)
         guard
             !normalizedWord.isEmpty,
+            !isIntentionalOOVMarkerOutput(evidence.selectedPhonemes),
             evidence.usedFallback || isComparisonCandidate
                 || PronunciationWatchVocabulary.words.contains(normalizedWord)
                 || isAcronym(evidence.text)
-                || hasUnencodableSelectedOutput(evidence.selectedPhonemes),
+                || isRejectedRawG2POutput(evidence.selectedPhonemes),
             let localWordSpan = wordSpan(
                 overlappingDisplayCharacterRange: evidence.displayCharacterRange,
                 in: chunkDisplayText)
@@ -1205,6 +1213,19 @@ nonisolated enum PronunciationAuditContext {
         guard !phonemes.isEmpty else { return true }
         guard let vocabulary = try? KokoroPhonemeVocab() else { return true }
         return (try? vocabulary.validatedIDs(forPhonemes: phonemes)) == nil
+    }
+
+    /// The marker is deliberately stripped by `PronunciationPlanner` before
+    /// strict vocabulary validation. A marker-only result therefore carries no
+    /// audit decision at all: it is neither a rejected raw G2P receipt nor a
+    /// normal materialized pronunciation.
+    nonisolated static func isIntentionalOOVMarkerOutput(_ phonemes: String) -> Bool {
+        phonemes == String(KokoroPhonemeVocab.oovMarker)
+    }
+
+    nonisolated static func isRejectedRawG2POutput(_ phonemes: String) -> Bool {
+        guard !isIntentionalOOVMarkerOutput(phonemes) else { return false }
+        return hasUnencodableSelectedOutput(phonemes)
     }
 
     private static func isAcronym(_ word: String) -> Bool {

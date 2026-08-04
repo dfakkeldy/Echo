@@ -99,7 +99,7 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
         // not sufficient evidence of a proper noun, so only an acronym gets
         // this no-other-signal comparison path.
         return isLikelyAcronym(decision.sourceWord)
-            || (try? KokoroPhonemeVocab().validatedIDs(forPhonemes: decision.selectedIPA)) == nil
+            || PronunciationAuditContext.isRejectedRawG2POutput(decision.selectedIPA)
     }
 
     private func selectionReason(

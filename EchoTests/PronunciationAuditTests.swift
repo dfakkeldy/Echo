@@ -86,7 +86,7 @@ import Testing
             normalizedWord: word,
             sourceWord: word,
             sourceContext: "The result was \(word) in this bounded context",
-            selectedIPA: "ipa-\(word)",
+            selectedIPA: "ə",
             kokoroTokenIDs: [11, 22, 33],
             source: .monitoredLexicon,
             ruleID: ruleID,
@@ -99,6 +99,54 @@ import Testing
                     end: Double(chapterIndex * 10) + $0.end)
             },
             timingPrecision: range == nil ? nil : .exactSynthesisWord)
+    }
+
+    private func invalidRawG2PDecision(
+        source: PronunciationAuditDecision.Source = .fallback,
+        ruleID: String = "g2p.fallback.ordinary",
+        advisoryEvidence: PronunciationAdvisoryEvidence? = nil,
+        chapterRelativeAudioRange: PronunciationAuditDecision.AudioRange? = nil,
+        bookRelativeAudioRange: PronunciationAuditDecision.AudioRange? = nil,
+        timingPrecision: PronunciationAuditDecision.TimingPrecision? = nil
+    ) -> PronunciationAuditDecision {
+        PronunciationAuditDecision(
+            blockID: "invalid-g2p",
+            wordStart: 0,
+            wordEnd: 0,
+            normalizedWord: "ordinary",
+            sourceWord: "ordinary",
+            sourceContext: "ordinary",
+            selectedIPA: "\u{0000}",
+            kokoroTokenIDs: [],
+            source: source,
+            ruleID: ruleID,
+            rationale: "Raw G2P output was rejected.",
+            advisoryEvidence: advisoryEvidence ?? .init(
+                category: .lexical,
+                selectedAuthority: .uncertain,
+                selectedCandidateID: nil,
+                alternatives: [],
+                selectionReason: .deterministicFallback,
+                overrideSuppressedAutomation: false,
+                policyVersion: "fixture-v1"),
+            chapterRelativeAudioRange: chapterRelativeAudioRange,
+            bookRelativeAudioRange: bookRelativeAudioRange,
+            timingPrecision: timingPrecision)
+    }
+
+    private func manifest(with decisions: [PronunciationAuditDecision]) -> PronunciationAuditManifest {
+        PronunciationAuditManifest.make(
+            renderVersion: 15,
+            voice: VoiceID("af_heart"),
+            captureCoverage: .incompleteEvidence,
+            legacyChapterIndexes: [],
+            audiobookURL: URL(fileURLWithPath: "/tmp/book.m4b"),
+            reelURL: nil,
+            audiobookSHA256: String(repeating: "a", count: 64),
+            listeningReelSHA256: nil,
+            watchWords: [],
+            decisions: decisions,
+            diagnostics: [])
     }
 
     private func diagnostic(
@@ -766,6 +814,56 @@ import Testing
             _ = try JSONDecoder().decode(
                 PronunciationAuditManifest.self,
                 from: JSONSerialization.data(withJSONObject: schemaFive))
+        }
+    }
+
+    @Test func schemaFiveRejectsMalformedInvalidG2PReceiptsAndRetainsTheVerifiedShape()
+        throws
+    {
+        let genuine = manifest(with: [invalidRawG2PDecision()])
+        let genuineData = try genuine.encoded()
+        #expect(try JSONDecoder().decode(
+            PronunciationAuditManifest.self,
+            from: genuineData) == genuine)
+
+        let root = try #require(
+            JSONSerialization.jsonObject(with: genuineData) as? [String: Any])
+        let validLexicalEvidence = try #require(
+            root["decisions"].flatMap { $0 as? [[String: Any]] }?.first?["advisoryEvidence"]
+                as? [String: Any])
+
+        var occurrenceOverride = root
+        var occurrenceDecisions = try #require(occurrenceOverride["decisions"] as? [[String: Any]])
+        occurrenceDecisions[0]["source"] = "occurrenceOverride"
+        occurrenceDecisions[0]["ruleID"] = "override.occurrence.ordinary"
+        occurrenceOverride["decisions"] = occurrenceDecisions
+
+        var wrongSourceRule = root
+        var wrongSourceRuleDecisions = try #require(wrongSourceRule["decisions"] as? [[String: Any]])
+        wrongSourceRuleDecisions[0]["source"] = "monitoredLexicon"
+        wrongSourceRuleDecisions[0]["ruleID"] = "g2p.fallback.ordinary"
+        wrongSourceRuleDecisions[0]["advisoryEvidence"] = validLexicalEvidence.merging([
+            "selectedAuthority": "trusted",
+            "selectionReason": "trustedLexicon",
+        ]) { _, new in new }
+        wrongSourceRule["decisions"] = wrongSourceRuleDecisions
+
+        var partialTiming = root
+        var partialTimingDecisions = try #require(partialTiming["decisions"] as? [[String: Any]])
+        partialTimingDecisions[0]["chapterRelativeAudioRange"] = ["start": 0.0, "end": 0.5]
+        partialTiming["decisions"] = partialTimingDecisions
+
+        var fakeTokenID = occurrenceOverride
+        var fakeTokenIDDecisions = try #require(fakeTokenID["decisions"] as? [[String: Any]])
+        fakeTokenIDDecisions[0]["kokoroTokenIDs"] = [42]
+        fakeTokenID["decisions"] = fakeTokenIDDecisions
+
+        for malformed in [occurrenceOverride, wrongSourceRule, partialTiming, fakeTokenID] {
+            #expect(throws: (any Error).self) {
+                _ = try JSONDecoder().decode(
+                    PronunciationAuditManifest.self,
+                    from: JSONSerialization.data(withJSONObject: malformed))
+            }
         }
     }
 
