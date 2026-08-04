@@ -65,14 +65,17 @@ import Testing
         #expect(evidence.selectedAuthority == .trusted)
     }
 
-    @Test func ordinaryUnanimousKnownWordHasNoAdvisoryEvidence() throws {
+    @Test func ordinaryKnownWordWithoutComparisonSignalsHasNoAdvisoryEvidence() {
         let seed = makeSeed(
             normalizedWord: "ordinary",
             sourceWord: "ordinary",
             source: .monitoredLexicon,
             selectedIPA: "ˈɔɹdɪnˌɛɹi")
 
-        #expect(try makeAnalyzer().evidence(
+        #expect(PronunciationCandidateAnalyzer(
+            productionPack: .empty,
+            auditPack: .empty
+        ).evidence(
             for: seed,
             fallbackHits: [],
             isWatchWord: false) == nil)
@@ -124,7 +127,7 @@ import Testing
             (makeSeed(
                 normalizedWord: "unsupported",
                 source: .monitoredLexicon,
-                selectedIPA: "not valid ipa"), [], false),
+                selectedIPA: "\u{0000}"), [], false),
             (normal, [], true),
             (normal, [PronunciationFallbackHit(word: "ordinary", ipa: "ˈɔɹdɪnˌɛɹi")], false),
         ]

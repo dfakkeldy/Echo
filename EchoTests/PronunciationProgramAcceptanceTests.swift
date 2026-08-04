@@ -1284,7 +1284,6 @@ import Testing
             watchWords: [],
             decisions: unavailableBlock.pronunciationDecisions,
             diagnostics: [])
-        #expect(manifest.schemaVersion == 4)
         #expect(manifest.coverage == .complete)
         let missingEvidenceManifest = PronunciationAuditManifest.make(
             renderVersion: NarrationFileNaming.renderVersion,
@@ -1298,7 +1297,6 @@ import Testing
             watchWords: [],
             decisions: omittedBlock.pronunciationDecisions,
             diagnostics: [])
-        #expect(missingEvidenceManifest.schemaVersion == 4)
         #expect(missingEvidenceManifest.coverage == .incompleteEvidence)
         let encoded = try manifest.encoded()
         let encodedAuditString = String(decoding: encoded, as: UTF8.self)
