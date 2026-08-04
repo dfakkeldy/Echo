@@ -105,8 +105,10 @@ import Testing
                     candidates = [cmudict, comparison]
                 }
             }),
-            ("duplicate candidate ID", { root in
-                Self.mutateRecordCandidates(in: &root) { $0[1]["candidateID"] = $0[0]["candidateID"] }
+            ("exact duplicate candidate", { root in
+                Self.mutateRecordCandidates(in: &root) { candidates in
+                    candidates.append(candidates[0])
+                }
             }),
             ("mismatched candidate ID", { root in
                 Self.mutateRecordCandidates(in: &root) {
