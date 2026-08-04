@@ -56,6 +56,7 @@ enum PronunciationFallbackDiscovery {
                 issueType: NarrationQAIssueType.pronunciation.rawValue,
                 confidence: confidence,
                 suggestedFixJSON: fixJSON,
+                origin: NarrationQualityIssueOrigin.pronunciationPreflight.rawValue,
                 status: NarrationQAIssueStatus.open.rawValue,
                 createdAt: createdAt,
                 resolvedAt: nil)

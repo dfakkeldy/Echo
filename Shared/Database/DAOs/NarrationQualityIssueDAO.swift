@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import GRDB
 
+enum NarrationQualityIssueDAOError: Error, Equatable {
+    case replacementOriginMismatch
+}
+
 struct NarrationQualityIssueDAO {
     let db: DatabaseWriter
 
@@ -16,14 +20,19 @@ struct NarrationQualityIssueDAO {
     func replaceOpen(
         for audiobookID: String,
         blockIDs: [String],
+        origin: NarrationQualityIssueOrigin,
         with records: [NarrationQualityIssueRecord]
     ) throws {
         guard !blockIDs.isEmpty else { return }
+        guard records.allSatisfy({ $0.origin == origin.rawValue }) else {
+            throw NarrationQualityIssueDAOError.replacementOriginMismatch
+        }
         try db.write { db in
             _ = try NarrationQualityIssueRecord
                 .filter(Column("audiobook_id") == audiobookID)
                 .filter(blockIDs.contains(Column("source_block_id")))
                 .filter(Column("status") == NarrationQAIssueStatus.open.rawValue)
+                .filter(Column("origin") == origin.rawValue)
                 .deleteAll(db)
             for var record in records {
                 try record.insert(db)

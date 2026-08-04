@@ -52,7 +52,8 @@ import Testing
         _ db: DatabaseService,
         book: String,
         id: String,
-        blockID: String = "blk1"
+        blockID: String = "blk1",
+        origin: NarrationQualityIssueOrigin = .asr
     ) throws {
         try NarrationQualityIssueDAO(db: db.writer).insert([
             NarrationQualityIssueRecord(
@@ -62,6 +63,7 @@ import Testing
                 expectedText: "quick", heardText: "",
                 issueType: NarrationQAIssueType.omission.rawValue,
                 confidence: 1.0, suggestedFixJSON: nil,
+                origin: origin.rawValue,
                 status: NarrationQAIssueStatus.open.rawValue,
                 createdAt: "t0", resolvedAt: nil)
         ])
@@ -217,6 +219,33 @@ import Testing
             audiobookID: "b1", chapters: [(0, fileURL, ["blk1"])])
         let secondCount = try NarrationQualityIssueDAO(db: db.writer).issues(for: "b1").count
         #expect(firstCount == secondCount)  // cleared + rewritten, not doubled
+    }
+
+    @Test func asrRefreshPreservesOpenPreflightAndAcousticIssues() async throws {
+        let db = try DatabaseService(inMemory: ())
+        try seed(db, book: "b1")
+        try seedOpenIssue(db, book: "b1", id: "old-asr", origin: .asr)
+        try seedOpenIssue(
+            db, book: "b1", id: "preflight", origin: .pronunciationPreflight)
+        try seedOpenIssue(db, book: "b1", id: "acoustic", origin: .acoustic)
+        let heard = [
+            TranscribedWord(text: "the", start: 0),
+            TranscribedWord(text: "quick", start: 0.4),
+            TranscribedWord(text: "dog", start: 0.8),
+        ]
+        let service = NarrationQAService(
+            db: db.writer,
+            classifier: DeterministicDivergenceClassifier(),
+            transcribe: { _ in heard })
+
+        try await service.runQA(
+            audiobookID: "b1",
+            chapters: [(0, URL(fileURLWithPath: "/tmp/x.m4a"), ["blk1"])])
+
+        let issues = try NarrationQualityIssueDAO(db: db.writer).issues(for: "b1")
+        #expect(!issues.contains { $0.id == "old-asr" })
+        #expect(issues.contains { $0.id == "preflight" })
+        #expect(issues.contains { $0.id == "acoustic" })
     }
 
     @Test func comparesAgainstNarrationNormalizedText() async throws {

@@ -142,7 +142,10 @@ final class NarrationQAService {
                         resolvedAt: nil))
             }
             try issueDAO.replaceOpen(
-                for: audiobookID, blockIDs: chapter.spokenBlockIDs, with: records)
+                for: audiobookID,
+                blockIDs: chapter.spokenBlockIDs,
+                origin: .asr,
+                with: records)
             logger.notice("QA chapter \(chapter.chapterIndex): \(records.count) issues")
         }
     }

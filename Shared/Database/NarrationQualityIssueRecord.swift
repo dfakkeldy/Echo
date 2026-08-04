@@ -19,6 +19,8 @@ struct NarrationQualityIssueRecord: Identifiable, Equatable, Codable, FetchableR
     var issueType: String
     var confidence: Double
     var suggestedFixJSON: String?
+    var origin: String
+    var evidenceJSON: String?
     var status: String
     var createdAt: String
     var resolvedAt: String?
@@ -38,10 +40,56 @@ struct NarrationQualityIssueRecord: Identifiable, Equatable, Codable, FetchableR
         case issueType = "issue_type"
         case confidence
         case suggestedFixJSON = "suggested_fix_json"
+        case origin
+        case evidenceJSON = "evidence_json"
         case status
         case createdAt = "created_at"
         case resolvedAt = "resolved_at"
     }
+
+    init(
+        id: String,
+        audiobookID: String,
+        sourceBlockID: String?,
+        sourceWordStart: Int?,
+        sourceWordEnd: Int?,
+        audioStartTime: TimeInterval,
+        audioEndTime: TimeInterval,
+        expectedText: String,
+        heardText: String,
+        issueType: String,
+        confidence: Double,
+        suggestedFixJSON: String?,
+        origin: String = NarrationQualityIssueOrigin.asr.rawValue,
+        evidenceJSON: String? = nil,
+        status: String,
+        createdAt: String,
+        resolvedAt: String?
+    ) {
+        self.id = id
+        self.audiobookID = audiobookID
+        self.sourceBlockID = sourceBlockID
+        self.sourceWordStart = sourceWordStart
+        self.sourceWordEnd = sourceWordEnd
+        self.audioStartTime = audioStartTime
+        self.audioEndTime = audioEndTime
+        self.expectedText = expectedText
+        self.heardText = heardText
+        self.issueType = issueType
+        self.confidence = confidence
+        self.suggestedFixJSON = suggestedFixJSON
+        self.origin = origin
+        self.evidenceJSON = evidenceJSON
+        self.status = status
+        self.createdAt = createdAt
+        self.resolvedAt = resolvedAt
+    }
+}
+
+enum NarrationQualityIssueOrigin: String, Codable, Sendable {
+    case asr
+    case pronunciationPreflight
+    case acoustic
 }
 
 /// Closed vocabulary for `narration_quality_issue.issue_type`.

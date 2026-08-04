@@ -170,6 +170,9 @@ final class DatabaseService {
         migrator.registerMigration("v39_article_sync") { db in
             try Schema_V39.migrate(db)
         }
+        migrator.registerMigration("v40_narration_quality_issue_origin") { db in
+            try Schema_V40.migrate(db)
+        }
         try migrator.migrate(writer)
     }
 }

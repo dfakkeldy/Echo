@@ -546,6 +546,20 @@ private actor ShadowEvaluatorRecorder {
                 == unauditedPlan.blocks.first?.synthesisChunks.map(\.phonemes))
         #expect(auditedDecision.advisoryEvidence?.alternatives.isEmpty == false)
         #expect(unauditedDecision.advisoryEvidence?.alternatives.isEmpty == true)
+
+        _ = try await audited.renderChapter(
+            chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
+        let persistedIssue = try #require(
+            NarrationQualityIssueDAO(db: db.writer).issues(
+                for: "b1", status: NarrationQAIssueStatus.open.rawValue
+            ).first { $0.origin == NarrationQualityIssueOrigin.pronunciationPreflight.rawValue })
+        let evidenceData = try #require(persistedIssue.evidenceJSON?.data(using: .utf8))
+        let persistedEvidence = try JSONDecoder().decode(
+            PronunciationAdvisoryEvidence.self, from: evidenceData)
+        #expect(persistedEvidence.isValid())
+        #expect(persistedEvidence.selectedCandidateID == nil)
+        #expect(persistedIssue.suggestedFixJSON == nil)
+
         let auditedCacheURL = await audited.chapterCacheURL(
             chapterIndex: 0,
             blocks: blocks,
@@ -2119,11 +2133,14 @@ private actor ShadowEvaluatorRecorder {
         let issues = try issueDAO.issues(
             for: "b1",
             status: NarrationQAIssueStatus.open.rawValue)
+        // The specialized fallback discovery row remains one book-level
+        // suggestion across rerenders, now in the preflight origin lane.
         #expect(issues.count == 1)
         let issue = try #require(issues.first)
         #expect(issue.issueType == NarrationQAIssueType.pronunciation.rawValue)
         #expect(issue.sourceBlockID == "blk0")
         #expect(issue.expectedText == "Jacqui")
+        #expect(issue.origin == NarrationQualityIssueOrigin.pronunciationPreflight.rawValue)
         let fixData = try #require(issue.suggestedFixJSON?.data(using: .utf8))
         let fix = try JSONDecoder().decode(SuggestedFix.self, from: fixData)
         #expect(fix == SuggestedFix(spokenForm: "Jacqui", ipa: "ʤˈækɪ"))
@@ -2152,6 +2169,48 @@ private actor ShadowEvaluatorRecorder {
         #expect(
             try issueDAO.issues(for: "b1", status: NarrationQAIssueStatus.open.rawValue)
                 .isEmpty)
+    }
+
+    @Test func advisoryReportWriteFailureDoesNotBlockTheRenderedChapter() async throws {
+        enum ReportWriteFailure: Error { case unavailable }
+
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["A rendered chapter survives report persistence failure."])
+        let state = NarrationState()
+        let service = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: MockTTSEngine(secondsPerChar: 0.1),
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: state,
+            advisoryReportWriter: { _, _ in throw ReportWriteFailure.unavailable },
+            fmEnabled: { false })
+
+        _ = try await service.renderChapter(
+            chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
+
+        let persistedTrack = try db.read { db in
+            try TrackRecord.filter(Column("audiobook_id") == "b1").fetchOne(db)
+        }
+        #expect(persistedTrack != nil)
+        #expect(state.debugLog.contains { $0.contains("Operational report-write error") })
+    }
+
+    @Test func renderedFileKeepsAuditedBlocksWhenNoBlockProducedAudio() {
+        let rendered = NarrationService.RenderedNarrationFile(
+            chapterIndex: 0,
+            chapterDisplayNumber: 1,
+            segmentIndex: nil,
+            fileURL: URL(fileURLWithPath: "/tmp/empty.m4a"),
+            duration: 0,
+            anchors: [],
+            spokenBlockIDs: [],
+            auditedBlockIDs: ["invalid-g2p"],
+            synthesisWordTimingsByBlock: [:])
+
+        #expect(rendered.spokenBlockIDs.isEmpty)
+        #expect(rendered.auditedBlockIDs == ["invalid-g2p"])
     }
 }
 

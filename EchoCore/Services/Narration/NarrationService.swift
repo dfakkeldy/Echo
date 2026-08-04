@@ -101,6 +101,9 @@ final class NarrationService {
     /// Advisory-only pronunciation source snapshot. It is never part of cache identity.
     private let pronunciationAuditPack: EnglishPronunciationAuditPack
     private let contextualPronunciationEvaluator: ContextualPronunciationBatchEvaluator
+    /// Test seam for the non-blocking advisory report write. Production uses the
+    /// origin-scoped DAO path below.
+    private let advisoryReportWriter: (([NarrationQualityIssueRecord], [String]) throws -> Void)?
 
     init(
         db: DatabaseWriter, audiobookID: String, tts: TTSEngine,
@@ -115,6 +118,7 @@ final class NarrationService {
         pronunciationAuditPack: EnglishPronunciationAuditPack = .empty,
         contextualPronunciationEvaluator: @escaping ContextualPronunciationBatchEvaluator =
             FoundationModelsContextualPronunciationEvaluator.makeBatchEvaluator(),
+        advisoryReportWriter: (([NarrationQualityIssueRecord], [String]) throws -> Void)? = nil,
         fmEnabled: @escaping () -> Bool = {
             UserDefaults.standard.string(forKey: "narrationQAClassifier") ?? "auto" == "auto"
         }
@@ -130,6 +134,7 @@ final class NarrationService {
         self.pronunciationPack = pronunciationPack
         self.pronunciationAuditPack = pronunciationAuditPack
         self.contextualPronunciationEvaluator = contextualPronunciationEvaluator
+        self.advisoryReportWriter = advisoryReportWriter
         self.fmEnabledProvider = fmEnabled
     }
 
@@ -141,6 +146,10 @@ final class NarrationService {
         let duration: TimeInterval
         let anchors: [AlignmentAnchorRecord]
         let spokenBlockIDs: [String]
+        /// All source blocks whose plan was audited for this render unit. This
+        /// intentionally includes blocks that did not produce audio, so a later
+        /// zero-row advisory refresh can clear their stale local findings.
+        let auditedBlockIDs: [String]
         /// Per-block synthesized speech ranges captured from the render stream.
         /// These ranges exclude planned silence so generated read-along rows do
         /// not stretch words through intentional pauses.
@@ -165,6 +174,7 @@ final class NarrationService {
             duration: TimeInterval,
             anchors: [AlignmentAnchorRecord],
             spokenBlockIDs: [String],
+            auditedBlockIDs: [String]? = nil,
             speechRangesByBlock: [String: [NarrationSpeechRange]] = [:],
             synthesisWordTimingsByBlock: [String: [ChunkWordTiming]],
             pronunciationFallbackHits: [RenderedPronunciationFallbackHit] = [],
@@ -178,6 +188,7 @@ final class NarrationService {
             self.duration = duration
             self.anchors = anchors
             self.spokenBlockIDs = spokenBlockIDs
+            self.auditedBlockIDs = auditedBlockIDs ?? spokenBlockIDs
             self.speechRangesByBlock = speechRangesByBlock
             self.synthesisWordTimingsByBlock = synthesisWordTimingsByBlock
             self.pronunciationFallbackHits = pronunciationFallbackHits
@@ -688,6 +699,33 @@ final class NarrationService {
         // failure must not fail the render — the audio is already on disk and the
         // anchors persisted; log and continue.
         do {
+            let records = PronunciationAdvisoryIssueBuilder().records(
+                audiobookID: audiobookID,
+                decisions: rendered.pronunciationDecisions,
+                diagnostics: rendered.pronunciationAuditDiagnostics,
+                createdAt: Self.iso8601.string(from: Date()))
+            if let advisoryReportWriter {
+                try advisoryReportWriter(records, rendered.auditedBlockIDs)
+            } else {
+                let issueDAO = NarrationQualityIssueDAO(db: db)
+                for origin in [
+                    NarrationQualityIssueOrigin.pronunciationPreflight,
+                    .acoustic,
+                ] {
+                    try issueDAO.replaceOpen(
+                        for: audiobookID,
+                        blockIDs: rendered.auditedBlockIDs,
+                        origin: origin,
+                        with: records.filter { $0.origin == origin.rawValue })
+                }
+            }
+        } catch {
+            let message = "Operational report-write error: \(error.localizedDescription)"
+            logger.error("\(message)")
+            state.log(message)
+        }
+
+        do {
             try PronunciationFallbackDiscovery.persist(
                 audiobookID: audiobookID,
                 hits: rendered.pronunciationFallbackHits,
@@ -1015,6 +1053,7 @@ final class NarrationService {
             duration: duration,
             anchors: anchors,
             spokenBlockIDs: spokenBlockIDs,
+            auditedBlockIDs: plan.blocks.map(\.blockID),
             speechRangesByBlock: speechRangesByBlock,
             synthesisWordTimingsByBlock: synthesisWordTimingsByBlock,
             pronunciationFallbackHits: pronunciationFallbackHits,
