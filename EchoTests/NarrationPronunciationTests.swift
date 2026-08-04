@@ -40,6 +40,17 @@ import Testing
         #expect(out.contains("[Campbell](/kˈæmbəl/)'s soup"))
     }
 
+    @Test func builtInDefaultPronouncesDeepMindPossessiveWithoutSpellingTheSuffix() throws {
+        let displayText = "Google DeepMind’s GraphCast model"
+        let g2pInput = PronunciationOverrides.withBuiltInDefaults([:]).apply(to: displayText)
+        let result = KokoroG2P().result(for: g2pInput, displayText: displayText)
+
+        #expect(g2pInput.contains("[DeepMind’s](/dˈipmˌIndz/)"))
+        #expect(result.pronunciationEvidenceValidation == .matched)
+        #expect(result.fallbackHits.isEmpty)
+        #expect(result.phonemes.contains("dˈipmˌIndz"))
+    }
+
     @Test func builtInDefaultsCoverReportedKokoroMispronunciations() {
         let out = PronunciationOverrides.withBuiltInDefaults([:]).apply(
             to: "Xcode fixed the timeframe, re-rendered the README, and opened Assets.xcassets.")

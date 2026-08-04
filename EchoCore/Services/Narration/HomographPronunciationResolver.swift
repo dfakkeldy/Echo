@@ -481,6 +481,23 @@ nonisolated enum HomographPronunciationResolver {
     }
 
     private static func liveResolution(at index: Int, tokens: [Token]) -> Resolution? {
+        if index >= 2 {
+            let weather = tokens[index - 2]
+            let link = tokens[index - 1]
+            let live = tokens[index]
+            if !link.startsSentence,
+                !live.startsSentence,
+                weather.lowercased == "weather",
+                link.lowercased == "link"
+            {
+                return Resolution(
+                    ipa: IPA.liveAdjective,
+                    ruleID: "homograph.live.product.weather-link-live",
+                    rationale:
+                        "Adjective pronunciation selected in the product name “Weather Link Live”.")
+            }
+        }
+
         if let cue = previousLowercased(tokens, index), liveVerbPreceders.contains(cue) {
             return Resolution(
                 ipa: IPA.liveVerb,
@@ -522,7 +539,8 @@ nonisolated enum HomographPronunciationResolver {
                 ipa: IPA.livesNoun,
                 ruleID: "homograph.lives.noun.one-of-superlative",
                 rationale:
-                    "Plural-noun pronunciation selected in the descriptive superlative phrase “\(phrase)”.")
+                    "Plural-noun pronunciation selected in the descriptive superlative phrase “\(phrase)”."
+            )
         }
 
         if let cue = previousLowercased(tokens, index), livesVerbPreceders.contains(cue) {
