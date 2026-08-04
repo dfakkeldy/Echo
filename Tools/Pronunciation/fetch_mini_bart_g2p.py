@@ -142,12 +142,28 @@ def _absolute_lexical(path: Path | str) -> Path:
     return Path(os.path.abspath(candidate))
 
 
+def _normalize_root_alias(path: Path) -> Path:
+    """Resolve only a root-level platform alias such as macOS /tmp or /var."""
+    if len(path.parts) < 2:
+        return path
+    first_component = Path(path.anchor) / path.parts[1]
+    if not first_component.is_symlink():
+        return path
+    return first_component.resolve(strict=True).joinpath(*path.parts[2:])
+
+
 def _validate_destination(destination: Path | str) -> Path:
-    destination_path = _absolute_lexical(destination)
+    destination_path = _normalize_root_alias(_absolute_lexical(destination))
     if destination_path == Path(destination_path.anchor):
         raise DestinationError("destination must not be the filesystem root")
-    if destination_path.is_symlink():
-        raise DestinationError(f"destination must not be a symlink: {destination_path}")
+
+    current = Path(destination_path.anchor)
+    for part in destination_path.parts[1:]:
+        current /= part
+        if current.is_symlink():
+            raise DestinationError(
+                f"destination path must not contain a symlink: {current}"
+            )
 
     for ancestor in (destination_path, *destination_path.parents):
         git_marker = ancestor / ".git"
@@ -224,6 +240,15 @@ def _download(
                 headers={"User-Agent": "Echo reproducible model fetch/1"},
             )
             with opener(request) as response:
+                final_url = response.geturl()
+                parsed_final_url = urllib.parse.urlsplit(final_url)
+                if (
+                    parsed_final_url.scheme.lower() != "https"
+                    or not parsed_final_url.hostname
+                ):
+                    raise VerificationError(
+                        f"artifact {artifact.path} redirected to non-HTTPS URL"
+                    )
                 while chunk := response.read(CHUNK_SIZE):
                     temporary.write(chunk)
                     digest.update(chunk)

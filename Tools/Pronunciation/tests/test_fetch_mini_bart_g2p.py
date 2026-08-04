@@ -30,11 +30,15 @@ def load_tool():
 
 
 class FixtureResponse(contextlib.AbstractContextManager):
-    def __init__(self, data: bytes):
+    def __init__(self, data: bytes, final_url: str):
         self._stream = io.BytesIO(data)
+        self._final_url = final_url
 
     def read(self, size: int = -1) -> bytes:
         return self._stream.read(size)
+
+    def geturl(self) -> str:
+        return self._final_url
 
     def __exit__(self, exc_type, exc_value, traceback):
         self._stream.close()
@@ -203,6 +207,55 @@ class FetchMiniBartG2PTests(unittest.TestCase):
             with self.assertRaisesRegex(tool.DestinationError, "symlink"):
                 tool.fetch(lock_path, linked_destination, opener=lambda _: None)
 
+    def test_fetch_rejects_symlinked_intermediate_destination_component(self):
+        tool = load_tool()
+        fixtures = {
+            f"https://example.invalid/models/{REVISION}/onnx/model.onnx": self.model,
+            f"https://example.invalid/models/{REVISION}/LICENSE": self.license,
+        }
+
+        def opener(request):
+            return FixtureResponse(fixtures[request.full_url], request.full_url)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            outside = root / "outside"
+            outside.mkdir()
+            container = root / "container"
+            container.mkdir()
+            (container / "linked").symlink_to(outside, target_is_directory=True)
+            lock_path = self.write_lock(root)
+
+            with self.assertRaisesRegex(tool.DestinationError, "symlink"):
+                tool.fetch(
+                    lock_path,
+                    container / "linked/nested",
+                    opener=opener,
+                )
+
+    def test_fetch_rejects_redirect_to_non_https_url(self):
+        tool = load_tool()
+        fixtures = {
+            f"https://example.invalid/models/{REVISION}/onnx/model.onnx": self.model,
+            f"https://example.invalid/models/{REVISION}/LICENSE": self.license,
+        }
+
+        def opener(request):
+            final_url = request.full_url
+            if request.full_url.endswith("model.onnx"):
+                final_url = "http://cdn.example.invalid/model.onnx"
+            return FixtureResponse(fixtures[request.full_url], final_url)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            lock_path = self.write_lock(root)
+            destination = root / "model"
+
+            with self.assertRaisesRegex(tool.VerificationError, "redirected to non-HTTPS"):
+                tool.fetch(lock_path, destination, opener=opener)
+
+            self.assertFalse((destination / "onnx/model.onnx").exists())
+
     def test_fetch_streams_validated_artifacts_then_offline_check_succeeds(self):
         tool = load_tool()
         fixtures = {
@@ -211,7 +264,7 @@ class FetchMiniBartG2PTests(unittest.TestCase):
         }
 
         def opener(request):
-            return FixtureResponse(fixtures[request.full_url])
+            return FixtureResponse(fixtures[request.full_url], request.full_url)
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -245,7 +298,7 @@ class FetchMiniBartG2PTests(unittest.TestCase):
                     if request.full_url.endswith("model.onnx")
                     else self.license
                 )
-                return FixtureResponse(data)
+                return FixtureResponse(data, request.full_url)
 
             with self.assertRaisesRegex(tool.VerificationError, "size mismatch"):
                 tool.fetch(lock_path, destination, opener=opener)
