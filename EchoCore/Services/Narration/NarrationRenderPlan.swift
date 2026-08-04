@@ -99,7 +99,8 @@ enum NarrationRenderPlanner {
         contextualEvidence: [ContextualPronunciationKey: ContextualPronunciationEvidence] = [:],
         requiresContextualEvidence: Bool = false,
         maxChars: Int = 350,
-        maxPhonemes: Int = 420
+        maxPhonemes: Int = 420,
+        pronunciationPlanner: PronunciationPlanner? = nil
     ) throws -> NarrationRenderPlan {
         try make(
             preparedBlocks: blocks.map { block in
@@ -117,7 +118,8 @@ enum NarrationRenderPlanner {
             contextualEvidence: contextualEvidence,
             requiresContextualEvidence: requiresContextualEvidence,
             maxChars: maxChars,
-            maxPhonemes: maxPhonemes)
+            maxPhonemes: maxPhonemes,
+            pronunciationPlanner: pronunciationPlanner)
     }
 
     static func make(
@@ -128,15 +130,21 @@ enum NarrationRenderPlanner {
         contextualEvidence: [ContextualPronunciationKey: ContextualPronunciationEvidence] = [:],
         requiresContextualEvidence: Bool = false,
         maxChars: Int = 350,
-        maxPhonemes: Int = 420
+        maxPhonemes: Int = 420,
+        pronunciationPlanner: PronunciationPlanner? = nil
     ) throws -> NarrationRenderPlan {
         // One planner owns the single `KokoroG2P` (and its ~12 MB lexicon) for
         // this render unit; the chunker sizes splits via its phoneme count.
-        let pronunciationPlanner = try PronunciationPlanner()
+        let planner: PronunciationPlanner
+        if let pronunciationPlanner {
+            planner = pronunciationPlanner
+        } else {
+            planner = try PronunciationPlanner()
+        }
         let candidateAnalyzer = PronunciationCandidateAnalyzer(
             productionPack: pronunciationPack,
             auditPack: pronunciationAuditPack)
-        let resolvedPhonemeCount = pronunciationPlanner.phonemeCount(for:)
+        let resolvedPhonemeCount = planner.phonemeCount(for:)
         let candidates = preparedBlocks.filter { preparedBlock in
             let block = preparedBlock.block
             guard block.text?.isEmpty == false else { return false }
@@ -178,7 +186,7 @@ enum NarrationRenderPlanner {
                     to: overrideResult.text,
                     blockID: block.id,
                     pack: pronunciationPack,
-                    basePronunciation: pronunciationPlanner.validatedBaseIPA(for:))
+                    basePronunciation: planner.validatedBaseIPA(for:))
                 let homographResult = HomographPronunciationResolver.rewrite(
                     to: universalResult.text,
                     blockID: block.id)
@@ -197,7 +205,39 @@ enum NarrationRenderPlanner {
             var synthesisChunks: [PlannedSynthesisChunk] = []
             var wordBase = 0
             for fragment in fragments {
-                let chunk = try pronunciationPlanner.planResolved(fragment)
+                let chunk: PlannedSynthesisChunk
+                do {
+                    chunk = try planner.planResolved(fragment)
+                } catch let error as PronunciationPlanner.PlanningError {
+                    guard case .invalidRawG2POutput(let rawResult) = error else {
+                        throw error
+                    }
+                    let rawTokenDecisionSeeds: [PronunciationDecisionSeed] =
+                        rawResult.tokenEvidence.compactMap { evidence -> PronunciationDecisionSeed? in
+                        let normalizedWord = PronunciationAuditContext.normalizedWord(evidence.text)
+                        guard PronunciationAuditContext.hasUnencodableSelectedOutput(
+                            evidence.selectedPhonemes)
+                        else {
+                            return nil
+                        }
+                        return PronunciationAuditContext.decisionSeed(
+                            for: evidence,
+                            blockID: block.id,
+                            chunkDisplayText: MisakiPronunciationMarkup.displayText(from: fragment),
+                            blockDisplayText: blockDisplayText,
+                            wordBase: wordBase,
+                            isComparisonCandidate:
+                                !pronunciationAuditPack.alternatives(for: normalizedWord).isEmpty
+                                    || (pronunciationPack.hasExplicitCandidate(for: normalizedWord)
+                                        && pronunciationPack.automaticCandidate(
+                                            for: normalizedWord) == nil))
+                    }
+                    decisionSeeds = uniqueDecisionSeeds(decisionSeeds + rawTokenDecisionSeeds)
+                    wordBase += WordTokenizer.words(
+                        in: MisakiPronunciationMarkup.displayText(from: fragment)
+                    ).count
+                    continue
+                }
                 let tokenDecisionSeeds = chunk.pronunciationTokenEvidence.compactMap { evidence in
                     let normalizedWord = PronunciationAuditContext.normalizedWord(evidence.text)
                     return PronunciationAuditContext.decisionSeed(
@@ -360,13 +400,19 @@ enum NarrationRenderPlanner {
     private static func requiresEvidenceOnlyMaterialization(
         _ seed: PronunciationDecisionSeed
     ) -> Bool {
-        guard seed.advisoryEvidence != nil else { return false }
-        let dispatchIPA = dispatchNormalizedIPA(
-            seed.selectedIPA,
-            forWord: seed.normalizedWord)
-        guard !dispatchIPA.isEmpty else { return true }
-        guard let vocabulary = try? KokoroPhonemeVocab() else { return true }
-        return (try? vocabulary.validatedIDs(forPhonemes: dispatchIPA)) == nil
+        guard let advisoryEvidence = seed.advisoryEvidence else { return false }
+        return InvalidG2PAuditReceipt.hasVerifiedProvenance(
+            normalizedWord: seed.normalizedWord,
+            sourceWord: seed.sourceWord,
+            selectedIPA: seed.selectedIPA,
+            source: seed.source,
+            ruleID: seed.ruleID,
+            candidateID: seed.candidateID,
+            candidatePackVersion: seed.candidatePackVersion,
+            derivationBase: seed.derivationBase,
+            derivationRuleID: seed.derivationRuleID,
+            contextualEvidence: seed.contextualEvidence,
+            advisoryEvidence: advisoryEvidence)
     }
 
     private static func validateContextualEvidence(

@@ -217,3 +217,62 @@ this path without a separate capture integrity rule.
 
 Pending final commit:
 `fix(narration): seal invalid G2P audit evidence`
+
+## Fix round 3: typed raw-G2P receipt and sealed provenance
+
+### Delivered
+
+- Added a concrete, test-only `PronunciationPlanner` raw-result injection seam.
+  Production still calls its owned `KokoroG2P` directly for planning, base IPA,
+  and phoneme counts; successful output and strict `validatedIDs` behavior are
+  unchanged.
+- A typed planner error carries only a matched raw result with at least one
+  unencodable token output. The render planner catches only that error, emits
+  the exact raw-token decision/diagnostic, and creates no synthesis chunk.
+  Any unproven invalid aggregate continues to fail planning.
+- Centralized the evidence-only provenance boundary in
+  `InvalidG2PAuditReceipt`. It permits only exact fallback or monitored-lexicon
+  raw-G2P shapes with matching rule IDs and advisory authority/reason; override,
+  candidate, contextual, and malformed source/rule combinations are rejected
+  both by materialization and capture sealing.
+- Removed title case as a standalone seed signal. Multi-letter all-caps
+  acronyms remain eligible; title-cased tokens require an existing concrete
+  signal. The production render-plan regression proves sentence-initial `The`
+  produces no audit decision while the `startable` override remains the one
+  exact final decision.
+
+### TDD and final verification
+
+The initial full headless RED run failed exactly the two new provenance attacks:
+occurrence-override masquerading and a mismatched monitored-lexicon/fallback
+rule were incorrectly accepted. A single-case selector was unsupported by this
+test runner and executed zero tests, so the suite result is the RED evidence.
+
+An intermediate render-plan run exposed a pre-existing title-case admission
+bug: sentence-initial ordinary `The` seeded a monitored-lexicon advisory,
+sorting ahead of the explicit override and eventually creating duplicate keys.
+Restricting the renamed helper to actual acronyms fixed the production path.
+
+Final commands, all through the governed Apple build slot:
+
+```sh
+XBG_ALLOW_NOW=1 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+XBG_ALLOW_NOW=1 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationRenderPlanTests
+XBG_ALLOW_NOW=1 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/HeadlessNarrationRunnerTests
+XBG_ALLOW_NOW=1 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PronunciationPlannerTests
+```
+
+Result: build-for-testing passed; render-plan passed 43 tests in 40.788 seconds;
+headless passed 49 tests in 436.485 seconds; planner passed 8 tests in 8.649
+seconds. `git diff --check` passed.
+
+### Fix-round concern
+
+The sealed receipt proves only the constrained structural provenance carried in
+the manifest; it is not a cryptographic attestation that a particular renderer
+process produced the raw G2P result. The no-synthesis, exact-source/rule, empty
+ID/timing, and diagnostic gates are intentionally fail-closed.
+
+### Fix-round commit
+
+Deferred pending independent re-review; no push.

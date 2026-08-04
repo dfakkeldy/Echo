@@ -61,6 +61,17 @@ import ZIPFoundation
             audioFileByteCount: 1)
     }
 
+    private func narrationBlock(id: String, text: String) -> EPubBlockRecord {
+        EPubBlockRecord(
+            id: id, audiobookID: "book", spineHref: "chapter.xhtml",
+            spineIndex: 0, blockIndex: 0, sequenceIndex: 0,
+            blockKind: "paragraph", text: text, htmlContent: nil,
+            cardColor: nil, chapterThemeColor: nil, imagePath: nil,
+            chapterIndex: 0, isHidden: false, hiddenReason: nil,
+            isFrontMatter: false, wordCount: nil, markers: nil,
+            textFormats: nil, createdAt: nil, modifiedAt: nil)
+    }
+
     /// Stub TTS: returns 0.2s of quiet-but-nonzero PCM per call (no 163 MB model).
     private final class StubEngine: TTSEngine {
         func prepare() async throws {}
@@ -1043,7 +1054,7 @@ import ZIPFoundation
         }
     }
 
-    @Test func invalidG2POutputRoutesFromTokenEvidenceToSealedAuditWithoutASynthesisChunk() throws {
+    @Test func injectedG2PInvalidOutputRoutesThroughPlannerToSealedAuditWithoutASynthesisChunk() throws {
         let workDir = FileManager.default.temporaryDirectory.appendingPathComponent(
             UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
@@ -1063,92 +1074,85 @@ import ZIPFoundation
             chapterIndex: 0,
             chapterContentSignature: "stable-cache-signature",
             audioFileName: audioName)
-        let analyzer = PronunciationCandidateAnalyzer(
-            productionPack: .empty,
-            auditPack: .empty)
+        let rawResult = KokoroG2P.Result(
+            phonemes: "\u{0000}",
+            fallbackHits: [.init(word: "ordinary", ipa: "\u{0000}")],
+            tokenEvidence: [.init(
+                text: "ordinary",
+                selectedPhonemes: "\u{0000}",
+                lexicalTag: nil,
+                rating: 1,
+                displayCharacterRange: 0..<8,
+                phonemeCharacterRange: 0..<1,
+                usedFallback: true)],
+            pronunciationEvidenceValidation: .matched)
+        let planner = try PronunciationPlanner(g2pResult: { _, _ in rawResult })
+        let renderPlan = try NarrationRenderPlanner.make(
+            blocks: [narrationBlock(id: "invalid-g2p", text: "ordinary")],
+            overrides: PronunciationOverrides.withBuiltInDefaults([:]),
+            pronunciationPlanner: planner)
+        let plannedBlock = try #require(renderPlan.blocks.first)
+        let decision = try #require(plannedBlock.pronunciationDecisions.first)
 
-        for selectedIPA in ["", "\u{0000}"] {
-            let seed = try #require(PronunciationAuditContext.decisionSeed(
-                for: PronunciationTokenEvidence(
-                    text: "ordinary",
-                    selectedPhonemes: selectedIPA,
-                    lexicalTag: nil,
-                    rating: nil,
-                    displayCharacterRange: 0..<8,
-                    usedFallback: false),
-                blockID: "invalid-g2p",
-                chunkDisplayText: "ordinary",
-                blockDisplayText: "ordinary",
-                wordBase: 0))
-            let advisory = try #require(analyzer.evidence(
-                for: seed,
-                fallbackHits: [],
-                isWatchWord: false))
-            let materialization = NarrationRenderPlanner.materializedPronunciationEvidence(
-                from: [seed.attachingAdvisoryEvidence(advisory)],
-                synthesisChunks: [])
-            let decision = try #require(materialization.decisions.first)
+        #expect(plannedBlock.synthesisChunks.isEmpty)
+        #expect(decision.selectedIPA == "\u{0000}")
+        #expect(decision.source == .fallback)
+        #expect(decision.ruleID == "g2p.fallback.ordinary")
+        #expect(decision.kokoroTokenIDs.isEmpty)
+        #expect(decision.advisoryEvidence?.category == .lexical)
+        #expect(decision.advisoryEvidence?.selectedAuthority == .uncertain)
+        #expect(decision.advisoryEvidence?.selectionReason == .deterministicFallback)
+        #expect(plannedBlock.pronunciationDecisionDiagnostics.map(\.reason) == [.decisionEvidenceMismatch])
+        #expect(plannedBlock.pronunciationDecisionDiagnostics.first?.chunkIndex == -1)
+        let capturedDecision = decision.attachingRenderTiming(
+            chapterIndex: 0,
+            chapterRelativeAudioRange: nil,
+            timingPrecision: nil)
+        #expect(PronunciationListeningReel.entries(
+            decisions: [capturedDecision],
+            audiobookURL: audioURL,
+            sourceDuration: CMTime(seconds: 1, preferredTimescale: 600)
+        ).isEmpty)
 
-            #expect(materialization.decisions.count == 1)
-            #expect(decision.selectedIPA == selectedIPA)
-            #expect(decision.kokoroTokenIDs.isEmpty)
-            #expect(decision.chapterRelativeAudioRange == nil)
-            #expect(decision.bookRelativeAudioRange == nil)
-            #expect(decision.timingPrecision == nil)
-            #expect(decision.advisoryEvidence?.category == .lexical)
-            #expect(materialization.diagnostics.map(\.reason) == [.decisionEvidenceMismatch])
-            #expect(materialization.diagnostics.first?.chunkIndex == -1)
-            let capturedDecision = decision.attachingRenderTiming(
-                chapterIndex: 0,
-                chapterRelativeAudioRange: nil,
-                timingPrecision: nil)
-            #expect(capturedDecision.chapterIndex == 0)
-            #expect(PronunciationListeningReel.entries(
-                decisions: [capturedDecision],
-                audiobookURL: audioURL,
-                sourceDuration: CMTime(seconds: 1, preferredTimescale: 600)
-            ).isEmpty)
+        let sealed = try HeadlessNarrationRunner.sealedCapture(
+            .init(
+                duration: 1,
+                anchors: [],
+                pronunciationEvidence: .init(
+                    decisions: [capturedDecision],
+                    diagnostics: plannedBlock.pronunciationDecisionDiagnostics.map {
+                        $0.attachingChapter(0)
+                    })),
+            audioURL: audioURL,
+            expected: expected,
+            workDir: workDir)
+        _ = try HeadlessNarrationRunner.validateCapture(
+            sealed,
+            chapterIndex: 0,
+            expected: expected,
+            workDir: workDir)
 
-            let sealed = try HeadlessNarrationRunner.sealedCapture(
-                .init(
-                    duration: 1,
-                    anchors: [],
-                    pronunciationEvidence: .init(
-                        decisions: [capturedDecision],
-                        diagnostics: materialization.diagnostics.map {
-                            $0.attachingChapter(0)
-                        })),
-                audioURL: audioURL,
-                expected: expected,
-                workDir: workDir)
-            _ = try HeadlessNarrationRunner.validateCapture(
-                sealed,
-                chapterIndex: 0,
-                expected: expected,
-                workDir: workDir)
+        let assembled = HeadlessNarrationRunner.assemblePronunciationEvidence(
+            indexedCaptures: [.init(chapterIndex: 0, capture: sealed)])
+        let manifest = PronunciationAuditManifest.make(
+            renderVersion: NarrationFileNaming.renderVersion,
+            voice: VoiceID("af_heart"),
+            captureCoverage: assembled.coverage,
+            legacyChapterIndexes: assembled.legacyChapterIndexes,
+            audiobookURL: URL(fileURLWithPath: "/tmp/invalid-g2p.m4b"),
+            reelURL: nil,
+            audiobookSHA256: String(repeating: "a", count: 64),
+            listeningReelSHA256: nil,
+            watchWords: [],
+            decisions: assembled.decisions,
+            diagnostics: assembled.diagnostics)
 
-            let assembled = HeadlessNarrationRunner.assemblePronunciationEvidence(
-                indexedCaptures: [.init(chapterIndex: 0, capture: sealed)])
-            let manifest = PronunciationAuditManifest.make(
-                renderVersion: NarrationFileNaming.renderVersion,
-                voice: VoiceID("af_heart"),
-                captureCoverage: assembled.coverage,
-                legacyChapterIndexes: assembled.legacyChapterIndexes,
-                audiobookURL: URL(fileURLWithPath: "/tmp/invalid-g2p.m4b"),
-                reelURL: nil,
-                audiobookSHA256: String(repeating: "a", count: 64),
-                listeningReelSHA256: nil,
-                watchWords: [],
-                decisions: assembled.decisions,
-                diagnostics: assembled.diagnostics)
-
-            #expect(manifest.schemaVersion == PronunciationAuditManifest.currentSchemaVersion)
-            #expect(manifest.coverage == .incompleteEvidence)
-            #expect(sealed.identity?.chapterContentSignature == "stable-cache-signature")
-            #expect(try JSONDecoder().decode(
-                PronunciationAuditManifest.self,
-                from: manifest.encoded()) == manifest)
-        }
+        #expect(manifest.schemaVersion == PronunciationAuditManifest.currentSchemaVersion)
+        #expect(manifest.coverage == .incompleteEvidence)
+        #expect(sealed.identity?.chapterContentSignature == "stable-cache-signature")
+        #expect(try JSONDecoder().decode(
+            PronunciationAuditManifest.self,
+            from: manifest.encoded()) == manifest)
     }
 
     @Test func capturePayloadStillRejectsEmptyDecisionWithNonLexicalAdvisory() throws {
@@ -1166,6 +1170,68 @@ import ZIPFoundation
             rationale: "Malformed fixture.",
             advisoryEvidence: PronunciationAdvisoryEvidence(
                 category: .contextual,
+                selectedAuthority: .trusted,
+                selectedCandidateID: nil,
+                alternatives: [],
+                selectionReason: .trustedLexicon,
+                overrideSuppressedAutomation: false,
+                policyVersion: "fixture-v1"))
+        let capture = HeadlessNarrationRunner.ChapterCapture(
+            duration: 1,
+            anchors: [],
+            pronunciationEvidence: .init(decisions: [malformed], diagnostics: []))
+
+        #expect(throws: Error.self) {
+            _ = try HeadlessNarrationRunner.capturePayloadSHA256(capture)
+        }
+    }
+
+    @Test func capturePayloadRejectsOccurrenceOverrideMasqueradingAsInvalidG2P() throws {
+        let malformed = PronunciationAuditDecision(
+            blockID: "malformed-override",
+            wordStart: 0,
+            wordEnd: 0,
+            normalizedWord: "ordinary",
+            sourceWord: "ordinary",
+            sourceContext: "ordinary",
+            selectedIPA: "\u{0000}",
+            kokoroTokenIDs: [],
+            source: .occurrenceOverride,
+            ruleID: "override.occurrence.ordinary",
+            rationale: "Malformed fixture.",
+            advisoryEvidence: PronunciationAdvisoryEvidence(
+                category: .lexical,
+                selectedAuthority: .trusted,
+                selectedCandidateID: nil,
+                alternatives: [],
+                selectionReason: .occurrenceOverride,
+                overrideSuppressedAutomation: false,
+                policyVersion: "fixture-v1"))
+        let capture = HeadlessNarrationRunner.ChapterCapture(
+            duration: 1,
+            anchors: [],
+            pronunciationEvidence: .init(decisions: [malformed], diagnostics: []))
+
+        #expect(throws: Error.self) {
+            _ = try HeadlessNarrationRunner.capturePayloadSHA256(capture)
+        }
+    }
+
+    @Test func capturePayloadRejectsInvalidG2PWithWrongSourceRuleRelationship() throws {
+        let malformed = PronunciationAuditDecision(
+            blockID: "malformed-rule",
+            wordStart: 0,
+            wordEnd: 0,
+            normalizedWord: "ordinary",
+            sourceWord: "ordinary",
+            sourceContext: "ordinary",
+            selectedIPA: "\u{0000}",
+            kokoroTokenIDs: [],
+            source: .monitoredLexicon,
+            ruleID: "g2p.fallback.ordinary",
+            rationale: "Malformed fixture.",
+            advisoryEvidence: PronunciationAdvisoryEvidence(
+                category: .lexical,
                 selectedAuthority: .trusted,
                 selectedCandidateID: nil,
                 alternatives: [],

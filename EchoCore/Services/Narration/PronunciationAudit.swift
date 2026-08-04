@@ -313,7 +313,6 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
     /// sample or bypass ordinary capture validation.
     var isEvidenceOnlyInvalidOutputAdvisory: Bool {
         guard let advisoryEvidence,
-            advisoryEvidence.category == .lexical,
             advisoryEvidence.isValid(),
             kokoroTokenIDs.isEmpty,
             chapterRelativeAudioRange == nil,
@@ -322,7 +321,72 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
         else {
             return false
         }
-        return PronunciationAuditContext.hasUnencodableSelectedOutput(selectedIPA)
+        return InvalidG2PAuditReceipt.hasVerifiedProvenance(
+            normalizedWord: normalizedWord,
+            sourceWord: sourceWord,
+            selectedIPA: selectedIPA,
+            source: source,
+            ruleID: ruleID,
+            candidateID: candidateID,
+            candidatePackVersion: candidatePackVersion,
+            derivationBase: derivationBase,
+            derivationRuleID: derivationRuleID,
+            contextualEvidence: contextualEvidence,
+            advisoryEvidence: advisoryEvidence)
+    }
+}
+
+/// Shared integrity boundary for a no-synthesis receipt of raw G2P output.
+/// The permitted shapes are exactly the ones `decisionSeed(for:)` can create
+/// directly from Misaki token evidence; rewrite and override provenance cannot
+/// enter this audit-only path.
+nonisolated enum InvalidG2PAuditReceipt {
+    static func hasVerifiedProvenance(
+        normalizedWord: String,
+        sourceWord: String,
+        selectedIPA: String,
+        source: PronunciationAuditDecision.Source,
+        ruleID: String,
+        candidateID: String?,
+        candidatePackVersion: String?,
+        derivationBase: String?,
+        derivationRuleID: String?,
+        contextualEvidence: ContextualPronunciationEvidence?,
+        advisoryEvidence: PronunciationAdvisoryEvidence
+    ) -> Bool {
+        guard
+            PronunciationAuditContext.normalizedWord(sourceWord) == normalizedWord,
+            PronunciationAuditContext.hasUnencodableSelectedOutput(selectedIPA),
+            advisoryEvidence.category == .lexical,
+            advisoryEvidence.selectedCandidateID == nil,
+            !advisoryEvidence.overrideSuppressedAutomation,
+            candidateID == nil,
+            candidatePackVersion == nil,
+            derivationBase == nil,
+            derivationRuleID == nil,
+            contextualEvidence == nil
+        else {
+            return false
+        }
+
+        switch source {
+        case .fallback:
+            return ruleID == "g2p.fallback.\(PronunciationAuditContext.ruleComponent(sourceWord))"
+                && advisoryEvidence.selectedAuthority == .uncertain
+                && advisoryEvidence.selectionReason == .deterministicFallback
+        case .monitoredLexicon:
+            let validSelection =
+                (advisoryEvidence.selectionReason == .trustedLexicon
+                    && advisoryEvidence.alternatives.isEmpty)
+                || (advisoryEvidence.selectionReason == .sourceDisagreement
+                    && !advisoryEvidence.alternatives.isEmpty)
+            return ruleID == "g2p.lexicon.\(PronunciationAuditContext.ruleComponent(sourceWord))"
+                && advisoryEvidence.selectedAuthority == .trusted
+                && validSelection
+        case .occurrenceOverride, .bookOverride, .globalOverride, .builtInOverride,
+            .contextualHomograph, .supplementalLexicon, .derivedMorphology:
+            return false
+        }
     }
 }
 
@@ -1087,7 +1151,7 @@ nonisolated enum PronunciationAuditContext {
             !normalizedWord.isEmpty,
             evidence.usedFallback || isComparisonCandidate
                 || PronunciationWatchVocabulary.words.contains(normalizedWord)
-                || isLikelyAcronymOrProperNoun(evidence.text)
+                || isAcronym(evidence.text)
                 || hasUnencodableSelectedOutput(evidence.selectedPhonemes),
             let localWordSpan = wordSpan(
                 overlappingDisplayCharacterRange: evidence.displayCharacterRange,
@@ -1143,10 +1207,9 @@ nonisolated enum PronunciationAuditContext {
         return (try? vocabulary.validatedIDs(forPhonemes: phonemes)) == nil
     }
 
-    private static func isLikelyAcronymOrProperNoun(_ word: String) -> Bool {
+    private static func isAcronym(_ word: String) -> Bool {
         let letters = word.filter(\.isLetter)
         guard letters.count > 1 else { return false }
         return letters.allSatisfy(\.isUppercase)
-            || (letters.first?.isUppercase == true && !letters.allSatisfy(\.isUppercase))
     }
 }

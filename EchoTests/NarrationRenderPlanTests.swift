@@ -28,6 +28,10 @@ import Testing
         let plannedBlock = try #require(plan.blocks.first)
         let chunk = try #require(plannedBlock.synthesisChunks.first)
         let decision = try #require(plannedBlock.pronunciationDecisions.first)
+        #expect(plannedBlock.pronunciationDecisions.count == 1)
+        #expect(!plannedBlock.pronunciationDecisions.contains {
+            $0.normalizedWord == "the"
+        })
         let evidence = try #require(
             chunk.pronunciationTokenEvidence.first {
                 PronunciationAuditContext.normalizedWord($0.text) == "startable"
@@ -236,6 +240,31 @@ import Testing
         #expect(decision.selectedIPA == expectedIPA)
         #expect(decision.kokoroTokenIDs == expectedIDs)
         #expect(plannedBlock.pronunciationDecisionDiagnostics.isEmpty)
+    }
+
+    @Test func unprovenUnencodablePlannerResultStillFailsPlanning() throws {
+        let injectedPlanner = try PronunciationPlanner(
+            g2pResult: { _, _ in
+                KokoroG2P.Result(
+                    phonemes: "\u{0000}",
+                    fallbackHits: [],
+                    tokenEvidence: [.init(
+                        text: "ordinary",
+                        selectedPhonemes: "ə",
+                        lexicalTag: nil,
+                        rating: 3,
+                        displayCharacterRange: 0..<8,
+                        phonemeCharacterRange: 0..<1,
+                        usedFallback: false)],
+                    pronunciationEvidenceValidation: .matched)
+            })
+
+        #expect(throws: Error.self) {
+            _ = try NarrationRenderPlanner.make(
+                blocks: [block(id: "unproven", text: "ordinary", index: 0)],
+                overrides: PronunciationOverrides.withBuiltInDefaults([:]),
+                pronunciationPlanner: injectedPlanner)
+        }
     }
 
     @Test func sameSpanWrongFinalIPASuppressesRuleAndMakesAuditIncomplete() throws {
