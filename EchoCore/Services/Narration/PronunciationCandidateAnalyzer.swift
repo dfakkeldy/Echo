@@ -64,27 +64,55 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
             guard let alternative = neuralAlternative(for: candidate) else {
                 updatedEvidence = replacingSelectionReason(
                     preservesInvalidOutputReceipt ? evidence.selectionReason : .invalidCandidate,
+                    neuralShadowObservation: .invalidCandidate,
                     in: evidence)
                 break
             }
             let candidateIPA = normalizedIPA(alternative.ipa)
-            let agreesWithSelected = evidence.selectedCandidateID == alternative.candidateID
-                || candidateIPA == normalizedIPA(decision.selectedIPA)
-            if agreesWithSelected {
+            let selectedIPA = normalizedIPA(decision.selectedIPA)
+            if evidence.selectedCandidateID == alternative.candidateID {
+                let agreesWithSelected = candidateIPA == selectedIPA
                 updatedEvidence = replacingSelectionReason(
                     preservesInvalidOutputReceipt
-                        ? evidence.selectionReason : .shadowAgreementSelected,
+                        ? evidence.selectionReason
+                        : agreesWithSelected
+                            ? .shadowAgreementSelected : .shadowSelectedCandidateIDConflict,
+                    neuralShadowObservation: agreesWithSelected
+                        ? .agreementSelected : .selectedCandidateIDConflict,
                     in: evidence)
                 break
             }
-            let agreesWithExistingAlternative = evidence.alternatives.contains { existing in
-                existing.candidateID == alternative.candidateID
-                    || normalizedIPA(existing.ipa) == candidateIPA
+            if let existing = evidence.alternatives.first(where: {
+                $0.candidateID == alternative.candidateID
+            }) {
+                let agreesWithExistingAlternative = normalizedIPA(existing.ipa) == candidateIPA
+                updatedEvidence = replacingSelectionReason(
+                    preservesInvalidOutputReceipt
+                        ? evidence.selectionReason
+                        : agreesWithExistingAlternative
+                            ? .shadowAgreementExistingAlternative
+                            : .shadowExistingAlternativeCandidateIDConflict,
+                    neuralShadowObservation: agreesWithExistingAlternative
+                        ? .agreementExistingAlternative
+                        : .existingAlternativeCandidateIDConflict,
+                    in: evidence)
+                break
             }
-            if agreesWithExistingAlternative {
+            if candidateIPA == selectedIPA {
+                updatedEvidence = replacingSelectionReason(
+                    preservesInvalidOutputReceipt
+                        ? evidence.selectionReason : .shadowAgreementSelected,
+                    neuralShadowObservation: .agreementSelected,
+                    in: evidence)
+                break
+            }
+            if evidence.alternatives.contains(where: {
+                normalizedIPA($0.ipa) == candidateIPA
+            }) {
                 updatedEvidence = replacingSelectionReason(
                     preservesInvalidOutputReceipt
                         ? evidence.selectionReason : .shadowAgreementExistingAlternative,
+                    neuralShadowObservation: .agreementExistingAlternative,
                     in: evidence)
                 break
             }
@@ -96,11 +124,13 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
                 selectionReason: preservesInvalidOutputReceipt
                     ? evidence.selectionReason : .shadowCandidate,
                 overrideSuppressedAutomation: evidence.overrideSuppressedAutomation,
-                policyVersion: evidence.policyVersion)
+                policyVersion: evidence.policyVersion,
+                neuralShadowObservation: .candidate)
         case .rejected(let failure):
             updatedEvidence = replacingSelectionReason(
                 preservesInvalidOutputReceipt
                     ? evidence.selectionReason : selectionReason(for: failure),
+                neuralShadowObservation: neuralShadowObservation(for: failure),
                 in: evidence)
         }
 
@@ -156,8 +186,24 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
         }
     }
 
+    private static func neuralShadowObservation(
+        for failure: NeuralG2PFailure
+    ) -> PronunciationAdvisoryEvidence.NeuralShadowObservation {
+        switch failure {
+        case .unavailable:
+            return .modelUnavailable
+        case .integrity:
+            return .modelIntegrityFailure
+        case .inference, .cancelled:
+            return .modelInferenceFailure
+        case .tokenization, .decoding, .emptyOutput, .unsupportedOutput:
+            return .invalidCandidate
+        }
+    }
+
     private static func replacingSelectionReason(
         _ selectionReason: PronunciationAdvisoryEvidence.SelectionReason,
+        neuralShadowObservation: PronunciationAdvisoryEvidence.NeuralShadowObservation,
         in evidence: PronunciationAdvisoryEvidence
     ) -> PronunciationAdvisoryEvidence {
         PronunciationAdvisoryEvidence(
@@ -167,7 +213,8 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
             alternatives: evidence.alternatives,
             selectionReason: selectionReason,
             overrideSuppressedAutomation: evidence.overrideSuppressedAutomation,
-            policyVersion: evidence.policyVersion)
+            policyVersion: evidence.policyVersion,
+            neuralShadowObservation: neuralShadowObservation)
     }
 
     private static func replacingAdvisoryEvidence(

@@ -128,6 +128,7 @@ import Testing
         #expect(neural.policyVersion == "mini-bart-g2p-beam5-max20-v1")
         #expect(neural.policyVersion != "neural-oov-complete-selection-v1")
         #expect(fallback.advisoryEvidence?.selectionReason == .shadowCandidate)
+        #expect(fallback.advisoryEvidence?.neuralShadowObservation == .candidate)
         #expect(fallback.advisoryEvidence?.isValid(for: fallback) == true)
         #expect(
             enriched.blocks.flatMap(\.pronunciationDecisions).first {
@@ -151,17 +152,21 @@ import Testing
             plan.blocks.flatMap(\.pronunciationDecisions).first {
                 $0.normalizedWord == "xyzqwf"
             })
-        let cases: [(NeuralG2PFailure, PronunciationAdvisoryEvidence.SelectionReason)] = [
-            (.unavailable, .modelUnavailable),
-            (.integrity, .modelIntegrityFailure),
-            (.tokenization, .invalidCandidate),
-            (.decoding, .invalidCandidate),
-            (.emptyOutput, .invalidCandidate),
-            (.unsupportedOutput, .invalidCandidate),
-            (.inference, .modelInferenceFailure),
+        let cases: [(
+            NeuralG2PFailure,
+            PronunciationAdvisoryEvidence.SelectionReason,
+            PronunciationAdvisoryEvidence.NeuralShadowObservation
+        )] = [
+            (.unavailable, .modelUnavailable, .modelUnavailable),
+            (.integrity, .modelIntegrityFailure, .modelIntegrityFailure),
+            (.tokenization, .invalidCandidate, .invalidCandidate),
+            (.decoding, .invalidCandidate, .invalidCandidate),
+            (.emptyOutput, .invalidCandidate, .invalidCandidate),
+            (.unsupportedOutput, .invalidCandidate, .invalidCandidate),
+            (.inference, .modelInferenceFailure, .modelInferenceFailure),
         ]
 
-        for (failure, expectedReason) in cases {
+        for (failure, expectedReason, expectedObservation) in cases {
             let enriched = try await NarrationPronunciationPreflight.applyingNeuralShadow(
                 to: plan,
                 evaluator: { _ in .rejected(failure) })
@@ -172,16 +177,30 @@ import Testing
             #expect(decision.selectedIPA == original.selectedIPA)
             #expect(decision.kokoroTokenIDs == original.kokoroTokenIDs)
             #expect(decision.advisoryEvidence?.selectionReason == expectedReason)
+            #expect(
+                decision.advisoryEvidence?.neuralShadowObservation == expectedObservation)
         }
 
         enum InjectedFailure: Error { case unavailable }
         let thrown = try await NarrationPronunciationPreflight.applyingNeuralShadow(
             to: plan,
             evaluator: { _ in throw InjectedFailure.unavailable })
-        #expect(
+        let thrownDecision = try #require(
             thrown.blocks.flatMap(\.pronunciationDecisions).first {
                 $0.normalizedWord == "xyzqwf"
-            }?.advisoryEvidence?.selectionReason == .modelInferenceFailure)
+            })
+        #expect(thrownDecision.advisoryEvidence?.selectionReason == .modelInferenceFailure)
+        #expect(
+            thrownDecision.advisoryEvidence?.neuralShadowObservation
+                == .modelInferenceFailure)
+
+        let malformed = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
+            .candidate(Self.neuralCandidate(candidateID: "")),
+            to: original)
+        #expect(malformed.advisoryEvidence?.alternatives == original.advisoryEvidence?.alternatives)
+        #expect(malformed.advisoryEvidence?.selectionReason == .invalidCandidate)
+        #expect(malformed.advisoryEvidence?.neuralShadowObservation == .invalidCandidate)
+        #expect(malformed.advisoryEvidence?.isValid(for: malformed) == true)
     }
 
     @Test func neuralCancellationAbortsPreflight() async throws {
@@ -222,6 +241,7 @@ import Testing
 
         #expect(decision.advisoryEvidence?.alternatives.count == 1)
         #expect(decision.advisoryEvidence?.selectionReason == .deterministicFallback)
+        #expect(decision.advisoryEvidence?.neuralShadowObservation == .candidate)
         #expect(decision.isEvidenceOnlyInvalidOutputAdvisory)
 
         let duplicate = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
@@ -229,10 +249,21 @@ import Testing
             to: decision)
         #expect(duplicate.advisoryEvidence?.alternatives == decision.advisoryEvidence?.alternatives)
         #expect(duplicate.advisoryEvidence?.selectionReason == .deterministicFallback)
+        #expect(
+            duplicate.advisoryEvidence?.neuralShadowObservation
+                == .agreementExistingAlternative)
         #expect(duplicate.isEvidenceOnlyInvalidOutputAdvisory)
+
+        let unavailable = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
+            .rejected(.unavailable),
+            to: decision)
+        #expect(unavailable.advisoryEvidence?.alternatives == decision.advisoryEvidence?.alternatives)
+        #expect(unavailable.advisoryEvidence?.selectionReason == .deterministicFallback)
+        #expect(unavailable.advisoryEvidence?.neuralShadowObservation == .modelUnavailable)
+        #expect(unavailable.isEvidenceOnlyInvalidOutputAdvisory)
     }
 
-    @Test func neuralSelectedIdentityOrNormalizedIPACollisionRecordsSelectedAgreement()
+    @Test func neuralSelectedIdentityRequiresMatchingIPAAndRejectsConflictingIPA()
         async throws
     {
         let plan = try NarrationRenderPlanner.make(
@@ -250,6 +281,7 @@ import Testing
             to: original)
         #expect(ipaAgreement.advisoryEvidence?.alternatives == originalEvidence.alternatives)
         #expect(ipaAgreement.advisoryEvidence?.selectionReason == .shadowAgreementSelected)
+        #expect(ipaAgreement.advisoryEvidence?.neuralShadowObservation == .agreementSelected)
         #expect(ipaAgreement.advisoryEvidence?.isValid(for: ipaAgreement) == true)
 
         let selectedCandidateID = "selected.fallback"
@@ -269,17 +301,36 @@ import Testing
         let identityAgreement = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
             .candidate(Self.neuralCandidate(
                 candidateID: selectedCandidateID,
-                ipa: "zizkwf")),
+                ipa: original.selectedIPA.decomposedStringWithCanonicalMapping)),
             to: decisionWithSelectedIdentity)
         #expect(
             identityAgreement.advisoryEvidence?.alternatives
                 == evidenceWithSelectedIdentity.alternatives)
         #expect(
             identityAgreement.advisoryEvidence?.selectionReason == .shadowAgreementSelected)
+        #expect(
+            identityAgreement.advisoryEvidence?.neuralShadowObservation
+                == .agreementSelected)
         #expect(identityAgreement.advisoryEvidence?.isValid(for: identityAgreement) == true)
+
+        let identityConflict = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
+            .candidate(Self.neuralCandidate(
+                candidateID: selectedCandidateID,
+                ipa: "zizkwf")),
+            to: decisionWithSelectedIdentity)
+        #expect(
+            identityConflict.advisoryEvidence?.alternatives
+                == evidenceWithSelectedIdentity.alternatives)
+        #expect(
+            identityConflict.advisoryEvidence?.selectionReason
+                == .shadowSelectedCandidateIDConflict)
+        #expect(
+            identityConflict.advisoryEvidence?.neuralShadowObservation
+                == .selectedCandidateIDConflict)
+        #expect(identityConflict.advisoryEvidence?.isValid(for: identityConflict) == true)
     }
 
-    @Test func neuralExistingAlternativeIdentityOrNormalizedIPACollisionRecordsAgreement()
+    @Test func neuralExistingIdentityRequiresMatchingIPAAndRejectsConflictingIPA()
         async throws
     {
         let plan = try NarrationRenderPlanner.make(
@@ -305,24 +356,47 @@ import Testing
             evidenceWithAlternative,
             in: original)
         #expect(evidenceWithAlternative.isValid(for: decisionWithAlternative))
-        let collisions = [
-            Self.neuralCandidate(candidateID: existing.candidateID, ipa: "zizkwf"),
-            Self.neuralCandidate(
+        let identityAgreement = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
+            .candidate(Self.neuralCandidate(
+                candidateID: existing.candidateID,
+                ipa: existing.ipa.decomposedStringWithCanonicalMapping)),
+            to: decisionWithAlternative)
+        #expect(identityAgreement.advisoryEvidence?.alternatives == [existing])
+        #expect(
+            identityAgreement.advisoryEvidence?.selectionReason
+                == .shadowAgreementExistingAlternative)
+        #expect(
+            identityAgreement.advisoryEvidence?.neuralShadowObservation
+                == .agreementExistingAlternative)
+        #expect(identityAgreement.advisoryEvidence?.isValid(for: identityAgreement) == true)
+
+        let identityConflict = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
+            .candidate(Self.neuralCandidate(
+                candidateID: existing.candidateID,
+                ipa: "zizkwf")),
+            to: decisionWithAlternative)
+        #expect(identityConflict.advisoryEvidence?.alternatives == [existing])
+        #expect(
+            identityConflict.advisoryEvidence?.selectionReason
+                == .shadowExistingAlternativeCandidateIDConflict)
+        #expect(
+            identityConflict.advisoryEvidence?.neuralShadowObservation
+                == .existingAlternativeCandidateIDConflict)
+        #expect(identityConflict.advisoryEvidence?.isValid(for: identityConflict) == true)
+
+        let ipaAgreement = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
+            .candidate(Self.neuralCandidate(
                 candidateID: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                ipa: existing.ipa.decomposedStringWithCanonicalMapping),
-        ]
-
-        for candidate in collisions {
-            let enriched = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
-                .candidate(candidate),
-                to: decisionWithAlternative)
-
-            #expect(enriched.advisoryEvidence?.alternatives == [existing])
-            #expect(
-                enriched.advisoryEvidence?.selectionReason
-                    == .shadowAgreementExistingAlternative)
-            #expect(enriched.advisoryEvidence?.isValid(for: enriched) == true)
-        }
+                ipa: existing.ipa.decomposedStringWithCanonicalMapping)),
+            to: decisionWithAlternative)
+        #expect(ipaAgreement.advisoryEvidence?.alternatives == [existing])
+        #expect(
+            ipaAgreement.advisoryEvidence?.selectionReason
+                == .shadowAgreementExistingAlternative)
+        #expect(
+            ipaAgreement.advisoryEvidence?.neuralShadowObservation
+                == .agreementExistingAlternative)
+        #expect(ipaAgreement.advisoryEvidence?.isValid(for: ipaAgreement) == true)
     }
 
     @Test func bundledNeuralModelIsStableAcrossTheFullSyntheticCorpus() async throws {

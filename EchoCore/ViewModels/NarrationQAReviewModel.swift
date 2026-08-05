@@ -63,6 +63,7 @@ final class NarrationQAReviewModel {
         let category: PronunciationAdvisoryEvidence.Category
         let selectedCandidate: PronunciationAdvisoryIssueEvidence.SelectedCandidate?
         let selectionReason: PronunciationAdvisoryEvidence.SelectionReason
+        let neuralShadowObservation: PronunciationAdvisoryEvidence.NeuralShadowObservation?
         let alternatives: [PronunciationAdvisoryEvidence.Alternative]
         let occurrenceCount: Int
         let chosenCandidateID: String?
@@ -416,6 +417,7 @@ final class NarrationQAReviewModel {
                 category: advisory.category,
                 selectedCandidate: issueEvidence.selectedCandidate,
                 selectionReason: advisory.selectionReason,
+                neuralShadowObservation: advisory.neuralShadowObservation,
                 alternatives: advisory.alternatives,
                 occurrenceCount: issueEvidence.occurrenceCount,
                 chosenCandidateID: advisory.selectedCandidateID)

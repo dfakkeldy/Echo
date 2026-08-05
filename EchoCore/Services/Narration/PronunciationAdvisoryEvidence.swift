@@ -35,6 +35,8 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
         case shadowCandidate
         case shadowAgreementSelected
         case shadowAgreementExistingAlternative
+        case shadowSelectedCandidateIDConflict
+        case shadowExistingAlternativeCandidateIDConflict
         case invalidCandidate
         case modelUnavailable
         case modelIntegrityFailure
@@ -42,6 +44,18 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
         case contextShadow
         case contextUnavailable
         case acousticRetryRejected
+    }
+
+    enum NeuralShadowObservation: String, Codable, Sendable {
+        case candidate
+        case agreementSelected
+        case agreementExistingAlternative
+        case selectedCandidateIDConflict
+        case existingAlternativeCandidateIDConflict
+        case invalidCandidate
+        case modelUnavailable
+        case modelIntegrityFailure
+        case modelInferenceFailure
     }
 
     struct Alternative: Codable, Equatable, Sendable {
@@ -60,6 +74,7 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
     let selectionReason: SelectionReason
     let overrideSuppressedAutomation: Bool
     let policyVersion: String
+    let neuralShadowObservation: NeuralShadowObservation?
 
     init(
         category: Category,
@@ -68,7 +83,8 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
         alternatives: [Alternative],
         selectionReason: SelectionReason,
         overrideSuppressedAutomation: Bool,
-        policyVersion: String
+        policyVersion: String,
+        neuralShadowObservation: NeuralShadowObservation? = nil
     ) {
         self.category = category
         self.selectedAuthority = selectedAuthority
@@ -77,6 +93,7 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
         self.selectionReason = selectionReason
         self.overrideSuppressedAutomation = overrideSuppressedAutomation
         self.policyVersion = policyVersion
+        self.neuralShadowObservation = neuralShadowObservation
     }
 
     /// Manifest validation is deliberately strict for schema 5. Older schemas

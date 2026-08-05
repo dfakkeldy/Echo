@@ -129,6 +129,9 @@ struct NarrationQAReviewView: View {
                 .font(.subheadline.weight(.semibold))
             LabeledContent("Category", value: displayName(presentation.category.rawValue))
             LabeledContent("Reason", value: displayName(presentation.selectionReason.rawValue))
+            if let observation = presentation.neuralShadowObservation {
+                LabeledContent("Neural shadow", value: displayName(observation.rawValue))
+            }
             LabeledContent(
                 "Occurrences",
                 value: String(presentation.occurrenceCount))

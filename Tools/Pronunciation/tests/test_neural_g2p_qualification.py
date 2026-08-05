@@ -167,6 +167,7 @@ class NeuralG2PQualificationTests(unittest.TestCase):
             listening_proof_state="VERIFIED",
         )
 
+        self.assertEqual(2, result["schemaVersion"])
         self.assertEqual("QUALIFIED", result["status"])
         self.assertEqual("QUALIFIED", result["proofStates"]["human"])
         self.assertEqual("VERIFIED", result["proofStates"]["listening"])
@@ -626,6 +627,44 @@ class NeuralG2PQualificationTests(unittest.TestCase):
                 **existing_verified,
             )
 
+    def test_failed_runtime_proof_precedes_waiting_human(self):
+        tool = load_tool()
+        baseline = {
+            "corpus": "CONTRACT_VALID",
+            "human": "WAITING_FOR_HUMAN_LABELS",
+            "performance": "NOT_RUN_NO_RUNTIME",
+            "device": "NOT_RUN_NO_RUNTIME",
+            "render": "NOT_RUN_NO_RUNTIME",
+            "listening": "NOT_RUN_NO_RUNTIME",
+        }
+
+        self.assertEqual("WAITING_FOR_HUMAN_LABELS", tool.qualification_decision(baseline))
+        for lane in ("performance", "listening"):
+            with self.subTest(lane=lane):
+                failed = {**baseline, lane: "FAILED"}
+                self.assertEqual("FAILED", tool.qualification_decision(failed))
+
+    def test_qualification_receipt_schema_v2_rejects_old_and_incompatible_versions(self):
+        tool = load_tool()
+        receipt = tool.qualification_status(
+            [candidate()], [], None, LOCK_PATH, VOCAB_PATH
+        )
+
+        self.assertEqual(2, tool.QUALIFICATION_RECEIPT_SCHEMA_VERSION)
+        self.assertEqual(2, receipt["schemaVersion"])
+        self.assertEqual(receipt["proofStates"], tool.validate_qualification_receipt(receipt))
+        for incompatible in (1, 3, True, None):
+            malformed = dict(receipt)
+            if incompatible is None:
+                del malformed["schemaVersion"]
+            else:
+                malformed["schemaVersion"] = incompatible
+            with self.subTest(schema_version=incompatible):
+                with self.assertRaisesRegex(ValueError, "receipt schema version"):
+                    tool.validate_qualification_receipt(malformed)
+                with self.assertRaisesRegex(ValueError, "receipt schema version"):
+                    tool.render_report(malformed)
+
     def test_committed_waiting_receipt_and_report_match_the_governed_tool(self):
         tool = load_tool()
         expected = tool.qualification_status(
@@ -638,6 +677,7 @@ class NeuralG2PQualificationTests(unittest.TestCase):
         committed = json.loads(RECEIPT_PATH.read_text(encoding="utf-8"))
 
         self.assertEqual(expected, committed)
+        self.assertEqual(2, committed["schemaVersion"])
         self.assertEqual("WAITING_FOR_HUMAN_LABELS", committed["proofStates"]["human"])
         self.assertEqual("NOT_RUN_NO_RUNTIME", committed["proofStates"]["listening"])
         self.assertTrue(

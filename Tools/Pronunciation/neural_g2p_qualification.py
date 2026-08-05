@@ -46,6 +46,7 @@ MINIMUM_WILSON_95_LOWER_BOUND = 0.98
 CONVERSION_VERSION = "mini-bart-arpabet-to-kokoro-v1"
 VALIDATION_VERSION = "kokoro-vocab-validation-v1"
 SELECTION_VERSION = "neural-oov-complete-selection-v1"
+QUALIFICATION_RECEIPT_SCHEMA_VERSION = 2
 AUTHORIZATION_PURPOSE = "neural-g2p-human-evidence-qualification"
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 PROOF_STATE_VOCABULARY = {
@@ -565,10 +566,12 @@ def validate_proof_states(raw_states: Any) -> dict[str, str]:
 
 def qualification_decision(proof_states: dict[str, str]) -> str:
     states = validate_proof_states(proof_states)
+    runtime_lanes = ("performance", "device", "render", "listening")
+    if any(states[lane] == "FAILED" for lane in runtime_lanes):
+        return "FAILED"
     human_state = states["human"]
     if human_state != "QUALIFIED":
         return human_state
-    runtime_lanes = ("performance", "device", "render", "listening")
     return (
         "QUALIFIED"
         if all(states[lane] == "VERIFIED" for lane in runtime_lanes)
@@ -721,7 +724,7 @@ def qualification_status(
     status = qualification_decision(proof_states)
 
     return {
-        "schemaVersion": 1,
+        "schemaVersion": QUALIFICATION_RECEIPT_SCHEMA_VERSION,
         "status": status,
         "proofStates": proof_states,
         "corpusSHA256": _canonical_sha256(candidates),
@@ -750,6 +753,20 @@ def qualification_status(
     }
 
 
+def validate_qualification_receipt(receipt: Any) -> dict[str, str]:
+    if (
+        not isinstance(receipt, dict)
+        or not isinstance(receipt.get("schemaVersion"), int)
+        or isinstance(receipt.get("schemaVersion"), bool)
+        or receipt["schemaVersion"] != QUALIFICATION_RECEIPT_SCHEMA_VERSION
+    ):
+        raise ValueError("qualification receipt schema version is invalid")
+    proof_states = validate_proof_states(receipt.get("proofStates"))
+    if receipt.get("status") != qualification_decision(proof_states):
+        raise ValueError("proof states do not match qualification status")
+    return proof_states
+
+
 def render_report(
     receipt: dict[str, Any],
     *,
@@ -758,7 +775,7 @@ def render_report(
     render_proof_state: str | None = None,
     listening_proof_state: str | None = None,
 ) -> str:
-    proof_states = validate_proof_states(receipt.get("proofStates"))
+    proof_states = validate_qualification_receipt(receipt)
     overrides = {
         "performance": performance_proof_state,
         "device": device_proof_state,

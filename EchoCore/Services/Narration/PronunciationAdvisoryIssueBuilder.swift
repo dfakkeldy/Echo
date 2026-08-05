@@ -238,6 +238,7 @@ nonisolated struct PronunciationAdvisoryIssueBuilder: Sendable {
                 evidence.selectedAuthority.rawValue,
                 evidence.selectedCandidateID ?? "",
                 evidence.selectionReason.rawValue,
+                evidence.neuralShadowObservation?.rawValue ?? "",
                 evidence.overrideSuppressedAutomation ? "1" : "0",
                 evidence.policyVersion,
                 decision.source.rawValue,

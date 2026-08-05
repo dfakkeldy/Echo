@@ -127,7 +127,8 @@ import Testing
 
     @Test func stableIDChangesWithMaterialEvidenceButNotAlternativeOrdering() throws {
         func advisory(
-            alternatives: [PronunciationAdvisoryEvidence.Alternative]
+            alternatives: [PronunciationAdvisoryEvidence.Alternative],
+            neuralShadowObservation: PronunciationAdvisoryEvidence.NeuralShadowObservation? = nil
         ) -> PronunciationAdvisoryEvidence {
             PronunciationAdvisoryEvidence(
                 category: .lexical,
@@ -136,7 +137,8 @@ import Testing
                 alternatives: alternatives,
                 selectionReason: .sourceDisagreement,
                 overrideSuppressedAutomation: false,
-                policyVersion: "policy-v1")
+                policyVersion: "policy-v1",
+                neuralShadowObservation: neuralShadowObservation)
         }
         let firstAlternative = PronunciationAdvisoryEvidence.Alternative(
             candidateID: "candidate.a",
@@ -172,9 +174,13 @@ import Testing
         let forward = try id(for: advisory(alternatives: [firstAlternative, secondAlternative]))
         let reversed = try id(for: advisory(alternatives: [secondAlternative, firstAlternative]))
         let changed = try id(for: advisory(alternatives: [changedAlternative, secondAlternative]))
+        let observed = try id(for: advisory(
+            alternatives: [firstAlternative, secondAlternative],
+            neuralShadowObservation: .existingAlternativeCandidateIDConflict))
 
         #expect(forward == reversed)
         #expect(changed != forward)
+        #expect(observed != forward)
     }
 
     @Test func recordsGenericDiagnosticsWithoutPrivateBookText() {

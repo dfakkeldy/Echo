@@ -170,14 +170,23 @@ import Testing
         #expect(presentation.alternatives == advisory.alternatives)
     }
 
-    @Test func shadowAgreementReasonsRemainDistinctInPersistedQAPresentation() throws {
+    @Test func shadowAgreementsAndIdentityConflictsRemainVisibleInPersistedQA() throws {
         let db = try DatabaseService(inMemory: ())
         let model = NarrationQAReviewModel(db: db.writer, audiobookID: "b1")
 
-        for reason in [
-            PronunciationAdvisoryEvidence.SelectionReason.shadowAgreementSelected,
-            .shadowAgreementExistingAlternative,
-        ] {
+        let cases: [(
+            PronunciationAdvisoryEvidence.SelectionReason,
+            PronunciationAdvisoryEvidence.NeuralShadowObservation
+        )] = [
+            (.shadowAgreementSelected, .agreementSelected),
+            (.shadowAgreementExistingAlternative, .agreementExistingAlternative),
+            (.shadowSelectedCandidateIDConflict, .selectedCandidateIDConflict),
+            (
+                .shadowExistingAlternativeCandidateIDConflict,
+                .existingAlternativeCandidateIDConflict
+            ),
+        ]
+        for (reason, observation) in cases {
             let advisory = PronunciationAdvisoryEvidence(
                 category: .lexical,
                 selectedAuthority: .uncertain,
@@ -185,7 +194,8 @@ import Testing
                 alternatives: [],
                 selectionReason: reason,
                 overrideSuppressedAutomation: false,
-                policyVersion: "policy-v1")
+                policyVersion: "policy-v1",
+                neuralShadowObservation: observation)
             let issue = try pronunciationIssue(
                 evidence: PronunciationAdvisoryIssueEvidence(
                     advisoryEvidence: advisory,
@@ -199,6 +209,7 @@ import Testing
 
             let presentation = try #require(model.pronunciationPresentation(for: issue))
             #expect(presentation.selectionReason == reason)
+            #expect(presentation.neuralShadowObservation == observation)
             #expect(presentation.alternatives.isEmpty)
             #expect(presentation.selectedCandidate?.candidateID == "fallback.selected")
         }

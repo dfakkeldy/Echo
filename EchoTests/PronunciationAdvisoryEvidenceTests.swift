@@ -76,12 +76,56 @@ import Testing
         for reason in [
             PronunciationAdvisoryEvidence.SelectionReason.shadowAgreementSelected,
             .shadowAgreementExistingAlternative,
+            .shadowSelectedCandidateIDConflict,
+            .shadowExistingAlternativeCandidateIDConflict,
         ] {
             let encoded = try JSONEncoder().encode(reason)
             #expect(
                 try JSONDecoder().decode(
                     PronunciationAdvisoryEvidence.SelectionReason.self,
                     from: encoded) == reason)
+        }
+    }
+
+    @Test func neuralShadowObservationDefaultsNilForOlderEvidenceAndRoundTripsClosedCases()
+        throws
+    {
+        let olderSchemaFiveEvidence = Data(
+            #"{"category":"lexical","selectedAuthority":"uncertain","alternatives":[],"selectionReason":"deterministicFallback","overrideSuppressedAutomation":false,"policyVersion":"policy-v1"}"#.utf8)
+        let decodedOlder = try JSONDecoder().decode(
+            PronunciationAdvisoryEvidence.self,
+            from: olderSchemaFiveEvidence)
+        #expect(decodedOlder.neuralShadowObservation == nil)
+        #expect(decodedOlder.isValid())
+
+        let observations: [PronunciationAdvisoryEvidence.NeuralShadowObservation] = [
+            .candidate,
+            .agreementSelected,
+            .agreementExistingAlternative,
+            .selectedCandidateIDConflict,
+            .existingAlternativeCandidateIDConflict,
+            .invalidCandidate,
+            .modelUnavailable,
+            .modelIntegrityFailure,
+            .modelInferenceFailure,
+        ]
+        for observation in observations {
+            let evidence = PronunciationAdvisoryEvidence(
+                category: .lexical,
+                selectedAuthority: .uncertain,
+                selectedCandidateID: nil,
+                alternatives: [],
+                selectionReason: .deterministicFallback,
+                overrideSuppressedAutomation: false,
+                policyVersion: "policy-v1",
+                neuralShadowObservation: observation)
+            let decoded = try JSONDecoder().decode(
+                PronunciationAdvisoryEvidence.self,
+                from: JSONEncoder().encode(evidence))
+
+            #expect(decoded == evidence)
+            #expect(decoded.neuralShadowObservation == observation)
+            #expect(decoded.isValid())
         }
     }
 
