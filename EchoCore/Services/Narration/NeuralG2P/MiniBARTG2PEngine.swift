@@ -9,7 +9,7 @@
     actor MiniBARTG2PEngine {
         typealias ResourceProvider = @Sendable () -> MiniBARTG2PModelResources?
         typealias SessionFactory =
-            @Sendable (MiniBARTG2PModelResources) async throws -> MiniBARTG2PInferenceSession
+            @Sendable (MiniBARTG2PVerifiedSnapshot) async throws -> MiniBARTG2PInferenceSession
 
         static let shared = MiniBARTG2PEngine()
 
@@ -17,6 +17,7 @@
             "f277d1e0597e7e7d33fa1d6d27d764bc4d7acb06"
         nonisolated static let validationPolicyVersion = "kokoro-vocab-validation-v1"
         nonisolated static let selectionPolicyVersion = "mini-bart-g2p-beam5-max20-v1"
+        nonisolated static let temporaryModelDirectoryPrefix = "EchoMiniBARTG2P-"
 
         private nonisolated static let beamWidth = 5
         private nonisolated static let maximumSequenceLength = 20
@@ -164,17 +165,17 @@
                 guard let resources = resourceProvider() else {
                     throw EvaluationError.failure(.unavailable)
                 }
-                let tokenizerData = try Self.validateAndLoadTokenizer(resources)
+                let snapshot = try Self.validateAndSnapshot(resources)
                 let tokenizer: MiniBARTG2PTokenizer
                 do {
-                    tokenizer = try MiniBARTG2PTokenizer(data: tokenizerData)
+                    tokenizer = try MiniBARTG2PTokenizer(data: snapshot.tokenizerData)
                 } catch {
                     throw EvaluationError.failure(.tokenization)
                 }
                 try Task.checkCancellation()
                 let session: MiniBARTG2PInferenceSession
                 do {
-                    session = try await sessionFactory(resources)
+                    session = try await sessionFactory(snapshot)
                 } catch is CancellationError {
                     throw EvaluationError.failure(.cancelled)
                 } catch {
@@ -347,45 +348,58 @@
                 generationConfigURL: generation, licenseURL: license)
         }
 
-        private nonisolated static func validateAndLoadTokenizer(
+        private nonisolated static func validateAndSnapshot(
             _ resources: MiniBARTG2PModelResources
+        ) throws -> MiniBARTG2PVerifiedSnapshot {
+            let encoder = try verifiedData(
+                at: resources.encoderModelURL, bytes: 6_634_844,
+                sha256: "5df81746fe1872b63aa120205ce267ed44163b7894a54e931a1d4b4b09568faa")
+            let decoder = try verifiedData(
+                at: resources.decoderModelURL, bytes: 9_999_491,
+                sha256: "2c199ceaa241186259167a8e79c5ff3498609ee8fc01c28c8a3d76a351d33c3d")
+            let tokenizer = try verifiedData(
+                at: resources.tokenizerURL, bytes: 3_212,
+                sha256: "40193885f8093d3bf59dfc199db502cfa8618b24bfcb2d08aa5f8d538bc34495")
+            let config = try verifiedData(
+                at: resources.configURL, bytes: 1_066,
+                sha256: "d647577ad51cacdab20f82c479ab8fd75ae569edba480475ca6c732881256415")
+            let generationConfig = try verifiedData(
+                at: resources.generationConfigURL, bytes: 182,
+                sha256: "f36f1cb8f814ff32f744ced2e00610ce37de166d5a21bd92050972e220fa0449")
+            let license = try verifiedData(
+                at: resources.licenseURL, bytes: 11_356,
+                sha256: "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1")
+            return MiniBARTG2PVerifiedSnapshot(
+                encoderModelData: encoder, decoderModelData: decoder,
+                tokenizerData: tokenizer, configData: config,
+                generationConfigData: generationConfig, licenseData: license)
+        }
+
+        /// Opens each source exactly once. `readToEnd()` copies through the open
+        /// descriptor, so later path or symlink replacement cannot change the
+        /// immutable bytes passed to the tokenizer or session factory.
+        private nonisolated static func verifiedData(
+            at url: URL, bytes: Int, sha256: String
         ) throws -> Data {
-            let locked = [
-                LockedArtifact(
-                    url: resources.encoderModelURL, bytes: 6_634_844,
-                    sha256: "5df81746fe1872b63aa120205ce267ed44163b7894a54e931a1d4b4b09568faa"),
-                LockedArtifact(
-                    url: resources.decoderModelURL, bytes: 9_999_491,
-                    sha256: "2c199ceaa241186259167a8e79c5ff3498609ee8fc01c28c8a3d76a351d33c3d"),
-                LockedArtifact(
-                    url: resources.tokenizerURL, bytes: 3_212,
-                    sha256: "40193885f8093d3bf59dfc199db502cfa8618b24bfcb2d08aa5f8d538bc34495"),
-                LockedArtifact(
-                    url: resources.configURL, bytes: 1_066,
-                    sha256: "d647577ad51cacdab20f82c479ab8fd75ae569edba480475ca6c732881256415"),
-                LockedArtifact(
-                    url: resources.generationConfigURL, bytes: 182,
-                    sha256: "f36f1cb8f814ff32f744ced2e00610ce37de166d5a21bd92050972e220fa0449"),
-                LockedArtifact(
-                    url: resources.licenseURL, bytes: 11_356,
-                    sha256: "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1"),
-            ]
-            for artifact in locked {
-                guard FileManager.default.fileExists(atPath: artifact.url.path) else {
-                    throw EvaluationError.failure(.unavailable)
-                }
-                let data: Data
-                do {
-                    data = try Data(contentsOf: artifact.url, options: .mappedIfSafe)
-                } catch {
-                    throw EvaluationError.failure(.unavailable)
-                }
-                let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-                guard data.count == artifact.bytes, digest == artifact.sha256 else {
-                    throw EvaluationError.failure(.integrity)
-                }
+            let handle: FileHandle
+            do {
+                handle = try FileHandle(forReadingFrom: url)
+            } catch {
+                throw EvaluationError.failure(.unavailable)
             }
-            return try Data(contentsOf: resources.tokenizerURL, options: .mappedIfSafe)
+            defer { try? handle.close() }
+
+            let data: Data
+            do {
+                data = try handle.readToEnd() ?? Data()
+            } catch {
+                throw EvaluationError.failure(.unavailable)
+            }
+            let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            guard data.count == bytes, digest == sha256 else {
+                throw EvaluationError.failure(.integrity)
+            }
+            return data
         }
 
         private nonisolated static func candidateID(inputIDs: [Int64], ipa: String) -> String {
@@ -406,10 +420,29 @@
         // MARK: - Live CPU ONNX session
 
         private nonisolated static func makeLiveSession(
-            _ resources: MiniBARTG2PModelResources
+            _ snapshot: MiniBARTG2PVerifiedSnapshot
         ) async throws -> MiniBARTG2PInferenceSession {
             try Task.checkCancellation()
-            let box = try LiveSessionBox(resources: resources)
+            let fileManager = FileManager.default
+            let directory = fileManager.temporaryDirectory.appending(
+                path: "\(temporaryModelDirectoryPrefix)\(UUID().uuidString)",
+                directoryHint: .isDirectory)
+            try fileManager.createDirectory(
+                at: directory, withIntermediateDirectories: false,
+                attributes: [.posixPermissions: NSNumber(value: 0o700)])
+            defer {
+                if fileManager.fileExists(atPath: directory.path) {
+                    try? fileManager.removeItem(at: directory)
+                }
+            }
+
+            let encoderURL = directory.appending(path: "encoder_model.onnx")
+            let decoderURL = directory.appending(path: "decoder_model.onnx")
+            try snapshot.encoderModelData.write(to: encoderURL, options: .atomic)
+            try snapshot.decoderModelData.write(to: decoderURL, options: .atomic)
+            let box = try LiveSessionBox(
+                encoderModelURL: encoderURL, decoderModelURL: decoderURL)
+            try fileManager.removeItem(at: directory)
             try Task.checkCancellation()
             return MiniBARTG2PInferenceSession(
                 encode: { inputIDs, attentionMask in
@@ -433,12 +466,6 @@
             let finished: Bool
         }
 
-        private struct LockedArtifact {
-            let url: URL
-            let bytes: Int
-            let sha256: String
-        }
-
         private enum EvaluationError: Error, Sendable {
             case failure(NeuralG2PFailure)
 
@@ -459,15 +486,15 @@
         private let decoder: ORTSession
         private let runOptions: ORTRunOptions
 
-        init(resources: MiniBARTG2PModelResources) throws {
+        init(encoderModelURL: URL, decoderModelURL: URL) throws {
             env = try ORTEnv(loggingLevel: .warning)
             let encoderOptions = try Self.sessionOptions()
             let decoderOptions = try Self.sessionOptions()
             encoder = try ORTSession(
-                env: env, modelPath: resources.encoderModelURL.path,
+                env: env, modelPath: encoderModelURL.path,
                 sessionOptions: encoderOptions)
             decoder = try ORTSession(
-                env: env, modelPath: resources.decoderModelURL.path,
+                env: env, modelPath: decoderModelURL.path,
                 sessionOptions: decoderOptions)
             runOptions = try ORTRunOptions()
             try runOptions.addConfigEntry(

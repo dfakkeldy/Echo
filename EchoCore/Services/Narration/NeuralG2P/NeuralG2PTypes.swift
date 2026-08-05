@@ -30,6 +30,17 @@ nonisolated struct MiniBARTG2PModelResources: Sendable {
     var licenseURL: URL
 }
 
+/// Immutable bytes admitted by the model lock. The tokenizer and inference
+/// factory consume this snapshot rather than reopening caller-controlled URLs.
+nonisolated struct MiniBARTG2PVerifiedSnapshot: Sendable {
+    let encoderModelData: Data
+    let decoderModelData: Data
+    let tokenizerData: Data
+    let configData: Data
+    let generationConfigData: Data
+    let licenseData: Data
+}
+
 /// Sendable tensor snapshots keep tests independent of ONNX Runtime and keep
 /// runtime-owned ORT values inside the actor-confined live session wrapper.
 nonisolated struct MiniBARTG2PEncoderOutput: Sendable {

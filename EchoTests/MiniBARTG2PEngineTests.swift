@@ -15,6 +15,8 @@
             case lexicalTie
             case beamWidth
             case cancelAfterFirstStep
+            case nanLogits
+            case infiniteLogits
         }
 
         @Test func cachesOneSessionPairAcrossWordsAndReloadsAfterUnload() async throws {
@@ -79,6 +81,32 @@
             #expect(try await integrity.evaluate(word: "cat") == .rejected(.integrity))
         }
 
+        @Test func verifiedSnapshotSurvivesSourceSymlinkSwapsBeforeSessionCreation() async throws {
+            let fixture = try Self.symlinkFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.directory) }
+            let recorder = VerifiedSnapshotRecorder()
+
+            let engine = MiniBARTG2PEngine(
+                resourceProvider: { fixture.resources },
+                sessionFactory: { snapshot in
+                    try Self.replaceArtifactLinksWithPoison(fixture)
+                    await recorder.record(snapshot)
+                    return Self.session(fixture: .cat)
+                })
+
+            #expect(try await engine.evaluate(word: "cat") == Self.catCandidate())
+            let captured = try #require(await recorder.snapshot())
+            #expect(captured.encoderModelData == fixture.expected.encoderModelData)
+            #expect(captured.decoderModelData == fixture.expected.decoderModelData)
+            #expect(captured.tokenizerData == fixture.expected.tokenizerData)
+            #expect(captured.configData == fixture.expected.configData)
+            #expect(captured.generationConfigData == fixture.expected.generationConfigData)
+            #expect(captured.licenseData == fixture.expected.licenseData)
+            for url in fixture.artifactURLs {
+                #expect(try Data(contentsOf: url) == fixture.poisonData)
+            }
+        }
+
         @Test func tokenizationInferenceAndOutputFailuresAreCategorized() async throws {
             #expect(
                 try await engine(fixture: .cat).evaluate(word: "two words")
@@ -102,6 +130,29 @@
             #expect(
                 try await engine(fixture: .unsupported).evaluate(word: "cat")
                     == .rejected(.unsupportedOutput))
+        }
+
+        @Test func correctShapeNonFiniteEncoderAndLogitValuesAreRejected() async throws {
+            for nonFinite in [Float.nan, Float.infinity] {
+                let nonFiniteEncoder = MiniBARTG2PInferenceSession(
+                    encode: { inputIDs, _ in
+                        var values = [Float](repeating: 0, count: inputIDs.count * 256)
+                        values[0] = nonFinite
+                        return .init(values: values, shape: [1, inputIDs.count, 256])
+                    },
+                    decode: Self.session(fixture: .cat).decode)
+                let engine = MiniBARTG2PEngine(
+                    resourceProvider: { Self.lockedResources() },
+                    sessionFactory: { _ in nonFiniteEncoder })
+                #expect(try await engine.evaluate(word: "cat") == .rejected(.inference))
+            }
+
+            #expect(
+                try await engine(fixture: .nanLogits).evaluate(word: "cat")
+                    == .rejected(.inference))
+            #expect(
+                try await engine(fixture: .infiniteLogits).evaluate(word: "cat")
+                    == .rejected(.inference))
         }
 
         @Test func beamWidthIsExactlyFive() async throws {
@@ -163,7 +214,7 @@
                     == [2, 20, 0, 18, 2])
         }
 
-        @Test func projectCopiesEveryLockedArtifactToIOSMacOSAndCLI() throws {
+        @Test func projectCopiesArtifactsOnlyToIOSMacOSAndCLIHosts() throws {
             let project = try String(
                 contentsOf: Self.repositoryRoot().appending(path: "Echo.xcodeproj/project.pbxproj"),
                 encoding: .utf8)
@@ -175,23 +226,58 @@
                 project.slice(
                     from: "95300DF22F2694306AD5F79C /* Copy Narration Resources */ = {",
                     to: "};"))
+            let widgetExceptions = try #require(
+                project.slice(
+                    from:
+                        "CC33EBB42FB41C610035179D /* Exceptions for \"EchoCore\" folder in \"Echo WidgetExtension\" target */ = {",
+                    to: "};"))
+            let widgetResources = try #require(
+                project.slice(from: "CC00BC4B2FA6B66400323F38 /* Resources */ = {", to: "};"))
+            let watchResources = try #require(
+                project.slice(from: "CCC48E992FA6AB330003458B /* Resources */ = {", to: "};"))
+            let widgetTarget = try #require(
+                project.slice(
+                    from:
+                        "CC00BC4C2FA6B66400323F38 /* Echo WidgetExtension */ = {\n\t\t\tisa = PBXNativeTarget;",
+                    to: "productType = \"com.apple.product-type.app-extension\";\n\t\t};"))
+            let watchTarget = try #require(
+                project.slice(
+                    from:
+                        "CCC48E9A2FA6AB330003458B /* Echo Watch App */ = {\n\t\t\tisa = PBXNativeTarget;",
+                    to: "productType = \"com.apple.product-type.application\";\n\t\t};"))
 
             for name in Self.artifactNames {
                 #expect(appResources.contains(name), "iOS must copy \(name)")
                 #expect(macResources.contains(name), "macOS must copy \(name)")
                 #expect(cliResources.contains(name), "echo-cli must copy \(name)")
+                let synchronizedPath = "Services/Narration/NeuralG2PResources/\(name)"
+                #expect(
+                    !widgetExceptions.contains(synchronizedPath),
+                    "Widget cross-group membership must not include \(name)")
+                #expect(!widgetResources.contains(name), "Widget must not copy \(name)")
+                #expect(!watchResources.contains(name), "Watch must not copy \(name)")
+                #expect(!widgetTarget.contains(name), "Widget target must not reference \(name)")
+                #expect(!watchTarget.contains(name), "Watch target must not reference \(name)")
             }
+            #expect(!widgetTarget.contains("CC08EC5B2F9522F600206D2F /* EchoCore */"))
+            #expect(!watchTarget.contains("CC08EC5B2F9522F600206D2F /* EchoCore */"))
         }
 
-        @Test func bundledLockedArtifactsRunInTheLiveORTSession() async throws {
-            let result = try await MiniBARTG2PEngine.shared.evaluate(word: "cat")
-            guard case .candidate(let candidate) = result else {
-                Issue.record("live locked artifact smoke rejected: \(result)")
-                return
-            }
-            #expect(!candidate.ipa.isEmpty)
-            #expect(candidate.selectionPolicyVersion == "mini-bart-g2p-beam5-max20-v1")
+        @Test func bundledLiveSessionSurvivesImmediateModelCleanupAndRelaunch() async throws {
             await MiniBARTG2PEngine.shared.unload()
+            let baseline = try Self.temporaryModelDirectories()
+
+            for _ in 0..<2 {
+                let result = try await MiniBARTG2PEngine.shared.evaluate(word: "cat")
+                guard case .candidate(let candidate) = result else {
+                    Issue.record("live locked artifact smoke rejected: \(result)")
+                    return
+                }
+                #expect(!candidate.ipa.isEmpty)
+                #expect(candidate.selectionPolicyVersion == "mini-bart-g2p-beam5-max20-v1")
+                #expect(try Self.temporaryModelDirectories() == baseline)
+                await MiniBARTG2PEngine.shared.unload()
+            }
         }
 
         private static let artifactNames = [
@@ -227,6 +313,62 @@
             URL(fileURLWithPath: #filePath)
                 .deletingLastPathComponent()
                 .deletingLastPathComponent()
+        }
+
+        private nonisolated static func symlinkFixture() throws -> SymlinkFixture {
+            let original = try #require(lockedResources())
+            let directory = FileManager.default.temporaryDirectory.appending(
+                path: "EchoMiniBARTG2PTests-\(UUID().uuidString)", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(
+                at: directory, withIntermediateDirectories: false)
+            let poisonData = Data("swapped-after-snapshot".utf8)
+            let poisonURL = directory.appending(path: "poison")
+            try poisonData.write(to: poisonURL)
+
+            func link(_ source: URL, named name: String) throws -> URL {
+                let url = directory.appending(path: name)
+                try FileManager.default.createSymbolicLink(at: url, withDestinationURL: source)
+                return url
+            }
+
+            let resources = MiniBARTG2PModelResources(
+                encoderModelURL: try link(original.encoderModelURL, named: "encoder_model.onnx"),
+                decoderModelURL: try link(original.decoderModelURL, named: "decoder_model.onnx"),
+                tokenizerURL: try link(original.tokenizerURL, named: "tokenizer.json"),
+                configURL: try link(original.configURL, named: "config.json"),
+                generationConfigURL: try link(
+                    original.generationConfigURL, named: "generation_config.json"),
+                licenseURL: try link(original.licenseURL, named: "LICENSE"))
+            let expected = ExpectedArtifactBytes(
+                encoderModelData: try Data(contentsOf: original.encoderModelURL),
+                decoderModelData: try Data(contentsOf: original.decoderModelURL),
+                tokenizerData: try Data(contentsOf: original.tokenizerURL),
+                configData: try Data(contentsOf: original.configURL),
+                generationConfigData: try Data(contentsOf: original.generationConfigURL),
+                licenseData: try Data(contentsOf: original.licenseURL))
+            return SymlinkFixture(
+                directory: directory, resources: resources,
+                artifactURLs: resources.urls, poisonURL: poisonURL,
+                poisonData: poisonData, expected: expected)
+        }
+
+        private nonisolated static func replaceArtifactLinksWithPoison(
+            _ fixture: SymlinkFixture
+        ) throws {
+            for url in fixture.artifactURLs {
+                try FileManager.default.removeItem(at: url)
+                try FileManager.default.createSymbolicLink(
+                    at: url, withDestinationURL: fixture.poisonURL)
+            }
+        }
+
+        private nonisolated static func temporaryModelDirectories() throws -> Set<String> {
+            Set(
+                try FileManager.default.contentsOfDirectory(
+                    at: FileManager.default.temporaryDirectory,
+                    includingPropertiesForKeys: nil
+                ).map(\.lastPathComponent)
+                    .filter { $0.hasPrefix(MiniBARTG2PEngine.temporaryModelDirectoryPrefix) })
         }
 
         private func engine(fixture: DecodeFixture) -> MiniBARTG2PEngine {
@@ -296,6 +438,10 @@
                         }
                     case .malformed:
                         break
+                    case .nanLogits:
+                        last[20] = .nan
+                    case .infiniteLogits:
+                        last[20] = .infinity
                     }
 
                     var logits = [Float](repeating: 0, count: decoderIDs.count * 103)
@@ -303,6 +449,31 @@
                     return .init(logits: logits, shape: [1, decoderIDs.count, 103])
                 })
         }
+    }
+
+    private struct ExpectedArtifactBytes: Sendable {
+        let encoderModelData: Data
+        let decoderModelData: Data
+        let tokenizerData: Data
+        let configData: Data
+        let generationConfigData: Data
+        let licenseData: Data
+    }
+
+    private struct SymlinkFixture: Sendable {
+        let directory: URL
+        let resources: MiniBARTG2PModelResources
+        let artifactURLs: [URL]
+        let poisonURL: URL
+        let poisonData: Data
+        let expected: ExpectedArtifactBytes
+    }
+
+    private actor VerifiedSnapshotRecorder {
+        private var value: MiniBARTG2PVerifiedSnapshot?
+
+        func record(_ snapshot: MiniBARTG2PVerifiedSnapshot) { value = snapshot }
+        func snapshot() -> MiniBARTG2PVerifiedSnapshot? { value }
     }
 
     private actor DelayedSessionFactory {
@@ -319,7 +490,7 @@
             self.session = session
         }
 
-        func make(resources _: MiniBARTG2PModelResources) async throws
+        func make(resources _: MiniBARTG2PVerifiedSnapshot) async throws
             -> MiniBARTG2PInferenceSession
         {
             callCount += 1
@@ -348,6 +519,15 @@
             let suffix = self[startRange.lowerBound...]
             guard let endRange = suffix.range(of: end) else { return nil }
             return suffix[..<endRange.upperBound]
+        }
+    }
+
+    extension MiniBARTG2PModelResources {
+        fileprivate nonisolated var urls: [URL] {
+            [
+                encoderModelURL, decoderModelURL, tokenizerURL, configURL,
+                generationConfigURL, licenseURL,
+            ]
         }
     }
 #endif
