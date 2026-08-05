@@ -1,10 +1,27 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import Synchronization
 import Testing
 
 @testable import Echo
 
-@Suite struct NarrationPronunciationPreflightTests {
+@Suite(.serialized) struct NarrationPronunciationPreflightTests {
+    private struct NeuralCorpusProbe: Decodable {
+        let word: String
+    }
+
+    private actor EvaluatedWords {
+        private var values: [String] = []
+
+        func append(_ word: String) {
+            values.append(word)
+        }
+
+        func snapshot() -> [String] {
+            values
+        }
+    }
+
     @Test func flagsAcronymsAndProperNounsNotAlreadyOverridden() {
         let candidates = NarrationPronunciationPreflight.scan(
             texts: ["Xcode talks to NASA and Fakkeldy."],
@@ -71,5 +88,189 @@ import Testing
         #expect(json.contains("multipleTrustedPronunciations"))
         #expect(json.contains("contextualFamily"))
         #expect(json.contains("unsupportedPhonemes"))
+    }
+
+    @Test func neuralShadowEvaluatesEachNormalizedOOVOnceOffMainAndPreservesSelection()
+        async throws
+    {
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(text: "Xyzqwf xyzqwf verified.")],
+            overrides: PronunciationOverrides(entries: [:]))
+        let originalChunks = plan.blocks.flatMap(\.synthesisChunks)
+        let originalSelections = plan.blocks.flatMap(\.pronunciationDecisions).map {
+            [$0.normalizedWord, $0.selectedIPA, $0.candidateID ?? ""]
+        }
+        let evaluated = EvaluatedWords()
+
+        let enriched = try await NarrationPronunciationPreflight.applyingNeuralShadow(
+            to: plan,
+            evaluator: { word in
+                await evaluated.append(word)
+                return .candidate(Self.neuralCandidate())
+            })
+
+        #expect(await evaluated.snapshot() == ["xyzqwf"])
+        #expect(enriched.blocks.flatMap(\.synthesisChunks) == originalChunks)
+        #expect(
+            enriched.blocks.flatMap(\.pronunciationDecisions).map {
+                [$0.normalizedWord, $0.selectedIPA, $0.candidateID ?? ""]
+            } == originalSelections)
+        let fallback = try #require(
+            enriched.blocks.flatMap(\.pronunciationDecisions).first {
+                $0.normalizedWord == "xyzqwf"
+            })
+        let neural = try #require(
+            fallback.advisoryEvidence?.alternatives.first {
+                $0.candidateID == Self.neuralCandidate().candidateID
+            })
+        #expect(neural.authority == .uncertain)
+        #expect(neural.validation == .shadow)
+        #expect(neural.policyVersion == "mini-bart-g2p-beam5-max20-v1")
+        #expect(neural.policyVersion != "neural-oov-complete-selection-v1")
+        #expect(fallback.advisoryEvidence?.selectionReason == .shadowCandidate)
+        #expect(fallback.advisoryEvidence?.isValid(for: fallback) == true)
+        #expect(
+            enriched.blocks.flatMap(\.pronunciationDecisions).first {
+                $0.normalizedWord == "verified"
+            }?.advisoryEvidence?.alternatives.contains {
+                $0.candidateID == Self.neuralCandidate().candidateID
+            } == false)
+        #if DEBUG
+            #expect(NarrationPronunciationPreflight.debugNeuralBatchRanOnMainThread.withLock { $0 }
+                == false)
+        #endif
+    }
+
+    @Test func neuralFailuresRemainCategoricalAdvisoriesWithoutChangingDeterministicIPA()
+        async throws
+    {
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(text: "Xyzqwf appears.")],
+            overrides: PronunciationOverrides(entries: [:]))
+        let original = try #require(
+            plan.blocks.flatMap(\.pronunciationDecisions).first {
+                $0.normalizedWord == "xyzqwf"
+            })
+        let cases: [(NeuralG2PFailure, PronunciationAdvisoryEvidence.SelectionReason)] = [
+            (.unavailable, .modelUnavailable),
+            (.integrity, .modelIntegrityFailure),
+            (.tokenization, .invalidCandidate),
+            (.decoding, .invalidCandidate),
+            (.emptyOutput, .invalidCandidate),
+            (.unsupportedOutput, .invalidCandidate),
+            (.inference, .modelInferenceFailure),
+        ]
+
+        for (failure, expectedReason) in cases {
+            let enriched = try await NarrationPronunciationPreflight.applyingNeuralShadow(
+                to: plan,
+                evaluator: { _ in .rejected(failure) })
+            let decision = try #require(
+                enriched.blocks.flatMap(\.pronunciationDecisions).first {
+                    $0.normalizedWord == "xyzqwf"
+                })
+            #expect(decision.selectedIPA == original.selectedIPA)
+            #expect(decision.kokoroTokenIDs == original.kokoroTokenIDs)
+            #expect(decision.advisoryEvidence?.selectionReason == expectedReason)
+        }
+
+        enum InjectedFailure: Error { case unavailable }
+        let thrown = try await NarrationPronunciationPreflight.applyingNeuralShadow(
+            to: plan,
+            evaluator: { _ in throw InjectedFailure.unavailable })
+        #expect(
+            thrown.blocks.flatMap(\.pronunciationDecisions).first {
+                $0.normalizedWord == "xyzqwf"
+            }?.advisoryEvidence?.selectionReason == .modelInferenceFailure)
+    }
+
+    @Test func neuralCancellationAbortsPreflight() async throws {
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(text: "Xyzqwf appears.")],
+            overrides: PronunciationOverrides(entries: [:]))
+
+        await #expect(throws: CancellationError.self) {
+            _ = try await NarrationPronunciationPreflight.applyingNeuralShadow(
+                to: plan,
+                evaluator: { _ in .rejected(.cancelled) })
+        }
+    }
+
+    @Test func neuralShadowPreservesAnInvalidRawG2PEvidenceReceipt() async throws {
+        let rawResult = KokoroG2P.Result(
+            phonemes: "\u{0000}",
+            fallbackHits: [.init(word: "Xyzqwf", ipa: "\u{0000}")],
+            tokenEvidence: [.init(
+                text: "Xyzqwf",
+                selectedPhonemes: "\u{0000}",
+                lexicalTag: nil,
+                rating: 1,
+                displayCharacterRange: 0..<6,
+                phonemeCharacterRange: 0..<1,
+                usedFallback: true)],
+            pronunciationEvidenceValidation: .matched)
+        let planner = try PronunciationPlanner(g2pResult: { _, _ in rawResult })
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(text: "Xyzqwf")],
+            overrides: PronunciationOverrides(entries: [:]),
+            pronunciationPlanner: planner)
+
+        let enriched = try await NarrationPronunciationPreflight.applyingNeuralShadow(
+            to: plan,
+            evaluator: { _ in .candidate(Self.neuralCandidate()) })
+        let decision = try #require(enriched.blocks.first?.pronunciationDecisions.first)
+
+        #expect(decision.advisoryEvidence?.alternatives.count == 1)
+        #expect(decision.advisoryEvidence?.selectionReason == .deterministicFallback)
+        #expect(decision.isEvidenceOnlyInvalidOutputAdvisory)
+    }
+
+    @Test func bundledNeuralModelIsStableAcrossTheFullSyntheticCorpus() async throws {
+        let corpusURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appending(path: "Fixtures/Pronunciation/neural_oov_candidates_v1.jsonl")
+        let lines = try String(contentsOf: corpusURL, encoding: .utf8)
+            .split(whereSeparator: \.isNewline)
+        #expect(lines.count == 10)
+
+        let decoder = JSONDecoder()
+        for line in lines {
+            let probe = try decoder.decode(NeuralCorpusProbe.self, from: Data(line.utf8))
+            let first = try await MiniBARTG2PEngine.shared.evaluate(word: probe.word)
+            let repeated = try await MiniBARTG2PEngine.shared.evaluate(word: probe.word)
+            #expect(first == repeated)
+            guard case .candidate(let candidate) = first else {
+                Issue.record("bundled neural corpus probe did not produce a candidate")
+                continue
+            }
+            #expect(candidate.modelRevision == MiniBARTG2PEngine.modelRevision)
+            #expect(candidate.conversionPolicyVersion == ARPAbetToKokoroIPA.policyVersion)
+            #expect(
+                candidate.validationPolicyVersion
+                    == MiniBARTG2PEngine.validationPolicyVersion)
+            #expect(candidate.selectionPolicyVersion == MiniBARTG2PEngine.selectionPolicyVersion)
+            #expect(candidate.selectionPolicyVersion != "neural-oov-complete-selection-v1")
+        }
+    }
+
+    nonisolated private static func neuralCandidate() -> NeuralG2PCandidate {
+        NeuralG2PCandidate(
+            candidateID: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            ipa: "zizkwf",
+            modelRevision: "f277d1e0597e7e7d33fa1d6d27d764bc4d7acb06",
+            conversionPolicyVersion: "mini-bart-arpabet-to-kokoro-v1",
+            validationPolicyVersion: "kokoro-vocab-validation-v1",
+            selectionPolicyVersion: "mini-bart-g2p-beam5-max20-v1")
+    }
+
+    private func block(text: String) -> EPubBlockRecord {
+        EPubBlockRecord(
+            id: "neural-shadow", audiobookID: "book", spineHref: "chapter.xhtml",
+            spineIndex: 0, blockIndex: 0, sequenceIndex: 0,
+            blockKind: EPubBlockRecord.Kind.paragraph.rawValue, text: text,
+            htmlContent: nil, cardColor: nil, chapterThemeColor: nil, imagePath: nil,
+            chapterIndex: 0, isHidden: false, hiddenReason: nil,
+            isFrontMatter: false, wordCount: nil, markers: nil,
+            textFormats: nil, createdAt: nil, modifiedAt: nil)
     }
 }

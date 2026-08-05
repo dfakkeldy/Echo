@@ -339,7 +339,10 @@ final class NarrationQAReviewModel {
                             forBookID: audiobookID)
                     },
                     pronunciationPack: pronunciationPack,
-                    pronunciationAuditPack: pronunciationAuditPack)
+                    pronunciationAuditPack: pronunciationAuditPack,
+                    neuralEvaluator: { word in
+                        try await MiniBARTG2PEngine.shared.evaluate(word: word)
+                    })
             }
         #endif
     }

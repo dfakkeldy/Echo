@@ -299,7 +299,10 @@ final class MacBatchProcessingService {
                         pronunciationOverrides: overrideClosures.overrides,
                         pronunciationOccurrenceOverrides: overrideClosures.occurrenceOverrides,
                         pronunciationPack: pronunciationPack,
-                        pronunciationAuditPack: pronunciationAuditPack)
+                        pronunciationAuditPack: pronunciationAuditPack,
+                        neuralEvaluator: { word in
+                            try await MiniBARTG2PEngine.shared.evaluate(word: word)
+                        })
                 }
                 var service = makeService()
                 // One-time engine prepare (download + compile the CoreML model set) BEFORE the

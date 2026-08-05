@@ -8,6 +8,18 @@ import ZIPFoundation
 
 @MainActor
 @Suite struct HeadlessNarrationRunnerTests {
+    private actor EvaluatedWords {
+        private var words: [String] = []
+
+        func append(_ word: String) {
+            words.append(word)
+        }
+
+        func snapshot() -> [String] {
+            words
+        }
+    }
+
     private func auditDecision(
         chapterIndex: Int,
         chapterRange: PronunciationAuditDecision.AudioRange?,
@@ -518,6 +530,115 @@ import ZIPFoundation
                 $0.normalizedWord == "record"
             }?.advisoryEvidence)
         #expect(headlessEvidence == appEvidence)
+    }
+
+    @Test func headlessNeuralShadowPersistsAdvisoryAndDoesNotChangeResumeIdentity()
+        async throws
+    {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let epub = try TestEPUBFixture.twoChapters(in: tmp)
+        let chapterURL = epub.appending(path: "OEBPS/chap01.xhtml")
+        let original = try String(contentsOf: chapterURL, encoding: .utf8)
+        try original.replacingOccurrences(
+            of: "It contains enough words for narration synthesis to produce a non-trivial output.",
+            with: "Xyzqwf xyzqwf was verified in this synthetic narration fixture.")
+            .write(to: chapterURL, atomically: true, encoding: .utf8)
+        let work = tmp.appendingPathComponent("neural-shadow-work")
+        let config = NarrationRunConfig(
+            epubURL: epub,
+            outM4BURL: tmp.appendingPathComponent("neural-shadow.m4b"),
+            sidecarURL: nil,
+            workDir: work,
+            voice: VoiceID("af_heart"),
+            title: "Neural Shadow",
+            author: "Tester",
+            maxNewChaptersPerRun: nil)
+        let evaluated = EvaluatedWords()
+        let candidate = NeuralG2PCandidate(
+            candidateID: "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            ipa: "zizkwf",
+            modelRevision: MiniBARTG2PEngine.modelRevision,
+            conversionPolicyVersion: ARPAbetToKokoroIPA.policyVersion,
+            validationPolicyVersion: MiniBARTG2PEngine.validationPolicyVersion,
+            selectionPolicyVersion: MiniBARTG2PEngine.selectionPolicyVersion)
+        var firstReview: PronunciationReviewRequest?
+
+        let first = try await HeadlessNarrationRunner().run(
+            config,
+            tts: StubEngine(),
+            neuralEvaluator: { word in
+                await evaluated.append(word)
+                return .candidate(candidate)
+            },
+            reviewGenerator: { request in
+                firstReview = request
+                return .auditOnly(auditURL: request.auditURL)
+            })
+        let fallback = try #require(
+            firstReview?.decisions.first { $0.normalizedWord == "xyzqwf" })
+        let neural = try #require(
+            fallback.advisoryEvidence?.alternatives.first {
+                $0.candidateID == candidate.candidateID
+            })
+        let firstCapture = try JSONDecoder().decode(
+            HeadlessNarrationRunner.ChapterCapture.self,
+            from: Data(contentsOf: work.appendingPathComponent(".anchors-ch0.json")))
+
+        let resumed = try await HeadlessNarrationRunner().run(
+            config,
+            tts: StubEngine(),
+            neuralEvaluator: nil,
+            reviewGenerator: { request in .auditOnly(auditURL: request.auditURL) })
+        let resumedCapture = try JSONDecoder().decode(
+            HeadlessNarrationRunner.ChapterCapture.self,
+            from: Data(contentsOf: work.appendingPathComponent(".anchors-ch0.json")))
+
+        let evaluatedWords = await evaluated.snapshot()
+        #expect(first.complete)
+        #expect(evaluatedWords.filter { $0 == "xyzqwf" } == ["xyzqwf"])
+        #expect(!evaluatedWords.contains("verified"))
+        #expect(fallback.source == .fallback)
+        #expect(neural.authority == .uncertain)
+        #expect(neural.validation == .shadow)
+        #expect(neural.policyVersion == "mini-bart-g2p-beam5-max20-v1")
+        #expect(resumed.complete)
+        #expect(resumed.capturedThisRun == 0)
+        #expect(resumedCapture.identity == firstCapture.identity)
+    }
+
+    @Test func headlessNeuralCancellationAbortsChapterWithoutPublishingCapture() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let epub = try TestEPUBFixture.twoChapters(in: tmp)
+        let chapterURL = epub.appending(path: "OEBPS/chap01.xhtml")
+        let original = try String(contentsOf: chapterURL, encoding: .utf8)
+        try original.replacingOccurrences(
+            of: "It contains enough words for narration synthesis to produce a non-trivial output.",
+            with: "Xyzqwf appears in this synthetic narration fixture.")
+            .write(to: chapterURL, atomically: true, encoding: .utf8)
+        let work = tmp.appendingPathComponent("neural-cancel-work")
+        let out = tmp.appendingPathComponent("neural-cancel.m4b")
+        let config = NarrationRunConfig(
+            epubURL: epub, outM4BURL: out, sidecarURL: nil, workDir: work,
+            voice: VoiceID("af_heart"), title: "Neural Cancel", author: "Tester",
+            maxNewChaptersPerRun: nil)
+
+        await #expect(throws: CancellationError.self) {
+            _ = try await HeadlessNarrationRunner().run(
+                config,
+                tts: StubEngine(),
+                neuralEvaluator: { _ in .rejected(.cancelled) })
+        }
+
+        #expect(!FileManager.default.fileExists(atPath: out.path))
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: work.appendingPathComponent(".anchors-ch0.json").path))
     }
 
     private enum ReviewFixtureError: Error {

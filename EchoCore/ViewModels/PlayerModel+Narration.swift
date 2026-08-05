@@ -158,7 +158,10 @@
                                 forBookID: audiobookID)
                         },
                         pronunciationPack: pronunciationPack,
-                        pronunciationAuditPack: pronunciationAuditPack)
+                        pronunciationAuditPack: pronunciationAuditPack,
+                        neuralEvaluator: { word in
+                            try await MiniBARTG2PEngine.shared.evaluate(word: word)
+                        })
                     let existingFileNames = Set(
                         (try? FileManager.default.contentsOfDirectory(
                             atPath: cacheDirectory.path)) ?? [])

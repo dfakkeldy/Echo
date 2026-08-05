@@ -45,3 +45,26 @@ words, contexts, human labels, and model output strings are intentionally absent
 - Render proof: `NOT_RUN_NO_RUNTIME`
 
 These states are not inferred from corpus validation or human-label qualification.
+
+## Task 14 shadow-integration evidence
+
+- Integration mode: `SHADOW_ONLY`
+- Runtime model revision: `f277d1e0597e7e7d33fa1d6d27d764bc4d7acb06`
+- Runtime conversion policy: `mini-bart-arpabet-to-kokoro-v1`
+- Runtime validation policy: `kokoro-vocab-validation-v1`
+- Runtime shadow-selection policy: `mini-bart-g2p-beam5-max20-v1`
+- Qualification selection policy: `neural-oov-complete-selection-v1`
+- Full committed public/synthetic corpus checked: 10 provisional cases
+- Repetitions per case: 2
+- Stable repeated runtime results: 10 of 10
+- Candidate-producing runtime results: 10 of 10
+- Integration tests: `VERIFIED_BY_AUTOMATED_TESTS`
+- Deterministic pronunciation selection unchanged: `VERIFIED_BY_AUTOMATED_TESTS`
+- Shadow evidence excluded from cache/resume identity: `VERIFIED_BY_AUTOMATED_TESTS`
+- Chapter cancellation propagation: `VERIFIED_BY_AUTOMATED_TESTS`
+
+The runtime evidence above was collected with the bundled model in an iPhone
+simulator test process. It is not physical-device, performance, audiobook
+render, or human-listening evidence and does not change any separate proof state
+or the overall `WAITING_FOR_HUMAN_LABELS` qualification status. The committed
+corpus remains provisional and below the 500 reviewed-case qualification floor.

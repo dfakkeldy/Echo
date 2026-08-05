@@ -1090,6 +1090,7 @@ struct NarrationRunResult {
         _ config: NarrationRunConfig,
         tts: TTSEngine? = nil,
         ttsFactory: (@MainActor () -> TTSEngine)? = nil,
+        neuralEvaluator: NeuralEvaluator? = nil,
         pronunciationPackLoader: @escaping @Sendable () async -> EnglishPronunciationPack = {
             await EnglishPronunciationPack.bundledOrEmpty()
         },
@@ -1108,6 +1109,16 @@ struct NarrationRunResult {
         let fm = FileManager.default
         let pronunciationPack = await pronunciationPackLoader()
         let pronunciationAuditPack = await pronunciationAuditPackLoader()
+        let resolvedNeuralEvaluator: NeuralEvaluator?
+        if let neuralEvaluator {
+            resolvedNeuralEvaluator = neuralEvaluator
+        } else if tts == nil, ttsFactory == nil {
+            resolvedNeuralEvaluator = { word in
+                try await MiniBARTG2PEngine.shared.evaluate(word: word)
+            }
+        } else {
+            resolvedNeuralEvaluator = nil
+        }
 
         let source = try resolveNarrationSource(at: config.epubURL)
         let sourceURL = source.sourceURL
@@ -1395,6 +1406,7 @@ struct NarrationRunResult {
                         pronunciationOccurrenceOverrides: { occurrenceOverrides },
                         pronunciationPack: pronunciationPack,
                         pronunciationAuditPack: pronunciationAuditPack,
+                        neuralEvaluator: resolvedNeuralEvaluator,
                         fmEnabled: { config.enableFMNormalization })
                     while cursor.next < batch.count {
                         let pos = cursor.next

@@ -39,6 +39,162 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
             policyVersion: auditPack.auditPackVersion)
     }
 
+    /// Stage-three neural comparison is deliberately narrower than the general
+    /// audit comparison scope: only a genuine deterministic fallback may invoke
+    /// the model. Known-word disagreements remain deterministic and model-free.
+    static func isNeuralOOVComparisonCandidate(
+        _ decision: PronunciationAuditDecision
+    ) -> Bool {
+        decision.source == .fallback
+            && !decision.normalizedWord.isEmpty
+            && decision.advisoryEvidence != nil
+    }
+
+    static func attachingNeuralShadowResult(
+        _ result: NeuralG2PShadowResult,
+        to decision: PronunciationAuditDecision
+    ) -> PronunciationAuditDecision {
+        guard isNeuralOOVComparisonCandidate(decision), let evidence = decision.advisoryEvidence
+        else { return decision }
+        let preservesInvalidOutputReceipt = decision.isEvidenceOnlyInvalidOutputAdvisory
+
+        let updatedEvidence: PronunciationAdvisoryEvidence
+        switch result {
+        case .candidate(let candidate):
+            guard let alternative = neuralAlternative(for: candidate) else {
+                updatedEvidence = replacingSelectionReason(
+                    preservesInvalidOutputReceipt ? evidence.selectionReason : .invalidCandidate,
+                    in: evidence)
+                break
+            }
+            let candidateIPA = normalizedIPA(alternative.ipa)
+            let duplicatesExistingEvidence = evidence.alternatives.contains { existing in
+                existing.candidateID == alternative.candidateID
+                    || normalizedIPA(existing.ipa) == candidateIPA
+            }
+            let collidesWithSelectedCandidate = evidence.selectedCandidateID
+                == alternative.candidateID
+            guard !duplicatesExistingEvidence, !collidesWithSelectedCandidate else {
+                updatedEvidence = replacingSelectionReason(
+                    preservesInvalidOutputReceipt ? evidence.selectionReason : .shadowCandidate,
+                    in: evidence)
+                break
+            }
+            updatedEvidence = PronunciationAdvisoryEvidence(
+                category: evidence.category,
+                selectedAuthority: evidence.selectedAuthority,
+                selectedCandidateID: evidence.selectedCandidateID,
+                alternatives: evidence.alternatives + [alternative],
+                selectionReason: preservesInvalidOutputReceipt
+                    ? evidence.selectionReason : .shadowCandidate,
+                overrideSuppressedAutomation: evidence.overrideSuppressedAutomation,
+                policyVersion: evidence.policyVersion)
+        case .rejected(let failure):
+            updatedEvidence = replacingSelectionReason(
+                preservesInvalidOutputReceipt
+                    ? evidence.selectionReason : selectionReason(for: failure),
+                in: evidence)
+        }
+
+        return replacingAdvisoryEvidence(updatedEvidence, in: decision)
+    }
+
+    private static func neuralAlternative(
+        for candidate: NeuralG2PCandidate
+    ) -> PronunciationAdvisoryEvidence.Alternative? {
+        let candidateID = candidate.candidateID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ipa = normalizedIPA(candidate.ipa)
+        let modelRevision = candidate.modelRevision.trimmingCharacters(in: .whitespacesAndNewlines)
+        let conversionPolicy = candidate.conversionPolicyVersion.trimmingCharacters(
+            in: .whitespacesAndNewlines)
+        let validationPolicy = candidate.validationPolicyVersion.trimmingCharacters(
+            in: .whitespacesAndNewlines)
+        let selectionPolicy = candidate.selectionPolicyVersion.trimmingCharacters(
+            in: .whitespacesAndNewlines)
+        guard !candidateID.isEmpty, candidateID == candidate.candidateID,
+            !ipa.isEmpty,
+            !modelRevision.isEmpty, modelRevision == candidate.modelRevision,
+            !conversionPolicy.isEmpty, conversionPolicy == candidate.conversionPolicyVersion,
+            !validationPolicy.isEmpty, validationPolicy == candidate.validationPolicyVersion,
+            !selectionPolicy.isEmpty, selectionPolicy == candidate.selectionPolicyVersion,
+            let vocabulary = try? KokoroPhonemeVocab(),
+            (try? vocabulary.validatedIDs(forPhonemes: ipa)) != nil
+        else {
+            return nil
+        }
+
+        return PronunciationAdvisoryEvidence.Alternative(
+            candidateID: candidateID,
+            ipa: ipa,
+            source:
+                "mini-bart-g2p@\(modelRevision)|\(conversionPolicy)|\(validationPolicy)",
+            authority: .uncertain,
+            validation: .shadow,
+            policyVersion: selectionPolicy)
+    }
+
+    private static func selectionReason(
+        for failure: NeuralG2PFailure
+    ) -> PronunciationAdvisoryEvidence.SelectionReason {
+        switch failure {
+        case .unavailable:
+            return .modelUnavailable
+        case .integrity:
+            return .modelIntegrityFailure
+        case .inference, .cancelled:
+            return .modelInferenceFailure
+        case .tokenization, .decoding, .emptyOutput, .unsupportedOutput:
+            return .invalidCandidate
+        }
+    }
+
+    private static func replacingSelectionReason(
+        _ selectionReason: PronunciationAdvisoryEvidence.SelectionReason,
+        in evidence: PronunciationAdvisoryEvidence
+    ) -> PronunciationAdvisoryEvidence {
+        PronunciationAdvisoryEvidence(
+            category: evidence.category,
+            selectedAuthority: evidence.selectedAuthority,
+            selectedCandidateID: evidence.selectedCandidateID,
+            alternatives: evidence.alternatives,
+            selectionReason: selectionReason,
+            overrideSuppressedAutomation: evidence.overrideSuppressedAutomation,
+            policyVersion: evidence.policyVersion)
+    }
+
+    private static func replacingAdvisoryEvidence(
+        _ advisoryEvidence: PronunciationAdvisoryEvidence,
+        in decision: PronunciationAuditDecision
+    ) -> PronunciationAuditDecision {
+        PronunciationAuditDecision(
+            blockID: decision.blockID,
+            wordStart: decision.wordStart,
+            wordEnd: decision.wordEnd,
+            normalizedWord: decision.normalizedWord,
+            sourceWord: decision.sourceWord,
+            sourceContext: decision.sourceContext,
+            selectedIPA: decision.selectedIPA,
+            kokoroTokenIDs: decision.kokoroTokenIDs,
+            source: decision.source,
+            ruleID: decision.ruleID,
+            rationale: decision.rationale,
+            candidateID: decision.candidateID,
+            candidatePackVersion: decision.candidatePackVersion,
+            derivationBase: decision.derivationBase,
+            derivationRuleID: decision.derivationRuleID,
+            contextualEvidence: decision.contextualEvidence,
+            advisoryEvidence: advisoryEvidence,
+            chapterIndex: decision.chapterIndex,
+            chapterRelativeAudioRange: decision.chapterRelativeAudioRange,
+            bookRelativeAudioRange: decision.bookRelativeAudioRange,
+            timingPrecision: decision.timingPrecision)
+    }
+
+    private static func normalizedIPA(_ ipa: String) -> String {
+        ipa.precomposedStringWithCanonicalMapping
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func advisoryAlternatives(
         for normalizedWord: String,
         excluding selectedIPA: String

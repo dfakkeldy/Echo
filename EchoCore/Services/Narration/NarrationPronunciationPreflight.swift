@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
+#if DEBUG
+    import Synchronization
+#endif
+
+typealias NeuralEvaluator = @Sendable (String) async throws -> NeuralG2PShadowResult
+
 struct NarrationPronunciationCandidate: Codable, Equatable, Sendable {
     enum Reason: String, Codable, Sendable {
         case emptyPhonemes
@@ -47,6 +53,11 @@ struct NarrationPronunciationCandidate: Codable, Equatable, Sendable {
 }
 
 enum NarrationPronunciationPreflight {
+    #if DEBUG
+        nonisolated static let debugNeuralBatchRanOnMainThread = Mutex<Bool?>(nil)
+        nonisolated private static func debugIsMainThread() -> Bool { Thread.isMainThread }
+    #endif
+
     static func scan(
         texts: [String],
         overrides: PronunciationOverrides,
@@ -120,6 +131,65 @@ enum NarrationPronunciationPreflight {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         return try encoder.encode(candidates)
+    }
+
+    /// Evaluates each genuine deterministic OOV spelling once, off the caller's
+    /// actor, and copies the result into advisory evidence only. The immutable
+    /// synthesis chunks and their selected pronunciation receipts are preserved.
+    @concurrent
+    nonisolated static func applyingNeuralShadow(
+        to plan: NarrationRenderPlan,
+        evaluator: NeuralEvaluator
+    ) async throws -> NarrationRenderPlan {
+        #if DEBUG
+            let isMainThread = Self.debugIsMainThread()
+            Self.debugNeuralBatchRanOnMainThread.withLock { $0 = isMainThread }
+        #endif
+
+        let words = Set(
+            plan.blocks.flatMap(\.pronunciationDecisions).compactMap { decision in
+                PronunciationCandidateAnalyzer.isNeuralOOVComparisonCandidate(decision)
+                    ? decision.normalizedWord : nil
+            }
+        ).sorted()
+        guard !words.isEmpty else { return plan }
+
+        var results: [String: NeuralG2PShadowResult] = [:]
+        results.reserveCapacity(words.count)
+        for word in words {
+            try Task.checkCancellation()
+            let result: NeuralG2PShadowResult
+            do {
+                result = try await evaluator(word)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                result = .rejected(.inference)
+            }
+            try Task.checkCancellation()
+            if result == .rejected(.cancelled) {
+                throw CancellationError()
+            }
+            results[word] = result
+        }
+
+        return NarrationRenderPlan(
+            blocks: plan.blocks.map { block in
+                NarrationPlannedBlock(
+                    blockID: block.blockID,
+                    originalBlock: block.originalBlock,
+                    synthesisChunks: block.synthesisChunks,
+                    pronunciationDecisions: block.pronunciationDecisions.map { decision in
+                        guard let result = results[decision.normalizedWord] else {
+                            return decision
+                        }
+                        return PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
+                            result,
+                            to: decision)
+                    },
+                    pronunciationDecisionDiagnostics: block.pronunciationDecisionDiagnostics,
+                    trailingSilence: block.trailingSilence)
+            })
     }
 }
 
