@@ -22,6 +22,8 @@ VOCAB_PATH = (
     REPOSITORY_ROOT
     / "EchoCore/Services/Narration/_kokoro_vocab.json"
 )
+RECEIPT_PATH = REPOSITORY_ROOT / "docs/reports/neural-g2p-qualification.json"
+REPORT_PATH = REPOSITORY_ROOT / "docs/reports/neural-g2p-qualification.md"
 CATEGORIES = (
     "proper-noun",
     "technical",
@@ -159,10 +161,15 @@ class NeuralG2PQualificationTests(unittest.TestCase):
             authority_record(rows, receipts),
             LOCK_PATH,
             VOCAB_PATH,
+            performance_proof_state="VERIFIED",
+            device_proof_state="VERIFIED",
+            render_proof_state="VERIFIED",
+            listening_proof_state="VERIFIED",
         )
 
         self.assertEqual("QUALIFIED", result["status"])
         self.assertEqual("QUALIFIED", result["proofStates"]["human"])
+        self.assertEqual("VERIFIED", result["proofStates"]["listening"])
         self.assertEqual(500, result["reviewedCount"])
         self.assertEqual(500, result["automaticCount"])
         self.assertEqual(500, result["correctAutomaticCount"])
@@ -565,8 +572,79 @@ class NeuralG2PQualificationTests(unittest.TestCase):
 
         receipt = json.loads(completed.stdout)
         self.assertEqual("WAITING_FOR_HUMAN_LABELS", receipt["status"])
+        self.assertEqual("NOT_RUN_NO_RUNTIME", receipt["proofStates"]["listening"])
         self.assertEqual(0, receipt["reviewedCount"])
         self.assertEqual("", completed.stderr)
+
+    def test_listening_proof_is_independent_and_required_for_qualification(self):
+        tool = load_tool()
+        rows, receipts = qualification_matrix()
+        authority = authority_record(rows, receipts)
+        existing_verified = {
+            "performance_proof_state": "VERIFIED",
+            "device_proof_state": "VERIFIED",
+            "render_proof_state": "VERIFIED",
+        }
+
+        unrun = tool.qualification_status(
+            rows,
+            receipts,
+            authority,
+            LOCK_PATH,
+            VOCAB_PATH,
+            listening_proof_state="NOT_RUN_NO_RUNTIME",
+            **existing_verified,
+        )
+        self.assertEqual("QUALIFIED", unrun["proofStates"]["human"])
+        self.assertEqual("NOT_RUN_NO_RUNTIME", unrun["proofStates"]["listening"])
+        self.assertNotEqual("QUALIFIED", unrun["status"])
+
+        verified = tool.qualification_status(
+            rows,
+            receipts,
+            authority,
+            LOCK_PATH,
+            VOCAB_PATH,
+            listening_proof_state="VERIFIED",
+            **existing_verified,
+        )
+        self.assertEqual("QUALIFIED", verified["status"])
+
+        missing = dict(verified)
+        missing["proofStates"] = dict(verified["proofStates"])
+        del missing["proofStates"]["listening"]
+        with self.assertRaisesRegex(ValueError, "proof state schema"):
+            tool.render_report(missing)
+        with self.assertRaisesRegex(ValueError, "listening proof state"):
+            tool.qualification_status(
+                rows,
+                receipts,
+                authority,
+                LOCK_PATH,
+                VOCAB_PATH,
+                listening_proof_state="human-says-it-sounds-good",
+                **existing_verified,
+            )
+
+    def test_committed_waiting_receipt_and_report_match_the_governed_tool(self):
+        tool = load_tool()
+        expected = tool.qualification_status(
+            tool.validate_candidates(tool._load_jsonl(CORPUS_PATH)),
+            [],
+            None,
+            LOCK_PATH,
+            VOCAB_PATH,
+        )
+        committed = json.loads(RECEIPT_PATH.read_text(encoding="utf-8"))
+
+        self.assertEqual(expected, committed)
+        self.assertEqual("WAITING_FOR_HUMAN_LABELS", committed["proofStates"]["human"])
+        self.assertEqual("NOT_RUN_NO_RUNTIME", committed["proofStates"]["listening"])
+        self.assertTrue(
+            REPORT_PATH.read_text(encoding="utf-8").startswith(
+                tool.render_report(committed).rstrip() + "\n"
+            )
+        )
 
     def test_receipt_and_report_separate_all_closed_proof_states(self):
         tool = load_tool()
@@ -581,6 +659,7 @@ class NeuralG2PQualificationTests(unittest.TestCase):
                 "performance": "NOT_RUN_NO_RUNTIME",
                 "device": "NOT_RUN_NO_RUNTIME",
                 "render": "NOT_RUN_NO_RUNTIME",
+                "listening": "NOT_RUN_NO_RUNTIME",
             },
             receipt.get("proofStates"),
         )
@@ -597,6 +676,7 @@ class NeuralG2PQualificationTests(unittest.TestCase):
         self.assertIn("Performance proof: `NOT_RUN_NO_RUNTIME`", report)
         self.assertIn("Device proof: `NOT_RUN_NO_RUNTIME`", report)
         self.assertIn("Render proof: `NOT_RUN_NO_RUNTIME`", report)
+        self.assertIn("Listening proof: `NOT_RUN_NO_RUNTIME`", report)
         self.assertNotIn("Syntheticproper", report)
 
     def test_report_rejects_hostile_free_form_proof_states(self):
@@ -610,6 +690,7 @@ class NeuralG2PQualificationTests(unittest.TestCase):
             "performance": "NOT_RUN_NO_RUNTIME",
             "device": "NOT_RUN_NO_RUNTIME",
             "render": "NOT_RUN_NO_RUNTIME",
+            "listening": "NOT_RUN_NO_RUNTIME",
         }
         hostile_values = (
             "/Users/example/private/book.epub",
@@ -634,11 +715,16 @@ class NeuralG2PQualificationTests(unittest.TestCase):
                     except TypeError as error:
                         self.fail(f"proof-state validation leaked TypeError: {error}")
 
-        for argument in ("performance_proof_state", "device_proof_state"):
+        for argument in (
+            "performance_proof_state",
+            "device_proof_state",
+            "listening_proof_state",
+        ):
             with self.subTest(argument=argument):
                 values = {
                     "performance_proof_state": "NOT_RUN_NO_RUNTIME",
                     "device_proof_state": "NOT_RUN_NO_RUNTIME",
+                    "listening_proof_state": "NOT_RUN_NO_RUNTIME",
                 }
                 values[argument] = "/Users/example/private/evidence.json"
                 with self.assertRaisesRegex(ValueError, "proof state"):

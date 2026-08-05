@@ -170,6 +170,40 @@ import Testing
         #expect(presentation.alternatives == advisory.alternatives)
     }
 
+    @Test func shadowAgreementReasonsRemainDistinctInPersistedQAPresentation() throws {
+        let db = try DatabaseService(inMemory: ())
+        let model = NarrationQAReviewModel(db: db.writer, audiobookID: "b1")
+
+        for reason in [
+            PronunciationAdvisoryEvidence.SelectionReason.shadowAgreementSelected,
+            .shadowAgreementExistingAlternative,
+        ] {
+            let advisory = PronunciationAdvisoryEvidence(
+                category: .lexical,
+                selectedAuthority: .uncertain,
+                selectedCandidateID: "fallback.selected",
+                alternatives: [],
+                selectionReason: reason,
+                overrideSuppressedAutomation: false,
+                policyVersion: "policy-v1")
+            let issue = try pronunciationIssue(
+                evidence: PronunciationAdvisoryIssueEvidence(
+                    advisoryEvidence: advisory,
+                    occurrenceCount: 1,
+                    selectedCandidate: .init(
+                        candidateID: "fallback.selected",
+                        ipa: "kˈɑntɛnt",
+                        source: .fallback,
+                        authority: .uncertain,
+                        validation: .eligible)))
+
+            let presentation = try #require(model.pronunciationPresentation(for: issue))
+            #expect(presentation.selectionReason == reason)
+            #expect(presentation.alternatives.isEmpty)
+            #expect(presentation.selectedCandidate?.candidateID == "fallback.selected")
+        }
+    }
+
     @Test func pronunciationPresentationFailsClosedWithoutTruthfulEnvelopeMetadata() throws {
         let db = try DatabaseService(inMemory: ())
         let advisory = PronunciationAdvisoryEvidence(

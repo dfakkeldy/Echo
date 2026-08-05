@@ -33,6 +33,8 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
         case deterministicFallback
         case sourceDisagreement
         case shadowCandidate
+        case shadowAgreementSelected
+        case shadowAgreementExistingAlternative
         case invalidCandidate
         case modelUnavailable
         case modelIntegrityFailure

@@ -582,6 +582,97 @@ private actor ShadowEvaluatorRecorder {
         #expect(auditedCacheURL == unauditedCacheURL)
     }
 
+    @Test func neuralShadowOutcomesCannotChangeProductionCacheSignatureOrFileURL()
+        async throws
+    {
+        enum InjectedFailure: Error { case inference }
+        let db = try DatabaseService(inMemory: ())
+        let sourceBlocks = try seed(db, ["Xyzqwf appears in this synthetic fixture."])
+        let cacheDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString,
+            isDirectory: true)
+        let voice = VoiceID("af_heart")
+        let candidate = NeuralG2PCandidate(
+            candidateID: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            ipa: "zizkwf",
+            modelRevision: MiniBARTG2PEngine.modelRevision,
+            conversionPolicyVersion: ARPAbetToKokoroIPA.policyVersion,
+            validationPolicyVersion: MiniBARTG2PEngine.validationPolicyVersion,
+            selectionPolicyVersion: MiniBARTG2PEngine.selectionPolicyVersion)
+        let evaluators: [NeuralEvaluator?] = [
+            nil,
+            { _ in .candidate(candidate) },
+            { _ in .rejected(.unavailable) },
+            { _ in throw InjectedFailure.inference },
+        ]
+        var plans: [NarrationRenderPlan] = []
+        var signatures: [String] = []
+        var cacheURLs: [URL] = []
+
+        for evaluator in evaluators {
+            let service = NarrationService(
+                db: db.writer,
+                audiobookID: "b1",
+                tts: MockTTSEngine(),
+                audioWriter: MockAudioWriter(),
+                cacheDirectory: cacheDirectory,
+                state: NarrationState(),
+                neuralEvaluator: evaluator,
+                fmEnabled: { false })
+            plans.append(
+                try await service.renderPlan(
+                    for: sourceBlocks,
+                    overrides: PronunciationOverrides(entries: [:]),
+                    occurrenceOverrides: .empty,
+                    fmEnabled: false))
+            let signature = NarrationService.contentSignature(
+                for: sourceBlocks,
+                includeLeadOutPad: true,
+                overrides: PronunciationOverrides(entries: [:]),
+                occurrenceOverrides: .empty,
+                normalizationMode: "deterministic",
+                pronunciationPack: .empty)
+            signatures.append(signature)
+            let actualURL = await service.chapterCacheURL(
+                chapterIndex: 0,
+                blocks: sourceBlocks,
+                voice: voice)
+            let expectedURL = cacheDirectory.appendingPathComponent(
+                NarrationFileNaming.chapterFileName(
+                    audiobookID: "b1",
+                    chapterIndex: 0,
+                    voice: voice,
+                    contentSignature: signature))
+            #expect(actualURL == expectedURL)
+            cacheURLs.append(actualURL)
+        }
+
+        let decisions = try plans.map { plan in
+            try #require(
+                plan.blocks.flatMap(\.pronunciationDecisions).first {
+                    $0.normalizedWord == "xyzqwf"
+                })
+        }
+        #expect(decisions.map(\.selectedIPA).allSatisfy { $0 == decisions[0].selectedIPA })
+        #expect(decisions.map(\.kokoroTokenIDs).allSatisfy { $0 == decisions[0].kokoroTokenIDs })
+        #expect(
+            decisions.map { $0.advisoryEvidence?.selectionReason } == [
+                .deterministicFallback,
+                .shadowCandidate,
+                .modelUnavailable,
+                .modelInferenceFailure,
+            ])
+        #expect(decisions[1].advisoryEvidence?.alternatives.count == 1)
+        #expect(decisions[0].advisoryEvidence != decisions[1].advisoryEvidence)
+        #expect(decisions[1].advisoryEvidence != decisions[2].advisoryEvidence)
+        #expect(decisions[2].advisoryEvidence != decisions[3].advisoryEvidence)
+        #expect(plans[0] != plans[1])
+        #expect(plans[1] != plans[2])
+        #expect(plans[2] != plans[3])
+        #expect(Set(signatures).count == 1)
+        #expect(Set(cacheURLs).count == 1)
+    }
+
     @Test func contextualShadowOutcomesCannotChangeNarrationOrCacheIdentity() async throws {
         let sourceBlocks = [
             block(

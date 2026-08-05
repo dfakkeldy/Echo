@@ -72,6 +72,17 @@ import Testing
                 from: JSONEncoder().encode(evidence))
             #expect(decoded == evidence)
         }
+
+        for reason in [
+            PronunciationAdvisoryEvidence.SelectionReason.shadowAgreementSelected,
+            .shadowAgreementExistingAlternative,
+        ] {
+            let encoded = try JSONEncoder().encode(reason)
+            #expect(
+                try JSONDecoder().decode(
+                    PronunciationAdvisoryEvidence.SelectionReason.self,
+                    from: encoded) == reason)
+        }
     }
 
     @Test func alternativesAreCanonicalizedByStablePortableIdentity() {

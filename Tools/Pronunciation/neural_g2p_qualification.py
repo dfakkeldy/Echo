@@ -60,6 +60,9 @@ PROOF_STATE_VOCABULARY = {
     "render": frozenset(
         {"NOT_RUN_NO_RUNTIME", "NOT_PROVIDED", "FAILED", "VERIFIED"}
     ),
+    "listening": frozenset(
+        {"NOT_RUN_NO_RUNTIME", "NOT_PROVIDED", "FAILED", "VERIFIED"}
+    ),
 }
 DEFAULT_RUNTIME_PROOF_STATE = "NOT_RUN_NO_RUNTIME"
 
@@ -560,6 +563,19 @@ def validate_proof_states(raw_states: Any) -> dict[str, str]:
     return {lane: raw_states[lane] for lane in PROOF_STATE_VOCABULARY}
 
 
+def qualification_decision(proof_states: dict[str, str]) -> str:
+    states = validate_proof_states(proof_states)
+    human_state = states["human"]
+    if human_state != "QUALIFIED":
+        return human_state
+    runtime_lanes = ("performance", "device", "render", "listening")
+    return (
+        "QUALIFIED"
+        if all(states[lane] == "VERIFIED" for lane in runtime_lanes)
+        else "FAILED"
+    )
+
+
 def qualification_status(
     raw_candidates: Iterable[dict[str, Any]],
     raw_receipts: Iterable[dict[str, Any]],
@@ -570,6 +586,7 @@ def qualification_status(
     performance_proof_state: str = DEFAULT_RUNTIME_PROOF_STATE,
     device_proof_state: str = DEFAULT_RUNTIME_PROOF_STATE,
     render_proof_state: str = DEFAULT_RUNTIME_PROOF_STATE,
+    listening_proof_state: str = DEFAULT_RUNTIME_PROOF_STATE,
 ) -> dict[str, Any]:
     candidates = validate_candidates(raw_candidates)
     receipts = validate_trusted_receipts(raw_receipts)
@@ -685,21 +702,23 @@ def qualification_status(
         and all_invalid_zero
     )
     if not evidence_ready:
-        status = "WAITING_FOR_HUMAN_LABELS"
+        human_status = "WAITING_FOR_HUMAN_LABELS"
     elif gates_pass:
-        status = "QUALIFIED"
+        human_status = "QUALIFIED"
     else:
-        status = "FAILED"
+        human_status = "FAILED"
 
     proof_states = validate_proof_states(
         {
             "corpus": "CONTRACT_VALID",
-            "human": status,
+            "human": human_status,
             "performance": performance_proof_state,
             "device": device_proof_state,
             "render": render_proof_state,
+            "listening": listening_proof_state,
         }
     )
+    status = qualification_decision(proof_states)
 
     return {
         "schemaVersion": 1,
@@ -737,19 +756,21 @@ def render_report(
     performance_proof_state: str | None = None,
     device_proof_state: str | None = None,
     render_proof_state: str | None = None,
+    listening_proof_state: str | None = None,
 ) -> str:
     proof_states = validate_proof_states(receipt.get("proofStates"))
-    if receipt.get("status") != proof_states["human"]:
-        raise ValueError("human proof state does not match qualification status")
     overrides = {
         "performance": performance_proof_state,
         "device": device_proof_state,
         "render": render_proof_state,
+        "listening": listening_proof_state,
     }
     for lane, value in overrides.items():
         if value is not None:
             proof_states[lane] = value
     proof_states = validate_proof_states(proof_states)
+    if receipt.get("status") != qualification_decision(proof_states):
+        raise ValueError("proof states do not match qualification status")
     category_lines = "\n".join(
         f"- `{category}`: {receipt['categoryCounts'][category]} qualifying cases"
         for category in CATEGORIES
@@ -805,6 +826,7 @@ words, contexts, human labels, and model output strings are intentionally absent
 - Performance proof: `{proof_states['performance']}`
 - Device proof: `{proof_states['device']}`
 - Render proof: `{proof_states['render']}`
+- Listening proof: `{proof_states['listening']}`
 
 These states are not inferred from corpus validation or human-label qualification.
 """
@@ -841,6 +863,11 @@ def main(argv: list[str] | None = None) -> int:
                 choices=sorted(PROOF_STATE_VOCABULARY["render"]),
                 required=True,
             )
+            command_parser.add_argument(
+                "--listening-proof-state",
+                choices=sorted(PROOF_STATE_VOCABULARY["listening"]),
+                required=True,
+            )
     arguments = parser.parse_args(argv)
 
     try:
@@ -868,6 +895,11 @@ def main(argv: list[str] | None = None) -> int:
             ),
             render_proof_state=(
                 arguments.render_proof_state
+                if arguments.command == "report"
+                else DEFAULT_RUNTIME_PROOF_STATE
+            ),
+            listening_proof_state=(
+                arguments.listening_proof_state
                 if arguments.command == "report"
                 else DEFAULT_RUNTIME_PROOF_STATE
             ),

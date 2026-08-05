@@ -68,15 +68,23 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
                 break
             }
             let candidateIPA = normalizedIPA(alternative.ipa)
-            let duplicatesExistingEvidence = evidence.alternatives.contains { existing in
+            let agreesWithSelected = evidence.selectedCandidateID == alternative.candidateID
+                || candidateIPA == normalizedIPA(decision.selectedIPA)
+            if agreesWithSelected {
+                updatedEvidence = replacingSelectionReason(
+                    preservesInvalidOutputReceipt
+                        ? evidence.selectionReason : .shadowAgreementSelected,
+                    in: evidence)
+                break
+            }
+            let agreesWithExistingAlternative = evidence.alternatives.contains { existing in
                 existing.candidateID == alternative.candidateID
                     || normalizedIPA(existing.ipa) == candidateIPA
             }
-            let collidesWithSelectedCandidate = evidence.selectedCandidateID
-                == alternative.candidateID
-            guard !duplicatesExistingEvidence, !collidesWithSelectedCandidate else {
+            if agreesWithExistingAlternative {
                 updatedEvidence = replacingSelectionReason(
-                    preservesInvalidOutputReceipt ? evidence.selectionReason : .shadowCandidate,
+                    preservesInvalidOutputReceipt
+                        ? evidence.selectionReason : .shadowAgreementExistingAlternative,
                     in: evidence)
                 break
             }
