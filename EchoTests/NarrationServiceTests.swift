@@ -593,7 +593,8 @@ private actor ShadowEvaluatorRecorder {
             isDirectory: true)
         let voice = VoiceID("af_heart")
         let candidate = NeuralG2PCandidate(
-            candidateID: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            candidateID:
+                "sha256:aa7069d4801f3e5e6b7b2685b844cc249b3feec9d1c1ab5fc532959948344fbe",
             ipa: "zizkwf",
             modelRevision: MiniBARTG2PEngine.modelRevision,
             conversionPolicyVersion: ARPAbetToKokoroIPA.policyVersion,
@@ -2239,9 +2240,10 @@ private actor ShadowEvaluatorRecorder {
         #expect(issues.count == 2)
         #expect(Set(issues.map(\.sourceBlockID)) == ["blk0", "blk1"])
         #expect(Set(issues.map(\.id)).count == 2)
-        #expect(issues.allSatisfy {
-            $0.origin == NarrationQualityIssueOrigin.pronunciationPreflight.rawValue
-        })
+        #expect(
+            issues.allSatisfy {
+                $0.origin == NarrationQualityIssueOrigin.pronunciationPreflight.rawValue
+            })
         let issue = try #require(issues.first)
         #expect(issue.issueType == NarrationQAIssueType.pronunciation.rawValue)
         #expect(issue.sourceBlockID == "blk0")
@@ -2337,15 +2339,17 @@ private actor ShadowEvaluatorRecorder {
             state: state,
             fallbackDiscoveryRecordBuilder: { _, _ in throw FallbackFailure.unavailable },
             fmEnabled: { false })
-        _ = try await service.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
+        _ = try await service.renderChapter(
+            chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
         let track = try db.read { database in
             try TrackRecord.filter(Column("audiobook_id") == "b1").fetchOne(database)
         }
         #expect(track != nil)
         #expect(state.debugLog.contains { $0.contains("pronunciation fallback discovery failed") })
-        #expect(Set(try issueDAO.issues(for: "b1").map(\.id)) == [
-            oldPreflight.id, oldAcoustic.id,
-        ])
+        #expect(
+            Set(try issueDAO.issues(for: "b1").map(\.id)) == [
+                oldPreflight.id, oldAcoustic.id,
+            ])
     }
 
     @Test func fallbackSnapshotInsertFailureRollsBackEveryReportLane() async throws {
@@ -2393,9 +2397,10 @@ private actor ShadowEvaluatorRecorder {
         _ = try await service.renderChapter(
             chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
 
-        #expect(Set(try issueDAO.issues(for: "b1").map(\.id)) == [
-            oldPreflight.id, oldAcoustic.id,
-        ])
+        #expect(
+            Set(try issueDAO.issues(for: "b1").map(\.id)) == [
+                oldPreflight.id, oldAcoustic.id,
+            ])
         #expect(try issueDAO.issues(for: "b2").map(\.id) == [conflictingExisting.id])
         #expect(state.debugLog.contains { $0.contains("Operational report-write error") })
         let track = try db.read { database in

@@ -137,8 +137,9 @@ import Testing
                 $0.candidateID == Self.neuralCandidate().candidateID
             } == false)
         #if DEBUG
-            #expect(NarrationPronunciationPreflight.debugNeuralBatchRanOnMainThread.withLock { $0 }
-                == false)
+            #expect(
+                NarrationPronunciationPreflight.debugNeuralBatchRanOnMainThread.withLock { $0 }
+                    == false)
         #endif
     }
 
@@ -152,19 +153,20 @@ import Testing
             plan.blocks.flatMap(\.pronunciationDecisions).first {
                 $0.normalizedWord == "xyzqwf"
             })
-        let cases: [(
-            NeuralG2PFailure,
-            PronunciationAdvisoryEvidence.SelectionReason,
-            PronunciationAdvisoryEvidence.NeuralShadowObservation
-        )] = [
-            (.unavailable, .modelUnavailable, .modelUnavailable),
-            (.integrity, .modelIntegrityFailure, .modelIntegrityFailure),
-            (.tokenization, .invalidCandidate, .invalidCandidate),
-            (.decoding, .invalidCandidate, .invalidCandidate),
-            (.emptyOutput, .invalidCandidate, .invalidCandidate),
-            (.unsupportedOutput, .invalidCandidate, .invalidCandidate),
-            (.inference, .modelInferenceFailure, .modelInferenceFailure),
-        ]
+        let cases:
+            [(
+                NeuralG2PFailure,
+                PronunciationAdvisoryEvidence.SelectionReason,
+                PronunciationAdvisoryEvidence.NeuralShadowObservation
+            )] = [
+                (.unavailable, .modelUnavailable, .modelUnavailable),
+                (.integrity, .modelIntegrityFailure, .modelIntegrityFailure),
+                (.tokenization, .invalidCandidate, .invalidCandidate),
+                (.decoding, .invalidCandidate, .invalidCandidate),
+                (.emptyOutput, .invalidCandidate, .invalidCandidate),
+                (.unsupportedOutput, .invalidCandidate, .invalidCandidate),
+                (.inference, .modelInferenceFailure, .modelInferenceFailure),
+            ]
 
         for (failure, expectedReason, expectedObservation) in cases {
             let enriched = try await NarrationPronunciationPreflight.applyingNeuralShadow(
@@ -219,14 +221,16 @@ import Testing
         let rawResult = KokoroG2P.Result(
             phonemes: "\u{0000}",
             fallbackHits: [.init(word: "Xyzqwf", ipa: "\u{0000}")],
-            tokenEvidence: [.init(
-                text: "Xyzqwf",
-                selectedPhonemes: "\u{0000}",
-                lexicalTag: nil,
-                rating: 1,
-                displayCharacterRange: 0..<6,
-                phonemeCharacterRange: 0..<1,
-                usedFallback: true)],
+            tokenEvidence: [
+                .init(
+                    text: "Xyzqwf",
+                    selectedPhonemes: "\u{0000}",
+                    lexicalTag: nil,
+                    rating: 1,
+                    displayCharacterRange: 0..<6,
+                    phonemeCharacterRange: 0..<1,
+                    usedFallback: true)
+            ],
             pronunciationEvidenceValidation: .matched)
         let planner = try PronunciationPlanner(g2pResult: { _, _ in rawResult })
         let plan = try NarrationRenderPlanner.make(
@@ -255,21 +259,25 @@ import Testing
         let unavailable = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
             .rejected(.unavailable),
             to: decision)
-        #expect(unavailable.advisoryEvidence?.alternatives.isEmpty == true)
+        #expect(
+            unavailable.advisoryEvidence?.alternatives == decision.advisoryEvidence?.alternatives)
         #expect(unavailable.advisoryEvidence?.selectionReason == .deterministicFallback)
-        #expect(unavailable.advisoryEvidence?.neuralShadowObservation == .modelUnavailable)
+        #expect(unavailable.advisoryEvidence?.neuralShadowObservation == .unstableEvaluation)
         #expect(unavailable.isEvidenceOnlyInvalidOutputAdvisory)
 
         let identityConflict = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
-            .candidate(Self.neuralCandidate(
-                candidateID: Self.neuralCandidate().candidateID,
-                ipa: "bæd")),
+            .candidate(
+                Self.neuralCandidate(
+                    candidateID: Self.neuralCandidate().candidateID,
+                    ipa: "bæd")),
             to: decision)
-        #expect(identityConflict.advisoryEvidence?.alternatives.isEmpty == true)
+        #expect(
+            identityConflict.advisoryEvidence?.alternatives
+                == decision.advisoryEvidence?.alternatives)
         #expect(identityConflict.advisoryEvidence?.selectionReason == .deterministicFallback)
         #expect(
             identityConflict.advisoryEvidence?.neuralShadowObservation
-                == .invalidCandidate)
+                == .unstableEvaluation)
         #expect(identityConflict.isEvidenceOnlyInvalidOutputAdvisory)
     }
 
@@ -285,17 +293,19 @@ import Testing
             })
         let originalEvidence = try #require(original.advisoryEvidence)
         let ipaAgreement = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
-            .candidate(Self.neuralCandidate(
-                candidateID: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                ipa: original.selectedIPA.decomposedStringWithCanonicalMapping)),
+            .candidate(
+                Self.neuralCandidate(
+                    ipa: original.selectedIPA.decomposedStringWithCanonicalMapping)),
             to: original)
         #expect(ipaAgreement.advisoryEvidence?.alternatives == originalEvidence.alternatives)
         #expect(ipaAgreement.advisoryEvidence?.selectionReason == .shadowAgreementSelected)
         #expect(ipaAgreement.advisoryEvidence?.neuralShadowObservation == .agreementSelected)
         #expect(ipaAgreement.advisoryEvidence?.isValid(for: ipaAgreement) == true)
 
-        let selectedCandidateID =
-            "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        let selectedCandidateID = try #require(
+            NeuralG2PGovernedIdentity.candidateID(
+                normalizedWord: original.normalizedWord,
+                ipa: original.selectedIPA))
         let evidenceWithSelectedIdentity = PronunciationAdvisoryEvidence(
             category: originalEvidence.category,
             selectedAuthority: originalEvidence.selectedAuthority,
@@ -310,9 +320,10 @@ import Testing
             candidateID: selectedCandidateID)
         #expect(evidenceWithSelectedIdentity.isValid(for: decisionWithSelectedIdentity))
         let identityAgreement = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
-            .candidate(Self.neuralCandidate(
-                candidateID: selectedCandidateID,
-                ipa: original.selectedIPA.decomposedStringWithCanonicalMapping)),
+            .candidate(
+                Self.neuralCandidate(
+                    candidateID: selectedCandidateID,
+                    ipa: original.selectedIPA.decomposedStringWithCanonicalMapping)),
             to: decisionWithSelectedIdentity)
         #expect(
             identityAgreement.advisoryEvidence?.alternatives
@@ -324,14 +335,25 @@ import Testing
                 == .agreementSelected)
         #expect(identityAgreement.advisoryEvidence?.isValid(for: identityAgreement) == true)
 
+        let conflictingCandidate = Self.neuralCandidate(ipa: "zizkwf")
+        let conflictEvidence = PronunciationAdvisoryEvidence(
+            category: originalEvidence.category,
+            selectedAuthority: originalEvidence.selectedAuthority,
+            selectedCandidateID: conflictingCandidate.candidateID,
+            alternatives: originalEvidence.alternatives,
+            selectionReason: originalEvidence.selectionReason,
+            overrideSuppressedAutomation: originalEvidence.overrideSuppressedAutomation,
+            policyVersion: originalEvidence.policyVersion)
+        let conflictDecision = Self.replacingAdvisoryEvidence(
+            conflictEvidence,
+            in: original,
+            candidateID: conflictingCandidate.candidateID)
         let identityConflict = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
-            .candidate(Self.neuralCandidate(
-                candidateID: selectedCandidateID,
-                ipa: "zizkwf")),
-            to: decisionWithSelectedIdentity)
+            .candidate(conflictingCandidate),
+            to: conflictDecision)
         #expect(
             identityConflict.advisoryEvidence?.alternatives
-                == evidenceWithSelectedIdentity.alternatives)
+                == conflictEvidence.alternatives)
         #expect(
             identityConflict.advisoryEvidence?.selectionReason
                 == .invalidCandidate)
@@ -369,38 +391,11 @@ import Testing
             evidenceWithAlternative,
             in: original)
         #expect(evidenceWithAlternative.isValid(for: decisionWithAlternative))
-        let identityAgreement = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
-            .candidate(Self.neuralCandidate(
-                candidateID: existing.candidateID,
-                ipa: existing.ipa.decomposedStringWithCanonicalMapping)),
-            to: decisionWithAlternative)
-        #expect(identityAgreement.advisoryEvidence?.alternatives == [existing])
-        #expect(
-            identityAgreement.advisoryEvidence?.selectionReason
-                == .shadowAgreementExistingAlternative)
-        #expect(
-            identityAgreement.advisoryEvidence?.neuralShadowObservation
-                == .agreementExistingAlternative)
-        #expect(identityAgreement.advisoryEvidence?.isValid(for: identityAgreement) == true)
-
-        let identityConflict = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
-            .candidate(Self.neuralCandidate(
-                candidateID: existing.candidateID,
-                ipa: "zizkwf")),
-            to: decisionWithAlternative)
-        #expect(identityConflict.advisoryEvidence?.alternatives == [existing])
-        #expect(
-            identityConflict.advisoryEvidence?.selectionReason
-                == .invalidCandidate)
-        #expect(
-            identityConflict.advisoryEvidence?.neuralShadowObservation
-                == .existingAlternativeCandidateIDConflict)
-        #expect(identityConflict.advisoryEvidence?.isValid(for: identityConflict) == true)
 
         let ipaAgreement = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
-            .candidate(Self.neuralCandidate(
-                candidateID: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                ipa: existing.ipa.decomposedStringWithCanonicalMapping)),
+            .candidate(
+                Self.neuralCandidate(
+                    ipa: existing.ipa.decomposedStringWithCanonicalMapping)),
             to: decisionWithAlternative)
         #expect(ipaAgreement.advisoryEvidence?.alternatives == [existing])
         #expect(
@@ -410,6 +405,67 @@ import Testing
             ipaAgreement.advisoryEvidence?.neuralShadowObservation
                 == .agreementExistingAlternative)
         #expect(ipaAgreement.advisoryEvidence?.isValid(for: ipaAgreement) == true)
+
+        let exactExistingID = try #require(
+            NeuralG2PGovernedIdentity.candidateID(
+                normalizedWord: original.normalizedWord,
+                ipa: existing.ipa))
+        let exactExisting = PronunciationAdvisoryEvidence.Alternative(
+            candidateID: exactExistingID,
+            ipa: existing.ipa,
+            source: existing.source,
+            authority: existing.authority,
+            validation: existing.validation,
+            policyVersion: existing.policyVersion)
+        let exactEvidence = PronunciationAdvisoryEvidence(
+            category: originalEvidence.category,
+            selectedAuthority: originalEvidence.selectedAuthority,
+            selectedCandidateID: originalEvidence.selectedCandidateID,
+            alternatives: [exactExisting],
+            selectionReason: originalEvidence.selectionReason,
+            overrideSuppressedAutomation: originalEvidence.overrideSuppressedAutomation,
+            policyVersion: originalEvidence.policyVersion)
+        let exactDecision = Self.replacingAdvisoryEvidence(exactEvidence, in: original)
+        let identityAgreement = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
+            .candidate(Self.neuralCandidate(ipa: existing.ipa)),
+            to: exactDecision)
+        #expect(identityAgreement.advisoryEvidence?.alternatives == [exactExisting])
+        #expect(
+            identityAgreement.advisoryEvidence?.selectionReason
+                == .shadowAgreementExistingAlternative)
+        #expect(
+            identityAgreement.advisoryEvidence?.neuralShadowObservation
+                == .agreementExistingAlternative)
+        #expect(identityAgreement.advisoryEvidence?.isValid(for: identityAgreement) == true)
+
+        let conflictingCandidate = Self.neuralCandidate(ipa: "zizkwf")
+        let conflictingExisting = PronunciationAdvisoryEvidence.Alternative(
+            candidateID: conflictingCandidate.candidateID,
+            ipa: existing.ipa,
+            source: existing.source,
+            authority: existing.authority,
+            validation: existing.validation,
+            policyVersion: existing.policyVersion)
+        let conflictEvidence = PronunciationAdvisoryEvidence(
+            category: originalEvidence.category,
+            selectedAuthority: originalEvidence.selectedAuthority,
+            selectedCandidateID: originalEvidence.selectedCandidateID,
+            alternatives: [conflictingExisting],
+            selectionReason: originalEvidence.selectionReason,
+            overrideSuppressedAutomation: originalEvidence.overrideSuppressedAutomation,
+            policyVersion: originalEvidence.policyVersion)
+        let conflictDecision = Self.replacingAdvisoryEvidence(conflictEvidence, in: original)
+        let identityConflict = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
+            .candidate(conflictingCandidate),
+            to: conflictDecision)
+        #expect(identityConflict.advisoryEvidence?.alternatives == [conflictingExisting])
+        #expect(
+            identityConflict.advisoryEvidence?.selectionReason
+                == .invalidCandidate)
+        #expect(
+            identityConflict.advisoryEvidence?.neuralShadowObservation
+                == .existingAlternativeCandidateIDConflict)
+        #expect(identityConflict.advisoryEvidence?.isValid(for: identityConflict) == true)
     }
 
     @Test func neuralAlternativeAdmissionRejectsEveryNonGovernedIdentity() async throws {
@@ -443,13 +499,16 @@ import Testing
                 candidateID: "sha256:" + String(repeating: "A", count: 64)),
             Self.neuralCandidate(
                 candidateID: "sha256:" + String(repeating: "g", count: 64)),
-            Self.neuralCandidate(ipa: "🙂"),
+            Self.neuralCandidate(
+                candidateID: "sha256:" + String(repeating: "f", count: 64),
+                ipa: "🙂"),
         ]
 
         let exact = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
             .candidate(Self.neuralCandidate()),
             to: original)
-        #expect(exact.advisoryEvidence?.alternatives.count == originalEvidence.alternatives.count + 1)
+        #expect(
+            exact.advisoryEvidence?.alternatives.count == originalEvidence.alternatives.count + 1)
         #expect(exact.advisoryEvidence?.selectionReason == .shadowCandidate)
         #expect(exact.advisoryEvidence?.neuralShadowObservation == .candidate)
 
@@ -492,12 +551,14 @@ import Testing
     }
 
     nonisolated private static func neuralCandidate(
-        candidateID: String =
-            "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        candidateID: String? = nil,
         ipa: String = "zizkwf"
     ) -> NeuralG2PCandidate {
         NeuralG2PCandidate(
-            candidateID: candidateID,
+            candidateID: candidateID
+                ?? NeuralG2PGovernedIdentity.candidateID(
+                    normalizedWord: "xyzqwf",
+                    ipa: ipa)!,
             ipa: ipa,
             modelRevision: NeuralG2PGovernedIdentity.modelRevision,
             conversionPolicyVersion: NeuralG2PGovernedIdentity.conversionPolicyVersion,
@@ -512,8 +573,9 @@ import Testing
         selectionPolicyVersion: String = NeuralG2PGovernedIdentity.selectionPolicyVersion
     ) -> NeuralG2PCandidate {
         NeuralG2PCandidate(
-            candidateID:
-                "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            candidateID: NeuralG2PGovernedIdentity.candidateID(
+                normalizedWord: "xyzqwf",
+                ipa: "zizkwf")!,
             ipa: "zizkwf",
             modelRevision: modelRevision,
             conversionPolicyVersion: conversionPolicyVersion,

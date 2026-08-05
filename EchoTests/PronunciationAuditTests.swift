@@ -16,15 +16,16 @@ import Testing
             .currencyNormalizationRejected,
         ]
 
-        #expect(reasons.map(\.rawValue).sorted() == [
-            "currencyNormalizationRejected",
-            "decisionEvidenceMismatch",
-            "incompleteRender",
-            "missingContextualEvidence",
-            "phonemeSequenceMismatch",
-            "qualityRejected",
-            "spokenSurfaceMismatch",
-        ])
+        #expect(
+            reasons.map(\.rawValue).sorted() == [
+                "currencyNormalizationRejected",
+                "decisionEvidenceMismatch",
+                "incompleteRender",
+                "missingContextualEvidence",
+                "phonemeSequenceMismatch",
+                "qualityRejected",
+                "spokenSurfaceMismatch",
+            ])
     }
 
     private static let schemaThreeManifestJSON = #"""
@@ -53,7 +54,7 @@ import Testing
                 source: "fixture",
                 authority: .qualified,
                 validation: .shadow,
-                policyVersion: "policy-v1"),
+                policyVersion: "policy-v1")
         ]
     ) -> PronunciationAdvisoryEvidence {
         PronunciationAdvisoryEvidence(
@@ -133,20 +134,23 @@ import Testing
             source: source,
             ruleID: ruleID,
             rationale: "Raw G2P output was rejected.",
-            advisoryEvidence: advisoryEvidence ?? .init(
-                category: .lexical,
-                selectedAuthority: .uncertain,
-                selectedCandidateID: nil,
-                alternatives: [],
-                selectionReason: .deterministicFallback,
-                overrideSuppressedAutomation: false,
-                policyVersion: "fixture-v1"),
+            advisoryEvidence: advisoryEvidence
+                ?? .init(
+                    category: .lexical,
+                    selectedAuthority: .uncertain,
+                    selectedCandidateID: nil,
+                    alternatives: [],
+                    selectionReason: .deterministicFallback,
+                    overrideSuppressedAutomation: false,
+                    policyVersion: "fixture-v1"),
             chapterRelativeAudioRange: chapterRelativeAudioRange,
             bookRelativeAudioRange: bookRelativeAudioRange,
             timingPrecision: timingPrecision)
     }
 
-    private func manifest(with decisions: [PronunciationAuditDecision]) -> PronunciationAuditManifest {
+    private func manifest(with decisions: [PronunciationAuditDecision])
+        -> PronunciationAuditManifest
+    {
         PronunciationAuditManifest.make(
             renderVersion: 15,
             voice: VoiceID("af_heart"),
@@ -266,7 +270,7 @@ import Testing
             decisions: [first, second],
             diagnostics: [])
 
-        #expect(manifest.schemaVersion == 5)
+        #expect(manifest.schemaVersion == 6)
         #expect(manifest.renderVersion == 11)
         #expect(manifest.voice == "af_heart")
         #expect(manifest.coverage == .complete)
@@ -747,7 +751,7 @@ import Testing
         #expect(throws: Error.self) { _ = try unpaired.encoded() }
     }
 
-    @Test func schemaThreeAndFourAuditsDiscardInjectedAdvisoryEvidenceAndReencodeAsSchemaFive()
+    @Test func schemaThreeAndFourAuditsDiscardInjectedAdvisoryEvidenceAndReencodeAsSchemaSix()
         throws
     {
         let manifest = PronunciationAuditManifest.make(
@@ -794,11 +798,13 @@ import Testing
                     reencoded["decisions"] as? [[String: Any]])
 
                 #expect(decoded.schemaVersion == root["schemaVersion"] as? Int)
-                #expect(decoded.coverage == (decoded.schemaVersion == 3
-                    ? .incompleteEvidence
-                    : .complete))
+                #expect(
+                    decoded.coverage
+                        == (decoded.schemaVersion == 3
+                            ? .incompleteEvidence
+                            : .complete))
                 #expect(decoded.decisions.first?.advisoryEvidence == nil)
-                #expect(reencoded["schemaVersion"] as? Int == 5)
+                #expect(reencoded["schemaVersion"] as? Int == 6)
                 #expect(reencodedDecisions.first?["advisoryEvidence"] == nil)
             }
         }
@@ -813,45 +819,47 @@ import Testing
             audiobookSHA256: String(repeating: "a", count: 64),
             listeningReelSHA256: nil,
             watchWords: [],
-            decisions: [PronunciationAuditDecision(
-                blockID: "context",
-                wordStart: 1,
-                wordEnd: 1,
-                normalizedWord: "record",
-                sourceWord: "record",
-                sourceContext: "bounded context",
-                selectedIPA: "ɹəkˈɔɹd",
-                kokoroTokenIDs: [1],
-                source: .monitoredLexicon,
-                ruleID: "g2p.lexicon.record",
-                rationale: "Fixture.",
-                candidateID: "record.verb",
-                candidatePackVersion: "fixture-v1")],
+            decisions: [
+                PronunciationAuditDecision(
+                    blockID: "context",
+                    wordStart: 1,
+                    wordEnd: 1,
+                    normalizedWord: "record",
+                    sourceWord: "record",
+                    sourceContext: "bounded context",
+                    selectedIPA: "ɹəkˈɔɹd",
+                    kokoroTokenIDs: [1],
+                    source: .monitoredLexicon,
+                    ruleID: "g2p.lexicon.record",
+                    rationale: "Fixture.",
+                    candidateID: "record.verb",
+                    candidatePackVersion: "fixture-v1")
+            ],
             diagnostics: [])
-        var schemaFive = try #require(
+        var schemaSix = try #require(
             JSONSerialization.jsonObject(with: currentManifest.encoded()) as? [String: Any])
-        var schemaFiveDecisions = try #require(schemaFive["decisions"] as? [[String: Any]])
+        var schemaSixDecisions = try #require(schemaSix["decisions"] as? [[String: Any]])
         let monitoredEvidence = try #require(
             JSONSerialization.jsonObject(
                 with: JSONEncoder().encode(monitoredLexiconAdvisoryEvidence())) as? [String: Any])
-        schemaFiveDecisions[0]["advisoryEvidence"] = monitoredEvidence
-        schemaFive["decisions"] = schemaFiveDecisions
+        schemaSixDecisions[0]["advisoryEvidence"] = monitoredEvidence
+        schemaSix["decisions"] = schemaSixDecisions
         let current = try JSONDecoder().decode(
             PronunciationAuditManifest.self,
-            from: JSONSerialization.data(withJSONObject: schemaFive))
+            from: JSONSerialization.data(withJSONObject: schemaSix))
 
         #expect(current.decisions.first?.advisoryEvidence == monitoredLexiconAdvisoryEvidence())
 
-        schemaFiveDecisions[0]["advisoryEvidence"] = ["category": "future-category"]
-        schemaFive["decisions"] = schemaFiveDecisions
+        schemaSixDecisions[0]["advisoryEvidence"] = ["category": "future-category"]
+        schemaSix["decisions"] = schemaSixDecisions
         #expect(throws: (any Error).self) {
             _ = try JSONDecoder().decode(
                 PronunciationAuditManifest.self,
-                from: JSONSerialization.data(withJSONObject: schemaFive))
+                from: JSONSerialization.data(withJSONObject: schemaSix))
         }
     }
 
-    @Test func schemaFiveBindsAdvisoryEvidenceToTheSelectedDecision() throws {
+    @Test func schemaSixBindsAdvisoryEvidenceToTheSelectedDecision() throws {
         let selected = PronunciationAuditDecision(
             blockID: "context",
             wordStart: 1,
@@ -868,8 +876,10 @@ import Testing
             candidatePackVersion: "fixture-v1",
             advisoryEvidence: monitoredLexiconAdvisoryEvidence())
         let encoded = try manifest(with: [selected]).encoded()
-        #expect(try JSONDecoder().decode(
-            PronunciationAuditManifest.self, from: encoded).decisions == [selected])
+        #expect(
+            try JSONDecoder().decode(
+                PronunciationAuditManifest.self, from: encoded
+            ).decisions == [selected])
 
         let validRoot = try #require(
             JSONSerialization.jsonObject(with: encoded) as? [String: Any])
@@ -924,7 +934,7 @@ import Testing
         }
     }
 
-    @Test func legacyReceiptCannotReencodeAnInvalidCurrentSchemaFiveShape() throws {
+    @Test func legacyReceiptCannotReencodeAnInvalidCurrentSchemaSixShape() throws {
         var legacyRoot = try #require(
             JSONSerialization.jsonObject(
                 with: manifest(with: [invalidRawG2PDecision()]).encoded()) as? [String: Any])
@@ -939,14 +949,15 @@ import Testing
         #expect(throws: (any Error).self) { _ = try decoded.encoded() }
     }
 
-    @Test func schemaFiveRejectsMalformedInvalidG2PReceiptsAndRetainsTheVerifiedShape()
+    @Test func schemaSixRejectsMalformedInvalidG2PReceiptsAndRetainsTheVerifiedShape()
         throws
     {
         let genuine = manifest(with: [invalidRawG2PDecision()])
         let genuineData = try genuine.encoded()
-        #expect(try JSONDecoder().decode(
-            PronunciationAuditManifest.self,
-            from: genuineData) == genuine)
+        #expect(
+            try JSONDecoder().decode(
+                PronunciationAuditManifest.self,
+                from: genuineData) == genuine)
 
         let root = try #require(
             JSONSerialization.jsonObject(with: genuineData) as? [String: Any])
@@ -961,7 +972,8 @@ import Testing
         occurrenceOverride["decisions"] = occurrenceDecisions
 
         var wrongSourceRule = root
-        var wrongSourceRuleDecisions = try #require(wrongSourceRule["decisions"] as? [[String: Any]])
+        var wrongSourceRuleDecisions = try #require(
+            wrongSourceRule["decisions"] as? [[String: Any]])
         wrongSourceRuleDecisions[0]["source"] = "monitoredLexicon"
         wrongSourceRuleDecisions[0]["ruleID"] = "g2p.fallback.ordinary"
         wrongSourceRuleDecisions[0]["advisoryEvidence"] = validLexicalEvidence.merging([
@@ -1016,7 +1028,7 @@ import Testing
     }
 
     @Test func unsupportedAuditSchemasAreRejectedDuringDecoding() throws {
-        for schemaVersion in [2, 6] {
+        for schemaVersion in [2, 7] {
             var root = try #require(
                 JSONSerialization.jsonObject(
                     with: Data(Self.schemaThreeManifestJSON.utf8)) as? [String: Any])
@@ -1075,7 +1087,7 @@ import Testing
             from: manifest.encoded())
         let decision = try #require(decoded.decisions.first)
 
-        #expect(decoded.schemaVersion == 5)
+        #expect(decoded.schemaVersion == 6)
         #expect(decision.candidateID == "morphology.startable.0123456789ab")
         #expect(
             decision.candidatePackVersion
@@ -1130,12 +1142,14 @@ import Testing
             source: .contextualHomograph,
             ruleID: "homograph.record.verb",
             rationale: "Fixture.",
-            advisoryEvidence: evidence)
+            advisoryEvidence: evidence
+        )
         .materialized(selectedIPA: "ɹəkˈɔɹd", kokoroTokenIDs: [1])
         .attachingRenderTiming(
             chapterIndex: 2,
             chapterRelativeAudioRange: .init(start: 1, end: 1.2),
-            timingPrecision: .exactSynthesisWord)
+            timingPrecision: .exactSynthesisWord
+        )
         .attachingBookTiming(chapterIndex: 2, chapterOffset: 10)
 
         #expect(decision.advisoryEvidence == evidence)
@@ -1201,7 +1215,7 @@ import Testing
                         source: .contextualHomograph,
                         ruleID: "homograph.record.verb",
                         rationale: "Fixture.",
-                        advisoryEvidence: evidence),
+                        advisoryEvidence: evidence)
                 ],
                 diagnostics: [])
             #expect(throws: (any Error).self) { _ = try manifest.encoded() }

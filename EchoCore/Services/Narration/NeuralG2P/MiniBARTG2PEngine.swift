@@ -106,10 +106,17 @@
                     throw EvaluationError.failure(.unsupportedOutput)
                 }
                 guard !ipa.isEmpty else { throw EvaluationError.failure(.emptyOutput) }
+                guard
+                    let candidateID = NeuralG2PGovernedIdentity.candidateID(
+                        normalizedWord: word,
+                        ipa: ipa)
+                else {
+                    throw EvaluationError.failure(.unsupportedOutput)
+                }
 
                 return .candidate(
                     NeuralG2PCandidate(
-                        candidateID: Self.candidateID(inputIDs: inputIDs, ipa: ipa),
+                        candidateID: candidateID,
                         ipa: ipa,
                         modelRevision: Self.modelRevision,
                         conversionPolicyVersion: ARPAbetToKokoroIPA.policyVersion,
@@ -401,21 +408,6 @@
                 throw EvaluationError.failure(.integrity)
             }
             return data
-        }
-
-        private nonisolated static func candidateID(inputIDs: [Int64], ipa: String) -> String {
-            let canonical = [
-                "mini-bart-g2p-candidate-v1",
-                inputIDs.map(String.init).joined(separator: ","),
-                ipa,
-                modelRevision,
-                ARPAbetToKokoroIPA.policyVersion,
-                validationPolicyVersion,
-                selectionPolicyVersion,
-            ].joined(separator: "\n")
-            let digest = SHA256.hash(data: Data(canonical.utf8))
-                .map { String(format: "%02x", $0) }.joined()
-            return "sha256:\(digest)"
         }
 
         // MARK: - Live CPU ONNX session

@@ -360,18 +360,19 @@ nonisolated enum InvalidG2PAuditReceipt {
         contextualEvidence: ContextualPronunciationEvidence?,
         advisoryEvidence: PronunciationAdvisoryEvidence
     ) -> Bool {
-        guard case .verified(let expectedSelectionReason) = classification(
-            normalizedWord: normalizedWord,
-            sourceWord: sourceWord,
-            selectedIPA: selectedIPA,
-            source: source,
-            ruleID: ruleID,
-            candidateID: candidateID,
-            candidatePackVersion: candidatePackVersion,
-            derivationBase: derivationBase,
-            derivationRuleID: derivationRuleID,
-            contextualEvidence: contextualEvidence,
-            advisoryEvidence: advisoryEvidence)
+        guard
+            case .verified(let expectedSelectionReason) = classification(
+                normalizedWord: normalizedWord,
+                sourceWord: sourceWord,
+                selectedIPA: selectedIPA,
+                source: source,
+                ruleID: ruleID,
+                candidateID: candidateID,
+                candidatePackVersion: candidatePackVersion,
+                derivationBase: derivationBase,
+                derivationRuleID: derivationRuleID,
+                contextualEvidence: contextualEvidence,
+                advisoryEvidence: advisoryEvidence)
         else {
             return false
         }
@@ -389,14 +390,15 @@ nonisolated enum InvalidG2PAuditReceipt {
         derivationBase: String?,
         derivationRuleID: String?,
         contextualEvidence: ContextualPronunciationEvidence?,
-        advisoryEvidence: PronunciationAdvisoryEvidence
+        advisoryEvidence: PronunciationAdvisoryEvidence,
+        advisoryEvidenceIsValid: Bool? = nil
     ) -> Classification? {
         guard PronunciationAuditContext.isRejectedRawG2POutput(selectedIPA) else {
             return nil
         }
         guard
             PronunciationAuditContext.normalizedWord(sourceWord) == normalizedWord,
-            advisoryEvidence.isValid(),
+            advisoryEvidenceIsValid ?? advisoryEvidence.isValid(),
             advisoryEvidence.category == .lexical,
             advisoryEvidence.selectedCandidateID == nil,
             !advisoryEvidence.overrideSuppressedAutomation,
@@ -448,7 +450,7 @@ nonisolated enum PronunciationAuditCoverage: String, Codable, Equatable, Sendabl
 /// completed narration render. File references deliberately contain names only:
 /// the manifest can move with its sibling audiobook without leaking a local path.
 nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
-    static let currentSchemaVersion = 5
+    static let currentSchemaVersion = 6
 
     let schemaVersion: Int
     let renderVersion: Int
@@ -648,19 +650,37 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
                         "contextual pronunciation evidence is incomplete")
                 }
             }
-            if schemaVersion == Self.currentSchemaVersion,
-                let evidence = decision.advisoryEvidence,
-                !evidence.isValid(for: decision)
-            {
-                throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
-                    "advisory pronunciation evidence is invalid")
+            if let evidence = decision.advisoryEvidence {
+                let isValidEvidence: Bool
+                switch schemaVersion {
+                case 5:
+                    isValidEvidence = evidence.isValidLegacySchemaFive(for: decision)
+                case Self.currentSchemaVersion:
+                    isValidEvidence = evidence.isValid(for: decision)
+                default:
+                    isValidEvidence = true
+                }
+                if !isValidEvidence {
+                    throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                        "advisory pronunciation evidence is invalid")
+                }
             }
-            if schemaVersion == Self.currentSchemaVersion,
-                PronunciationAuditContext.isRejectedRawG2POutput(decision.selectedIPA),
-                !decision.isEvidenceOnlyInvalidOutputAdvisory
-            {
-                throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
-                    "rejected raw G2P output has invalid audit provenance")
+            if PronunciationAuditContext.isRejectedRawG2POutput(decision.selectedIPA) {
+                let hasValidReceipt: Bool
+                switch schemaVersion {
+                case 5:
+                    hasValidReceipt =
+                        decision.advisoryEvidence?
+                        .isValidLegacySchemaFive(for: decision) == true
+                case Self.currentSchemaVersion:
+                    hasValidReceipt = decision.isEvidenceOnlyInvalidOutputAdvisory
+                default:
+                    hasValidReceipt = true
+                }
+                if !hasValidReceipt {
+                    throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                        "rejected raw G2P output has invalid audit provenance")
+                }
             }
         }
     }
@@ -833,14 +853,15 @@ extension PronunciationAuditManifest {
         watchCounts = try container.decode(
             [String: Int].self,
             forKey: .watchCounts)
-        if schemaVersion == Self.currentSchemaVersion {
+        if schemaVersion >= 5 {
             decisions = try container.decode(
                 [PronunciationAuditDecision].self,
                 forKey: .decisions)
         } else {
             decisions = try container.decode(
                 [LegacyDecision].self,
-                forKey: .decisions)
+                forKey: .decisions
+            )
             .map(\.decision)
         }
         diagnostics = try container.decode(

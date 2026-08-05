@@ -133,7 +133,8 @@ import Testing
         #expect(presentation.chosenCandidateID == "current.lexicon")
     }
 
-    @Test func evidenceOnlyPresentationKeepsCategoryReasonCountAndNonActionableAlternatives() throws {
+    @Test func evidenceOnlyPresentationKeepsCategoryReasonCountAndNonActionableAlternatives() throws
+    {
         let db = try DatabaseService(inMemory: ())
         let alternatives = [
             PronunciationAdvisoryEvidence.Alternative(
@@ -181,16 +182,17 @@ import Testing
             authority: .uncertain,
             validation: .shadow,
             policyVersion: "fixture-v1")
-        let cases: [(
-            PronunciationAdvisoryEvidence.SelectionReason,
-            PronunciationAdvisoryEvidence.NeuralShadowObservation,
-            [PronunciationAdvisoryEvidence.Alternative]
-        )] = [
-            (.shadowAgreementSelected, .agreementSelected, []),
-            (.shadowAgreementExistingAlternative, .agreementExistingAlternative, [existing]),
-            (.invalidCandidate, .selectedCandidateIDConflict, []),
-            (.invalidCandidate, .existingAlternativeCandidateIDConflict, [existing]),
-        ]
+        let cases:
+            [(
+                PronunciationAdvisoryEvidence.SelectionReason,
+                PronunciationAdvisoryEvidence.NeuralShadowObservation,
+                [PronunciationAdvisoryEvidence.Alternative]
+            )] = [
+                (.shadowAgreementSelected, .agreementSelected, []),
+                (.shadowAgreementExistingAlternative, .agreementExistingAlternative, [existing]),
+                (.invalidCandidate, .selectedCandidateIDConflict, []),
+                (.invalidCandidate, .existingAlternativeCandidateIDConflict, [existing]),
+            ]
         for (reason, observation, alternatives) in cases {
             let advisory = PronunciationAdvisoryEvidence(
                 category: .lexical,
@@ -200,6 +202,7 @@ import Testing
                 selectionReason: reason,
                 overrideSuppressedAutomation: false,
                 policyVersion: "policy-v1",
+                neuralShadowNormalizedWord: "content",
                 neuralShadowObservation: observation)
             let issue = try pronunciationIssue(
                 evidence: PronunciationAdvisoryIssueEvidence(
@@ -223,6 +226,7 @@ import Testing
     @Test func neuralShadowDisplayNamesAreExhaustivelyLocalized() {
         let cases: [(PronunciationAdvisoryEvidence.NeuralShadowObservation, String)] = [
             (.candidate, "Candidate"),
+            (.unstableEvaluation, "Unstable evaluation"),
             (.agreementSelected, "Agrees with selected pronunciation"),
             (.agreementExistingAlternative, "Agrees with existing alternative"),
             (.selectedCandidateIDConflict, "Selected candidate ID conflict"),
@@ -268,7 +272,8 @@ import Testing
         #expect(model.pronunciationPresentation(for: nonPositiveCount) == nil)
     }
 
-    @Test func eligibleAlternativeWithoutStoredFixChangesOnlyTheTemporarySuggestedFix() async throws {
+    @Test func eligibleAlternativeWithoutStoredFixChangesOnlyTheTemporarySuggestedFix() async throws
+    {
         let db = try DatabaseService(inMemory: ())
         let bookID = "b1"
         try await db.writer.write { database in

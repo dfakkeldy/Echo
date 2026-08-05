@@ -289,7 +289,7 @@
             .candidate(
                 NeuralG2PCandidate(
                     candidateID:
-                        "sha256:fa7cda6d1e79d74d18a87ee9e0c9cb13ad26927dec59536073511eeda48572d1",
+                        "sha256:797ec4ca8c44fb2a71b66e81fdf92f4366c866f264e9801a85175b8ec2c6b773",
                     ipa: "kˈæt",
                     modelRevision: "f277d1e0597e7e7d33fa1d6d27d764bc4d7acb06",
                     conversionPolicyVersion: "mini-bart-arpabet-to-kokoro-v1",

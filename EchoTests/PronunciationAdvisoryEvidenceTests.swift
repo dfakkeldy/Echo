@@ -55,7 +55,7 @@ import Testing
 
     private func neuralAlternative(
         candidateID: String =
-            "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "sha256:aa7069d4801f3e5e6b7b2685b844cc249b3feec9d1c1ab5fc532959948344fbe",
         ipa: String = "zizkwf",
         source: String = NeuralG2PGovernedIdentity.alternativeSource,
         policyVersion: String = NeuralG2PGovernedIdentity.selectionPolicyVersion
@@ -76,7 +76,8 @@ import Testing
         observation: PronunciationAdvisoryEvidence.NeuralShadowObservation?,
         category: PronunciationAdvisoryEvidence.Category = .lexical,
         selectedAuthority: PronunciationAdvisoryEvidence.Authority = .uncertain,
-        overrideSuppressedAutomation: Bool = false
+        overrideSuppressedAutomation: Bool = false,
+        neuralShadowNormalizedWord: String? = nil
     ) -> PronunciationAdvisoryEvidence {
         PronunciationAdvisoryEvidence(
             category: category,
@@ -86,6 +87,9 @@ import Testing
             selectionReason: selectionReason,
             overrideSuppressedAutomation: overrideSuppressedAutomation,
             policyVersion: "policy-v1",
+            neuralShadowNormalizedWord: observation == nil
+                ? neuralShadowNormalizedWord
+                : neuralShadowNormalizedWord ?? "xyzqwf",
             neuralShadowObservation: observation)
     }
 
@@ -98,7 +102,7 @@ import Testing
                 alternatives: [
                     alternative(
                         candidateID: "lexical.shadow",
-                        ipa: "lɛksˈɪkəl"),
+                        ipa: "lɛksˈɪkəl")
                 ],
                 selectionReason: .trustedLexicon,
                 overrideSuppressedAutomation: false,
@@ -112,7 +116,7 @@ import Testing
                         candidateID: "contextual.shadow",
                         ipa: "kˈɑntɛkstʃuəl",
                         authority: .qualified,
-                        validation: .shadow),
+                        validation: .shadow)
                 ],
                 selectionReason: .qualifiedDeterministicContext,
                 overrideSuppressedAutomation: true,
@@ -126,7 +130,7 @@ import Testing
                         candidateID: "acoustic.retry",
                         ipa: "əkˈuːstɪk",
                         authority: .uncertain,
-                        validation: .rejected),
+                        validation: .rejected)
                 ],
                 selectionReason: .acousticRetryRejected,
                 overrideSuppressedAutomation: false,
@@ -154,7 +158,8 @@ import Testing
 
     @Test func neuralShadowObservationDefaultsNilForOlderEvidence() throws {
         let olderSchemaFiveEvidence = Data(
-            #"{"category":"lexical","selectedAuthority":"uncertain","alternatives":[],"selectionReason":"deterministicFallback","overrideSuppressedAutomation":false,"policyVersion":"policy-v1"}"#.utf8)
+            #"{"category":"lexical","selectedAuthority":"uncertain","alternatives":[],"selectionReason":"deterministicFallback","overrideSuppressedAutomation":false,"policyVersion":"policy-v1"}"#
+                .utf8)
         let decodedOlder = try JSONDecoder().decode(
             PronunciationAdvisoryEvidence.self,
             from: olderSchemaFiveEvidence)
@@ -170,6 +175,10 @@ import Testing
                 alternatives: [neuralAlternative()],
                 selectionReason: .shadowCandidate,
                 observation: .candidate),
+            evidence(
+                alternatives: [neuralAlternative()],
+                selectionReason: .shadowCandidate,
+                observation: .unstableEvaluation),
             evidence(
                 selectionReason: .shadowAgreementSelected,
                 observation: .agreementSelected),
@@ -351,7 +360,7 @@ import Testing
             ipa: "bæd")
         let secondGovernedAlternative = neuralAlternative(
             candidateID:
-                "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+                "sha256:4f5d16ab17bb584db4b3b17bdf6d97bb2d1f79fa181495b8e7707bf852cd254a",
             ipa: "bɛd")
         let claimedSource = neuralAlternative(
             candidateID:
@@ -385,11 +394,12 @@ import Testing
             [neuralAlternative(), claimedPolicy],
             [neuralAlternative(), alteredPolicy],
         ] {
-            #expect(!evidence(
-                alternatives: forgedAlternatives,
-                selectionReason: .shadowCandidate,
-                observation: .candidate
-            ).isValid())
+            #expect(
+                !evidence(
+                    alternatives: forgedAlternatives,
+                    selectionReason: .shadowCandidate,
+                    observation: .candidate
+                ).isValid())
         }
 
         for forgedObservation in [
@@ -440,11 +450,12 @@ import Testing
         ]
 
         for malformedAlternative in malformed {
-            #expect(!evidence(
-                alternatives: [malformedAlternative],
-                selectionReason: .shadowCandidate,
-                observation: .candidate
-            ).isValid())
+            #expect(
+                !evidence(
+                    alternatives: [malformedAlternative],
+                    selectionReason: .shadowCandidate,
+                    observation: .candidate
+                ).isValid())
         }
     }
 
@@ -508,6 +519,38 @@ import Testing
         for validEvidence in valid {
             #expect(validEvidence.isValid())
         }
+    }
+
+    @Test func unstableObservationRetainsZeroOneOrTwoRecomputableCandidates() {
+        let second = neuralAlternative(
+            candidateID:
+                "sha256:641a307b9c79068cd5cbd36a822926364e8c1a7206b3da66395bf52743592e88",
+            ipa: "bæd")
+        let third = neuralAlternative(
+            candidateID:
+                "sha256:4f5d16ab17bb584db4b3b17bdf6d97bb2d1f79fa181495b8e7707bf852cd254a",
+            ipa: "bɛd")
+        let valid = [
+            evidence(
+                selectionReason: .modelUnavailable,
+                observation: .unstableEvaluation),
+            evidence(
+                alternatives: [neuralAlternative()],
+                selectionReason: .shadowCandidate,
+                observation: .unstableEvaluation),
+            evidence(
+                alternatives: [neuralAlternative(), second],
+                selectionReason: .shadowCandidate,
+                observation: .unstableEvaluation),
+        ]
+
+        #expect(valid.allSatisfy { $0.isValid() })
+        #expect(
+            !evidence(
+                alternatives: [neuralAlternative(), second, third],
+                selectionReason: .shadowCandidate,
+                observation: .unstableEvaluation
+            ).isValid())
     }
 
     @Test func deterministicFallbackObservationRequiresInvalidNoSynthesisDecision() {
@@ -723,11 +766,12 @@ import Testing
             overrideSuppressedAutomation: false,
             policyVersion: "policy-v1")
 
-        #expect(evidence.alternatives.map(\.candidateID) == [
-            "candidate.a",
-            "candidate.a2",
-            "candidate.b",
-        ])
+        #expect(
+            evidence.alternatives.map(\.candidateID) == [
+                "candidate.a",
+                "candidate.a2",
+                "candidate.b",
+            ])
     }
 
     @Test func rejectsSelectedIdentityAndCanonicallyEquivalentAlternativeIPAs() {

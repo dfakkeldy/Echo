@@ -58,7 +58,9 @@ import ZIPFoundation
             fallbackHits: [])
     }
 
-    private func captureIdentity(chapterIndex: Int) -> HeadlessNarrationRunner.ChapterCapture.Identity {
+    private func captureIdentity(chapterIndex: Int)
+        -> HeadlessNarrationRunner.ChapterCapture.Identity
+    {
         HeadlessNarrationRunner.ChapterCapture.Identity(
             schemaVersion: 1,
             captureSetID: "test-set",
@@ -152,7 +154,8 @@ import ZIPFoundation
             try mutation()
         }
 
-        func prepare(progress: @escaping @Sendable (NarrationPrepareProgress) -> Void) async throws {
+        func prepare(progress: @escaping @Sendable (NarrationPrepareProgress) -> Void) async throws
+        {
             try mutation()
             progress(.ready)
         }
@@ -199,7 +202,8 @@ import ZIPFoundation
             await gate.pause()
         }
 
-        func prepare(progress: @escaping @Sendable (NarrationPrepareProgress) -> Void) async throws {
+        func prepare(progress: @escaping @Sendable (NarrationPrepareProgress) -> Void) async throws
+        {
             await gate.pause()
             progress(.ready)
         }
@@ -469,8 +473,9 @@ import ZIPFoundation
         let original = try String(contentsOf: chapterURL, encoding: .utf8)
         try original.replacingOccurrences(
             of: "It contains enough words for narration synthesis to produce a non-trivial output.",
-            with: "Please record enough words.")
-            .write(to: chapterURL, atomically: true, encoding: .utf8)
+            with: "Please record enough words."
+        )
+        .write(to: chapterURL, atomically: true, encoding: .utf8)
 
         let auditPack = await EnglishPronunciationAuditPack.bundledOrEmpty()
         let appBlock = EPubBlockRecord(
@@ -544,8 +549,9 @@ import ZIPFoundation
         let original = try String(contentsOf: chapterURL, encoding: .utf8)
         try original.replacingOccurrences(
             of: "It contains enough words for narration synthesis to produce a non-trivial output.",
-            with: "Xyzqwf xyzqwf was verified in this synthetic narration fixture.")
-            .write(to: chapterURL, atomically: true, encoding: .utf8)
+            with: "Xyzqwf xyzqwf was verified in this synthetic narration fixture."
+        )
+        .write(to: chapterURL, atomically: true, encoding: .utf8)
         let work = tmp.appendingPathComponent("neural-shadow-work")
         let config = NarrationRunConfig(
             epubURL: epub,
@@ -558,7 +564,8 @@ import ZIPFoundation
             maxNewChaptersPerRun: nil)
         let evaluated = EvaluatedWords()
         let candidate = NeuralG2PCandidate(
-            candidateID: "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            candidateID:
+                "sha256:aa7069d4801f3e5e6b7b2685b844cc249b3feec9d1c1ab5fc532959948344fbe",
             ipa: "zizkwf",
             modelRevision: MiniBARTG2PEngine.modelRevision,
             conversionPolicyVersion: ARPAbetToKokoroIPA.policyVersion,
@@ -619,8 +626,9 @@ import ZIPFoundation
         let original = try String(contentsOf: chapterURL, encoding: .utf8)
         try original.replacingOccurrences(
             of: "It contains enough words for narration synthesis to produce a non-trivial output.",
-            with: "Xyzqwf appears in this synthetic narration fixture.")
-            .write(to: chapterURL, atomically: true, encoding: .utf8)
+            with: "Xyzqwf appears in this synthetic narration fixture."
+        )
+        .write(to: chapterURL, atomically: true, encoding: .utf8)
         let work = tmp.appendingPathComponent("neural-cancel-work")
         let out = tmp.appendingPathComponent("neural-cancel.m4b")
         let config = NarrationRunConfig(
@@ -869,9 +877,10 @@ import ZIPFoundation
                 try Data("reel".utf8).write(to: request.reelURL)
                 return .generated(auditURL: request.auditURL, reelURL: request.reelURL)
             })
-        #expect([out, sidecar, audit, reel].allSatisfy {
-            FileManager.default.fileExists(atPath: $0.path)
-        })
+        #expect(
+            [out, sidecar, audit, reel].allSatisfy {
+                FileManager.default.fileExists(atPath: $0.path)
+            })
 
         config.maxNewChaptersPerRun = 1
         config.clearExistingCapturesBeforeRun = true
@@ -879,9 +888,10 @@ import ZIPFoundation
 
         #expect(!partial.complete)
         #expect(partial.capturedThisRun == 1)
-        #expect([out, sidecar, audit, reel].allSatisfy {
-            !FileManager.default.fileExists(atPath: $0.path)
-        })
+        #expect(
+            [out, sidecar, audit, reel].allSatisfy {
+                !FileManager.default.fileExists(atPath: $0.path)
+            })
     }
 
     @Test func producesM4BAndSidecarAndResumes() async throws {
@@ -1175,7 +1185,9 @@ import ZIPFoundation
         }
     }
 
-    @Test func injectedG2PInvalidOutputPreservesSealedEvidenceAndSpeaksOneDeterministicRescueChunk() throws {
+    @Test func injectedG2PInvalidOutputPreservesSealedEvidenceAndSpeaksOneDeterministicRescueChunk()
+        throws
+    {
         let workDir = FileManager.default.temporaryDirectory.appendingPathComponent(
             UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
@@ -1198,14 +1210,16 @@ import ZIPFoundation
         let rawResult = KokoroG2P.Result(
             phonemes: "\u{0000}",
             fallbackHits: [.init(word: "ordinary", ipa: "\u{0000}")],
-            tokenEvidence: [.init(
-                text: "ordinary",
-                selectedPhonemes: "\u{0000}",
-                lexicalTag: nil,
-                rating: 1,
-                displayCharacterRange: 0..<8,
-                phonemeCharacterRange: 0..<1,
-                usedFallback: true)],
+            tokenEvidence: [
+                .init(
+                    text: "ordinary",
+                    selectedPhonemes: "\u{0000}",
+                    lexicalTag: nil,
+                    rating: 1,
+                    displayCharacterRange: 0..<8,
+                    phonemeCharacterRange: 0..<1,
+                    usedFallback: true)
+            ],
             pronunciationEvidenceValidation: .matched)
         let planner = try PronunciationPlanner(g2pResult: { _, _ in rawResult })
         let renderPlan = try NarrationRenderPlanner.make(
@@ -1233,17 +1247,21 @@ import ZIPFoundation
         #expect(decision.advisoryEvidence?.category == .lexical)
         #expect(decision.advisoryEvidence?.selectedAuthority == .uncertain)
         #expect(decision.advisoryEvidence?.selectionReason == .deterministicFallback)
-        #expect(plannedBlock.pronunciationDecisionDiagnostics.map(\.reason) == [.decisionEvidenceMismatch])
+        #expect(
+            plannedBlock.pronunciationDecisionDiagnostics.map(\.reason) == [
+                .decisionEvidenceMismatch
+            ])
         #expect(plannedBlock.pronunciationDecisionDiagnostics.first?.chunkIndex == 0)
         let capturedDecision = decision.attachingRenderTiming(
             chapterIndex: 0,
             chapterRelativeAudioRange: nil,
             timingPrecision: nil)
-        #expect(PronunciationListeningReel.entries(
-            decisions: [capturedDecision],
-            audiobookURL: audioURL,
-            sourceDuration: CMTime(seconds: 1, preferredTimescale: 600)
-        ).isEmpty)
+        #expect(
+            PronunciationListeningReel.entries(
+                decisions: [capturedDecision],
+                audiobookURL: audioURL,
+                sourceDuration: CMTime(seconds: 1, preferredTimescale: 600)
+            ).isEmpty)
 
         let sealed = try HeadlessNarrationRunner.sealedCapture(
             .init(
@@ -1281,9 +1299,10 @@ import ZIPFoundation
         #expect(manifest.schemaVersion == PronunciationAuditManifest.currentSchemaVersion)
         #expect(manifest.coverage == .incompleteEvidence)
         #expect(sealed.identity?.chapterContentSignature == "stable-cache-signature")
-        #expect(try JSONDecoder().decode(
-            PronunciationAuditManifest.self,
-            from: manifest.encoded()) == manifest)
+        #expect(
+            try JSONDecoder().decode(
+                PronunciationAuditManifest.self,
+                from: manifest.encoded()) == manifest)
     }
 
     @Test func capturePayloadStillRejectsEmptyDecisionWithNonLexicalAdvisory() throws {
@@ -1867,7 +1886,8 @@ import ZIPFoundation
         #expect(
             assembled.decisions[1].chapterRelativeAudioRange == .init(start: 0.25, end: 0.75))
         #expect(assembled.decisions[1].bookRelativeAudioRange == .init(start: 4.25, end: 4.75))
-        #expect(assembled.decisions[1].bookRelativeAudioRange?.start == sidecar.anchors[1].timestamp)
+        #expect(
+            assembled.decisions[1].bookRelativeAudioRange?.start == sidecar.anchors[1].timestamp)
         #expect(assembled.diagnostics == [firstDiagnostic, secondDiagnostic])
         #expect(assembled.diagnostics.allSatisfy { $0.chapterIndex != nil })
     }
@@ -1967,10 +1987,10 @@ import ZIPFoundation
             cfg,
             tts: WordTimedStubEngine(),
             progress: { progress in
-            if case .wroteSidecar(_, let anchorsWithWords) = progress {
-                reportedWordAnchors = anchorsWithWords
-            }
-        })
+                if case .wroteSidecar(_, let anchorsWithWords) = progress {
+                    reportedWordAnchors = anchorsWithWords
+                }
+            })
         #expect(result.complete)
 
         let anchors = try AlignmentSidecar.decode(Data(contentsOf: sidecar))

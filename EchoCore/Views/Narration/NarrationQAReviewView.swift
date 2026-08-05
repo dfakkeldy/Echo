@@ -244,7 +244,8 @@ struct NarrationQAReviewView: View {
             .replacingOccurrences(
                 of: "([a-z0-9])([A-Z])",
                 with: "$1 $2",
-                options: .regularExpression)
+                options: .regularExpression
+            )
             .replacingOccurrences(of: "-", with: " ")
             .capitalized
     }
@@ -255,6 +256,8 @@ struct NarrationQAReviewView: View {
         switch observation {
         case .candidate:
             String(localized: "Candidate")
+        case .unstableEvaluation:
+            String(localized: "Unstable evaluation")
         case .agreementSelected:
             String(localized: "Agrees with selected pronunciation")
         case .agreementExistingAlternative:

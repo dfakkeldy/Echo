@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import CryptoKit
 import Foundation
 
 /// One governed identity for the locked Stage 3 shadow model and every policy
@@ -6,6 +7,7 @@ import Foundation
 nonisolated enum NeuralG2PGovernedIdentity {
     private static let namespacePrefix = "mini-bart-g2p"
     private static let candidateIDPrefix = "sha256:"
+    private static let candidateIDDomain = Data("echo.neural-g2p.candidate.v2\0".utf8)
 
     static let modelRevision = "f277d1e0597e7e7d33fa1d6d27d764bc4d7acb06"
     static let conversionPolicyVersion = "mini-bart-arpabet-to-kokoro-v1"
@@ -16,11 +18,11 @@ nonisolated enum NeuralG2PGovernedIdentity {
         + "|\(conversionPolicyVersion)|\(validationPolicyVersion)"
 
     static func claimsNamespace(source: String, selectionPolicyVersion: String) -> Bool {
-        source.hasPrefix(namespacePrefix)
-            || selectionPolicyVersion.hasPrefix(namespacePrefix)
+        containsReservedNamespaceToken(source)
+            || containsReservedNamespaceToken(selectionPolicyVersion)
     }
 
-    static func isValidCandidateID(_ candidateID: String) -> Bool {
+    static func hasValidCandidateIDSyntax(_ candidateID: String) -> Bool {
         guard candidateID.hasPrefix(candidateIDPrefix) else { return false }
         let digest = candidateID.dropFirst(candidateIDPrefix.count)
         guard digest.utf8.count == 64 else { return false }
@@ -28,6 +30,33 @@ nonisolated enum NeuralG2PGovernedIdentity {
             (UInt8(ascii: "0")...UInt8(ascii: "9")).contains($0)
                 || (UInt8(ascii: "a")...UInt8(ascii: "f")).contains($0)
         }
+    }
+
+    static func candidateID(normalizedWord: String, ipa: String) -> String? {
+        let word = PronunciationAuditContext.normalizedWord(normalizedWord)
+        guard !word.isEmpty, let canonicalIPA = normalizedKokoroIPA(ipa) else {
+            return nil
+        }
+
+        let fields = [
+            word,
+            canonicalIPA,
+            modelRevision,
+            conversionPolicyVersion,
+            validationPolicyVersion,
+            selectionPolicyVersion,
+        ]
+        var payload = candidateIDDomain
+        for field in fields {
+            let bytes = Data(field.utf8)
+            var length = UInt64(bytes.count).bigEndian
+            withUnsafeBytes(of: &length) { payload.append(contentsOf: $0) }
+            payload.append(bytes)
+        }
+        let digest = SHA256.hash(data: payload)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return "\(candidateIDPrefix)\(digest)"
     }
 
     static func normalizedKokoroIPA(_ ipa: String) -> String? {
@@ -42,16 +71,45 @@ nonisolated enum NeuralG2PGovernedIdentity {
         return normalized
     }
 
-    static func validatedIPA(for candidate: NeuralG2PCandidate) -> String? {
-        guard isValidCandidateID(candidate.candidateID),
+    static func validatedIPA(
+        for candidate: NeuralG2PCandidate,
+        normalizedWord: String
+    ) -> String? {
+        guard hasValidCandidateIDSyntax(candidate.candidateID),
             candidate.modelRevision == modelRevision,
             candidate.conversionPolicyVersion == conversionPolicyVersion,
             candidate.validationPolicyVersion == validationPolicyVersion,
-            candidate.selectionPolicyVersion == selectionPolicyVersion
+            candidate.selectionPolicyVersion == selectionPolicyVersion,
+            let ipa = normalizedKokoroIPA(candidate.ipa),
+            candidateID(normalizedWord: normalizedWord, ipa: ipa) == candidate.candidateID
         else {
             return nil
         }
-        return normalizedKokoroIPA(candidate.ipa)
+        return ipa
+    }
+
+    private static func containsReservedNamespaceToken(_ value: String) -> Bool {
+        var searchStart = value.startIndex
+        while searchStart < value.endIndex,
+            let range = value.range(
+                of: namespacePrefix,
+                options: [.caseInsensitive, .literal],
+                range: searchStart..<value.endIndex)
+        {
+            let leftIsAlphanumeric =
+                range.lowerBound > value.startIndex
+                && isAlphanumeric(value[value.index(before: range.lowerBound)])
+            let rightIsAlphanumeric =
+                range.upperBound < value.endIndex
+                && isAlphanumeric(value[range.upperBound])
+            if !leftIsAlphanumeric && !rightIsAlphanumeric { return true }
+            searchStart = range.upperBound
+        }
+        return false
+    }
+
+    private static func isAlphanumeric(_ character: Character) -> Bool {
+        character.isLetter || character.isNumber
     }
 }
 

@@ -15,11 +15,12 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
         let alternatives = advisoryAlternatives(
             for: decision.normalizedWord,
             excluding: decision.selectedIPA)
-        guard isComparisonScoped(
-            decision: decision,
-            fallbackHits: fallbackHits,
-            alternatives: alternatives,
-            isWatchWord: isWatchWord)
+        guard
+            isComparisonScoped(
+                decision: decision,
+                fallbackHits: fallbackHits,
+                alternatives: alternatives,
+                isWatchWord: isWatchWord)
         else {
             return nil
         }
@@ -56,127 +57,161 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
     ) -> PronunciationAuditDecision {
         guard isNeuralOOVComparisonCandidate(decision), let evidence = decision.advisoryEvidence
         else { return decision }
-        let preservesInvalidOutputReceipt = decision.isEvidenceOnlyInvalidOutputAdvisory
-        let nonNeuralAlternatives = evidence.alternatives.filter {
-            !NeuralG2PGovernedIdentity.claimsNamespace(
-                source: $0.source,
-                selectionPolicyVersion: $0.policyVersion)
+        let normalizedWord = PronunciationAuditContext.normalizedWord(decision.normalizedWord)
+        guard normalizedWord == decision.normalizedWord else { return decision }
+        if evidence.neuralShadowObservation == .unstableEvaluation { return decision }
+
+        let existingNeuralAlternatives = evidence.alternatives.filter(claimsNeuralNamespace)
+        if evidence.neuralShadowObservation != nil {
+            guard evidence.neuralShadowNormalizedWord == normalizedWord,
+                evidence.isValid(for: decision)
+            else {
+                return decision
+            }
+        } else if !existingNeuralAlternatives.isEmpty {
+            // Schema-5 candidates are readable evidence, not a current receipt
+            // that repeated evaluation may silently bind or promote.
+            return decision
         }
 
-        let updatedEvidence: PronunciationAdvisoryEvidence
+        let preservesInvalidOutputReceipt = decision.isEvidenceOnlyInvalidOutputAdvisory
+        let nonNeuralAlternatives = evidence.alternatives.filter {
+            !claimsNeuralNamespace($0)
+        }
+        let baseline = PronunciationAdvisoryEvidence(
+            category: evidence.category,
+            selectedAuthority: evidence.selectedAuthority,
+            selectedCandidateID: evidence.selectedCandidateID,
+            alternatives: nonNeuralAlternatives,
+            selectionReason: evidence.neuralShadowObservation == nil
+                ? evidence.selectionReason : .deterministicFallback,
+            overrideSuppressedAutomation: evidence.overrideSuppressedAutomation,
+            policyVersion: evidence.policyVersion)
+
+        let freshEvidence: PronunciationAdvisoryEvidence
         switch result {
         case .candidate(let candidate):
-            guard let alternative = neuralAlternative(for: candidate) else {
-                updatedEvidence = replacingSelectionReason(
-                    preservesInvalidOutputReceipt ? evidence.selectionReason : .invalidCandidate,
+            guard
+                let alternative = neuralAlternative(for: candidate, normalizedWord: normalizedWord)
+            else {
+                freshEvidence = replacingSelectionReason(
+                    preservesInvalidOutputReceipt ? baseline.selectionReason : .invalidCandidate,
                     neuralShadowObservation: .invalidCandidate,
+                    normalizedWord: normalizedWord,
                     alternatives: nonNeuralAlternatives,
-                    in: evidence)
+                    in: baseline)
                 break
             }
             let candidateIPA = normalizedIPA(alternative.ipa)
             let selectedIPA = normalizedIPA(decision.selectedIPA)
-            if evidence.selectedCandidateID == alternative.candidateID {
+            if baseline.selectedCandidateID == alternative.candidateID {
                 let agreesWithSelected = candidateIPA == selectedIPA
-                updatedEvidence = replacingSelectionReason(
+                freshEvidence = replacingSelectionReason(
                     preservesInvalidOutputReceipt
-                        ? evidence.selectionReason
+                        ? baseline.selectionReason
                         : agreesWithSelected
                             ? .shadowAgreementSelected : .invalidCandidate,
                     neuralShadowObservation: agreesWithSelected
                         ? .agreementSelected : .selectedCandidateIDConflict,
+                    normalizedWord: normalizedWord,
                     alternatives: nonNeuralAlternatives,
-                    in: evidence)
+                    in: baseline)
                 break
             }
-            if let existing = evidence.alternatives.first(where: {
+            if let existing = baseline.alternatives.first(where: {
                 $0.candidateID == alternative.candidateID
             }) {
                 let agreesWithExistingAlternative = normalizedIPA(existing.ipa) == candidateIPA
-                if NeuralG2PGovernedIdentity.claimsNamespace(
-                    source: existing.source,
-                    selectionPolicyVersion: existing.policyVersion)
-                {
-                    if agreesWithExistingAlternative {
-                        updatedEvidence = PronunciationAdvisoryEvidence(
-                            category: evidence.category,
-                            selectedAuthority: evidence.selectedAuthority,
-                            selectedCandidateID: evidence.selectedCandidateID,
-                            alternatives: nonNeuralAlternatives + [alternative],
-                            selectionReason: preservesInvalidOutputReceipt
-                                ? evidence.selectionReason : .shadowCandidate,
-                            overrideSuppressedAutomation: evidence.overrideSuppressedAutomation,
-                            policyVersion: evidence.policyVersion,
-                            neuralShadowObservation: .candidate)
-                    } else {
-                        updatedEvidence = replacingSelectionReason(
-                            preservesInvalidOutputReceipt
-                                ? evidence.selectionReason : .invalidCandidate,
-                            neuralShadowObservation: .invalidCandidate,
-                            alternatives: nonNeuralAlternatives,
-                            in: evidence)
-                    }
-                    break
-                }
-                updatedEvidence = replacingSelectionReason(
+                freshEvidence = replacingSelectionReason(
                     preservesInvalidOutputReceipt
-                        ? evidence.selectionReason
+                        ? baseline.selectionReason
                         : agreesWithExistingAlternative
                             ? .shadowAgreementExistingAlternative
                             : .invalidCandidate,
                     neuralShadowObservation: agreesWithExistingAlternative
                         ? .agreementExistingAlternative
                         : .existingAlternativeCandidateIDConflict,
+                    normalizedWord: normalizedWord,
                     alternatives: nonNeuralAlternatives,
-                    in: evidence)
+                    in: baseline)
                 break
             }
             if candidateIPA == selectedIPA {
-                updatedEvidence = replacingSelectionReason(
+                freshEvidence = replacingSelectionReason(
                     preservesInvalidOutputReceipt
-                        ? evidence.selectionReason : .shadowAgreementSelected,
+                        ? baseline.selectionReason : .shadowAgreementSelected,
                     neuralShadowObservation: .agreementSelected,
+                    normalizedWord: normalizedWord,
                     alternatives: nonNeuralAlternatives,
-                    in: evidence)
+                    in: baseline)
                 break
             }
             if nonNeuralAlternatives.contains(where: {
                 normalizedIPA($0.ipa) == candidateIPA
             }) {
-                updatedEvidence = replacingSelectionReason(
+                freshEvidence = replacingSelectionReason(
                     preservesInvalidOutputReceipt
-                        ? evidence.selectionReason : .shadowAgreementExistingAlternative,
+                        ? baseline.selectionReason : .shadowAgreementExistingAlternative,
                     neuralShadowObservation: .agreementExistingAlternative,
+                    normalizedWord: normalizedWord,
                     alternatives: nonNeuralAlternatives,
-                    in: evidence)
+                    in: baseline)
                 break
             }
-            updatedEvidence = PronunciationAdvisoryEvidence(
-                category: evidence.category,
-                selectedAuthority: evidence.selectedAuthority,
-                selectedCandidateID: evidence.selectedCandidateID,
+            freshEvidence = PronunciationAdvisoryEvidence(
+                category: baseline.category,
+                selectedAuthority: baseline.selectedAuthority,
+                selectedCandidateID: baseline.selectedCandidateID,
                 alternatives: nonNeuralAlternatives + [alternative],
                 selectionReason: preservesInvalidOutputReceipt
-                    ? evidence.selectionReason : .shadowCandidate,
-                overrideSuppressedAutomation: evidence.overrideSuppressedAutomation,
-                policyVersion: evidence.policyVersion,
+                    ? baseline.selectionReason : .shadowCandidate,
+                overrideSuppressedAutomation: baseline.overrideSuppressedAutomation,
+                policyVersion: baseline.policyVersion,
+                neuralShadowNormalizedWord: normalizedWord,
                 neuralShadowObservation: .candidate)
         case .rejected(let failure):
-            updatedEvidence = replacingSelectionReason(
+            freshEvidence = replacingSelectionReason(
                 preservesInvalidOutputReceipt
-                    ? evidence.selectionReason : selectionReason(for: failure),
+                    ? baseline.selectionReason : selectionReason(for: failure),
                 neuralShadowObservation: neuralShadowObservation(for: failure),
+                normalizedWord: normalizedWord,
                 alternatives: nonNeuralAlternatives,
-                in: evidence)
+                in: baseline)
         }
 
-        return replacingAdvisoryEvidence(updatedEvidence, in: decision)
+        guard evidence.neuralShadowObservation != nil else {
+            return replacingAdvisoryEvidence(freshEvidence, in: decision)
+        }
+        if hasSameStableOutcome(evidence, freshEvidence) { return decision }
+
+        var candidateIDs: Set<String> = []
+        let retainedCandidates =
+            (existingNeuralAlternatives
+            + freshEvidence.alternatives.filter(claimsNeuralNamespace))
+            .filter { candidateIDs.insert($0.candidateID).inserted }
+            .prefix(2)
+        let unstableEvidence = PronunciationAdvisoryEvidence(
+            category: evidence.category,
+            selectedAuthority: evidence.selectedAuthority,
+            selectedCandidateID: evidence.selectedCandidateID,
+            alternatives: nonNeuralAlternatives + Array(retainedCandidates),
+            selectionReason: evidence.selectionReason,
+            overrideSuppressedAutomation: evidence.overrideSuppressedAutomation,
+            policyVersion: evidence.policyVersion,
+            neuralShadowNormalizedWord: normalizedWord,
+            neuralShadowObservation: .unstableEvaluation)
+        return replacingAdvisoryEvidence(unstableEvidence, in: decision)
     }
 
     private static func neuralAlternative(
-        for candidate: NeuralG2PCandidate
+        for candidate: NeuralG2PCandidate,
+        normalizedWord: String
     ) -> PronunciationAdvisoryEvidence.Alternative? {
-        guard let ipa = NeuralG2PGovernedIdentity.validatedIPA(for: candidate) else {
+        guard
+            let ipa = NeuralG2PGovernedIdentity.validatedIPA(
+                for: candidate,
+                normalizedWord: normalizedWord)
+        else {
             return nil
         }
 
@@ -187,6 +222,24 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
             authority: .uncertain,
             validation: .shadow,
             policyVersion: NeuralG2PGovernedIdentity.selectionPolicyVersion)
+    }
+
+    private static func claimsNeuralNamespace(
+        _ alternative: PronunciationAdvisoryEvidence.Alternative
+    ) -> Bool {
+        NeuralG2PGovernedIdentity.claimsNamespace(
+            source: alternative.source,
+            selectionPolicyVersion: alternative.policyVersion)
+    }
+
+    private static func hasSameStableOutcome(
+        _ lhs: PronunciationAdvisoryEvidence,
+        _ rhs: PronunciationAdvisoryEvidence
+    ) -> Bool {
+        lhs.neuralShadowObservation == rhs.neuralShadowObservation
+            && lhs.selectionReason == rhs.selectionReason
+            && lhs.alternatives.filter(claimsNeuralNamespace)
+                == rhs.alternatives.filter(claimsNeuralNamespace)
     }
 
     private static func selectionReason(
@@ -222,6 +275,7 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
     private static func replacingSelectionReason(
         _ selectionReason: PronunciationAdvisoryEvidence.SelectionReason,
         neuralShadowObservation: PronunciationAdvisoryEvidence.NeuralShadowObservation,
+        normalizedWord: String,
         alternatives: [PronunciationAdvisoryEvidence.Alternative]? = nil,
         in evidence: PronunciationAdvisoryEvidence
     ) -> PronunciationAdvisoryEvidence {
@@ -233,6 +287,7 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
             selectionReason: selectionReason,
             overrideSuppressedAutomation: evidence.overrideSuppressedAutomation,
             policyVersion: evidence.policyVersion,
+            neuralShadowNormalizedWord: normalizedWord,
             neuralShadowObservation: neuralShadowObservation)
     }
 

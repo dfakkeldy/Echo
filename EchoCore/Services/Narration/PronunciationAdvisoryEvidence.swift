@@ -46,6 +46,7 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
 
     enum NeuralShadowObservation: String, Codable, Sendable {
         case candidate
+        case unstableEvaluation
         case agreementSelected
         case agreementExistingAlternative
         case selectedCandidateIDConflict
@@ -72,6 +73,7 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
     let selectionReason: SelectionReason
     let overrideSuppressedAutomation: Bool
     let policyVersion: String
+    let neuralShadowNormalizedWord: String?
     let neuralShadowObservation: NeuralShadowObservation?
 
     init(
@@ -82,6 +84,7 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
         selectionReason: SelectionReason,
         overrideSuppressedAutomation: Bool,
         policyVersion: String,
+        neuralShadowNormalizedWord: String? = nil,
         neuralShadowObservation: NeuralShadowObservation? = nil
     ) {
         self.category = category
@@ -91,12 +94,71 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
         self.selectionReason = selectionReason
         self.overrideSuppressedAutomation = overrideSuppressedAutomation
         self.policyVersion = policyVersion
+        self.neuralShadowNormalizedWord = neuralShadowNormalizedWord
         self.neuralShadowObservation = neuralShadowObservation
     }
 
-    /// Manifest validation is deliberately strict for schema 5. Older schemas
-    /// predate this optional evidence and therefore bypass this gate.
+    /// Current-schema evidence recomputes every governed candidate identity
+    /// from its persisted word and canonical IPA.
     func isValid() -> Bool {
+        guard hasValidBaseShape() else { return false }
+        let neuralAlternatives = alternatives.filter(Self.claimsNeuralNamespace)
+        switch neuralShadowObservation {
+        case nil:
+            guard neuralShadowNormalizedWord == nil, neuralAlternatives.isEmpty else {
+                return false
+            }
+        case .some(.candidate):
+            guard neuralAlternatives.count == 1 else { return false }
+        case .some(.unstableEvaluation):
+            guard neuralAlternatives.count <= 2 else { return false }
+        case .some(.agreementSelected), .some(.agreementExistingAlternative),
+            .some(.selectedCandidateIDConflict), .some(.existingAlternativeCandidateIDConflict),
+            .some(.invalidCandidate), .some(.modelUnavailable), .some(.modelIntegrityFailure),
+            .some(.modelInferenceFailure):
+            guard neuralAlternatives.isEmpty else { return false }
+        }
+        if neuralShadowObservation != nil {
+            guard let word = neuralShadowNormalizedWord,
+                !word.isEmpty,
+                PronunciationAuditContext.normalizedWord(word) == word,
+                neuralAlternatives.allSatisfy({
+                    Self.isCurrentGovernedNeuralShadowAlternative($0, normalizedWord: word)
+                })
+            else {
+                return false
+            }
+        }
+        return hasValidNeuralShadowObservation
+    }
+
+    /// Schema 5 predated word-bound candidate IDs. Its full advisory shape is
+    /// readable only under this explicit legacy contract and is never used to
+    /// validate a schema-6 projection.
+    func isValidLegacySchemaFive() -> Bool {
+        guard hasValidBaseShape(), neuralShadowNormalizedWord == nil else { return false }
+        let neuralAlternatives = alternatives.filter(Self.claimsNeuralNamespace)
+        guard neuralAlternatives.allSatisfy(Self.isLegacyGovernedNeuralShadowAlternative)
+        else {
+            return false
+        }
+        switch neuralShadowObservation {
+        case nil:
+            guard neuralAlternatives.count <= 1 else { return false }
+        case .some(.candidate):
+            guard neuralAlternatives.count == 1 else { return false }
+        case .some(.unstableEvaluation):
+            return false
+        case .some(.agreementSelected), .some(.agreementExistingAlternative),
+            .some(.selectedCandidateIDConflict), .some(.existingAlternativeCandidateIDConflict),
+            .some(.invalidCandidate), .some(.modelUnavailable), .some(.modelIntegrityFailure),
+            .some(.modelInferenceFailure):
+            guard neuralAlternatives.isEmpty else { return false }
+        }
+        return hasValidNeuralShadowObservation
+    }
+
+    private func hasValidBaseShape() -> Bool {
         let normalizedPolicyVersion = policyVersion.trimmingCharacters(
             in: .whitespacesAndNewlines)
         guard !normalizedPolicyVersion.isEmpty,
@@ -133,31 +195,41 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
             }
         }
         let neuralAlternatives = alternatives.filter(Self.claimsNeuralNamespace)
-        guard neuralAlternatives.allSatisfy(Self.isGovernedNeuralShadowAlternative)
-        else {
-            return false
-        }
-        if neuralShadowObservation == .candidate {
-            guard neuralAlternatives.count == 1 else { return false }
-        } else {
-            guard neuralAlternatives.isEmpty else { return false }
-        }
-        guard hasValidNeuralShadowObservation else { return false }
+        guard neuralAlternatives.count <= 2 else { return false }
         return selectedCandidateID.map {
             !$0.isEmpty && $0 == $0.trimmingCharacters(in: .whitespacesAndNewlines)
         } ?? true
     }
 
-    /// Schema-five evidence is meaningful only when its accepted identity is
-    /// bound to the exact synthesis decision stored beside it.
+    /// Current evidence is meaningful only when its accepted identity and
+    /// neural word binding match the exact synthesis decision stored beside it.
     func isValid(for decision: PronunciationAuditDecision) -> Bool {
         guard isValid(),
+            neuralShadowObservation == nil
+                || neuralShadowNormalizedWord == decision.normalizedWord,
             selectedCandidateID == decision.candidateID,
             selectedAuthority == Self.expectedAuthority(for: decision)
         else {
             return false
         }
-        if let rawInvalidClassification = rawInvalidClassification(for: decision) {
+        return hasValidDecisionBinding(decision)
+    }
+
+    func isValidLegacySchemaFive(for decision: PronunciationAuditDecision) -> Bool {
+        guard isValidLegacySchemaFive(),
+            selectedCandidateID == decision.candidateID,
+            selectedAuthority == Self.expectedAuthority(for: decision)
+        else {
+            return false
+        }
+        return hasValidDecisionBinding(decision)
+    }
+
+    private func hasValidDecisionBinding(_ decision: PronunciationAuditDecision) -> Bool {
+        if let rawInvalidClassification = rawInvalidClassification(
+            for: decision,
+            advisoryEvidenceIsValid: true)
+        {
             guard case .verified(let expectedSelectionReason) = rawInvalidClassification,
                 decision.kokoroTokenIDs.isEmpty,
                 decision.chapterRelativeAudioRange == nil,
@@ -197,7 +269,24 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
         switch neuralShadowObservation {
         case .candidate:
             return hasCompatibleReason(.shadowCandidate)
-                && alternatives.contains(where: Self.isGovernedNeuralShadowAlternative)
+                && !alternatives.filter(Self.claimsNeuralNamespace).isEmpty
+        case .unstableEvaluation:
+            switch selectionReason {
+            case .shadowCandidate:
+                return !alternatives.filter(Self.claimsNeuralNamespace).isEmpty
+            case .shadowAgreementExistingAlternative:
+                return alternatives.contains { !Self.claimsNeuralNamespace($0) }
+            case .shadowAgreementSelected, .invalidCandidate, .modelUnavailable,
+                .modelIntegrityFailure, .modelInferenceFailure:
+                return true
+            case .deterministicFallback:
+                return category == .lexical && selectedCandidateID == nil
+            case .occurrenceOverride, .bookOverride, .globalOverride,
+                .qualifiedDeterministicContext, .trustedLexicon, .qualifiedNeuralOOV,
+                .sourceDisagreement, .contextShadow, .contextUnavailable,
+                .acousticRetryRejected:
+                return false
+            }
         case .agreementSelected:
             return selectionReason == .shadowAgreementSelected
         case .agreementExistingAlternative:
@@ -234,20 +323,31 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
             selectionPolicyVersion: alternative.policyVersion)
     }
 
-    private static func isGovernedNeuralShadowAlternative(
+    private static func isLegacyGovernedNeuralShadowAlternative(
         _ alternative: Alternative
     ) -> Bool {
         alternative.authority == .uncertain
             && alternative.validation == .shadow
             && alternative.source == NeuralG2PGovernedIdentity.alternativeSource
             && alternative.policyVersion == NeuralG2PGovernedIdentity.selectionPolicyVersion
-            && NeuralG2PGovernedIdentity.isValidCandidateID(alternative.candidateID)
+            && NeuralG2PGovernedIdentity.hasValidCandidateIDSyntax(alternative.candidateID)
             && NeuralG2PGovernedIdentity.normalizedKokoroIPA(alternative.ipa)
                 == alternative.ipa
     }
 
+    private static func isCurrentGovernedNeuralShadowAlternative(
+        _ alternative: Alternative,
+        normalizedWord: String
+    ) -> Bool {
+        isLegacyGovernedNeuralShadowAlternative(alternative)
+            && NeuralG2PGovernedIdentity.candidateID(
+                normalizedWord: normalizedWord,
+                ipa: alternative.ipa) == alternative.candidateID
+    }
+
     private func rawInvalidClassification(
-        for decision: PronunciationAuditDecision
+        for decision: PronunciationAuditDecision,
+        advisoryEvidenceIsValid: Bool
     ) -> InvalidG2PAuditReceipt.Classification? {
         InvalidG2PAuditReceipt.classification(
             normalizedWord: decision.normalizedWord,
@@ -260,7 +360,8 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
             derivationBase: decision.derivationBase,
             derivationRuleID: decision.derivationRuleID,
             contextualEvidence: decision.contextualEvidence,
-            advisoryEvidence: self)
+            advisoryEvidence: self,
+            advisoryEvidenceIsValid: advisoryEvidenceIsValid)
     }
 
     private static func isOrderedBefore(_ lhs: Alternative, _ rhs: Alternative) -> Bool {
@@ -268,7 +369,9 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
         if lhs.candidateID != rhs.candidateID { return lhs.candidateID < rhs.candidateID }
         if lhs.ipa != rhs.ipa { return lhs.ipa < rhs.ipa }
         if lhs.authority != rhs.authority { return lhs.authority.rawValue < rhs.authority.rawValue }
-        if lhs.validation != rhs.validation { return lhs.validation.rawValue < rhs.validation.rawValue }
+        if lhs.validation != rhs.validation {
+            return lhs.validation.rawValue < rhs.validation.rawValue
+        }
         return lhs.policyVersion < rhs.policyVersion
     }
 
