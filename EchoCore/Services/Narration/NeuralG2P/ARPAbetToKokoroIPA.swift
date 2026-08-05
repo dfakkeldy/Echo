@@ -11,7 +11,7 @@ nonisolated enum ARPAbetToKokoroIPA {
         case unsupportedIPA(String)
     }
 
-    static let policyVersion = "mini-bart-arpabet-to-kokoro-v1"
+    static let policyVersion = NeuralG2PGovernedIdentity.conversionPolicyVersion
 
     static func convert(_ tokens: [String]) throws -> String {
         guard !tokens.isEmpty else { throw Error.emptyTokens }

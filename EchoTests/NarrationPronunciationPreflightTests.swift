@@ -411,6 +411,49 @@ import Testing
         #expect(ipaAgreement.advisoryEvidence?.isValid(for: ipaAgreement) == true)
     }
 
+    @Test func neuralAlternativeAdmissionRejectsEveryNonGovernedIdentity() async throws {
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(text: "Xyzqwf appears.")],
+            overrides: PronunciationOverrides(entries: [:]))
+        let original = try #require(
+            plan.blocks.first?.pronunciationDecisions.first {
+                $0.normalizedWord == "xyzqwf"
+            })
+        let originalEvidence = try #require(original.advisoryEvidence)
+        let nonLockedRevision = String(repeating: "a", count: 40)
+        let nonGoverned = [
+            Self.neuralCandidateWithIdentity(
+                modelRevision: "x",
+                conversionPolicyVersion: "mini-bart-arpabet-to-kokoro-",
+                validationPolicyVersion: "kokoro-vocab-validation-",
+                selectionPolicyVersion: "mini-bart-g2p-"),
+            Self.neuralCandidateWithIdentity(modelRevision: ""),
+            Self.neuralCandidateWithIdentity(modelRevision: nonLockedRevision),
+            Self.neuralCandidateWithIdentity(
+                conversionPolicyVersion: "mini-bart-arpabet-to-kokoro-v2"),
+            Self.neuralCandidateWithIdentity(
+                validationPolicyVersion: "kokoro-vocab-validation-v2"),
+            Self.neuralCandidateWithIdentity(
+                selectionPolicyVersion: "mini-bart-g2p-beam5-max20-v2"),
+        ]
+
+        let exact = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
+            .candidate(Self.neuralCandidate()),
+            to: original)
+        #expect(exact.advisoryEvidence?.alternatives.count == originalEvidence.alternatives.count + 1)
+        #expect(exact.advisoryEvidence?.selectionReason == .shadowCandidate)
+        #expect(exact.advisoryEvidence?.neuralShadowObservation == .candidate)
+
+        for candidate in nonGoverned {
+            let rejected = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
+                .candidate(candidate),
+                to: original)
+            #expect(rejected.advisoryEvidence?.alternatives == originalEvidence.alternatives)
+            #expect(rejected.advisoryEvidence?.selectionReason == .invalidCandidate)
+            #expect(rejected.advisoryEvidence?.neuralShadowObservation == .invalidCandidate)
+        }
+    }
+
     @Test func bundledNeuralModelIsStableAcrossTheFullSyntheticCorpus() async throws {
         let corpusURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -447,10 +490,26 @@ import Testing
         NeuralG2PCandidate(
             candidateID: candidateID,
             ipa: ipa,
-            modelRevision: "f277d1e0597e7e7d33fa1d6d27d764bc4d7acb06",
-            conversionPolicyVersion: "mini-bart-arpabet-to-kokoro-v1",
-            validationPolicyVersion: "kokoro-vocab-validation-v1",
-            selectionPolicyVersion: "mini-bart-g2p-beam5-max20-v1")
+            modelRevision: NeuralG2PGovernedIdentity.modelRevision,
+            conversionPolicyVersion: NeuralG2PGovernedIdentity.conversionPolicyVersion,
+            validationPolicyVersion: NeuralG2PGovernedIdentity.validationPolicyVersion,
+            selectionPolicyVersion: NeuralG2PGovernedIdentity.selectionPolicyVersion)
+    }
+
+    nonisolated private static func neuralCandidateWithIdentity(
+        modelRevision: String = NeuralG2PGovernedIdentity.modelRevision,
+        conversionPolicyVersion: String = NeuralG2PGovernedIdentity.conversionPolicyVersion,
+        validationPolicyVersion: String = NeuralG2PGovernedIdentity.validationPolicyVersion,
+        selectionPolicyVersion: String = NeuralG2PGovernedIdentity.selectionPolicyVersion
+    ) -> NeuralG2PCandidate {
+        NeuralG2PCandidate(
+            candidateID:
+                "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            ipa: "zizkwf",
+            modelRevision: modelRevision,
+            conversionPolicyVersion: conversionPolicyVersion,
+            validationPolicyVersion: validationPolicyVersion,
+            selectionPolicyVersion: selectionPolicyVersion)
     }
 
     nonisolated private static func replacingAdvisoryEvidence(

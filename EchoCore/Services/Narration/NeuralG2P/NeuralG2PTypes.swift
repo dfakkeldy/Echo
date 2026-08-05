@@ -1,6 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
+/// One governed identity for the locked Stage 3 shadow model and every policy
+/// that turns its output into an advisory alternative.
+nonisolated enum NeuralG2PGovernedIdentity {
+    static let modelRevision = "f277d1e0597e7e7d33fa1d6d27d764bc4d7acb06"
+    static let conversionPolicyVersion = "mini-bart-arpabet-to-kokoro-v1"
+    static let validationPolicyVersion = "kokoro-vocab-validation-v1"
+    static let selectionPolicyVersion = "mini-bart-g2p-beam5-max20-v1"
+    static let alternativeSource =
+        "mini-bart-g2p@\(modelRevision)"
+        + "|\(conversionPolicyVersion)|\(validationPolicyVersion)"
+}
+
 nonisolated struct NeuralG2PCandidate: Codable, Equatable, Sendable {
     let candidateID: String
     let ipa: String

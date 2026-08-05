@@ -142,19 +142,15 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
     ) -> PronunciationAdvisoryEvidence.Alternative? {
         let candidateID = candidate.candidateID.trimmingCharacters(in: .whitespacesAndNewlines)
         let ipa = normalizedIPA(candidate.ipa)
-        let modelRevision = candidate.modelRevision.trimmingCharacters(in: .whitespacesAndNewlines)
-        let conversionPolicy = candidate.conversionPolicyVersion.trimmingCharacters(
-            in: .whitespacesAndNewlines)
-        let validationPolicy = candidate.validationPolicyVersion.trimmingCharacters(
-            in: .whitespacesAndNewlines)
-        let selectionPolicy = candidate.selectionPolicyVersion.trimmingCharacters(
-            in: .whitespacesAndNewlines)
         guard !candidateID.isEmpty, candidateID == candidate.candidateID,
             !ipa.isEmpty,
-            !modelRevision.isEmpty, modelRevision == candidate.modelRevision,
-            !conversionPolicy.isEmpty, conversionPolicy == candidate.conversionPolicyVersion,
-            !validationPolicy.isEmpty, validationPolicy == candidate.validationPolicyVersion,
-            !selectionPolicy.isEmpty, selectionPolicy == candidate.selectionPolicyVersion,
+            candidate.modelRevision == NeuralG2PGovernedIdentity.modelRevision,
+            candidate.conversionPolicyVersion
+                == NeuralG2PGovernedIdentity.conversionPolicyVersion,
+            candidate.validationPolicyVersion
+                == NeuralG2PGovernedIdentity.validationPolicyVersion,
+            candidate.selectionPolicyVersion
+                == NeuralG2PGovernedIdentity.selectionPolicyVersion,
             let vocabulary = try? KokoroPhonemeVocab(),
             (try? vocabulary.validatedIDs(forPhonemes: ipa)) != nil
         else {
@@ -164,11 +160,10 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
         return PronunciationAdvisoryEvidence.Alternative(
             candidateID: candidateID,
             ipa: ipa,
-            source:
-                "mini-bart-g2p@\(modelRevision)|\(conversionPolicy)|\(validationPolicy)",
+            source: NeuralG2PGovernedIdentity.alternativeSource,
             authority: .uncertain,
             validation: .shadow,
-            policyVersion: selectionPolicy)
+            policyVersion: NeuralG2PGovernedIdentity.selectionPolicyVersion)
     }
 
     private static func selectionReason(

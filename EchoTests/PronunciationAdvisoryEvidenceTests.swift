@@ -56,17 +56,17 @@ import Testing
     private func neuralAlternative(
         candidateID: String =
             "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-        ipa: String = "zizkwf"
+        ipa: String = "zizkwf",
+        source: String = NeuralG2PGovernedIdentity.alternativeSource,
+        policyVersion: String = NeuralG2PGovernedIdentity.selectionPolicyVersion
     ) -> PronunciationAdvisoryEvidence.Alternative {
         alternative(
             candidateID: candidateID,
             ipa: ipa,
-            source:
-                "mini-bart-g2p@f277d1e0597e7d33fa1d6d27d764bc4d7acb06"
-                + "|mini-bart-arpabet-to-kokoro-v1|kokoro-vocab-validation-v1",
+            source: source,
             authority: .uncertain,
             validation: .shadow,
-            policyVersion: "mini-bart-g2p-beam5-max20-v1")
+            policyVersion: policyVersion)
     }
 
     private func evidence(
@@ -299,6 +299,52 @@ import Testing
         }
     }
 
+    @Test func candidateObservationRequiresTheExactGovernedNeuralIdentity() {
+        let nonLockedRevision = String(repeating: "a", count: 40)
+        let invalidAlternatives = [
+            neuralAlternative(
+                source:
+                    "mini-bart-g2p@x|mini-bart-arpabet-to-kokoro-"
+                    + "|kokoro-vocab-validation-",
+                policyVersion: "mini-bart-g2p-"),
+            neuralAlternative(
+                source:
+                    "mini-bart-g2p@|mini-bart-arpabet-to-kokoro-v1"
+                    + "|kokoro-vocab-validation-v1"),
+            neuralAlternative(
+                source:
+                    "mini-bart-g2p@arbitrary|mini-bart-arpabet-to-kokoro-arbitrary"
+                    + "|kokoro-vocab-validation-arbitrary",
+                policyVersion: "mini-bart-g2p-arbitrary"),
+            neuralAlternative(
+                source:
+                    "mini-bart-g2p@\(nonLockedRevision)"
+                    + "|mini-bart-arpabet-to-kokoro-v1|kokoro-vocab-validation-v1"),
+            neuralAlternative(
+                source:
+                    "mini-bart-g2p@f277d1e0597e7d33fa1d6d27d764bc4d7acb06"
+                    + "|mini-bart-arpabet-to-kokoro-v2|kokoro-vocab-validation-v1"),
+            neuralAlternative(
+                source:
+                    "mini-bart-g2p@f277d1e0597e7d33fa1d6d27d764bc4d7acb06"
+                    + "|mini-bart-arpabet-to-kokoro-v1|kokoro-vocab-validation-v2"),
+            neuralAlternative(policyVersion: "mini-bart-g2p-beam5-max20-v2"),
+        ]
+
+        let exact = evidence(
+            alternatives: [neuralAlternative()],
+            selectionReason: .shadowCandidate,
+            observation: .candidate)
+        #expect(exact.isValid())
+        for invalidAlternative in invalidAlternatives {
+            let invalid = evidence(
+                alternatives: [invalidAlternative],
+                selectionReason: .shadowCandidate,
+                observation: .candidate)
+            #expect(!invalid.isValid())
+        }
+    }
+
     @Test func acceptsAnalyzerProducedOrdinaryAndRawInvalidObservationShapes() {
         let existing = alternative(candidateID: "existing.shadow", ipa: "bæd")
         let valid = [
@@ -397,6 +443,98 @@ import Testing
 
         #expect(rawEvidence.isValid(for: rawInvalid))
         #expect(!rawEvidence.isValid(for: ordinary))
+    }
+
+    @Test func rawInvalidDecisionCannotBeRelabeledAsAnOrdinaryNeuralOutcome() {
+        let existing = alternative(candidateID: "existing.shadow", ipa: "bæd")
+        let ordinaryRelabels = [
+            evidence(
+                alternatives: [neuralAlternative()],
+                selectionReason: .shadowCandidate,
+                observation: .candidate),
+            evidence(
+                alternatives: [existing],
+                selectionReason: .shadowAgreementExistingAlternative,
+                observation: .agreementExistingAlternative),
+            evidence(selectionReason: .invalidCandidate, observation: .invalidCandidate),
+            evidence(selectionReason: .modelUnavailable, observation: .modelUnavailable),
+            evidence(
+                selectionReason: .modelIntegrityFailure,
+                observation: .modelIntegrityFailure),
+            evidence(
+                selectionReason: .modelInferenceFailure,
+                observation: .modelInferenceFailure),
+        ]
+
+        for relabeledEvidence in ordinaryRelabels {
+            #expect(relabeledEvidence.isValid())
+            #expect(!relabeledEvidence.isValid(for: rawInvalidDecision(relabeledEvidence)))
+        }
+    }
+
+    @Test func ordinaryAndPreNeuralFallbackEvidenceRemainDecisionValid() {
+        let existing = alternative(candidateID: "existing.shadow", ipa: "bæd")
+        let ordinaryOutcomes = [
+            evidence(
+                alternatives: [neuralAlternative()],
+                selectionReason: .shadowCandidate,
+                observation: .candidate),
+            evidence(
+                alternatives: [existing],
+                selectionReason: .shadowAgreementExistingAlternative,
+                observation: .agreementExistingAlternative),
+            evidence(selectionReason: .invalidCandidate, observation: .invalidCandidate),
+            evidence(selectionReason: .modelUnavailable, observation: .modelUnavailable),
+            evidence(
+                selectionReason: .modelIntegrityFailure,
+                observation: .modelIntegrityFailure),
+            evidence(
+                selectionReason: .modelInferenceFailure,
+                observation: .modelInferenceFailure),
+            evidence(selectionReason: .deterministicFallback, observation: nil),
+        ]
+
+        for ordinaryEvidence in ordinaryOutcomes {
+            #expect(ordinaryEvidence.isValid(for: ordinaryDecision(ordinaryEvidence)))
+        }
+    }
+
+    private func rawInvalidDecision(
+        _ advisoryEvidence: PronunciationAdvisoryEvidence
+    ) -> PronunciationAuditDecision {
+        PronunciationAuditDecision(
+            blockID: "blk1",
+            wordStart: 0,
+            wordEnd: 0,
+            normalizedWord: "xyzqwf",
+            sourceWord: "Xyzqwf",
+            sourceContext: "Xyzqwf",
+            selectedIPA: "\u{0000}",
+            kokoroTokenIDs: [],
+            source: .fallback,
+            ruleID: "g2p.fallback.xyzqwf",
+            rationale: "fixture",
+            candidateID: nil,
+            advisoryEvidence: advisoryEvidence)
+    }
+
+    private func ordinaryDecision(
+        _ advisoryEvidence: PronunciationAdvisoryEvidence
+    ) -> PronunciationAuditDecision {
+        PronunciationAuditDecision(
+            blockID: "blk1",
+            wordStart: 0,
+            wordEnd: 0,
+            normalizedWord: "xyzqwf",
+            sourceWord: "Xyzqwf",
+            sourceContext: "Xyzqwf",
+            selectedIPA: "zizkwf",
+            kokoroTokenIDs: [1],
+            source: .fallback,
+            ruleID: "g2p.fallback.xyzqwf",
+            rationale: "fixture",
+            candidateID: nil,
+            advisoryEvidence: advisoryEvidence)
     }
 
     @Test func alternativesAreCanonicalizedByStablePortableIdentity() {

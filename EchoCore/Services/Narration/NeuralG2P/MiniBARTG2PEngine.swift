@@ -13,10 +13,11 @@
 
         static let shared = MiniBARTG2PEngine()
 
-        nonisolated static let modelRevision =
-            "f277d1e0597e7e7d33fa1d6d27d764bc4d7acb06"
-        nonisolated static let validationPolicyVersion = "kokoro-vocab-validation-v1"
-        nonisolated static let selectionPolicyVersion = "mini-bart-g2p-beam5-max20-v1"
+        nonisolated static let modelRevision = NeuralG2PGovernedIdentity.modelRevision
+        nonisolated static let validationPolicyVersion =
+            NeuralG2PGovernedIdentity.validationPolicyVersion
+        nonisolated static let selectionPolicyVersion =
+            NeuralG2PGovernedIdentity.selectionPolicyVersion
         nonisolated static let temporaryModelDirectoryPrefix = "EchoMiniBARTG2P-"
 
         private nonisolated static let beamWidth = 5
