@@ -5,24 +5,105 @@ import Testing
 @testable import Echo
 
 @Suite struct MiniBARTG2PTokenizerTests {
-    private static let tokenizerJSON = #"""
-        {
-          "version":"1.0",
-          "truncation":{"direction":"Right","max_length":128,"strategy":"LongestFirst","stride":0},
-          "padding":null,
-          "added_tokens":[],
-          "normalizer":{"type":"Lowercase"},
-          "pre_tokenizer":{"type":"Split","pattern":{"String":""},"behavior":"Removed","invert":false},
-          "post_processor":{"type":"RobertaProcessing","sep":["</s>",2],"cls":["<s>",0],"trim_offsets":true,"add_prefix_space":false},
-          "decoder":null,
-          "model":{"type":"WordLevel","vocab":{"<s>":0,"<pad>":1,"</s>":2,"<unk>":3,"<mask>":4,"e":5,"a":6,"s":7,"i":8,"r":9,"n":10,"AH0":11,"o":12,"N":13,"t":14,"l":15,"L":17,"c":21,"d":22,"u":24,"m":26,"h":29,"p":31,"b":34,"y":40,"k":41,"f":44,"w":46,"'":50,"HH":53,"OW1":56,"-":91,".":102},"unk_token":"<unk>"}
-        }
+    private static let lockedTokenizerBase64 = #"""
+        ewogICJ2ZXJzaW9uIjogIjEuMCIsCiAgInRydW5jYXRpb24iOiB7CiAgICAiZGlyZWN0aW9uIjogIlJpZ2h0IiwKICAgICJtYXhf
+        bGVuZ3RoIjogMTI4LAogICAgInN0cmF0ZWd5IjogIkxvbmdlc3RGaXJzdCIsCiAgICAic3RyaWRlIjogMAogIH0sCiAgInBhZGRp
+        bmciOiBudWxsLAogICJhZGRlZF90b2tlbnMiOiBbCiAgICB7CiAgICAgICJpZCI6IDAsCiAgICAgICJjb250ZW50IjogIjxzPiIs
+        CiAgICAgICJzaW5nbGVfd29yZCI6IGZhbHNlLAogICAgICAibHN0cmlwIjogZmFsc2UsCiAgICAgICJyc3RyaXAiOiBmYWxzZSwK
+        ICAgICAgIm5vcm1hbGl6ZWQiOiBmYWxzZSwKICAgICAgInNwZWNpYWwiOiB0cnVlCiAgICB9LAogICAgewogICAgICAiaWQiOiAx
+        LAogICAgICAiY29udGVudCI6ICI8cGFkPiIsCiAgICAgICJzaW5nbGVfd29yZCI6IGZhbHNlLAogICAgICAibHN0cmlwIjogZmFs
+        c2UsCiAgICAgICJyc3RyaXAiOiBmYWxzZSwKICAgICAgIm5vcm1hbGl6ZWQiOiBmYWxzZSwKICAgICAgInNwZWNpYWwiOiB0cnVl
+        CiAgICB9LAogICAgewogICAgICAiaWQiOiAyLAogICAgICAiY29udGVudCI6ICI8L3M+IiwKICAgICAgInNpbmdsZV93b3JkIjog
+        ZmFsc2UsCiAgICAgICJsc3RyaXAiOiBmYWxzZSwKICAgICAgInJzdHJpcCI6IGZhbHNlLAogICAgICAibm9ybWFsaXplZCI6IGZh
+        bHNlLAogICAgICAic3BlY2lhbCI6IHRydWUKICAgIH0sCiAgICB7CiAgICAgICJpZCI6IDMsCiAgICAgICJjb250ZW50IjogIjx1
+        bms+IiwKICAgICAgInNpbmdsZV93b3JkIjogZmFsc2UsCiAgICAgICJsc3RyaXAiOiBmYWxzZSwKICAgICAgInJzdHJpcCI6IGZh
+        bHNlLAogICAgICAibm9ybWFsaXplZCI6IGZhbHNlLAogICAgICAic3BlY2lhbCI6IHRydWUKICAgIH0sCiAgICB7CiAgICAgICJpZCI6IDQsCiAgICAgICJjb250ZW50IjogIjxt
+        YXNrPiIsCiAgICAgICJzaW5nbGVfd29yZCI6IGZhbHNlLAogICAgICAibHN0cmlwIjogdHJ1ZSwKICAgICAgInJzdHJpcCI6IGZh
+        bHNlLAogICAgICAibm9ybWFsaXplZCI6IGZhbHNlLAogICAgICAic3BlY2lhbCI6IHRydWUKICAgIH0KICBdLAogICJub3JtYWxp
+        emVyIjogewogICAgInR5cGUiOiAiTG93ZXJjYXNlIgogIH0sCiAgInByZV90b2tlbml6ZXIiOiB7CiAgICAidHlwZSI6ICJTcGxp
+        dCIsCiAgICAicGF0dGVybiI6IHsKICAgICAgIlN0cmluZyI6ICIiCiAgICB9LAogICAgImJlaGF2aW9yIjogIlJlbW92ZWQiLAog
+        ICAgImludmVydCI6IGZhbHNlCiAgfSwKICAicG9zdF9wcm9jZXNzb3IiOiB7CiAgICAidHlwZSI6ICJSb2JlcnRhUHJvY2Vzc2lu
+        ZyIsCiAgICAic2VwIjogWwogICAgICAiPC9zPiIsCiAgICAgIDIKICAgIF0sCiAgICAiY2xzIjogWwogICAgICAiPHM+IiwKICAg
+        ICAgMAogICAgXSwKICAgICJ0cmltX29mZnNldHMiOiB0cnVlLAogICAgImFkZF9wcmVmaXhfc3BhY2UiOiBmYWxzZQogIH0sCiAg
+        ImRlY29kZXIiOiBudWxsLAogICJtb2RlbCI6IHsKICAgICJ0eXBlIjogIldvcmRMZXZlbCIsCiAgICAidm9jYWIiOiB7CiAgICAg
+        ICI8cz4iOiAwLAogICAgICAiPHBhZD4iOiAxLAogICAgICAiPC9zPiI6IDIsCiAgICAgICI8dW5rPiI6IDMsCiAgICAgICI8bWFz
+        az4iOiA0LAogICAgICAiZSI6IDUsCiAgICAgICJhIjogNiwKICAgICAgInMiOiA3LAogICAgICAiaSI6IDgsCiAgICAgICJyIjog
+        OSwKICAgICAgIm4iOiAxMCwKICAgICAgIkFIMCI6IDExLAogICAgICAibyI6IDEyLAogICAgICAiTiI6IDEzLAogICAgICAidCI6
+        IDE0LAogICAgICAibCI6IDE1LAogICAgICAiUyI6IDE2LAogICAgICAiTCI6IDE3LAogICAgICAiVCI6IDE4LAogICAgICAiUiI6
+        IDE5LAogICAgICAiSyI6IDIwLAogICAgICAiYyI6IDIxLAogICAgICAiZCI6IDIyLAogICAgICAiRCI6IDIzLAogICAgICAidSI6
+        IDI0LAogICAgICAiSUgwIjogMjUsCiAgICAgICJtIjogMjYsCiAgICAgICJNIjogMjcsCiAgICAgICJaIjogMjgsCiAgICAgICJo
+        IjogMjksCiAgICAgICJnIjogMzAsCiAgICAgICJwIjogMzEsCiAgICAgICJFUjAiOiAzMiwKICAgICAgIklZMCI6IDMzLAogICAg
+        ICAiYiI6IDM0LAogICAgICAiQiI6IDM1LAogICAgICAiUCI6IDM2LAogICAgICAiRUgxIjogMzcsCiAgICAgICJBRTEiOiAzOCwK
+        ICAgICAgIkFBMSI6IDM5LAogICAgICAieSI6IDQwLAogICAgICAiayI6IDQxLAogICAgICAiSUgxIjogNDIsCiAgICAgICJGIjog
+        NDMsCiAgICAgICJmIjogNDQsCiAgICAgICJHIjogNDUsCiAgICAgICJ3IjogNDYsCiAgICAgICJWIjogNDcsCiAgICAgICJ2Ijog
+        NDgsCiAgICAgICJORyI6IDQ5LAogICAgICAiJyI6IDUwLAogICAgICAiSVkxIjogNTEsCiAgICAgICJFWTEiOiA1MiwKICAgICAg
+        IkhIIjogNTMsCiAgICAgICJXIjogNTQsCiAgICAgICJTSCI6IDU1LAogICAgICAiT1cxIjogNTYsCiAgICAgICJBTzEiOiA1NywK
+        ICAgICAgIk9XMCI6IDU4LAogICAgICAiQUgxIjogNTksCiAgICAgICJVVzEiOiA2MCwKICAgICAgIkFZMSI6IDYxLAogICAgICAi
+        SkgiOiA2MiwKICAgICAgInoiOiA2MywKICAgICAgIkNIIjogNjQsCiAgICAgICJZIjogNjUsCiAgICAgICJBQTAiOiA2NiwKICAg
+        ICAgIkVSMSI6IDY3LAogICAgICAiRUgyIjogNjgsCiAgICAgICJJSDIiOiA2OSwKICAgICAgIlRIIjogNzAsCiAgICAgICJBWTIi
+        OiA3MSwKICAgICAgIkFFMiI6IDcyLAogICAgICAiRVkyIjogNzMsCiAgICAgICJBQTIiOiA3NCwKICAgICAgIkVIMCI6IDc1LAog
+        ICAgICAiaiI6IDc2LAogICAgICAiQVcxIjogNzcsCiAgICAgICJPVzIiOiA3OCwKICAgICAgIngiOiA3OSwKICAgICAgIklZMiI6
+        IDgwLAogICAgICAiVVcwIjogODEsCiAgICAgICJBTzIiOiA4MiwKICAgICAgIlVIMSI6IDgzLAogICAgICAiQUUwIjogODQsCiAg
+        ICAgICJxIjogODUsCiAgICAgICJBTzAiOiA4NiwKICAgICAgIkFIMiI6IDg3LAogICAgICAiVVcyIjogODgsCiAgICAgICJBWTAi
+        OiA4OSwKICAgICAgIk9ZMSI6IDkwLAogICAgICAiLSI6IDkxLAogICAgICAiRVkwIjogOTIsCiAgICAgICJESCI6IDkzLAogICAg
+        ICAiQVcyIjogOTQsCiAgICAgICJFUjIiOiA5NSwKICAgICAgIlpIIjogOTYsCiAgICAgICJVSDIiOiA5NywKICAgICAgIkFXMCI6
+        IDk4LAogICAgICAiVUgwIjogOTksCiAgICAgICJPWTIiOiAxMDAsCiAgICAgICJPWTAiOiAxMDEsCiAgICAgICIuIjogMTAyCiAg
+        ICB9LAogICAgInVua190b2tlbiI6ICI8dW5rPiIKICB9Cn0=
         """#
 
-    private func tokenizer(json: String = Self.tokenizerJSON) throws
-        -> MiniBARTG2PTokenizer
-    {
-        try MiniBARTG2PTokenizer(data: Data(json.utf8))
+    private static let lockedTokenizerData = Data(
+        base64Encoded: lockedTokenizerBase64,
+        options: .ignoreUnknownCharacters)!
+
+    private func tokenizer() throws -> MiniBARTG2PTokenizer {
+        try MiniBARTG2PTokenizer(data: Self.lockedTokenizerData)
+    }
+
+    private func mutatedTokenizerData(
+        _ replacements: [(original: String, replacement: String)]
+    ) throws -> Data {
+        var text = String(decoding: Self.lockedTokenizerData, as: UTF8.self)
+        for replacement in replacements {
+            let range = try #require(text.range(of: replacement.original))
+            text.replaceSubrange(range, with: replacement.replacement)
+        }
+        return Data(text.utf8)
+    }
+
+    @Test func initializerAcceptsOnlyTheLockedArtifactIdentity() throws {
+        let value = try tokenizer()
+
+        #expect(
+            value.vocabularyVersion
+                == "sha256:40193885f8093d3bf59dfc199db502cfa8618b24bfcb2d08aa5f8d538bc34495")
+    }
+
+    @Test func initializerRejectsAUniquelyRemappedVocabulary() throws {
+        let data = try mutatedTokenizerData([
+            (#""c": 21"#, #""c": 22"#),
+            (#""d": 22"#, #""d": 21"#),
+        ])
+
+        #expect(throws: MiniBARTG2PTokenizer.Error.invalidConfiguration) {
+            try MiniBARTG2PTokenizer(data: data)
+        }
+    }
+
+    @Test func initializerRejectsIgnoredConfigurationDrift() throws {
+        let attacks = [
+            (#""padding": null"#, #""padding": {}"#),
+            (#""content": "<s>""#, #""content": "<start>""#),
+            (#""decoder": null"#, #""decoder": {"type":"Fuse"}"#),
+            (#""stride": 0"#, #""stride": 1"#),
+            (#""trim_offsets": true"#, #""trim_offsets": false"#),
+        ]
+
+        for attack in attacks {
+            let data = try mutatedTokenizerData([attack])
+            #expect(throws: MiniBARTG2PTokenizer.Error.invalidConfiguration) {
+                try MiniBARTG2PTokenizer(data: data)
+            }
+        }
     }
 
     @Test func encodeLowercasesAndWrapsCharacterIDs() throws {
@@ -66,52 +147,54 @@ import Testing
         #expect(encoded.dropFirst().dropLast().allSatisfy { $0 == 6 })
     }
 
-    @Test func decodeOutputStripsControlAndPunctuationTokens() throws {
+    @Test func decodeOutputConsumesACompleteNormalizedBeamSequence() throws {
         #expect(
-            try tokenizer().decodeOutput(ids: [0, 53, 11, 17, 56, 102, 2, 1])
+            try tokenizer().decodeOutput(ids: [2, 53, 11, 17, 56, 102, 2])
                 == ["HH", "AH0", "L", "OW1"])
+    }
+
+    @Test func decodeOutputRejectsAnInvalidDecoderStart() throws {
+        #expect(throws: MiniBARTG2PTokenizer.Error.invalidDecoderStart(0)) {
+            try tokenizer().decodeOutput(ids: [0, 53, 11, 2, 56, 1])
+        }
+    }
+
+    @Test func decodeOutputRejectsBosAndPadInsideLexicalContent() throws {
+        let value = try tokenizer()
+
+        #expect(throws: MiniBARTG2PTokenizer.Error.invalidControlToken(id: 0, index: 2)) {
+            try value.decodeOutput(ids: [2, 53, 0, 11, 2])
+        }
+        #expect(throws: MiniBARTG2PTokenizer.Error.invalidControlToken(id: 1, index: 2)) {
+            try value.decodeOutput(ids: [2, 53, 1, 11, 2])
+        }
+    }
+
+    @Test func decodeOutputRequiresExactlyOneFinalTermination() throws {
+        let value = try tokenizer()
+
+        #expect(throws: MiniBARTG2PTokenizer.Error.missingTermination) {
+            try value.decodeOutput(ids: [2, 53, 11])
+        }
+        #expect(throws: MiniBARTG2PTokenizer.Error.contentAfterTermination(index: 3)) {
+            try value.decodeOutput(ids: [2, 53, 2, 56])
+        }
+        #expect(throws: MiniBARTG2PTokenizer.Error.contentAfterTermination(index: 3)) {
+            try value.decodeOutput(ids: [2, 53, 2, 2])
+        }
+        #expect(throws: MiniBARTG2PTokenizer.Error.contentAfterTermination(index: 3)) {
+            try value.decodeOutput(ids: [2, 53, 2, 1])
+        }
     }
 
     @Test func decodeOutputRejectsUnknownAndEmptyOutput() throws {
         let value = try tokenizer()
 
         #expect(throws: MiniBARTG2PTokenizer.Error.unknownOutputID(999)) {
-            try value.decodeOutput(ids: [53, 999, 2])
+            try value.decodeOutput(ids: [2, 53, 999, 2])
         }
         #expect(throws: MiniBARTG2PTokenizer.Error.emptyOutput) {
-            try value.decodeOutput(ids: [0, 1, 2, 102])
+            try value.decodeOutput(ids: [2, 102, 2])
         }
-    }
-
-    @Test func initializerRejectsDuplicateVocabularyIDs() {
-        let duplicate = Self.tokenizerJSON.replacingOccurrences(
-            of: #""c":21"#,
-            with: #""c":6"#)
-
-        #expect(throws: MiniBARTG2PTokenizer.Error.duplicateVocabularyID(6)) {
-            try tokenizer(json: duplicate)
-        }
-    }
-
-    @Test func initializerRejectsTokenizerContractDrift() {
-        let wrongNormalizer = Self.tokenizerJSON.replacingOccurrences(
-            of: #""type":"Lowercase""#,
-            with: #""type":"NFC""#)
-
-        #expect(throws: MiniBARTG2PTokenizer.Error.invalidConfiguration) {
-            try tokenizer(json: wrongNormalizer)
-        }
-    }
-
-    @Test func vocabularyVersionIsStableAndContentBound() throws {
-        let original = try tokenizer()
-        let changed = try tokenizer(
-            json: Self.tokenizerJSON.replacingOccurrences(
-                of: #""c":21"#,
-                with: #""c":79"#))
-
-        #expect(original.vocabularyVersion.hasPrefix("sha256:"))
-        #expect(original.vocabularyVersion.count == 71)
-        #expect(original.vocabularyVersion != changed.vocabularyVersion)
     }
 }

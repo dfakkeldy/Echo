@@ -12,6 +12,10 @@ nonisolated struct MiniBARTG2PTokenizer: Sendable {
         case unsupportedCharacters(String)
         case invalidWord
         case unknownInputToken(String)
+        case invalidDecoderStart(Int64)
+        case invalidControlToken(id: Int64, index: Int)
+        case missingTermination
+        case contentAfterTermination(index: Int)
         case unknownOutputID(Int64)
         case emptyOutput
     }
@@ -23,6 +27,13 @@ nonisolated struct MiniBARTG2PTokenizer: Sendable {
     private let maximumLength: Int
 
     init(data: Data) throws {
+        let digest = SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        guard digest == Self.lockedTokenizerSHA256 else {
+            throw Error.invalidConfiguration
+        }
+
         let configuration: Configuration
         do {
             configuration = try JSONDecoder().decode(Configuration.self, from: data)
@@ -64,11 +75,7 @@ nonisolated struct MiniBARTG2PTokenizer: Sendable {
         self.tokenToID = configuration.model.vocabulary
         self.idToToken = reverse
         self.maximumLength = configuration.truncation.maxLength
-        self.vocabularyVersion =
-            "sha256:"
-            + SHA256.hash(data: data)
-            .map { String(format: "%02x", $0) }
-            .joined()
+        self.vocabularyVersion = "sha256:\(digest)"
     }
 
     func encode(word: String) throws -> [Int64] {
@@ -105,22 +112,42 @@ nonisolated struct MiniBARTG2PTokenizer: Sendable {
         return ids
     }
 
+    /// Decodes one normalized, complete beam sequence.
+    ///
+    /// Mini-BART assigns token ID 2 to both the decoder-start token and EOS, so
+    /// the first 2 starts the sequence and the final 2 terminates it. Task 12's
+    /// beam runner must remove padding before passing IDs here and must retain
+    /// exactly those boundary controls.
     func decodeOutput(ids: [Int64]) throws -> [String] {
+        guard let first = ids.first else { throw Error.emptyOutput }
+        guard first == 2 else { throw Error.invalidDecoderStart(first) }
+
         var output: [String] = []
         output.reserveCapacity(ids.count)
-        for id in ids {
-            guard let token = idToToken[id] else { throw Error.unknownOutputID(id) }
-            if id == 0 || id == 1 || id == 2 || token == "." {
-                continue
+        for index in ids.indices.dropFirst() {
+            let id = ids[index]
+            if id == 2 {
+                guard index == ids.index(before: ids.endIndex) else {
+                    throw Error.contentAfterTermination(index: index + 1)
+                }
+                guard !output.isEmpty else { throw Error.emptyOutput }
+                return output
             }
+            if id == 0 || id == 1 {
+                throw Error.invalidControlToken(id: id, index: index)
+            }
+            guard let token = idToToken[id] else { throw Error.unknownOutputID(id) }
+            if token == "." { continue }
             output.append(token)
         }
-        guard !output.isEmpty else { throw Error.emptyOutput }
-        return output
+        throw Error.missingTermination
     }
 
     private static let outerSentencePunctuation = CharacterSet(
         charactersIn: ".,!?;:\"()[]{}")
+
+    private static let lockedTokenizerSHA256 =
+        "40193885f8093d3bf59dfc199db502cfa8618b24bfcb2d08aa5f8d538bc34495"
 
     private static func isAcceptedWordCharacter(_ character: Character) -> Bool {
         character == "'" || character == "-"
