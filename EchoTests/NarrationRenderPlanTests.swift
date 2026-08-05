@@ -363,6 +363,62 @@ import Testing
             from: manifest.encoded()) == manifest)
     }
 
+    @Test func monitoredLexiconRawInvalidReceiptMaterializesOnlyUnderItsExactContract() throws {
+        let validEvidence = PronunciationAdvisoryEvidence(
+            category: .lexical,
+            selectedAuthority: .trusted,
+            selectedCandidateID: nil,
+            alternatives: [],
+            selectionReason: .trustedLexicon,
+            overrideSuppressedAutomation: false,
+            policyVersion: "fixture-v1")
+        let validSeed = PronunciationDecisionSeed(
+            blockID: "monitored-invalid",
+            wordStart: 0,
+            wordEnd: 0,
+            normalizedWord: "ordinary",
+            sourceWord: "ordinary",
+            sourceContext: "ordinary",
+            selectedIPA: "\u{0000}",
+            source: .monitoredLexicon,
+            ruleID: "g2p.lexicon.ordinary",
+            rationale: "Raw G2P output was rejected.",
+            advisoryEvidence: validEvidence)
+        let valid = NarrationRenderPlanner.materializedPronunciationEvidence(
+            from: [validSeed],
+            synthesisChunks: [])
+
+        let decision = try #require(valid.decisions.first)
+        #expect(valid.decisions.count == 1)
+        #expect(decision.advisoryEvidence?.isValid(for: decision) == true)
+        #expect(decision.isEvidenceOnlyInvalidOutputAdvisory)
+
+        let tamperedEvidence = PronunciationAdvisoryEvidence(
+            category: .lexical,
+            selectedAuthority: .trusted,
+            selectedCandidateID: nil,
+            alternatives: [],
+            selectionReason: .sourceDisagreement,
+            overrideSuppressedAutomation: false,
+            policyVersion: "fixture-v1")
+        let tamperedSeed = PronunciationDecisionSeed(
+            blockID: validSeed.blockID,
+            wordStart: validSeed.wordStart,
+            wordEnd: validSeed.wordEnd,
+            normalizedWord: validSeed.normalizedWord,
+            sourceWord: validSeed.sourceWord,
+            sourceContext: validSeed.sourceContext,
+            selectedIPA: validSeed.selectedIPA,
+            source: validSeed.source,
+            ruleID: validSeed.ruleID,
+            rationale: validSeed.rationale,
+            advisoryEvidence: tamperedEvidence)
+        let tampered = NarrationRenderPlanner.materializedPronunciationEvidence(
+            from: [tamperedSeed],
+            synthesisChunks: [])
+        #expect(tampered.decisions.isEmpty)
+    }
+
     @Test func matchedOOVMarkerPlusValidIPAStaysOnTheOrdinaryMaterializedPath()
         throws
     {

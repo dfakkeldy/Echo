@@ -342,6 +342,11 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
 /// directly from Misaki token evidence; rewrite and override provenance cannot
 /// enter this audit-only path.
 nonisolated enum InvalidG2PAuditReceipt {
+    enum Classification: Equatable {
+        case verified(expectedSelectionReason: PronunciationAdvisoryEvidence.SelectionReason)
+        case invalid
+    }
+
     static func hasVerifiedProvenance(
         normalizedWord: String,
         sourceWord: String,
@@ -355,9 +360,43 @@ nonisolated enum InvalidG2PAuditReceipt {
         contextualEvidence: ContextualPronunciationEvidence?,
         advisoryEvidence: PronunciationAdvisoryEvidence
     ) -> Bool {
+        guard case .verified(let expectedSelectionReason) = classification(
+            normalizedWord: normalizedWord,
+            sourceWord: sourceWord,
+            selectedIPA: selectedIPA,
+            source: source,
+            ruleID: ruleID,
+            candidateID: candidateID,
+            candidatePackVersion: candidatePackVersion,
+            derivationBase: derivationBase,
+            derivationRuleID: derivationRuleID,
+            contextualEvidence: contextualEvidence,
+            advisoryEvidence: advisoryEvidence)
+        else {
+            return false
+        }
+        return advisoryEvidence.selectionReason == expectedSelectionReason
+    }
+
+    static func classification(
+        normalizedWord: String,
+        sourceWord: String,
+        selectedIPA: String,
+        source: PronunciationAuditDecision.Source,
+        ruleID: String,
+        candidateID: String?,
+        candidatePackVersion: String?,
+        derivationBase: String?,
+        derivationRuleID: String?,
+        contextualEvidence: ContextualPronunciationEvidence?,
+        advisoryEvidence: PronunciationAdvisoryEvidence
+    ) -> Classification? {
+        guard PronunciationAuditContext.isRejectedRawG2POutput(selectedIPA) else {
+            return nil
+        }
         guard
             PronunciationAuditContext.normalizedWord(sourceWord) == normalizedWord,
-            PronunciationAuditContext.isRejectedRawG2POutput(selectedIPA),
+            advisoryEvidence.isValid(),
             advisoryEvidence.category == .lexical,
             advisoryEvidence.selectedCandidateID == nil,
             !advisoryEvidence.overrideSuppressedAutomation,
@@ -367,26 +406,31 @@ nonisolated enum InvalidG2PAuditReceipt {
             derivationRuleID == nil,
             contextualEvidence == nil
         else {
-            return false
+            return .invalid
         }
 
         switch source {
         case .fallback:
-            return ruleID == "g2p.fallback.\(PronunciationAuditContext.ruleComponent(sourceWord))"
-                && advisoryEvidence.selectedAuthority == .uncertain
-                && advisoryEvidence.selectionReason == .deterministicFallback
+            guard
+                ruleID == "g2p.fallback.\(PronunciationAuditContext.ruleComponent(sourceWord))",
+                advisoryEvidence.selectedAuthority == .uncertain
+            else {
+                return .invalid
+            }
+            return .verified(expectedSelectionReason: .deterministicFallback)
         case .monitoredLexicon:
-            let validSelection =
-                (advisoryEvidence.selectionReason == .trustedLexicon
-                    && advisoryEvidence.alternatives.isEmpty)
-                || (advisoryEvidence.selectionReason == .sourceDisagreement
-                    && !advisoryEvidence.alternatives.isEmpty)
-            return ruleID == "g2p.lexicon.\(PronunciationAuditContext.ruleComponent(sourceWord))"
-                && advisoryEvidence.selectedAuthority == .trusted
-                && validSelection
+            guard
+                ruleID == "g2p.lexicon.\(PronunciationAuditContext.ruleComponent(sourceWord))",
+                advisoryEvidence.selectedAuthority == .trusted
+            else {
+                return .invalid
+            }
+            return .verified(
+                expectedSelectionReason: advisoryEvidence.alternatives.isEmpty
+                    ? .trustedLexicon : .sourceDisagreement)
         case .occurrenceOverride, .bookOverride, .globalOverride, .builtInOverride,
             .contextualHomograph, .supplementalLexicon, .derivedMorphology:
-            return false
+            return .invalid
         }
     }
 }

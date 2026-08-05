@@ -132,6 +132,16 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
                 return false
             }
         }
+        let neuralAlternatives = alternatives.filter(Self.claimsNeuralNamespace)
+        guard neuralAlternatives.allSatisfy(Self.isGovernedNeuralShadowAlternative)
+        else {
+            return false
+        }
+        if neuralShadowObservation == .candidate {
+            guard neuralAlternatives.count == 1 else { return false }
+        } else {
+            guard neuralAlternatives.isEmpty else { return false }
+        }
         guard hasValidNeuralShadowObservation else { return false }
         return selectedCandidateID.map {
             !$0.isEmpty && $0 == $0.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -147,9 +157,16 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
         else {
             return false
         }
-        let hasRawInvalidProvenance = hasRawInvalidDecisionProvenance(decision)
-        if hasRawInvalidProvenance {
-            guard selectionReason == .deterministicFallback else { return false }
+        if let rawInvalidClassification = rawInvalidClassification(for: decision) {
+            guard case .verified(let expectedSelectionReason) = rawInvalidClassification,
+                decision.kokoroTokenIDs.isEmpty,
+                decision.chapterRelativeAudioRange == nil,
+                decision.bookRelativeAudioRange == nil,
+                decision.timingPrecision == nil,
+                selectionReason == expectedSelectionReason
+            else {
+                return false
+            }
         } else if neuralShadowObservation != nil,
             selectionReason == .deterministicFallback
         {
@@ -180,7 +197,7 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
         switch neuralShadowObservation {
         case .candidate:
             return hasCompatibleReason(.shadowCandidate)
-                && alternatives.contains(where: Self.isNeuralShadowAlternative)
+                && alternatives.contains(where: Self.isGovernedNeuralShadowAlternative)
         case .agreementSelected:
             return selectionReason == .shadowAgreementSelected
         case .agreementExistingAlternative:
@@ -211,33 +228,28 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
                 && !overrideSuppressedAutomation)
     }
 
-    private static func isNeuralShadowAlternative(_ alternative: Alternative) -> Bool {
-        return alternative.authority == .uncertain
+    private static func claimsNeuralNamespace(_ alternative: Alternative) -> Bool {
+        NeuralG2PGovernedIdentity.claimsNamespace(
+            source: alternative.source,
+            selectionPolicyVersion: alternative.policyVersion)
+    }
+
+    private static func isGovernedNeuralShadowAlternative(
+        _ alternative: Alternative
+    ) -> Bool {
+        alternative.authority == .uncertain
             && alternative.validation == .shadow
             && alternative.source == NeuralG2PGovernedIdentity.alternativeSource
             && alternative.policyVersion == NeuralG2PGovernedIdentity.selectionPolicyVersion
+            && NeuralG2PGovernedIdentity.isValidCandidateID(alternative.candidateID)
+            && NeuralG2PGovernedIdentity.normalizedKokoroIPA(alternative.ipa)
+                == alternative.ipa
     }
 
-    private func hasRawInvalidDecisionProvenance(
-        _ decision: PronunciationAuditDecision
-    ) -> Bool {
-        guard decision.kokoroTokenIDs.isEmpty,
-            decision.chapterRelativeAudioRange == nil,
-            decision.bookRelativeAudioRange == nil,
-            decision.timingPrecision == nil
-        else {
-            return false
-        }
-        let sealedEvidence = PronunciationAdvisoryEvidence(
-            category: category,
-            selectedAuthority: selectedAuthority,
-            selectedCandidateID: selectedCandidateID,
-            alternatives: alternatives,
-            selectionReason: .deterministicFallback,
-            overrideSuppressedAutomation: overrideSuppressedAutomation,
-            policyVersion: policyVersion,
-            neuralShadowObservation: neuralShadowObservation)
-        return InvalidG2PAuditReceipt.hasVerifiedProvenance(
+    private func rawInvalidClassification(
+        for decision: PronunciationAuditDecision
+    ) -> InvalidG2PAuditReceipt.Classification? {
+        InvalidG2PAuditReceipt.classification(
             normalizedWord: decision.normalizedWord,
             sourceWord: decision.sourceWord,
             selectedIPA: decision.selectedIPA,
@@ -248,7 +260,7 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
             derivationBase: decision.derivationBase,
             derivationRuleID: decision.derivationRuleID,
             contextualEvidence: decision.contextualEvidence,
-            advisoryEvidence: sealedEvidence)
+            advisoryEvidence: self)
     }
 
     private static func isOrderedBefore(_ lhs: Alternative, _ rhs: Alternative) -> Bool {

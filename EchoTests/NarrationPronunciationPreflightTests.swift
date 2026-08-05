@@ -249,15 +249,13 @@ import Testing
             to: decision)
         #expect(duplicate.advisoryEvidence?.alternatives == decision.advisoryEvidence?.alternatives)
         #expect(duplicate.advisoryEvidence?.selectionReason == .deterministicFallback)
-        #expect(
-            duplicate.advisoryEvidence?.neuralShadowObservation
-                == .agreementExistingAlternative)
+        #expect(duplicate.advisoryEvidence?.neuralShadowObservation == .candidate)
         #expect(duplicate.isEvidenceOnlyInvalidOutputAdvisory)
 
         let unavailable = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
             .rejected(.unavailable),
             to: decision)
-        #expect(unavailable.advisoryEvidence?.alternatives == decision.advisoryEvidence?.alternatives)
+        #expect(unavailable.advisoryEvidence?.alternatives.isEmpty == true)
         #expect(unavailable.advisoryEvidence?.selectionReason == .deterministicFallback)
         #expect(unavailable.advisoryEvidence?.neuralShadowObservation == .modelUnavailable)
         #expect(unavailable.isEvidenceOnlyInvalidOutputAdvisory)
@@ -267,11 +265,11 @@ import Testing
                 candidateID: Self.neuralCandidate().candidateID,
                 ipa: "bæd")),
             to: decision)
-        #expect(identityConflict.advisoryEvidence?.alternatives == decision.advisoryEvidence?.alternatives)
+        #expect(identityConflict.advisoryEvidence?.alternatives.isEmpty == true)
         #expect(identityConflict.advisoryEvidence?.selectionReason == .deterministicFallback)
         #expect(
             identityConflict.advisoryEvidence?.neuralShadowObservation
-                == .existingAlternativeCandidateIDConflict)
+                == .invalidCandidate)
         #expect(identityConflict.isEvidenceOnlyInvalidOutputAdvisory)
     }
 
@@ -296,7 +294,8 @@ import Testing
         #expect(ipaAgreement.advisoryEvidence?.neuralShadowObservation == .agreementSelected)
         #expect(ipaAgreement.advisoryEvidence?.isValid(for: ipaAgreement) == true)
 
-        let selectedCandidateID = "selected.fallback"
+        let selectedCandidateID =
+            "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
         let evidenceWithSelectedIdentity = PronunciationAdvisoryEvidence(
             category: originalEvidence.category,
             selectedAuthority: originalEvidence.selectedAuthority,
@@ -354,7 +353,9 @@ import Testing
             })
         let originalEvidence = try #require(original.advisoryEvidence)
         let existing = PronunciationAdvisoryEvidence.Alternative(
-            candidateID: "existing.shadow", ipa: "bæd", source: "fixture",
+            candidateID:
+                "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            ipa: "bæd", source: "fixture",
             authority: .uncertain, validation: .shadow, policyVersion: "fixture-v1")
         let evidenceWithAlternative = PronunciationAdvisoryEvidence(
             category: originalEvidence.category,
@@ -435,6 +436,14 @@ import Testing
                 validationPolicyVersion: "kokoro-vocab-validation-v2"),
             Self.neuralCandidateWithIdentity(
                 selectionPolicyVersion: "mini-bart-g2p-beam5-max20-v2"),
+            Self.neuralCandidate(candidateID: "neural.candidate"),
+            Self.neuralCandidate(
+                candidateID: "sha256:" + String(repeating: "a", count: 63)),
+            Self.neuralCandidate(
+                candidateID: "sha256:" + String(repeating: "A", count: 64)),
+            Self.neuralCandidate(
+                candidateID: "sha256:" + String(repeating: "g", count: 64)),
+            Self.neuralCandidate(ipa: "🙂"),
         ]
 
         let exact = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(

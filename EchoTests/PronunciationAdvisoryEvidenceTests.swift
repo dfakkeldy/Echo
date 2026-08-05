@@ -345,6 +345,109 @@ import Testing
         }
     }
 
+    @Test func neuralNamespaceClaimsAreClosedAcrossTheWholeAlternativeSet() {
+        let legitimateAuditAlternative = alternative(
+            candidateID: "lexicon.fixture",
+            ipa: "bæd")
+        let secondGovernedAlternative = neuralAlternative(
+            candidateID:
+                "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            ipa: "bɛd")
+        let claimedSource = neuralAlternative(
+            candidateID:
+                "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+            ipa: "bɪd",
+            source:
+                "mini-bart-g2p@x|mini-bart-arpabet-to-kokoro-"
+                + "|kokoro-vocab-validation-",
+            policyVersion: "random-policy")
+        let claimedPolicy = neuralAlternative(
+            candidateID:
+                "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+            ipa: "bʌd",
+            source: "random-source",
+            policyVersion: "mini-bart-g2p-forged")
+        let alteredPolicy = neuralAlternative(
+            candidateID:
+                "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+            ipa: "bɔd",
+            policyVersion: "mini-bart-g2p-beam5-max20-v2")
+
+        let exactPlusAudit = evidence(
+            alternatives: [neuralAlternative(), legitimateAuditAlternative],
+            selectionReason: .shadowCandidate,
+            observation: .candidate)
+        #expect(exactPlusAudit.isValid())
+
+        for forgedAlternatives in [
+            [neuralAlternative(), secondGovernedAlternative],
+            [neuralAlternative(), claimedSource],
+            [neuralAlternative(), claimedPolicy],
+            [neuralAlternative(), alteredPolicy],
+        ] {
+            #expect(!evidence(
+                alternatives: forgedAlternatives,
+                selectionReason: .shadowCandidate,
+                observation: .candidate
+            ).isValid())
+        }
+
+        for forgedObservation in [
+            evidence(
+                alternatives: [neuralAlternative()],
+                selectionReason: .modelUnavailable,
+                observation: .modelUnavailable),
+            evidence(
+                alternatives: [claimedSource],
+                selectionReason: .invalidCandidate,
+                observation: .invalidCandidate),
+            evidence(
+                alternatives: [claimedPolicy],
+                selectionReason: .modelInferenceFailure,
+                observation: .modelInferenceFailure),
+            evidence(
+                alternatives: [alteredPolicy],
+                selectionReason: .deterministicFallback,
+                observation: nil),
+        ] {
+            #expect(!forgedObservation.isValid())
+        }
+    }
+
+    @Test func governedNeuralAlternativeRequiresLiveCandidateIDAndKokoroIPA() {
+        let malformed = [
+            neuralAlternative(candidateID: "neural.candidate"),
+            neuralAlternative(candidateID: "sha256:" + String(repeating: "a", count: 63)),
+            neuralAlternative(candidateID: "sha256:" + String(repeating: "A", count: 64)),
+            neuralAlternative(candidateID: "sha256:" + String(repeating: "g", count: 64)),
+            neuralAlternative(ipa: "🙂"),
+            alternative(
+                candidateID:
+                    "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+                ipa: "bɛd",
+                source: NeuralG2PGovernedIdentity.alternativeSource,
+                authority: .qualified,
+                validation: .shadow,
+                policyVersion: NeuralG2PGovernedIdentity.selectionPolicyVersion),
+            alternative(
+                candidateID:
+                    "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+                ipa: "bɪd",
+                source: NeuralG2PGovernedIdentity.alternativeSource,
+                authority: .uncertain,
+                validation: .eligible,
+                policyVersion: NeuralG2PGovernedIdentity.selectionPolicyVersion),
+        ]
+
+        for malformedAlternative in malformed {
+            #expect(!evidence(
+                alternatives: [malformedAlternative],
+                selectionReason: .shadowCandidate,
+                observation: .candidate
+            ).isValid())
+        }
+    }
+
     @Test func acceptsAnalyzerProducedOrdinaryAndRawInvalidObservationShapes() {
         let existing = alternative(candidateID: "existing.shadow", ipa: "bæd")
         let valid = [
@@ -499,6 +602,55 @@ import Testing
         }
     }
 
+    @Test func monitoredLexiconRawInvalidReceiptsUseTheSameDecisionAndAuditContract() {
+        let trusted = evidence(
+            selectionReason: .trustedLexicon,
+            observation: nil,
+            selectedAuthority: .trusted)
+        let disagreement = evidence(
+            alternatives: [alternative(candidateID: "lexicon.shadow", ipa: "bæd")],
+            selectionReason: .sourceDisagreement,
+            observation: nil,
+            selectedAuthority: .trusted)
+
+        for validEvidence in [trusted, disagreement] {
+            let decision = monitoredLexiconRawInvalidDecision(validEvidence)
+            #expect(validEvidence.isValid(for: decision))
+            #expect(decision.isEvidenceOnlyInvalidOutputAdvisory)
+        }
+
+        let tamperedEvidence = [
+            evidence(
+                alternatives: [alternative(candidateID: "lexicon.shadow", ipa: "bæd")],
+                selectionReason: .trustedLexicon,
+                observation: nil,
+                selectedAuthority: .trusted),
+            evidence(
+                selectionReason: .sourceDisagreement,
+                observation: nil,
+                selectedAuthority: .trusted),
+            evidence(
+                selectionReason: .deterministicFallback,
+                observation: nil,
+                selectedAuthority: .trusted),
+            evidence(
+                selectionReason: .trustedLexicon,
+                observation: nil,
+                selectedAuthority: .uncertain),
+        ]
+        for invalidEvidence in tamperedEvidence {
+            let decision = monitoredLexiconRawInvalidDecision(invalidEvidence)
+            #expect(!invalidEvidence.isValid(for: decision))
+            #expect(!decision.isEvidenceOnlyInvalidOutputAdvisory)
+        }
+
+        let wrongRule = monitoredLexiconRawInvalidDecision(
+            trusted,
+            ruleID: "g2p.fallback.xyzqwf")
+        #expect(!trusted.isValid(for: wrongRule))
+        #expect(!wrongRule.isEvidenceOnlyInvalidOutputAdvisory)
+    }
+
     private func rawInvalidDecision(
         _ advisoryEvidence: PronunciationAdvisoryEvidence
     ) -> PronunciationAuditDecision {
@@ -532,6 +684,26 @@ import Testing
             kokoroTokenIDs: [1],
             source: .fallback,
             ruleID: "g2p.fallback.xyzqwf",
+            rationale: "fixture",
+            candidateID: nil,
+            advisoryEvidence: advisoryEvidence)
+    }
+
+    private func monitoredLexiconRawInvalidDecision(
+        _ advisoryEvidence: PronunciationAdvisoryEvidence,
+        ruleID: String = "g2p.lexicon.xyzqwf"
+    ) -> PronunciationAuditDecision {
+        PronunciationAuditDecision(
+            blockID: "blk1",
+            wordStart: 0,
+            wordEnd: 0,
+            normalizedWord: "xyzqwf",
+            sourceWord: "Xyzqwf",
+            sourceContext: "Xyzqwf",
+            selectedIPA: "\u{0000}",
+            kokoroTokenIDs: [],
+            source: .monitoredLexicon,
+            ruleID: ruleID,
             rationale: "fixture",
             candidateID: nil,
             advisoryEvidence: advisoryEvidence)

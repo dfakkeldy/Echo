@@ -4,6 +4,9 @@ import Foundation
 /// One governed identity for the locked Stage 3 shadow model and every policy
 /// that turns its output into an advisory alternative.
 nonisolated enum NeuralG2PGovernedIdentity {
+    private static let namespacePrefix = "mini-bart-g2p"
+    private static let candidateIDPrefix = "sha256:"
+
     static let modelRevision = "f277d1e0597e7e7d33fa1d6d27d764bc4d7acb06"
     static let conversionPolicyVersion = "mini-bart-arpabet-to-kokoro-v1"
     static let validationPolicyVersion = "kokoro-vocab-validation-v1"
@@ -11,6 +14,45 @@ nonisolated enum NeuralG2PGovernedIdentity {
     static let alternativeSource =
         "mini-bart-g2p@\(modelRevision)"
         + "|\(conversionPolicyVersion)|\(validationPolicyVersion)"
+
+    static func claimsNamespace(source: String, selectionPolicyVersion: String) -> Bool {
+        source.hasPrefix(namespacePrefix)
+            || selectionPolicyVersion.hasPrefix(namespacePrefix)
+    }
+
+    static func isValidCandidateID(_ candidateID: String) -> Bool {
+        guard candidateID.hasPrefix(candidateIDPrefix) else { return false }
+        let digest = candidateID.dropFirst(candidateIDPrefix.count)
+        guard digest.utf8.count == 64 else { return false }
+        return digest.utf8.allSatisfy {
+            (UInt8(ascii: "0")...UInt8(ascii: "9")).contains($0)
+                || (UInt8(ascii: "a")...UInt8(ascii: "f")).contains($0)
+        }
+    }
+
+    static func normalizedKokoroIPA(_ ipa: String) -> String? {
+        let normalized = ipa.precomposedStringWithCanonicalMapping
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty,
+            let vocabulary = try? KokoroPhonemeVocab(),
+            (try? vocabulary.validatedIDs(forPhonemes: normalized)) != nil
+        else {
+            return nil
+        }
+        return normalized
+    }
+
+    static func validatedIPA(for candidate: NeuralG2PCandidate) -> String? {
+        guard isValidCandidateID(candidate.candidateID),
+            candidate.modelRevision == modelRevision,
+            candidate.conversionPolicyVersion == conversionPolicyVersion,
+            candidate.validationPolicyVersion == validationPolicyVersion,
+            candidate.selectionPolicyVersion == selectionPolicyVersion
+        else {
+            return nil
+        }
+        return normalizedKokoroIPA(candidate.ipa)
+    }
 }
 
 nonisolated struct NeuralG2PCandidate: Codable, Equatable, Sendable {

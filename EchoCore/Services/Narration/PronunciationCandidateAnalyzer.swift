@@ -57,6 +57,11 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
         guard isNeuralOOVComparisonCandidate(decision), let evidence = decision.advisoryEvidence
         else { return decision }
         let preservesInvalidOutputReceipt = decision.isEvidenceOnlyInvalidOutputAdvisory
+        let nonNeuralAlternatives = evidence.alternatives.filter {
+            !NeuralG2PGovernedIdentity.claimsNamespace(
+                source: $0.source,
+                selectionPolicyVersion: $0.policyVersion)
+        }
 
         let updatedEvidence: PronunciationAdvisoryEvidence
         switch result {
@@ -65,6 +70,7 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
                 updatedEvidence = replacingSelectionReason(
                     preservesInvalidOutputReceipt ? evidence.selectionReason : .invalidCandidate,
                     neuralShadowObservation: .invalidCandidate,
+                    alternatives: nonNeuralAlternatives,
                     in: evidence)
                 break
             }
@@ -79,6 +85,7 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
                             ? .shadowAgreementSelected : .invalidCandidate,
                     neuralShadowObservation: agreesWithSelected
                         ? .agreementSelected : .selectedCandidateIDConflict,
+                    alternatives: nonNeuralAlternatives,
                     in: evidence)
                 break
             }
@@ -86,6 +93,31 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
                 $0.candidateID == alternative.candidateID
             }) {
                 let agreesWithExistingAlternative = normalizedIPA(existing.ipa) == candidateIPA
+                if NeuralG2PGovernedIdentity.claimsNamespace(
+                    source: existing.source,
+                    selectionPolicyVersion: existing.policyVersion)
+                {
+                    if agreesWithExistingAlternative {
+                        updatedEvidence = PronunciationAdvisoryEvidence(
+                            category: evidence.category,
+                            selectedAuthority: evidence.selectedAuthority,
+                            selectedCandidateID: evidence.selectedCandidateID,
+                            alternatives: nonNeuralAlternatives + [alternative],
+                            selectionReason: preservesInvalidOutputReceipt
+                                ? evidence.selectionReason : .shadowCandidate,
+                            overrideSuppressedAutomation: evidence.overrideSuppressedAutomation,
+                            policyVersion: evidence.policyVersion,
+                            neuralShadowObservation: .candidate)
+                    } else {
+                        updatedEvidence = replacingSelectionReason(
+                            preservesInvalidOutputReceipt
+                                ? evidence.selectionReason : .invalidCandidate,
+                            neuralShadowObservation: .invalidCandidate,
+                            alternatives: nonNeuralAlternatives,
+                            in: evidence)
+                    }
+                    break
+                }
                 updatedEvidence = replacingSelectionReason(
                     preservesInvalidOutputReceipt
                         ? evidence.selectionReason
@@ -95,6 +127,7 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
                     neuralShadowObservation: agreesWithExistingAlternative
                         ? .agreementExistingAlternative
                         : .existingAlternativeCandidateIDConflict,
+                    alternatives: nonNeuralAlternatives,
                     in: evidence)
                 break
             }
@@ -103,16 +136,18 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
                     preservesInvalidOutputReceipt
                         ? evidence.selectionReason : .shadowAgreementSelected,
                     neuralShadowObservation: .agreementSelected,
+                    alternatives: nonNeuralAlternatives,
                     in: evidence)
                 break
             }
-            if evidence.alternatives.contains(where: {
+            if nonNeuralAlternatives.contains(where: {
                 normalizedIPA($0.ipa) == candidateIPA
             }) {
                 updatedEvidence = replacingSelectionReason(
                     preservesInvalidOutputReceipt
                         ? evidence.selectionReason : .shadowAgreementExistingAlternative,
                     neuralShadowObservation: .agreementExistingAlternative,
+                    alternatives: nonNeuralAlternatives,
                     in: evidence)
                 break
             }
@@ -120,7 +155,7 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
                 category: evidence.category,
                 selectedAuthority: evidence.selectedAuthority,
                 selectedCandidateID: evidence.selectedCandidateID,
-                alternatives: evidence.alternatives + [alternative],
+                alternatives: nonNeuralAlternatives + [alternative],
                 selectionReason: preservesInvalidOutputReceipt
                     ? evidence.selectionReason : .shadowCandidate,
                 overrideSuppressedAutomation: evidence.overrideSuppressedAutomation,
@@ -131,6 +166,7 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
                 preservesInvalidOutputReceipt
                     ? evidence.selectionReason : selectionReason(for: failure),
                 neuralShadowObservation: neuralShadowObservation(for: failure),
+                alternatives: nonNeuralAlternatives,
                 in: evidence)
         }
 
@@ -140,25 +176,12 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
     private static func neuralAlternative(
         for candidate: NeuralG2PCandidate
     ) -> PronunciationAdvisoryEvidence.Alternative? {
-        let candidateID = candidate.candidateID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let ipa = normalizedIPA(candidate.ipa)
-        guard !candidateID.isEmpty, candidateID == candidate.candidateID,
-            !ipa.isEmpty,
-            candidate.modelRevision == NeuralG2PGovernedIdentity.modelRevision,
-            candidate.conversionPolicyVersion
-                == NeuralG2PGovernedIdentity.conversionPolicyVersion,
-            candidate.validationPolicyVersion
-                == NeuralG2PGovernedIdentity.validationPolicyVersion,
-            candidate.selectionPolicyVersion
-                == NeuralG2PGovernedIdentity.selectionPolicyVersion,
-            let vocabulary = try? KokoroPhonemeVocab(),
-            (try? vocabulary.validatedIDs(forPhonemes: ipa)) != nil
-        else {
+        guard let ipa = NeuralG2PGovernedIdentity.validatedIPA(for: candidate) else {
             return nil
         }
 
         return PronunciationAdvisoryEvidence.Alternative(
-            candidateID: candidateID,
+            candidateID: candidate.candidateID,
             ipa: ipa,
             source: NeuralG2PGovernedIdentity.alternativeSource,
             authority: .uncertain,
@@ -199,13 +222,14 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
     private static func replacingSelectionReason(
         _ selectionReason: PronunciationAdvisoryEvidence.SelectionReason,
         neuralShadowObservation: PronunciationAdvisoryEvidence.NeuralShadowObservation,
+        alternatives: [PronunciationAdvisoryEvidence.Alternative]? = nil,
         in evidence: PronunciationAdvisoryEvidence
     ) -> PronunciationAdvisoryEvidence {
         PronunciationAdvisoryEvidence(
             category: evidence.category,
             selectedAuthority: evidence.selectedAuthority,
             selectedCandidateID: evidence.selectedCandidateID,
-            alternatives: evidence.alternatives,
+            alternatives: alternatives ?? evidence.alternatives,
             selectionReason: selectionReason,
             overrideSuppressedAutomation: evidence.overrideSuppressedAutomation,
             policyVersion: evidence.policyVersion,
