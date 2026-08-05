@@ -35,8 +35,6 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
         case shadowCandidate
         case shadowAgreementSelected
         case shadowAgreementExistingAlternative
-        case shadowSelectedCandidateIDConflict
-        case shadowExistingAlternativeCandidateIDConflict
         case invalidCandidate
         case modelUnavailable
         case modelIntegrityFailure
@@ -134,6 +132,7 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
                 return false
             }
         }
+        guard hasValidNeuralShadowObservation else { return false }
         return selectedCandidateID.map {
             !$0.isEmpty && $0 == $0.trimmingCharacters(in: .whitespacesAndNewlines)
         } ?? true
@@ -148,6 +147,12 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
         else {
             return false
         }
+        if neuralShadowObservation != nil,
+            selectionReason == .deterministicFallback,
+            !isValidRawInvalidDecision(decision)
+        {
+            return false
+        }
 
         // Evidence-only advisories intentionally accept no candidate. The
         // synthesized decision IPA may still appear among the alternatives,
@@ -159,6 +164,86 @@ nonisolated struct PronunciationAdvisoryEvidence: Codable, Equatable, Sendable {
         return !alternatives.contains { alternative in
             Self.normalizedIPA(alternative.ipa) == selectedIPA
         }
+    }
+
+    private var hasValidNeuralShadowObservation: Bool {
+        guard let neuralShadowObservation else { return true }
+        guard category != .acoustic,
+            selectedAuthority == .uncertain,
+            !overrideSuppressedAutomation
+        else {
+            return false
+        }
+
+        switch neuralShadowObservation {
+        case .candidate:
+            return hasCompatibleReason(.shadowCandidate)
+                && alternatives.contains(where: Self.isNeuralShadowAlternative)
+        case .agreementSelected:
+            return selectionReason == .shadowAgreementSelected
+        case .agreementExistingAlternative:
+            return hasCompatibleReason(.shadowAgreementExistingAlternative)
+                && !alternatives.isEmpty
+        case .selectedCandidateIDConflict:
+            return selectionReason == .invalidCandidate && selectedCandidateID != nil
+        case .existingAlternativeCandidateIDConflict:
+            return hasCompatibleReason(.invalidCandidate)
+                && !alternatives.isEmpty
+        case .invalidCandidate:
+            return hasCompatibleReason(.invalidCandidate)
+        case .modelUnavailable:
+            return hasCompatibleReason(.modelUnavailable)
+        case .modelIntegrityFailure:
+            return hasCompatibleReason(.modelIntegrityFailure)
+        case .modelInferenceFailure:
+            return hasCompatibleReason(.modelInferenceFailure)
+        }
+    }
+
+    private func hasCompatibleReason(_ reason: SelectionReason) -> Bool {
+        selectionReason == reason
+            || (selectionReason == .deterministicFallback
+                && category == .lexical
+                && selectedAuthority == .uncertain
+                && selectedCandidateID == nil
+                && !overrideSuppressedAutomation)
+    }
+
+    private static func isNeuralShadowAlternative(_ alternative: Alternative) -> Bool {
+        let sourceComponents = alternative.source.split(
+            separator: "|",
+            omittingEmptySubsequences: false)
+        guard sourceComponents.count == 3 else { return false }
+        let modelIdentity = sourceComponents[0]
+        return alternative.authority == .uncertain
+            && alternative.validation == .shadow
+            && modelIdentity.hasPrefix("mini-bart-g2p@")
+            && modelIdentity.count > "mini-bart-g2p@".count
+            && sourceComponents[1].hasPrefix("mini-bart-arpabet-to-kokoro-")
+            && sourceComponents[2].hasPrefix("kokoro-vocab-validation-")
+            && alternative.policyVersion.hasPrefix("mini-bart-g2p-")
+    }
+
+    private func isValidRawInvalidDecision(_ decision: PronunciationAuditDecision) -> Bool {
+        guard decision.kokoroTokenIDs.isEmpty,
+            decision.chapterRelativeAudioRange == nil,
+            decision.bookRelativeAudioRange == nil,
+            decision.timingPrecision == nil
+        else {
+            return false
+        }
+        return InvalidG2PAuditReceipt.hasVerifiedProvenance(
+            normalizedWord: decision.normalizedWord,
+            sourceWord: decision.sourceWord,
+            selectedIPA: decision.selectedIPA,
+            source: decision.source,
+            ruleID: decision.ruleID,
+            candidateID: decision.candidateID,
+            candidatePackVersion: decision.candidatePackVersion,
+            derivationBase: decision.derivationBase,
+            derivationRuleID: decision.derivationRuleID,
+            contextualEvidence: decision.contextualEvidence,
+            advisoryEvidence: self)
     }
 
     private static func isOrderedBefore(_ lhs: Alternative, _ rhs: Alternative) -> Bool {

@@ -130,7 +130,9 @@ struct NarrationQAReviewView: View {
             LabeledContent("Category", value: displayName(presentation.category.rawValue))
             LabeledContent("Reason", value: displayName(presentation.selectionReason.rawValue))
             if let observation = presentation.neuralShadowObservation {
-                LabeledContent("Neural shadow", value: displayName(observation.rawValue))
+                LabeledContent(
+                    "Neural shadow",
+                    value: Self.localizedNeuralShadowName(observation))
             }
             LabeledContent(
                 "Occurrences",
@@ -245,6 +247,31 @@ struct NarrationQAReviewView: View {
                 options: .regularExpression)
             .replacingOccurrences(of: "-", with: " ")
             .capitalized
+    }
+
+    static func localizedNeuralShadowName(
+        _ observation: PronunciationAdvisoryEvidence.NeuralShadowObservation
+    ) -> String {
+        switch observation {
+        case .candidate:
+            String(localized: "Candidate")
+        case .agreementSelected:
+            String(localized: "Agrees with selected pronunciation")
+        case .agreementExistingAlternative:
+            String(localized: "Agrees with existing alternative")
+        case .selectedCandidateIDConflict:
+            String(localized: "Selected candidate ID conflict")
+        case .existingAlternativeCandidateIDConflict:
+            String(localized: "Existing alternative ID conflict")
+        case .invalidCandidate:
+            String(localized: "Invalid candidate")
+        case .modelUnavailable:
+            String(localized: "Model unavailable")
+        case .modelIntegrityFailure:
+            String(localized: "Model integrity failure")
+        case .modelInferenceFailure:
+            String(localized: "Model inference failure")
+        }
     }
 
     private func hasSourceOccurrence(_ issue: NarrationQualityIssueRecord) -> Bool {

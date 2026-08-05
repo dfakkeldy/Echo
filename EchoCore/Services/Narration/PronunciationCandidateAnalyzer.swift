@@ -76,7 +76,7 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
                     preservesInvalidOutputReceipt
                         ? evidence.selectionReason
                         : agreesWithSelected
-                            ? .shadowAgreementSelected : .shadowSelectedCandidateIDConflict,
+                            ? .shadowAgreementSelected : .invalidCandidate,
                     neuralShadowObservation: agreesWithSelected
                         ? .agreementSelected : .selectedCandidateIDConflict,
                     in: evidence)
@@ -91,7 +91,7 @@ nonisolated struct PronunciationCandidateAnalyzer: Sendable {
                         ? evidence.selectionReason
                         : agreesWithExistingAlternative
                             ? .shadowAgreementExistingAlternative
-                            : .shadowExistingAlternativeCandidateIDConflict,
+                            : .invalidCandidate,
                     neuralShadowObservation: agreesWithExistingAlternative
                         ? .agreementExistingAlternative
                         : .existingAlternativeCandidateIDConflict,

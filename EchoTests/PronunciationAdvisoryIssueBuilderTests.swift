@@ -161,12 +161,28 @@ import Testing
             authority: .qualified,
             validation: .shadow,
             policyVersion: "policy-v1")
+        func conflictAdvisory(
+            neuralShadowObservation: PronunciationAdvisoryEvidence.NeuralShadowObservation?
+        ) -> PronunciationAdvisoryEvidence {
+            PronunciationAdvisoryEvidence(
+                category: .lexical,
+                selectedAuthority: .uncertain,
+                selectedCandidateID: "candidate.primary",
+                alternatives: [firstAlternative, secondAlternative],
+                selectionReason: .invalidCandidate,
+                overrideSuppressedAutomation: false,
+                policyVersion: "policy-v1",
+                neuralShadowObservation: neuralShadowObservation)
+        }
         let builder = PronunciationAdvisoryIssueBuilder()
-        func id(for evidence: PronunciationAdvisoryEvidence) throws -> String {
+        func id(
+            for evidence: PronunciationAdvisoryEvidence,
+            source: PronunciationAuditDecision.Source = .supplementalLexicon
+        ) throws -> String {
             try #require(builder.records(
                 audiobookID: "book",
                 decisions: [decision(
-                    blockID: "blk1", wordStart: 2, advisoryEvidence: evidence)],
+                    blockID: "blk1", wordStart: 2, advisoryEvidence: evidence, source: source)],
                 diagnostics: [],
                 createdAt: createdAt).first?.id)
         }
@@ -174,13 +190,17 @@ import Testing
         let forward = try id(for: advisory(alternatives: [firstAlternative, secondAlternative]))
         let reversed = try id(for: advisory(alternatives: [secondAlternative, firstAlternative]))
         let changed = try id(for: advisory(alternatives: [changedAlternative, secondAlternative]))
-        let observed = try id(for: advisory(
-            alternatives: [firstAlternative, secondAlternative],
-            neuralShadowObservation: .existingAlternativeCandidateIDConflict))
+        let unobservedConflict = try id(
+            for: conflictAdvisory(neuralShadowObservation: nil),
+            source: .fallback)
+        let observed = try id(
+            for: conflictAdvisory(
+                neuralShadowObservation: .existingAlternativeCandidateIDConflict),
+            source: .fallback)
 
         #expect(forward == reversed)
         #expect(changed != forward)
-        #expect(observed != forward)
+        #expect(observed != unobservedConflict)
     }
 
     @Test func recordsGenericDiagnosticsWithoutPrivateBookText() {

@@ -261,6 +261,18 @@ import Testing
         #expect(unavailable.advisoryEvidence?.selectionReason == .deterministicFallback)
         #expect(unavailable.advisoryEvidence?.neuralShadowObservation == .modelUnavailable)
         #expect(unavailable.isEvidenceOnlyInvalidOutputAdvisory)
+
+        let identityConflict = PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
+            .candidate(Self.neuralCandidate(
+                candidateID: Self.neuralCandidate().candidateID,
+                ipa: "bæd")),
+            to: decision)
+        #expect(identityConflict.advisoryEvidence?.alternatives == decision.advisoryEvidence?.alternatives)
+        #expect(identityConflict.advisoryEvidence?.selectionReason == .deterministicFallback)
+        #expect(
+            identityConflict.advisoryEvidence?.neuralShadowObservation
+                == .existingAlternativeCandidateIDConflict)
+        #expect(identityConflict.isEvidenceOnlyInvalidOutputAdvisory)
     }
 
     @Test func neuralSelectedIdentityRequiresMatchingIPAAndRejectsConflictingIPA()
@@ -323,7 +335,7 @@ import Testing
                 == evidenceWithSelectedIdentity.alternatives)
         #expect(
             identityConflict.advisoryEvidence?.selectionReason
-                == .shadowSelectedCandidateIDConflict)
+                == .invalidCandidate)
         #expect(
             identityConflict.advisoryEvidence?.neuralShadowObservation
                 == .selectedCandidateIDConflict)
@@ -378,7 +390,7 @@ import Testing
         #expect(identityConflict.advisoryEvidence?.alternatives == [existing])
         #expect(
             identityConflict.advisoryEvidence?.selectionReason
-                == .shadowExistingAlternativeCandidateIDConflict)
+                == .invalidCandidate)
         #expect(
             identityConflict.advisoryEvidence?.neuralShadowObservation
                 == .existingAlternativeCandidateIDConflict)

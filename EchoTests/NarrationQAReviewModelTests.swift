@@ -174,24 +174,29 @@ import Testing
         let db = try DatabaseService(inMemory: ())
         let model = NarrationQAReviewModel(db: db.writer, audiobookID: "b1")
 
+        let existing = PronunciationAdvisoryEvidence.Alternative(
+            candidateID: "existing.shadow",
+            ipa: "bæd",
+            source: "fixture",
+            authority: .uncertain,
+            validation: .shadow,
+            policyVersion: "fixture-v1")
         let cases: [(
             PronunciationAdvisoryEvidence.SelectionReason,
-            PronunciationAdvisoryEvidence.NeuralShadowObservation
+            PronunciationAdvisoryEvidence.NeuralShadowObservation,
+            [PronunciationAdvisoryEvidence.Alternative]
         )] = [
-            (.shadowAgreementSelected, .agreementSelected),
-            (.shadowAgreementExistingAlternative, .agreementExistingAlternative),
-            (.shadowSelectedCandidateIDConflict, .selectedCandidateIDConflict),
-            (
-                .shadowExistingAlternativeCandidateIDConflict,
-                .existingAlternativeCandidateIDConflict
-            ),
+            (.shadowAgreementSelected, .agreementSelected, []),
+            (.shadowAgreementExistingAlternative, .agreementExistingAlternative, [existing]),
+            (.invalidCandidate, .selectedCandidateIDConflict, []),
+            (.invalidCandidate, .existingAlternativeCandidateIDConflict, [existing]),
         ]
-        for (reason, observation) in cases {
+        for (reason, observation, alternatives) in cases {
             let advisory = PronunciationAdvisoryEvidence(
                 category: .lexical,
                 selectedAuthority: .uncertain,
                 selectedCandidateID: "fallback.selected",
-                alternatives: [],
+                alternatives: alternatives,
                 selectionReason: reason,
                 overrideSuppressedAutomation: false,
                 policyVersion: "policy-v1",
@@ -210,8 +215,27 @@ import Testing
             let presentation = try #require(model.pronunciationPresentation(for: issue))
             #expect(presentation.selectionReason == reason)
             #expect(presentation.neuralShadowObservation == observation)
-            #expect(presentation.alternatives.isEmpty)
+            #expect(presentation.alternatives == alternatives)
             #expect(presentation.selectedCandidate?.candidateID == "fallback.selected")
+        }
+    }
+
+    @Test func neuralShadowDisplayNamesAreExhaustivelyLocalized() {
+        let cases: [(PronunciationAdvisoryEvidence.NeuralShadowObservation, String)] = [
+            (.candidate, "Candidate"),
+            (.agreementSelected, "Agrees with selected pronunciation"),
+            (.agreementExistingAlternative, "Agrees with existing alternative"),
+            (.selectedCandidateIDConflict, "Selected candidate ID conflict"),
+            (.existingAlternativeCandidateIDConflict, "Existing alternative ID conflict"),
+            (.invalidCandidate, "Invalid candidate"),
+            (.modelUnavailable, "Model unavailable"),
+            (.modelIntegrityFailure, "Model integrity failure"),
+            (.modelInferenceFailure, "Model inference failure"),
+        ]
+
+        for (observation, expected) in cases {
+            #expect(
+                NarrationQAReviewView.localizedNeuralShadowName(observation) == expected)
         }
     }
 
