@@ -7,6 +7,24 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A12A00000000000000000001 /* encoder_model.onnx in iOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000001 /* encoder_model.onnx */; };
+		A12A00000000000000000002 /* decoder_model.onnx in iOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000002 /* decoder_model.onnx */; };
+		A12A00000000000000000003 /* tokenizer.json in iOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000003 /* tokenizer.json */; };
+		A12A00000000000000000004 /* config.json in iOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000004 /* config.json */; };
+		A12A00000000000000000005 /* generation_config.json in iOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000005 /* generation_config.json */; };
+		A12A00000000000000000006 /* LICENSE in iOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000006 /* LICENSE */; };
+		B12A00000000000000000001 /* encoder_model.onnx in macOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000001 /* encoder_model.onnx */; };
+		B12A00000000000000000002 /* decoder_model.onnx in macOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000002 /* decoder_model.onnx */; };
+		B12A00000000000000000003 /* tokenizer.json in macOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000003 /* tokenizer.json */; };
+		B12A00000000000000000004 /* config.json in macOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000004 /* config.json */; };
+		B12A00000000000000000005 /* generation_config.json in macOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000005 /* generation_config.json */; };
+		B12A00000000000000000006 /* LICENSE in macOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000006 /* LICENSE */; };
+		C12A00000000000000000001 /* encoder_model.onnx in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000001 /* encoder_model.onnx */; };
+		C12A00000000000000000002 /* decoder_model.onnx in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000002 /* decoder_model.onnx */; };
+		C12A00000000000000000003 /* tokenizer.json in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000003 /* tokenizer.json */; };
+		C12A00000000000000000004 /* config.json in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000004 /* config.json */; };
+		C12A00000000000000000005 /* generation_config.json in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000005 /* generation_config.json */; };
+		C12A00000000000000000006 /* LICENSE in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000006 /* LICENSE */; };
 		048C9931BF4F80013AF7961E /* af_heart.f32 in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = 841D8CAEB031B6361813E665 /* af_heart.f32 */; };
 		0F35404A791CA6742909DBE8 /* onnxruntime in Frameworks */ = {isa = PBXBuildFile; productRef = 5C260A9D9E299B82E8D4B077 /* onnxruntime */; };
 		245A97E573FB572FF8FBB995 /* EchoCLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0CFF53D74979F5CF21850A4 /* EchoCLI.swift */; };
@@ -109,6 +127,12 @@
 			dstPath = EchoNarrationResources;
 			dstSubfolderSpec = 16;
 			files = (
+				C12A00000000000000000001 /* encoder_model.onnx in Copy Narration Resources */,
+				C12A00000000000000000002 /* decoder_model.onnx in Copy Narration Resources */,
+				C12A00000000000000000003 /* tokenizer.json in Copy Narration Resources */,
+				C12A00000000000000000004 /* config.json in Copy Narration Resources */,
+				C12A00000000000000000005 /* generation_config.json in Copy Narration Resources */,
+				C12A00000000000000000006 /* LICENSE in Copy Narration Resources */,
 				7D78649F9DA726D16DBDA244 /* _kokoro_vocab.json in Copy Narration Resources */,
 				B17D0C0FE17AC0DE0F0FE001 /* kokoro_dur_head.onnx in Copy Narration Resources */,
 				B4018CB079F91AD99E8418D2 /* us_gold.json in Copy Narration Resources */,
@@ -147,6 +171,12 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		F12A00000000000000000001 /* encoder_model.onnx */ = {isa = PBXFileReference; includeInIndex = 1; name = encoder_model.onnx; path = EchoCore/Services/Narration/NeuralG2PResources/encoder_model.onnx; sourceTree = SOURCE_ROOT; };
+		F12A00000000000000000002 /* decoder_model.onnx */ = {isa = PBXFileReference; includeInIndex = 1; name = decoder_model.onnx; path = EchoCore/Services/Narration/NeuralG2PResources/decoder_model.onnx; sourceTree = SOURCE_ROOT; };
+		F12A00000000000000000003 /* tokenizer.json */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.json; name = tokenizer.json; path = EchoCore/Services/Narration/NeuralG2PResources/tokenizer.json; sourceTree = SOURCE_ROOT; };
+		F12A00000000000000000004 /* config.json */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.json; name = config.json; path = EchoCore/Services/Narration/NeuralG2PResources/config.json; sourceTree = SOURCE_ROOT; };
+		F12A00000000000000000005 /* generation_config.json */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.json; name = generation_config.json; path = EchoCore/Services/Narration/NeuralG2PResources/generation_config.json; sourceTree = SOURCE_ROOT; };
+		F12A00000000000000000006 /* LICENSE */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text; name = LICENSE; path = EchoCore/Services/Narration/NeuralG2PResources/LICENSE; sourceTree = SOURCE_ROOT; };
 		1C06019800B44A10A3274334 /* RetagCommand.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RetagCommand.swift; path = "Tools/echo-cli/RetagCommand.swift"; sourceTree = SOURCE_ROOT; };
 		2F0A81F02D5A4FD8A25A5001 /* NarrationQACommand.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = NarrationQACommand.swift; path = "Tools/echo-cli/NarrationQACommand.swift"; sourceTree = SOURCE_ROOT; };
 		2F0A81F22D5A4FD8A25A5001 /* GenerateDeckCommand.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = GenerateDeckCommand.swift; path = "Tools/echo-cli/GenerateDeckCommand.swift"; sourceTree = SOURCE_ROOT; };
@@ -310,6 +340,12 @@
 				CarPlay/CarPlaySceneDelegate.swift,
 				DailyPlanner/SchedulingSheet.swift,
 				EchoCoreApp.swift,
+				Services/Narration/NeuralG2PResources/LICENSE,
+				Services/Narration/NeuralG2PResources/config.json,
+				Services/Narration/NeuralG2PResources/decoder_model.onnx,
+				Services/Narration/NeuralG2PResources/encoder_model.onnx,
+				Services/Narration/NeuralG2PResources/generation_config.json,
+				Services/Narration/NeuralG2PResources/tokenizer.json,
 				PrivacyInfo.xcprivacy,
 				Models/NavigationDestinations.swift,
 				Services/ArtworkCache.swift,
@@ -441,6 +477,12 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				Services/Narration/NeuralG2PResources/LICENSE,
+				Services/Narration/NeuralG2PResources/config.json,
+				Services/Narration/NeuralG2PResources/decoder_model.onnx,
+				Services/Narration/NeuralG2PResources/encoder_model.onnx,
+				Services/Narration/NeuralG2PResources/generation_config.json,
+				Services/Narration/NeuralG2PResources/tokenizer.json,
 			);
 			target = CC08EC582F9522F600206D2F /* Echo */;
 		};
@@ -675,6 +717,12 @@
 				CC00BC4E2FA6B66400323F38 /* Frameworks */,
 				CC08EC5A2F9522F600206D2F /* Products */,
 				F0CFF53D74979F5CF21850A4 /* EchoCLI.swift */,
+				F12A00000000000000000001 /* encoder_model.onnx */,
+				F12A00000000000000000002 /* decoder_model.onnx */,
+				F12A00000000000000000003 /* tokenizer.json */,
+				F12A00000000000000000004 /* config.json */,
+				F12A00000000000000000005 /* generation_config.json */,
+				F12A00000000000000000006 /* LICENSE */,
 				739F167A96954DC602A63519 /* _kokoro_vocab.json */,
 				B17D0C0FE17AC0DE0F0FE002 /* kokoro_dur_head.onnx */,
 				486ED82EADFDDE51ED2283A1 /* us_gold.json */,
@@ -1034,6 +1082,12 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B12A00000000000000000001 /* encoder_model.onnx in macOS Resources */,
+				B12A00000000000000000002 /* decoder_model.onnx in macOS Resources */,
+				B12A00000000000000000003 /* tokenizer.json in macOS Resources */,
+				B12A00000000000000000004 /* config.json in macOS Resources */,
+				B12A00000000000000000005 /* generation_config.json in macOS Resources */,
+				B12A00000000000000000006 /* LICENSE in macOS Resources */,
 				E2A200000000000000000003 /* THIRD_PARTY_NOTICES.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1049,6 +1103,12 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A12A00000000000000000001 /* encoder_model.onnx in iOS Resources */,
+				A12A00000000000000000002 /* decoder_model.onnx in iOS Resources */,
+				A12A00000000000000000003 /* tokenizer.json in iOS Resources */,
+				A12A00000000000000000004 /* config.json in iOS Resources */,
+				A12A00000000000000000005 /* generation_config.json in iOS Resources */,
+				A12A00000000000000000006 /* LICENSE in iOS Resources */,
 				E2A200000000000000000002 /* THIRD_PARTY_NOTICES.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -101,6 +101,7 @@ final class NarrationService {
     /// Advisory-only pronunciation source snapshot. It is never part of cache identity.
     private let pronunciationAuditPack: EnglishPronunciationAuditPack
     private let contextualPronunciationEvaluator: ContextualPronunciationBatchEvaluator
+    private let neuralEvaluator: NeuralEvaluator?
     /// Test seam for the non-blocking advisory report write. Production uses the
     /// origin-scoped DAO path below.
     private let advisoryReportWriter: (([NarrationQualityIssueRecord], [String]) throws -> Void)?
@@ -123,6 +124,7 @@ final class NarrationService {
         pronunciationAuditPack: EnglishPronunciationAuditPack = .empty,
         contextualPronunciationEvaluator: @escaping ContextualPronunciationBatchEvaluator =
             FoundationModelsContextualPronunciationEvaluator.makeBatchEvaluator(),
+        neuralEvaluator: NeuralEvaluator? = nil,
         advisoryReportWriter: (([NarrationQualityIssueRecord], [String]) throws -> Void)? = nil,
         fallbackDiscoveryRecordBuilder: ((
             [RenderedPronunciationFallbackHit], String
@@ -142,6 +144,7 @@ final class NarrationService {
         self.pronunciationPack = pronunciationPack
         self.pronunciationAuditPack = pronunciationAuditPack
         self.contextualPronunciationEvaluator = contextualPronunciationEvaluator
+        self.neuralEvaluator = neuralEvaluator
         self.advisoryReportWriter = advisoryReportWriter
         self.fallbackDiscoveryRecordBuilder = fallbackDiscoveryRecordBuilder
         self.fmEnabledProvider = fmEnabled
@@ -1123,13 +1126,18 @@ final class NarrationService {
             contextualEvidence,
             occurrences: contextualOccurrences)
         try Task.checkCancellation()
-        return try NarrationRenderPlanner.make(
+        let deterministicPlan = try NarrationRenderPlanner.make(
             preparedBlocks: preparedBlocks,
             overrides: overrides,
             pronunciationPack: pronunciationPack,
             pronunciationAuditPack: pronunciationAuditPack,
             contextualEvidence: contextualEvidenceByKey,
             requiresContextualEvidence: true)
+        guard let neuralEvaluator else { return deterministicPlan }
+        try Task.checkCancellation()
+        return try await NarrationPronunciationPreflight.applyingNeuralShadow(
+            to: deterministicPlan,
+            evaluator: neuralEvaluator)
     }
 
     private nonisolated static func contextualEvidenceByKey(

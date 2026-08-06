@@ -1,4 +1,4 @@
-.PHONY: help docs architecture whats-new devlog-update devlog-pr-body doc-automation-test pronunciation-corpus-test pronunciation-corpus-qualification pronunciation-program-report pronunciation-pack pronunciation-pack-test pronunciation-audit-pack pronunciation-audit-pack-test pronunciation-audio-judge-test test build-tests test-only hooks-test echo-cli renderer-install-test install-renderer verify-renderer promote-renderer repair-renderer
+.PHONY: help docs architecture whats-new devlog-update devlog-pr-body doc-automation-test pronunciation-corpus-test pronunciation-corpus-qualification pronunciation-program-report pronunciation-pack pronunciation-pack-test pronunciation-audit-pack pronunciation-audit-pack-test pronunciation-audio-judge-test neural-g2p-fetch-test neural-g2p-fetch neural-g2p-qualification-test neural-g2p-qualification test build-tests test-only hooks-test echo-cli renderer-install-test install-renderer verify-renderer promote-renderer repair-renderer
 
 help: ## List available targets
 	@echo "Echo: Audiobook Study Player — available targets:"
@@ -88,6 +88,33 @@ pronunciation-audit-pack-test: ## Test and deterministically verify the audit-on
 
 pronunciation-audio-judge-test: ## Test the development-only public/synthetic audio judge
 	python3 -m unittest discover -s Tools/Pronunciation/tests -p 'test_audio_judge.py'
+
+neural-g2p-fetch-test: ## Test the pinned neural G2P artifact fetch/check contract
+	python3 -m unittest discover -s Tools/Pronunciation/tests -p 'test_fetch_mini_bart_g2p.py' -v
+
+neural-g2p-fetch: ## Fetch pinned neural G2P artifacts (requires NEURAL_G2P_DEST)
+	@test -n "$(NEURAL_G2P_DEST)" || \
+		(echo "NEURAL_G2P_DEST is required; choose an explicit temporary destination" >&2; exit 2)
+	python3 Tools/Pronunciation/fetch_mini_bart_g2p.py fetch \
+		--lock Tools/Pronunciation/mini_bart_g2p.lock.json \
+		--destination "$(NEURAL_G2P_DEST)"
+
+neural-g2p-qualification-test: ## Test neural OOV qualification contracts and gates
+	python3 -m unittest discover -s Tools/Pronunciation/tests -p 'test_neural_g2p*.py' -v
+
+NEURAL_G2P_QUALIFICATION_EVIDENCE_ARGS = \
+	$(if $(NEURAL_G2P_TRUSTED_RECEIPTS),--trusted-receipts "$(NEURAL_G2P_TRUSTED_RECEIPTS)") \
+	$(if $(NEURAL_G2P_HUMAN_EVIDENCE_AUTHORITY),--human-evidence-authority "$(NEURAL_G2P_HUMAN_EVIDENCE_AUTHORITY)") \
+	$(if $(NEURAL_G2P_MACHINE_EVIDENCE),--machine-evidence "$(NEURAL_G2P_MACHINE_EVIDENCE)") \
+	$(if $(NEURAL_G2P_RUNTIME_EVIDENCE),--runtime-evidence "$(NEURAL_G2P_RUNTIME_EVIDENCE)") \
+	$(if $(NEURAL_G2P_LISTENING_EVIDENCE_AUTHORITY),--listening-evidence-authority "$(NEURAL_G2P_LISTENING_EVIDENCE_AUTHORITY)")
+
+neural-g2p-qualification: ## Report neural OOV qualification from explicit external evidence when supplied
+	python3 Tools/Pronunciation/neural_g2p_qualification.py qualification-status \
+		--corpus EchoTests/Fixtures/Pronunciation/neural_oov_candidates_v1.jsonl \
+		--lock Tools/Pronunciation/mini_bart_g2p.lock.json \
+		--vocab EchoCore/Services/Narration/_kokoro_vocab.json \
+		$(NEURAL_G2P_QUALIFICATION_EVIDENCE_ARGS)
 
 SIM_DEST = platform=iOS Simulator,name=iPhone 17
 

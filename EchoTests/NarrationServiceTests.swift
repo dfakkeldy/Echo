@@ -582,6 +582,173 @@ private actor ShadowEvaluatorRecorder {
         #expect(auditedCacheURL == unauditedCacheURL)
     }
 
+    @Test func neuralShadowOutcomesCannotChangeProductionCacheSignatureOrFileURL()
+        async throws
+    {
+        enum InjectedFailure: Error { case inference }
+        let db = try DatabaseService(inMemory: ())
+        let sourceBlocks = try seed(db, ["Xyzqwf appears in this synthetic fixture."])
+        let cacheDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString,
+            isDirectory: true)
+        let voice = VoiceID("af_heart")
+        let candidate = NeuralG2PCandidate(
+            candidateID:
+                "sha256:aa7069d4801f3e5e6b7b2685b844cc249b3feec9d1c1ab5fc532959948344fbe",
+            ipa: "zizkwf",
+            modelRevision: MiniBARTG2PEngine.modelRevision,
+            conversionPolicyVersion: ARPAbetToKokoroIPA.policyVersion,
+            validationPolicyVersion: MiniBARTG2PEngine.validationPolicyVersion,
+            selectionPolicyVersion: MiniBARTG2PEngine.selectionPolicyVersion)
+        let evaluators: [NeuralEvaluator?] = [
+            nil,
+            { _ in .candidate(candidate) },
+            { _ in .rejected(.unavailable) },
+            { _ in throw InjectedFailure.inference },
+        ]
+        var plans: [NarrationRenderPlan] = []
+        var signatures: [String] = []
+        var cacheURLs: [URL] = []
+
+        for evaluator in evaluators {
+            let service = NarrationService(
+                db: db.writer,
+                audiobookID: "b1",
+                tts: MockTTSEngine(),
+                audioWriter: MockAudioWriter(),
+                cacheDirectory: cacheDirectory,
+                state: NarrationState(),
+                neuralEvaluator: evaluator,
+                fmEnabled: { false })
+            plans.append(
+                try await service.renderPlan(
+                    for: sourceBlocks,
+                    overrides: PronunciationOverrides(entries: [:]),
+                    occurrenceOverrides: .empty,
+                    fmEnabled: false))
+            let signature = NarrationService.contentSignature(
+                for: sourceBlocks,
+                includeLeadOutPad: true,
+                overrides: PronunciationOverrides(entries: [:]),
+                occurrenceOverrides: .empty,
+                normalizationMode: "deterministic",
+                pronunciationPack: .empty)
+            signatures.append(signature)
+            let actualURL = await service.chapterCacheURL(
+                chapterIndex: 0,
+                blocks: sourceBlocks,
+                voice: voice)
+            let expectedURL = cacheDirectory.appendingPathComponent(
+                NarrationFileNaming.chapterFileName(
+                    audiobookID: "b1",
+                    chapterIndex: 0,
+                    voice: voice,
+                    contentSignature: signature))
+            #expect(actualURL == expectedURL)
+            cacheURLs.append(actualURL)
+        }
+
+        let decisions = try plans.map { plan in
+            try #require(
+                plan.blocks.flatMap(\.pronunciationDecisions).first {
+                    $0.normalizedWord == "xyzqwf"
+                })
+        }
+        #expect(decisions.map(\.selectedIPA).allSatisfy { $0 == decisions[0].selectedIPA })
+        #expect(decisions.map(\.kokoroTokenIDs).allSatisfy { $0 == decisions[0].kokoroTokenIDs })
+        #expect(
+            decisions.map { $0.advisoryEvidence?.selectionReason } == [
+                .deterministicFallback,
+                .shadowCandidate,
+                .modelUnavailable,
+                .modelInferenceFailure,
+            ])
+        #expect(decisions[1].advisoryEvidence?.alternatives.count == 1)
+        #expect(decisions[0].advisoryEvidence != decisions[1].advisoryEvidence)
+        #expect(decisions[1].advisoryEvidence != decisions[2].advisoryEvidence)
+        #expect(decisions[2].advisoryEvidence != decisions[3].advisoryEvidence)
+        #expect(plans[0] != plans[1])
+        #expect(plans[1] != plans[2])
+        #expect(plans[2] != plans[3])
+        #expect(Set(signatures).count == 1)
+        #expect(Set(cacheURLs).count == 1)
+    }
+
+    @Test func renderPlanSurfacesBoundedNeuralInstabilityWithoutChangingProductionAuthority()
+        async throws
+    {
+        actor Sequence {
+            private var invocation = 0
+
+            func next(for word: String) -> NeuralG2PShadowResult {
+                invocation += 1
+                let ipa = invocation == 1 ? "zizkwf" : "zizkwəf"
+                return .candidate(
+                    NeuralG2PCandidate(
+                        candidateID: NeuralG2PGovernedIdentity.candidateID(
+                            normalizedWord: word,
+                            ipa: ipa)!,
+                        ipa: ipa,
+                        modelRevision: NeuralG2PGovernedIdentity.modelRevision,
+                        conversionPolicyVersion:
+                            NeuralG2PGovernedIdentity.conversionPolicyVersion,
+                        validationPolicyVersion:
+                            NeuralG2PGovernedIdentity.validationPolicyVersion,
+                        selectionPolicyVersion:
+                            NeuralG2PGovernedIdentity.selectionPolicyVersion))
+            }
+        }
+
+        let db = try DatabaseService(inMemory: ())
+        let sourceBlocks = try seed(db, ["Xyzqwf appears in this synthetic fixture."])
+        let deterministic = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: MockTTSEngine(),
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            neuralEvaluator: nil,
+            fmEnabled: { false })
+        let sequence = Sequence()
+        let observed = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: MockTTSEngine(),
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            neuralEvaluator: { word in await sequence.next(for: word) },
+            fmEnabled: { false })
+
+        let deterministicPlan = try await deterministic.renderPlan(
+            for: sourceBlocks,
+            overrides: PronunciationOverrides(entries: [:]),
+            occurrenceOverrides: .empty,
+            fmEnabled: false)
+        let observedPlan = try await observed.renderPlan(
+            for: sourceBlocks,
+            overrides: PronunciationOverrides(entries: [:]),
+            occurrenceOverrides: .empty,
+            fmEnabled: false)
+        let baseline = try #require(
+            deterministicPlan.blocks.flatMap(\.pronunciationDecisions).first {
+                $0.normalizedWord == "xyzqwf"
+            })
+        let unstable = try #require(
+            observedPlan.blocks.flatMap(\.pronunciationDecisions).first {
+                $0.normalizedWord == "xyzqwf"
+            })
+
+        #expect(unstable.advisoryEvidence?.neuralShadowObservation == .unstableEvaluation)
+        #expect(unstable.selectedIPA == baseline.selectedIPA)
+        #expect(unstable.kokoroTokenIDs == baseline.kokoroTokenIDs)
+        #expect(unstable.candidateID == baseline.candidateID)
+        #expect(
+            observedPlan.blocks.flatMap(\.synthesisChunks)
+                == deterministicPlan.blocks.flatMap(\.synthesisChunks))
+    }
+
     @Test func contextualShadowOutcomesCannotChangeNarrationOrCacheIdentity() async throws {
         let sourceBlocks = [
             block(
@@ -2148,9 +2315,10 @@ private actor ShadowEvaluatorRecorder {
         #expect(issues.count == 2)
         #expect(Set(issues.map(\.sourceBlockID)) == ["blk0", "blk1"])
         #expect(Set(issues.map(\.id)).count == 2)
-        #expect(issues.allSatisfy {
-            $0.origin == NarrationQualityIssueOrigin.pronunciationPreflight.rawValue
-        })
+        #expect(
+            issues.allSatisfy {
+                $0.origin == NarrationQualityIssueOrigin.pronunciationPreflight.rawValue
+            })
         let issue = try #require(issues.first)
         #expect(issue.issueType == NarrationQAIssueType.pronunciation.rawValue)
         #expect(issue.sourceBlockID == "blk0")
@@ -2246,15 +2414,17 @@ private actor ShadowEvaluatorRecorder {
             state: state,
             fallbackDiscoveryRecordBuilder: { _, _ in throw FallbackFailure.unavailable },
             fmEnabled: { false })
-        _ = try await service.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
+        _ = try await service.renderChapter(
+            chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
         let track = try db.read { database in
             try TrackRecord.filter(Column("audiobook_id") == "b1").fetchOne(database)
         }
         #expect(track != nil)
         #expect(state.debugLog.contains { $0.contains("pronunciation fallback discovery failed") })
-        #expect(Set(try issueDAO.issues(for: "b1").map(\.id)) == [
-            oldPreflight.id, oldAcoustic.id,
-        ])
+        #expect(
+            Set(try issueDAO.issues(for: "b1").map(\.id)) == [
+                oldPreflight.id, oldAcoustic.id,
+            ])
     }
 
     @Test func fallbackSnapshotInsertFailureRollsBackEveryReportLane() async throws {
@@ -2302,9 +2472,10 @@ private actor ShadowEvaluatorRecorder {
         _ = try await service.renderChapter(
             chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
 
-        #expect(Set(try issueDAO.issues(for: "b1").map(\.id)) == [
-            oldPreflight.id, oldAcoustic.id,
-        ])
+        #expect(
+            Set(try issueDAO.issues(for: "b1").map(\.id)) == [
+                oldPreflight.id, oldAcoustic.id,
+            ])
         #expect(try issueDAO.issues(for: "b2").map(\.id) == [conflictingExisting.id])
         #expect(state.debugLog.contains { $0.contains("Operational report-write error") })
         let track = try db.read { database in
