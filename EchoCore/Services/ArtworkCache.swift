@@ -152,16 +152,35 @@ struct ArtworkCache {
     /// to avoid redundant JPEG encodes on each sync cycle.
     @MainActor private static var cachedWatchJPEG: (version: Int, data: Data)?
 
-    /// Creates a high-resolution (400x400) JPEG thumbnail suitable for Watch transfer.
+    /// Creates a JPEG thumbnail that stays within the WatchConnectivity payload budget.
     static func makeWatchThumbnailData(from image: UIImage, version: Int? = nil) -> Data? {
         if let version, let cached = cachedWatchJPEG, cached.version == version {
             return cached.data
         }
-        // Aspect-fit the cover into the 200pt square with an artwork-derived
-        // background (see ThumbnailRenderer) so portrait covers reach the Watch
-        // and widget un-squished. 200pt @2x = 400×400px JPEG, as before.
-        let watchImage = ThumbnailRenderer.squareThumbnail(from: image, side: 200, scale: 2.0)
-        let data = watchImage.jpegData(compressionQuality: ImageEncoding.watchTransferJPEGQuality)
+
+        // Preserve the existing 400×400 encoding when it fits. Complex artwork can
+        // produce a much larger JPEG at the same dimensions, so progressively trade
+        // quality and resolution for a payload that the Watch can actually receive.
+        let encodings: [(side: CGFloat, quality: CGFloat)] = [
+            (200, ImageEncoding.watchTransferJPEGQuality),
+            (200, 0.60),
+            (160, 0.60),
+            (128, 0.50),
+            (80, 0.45),
+        ]
+        let data = encodings.lazy.compactMap { encoding -> Data? in
+            let watchImage = ThumbnailRenderer.squareThumbnail(
+                from: image,
+                side: encoding.side,
+                scale: 2.0)
+            guard let data = watchImage.jpegData(compressionQuality: encoding.quality),
+                data.count <= ImageEncoding.watchTransferMaxBytes
+            else {
+                return nil
+            }
+            return data
+        }.first
+
         if let data, let version {
             cachedWatchJPEG = (version, data)
         }

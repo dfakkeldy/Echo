@@ -9,7 +9,6 @@ protocol WatchCommandRoutingFacade: AnyObject {
     var durationSeconds: Double? { get }
     var speed: Float { get }
     var watchCommandOutputGain: Float { get }
-    var watchThumbnailData: Data? { get }
     var crownScrubSensitivity: Double { get }
     var crownVolumeSensitivity: Double { get }
 
@@ -145,9 +144,6 @@ final class WatchCommandRouter {
         }
 
         var reply = facade.watchStateContext()
-        if let thumbnailData = facade.watchThumbnailData {
-            reply["thumbnailData"] = thumbnailData
-        }
         if let commandResult {
             reply["commandResult"] = commandResult
         }

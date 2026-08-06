@@ -18,7 +18,6 @@ final class WatchConnectivityCoordinator: WatchCommandRoutingFacade {
     var durationSeconds: Double? { playerModel?.durationSeconds }
     var speed: Float { playerModel?.speed ?? 1.0 }
     var watchCommandOutputGain: Float { playerModel?.watchCommandOutputGain ?? 0 }
-    var watchThumbnailData: Data? { playerModel?.watchThumbnailData }
     var crownScrubSensitivity: Double { playerModel?.crownScrubSensitivity ?? SettingsManager.Defaults.crownScrubSensitivity }
     var crownVolumeSensitivity: Double { playerModel?.crownVolumeSensitivity ?? SettingsManager.Defaults.crownVolumeSensitivity }
 
