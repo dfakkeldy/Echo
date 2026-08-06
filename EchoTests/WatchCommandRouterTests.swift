@@ -6,7 +6,7 @@ import Testing
 @MainActor
 struct WatchCommandRouterTests {
     @Test("navigation commands forward through facade and include bookmark jump reply")
-    func navigationCommandReplyIncludesBookmarkJumpAndThumbnail() {
+    func navigationCommandReplyIncludesBookmarkJump() {
         let facade = FakeWatchCommandFacade()
         facade.navigationShouldBookmarkJump = true
         let router = WatchCommandRouter(facade: facade)
@@ -15,7 +15,18 @@ struct WatchCommandRouterTests {
 
         #expect(facade.calls == ["skipForwardNavigation"])
         #expect(reply["commandResult"] as? String == "bookmarkJump")
-        #expect(reply["thumbnailData"] as? Data == Data([0x01, 0x02, 0x03]))
+        #expect(reply["title"] as? String == "Test Book")
+    }
+
+    @Test("command replies omit bulk thumbnail data")
+    func commandRepliesOmitBulkThumbnailData() {
+        let facade = FakeWatchCommandFacade()
+        facade.watchThumbnailData = Data(repeating: 0xA5, count: 70_000)
+        let router = WatchCommandRouter(facade: facade)
+
+        let reply = self.reply(from: router, message: ["command": "requestState"])
+
+        #expect(reply["thumbnailData"] == nil)
         #expect(reply["title"] as? String == "Test Book")
     }
 
