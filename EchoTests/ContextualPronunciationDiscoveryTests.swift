@@ -169,6 +169,19 @@ import Testing
         #expect(sentenceStart.map(\.targetWord) == ["Read"])
     }
 
+    @Test func titleCaseRecordAfterDeterminerRetainsExactNounEvidence() throws {
+        let occurrence = try #require(
+            ContextualPronunciationDiscovery.discover(
+                text: "The Record in Room 3B",
+                blockID: "title-record"
+            ).first)
+
+        #expect(occurrence.targetWord == "Record")
+        #expect(occurrence.familyID == "record")
+        #expect(occurrence.deterministicCandidateID == "record.noun")
+        #expect(occurrence.deterministicRuleID == "homograph.record.noun.preceder")
+    }
+
     @Test func discoveryAdmitsExactWeatherLinkLiveProductEvidence() throws {
         let occurrence = try #require(
             ContextualPronunciationDiscovery.discover(
