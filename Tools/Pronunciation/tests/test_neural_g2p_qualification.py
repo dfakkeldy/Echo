@@ -1,5 +1,6 @@
 import hashlib
 import importlib.util
+import inspect
 import json
 import os
 import shutil
@@ -21,6 +22,12 @@ LOCK_PATH = REPOSITORY_ROOT / "Tools/Pronunciation/mini_bart_g2p.lock.json"
 VOCAB_PATH = (
     REPOSITORY_ROOT
     / "EchoCore/Services/Narration/_kokoro_vocab.json"
+)
+GOLD_PATH = REPOSITORY_ROOT / "EchoCore/Services/Narration/MisakiResources/us_gold.json"
+SILVER_PATH = REPOSITORY_ROOT / "EchoCore/Services/Narration/MisakiResources/us_silver.json"
+PACK_PATH = (
+    REPOSITORY_ROOT
+    / "EchoCore/Services/Narration/PronunciationResources/us_pronunciation_pack.json"
 )
 RECEIPT_PATH = REPOSITORY_ROOT / "docs/reports/neural-g2p-qualification.json"
 REPORT_PATH = REPOSITORY_ROOT / "docs/reports/neural-g2p-qualification.md"
@@ -45,14 +52,57 @@ def load_tool():
     return module
 
 
+def _synthetic_word(case_id):
+    digest = hashlib.sha256(case_id.encode("utf-8")).digest()
+    suffix = "".join(chr(ord("a") + byte % 26) for byte in digest[:10])
+    return f"synthetic{suffix}"
+
+
+def _capitalized(word, variant):
+    if variant == "lowercase":
+        return word.lower()
+    if variant == "titlecase":
+        return word.capitalize()
+    if variant == "uppercase":
+        return word.upper()
+    return word
+
+
+def _context(word, punctuation="none", sentence_position="initial"):
+    wrapped = {
+        "none": word,
+        "leading": f"“{word}",
+        "trailing": f"{word},",
+        "paired": f"“{word},",
+    }[punctuation]
+    if sentence_position == "initial":
+        return f"{wrapped} appears in this synthetic public qualification sentence"
+    if sentence_position == "medial":
+        return f"A synthetic public probe places {wrapped} within this sentence"
+    if sentence_position == "final":
+        return f"A synthetic public qualification sentence ends with {wrapped}"
+    return f"{wrapped} appears in this synthetic public qualification sentence"
+
+
 def candidate(case_id="proper-noun-000", **overrides):
+    capitalization = overrides.pop("capitalization", "titlecase")
+    punctuation = overrides.pop("punctuation", "none")
+    sentence_position = overrides.pop("sentencePosition", "initial")
+    base_word = overrides.pop("word", _synthetic_word(case_id))
+    word = _capitalized(base_word, capitalization)
+    context = overrides.pop(
+        "context", _context(word, punctuation, sentence_position)
+    )
     row = {
         "caseID": case_id,
-        "word": f"Synthetic{case_id.replace('-', '')}",
+        "word": word,
         "category": "proper-noun",
-        "context": "A synthetic token appears in this public test context.",
+        "context": context,
+        "capitalization": capitalization,
+        "punctuation": punctuation,
+        "sentencePosition": sentence_position,
         "labelStatus": "provisional",
-        "provisionalExpectedIPA": "təst",
+        "provisionalExpectedIPA": "tˈɛst",
         "provenance": "synthetic",
     }
     row.update(overrides)
@@ -60,30 +110,18 @@ def candidate(case_id="proper-noun-000", **overrides):
 
 
 def trusted_receipt(row, **overrides):
-    selected_ipa = overrides.pop("selectedIPA", "təst")
     receipt = {
         "receiptID": f"test-only-receipt-{row['caseID']}",
         "caseID": row["caseID"],
         "category": row["category"],
         "wordSHA256": hashlib.sha256(row["word"].encode("utf-8")).hexdigest(),
         "evidenceKind": "independent-human",
-        "labelA": "təst",
-        "labelB": "təst",
+        "labelA": "tˈɛst",
+        "labelB": "tˈɛst",
         "adjudicated": None,
         "reviewerARef": REVIEWER_A_REF,
         "reviewerBRef": REVIEWER_B_REF,
         "adjudicatorRef": None,
-        "rawModelTop1": "T EH1 S T",
-        "convertedOutputs": [selected_ipa, selected_ipa],
-        "mappedTokenIDs": [62, 83, 61, 62],
-        "selectionOutcome": "automatic",
-        "selectedIPA": selected_ipa,
-        "modelRevision": "f277d1e0597e7e7d33fa1d6d27d764bc4d7acb06",
-        "modelLockSHA256": hashlib.sha256(LOCK_PATH.read_bytes()).hexdigest(),
-        "vocabSHA256": hashlib.sha256(VOCAB_PATH.read_bytes()).hexdigest(),
-        "conversionVersion": "mini-bart-arpabet-to-kokoro-v1",
-        "validationVersion": "kokoro-vocab-validation-v1",
-        "selectionVersion": "neural-oov-complete-selection-v1",
     }
     receipt.update(overrides)
     return receipt
@@ -92,16 +130,40 @@ def trusted_receipt(row, **overrides):
 def qualification_matrix():
     rows = []
     receipts = []
-    for category in CATEGORIES:
+    capitalization_variants = ("lowercase", "titlecase", "uppercase")
+    punctuation_variants = ("none", "leading", "trailing", "paired")
+    position_variants = ("initial", "medial", "final")
+    for category_index, category in enumerate(CATEGORIES):
         for index in range(100):
+            capitalization = capitalization_variants[index % len(capitalization_variants)]
+            punctuation = punctuation_variants[index % len(punctuation_variants)]
+            sentence_position = position_variants[index % len(position_variants)]
             row = candidate(
                 f"{category}-{index:03d}",
                 category=category,
-                word=f"Synthetic{category.replace('-', '').title()}{index:03d}",
+                capitalization=capitalization,
+                punctuation=punctuation,
+                sentencePosition=sentence_position,
             )
             rows.append(row)
             receipts.append(trusted_receipt(row))
     return rows, receipts
+
+
+def machine_receipts(tool, rows, raw_outputs_by_case=None):
+    resources = tool.load_governed_qualification_resources(
+        LOCK_PATH, VOCAB_PATH, GOLD_PATH, SILVER_PATH, PACK_PATH
+    )
+    raw_outputs_by_case = raw_outputs_by_case or {}
+    return [
+        tool.build_machine_evidence_receipt(
+            row,
+            raw_outputs_by_case.get(row["caseID"], ["T EH1 S T", "T EH1 S T"]),
+            resources,
+            receipt_id=f"machine-{row['caseID']}",
+        )
+        for row in rows
+    ]
 
 
 def authority_digest(rows, receipts):
@@ -151,9 +213,64 @@ class NeuralG2PQualificationTests(unittest.TestCase):
         self.assertAlmostEqual(0.9768069002442693, tool.wilson_lower_bound(495, 500))
         self.assertEqual(0.0, tool.wilson_lower_bound(0, 0))
 
-    def test_complete_balanced_independent_matrix_qualifies(self):
+    def test_complete_balanced_evidence_stays_fail_closed_without_governed_producer(self):
         tool = load_tool()
         rows, receipts = qualification_matrix()
+        machine = machine_receipts(tool, rows)
+        with tempfile.TemporaryDirectory() as temporary:
+            machine_path = Path(temporary) / "machine.jsonl"
+            write_jsonl(machine_path, machine)
+            result = tool.qualification_status(
+                rows,
+                receipts,
+                authority_record(rows, receipts),
+                LOCK_PATH,
+                VOCAB_PATH,
+                machine_evidence_path=machine_path,
+            )
+
+        self.assertEqual(3, result["schemaVersion"])
+        self.assertEqual("FAILED", result["status"])
+        self.assertEqual("FAILED", result["proofStates"]["human"])
+        self.assertEqual("NOT_PROVIDED", result["proofStates"]["listening"])
+        self.assertEqual(500, result["reviewedCount"])
+        self.assertEqual(0, result["automaticCount"])
+        self.assertEqual(0, result["correctAutomaticCount"])
+        self.assertEqual(500, result["recomputedEligibleCount"])
+        self.assertEqual(500, result["correctRecomputedEligibleCount"])
+        self.assertEqual({category: 0 for category in CATEGORIES}, result["categoryCounts"])
+        self.assertEqual(
+            {category: 100 for category in CATEGORIES},
+            result["recomputedEligibleCategoryCounts"],
+        )
+        self.assertIsNone(result["precision"])
+        self.assertIsNone(result["wilson95LowerBound"])
+        self.assertEqual("UNAVAILABLE_FAIL_CLOSED", result["governedMachineProducerState"])
+        self.assertEqual(
+            {
+                "missingMachineEvidence": 0,
+                "emptyOrUnmappable": 0,
+                "unstable": 0,
+                "notDeterministicOOV": 0,
+            },
+            result["invalidCounts"],
+        )
+
+    def test_absent_systematic_variants_cannot_reach_the_machine_gate(self):
+        tool = load_tool()
+        rows = []
+        receipts = []
+        for category in CATEGORIES:
+            for index in range(100):
+                row = candidate(
+                    f"unbalanced-{category}-{index}",
+                    category=category,
+                    capitalization="lowercase",
+                    punctuation="none",
+                    sentencePosition="initial",
+                )
+                rows.append(row)
+                receipts.append(trusted_receipt(row))
 
         result = tool.qualification_status(
             rows,
@@ -161,95 +278,94 @@ class NeuralG2PQualificationTests(unittest.TestCase):
             authority_record(rows, receipts),
             LOCK_PATH,
             VOCAB_PATH,
-            performance_proof_state="VERIFIED",
-            device_proof_state="VERIFIED",
-            render_proof_state="VERIFIED",
-            listening_proof_state="VERIFIED",
         )
 
-        self.assertEqual(2, result["schemaVersion"])
-        self.assertEqual("QUALIFIED", result["status"])
-        self.assertEqual("QUALIFIED", result["proofStates"]["human"])
-        self.assertEqual("VERIFIED", result["proofStates"]["listening"])
-        self.assertEqual(500, result["reviewedCount"])
-        self.assertEqual(500, result["automaticCount"])
-        self.assertEqual(500, result["correctAutomaticCount"])
-        self.assertEqual({category: 100 for category in CATEGORIES}, result["categoryCounts"])
-        self.assertEqual(1.0, result["precision"])
-        self.assertAlmostEqual(0.9923756595384479, result["wilson95LowerBound"])
+        self.assertEqual("WAITING_FOR_HUMAN_LABELS", result["status"])
         self.assertEqual(
-            {
-                "duplicate": 0,
-                "empty": 0,
-                "unmappable": 0,
-                "unstable": 0,
-                "kokoroIncompatible": 0,
-            },
-            result["invalidCounts"],
+            0,
+            result["systematicVariantCounts"]["capitalization"]["titlecase"],
+        )
+        self.assertFalse(
+            result["systematicVariantResults"]["capitalization"]["titlecase"][
+                "reviewCoverageGatePassed"
+            ]
         )
 
     def test_precision_uses_selection_policy_not_raw_model_top_one(self):
         tool = load_tool()
         rows, receipts = qualification_matrix()
-        for receipt in receipts[:5]:
-            receipt["rawModelTop1"] = "T EH1 S T"
-            receipt["convertedOutputs"] = ["bæd", "bæd"]
-            receipt["mappedTokenIDs"] = [44, 72, 46]
-            receipt["selectedIPA"] = "bæd"
-
-        result = tool.qualification_status(
-            rows,
-            receipts,
-            authority_record(rows, receipts),
-            LOCK_PATH,
-            VOCAB_PATH,
-        )
+        raw_outputs = {
+            row["caseID"]: ["B AE1 D", "B AE1 D"] for row in rows[:5]
+        }
+        machine = machine_receipts(tool, rows, raw_outputs)
+        with tempfile.TemporaryDirectory() as temporary:
+            machine_path = Path(temporary) / "machine.jsonl"
+            write_jsonl(machine_path, machine)
+            result = tool.qualification_status(
+                rows,
+                receipts,
+                authority_record(rows, receipts),
+                LOCK_PATH,
+                VOCAB_PATH,
+                machine_evidence_path=machine_path,
+            )
 
         self.assertEqual("FAILED", result["status"])
-        self.assertEqual(0.99, result["precision"])
-        self.assertAlmostEqual(0.9768069002442693, result["wilson95LowerBound"])
+        self.assertIsNone(result["precision"])
+        self.assertEqual(0, result["automaticCount"])
+        self.assertEqual(500, result["recomputedEligibleCount"])
+        self.assertEqual(495, result["correctRecomputedEligibleCount"])
+        self.assertEqual(0.99, result["recomputedPrecision"])
+        self.assertAlmostEqual(
+            0.9768069002442693,
+            result["recomputedWilson95LowerBound"],
+        )
 
     def test_invalid_outputs_are_rejected_before_scoring(self):
         tool = load_tool()
         rows, receipts = qualification_matrix()
         probes = [
-            {
-                "convertedOutputs": ["", ""],
-                "selectedIPA": "",
-                "mappedTokenIDs": [],
-            },
-            {"mappedTokenIDs": [999]},
-            {"convertedOutputs": ["təst", "bæd"]},
-            {
-                "convertedOutputs": ["💥", "💥"],
-                "selectedIPA": "💥",
-                "mappedTokenIDs": [],
-            },
-        ]
-        for index, changes in enumerate(probes):
-            row = candidate(
-                f"adversarial-invalid-{index}",
+            candidate("adversarial-missing", category="adversarial"),
+            candidate("adversarial-empty", category="adversarial"),
+            candidate("adversarial-unstable", category="adversarial"),
+            candidate(
+                "adversarial-known",
                 category="adversarial",
-                word=f"SyntheticInvalid{index}",
+                word="and",
+                capitalization="lowercase",
+            ),
+        ]
+        rows.extend(probes)
+        receipts.extend(trusted_receipt(row) for row in probes)
+        raw_outputs = {
+            probes[1]["caseID"]: ["", ""],
+            probes[2]["caseID"]: ["T EH1 S T", "B AE1 D"],
+        }
+        machine = machine_receipts(tool, rows, raw_outputs)
+        machine = [
+            receipt
+            for receipt in machine
+            if receipt["caseID"] != probes[0]["caseID"]
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            machine_path = Path(temporary) / "machine.jsonl"
+            write_jsonl(machine_path, machine)
+            result = tool.qualification_status(
+                rows,
+                receipts,
+                authority_record(rows, receipts),
+                LOCK_PATH,
+                VOCAB_PATH,
+                machine_evidence_path=machine_path,
             )
-            rows.append(row)
-            receipts.append(trusted_receipt(row, **changes))
-
-        result = tool.qualification_status(
-            rows,
-            receipts,
-            authority_record(rows, receipts),
-            LOCK_PATH,
-            VOCAB_PATH,
-        )
 
         self.assertEqual("FAILED", result["status"])
-        self.assertEqual(500, result["automaticCount"])
-        self.assertEqual(1.0, result["precision"])
-        self.assertEqual(1, result["invalidCounts"]["empty"])
-        self.assertEqual(1, result["invalidCounts"]["unmappable"])
+        self.assertEqual(0, result["automaticCount"])
+        self.assertEqual(500, result["recomputedEligibleCount"])
+        self.assertEqual(1, result["invalidCounts"]["missingMachineEvidence"])
+        self.assertEqual(1, result["invalidCounts"]["emptyOrUnmappable"])
         self.assertEqual(1, result["invalidCounts"]["unstable"])
-        self.assertEqual(1, result["invalidCounts"]["kokoroIncompatible"])
+        self.assertEqual(1, result["invalidCounts"]["notDeterministicOOV"])
 
     def test_provisional_row_never_counts_even_when_its_values_match(self):
         tool = load_tool()
@@ -273,10 +389,10 @@ class NeuralG2PQualificationTests(unittest.TestCase):
             ([candidate(), candidate()], "duplicate caseID"),
             (
                 [
-                    candidate("first"),
-                    candidate("second", word="SYNTHETICFIRST"),
+                    candidate("first", word="sameword", capitalization="lowercase"),
+                    candidate("second", word="sameword", capitalization="lowercase"),
                 ],
-                "duplicate category/word",
+                "duplicate governed category/word/systematic-variant",
             ),
         ]
 
@@ -319,30 +435,42 @@ class NeuralG2PQualificationTests(unittest.TestCase):
                 VOCAB_PATH,
             )
 
-    def test_receipt_model_and_policy_identity_must_match(self):
+    def test_machine_receipt_model_policy_and_resource_identities_are_recomputed(self):
         tool = load_tool()
         row = candidate()
+        resources = tool.load_governed_qualification_resources(
+            LOCK_PATH, VOCAB_PATH, GOLD_PATH, SILVER_PATH, PACK_PATH
+        )
+        valid = tool.build_machine_evidence_receipt(
+            row,
+            ["T EH1 S T", "T EH1 S T"],
+            resources,
+            receipt_id="machine-identity",
+        )
         identity_mismatches = {
             "modelRevision": "0" * 40,
             "modelLockSHA256": "0" * 64,
             "vocabSHA256": "0" * 64,
+            "goldLexiconSHA256": "0" * 64,
+            "silverLexiconSHA256": "0" * 64,
+            "pronunciationPackSHA256": "0" * 64,
             "conversionVersion": "different-conversion-v1",
             "validationVersion": "different-validation-v1",
             "selectionVersion": "different-selection-v1",
+            "generatorID": "self-declared-other-generator",
         }
 
         for field, value in identity_mismatches.items():
-            receipt = trusted_receipt(row, **{field: value})
+            receipt = {**valid, field: value}
+            receipt["receiptSHA256"] = tool.machine_evidence_receipt_digest(receipt)
             with self.subTest(field=field):
                 with self.assertRaisesRegex(
-                    ValueError, "does not match qualification identities"
+                    ValueError, "does not match locked evaluation"
                 ):
-                    tool.qualification_status(
-                        [row],
+                    tool.validate_machine_evidence_receipts(
                         [receipt],
-                        authority_record([row], [receipt]),
-                        LOCK_PATH,
-                        VOCAB_PATH,
+                        [row],
+                        resources,
                     )
 
     def test_receipt_is_content_free_and_carries_frozen_identities(self):
@@ -358,9 +486,9 @@ class NeuralG2PQualificationTests(unittest.TestCase):
         )
         encoded = json.dumps(result, sort_keys=True)
 
-        self.assertNotIn("Synthetic", encoded)
+        self.assertNotIn("synthetic", encoded.lower())
         self.assertNotIn("context", encoded.lower())
-        self.assertNotIn("təst", encoded)
+        self.assertNotIn("tˈɛst", encoded)
         self.assertEqual("jonschneider/mini-bart-g2p", result["modelIdentity"]["model"])
         self.assertEqual(
             "f277d1e0597e7e7d33fa1d6d27d764bc4d7acb06",
@@ -498,18 +626,21 @@ class NeuralG2PQualificationTests(unittest.TestCase):
 
     def test_resource_identity_and_validation_use_one_stable_snapshot_each(self):
         tool = load_tool()
-        lock_bytes = LOCK_PATH.read_bytes()
-        vocab_bytes = VOCAB_PATH.read_bytes()
+        snapshots = {
+            LOCK_PATH: ("model lock", LOCK_PATH.read_bytes()),
+            VOCAB_PATH: ("Kokoro vocabulary", VOCAB_PATH.read_bytes()),
+            GOLD_PATH: ("gold lexicon", GOLD_PATH.read_bytes()),
+            SILVER_PATH: ("silver lexicon", SILVER_PATH.read_bytes()),
+            PACK_PATH: ("pronunciation pack", PACK_PATH.read_bytes()),
+        }
         reads = []
 
         def snapshot(path, *, name):
             resolved = Path(path)
             reads.append((resolved, name))
-            if resolved == LOCK_PATH:
-                return lock_bytes
-            if resolved == VOCAB_PATH:
-                return vocab_bytes
-            raise AssertionError(f"unexpected resource path {resolved}")
+            expected_name, content = snapshots[resolved]
+            self.assertEqual(expected_name, name)
+            return content
 
         with mock.patch.object(
             tool,
@@ -522,15 +653,15 @@ class NeuralG2PQualificationTests(unittest.TestCase):
             )
 
         self.assertEqual(
-            [(LOCK_PATH, "model lock"), (VOCAB_PATH, "Kokoro vocabulary")],
+            [(path, name) for path, (name, _) in snapshots.items()],
             reads,
         )
         self.assertEqual(
-            hashlib.sha256(lock_bytes).hexdigest(),
+            hashlib.sha256(snapshots[LOCK_PATH][1]).hexdigest(),
             result["modelIdentity"]["lockSHA256"],
         )
         self.assertEqual(
-            hashlib.sha256(vocab_bytes).hexdigest(),
+            hashlib.sha256(snapshots[VOCAB_PATH][1]).hexdigest(),
             result["modelIdentity"]["vocabSHA256"],
         )
 
@@ -573,69 +704,34 @@ class NeuralG2PQualificationTests(unittest.TestCase):
 
         receipt = json.loads(completed.stdout)
         self.assertEqual("WAITING_FOR_HUMAN_LABELS", receipt["status"])
-        self.assertEqual("NOT_RUN_NO_RUNTIME", receipt["proofStates"]["listening"])
+        self.assertEqual("NOT_PROVIDED", receipt["proofStates"]["listening"])
         self.assertEqual(0, receipt["reviewedCount"])
         self.assertEqual("", completed.stderr)
 
-    def test_listening_proof_is_independent_and_required_for_qualification(self):
+    def test_runtime_proof_states_cannot_be_supplied_as_direct_strings(self):
         tool = load_tool()
-        rows, receipts = qualification_matrix()
-        authority = authority_record(rows, receipts)
-        existing_verified = {
-            "performance_proof_state": "VERIFIED",
-            "device_proof_state": "VERIFIED",
-            "render_proof_state": "VERIFIED",
+        forbidden = {
+            "performance_proof_state",
+            "device_proof_state",
+            "render_proof_state",
+            "listening_proof_state",
         }
-
-        unrun = tool.qualification_status(
-            rows,
-            receipts,
-            authority,
-            LOCK_PATH,
-            VOCAB_PATH,
-            listening_proof_state="NOT_RUN_NO_RUNTIME",
-            **existing_verified,
+        self.assertTrue(
+            forbidden.isdisjoint(inspect.signature(tool.qualification_status).parameters)
         )
-        self.assertEqual("QUALIFIED", unrun["proofStates"]["human"])
-        self.assertEqual("NOT_RUN_NO_RUNTIME", unrun["proofStates"]["listening"])
-        self.assertNotEqual("QUALIFIED", unrun["status"])
-
-        verified = tool.qualification_status(
-            rows,
-            receipts,
-            authority,
-            LOCK_PATH,
-            VOCAB_PATH,
-            listening_proof_state="VERIFIED",
-            **existing_verified,
+        self.assertTrue(
+            forbidden.isdisjoint(inspect.signature(tool.render_report).parameters)
         )
-        self.assertEqual("QUALIFIED", verified["status"])
-
-        missing = dict(verified)
-        missing["proofStates"] = dict(verified["proofStates"])
-        del missing["proofStates"]["listening"]
-        with self.assertRaisesRegex(ValueError, "proof state schema"):
-            tool.render_report(missing)
-        with self.assertRaisesRegex(ValueError, "listening proof state"):
-            tool.qualification_status(
-                rows,
-                receipts,
-                authority,
-                LOCK_PATH,
-                VOCAB_PATH,
-                listening_proof_state="human-says-it-sounds-good",
-                **existing_verified,
-            )
 
     def test_failed_runtime_proof_precedes_waiting_human(self):
         tool = load_tool()
         baseline = {
             "corpus": "CONTRACT_VALID",
             "human": "WAITING_FOR_HUMAN_LABELS",
-            "performance": "NOT_RUN_NO_RUNTIME",
-            "device": "NOT_RUN_NO_RUNTIME",
-            "render": "NOT_RUN_NO_RUNTIME",
-            "listening": "NOT_RUN_NO_RUNTIME",
+            "performance": "NOT_PROVIDED",
+            "device": "NOT_PROVIDED",
+            "render": "NOT_PROVIDED",
+            "listening": "NOT_PROVIDED",
         }
 
         self.assertEqual("WAITING_FOR_HUMAN_LABELS", tool.qualification_decision(baseline))
@@ -644,16 +740,16 @@ class NeuralG2PQualificationTests(unittest.TestCase):
                 failed = {**baseline, lane: "FAILED"}
                 self.assertEqual("FAILED", tool.qualification_decision(failed))
 
-    def test_qualification_receipt_schema_v2_rejects_old_and_incompatible_versions(self):
+    def test_qualification_receipt_schema_v3_rejects_old_and_incompatible_versions(self):
         tool = load_tool()
         receipt = tool.qualification_status(
             [candidate()], [], None, LOCK_PATH, VOCAB_PATH
         )
 
-        self.assertEqual(2, tool.QUALIFICATION_RECEIPT_SCHEMA_VERSION)
-        self.assertEqual(2, receipt["schemaVersion"])
+        self.assertEqual(3, tool.QUALIFICATION_RECEIPT_SCHEMA_VERSION)
+        self.assertEqual(3, receipt["schemaVersion"])
         self.assertEqual(receipt["proofStates"], tool.validate_qualification_receipt(receipt))
-        for incompatible in (1, 3, True, None):
+        for incompatible in (1, 2, 4, True, None):
             malformed = dict(receipt)
             if incompatible is None:
                 del malformed["schemaVersion"]
@@ -677,9 +773,9 @@ class NeuralG2PQualificationTests(unittest.TestCase):
         committed = json.loads(RECEIPT_PATH.read_text(encoding="utf-8"))
 
         self.assertEqual(expected, committed)
-        self.assertEqual(2, committed["schemaVersion"])
+        self.assertEqual(3, committed["schemaVersion"])
         self.assertEqual("WAITING_FOR_HUMAN_LABELS", committed["proofStates"]["human"])
-        self.assertEqual("NOT_RUN_NO_RUNTIME", committed["proofStates"]["listening"])
+        self.assertEqual("NOT_PROVIDED", committed["proofStates"]["listening"])
         self.assertTrue(
             REPORT_PATH.read_text(encoding="utf-8").startswith(
                 tool.render_report(committed).rstrip() + "\n"
@@ -696,27 +792,23 @@ class NeuralG2PQualificationTests(unittest.TestCase):
             {
                 "corpus": "CONTRACT_VALID",
                 "human": "WAITING_FOR_HUMAN_LABELS",
-                "performance": "NOT_RUN_NO_RUNTIME",
-                "device": "NOT_RUN_NO_RUNTIME",
-                "render": "NOT_RUN_NO_RUNTIME",
-                "listening": "NOT_RUN_NO_RUNTIME",
+                "performance": "NOT_PROVIDED",
+                "device": "NOT_PROVIDED",
+                "render": "NOT_PROVIDED",
+                "listening": "NOT_PROVIDED",
             },
             receipt.get("proofStates"),
         )
 
-        report = tool.render_report(
-            receipt,
-            performance_proof_state="NOT_RUN_NO_RUNTIME",
-            device_proof_state="NOT_RUN_NO_RUNTIME",
-        )
+        report = tool.render_report(receipt)
 
         self.assertIn("Qualification status: `WAITING_FOR_HUMAN_LABELS`", report)
         self.assertIn("Corpus proof: `CONTRACT_VALID`", report)
         self.assertIn("Human proof: `WAITING_FOR_HUMAN_LABELS`", report)
-        self.assertIn("Performance proof: `NOT_RUN_NO_RUNTIME`", report)
-        self.assertIn("Device proof: `NOT_RUN_NO_RUNTIME`", report)
-        self.assertIn("Render proof: `NOT_RUN_NO_RUNTIME`", report)
-        self.assertIn("Listening proof: `NOT_RUN_NO_RUNTIME`", report)
+        self.assertIn("Performance proof: `NOT_PROVIDED`", report)
+        self.assertIn("Device proof: `NOT_PROVIDED`", report)
+        self.assertIn("Render proof: `NOT_PROVIDED`", report)
+        self.assertIn("Listening proof: `NOT_PROVIDED`", report)
         self.assertNotIn("Syntheticproper", report)
 
     def test_report_rejects_hostile_free_form_proof_states(self):
@@ -727,17 +819,17 @@ class NeuralG2PQualificationTests(unittest.TestCase):
         baseline = {
             "corpus": "CONTRACT_VALID",
             "human": "WAITING_FOR_HUMAN_LABELS",
-            "performance": "NOT_RUN_NO_RUNTIME",
-            "device": "NOT_RUN_NO_RUNTIME",
-            "render": "NOT_RUN_NO_RUNTIME",
-            "listening": "NOT_RUN_NO_RUNTIME",
+            "performance": "NOT_PROVIDED",
+            "device": "NOT_PROVIDED",
+            "render": "NOT_PROVIDED",
+            "listening": "NOT_PROVIDED",
         }
         hostile_values = (
             "/Users/example/private/book.epub",
             "person@example.test",
             "`INJECTED`\n## Private evidence",
-            ["NOT_RUN_NO_RUNTIME"],
-            {"state": "NOT_RUN_NO_RUNTIME"},
+            ["NOT_PROVIDED"],
+            {"state": "NOT_PROVIDED"},
         )
 
         for lane in baseline:
@@ -747,28 +839,9 @@ class NeuralG2PQualificationTests(unittest.TestCase):
                 with self.subTest(lane=lane, hostile=hostile):
                     try:
                         with self.assertRaisesRegex(ValueError, "proof state"):
-                            tool.render_report(
-                                malformed,
-                                performance_proof_state="NOT_RUN_NO_RUNTIME",
-                                device_proof_state="NOT_RUN_NO_RUNTIME",
-                            )
+                            tool.render_report(malformed)
                     except TypeError as error:
                         self.fail(f"proof-state validation leaked TypeError: {error}")
-
-        for argument in (
-            "performance_proof_state",
-            "device_proof_state",
-            "listening_proof_state",
-        ):
-            with self.subTest(argument=argument):
-                values = {
-                    "performance_proof_state": "NOT_RUN_NO_RUNTIME",
-                    "device_proof_state": "NOT_RUN_NO_RUNTIME",
-                    "listening_proof_state": "NOT_RUN_NO_RUNTIME",
-                }
-                values[argument] = "/Users/example/private/evidence.json"
-                with self.assertRaisesRegex(ValueError, "proof state"):
-                    tool.render_report(receipt, **values)
 
 
 if __name__ == "__main__":

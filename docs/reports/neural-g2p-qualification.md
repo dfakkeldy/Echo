@@ -7,12 +7,14 @@ words, contexts, human labels, and model output strings are intentionally absent
 
 ## Qualification evidence
 
-- Corpus SHA-256: `7da7b877d00a064f4b18657e20b14df4527d20e9d3a4b2a16411ce04068af152`
+- Corpus SHA-256: `6085b9bf06234dc263004348a2b2dc619055ee0617f6e7654ad3b7448cdfedb8`
 - Reviewed cases: 0
 - Automatic selections: 0
 - Correct automatic selections: 0
 - Exact automatic precision: unavailable
 - 95% Wilson lower bound: unavailable
+- Governed machine producer: `UNAVAILABLE_FAIL_CLOSED`
+- Recomputed eligible observations (diagnostic only): 0
 
 - `proper-noun`: 0 qualifying cases
 - `technical`: 0 qualifying cases
@@ -23,7 +25,7 @@ words, contexts, human labels, and model output strings are intentionally absent
 ## Invalid outputs
 
 ```json
-{"duplicate":0,"empty":0,"kokoroIncompatible":0,"unmappable":0,"unstable":0}
+{"emptyOrUnmappable":0,"missingMachineEvidence":0,"notDeterministicOOV":0,"unstable":0}
 ```
 
 ## Frozen identities
@@ -40,12 +42,14 @@ words, contexts, human labels, and model output strings are intentionally absent
 
 - Corpus proof: `CONTRACT_VALID`
 - Human proof: `WAITING_FOR_HUMAN_LABELS`
-- Performance proof: `NOT_RUN_NO_RUNTIME`
-- Device proof: `NOT_RUN_NO_RUNTIME`
-- Render proof: `NOT_RUN_NO_RUNTIME`
-- Listening proof: `NOT_RUN_NO_RUNTIME`
+- Performance proof: `NOT_PROVIDED`
+- Device proof: `NOT_PROVIDED`
+- Render proof: `NOT_PROVIDED`
+- Listening proof: `NOT_PROVIDED`
 
 These states are not inferred from corpus validation or human-label qualification.
+Runtime and listening states are derived only from a bound external runtime
+receipt and a distinct user-controlled listening authority receipt.
 
 ## Task 14 shadow-integration evidence
 
@@ -55,10 +59,14 @@ These states are not inferred from corpus validation or human-label qualificatio
 - Runtime validation policy: `kokoro-vocab-validation-v1`
 - Runtime shadow-selection policy: `mini-bart-g2p-beam5-max20-v1`
 - Qualification selection policy: `neural-oov-complete-selection-v1`
-- Full committed public/synthetic corpus checked: 10 provisional cases
+- Full committed public/synthetic corpus checked: 540 provisional cases
 - Repetitions per case: 2
-- Stable repeated runtime results: 10 of 10
-- Candidate-producing runtime results: 10 of 10
+- Stable repeated runtime results: 540 of 540
+- Candidate-producing runtime results: 540 of 540
+- Category coverage: 108 cases in each of the 5 governed categories
+- Capitalization coverage: 180 lowercase, 180 titlecase, 180 uppercase
+- Punctuation coverage: 135 none, 135 leading, 135 trailing, 135 paired
+- Sentence-position coverage: 180 initial, 180 medial, 180 final
 - Integration tests: `VERIFIED_BY_AUTOMATED_TESTS`
 - Deterministic pronunciation selection unchanged: `VERIFIED_BY_AUTOMATED_TESTS`
 - Shadow evidence excluded from cache/resume identity: `VERIFIED_BY_AUTOMATED_TESTS`
@@ -68,4 +76,6 @@ The runtime evidence above was collected with the bundled model in an iPhone
 simulator test process. It is not physical-device, performance, audiobook
 render, or human-listening evidence and does not change any separate proof state
 or the overall `WAITING_FOR_HUMAN_LABELS` qualification status. The committed
-corpus remains provisional and below the 500 reviewed-case qualification floor.
+corpus now contains more than 500 candidate cases, but all 540 remain provisional:
+zero independently human-reviewed cases count toward the 500 reviewed-case
+qualification floor.

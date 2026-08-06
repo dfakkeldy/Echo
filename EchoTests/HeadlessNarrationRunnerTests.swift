@@ -605,7 +605,7 @@ import ZIPFoundation
 
         let evaluatedWords = await evaluated.snapshot()
         #expect(first.complete)
-        #expect(evaluatedWords.filter { $0 == "xyzqwf" } == ["xyzqwf"])
+        #expect(evaluatedWords.filter { $0 == "xyzqwf" } == ["xyzqwf", "xyzqwf"])
         #expect(!evaluatedWords.contains("verified"))
         #expect(fallback.source == .fallback)
         #expect(neural.authority == .uncertain)

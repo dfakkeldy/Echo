@@ -674,6 +674,81 @@ private actor ShadowEvaluatorRecorder {
         #expect(Set(cacheURLs).count == 1)
     }
 
+    @Test func renderPlanSurfacesBoundedNeuralInstabilityWithoutChangingProductionAuthority()
+        async throws
+    {
+        actor Sequence {
+            private var invocation = 0
+
+            func next(for word: String) -> NeuralG2PShadowResult {
+                invocation += 1
+                let ipa = invocation == 1 ? "zizkwf" : "zizkwəf"
+                return .candidate(
+                    NeuralG2PCandidate(
+                        candidateID: NeuralG2PGovernedIdentity.candidateID(
+                            normalizedWord: word,
+                            ipa: ipa)!,
+                        ipa: ipa,
+                        modelRevision: NeuralG2PGovernedIdentity.modelRevision,
+                        conversionPolicyVersion:
+                            NeuralG2PGovernedIdentity.conversionPolicyVersion,
+                        validationPolicyVersion:
+                            NeuralG2PGovernedIdentity.validationPolicyVersion,
+                        selectionPolicyVersion:
+                            NeuralG2PGovernedIdentity.selectionPolicyVersion))
+            }
+        }
+
+        let db = try DatabaseService(inMemory: ())
+        let sourceBlocks = try seed(db, ["Xyzqwf appears in this synthetic fixture."])
+        let deterministic = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: MockTTSEngine(),
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            neuralEvaluator: nil,
+            fmEnabled: { false })
+        let sequence = Sequence()
+        let observed = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: MockTTSEngine(),
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            neuralEvaluator: { word in await sequence.next(for: word) },
+            fmEnabled: { false })
+
+        let deterministicPlan = try await deterministic.renderPlan(
+            for: sourceBlocks,
+            overrides: PronunciationOverrides(entries: [:]),
+            occurrenceOverrides: .empty,
+            fmEnabled: false)
+        let observedPlan = try await observed.renderPlan(
+            for: sourceBlocks,
+            overrides: PronunciationOverrides(entries: [:]),
+            occurrenceOverrides: .empty,
+            fmEnabled: false)
+        let baseline = try #require(
+            deterministicPlan.blocks.flatMap(\.pronunciationDecisions).first {
+                $0.normalizedWord == "xyzqwf"
+            })
+        let unstable = try #require(
+            observedPlan.blocks.flatMap(\.pronunciationDecisions).first {
+                $0.normalizedWord == "xyzqwf"
+            })
+
+        #expect(unstable.advisoryEvidence?.neuralShadowObservation == .unstableEvaluation)
+        #expect(unstable.selectedIPA == baseline.selectedIPA)
+        #expect(unstable.kokoroTokenIDs == baseline.kokoroTokenIDs)
+        #expect(unstable.candidateID == baseline.candidateID)
+        #expect(
+            observedPlan.blocks.flatMap(\.synthesisChunks)
+                == deterministicPlan.blocks.flatMap(\.synthesisChunks))
+    }
+
     @Test func contextualShadowOutcomesCannotChangeNarrationOrCacheIdentity() async throws {
         let sourceBlocks = [
             block(

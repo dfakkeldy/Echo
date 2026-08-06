@@ -40,7 +40,9 @@ struct NarrationPronunciationCandidate: Codable, Equatable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(word, forKey: .word)
         try container.encode(
-            reasons.sorted { $0.rawValue.localizedStandardCompare($1.rawValue) == .orderedAscending },
+            reasons.sorted {
+                $0.rawValue.localizedStandardCompare($1.rawValue) == .orderedAscending
+            },
             forKey: .reasons)
         try container.encode(occurrenceCount, forKey: .occurrenceCount)
     }
@@ -74,13 +76,12 @@ enum NarrationPronunciationPreflight {
         overrides: PronunciationOverrides,
         pronunciation: (String) -> (phonemes: String, fallbackHits: [PronunciationFallbackHit])
     ) -> [NarrationPronunciationCandidate] {
-        var buckets: [
-            String: (
+        var buckets:
+            [String: (
                 display: String,
                 reasons: Set<NarrationPronunciationCandidate.Reason>,
                 count: Int
-            )
-        ] = [:]
+            )] = [:]
         let overridden = Set(overrides.entries.keys.map { $0.lowercased() })
 
         for text in texts {
@@ -133,9 +134,10 @@ enum NarrationPronunciationPreflight {
         return try encoder.encode(candidates)
     }
 
-    /// Evaluates each genuine deterministic OOV spelling once, off the caller's
-    /// actor, and copies the result into advisory evidence only. The immutable
-    /// synthesis chunks and their selected pronunciation receipts are preserved.
+    /// Evaluates each genuine deterministic OOV spelling twice, off the caller's
+    /// actor, so the live path can preserve observed instability in advisory
+    /// evidence. The repetition is deliberately bounded; immutable synthesis
+    /// chunks and their selected pronunciation receipts are preserved.
     @concurrent
     nonisolated static func applyingNeuralShadow(
         to plan: NarrationRenderPlan,
@@ -154,23 +156,29 @@ enum NarrationPronunciationPreflight {
         ).sorted()
         guard !words.isEmpty else { return plan }
 
-        var results: [String: NeuralG2PShadowResult] = [:]
+        let repeatCount = 2
+        var results: [String: [NeuralG2PShadowResult]] = [:]
         results.reserveCapacity(words.count)
         for word in words {
-            try Task.checkCancellation()
-            let result: NeuralG2PShadowResult
-            do {
-                result = try await evaluator(word)
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                result = .rejected(.inference)
+            var repeatedResults: [NeuralG2PShadowResult] = []
+            repeatedResults.reserveCapacity(repeatCount)
+            for _ in 0..<repeatCount {
+                try Task.checkCancellation()
+                let result: NeuralG2PShadowResult
+                do {
+                    result = try await evaluator(word)
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    result = .rejected(.inference)
+                }
+                try Task.checkCancellation()
+                if result == .rejected(.cancelled) {
+                    throw CancellationError()
+                }
+                repeatedResults.append(result)
             }
-            try Task.checkCancellation()
-            if result == .rejected(.cancelled) {
-                throw CancellationError()
-            }
-            results[word] = result
+            results[word] = repeatedResults
         }
 
         return NarrationRenderPlan(
@@ -180,12 +188,14 @@ enum NarrationPronunciationPreflight {
                     originalBlock: block.originalBlock,
                     synthesisChunks: block.synthesisChunks,
                     pronunciationDecisions: block.pronunciationDecisions.map { decision in
-                        guard let result = results[decision.normalizedWord] else {
+                        guard let repeatedResults = results[decision.normalizedWord] else {
                             return decision
                         }
-                        return PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
-                            result,
-                            to: decision)
+                        return repeatedResults.reduce(decision) { partialDecision, result in
+                            PronunciationCandidateAnalyzer.attachingNeuralShadowResult(
+                                result,
+                                to: partialDecision)
+                        }
                     },
                     pronunciationDecisionDiagnostics: block.pronunciationDecisionDiagnostics,
                     trailingSilence: block.trailingSilence)

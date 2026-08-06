@@ -7,9 +7,11 @@
 
 This is an engineering compatibility review, not legal advice. The verdict means
 the authoritative upstream records identify licenses that permit redistribution
-when their attribution and notice conditions are followed. It does not enable a
-runtime, add model bytes to the repository, or replace a release-specific legal
-review.
+when their attribution and notice conditions are followed. The six locked files
+are now committed under
+`EchoCore/Services/Narration/NeuralG2PResources/` and copied into the iOS,
+macOS, and `echo-cli` resource bundles. This review does not replace a
+release-specific legal review.
 
 ## Model identity and license
 
@@ -105,5 +107,9 @@ A bundle containing these model files must:
    version, DOI, and CC BY 4.0 license link; and
 5. distribute only files that pass the immutable lock's size and SHA-256 checks.
 
-The verified fetch used only a caller-supplied external temporary directory.
-No model bytes are committed or implicitly copied into application resources.
+The original verified fetch used only a caller-supplied external temporary
+directory. The resulting six byte-for-byte locked artifacts are now committed
+under `EchoCore/Services/Narration/NeuralG2PResources/` and explicitly copied by
+all three product resource phases: iOS, macOS, and `echo-cli`. Runtime model
+downloads are neither required nor permitted by this Stage 3 integration; every
+bundled artifact must continue to match the sizes and SHA-256 values above.

@@ -90,7 +90,7 @@ import Testing
         #expect(json.contains("unsupportedPhonemes"))
     }
 
-    @Test func neuralShadowEvaluatesEachNormalizedOOVOnceOffMainAndPreservesSelection()
+    @Test func neuralShadowEvaluatesEachNormalizedOOVTwiceOffMainAndPreservesSelection()
         async throws
     {
         let plan = try NarrationRenderPlanner.make(
@@ -109,7 +109,7 @@ import Testing
                 return .candidate(Self.neuralCandidate())
             })
 
-        #expect(await evaluated.snapshot() == ["xyzqwf"])
+        #expect(await evaluated.snapshot() == ["xyzqwf", "xyzqwf"])
         #expect(enriched.blocks.flatMap(\.synthesisChunks) == originalChunks)
         #expect(
             enriched.blocks.flatMap(\.pronunciationDecisions).map {
@@ -141,6 +141,46 @@ import Testing
                 NarrationPronunciationPreflight.debugNeuralBatchRanOnMainThread.withLock { $0 }
                     == false)
         #endif
+    }
+
+    @Test func neuralShadowMarksDifferentBoundedRepeatResultsUnstable() async throws {
+        actor Sequence {
+            private var invocation = 0
+
+            func next() -> NeuralG2PShadowResult {
+                invocation += 1
+                if invocation == 1 {
+                    return .candidate(
+                        NarrationPronunciationPreflightTests.neuralCandidate(ipa: "zizkwf"))
+                }
+                return .candidate(
+                    NarrationPronunciationPreflightTests.neuralCandidate(ipa: "zizkwəf"))
+            }
+        }
+
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(text: "Xyzqwf appears.")],
+            overrides: PronunciationOverrides(entries: [:]))
+        let original = try #require(
+            plan.blocks.flatMap(\.pronunciationDecisions).first {
+                $0.normalizedWord == "xyzqwf"
+            })
+        let sequence = Sequence()
+
+        let enriched = try await NarrationPronunciationPreflight.applyingNeuralShadow(
+            to: plan,
+            evaluator: { _ in await sequence.next() })
+        let decision = try #require(
+            enriched.blocks.flatMap(\.pronunciationDecisions).first {
+                $0.normalizedWord == "xyzqwf"
+            })
+
+        #expect(decision.advisoryEvidence?.neuralShadowObservation == .unstableEvaluation)
+        #expect(decision.advisoryEvidence?.selectionReason == .shadowCandidate)
+        #expect(decision.selectedIPA == original.selectedIPA)
+        #expect(decision.kokoroTokenIDs == original.kokoroTokenIDs)
+        #expect(decision.candidateID == original.candidateID)
+        #expect(decision.advisoryEvidence?.alternatives.count == 2)
     }
 
     @Test func neuralFailuresRemainCategoricalAdvisoriesWithoutChangingDeterministicIPA()
@@ -215,6 +255,33 @@ import Testing
                 to: plan,
                 evaluator: { _ in .rejected(.cancelled) })
         }
+    }
+
+    @Test func neuralCancellationOnBoundedRepeatDiscardsTheFirstObservation() async throws {
+        actor Sequence {
+            private var invocationCount = 0
+
+            func next() -> NeuralG2PShadowResult {
+                invocationCount += 1
+                return invocationCount == 1
+                    ? .candidate(NarrationPronunciationPreflightTests.neuralCandidate())
+                    : .rejected(.cancelled)
+            }
+
+            func count() -> Int { invocationCount }
+        }
+
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(text: "Xyzqwf appears.")],
+            overrides: PronunciationOverrides(entries: [:]))
+        let sequence = Sequence()
+
+        await #expect(throws: CancellationError.self) {
+            _ = try await NarrationPronunciationPreflight.applyingNeuralShadow(
+                to: plan,
+                evaluator: { _ in await sequence.next() })
+        }
+        #expect(await sequence.count() == 2)
     }
 
     @Test func neuralShadowPreservesAnInvalidRawG2PEvidenceReceipt() async throws {
@@ -528,7 +595,7 @@ import Testing
             .appending(path: "Fixtures/Pronunciation/neural_oov_candidates_v1.jsonl")
         let lines = try String(contentsOf: corpusURL, encoding: .utf8)
             .split(whereSeparator: \.isNewline)
-        #expect(lines.count == 10)
+        #expect(lines.count == 540)
 
         let decoder = JSONDecoder()
         for line in lines {

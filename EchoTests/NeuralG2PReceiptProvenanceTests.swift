@@ -17,6 +17,64 @@ import Testing
     private static let thirdCandidateID =
         "sha256:4f5d16ab17bb584db4b3b17bdf6d97bb2d1f79fa181495b8e7707bf852cd254a"
 
+    @Test func schemaFiveCompatibilityIdentityIsFrozenAsHistoricalLiterals() {
+        #expect(
+            PronunciationAdvisoryEvidence.schemaFiveNeuralSource
+                == "mini-bart-g2p@f277d1e0597e7e7d33fa1d6d27d764bc4d7acb06|mini-bart-arpabet-to-kokoro-v1|kokoro-vocab-validation-v1"
+        )
+        #expect(
+            PronunciationAdvisoryEvidence.schemaFiveNeuralPolicyVersion
+                == "mini-bart-g2p-beam5-max20-v1")
+    }
+
+    @Test func schemaFiveCompatibilityUsesItsFrozenKokoroVocabulary() {
+        func evidence(
+            ipa: String,
+            source: String =
+                "mini-bart-g2p@f277d1e0597e7e7d33fa1d6d27d764bc4d7acb06|mini-bart-arpabet-to-kokoro-v1|kokoro-vocab-validation-v1",
+            policyVersion: String = "mini-bart-g2p-beam5-max20-v1"
+        ) -> PronunciationAdvisoryEvidence {
+            PronunciationAdvisoryEvidence(
+                category: .lexical,
+                selectedAuthority: .uncertain,
+                selectedCandidateID: nil,
+                alternatives: [
+                    .init(
+                        candidateID: "sha256:" + String(repeating: "1", count: 64),
+                        ipa: ipa,
+                        source: source,
+                        authority: .uncertain,
+                        validation: .shadow,
+                        policyVersion: policyVersion)
+                ],
+                selectionReason: .deterministicFallback,
+                overrideSuppressedAutomation: false,
+                policyVersion: "fixture-v1")
+        }
+
+        #expect(evidence(ipa: "\u{1D4A}").isValidLegacySchemaFive())
+        #expect(!evidence(ipa: "🙂").isValidLegacySchemaFive())
+        #expect(!evidence(ipa: "\u{1D4A}").isValid())
+        #expect(
+            evidence(
+                ipa: "z",
+                source: "aminibart-g2pology",
+                policyVersion: "other-policy-v1"
+            ).isValidLegacySchemaFive())
+        #expect(
+            evidence(
+                ipa: "z",
+                source: "Mini-BART-G2P@revision",
+                policyVersion: "other-policy-v1"
+            ).isValidLegacySchemaFive())
+        #expect(
+            !evidence(
+                ipa: "z",
+                source: "mini-bart-g2pology",
+                policyVersion: "other-policy-v1"
+            ).isValidLegacySchemaFive())
+    }
+
     @Test func schemaFiveNeuralCandidateWithoutLaterBindingIsReadableButNotPromotable()
         throws
     {
@@ -28,10 +86,11 @@ import Testing
             [
                 "candidateID": "sha256:" + String(repeating: "1", count: 64),
                 "ipa": "zizkwf",
-                "source": NeuralG2PGovernedIdentity.alternativeSource,
+                "source":
+                    "mini-bart-g2p@f277d1e0597e7e7d33fa1d6d27d764bc4d7acb06|mini-bart-arpabet-to-kokoro-v1|kokoro-vocab-validation-v1",
                 "authority": "uncertain",
                 "validation": "shadow",
-                "policyVersion": NeuralG2PGovernedIdentity.selectionPolicyVersion,
+                "policyVersion": "mini-bart-g2p-beam5-max20-v1",
             ]
         ]
         evidence.removeValue(forKey: "neuralShadowObservation")
@@ -42,7 +101,6 @@ import Testing
         let decoded = try JSONDecoder().decode(
             PronunciationAuditManifest.self,
             from: JSONSerialization.data(withJSONObject: root))
-
         #expect(decoded.schemaVersion == 5)
         #expect(decoded.decisions.first?.advisoryEvidence?.alternatives.count == 1)
         #expect(decoded.decisions.first?.advisoryEvidence?.neuralShadowObservation == nil)
