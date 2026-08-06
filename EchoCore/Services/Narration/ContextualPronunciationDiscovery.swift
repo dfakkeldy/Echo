@@ -341,9 +341,10 @@ nonisolated enum ContextualPronunciationDiscovery {
 
             let analysis = homographContext.analysis(
                 atWordStart: wordSpan.lowerBound)
-            let isExactWeatherLinkLiveProduct =
+            let hasExactTitleCaseContext =
                 analysis.ruleID == "homograph.live.product.weather-link-live"
-            guard !properNameRisks[familyOffset] || isExactWeatherLinkLiveProduct else {
+                || analysis.ruleID == "homograph.record.noun.preceder"
+            guard !properNameRisks[familyOffset] || hasExactTitleCaseContext else {
                 continue
             }
             occurrences.append(
