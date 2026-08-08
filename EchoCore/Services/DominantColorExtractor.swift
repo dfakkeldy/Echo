@@ -11,6 +11,18 @@ nonisolated struct CoverSignature: Equatable {
         let hue: Double  // OKLCH hue angle, degrees
         let chroma: Double  // mean OKLCH chroma of the bucket
         let weight: Double  // saturation² × centre-bias coverage score
+        /// Mean OKLCH lightness of the bucket — the cover's own tone for this
+        /// hue. Accent promotion seeds from it and measures identity drift
+        /// against it. Defaulted mid-tone so existing constructions that never
+        /// exercise promotion need no change.
+        let lightness: Double
+
+        init(hue: Double, chroma: Double, weight: Double, lightness: Double = 0.55) {
+            self.hue = hue
+            self.chroma = chroma
+            self.weight = weight
+            self.lightness = lightness
+        }
     }
     /// Ranked by weight, descending. Empty for neutral covers.
     let candidates: [HueCandidate]
@@ -145,7 +157,8 @@ nonisolated enum DominantColorExtractor {
                     b: Double(bSums[bucket] / w)
                 )
                 let lch = OKLCH.fromSRGB(mean)
-                return CoverSignature.HueCandidate(hue: lch.H, chroma: lch.C, weight: Double(w))
+                return CoverSignature.HueCandidate(
+                    hue: lch.H, chroma: lch.C, weight: Double(w), lightness: lch.L)
             }
 
         guard !candidates.isEmpty else { return .neutral }
