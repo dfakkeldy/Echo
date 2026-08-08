@@ -93,20 +93,6 @@ struct ResolveVoicePlanCommand: AsyncParsableCommand {
         let resolved = try HeadlessNarrationRunner.resolveVoicePlan(
             epubURL: URL(fileURLWithPath: epub),
             voicePlanURL: URL(fileURLWithPath: voicePlan))
-        let payload = ResolveVoicePlanPayload(
-            sourceEPUBSHA256: resolved.sourceEPUBSHA256,
-            defaultSpeakerID: resolved.defaultSpeakerID,
-            voicePlanSHA256: resolved.voicePlanSHA256,
-            blocks: resolved.blocks)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        print(String(decoding: try encoder.encode(payload), as: UTF8.self))
-    }
-
-    private struct ResolveVoicePlanPayload: Encodable {
-        let sourceEPUBSHA256: String
-        let defaultSpeakerID: String
-        let voicePlanSHA256: String
-        let blocks: [ResolvedBlockVoice]
+        print(try HeadlessNarrationRunner.resolveVoicePlanIdentityJSON(resolved))
     }
 }

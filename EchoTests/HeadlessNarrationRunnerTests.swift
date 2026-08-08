@@ -291,6 +291,73 @@ import ZIPFoundation
         #expect(FileManager.default.fileExists(atPath: marker.path))
     }
 
+    @Test func planWithChapterOverrideFailsBeforeFreshCleanup() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let expanded = try TestEPUBFixture.twoChapters(in: tmp)
+        let epub = tmp.appendingPathComponent("source.epub")
+        try FileManager.default.zipItem(at: expanded, to: epub, shouldKeepParent: false)
+        let plan = tmp.appendingPathComponent("plan.json")
+        try Data("""
+        {"schemaVersion":1,"source":{"epubSHA256":"\(try HeadlessNarrationRunner.fileSHA256(at: epub))"},"defaultSpeakerID":"narrator","speakers":[{"id":"narrator","voiceID":"af_heart"}],"assignments":[]}
+        """.utf8).write(to: plan)
+        let work = tmp.appendingPathComponent("work", isDirectory: true)
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        let marker = work.appendingPathComponent(".anchors-ch0.json")
+        try Data("keep me".utf8).write(to: marker)
+        var config = NarrationRunConfig(
+            epubURL: epub,
+            outM4BURL: tmp.appendingPathComponent("out.m4b"),
+            sidecarURL: nil,
+            workDir: work,
+            voice: nil,
+            voicePlanURL: plan,
+            title: "Fixture",
+            author: "Echo",
+            maxNewChaptersPerRun: nil,
+            clearExistingCapturesBeforeRun: true)
+        config.chapterVoicesByDisplayNumber = [1: VoiceID("af_bella")]
+
+        await #expect(throws: Error.self) {
+            try await HeadlessNarrationRunner().run(config, tts: StubEngine())
+        }
+        #expect(FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    @Test func invalidPlanFailsBeforeFreshCleanup() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let expanded = try TestEPUBFixture.twoChapters(in: tmp)
+        let epub = tmp.appendingPathComponent("source.epub")
+        try FileManager.default.zipItem(at: expanded, to: epub, shouldKeepParent: false)
+        let plan = tmp.appendingPathComponent("plan.json")
+        try Data("not JSON".utf8).write(to: plan)
+        let work = tmp.appendingPathComponent("work", isDirectory: true)
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        let marker = work.appendingPathComponent(".anchors-ch0.json")
+        try Data("keep me".utf8).write(to: marker)
+        let config = NarrationRunConfig(
+            epubURL: epub,
+            outM4BURL: tmp.appendingPathComponent("out.m4b"),
+            sidecarURL: nil,
+            workDir: work,
+            voice: nil,
+            voicePlanURL: plan,
+            title: "Fixture",
+            author: "Echo",
+            maxNewChaptersPerRun: nil,
+            clearExistingCapturesBeforeRun: true)
+
+        await #expect(throws: Error.self) {
+            try await HeadlessNarrationRunner().run(config, tts: StubEngine())
+        }
+        #expect(FileManager.default.fileExists(atPath: marker.path))
+    }
+
     @Test func partialRunLeavesPronunciationReviewPendingWithoutInvokingGenerator() async throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
             UUID().uuidString, isDirectory: true)

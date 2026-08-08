@@ -40,6 +40,79 @@ import ZIPFoundation
         }
     }
 
+    @Test func resolverIdentityIsTheExactCompactContract() throws {
+        let resolved = ResolvedBlockVoicePlan(
+            sourceEPUBSHA256: String(repeating: "a", count: 64),
+            defaultSpeakerID: "narrator", defaultVoiceID: VoiceID("af_heart"),
+            blocks: [])
+        let json = try HeadlessNarrationRunner.resolveVoicePlanIdentityJSON(resolved)
+        #expect(json == "{\"blockCount\":0,\"defaultVoice\":\"af_heart\",\"sourceEPUBSHA256\":\"\(String(repeating: "a", count: 64))\",\"voicePlanID\":\"\(resolved.voicePlanID)\",\"voicePlanSHA256\":\"\(resolved.voicePlanSHA256)\"}")
+    }
+
+    @Test func archivePathsMustRemainInsideTemporaryRoot() throws {
+        #expect(throws: Error.self) {
+            try HeadlessNarrationRunner.resolverArchiveDestination(
+                entryPath: "../escape", temporaryRoot: URL(fileURLWithPath: "/tmp/root"))
+        }
+        #expect(throws: Error.self) {
+            try HeadlessNarrationRunner.resolverArchiveDestination(
+                entryPath: "/escape", temporaryRoot: URL(fileURLWithPath: "/tmp/root"))
+        }
+    }
+
+    @Test func resolverRejectsPlanVoicesWithoutBundledResources() throws {
+        let plan = ResolvedBlockVoicePlan(
+            sourceEPUBSHA256: String(repeating: "a", count: 64),
+            defaultSpeakerID: "narrator",
+            defaultVoiceID: VoiceID("af_heart"),
+            blocks: [
+                ResolvedBlockVoice(
+                    blockID: "s0-b0", speakerID: "narrator", voiceID: VoiceID("af_heart"))
+            ])
+
+        #expect(throws: Error.self) {
+            try HeadlessNarrationRunner.validateVoiceResources(plan, resourceURL: { _, _ in nil })
+        }
+    }
+
+    @Test func resolverUsesTOCChapterBoundariesForRangeValidation() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let expanded = try TestEPUBFixture.twoChapters(in: tmp)
+        let oebps = expanded.appendingPathComponent("OEBPS", isDirectory: true)
+        try """
+        <?xml version="1.0" encoding="utf-8"?>
+        <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body>
+        <nav epub:type="toc"><ol>
+        <li><a href="chap01.xhtml#first">First</a></li>
+        <li><a href="chap01.xhtml#second">Second</a></li>
+        </ol></nav></body></html>
+        """.write(to: oebps.appendingPathComponent("nav.xhtml"), atomically: true, encoding: .utf8)
+        try """
+        <?xml version="1.0" encoding="utf-8"?>
+        <html xmlns="http://www.w3.org/1999/xhtml"><body>
+        <h1 id="first">First</h1><p>First section prose.</p>
+        <h1 id="second">Second</h1><p>Second section prose.</p>
+        </body></html>
+        """.write(to: oebps.appendingPathComponent("chap01.xhtml"), atomically: true, encoding: .utf8)
+        let epub = tmp.appendingPathComponent("fixture.epub")
+        try archive(expanded, at: epub)
+        let parsed = try parseEPUBBlocks(audiobookID: "test", epubURL: expanded)
+        let first = try #require(parsed.blocks.first { $0.text == "First" })
+        let second = try #require(parsed.blocks.first { $0.text == "Second" })
+        let planURL = tmp.appendingPathComponent("plan.json")
+        let sourceSHA256 = try HeadlessNarrationRunner.fileSHA256(at: epub)
+        try Data("""
+        {"schemaVersion":1,"source":{"epubSHA256":"\(sourceSHA256)"},"defaultSpeakerID":"narrator","speakers":[{"id":"narrator","voiceID":"af_heart"}],"assignments":[{"speakerID":"narrator","range":{"start":"\(AlignmentSidecar.portableSuffix(of: first.id))","end":"\(AlignmentSidecar.portableSuffix(of: second.id))"}}]}
+        """.utf8).write(to: planURL)
+
+        #expect(throws: Error.self) {
+            try HeadlessNarrationRunner.resolveVoicePlan(epubURL: epub, voicePlanURL: planURL)
+        }
+    }
+
     private func archive(_ directory: URL, at destination: URL) throws {
         let archive = try Archive(url: destination, accessMode: .create)
         let files = try FileManager.default.subpathsOfDirectory(atPath: directory.path).sorted()

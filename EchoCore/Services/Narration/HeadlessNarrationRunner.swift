@@ -480,6 +480,34 @@ struct NarrationRunResult {
         config.voice ?? VoiceCatalog.default.id
     }
 
+    static func resolveVoicePlanIdentityJSON(_ plan: ResolvedBlockVoicePlan) throws -> String {
+        struct Identity: Encodable {
+            let blockCount: Int
+            let defaultVoice: String
+            let sourceEPUBSHA256: String
+            let voicePlanID: String
+            let voicePlanSHA256: String
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return String(decoding: try encoder.encode(Identity(
+            blockCount: plan.blocks.count, defaultVoice: plan.defaultVoice.rawValue,
+            sourceEPUBSHA256: plan.sourceEPUBSHA256, voicePlanID: plan.voicePlanID,
+            voicePlanSHA256: plan.voicePlanSHA256)), as: UTF8.self)
+    }
+
+    static func resolverArchiveDestination(entryPath: String, temporaryRoot: URL) throws -> URL {
+        guard !entryPath.hasPrefix("/"), !entryPath.split(separator: "/").contains("..") else {
+            throw NarrationRunError.voicePlan("archive entry escapes temporary storage")
+        }
+        let root = temporaryRoot.standardizedFileURL
+        let destination = root.appendingPathComponent(entryPath).standardizedFileURL
+        guard destination.path.hasPrefix(root.path + "/") else {
+            throw NarrationRunError.voicePlan("archive entry escapes temporary storage")
+        }
+        return destination
+    }
+
     /// Resolves a plan without using the narration database or caller work
     /// directory. Archive extraction is confined to a uniquely named temporary
     /// directory that is removed before this method returns.
@@ -504,35 +532,37 @@ struct NarrationRunResult {
         defer { try? FileManager.default.removeItem(at: temporaryRoot) }
         let archive = try Archive(url: epubURL, accessMode: .read)
         for entry in archive where entry.type == .file {
-            let destination = temporaryRoot.appendingPathComponent(entry.path)
+            let destination = try resolverArchiveDestination(
+                entryPath: entry.path, temporaryRoot: temporaryRoot)
             try FileManager.default.createDirectory(
                 at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
             _ = try archive.extract(entry, to: destination)
         }
-        let blocks = try parseEPUBBlocks(
-            audiobookID: "voice-plan-\(sourceSHA256.prefix(12))", epubURL: temporaryRoot).blocks
-            .map { block in
-                var block = block
-                // The read-only parser deliberately bypasses the importer’s
-                // database-only chapter-index persistence. Spine order is the
-                // canonical chapter identity for this preflight path.
-                block.chapterIndex = block.spineIndex
-                return block
-            }
+        let audiobookID = "voice-plan-\(sourceSHA256.prefix(12))"
+        let parse = try parseEPUBBlocks(audiobookID: audiobookID, epubURL: temporaryRoot)
+        var blocks = parse.blocks
+        _ = try EPUBImportService.resolveTOCEntriesAndAssignChapterIndices(
+            parse: parse, audiobookID: audiobookID,
+            assignsStructureChapterIndices: true, blocks: &blocks)
         do {
-            return try BlockVoicePlanLoader.resolve(
+            let plan = try BlockVoicePlanLoader.resolve(
                 document: document,
                 sourceEPUBSHA256: sourceSHA256,
                 chapters: NarrationChapterPlanner.plan(from: blocks))
+            try validateVoiceResources(plan)
+            return plan
         } catch {
             throw NarrationRunError.voicePlan(error.localizedDescription)
         }
     }
 
-    private static func validateVoiceResources(_ plan: ResolvedBlockVoicePlan) throws {
+    static func validateVoiceResources(
+        _ plan: ResolvedBlockVoicePlan,
+        resourceURL: (String, String) -> URL? = NarrationResources.url(forResource:withExtension:)
+    ) throws {
         for voice in Set(plan.blocks.map(\.voiceID)) {
-            guard NarrationResources.url(forResource: voice.rawValue, withExtension: "f32") != nil,
-                NarrationResources.url(forResource: voice.rawValue, withExtension: "rows") != nil
+            guard resourceURL(voice.rawValue, "f32") != nil,
+                resourceURL(voice.rawValue, "rows") != nil
             else {
                 throw NarrationRunError.voicePlan("missing bundled resources for \(voice.rawValue)")
             }
