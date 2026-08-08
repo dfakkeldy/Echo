@@ -6,6 +6,7 @@ struct UnifiedBottomDock: View {
     static let bottomEdgePadding: CGFloat = 4
 
     var onCreateBookmark: (BookmarkDraft) -> Void
+    var onMarkPassageResult: (MarkPassageResult) -> Void
     var onShowPlaybackOptions: () -> Void
     /// Player-More menu closures (WS-C), forwarded to BottomToolbarView.
     var onShowChapters: () -> Void
@@ -75,6 +76,7 @@ struct UnifiedBottomDock: View {
             // Lower layer: Static 5-Button Utility Bar
             BottomToolbarView(
                 onCreateBookmark: onCreateBookmark,
+                onMarkPassageResult: onMarkPassageResult,
                 onShowChapters: onShowChapters,
                 onShowBookmarks: onShowBookmarks,
                 onStats: onStats,

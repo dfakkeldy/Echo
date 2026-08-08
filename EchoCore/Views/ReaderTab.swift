@@ -8,22 +8,49 @@ import os.log
 struct ReaderTab: View {
     let folderURL: URL
     let bookURL: URL
+    @Binding private var followState: ReaderFollowState
+    let viewportAnchor: ReaderViewportAnchor?
+    let viewportPublicationContext: ReaderViewportPublicationContext
+    let onViewportAnchorCaptured: (ReaderViewportPublication) -> Void
+    let rootOverlayClearance: CGFloat
+    let returnRequest: Int
+    let claimReturnRequest: (Int) -> Bool
+    let onReturnTargetResolved: (Bool) -> Void
     var audiobookID: String { bookURL.absoluteString }
 
-    init(folderURL: URL, bookURL: URL? = nil) {
+    init(
+        folderURL: URL,
+        bookURL: URL? = nil,
+        followState: Binding<ReaderFollowState>,
+        viewportAnchor: ReaderViewportAnchor?,
+        viewportPublicationContext: ReaderViewportPublicationContext,
+        onViewportAnchorCaptured: @escaping (ReaderViewportPublication) -> Void,
+        rootOverlayClearance: CGFloat,
+        returnRequest: Int,
+        claimReturnRequest: @escaping (Int) -> Bool,
+        onReturnTargetResolved: @escaping (Bool) -> Void
+    ) {
         self.folderURL = folderURL
         self.bookURL = bookURL ?? folderURL
+        _followState = followState
+        self.viewportAnchor = viewportAnchor
+        self.viewportPublicationContext = viewportPublicationContext
+        self.onViewportAnchorCaptured = onViewportAnchorCaptured
+        self.rootOverlayClearance = rootOverlayClearance
+        self.returnRequest = returnRequest
+        self.claimReturnRequest = claimReturnRequest
+        self.onReturnTargetResolved = onReturnTargetResolved
     }
     @Environment(PlayerModel.self) var model
     @Environment(SettingsManager.self) private var settingsManager
     @Environment(FreeTierGate.self) var freeTierGate
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State internal var viewModel: ReaderFeedViewModel?
     @State internal var showChapterPickerForBlockID: String? = nil
     @State internal var showCardColorPickerForBlockID: String? = nil
     @State internal var showChapterThemePickerForBlockID: String? = nil
     @State private var isHeaderVisible = true
-    @State private var autoScrollEnabled = true
     @State private var topPartTitle: String? = nil
     @State private var topChapterTitle: String? = nil
     @State private var topSectionTitle: String? = nil
@@ -32,6 +59,7 @@ struct ReaderTab: View {
     @State internal var pulseResetTask: Task<Void, Never>?
     @State private var forceScrollBlockID: String? = nil
     @State private var forceScrollTrigger: Int = 0
+    @State private var forceScrollIntent: ReaderScrollIntent? = nil
 
     /// AVAudioPlayer for voice memo playback (Phase 4). Retained so playback
     /// continues until the user taps a different memo or leaves the screen.
@@ -51,6 +79,7 @@ struct ReaderTab: View {
     /// render into a single trailing `reload()` (reload re-reads the whole book on
     /// the main thread — running it per chapter is O(chapters²) over a render run).
     @State private var readerReloadToken = 0
+    @State private var readerIngestionReloadTracker = ReaderIngestionReloadTracker()
     @State private var showSessions = false
     @AppStorage("hasSeenReaderContextMenuHint") private var hasSeenContextMenuHint = false
     @State private var showAlignmentBanner = false
@@ -151,7 +180,12 @@ struct ReaderTab: View {
                     activeBlockID: bindableVM.activeBlockID,
                     activeWord: vm.activeWord,
                     isHeaderVisible: $isHeaderVisible,
-                    autoScrollEnabled: $autoScrollEnabled,
+                    followState: $followState,
+                    viewportAnchor: viewportAnchor,
+                    viewportPublicationContext: viewportPublicationContext,
+                    onViewportAnchorCaptured: onViewportAnchorCaptured,
+                    reduceMotion: reduceMotion,
+                    onReturnTargetResolved: onReturnTargetResolved,
                     topPartTitle: $topPartTitle,
                     topChapterTitle: $topChapterTitle,
                     topSectionTitle: $topSectionTitle,
@@ -169,6 +203,7 @@ struct ReaderTab: View {
                     pulseBlockID: pulseBlockID,
                     forceScrollBlockID: forceScrollBlockID,
                     forceScrollTrigger: forceScrollTrigger,
+                    forceScrollIntent: forceScrollIntent,
                     onTapBlock: { (blockID: String) -> Void in
                         tapBlock(blockID)
                     },
@@ -410,11 +445,8 @@ struct ReaderTab: View {
             .onChange(of: viewModel?.activeBlockID) { _, newValue in
                 model.readerCaptureAnchorBlockID = newValue
             }
-            .onChange(of: isHeaderVisible) { _, visible in
-                model.readerChromeHidden = !visible
-            }
-            .onChange(of: model.epubScrollToActiveTrigger) { _, _ in
-                scrollReaderToActiveBlock()
+            .onChange(of: returnRequest, initial: true) { _, _ in
+                handleReturnRequest()
             }
             .onChange(of: model.currentPlaybackTime) { _, newPos in
                 updateActiveReaderBlock(time: newPos)
@@ -424,6 +456,9 @@ struct ReaderTab: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .timelineItemsIngested)) {
                 handleTimelineItemsIngested($0)
+            }
+            .onChange(of: model.documentIngestionTrigger) { _, _ in
+                scheduleReaderReload()
             }
             .task(id: readerReloadToken) {
                 await reloadReaderAfterTimelineIngestion()
@@ -442,14 +477,8 @@ struct ReaderTab: View {
 
     @ViewBuilder
     private func readerLoadedContent(vm: ReaderFeedViewModel) -> some View {
-        // The collection fills the screen and scrolls behind the translucent
-        // headers. Each `.safeAreaInset` reserves native top/bottom clearance:
-        //   1. the reader's own header (self-measuring),
-        //   2. Row 1 of UnifiedTopHeader (overlaid in RootTabView),
-        //   3. the floating bottom dock.
-        // (2) must match the header's real height, or the reader's own
-        // header tucks under the glass — hence `rowOneHeight`, not a
-        // hard-coded constant that goes stale when the chips resize.
+        // The collection reserves only its local, self-measuring chapter header
+        // and the root-owned floating bottom dock.
         VStack(spacing: 0) {
             if let recap = vm.recap {
                 recapCard(recap)
@@ -460,16 +489,15 @@ struct ReaderTab: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             readerHeaderOverlay(vm: vm)
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            // Row-1 clearance collapses together with the chrome: while the
-            // reader header auto-hides, RootTabView fades/offsets
-            // UnifiedTopHeader away too, so keeping the reservation would
-            // leave a dead band above the chapter bar (the outer
-            // `.animation(value: isHeaderVisible)` animates the collapse).
-            Color.clear.frame(height: isHeaderVisible ? UnifiedTopHeader.rowOneHeight : 0)
-        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            Color.clear.frame(height: model.bottomInset)
+            Color.clear.frame(
+                height: CGFloat(
+                    ReaderChromeClearance.bottomInset(
+                        dockHeight: Double(model.bottomInset),
+                        overlayHeight: Double(rootOverlayClearance)
+                    )
+                )
+            )
         }
     }
 
@@ -544,7 +572,8 @@ struct ReaderTab: View {
                 onSelect: { blockID in
                     seekToBlockAndScroll(blockID)
                     forceScrollBlockID = blockID
-                    forceScrollTrigger += 1
+                    forceScrollIntent = .tableOfContents
+                    forceScrollTrigger &+= 1
                     model.showReaderTOC = false
                 }
             )
@@ -603,7 +632,14 @@ struct ReaderTab: View {
             globalCardTint: settingsManager.readerCardTint,
             globalAppFont: settingsManager.appFont
         )
-        loadViewModel()
+        if viewModel == nil {
+            loadViewModel()
+            readerIngestionReloadTracker.markInitialLoadCompleted(
+                generation: model.documentIngestionTrigger
+            )
+        } else {
+            scheduleReaderReload()
+        }
     }
 
     private func updateReaderAppFont(_ newFont: String) {
@@ -614,13 +650,20 @@ struct ReaderTab: View {
         )
     }
 
-    private func scrollReaderToActiveBlock() {
-        autoScrollEnabled = true
-        if let activeID = viewModel?.activeBlockID {
-            viewModel?.expandChapter(containingBlockID: activeID)
-            forceScrollBlockID = activeID
-            forceScrollTrigger += 1
+    private func handleReturnRequest() {
+        guard followState == .exploring, returnRequest != 0 else { return }
+        if viewModel == nil {
+            prepareReader()
         }
+        guard viewModel != nil, claimReturnRequest(returnRequest) else { return }
+        guard let activeID = viewModel?.activeBlockID else {
+            onReturnTargetResolved(false)
+            return
+        }
+        viewModel?.expandChapter(containingBlockID: activeID)
+        forceScrollBlockID = activeID
+        forceScrollIntent = .returnToCurrent
+        forceScrollTrigger &+= 1
     }
 
     private func updateActiveReaderBlock(time: TimeInterval) {
@@ -628,7 +671,8 @@ struct ReaderTab: View {
             time: time,
             currentTrackSegmentKey: currentTrackSegmentKey,
             currentTrackChapterIndices: currentTrackChapterIndices,
-            isPlaying: model.isPlaying
+            isPlaying: model.isPlaying,
+            allowsPlaybackFollowing: followState.allowsPlaybackMovement
         )
     }
 
@@ -643,23 +687,36 @@ struct ReaderTab: View {
         guard let ingestedID = notification.userInfo?["audiobookID"] as? String,
             ingestedID == audiobookID
         else { return }
-        // Coalesce instead of reloading synchronously per post: narration posts
-        // this once per rendered chapter, and reload() re-reads the whole book
-        // on the main thread. Bump a token so a burst (e.g. the cached-chapter
-        // backfill) collapses into one trailing reload.
+        scheduleReaderReload(receivedNotification: true)
+    }
+
+    private func scheduleReaderReload(receivedNotification: Bool = false) {
+        guard readerIngestionReloadTracker.requestReload(
+            generation: model.documentIngestionTrigger,
+            receivedNotification: receivedNotification
+        ) else { return }
         readerReloadToken &+= 1
     }
 
     private func reloadReaderAfterTimelineIngestion() async {
-        guard readerReloadToken > 0 else { return }
-        // Quiet window; a newer post cancels this task and restarts the wait,
-        // so only the last post in a burst actually triggers the reload.
-        try? await Task.sleep(for: .milliseconds(250))
-        viewModel?.reload()
+        do {
+            try await Task.sleep(for: .milliseconds(250))
+        } catch {
+            return
+        }
+        guard Task.isCancelled == false else { return }
+        guard let ticket = readerIngestionReloadTracker.nextPendingReload() else { return }
+        viewModel?.reloadAndResolveActiveBlock(
+            time: model.currentPlaybackTime,
+            currentTrackSegmentKey: currentTrackSegmentKey,
+            currentTrackChapterIndices: currentTrackChapterIndices,
+            isPlaying: model.isPlaying,
+            allowsPlaybackFollowing: followState.allowsPlaybackMovement
+        )
+        readerIngestionReloadTracker.complete(ticket)
     }
 
     private func tearDownReader() {
-        model.readerChromeHidden = false
         pulseResetTask?.cancel()
         pulseResetTask = nil
         pulseBlockID = nil
@@ -866,7 +923,15 @@ struct ReaderTab: View {
             audiobookID: audiobookID,
             db: db.writer,
             playlistFolderURL: model.persistenceFolderURL)
-        vm.reload()
+        vm.reloadAndResolveActiveBlock(
+            time: model.currentPlaybackTime,
+            currentTrackSegmentKey: currentTrackSegmentKey,
+            currentTrackChapterIndices: currentTrackChapterIndices,
+            isPlaying: model.isPlaying,
+            allowsPlaybackFollowing: followState.allowsPlaybackMovement,
+            restoringOpenChapterKey: followState == .exploring
+                ? viewportAnchor?.openChapterKey : nil
+        )
         self.viewModel = vm
 
         // Point the recorder at the book's own voice-memos subfolder so relative
@@ -1103,17 +1168,6 @@ struct ReaderTab: View {
             .padding(.vertical, 8)
             .background(Color(.secondarySystemBackground))
             .clipShape(.rect(cornerRadius: 10))
-
-            Button {
-                model.epubScrollToActiveTrigger += 1
-            } label: {
-                Image(systemName: "arrow.down.to.line")
-                    .font(.system(size: 16))
-                    .foregroundStyle(Color.accentColor)
-            }
-            .frame(width: readerHeaderButtonSize, height: readerHeaderButtonSize)
-            .background(Color(.secondarySystemBackground), in: Circle())
-            .accessibilityLabel(Text("Scroll to current playback position"))
 
             Button {
                 model.showReaderTOC = true

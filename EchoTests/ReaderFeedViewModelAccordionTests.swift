@@ -208,6 +208,69 @@ struct ReaderFeedViewModelAccordionTests {
         #expect(vm.openChapterKey == 1)
     }
 
+    @Test func playbackDoesNotExpandAChapterWhileExploring() throws {
+        let db = try seed()
+        let vm = ReaderFeedViewModel(audiobookID: "bk", db: db.writer)
+        vm.reload()
+
+        vm.updateActiveBlock(
+            time: 100,
+            currentTrackChapterIndices: nil,
+            isPlaying: true,
+            allowsPlaybackFollowing: false
+        )
+
+        #expect(vm.activeBlockID == "c1-p")
+        #expect(vm.openChapterKey == nil)
+    }
+
+    @Test func restoredViewportOpensCollapsedChapterBeforeInitialDisplay() throws {
+        let db = try seed()
+        try db.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO bookmark
+                      (id, audiobook_id, title, media_timestamp, is_enabled,
+                       created_at, modified_at)
+                    VALUES
+                      ('saved', 'bk', 'Saved place', 100, 1,
+                       '2026-08-08T00:00:00Z', '2026-08-08T00:00:00Z')
+                    """
+            )
+        }
+        let savedAnchor = ReaderViewportAnchor(
+            itemID: "bm-saved",
+            distanceFromContentOffset: 24,
+            openChapterKey: 1
+        )
+
+        let collapsed = ReaderFeedViewModel(audiobookID: "bk", db: db.writer)
+        collapsed.reloadAndResolveActiveBlock(
+            time: 100,
+            currentTrackChapterIndices: nil,
+            isPlaying: false,
+            allowsPlaybackFollowing: false
+        )
+        #expect(
+            collapsed.displaySections.flatMap(\.items).contains { $0.id == savedAnchor.itemID }
+                == false
+        )
+
+        let recreated = ReaderFeedViewModel(audiobookID: "bk", db: db.writer)
+        recreated.reloadAndResolveActiveBlock(
+            time: 100,
+            currentTrackChapterIndices: nil,
+            isPlaying: false,
+            allowsPlaybackFollowing: false,
+            restoringOpenChapterKey: savedAnchor.openChapterKey
+        )
+
+        #expect(recreated.openChapterKey == 1)
+        #expect(
+            recreated.displaySections.flatMap(\.items).contains { $0.id == savedAnchor.itemID }
+        )
+    }
+
     // MARK: - Phase 3: content-type filter tests
 
     @Test func settingAudioFilterDropsTextChapterFromDisplay() throws {

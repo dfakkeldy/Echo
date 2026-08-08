@@ -8,6 +8,15 @@ import SwiftUI
 struct PDFReadingSurface: View {
     let folderURL: URL
     let bookURL: URL
+    @Binding private var followState: ReaderFollowState
+    let viewportAnchor: ReaderViewportAnchor?
+    let viewportPublicationContext: ReaderViewportPublicationContext
+    let onViewportAnchorCaptured: (ReaderViewportPublication) -> Void
+    let rootOverlayClearance: CGFloat
+    let returnRequest: Int
+    let hasPendingReturnRequest: Bool
+    let claimReturnRequest: (Int) -> Bool
+    let onReturnTargetResolved: (Bool) -> Void
     @State private var mode: ReaderSurfaceMode = .page
 
     @Environment(PlayerModel.self) private var model
@@ -15,9 +24,30 @@ struct PDFReadingSurface: View {
 
     private var audiobookID: String { bookURL.absoluteString }
 
-    init(folderURL: URL, bookURL: URL? = nil) {
+    init(
+        folderURL: URL,
+        bookURL: URL? = nil,
+        followState: Binding<ReaderFollowState>,
+        viewportAnchor: ReaderViewportAnchor?,
+        viewportPublicationContext: ReaderViewportPublicationContext,
+        onViewportAnchorCaptured: @escaping (ReaderViewportPublication) -> Void,
+        rootOverlayClearance: CGFloat,
+        returnRequest: Int,
+        hasPendingReturnRequest: Bool,
+        claimReturnRequest: @escaping (Int) -> Bool,
+        onReturnTargetResolved: @escaping (Bool) -> Void
+    ) {
         self.folderURL = folderURL
         self.bookURL = bookURL ?? folderURL
+        _followState = followState
+        self.viewportAnchor = viewportAnchor
+        self.viewportPublicationContext = viewportPublicationContext
+        self.onViewportAnchorCaptured = onViewportAnchorCaptured
+        self.rootOverlayClearance = rootOverlayClearance
+        self.returnRequest = returnRequest
+        self.hasPendingReturnRequest = hasPendingReturnRequest
+        self.claimReturnRequest = claimReturnRequest
+        self.onReturnTargetResolved = onReturnTargetResolved
     }
 
     /// The saved voice preference, or the catalog default — mirrors NowPlayingTab.
@@ -43,7 +73,18 @@ struct PDFReadingSurface: View {
             case .page:
                 PDFDocumentView(folderURL: folderURL, bookURL: bookURL)
             case .reflow:
-                ReaderTab(folderURL: folderURL, bookURL: bookURL)
+                ReaderTab(
+                    folderURL: folderURL,
+                    bookURL: bookURL,
+                    followState: $followState,
+                    viewportAnchor: viewportAnchor,
+                    viewportPublicationContext: viewportPublicationContext,
+                    onViewportAnchorCaptured: onViewportAnchorCaptured,
+                    rootOverlayClearance: rootOverlayClearance,
+                    returnRequest: returnRequest,
+                    claimReturnRequest: claimReturnRequest,
+                    onReturnTargetResolved: onReturnTargetResolved
+                )
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -77,7 +118,19 @@ struct PDFReadingSurface: View {
         }
         // Re-seed the toggle whenever the book changes; `.page` default avoids a flash.
         .task(id: audiobookID) {
-            mode = BookPreferencesService.loadPDFViewMode(for: audiobookID)
+            let savedMode = BookPreferencesService.loadPDFViewMode(for: audiobookID)
+            mode = ReaderSurfaceReturnPolicy.destination(
+                currentMode: savedMode,
+                followState: followState,
+                hasPendingReturnRequest: hasPendingReturnRequest
+            )
+        }
+        .onChange(of: returnRequest, initial: true) { _, _ in
+            mode = ReaderSurfaceReturnPolicy.destination(
+                currentMode: mode,
+                followState: followState,
+                hasPendingReturnRequest: hasPendingReturnRequest
+            )
         }
         .onChange(of: mode) { _, newMode in
             BookPreferencesService.savePDFViewMode(newMode, for: audiobookID)

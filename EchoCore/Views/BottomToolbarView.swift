@@ -4,7 +4,12 @@ import SwiftUI
 struct BottomToolbarView: View {
     @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var recentMarkResult: MarkPassageResult?
+    @State private var recentMarkResultTask: Task<Void, Never>?
+
     var onCreateBookmark: ((BookmarkDraft) -> Void)?
+    var onMarkPassageResult: (MarkPassageResult) -> Void
     /// Player-More menu closures (WS-C). The actual sheet/tab-switch state lives
     /// on NowPlayingTab; these just forward the user's intent upward.
     var onShowChapters: () -> Void
@@ -54,16 +59,47 @@ struct BottomToolbarView: View {
 
     private var markPassageButton: some View {
         Button {
-            model.markPassageAtCurrentTime()
-            Haptic.play(.light)
+            markPassage()
         } label: {
             utilityChip(isActive: false) {
-                Image(systemName: "rectangle.stack.badge.plus")
+                Image(systemName: markPassageSystemImage)
                     .font(.title3)
+                    .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
+                    .animation(
+                        reduceMotion ? nil : .easeInOut(duration: 0.2),
+                        value: recentMarkResult
+                    )
             }
         }
         .accessibilityLabel(Text("Mark passage for later"))
-        .disabled(model.tracks.isEmpty)
+        .disabled(!model.canMarkPassage)
+    }
+
+    private var markPassageSystemImage: String {
+        guard let recentMarkResult else { return "rectangle.stack.badge.plus" }
+        return DockStatusFeedback(result: recentMarkResult).systemImage
+    }
+
+    private func markPassage() {
+        let result = model.markPassageAtCurrentTime()
+        switch result {
+        case .saved:
+            Haptic.notify(.success)
+        case .unavailable, .failed:
+            Haptic.notify(.error)
+        }
+
+        onMarkPassageResult(result)
+        recentMarkResultTask?.cancel()
+        recentMarkResult = result
+        recentMarkResultTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .seconds(1.5))
+            } catch {
+                return
+            }
+            recentMarkResult = nil
+        }
     }
 
     // MARK: - Shared chip treatment

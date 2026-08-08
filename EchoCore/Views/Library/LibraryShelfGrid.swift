@@ -46,16 +46,5 @@ struct LibraryShelfGrid: View {
             }
             .padding(.vertical)
         }
-        // Reserve room for Row 1 of UnifiedTopHeader (overlaid in RootTabView) so the
-        // first shelf header isn't hidden under the floating folder chip. Same pattern
-        // as NowPlayingTab/ReaderTab; lives here (not on LibraryView's Group) so the
-        // empty state's manual padding isn't doubled. iOS-only: the macOS tri-pane
-        // sidebar shelf has no overlaid header (and UnifiedTopHeader isn't compiled
-        // into the macOS target), so no clearance is needed there.
-        #if os(iOS)
-            .safeAreaInset(edge: .top, spacing: 0) {
-                Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
-            }
-        #endif
     }
 }

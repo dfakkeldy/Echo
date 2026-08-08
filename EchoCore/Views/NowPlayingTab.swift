@@ -67,12 +67,6 @@ struct NowPlayingTab: View {
             }
             .ignoresSafeArea(.keyboard)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            // Reserve room for Row 1 of UnifiedTopHeader (overlaid in RootTabView).
-            // Stacks on top of the real status-bar inset, so it's correct on every device.
-            // Must equal the header's real height (see `rowOneHeight`).
-            .safeAreaInset(edge: .top, spacing: 0) {
-                Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
-            }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 Color.clear.frame(
                     height: settings.experimentalNowPlayingLayout ? 0 : model.bottomInset)

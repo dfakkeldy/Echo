@@ -13,14 +13,9 @@ struct UnifiedTopHeader: View {
     /// Vertical padding wrapping Row 1 above and below the chips.
     static let rowOneVerticalPadding: CGFloat = 8
 
-    /// Total height of Row 1. Every tab that overlays this header in the
-    /// `RootTabView` Z-stack must reserve exactly this much top clearance
-    /// (`ReaderTab`, `NowPlayingTab`) — otherwise their content
-    /// slides up underneath the glass. Deriving it from the same constants the
-    /// body lays out with keeps the reservation and the real height from
-    /// drifting apart again: they did on 2026-06-20, when the chips grew 40→48
-    /// but the hard-coded `50` reservations stayed put, clipping the reader's
-    /// chapter-title bar by 14pt.
+    /// Total height of Row 1. `RootTabView` reserves this once for its primary
+    /// navigation stacks, keeping global chrome clear of their content without
+    /// adding the row to modal sheets.
     static var rowOneHeight: CGFloat { chipDiameter + rowOneVerticalPadding * 2 }
 
     let onFolderTap: () -> Void
@@ -29,23 +24,20 @@ struct UnifiedTopHeader: View {
         VStack(spacing: 0) {
             // Row 1: Global Navigation Frame (Folder, Remaining Time)
             HStack {
-                if model.selectedTab == .library {
-                    Button(action: onFolderTap) {
-                        Image(systemName: "folder")
-                            .font(.title3.bold())
-                            .frame(width: Self.chipDiameter, height: Self.chipDiameter)
-                            .background {
-                                Circle()
-                                    .fill(chipFill)
-                                    .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
-                            }
+                Button(action: onFolderTap) {
+                    Image(systemName: "folder")
+                        .font(.title3.bold())
+                        .frame(width: Self.chipDiameter, height: Self.chipDiameter)
+                        .background {
+                            Circle()
+                                .fill(chipFill)
+                                .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
                         }
-                    // Use the artwork-derived accent (matches the transport buttons),
-                    // not the static system blue, so the chrome tints to the cover.
-                    .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
-                    .accessibilityLabel(Text("Open book or folder"))
-                    .transition(.opacity)
                 }
+                // Use the artwork-derived accent (matches the transport buttons),
+                // not the static system blue, so the chrome tints to the cover.
+                .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
+                .accessibilityLabel(Text("Open book or folder"))
 
                 Spacer()
 

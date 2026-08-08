@@ -108,8 +108,6 @@ final class PlayerModel {
     var epubSearchText: String = ""
     var showReaderSettings: Bool = false
     var showReaderTOC: Bool = false
-    var readerChromeHidden: Bool = false
-    var epubScrollToActiveTrigger: Int = 0
     var readerCaptureAnchorBlockID: String?
     var isReaderVoiceMemoRecording: Bool = false
     @ObservationIgnored var readerAddNoteAction: (@MainActor () -> Void)?
@@ -518,6 +516,10 @@ final class PlayerModel {
     var hasEPUB: Bool {
         _ = state.documentIngestionTrigger  // register dependency
         return timelinePersistence.hasEPUB(for: bookIdentityURL?.absoluteString)
+    }
+
+    var documentIngestionTrigger: Int {
+        state.documentIngestionTrigger
     }
 
     @ObservationIgnored private var cachedHasPDF:
@@ -1181,7 +1183,7 @@ final class PlayerModel {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.markPassageAtCurrentTime() }
+            MainActor.assumeIsolated { _ = self?.markPassageAtCurrentTime() }
         }
 
         carPlayNotificationObservers = [bookmarkObs, voiceMemoObs, markPassageObs]
