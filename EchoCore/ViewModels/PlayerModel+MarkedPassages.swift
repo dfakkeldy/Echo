@@ -8,32 +8,39 @@ import os.log
 extension PlayerModel {
     private static let markedPassagesLogger = Logger(category: "MarkedPassages")
 
+    var canMarkPassage: Bool {
+        databaseService != nil
+            && bookIdentityURL != nil
+            && audioEngine.isItemLoaded
+    }
+
     /// Captures a marked passage at the current playback position.
     /// Default range: [now − 15s, now + 5s]. Fire-and-forget — never blocks playback.
-    func markPassageAtCurrentTime() {
-        guard let db = databaseService,
-              let bookID = bookIdentityURL?.absoluteString,
-              audioEngine.isItemLoaded else { return }
+    @discardableResult
+    func markPassageAtCurrentTime() -> MarkPassageResult {
+        guard let db = databaseService else { return .unavailable }
 
-        let t = audioEngine.currentTime
-        guard t.isFinite else { return }
-
-        let start = max(0, t - 15)
-        let end = t + 5
-        let snippet = resolveSnippet(at: t)
-
-        let dao = MarkedPassageDAO(db: db.writer)
-        do {
-            _ = try dao.insert(
-                audiobookID: bookID,
-                mediaTimestamp: start,
-                endTimestamp: end,
-                transcriptSnippet: snippet,
-                note: nil
-            )
-        } catch {
-            Self.markedPassagesLogger.error("Failed to save marked passage: \(error.localizedDescription)")
-        }
+        let time = audioEngine.currentTime
+        return MarkedPassageCapture.capture(
+            bookID: bookIdentityURL?.absoluteString,
+            isItemLoaded: audioEngine.isItemLoaded,
+            time: time,
+            snippet: time.isFinite ? resolveSnippet(at: time) : nil,
+            persist: { request in
+                _ = try MarkedPassageDAO(db: db.writer).insert(
+                    audiobookID: request.audiobookID,
+                    mediaTimestamp: request.mediaTimestamp,
+                    endTimestamp: request.endTimestamp,
+                    transcriptSnippet: request.transcriptSnippet,
+                    note: nil
+                )
+            },
+            onFailure: { error in
+                Self.markedPassagesLogger.error(
+                    "Failed to save marked passage: \(error.localizedDescription, privacy: .public)"
+                )
+            }
+        )
     }
 
     private func resolveSnippet(at timestamp: TimeInterval) -> String? {
