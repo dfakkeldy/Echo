@@ -1,39 +1,42 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
-/// Pure scroll policy for keeping the spoken word visible inside long reader
-/// blocks. UIKit converts the active word rect into collection-view coordinates;
+/// Pure scroll policy for centering the spoken line in a reader viewport.
+/// UIKit converts word and paragraph bounds into collection-view coordinates;
 /// this helper only decides whether the content offset needs to move.
-enum ReaderWordFollowScroll {
+nonisolated enum ReaderWordFollowScroll {
+    static func preferredRange(
+        wordLine: ClosedRange<Double>?,
+        paragraph: ClosedRange<Double>
+    ) -> ClosedRange<Double> {
+        wordLine ?? paragraph
+    }
+
     static func targetOffsetY(
         currentOffsetY: Double,
         viewportHeight: Double,
         contentHeight: Double,
-        wordMinY: Double,
-        wordMaxY: Double,
-        topMargin: Double = 96,
-        bottomMargin: Double = 120
+        targetRange: ClosedRange<Double>,
+        topInset: Double,
+        bottomInset: Double,
+        tolerance: Double = 0.5
     ) -> Double? {
-        guard viewportHeight > 0, contentHeight > viewportHeight, wordMaxY >= wordMinY else {
-            return nil
-        }
+        guard viewportHeight > 0, contentHeight > 0 else { return nil }
 
-        let safeTopMargin = max(0, topMargin)
-        let safeBottomMargin = max(0, bottomMargin)
-        let visibleTop = currentOffsetY + safeTopMargin
-        let visibleBottom = currentOffsetY + viewportHeight - safeBottomMargin
+        let safeTopInset = max(0, topInset)
+        let safeBottomInset = max(0, bottomInset)
+        let usableHeight = max(1, viewportHeight - safeTopInset - safeBottomInset)
+        let usableCenter = safeTopInset + usableHeight / 2
+        let targetCenter = (targetRange.lowerBound + targetRange.upperBound) / 2
+        let desiredOffset = targetCenter - usableCenter
+        let minimumOffset = -safeTopInset
+        let maximumOffset = max(
+            minimumOffset,
+            contentHeight - viewportHeight + safeBottomInset
+        )
+        let clampedOffset = min(maximumOffset, max(minimumOffset, desiredOffset))
 
-        if wordMinY >= visibleTop, wordMaxY <= visibleBottom {
-            return nil
-        }
-
-        let wordHeight = max(1, wordMaxY - wordMinY)
-        let centeredTop = (viewportHeight - wordHeight) / 2
-        let desiredOffset = wordMinY - max(safeTopMargin, centeredTop)
-        let maxOffset = max(0, contentHeight - viewportHeight)
-        let clampedOffset = min(max(0, desiredOffset), maxOffset)
-
-        guard abs(clampedOffset - currentOffsetY) >= 0.5 else { return nil }
+        guard abs(clampedOffset - currentOffsetY) >= tolerance else { return nil }
         return clampedOffset
     }
 }
