@@ -14,6 +14,7 @@ struct EchoCLI: AsyncParsableCommand {
         version: versionString,
         subcommands: [
             NarrateCommand.self,
+            ResolveVoicePlanCommand.self,
             RetagCommand.self,
             NarrationQACommand.self,
             GenerateDeckCommand.self,
@@ -73,5 +74,39 @@ struct EchoCLI: AsyncParsableCommand {
             }
         #endif
         return false
+    }
+}
+
+/// `echo-cli resolve-voice-plan` — validate and print a canonical, source-bound
+/// voice-plan identity without opening the narration database or a render work
+/// directory.
+struct ResolveVoicePlanCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "resolve-voice-plan",
+        abstract: "Resolve a source-bound block voice plan without rendering.")
+
+    @Option(help: "EPUB source archive.") var epub: String
+    @Option(name: .customLong("voice-plan"), help: "Source-bound block voice-plan JSON file.")
+    var voicePlan: String
+
+    @MainActor func run() async throws {
+        let resolved = try HeadlessNarrationRunner.resolveVoicePlan(
+            epubURL: URL(fileURLWithPath: epub),
+            voicePlanURL: URL(fileURLWithPath: voicePlan))
+        let payload = ResolveVoicePlanPayload(
+            sourceEPUBSHA256: resolved.sourceEPUBSHA256,
+            defaultSpeakerID: resolved.defaultSpeakerID,
+            voicePlanSHA256: resolved.voicePlanSHA256,
+            blocks: resolved.blocks)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        print(String(decoding: try encoder.encode(payload), as: UTF8.self))
+    }
+
+    private struct ResolveVoicePlanPayload: Encodable {
+        let sourceEPUBSHA256: String
+        let defaultSpeakerID: String
+        let voicePlanSHA256: String
+        let blocks: [ResolvedBlockVoice]
     }
 }

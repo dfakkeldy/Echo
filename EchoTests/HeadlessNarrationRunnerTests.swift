@@ -231,6 +231,66 @@ import ZIPFoundation
         #expect(cfg.generatePronunciationReview)
     }
 
+    @Test func voicePlanConfigurationAcceptsNoExplicitVoice() {
+        let config = NarrationRunConfig(
+            epubURL: URL(fileURLWithPath: "/tmp/book.epub"),
+            outM4BURL: URL(fileURLWithPath: "/tmp/book.m4b"),
+            sidecarURL: nil,
+            workDir: URL(fileURLWithPath: "/tmp/work", isDirectory: true),
+            voice: nil,
+            voicePlanURL: URL(fileURLWithPath: "/tmp/book.voice-plan.json"),
+            title: "Fixture",
+            author: "Echo",
+            maxNewChaptersPerRun: nil)
+
+        #expect(config.voice == nil)
+        #expect(config.voicePlanURL?.lastPathComponent == "book.voice-plan.json")
+    }
+
+    @Test func noPlanConfigurationDefersToTheCatalogDefaultVoice() {
+        let config = NarrationRunConfig(
+            epubURL: URL(fileURLWithPath: "/tmp/book.epub"),
+            outM4BURL: URL(fileURLWithPath: "/tmp/book.m4b"),
+            sidecarURL: nil,
+            workDir: URL(fileURLWithPath: "/tmp/work", isDirectory: true),
+            voice: nil,
+            title: "Fixture",
+            author: "Echo",
+            maxNewChaptersPerRun: nil)
+
+        #expect(HeadlessNarrationRunner.legacyDefaultVoice(for: config) == VoiceCatalog.default.id)
+    }
+
+    @Test func planWithPDFFailsBeforeFreshCleanup() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let work = tmp.appendingPathComponent("work", isDirectory: true)
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        let marker = work.appendingPathComponent(".anchors-ch0.json")
+        try Data("keep me".utf8).write(to: marker)
+        let pdf = tmp.appendingPathComponent("source.pdf")
+        try Data("not a PDF".utf8).write(to: pdf)
+
+        let config = NarrationRunConfig(
+            epubURL: pdf,
+            outM4BURL: tmp.appendingPathComponent("out.m4b"),
+            sidecarURL: nil,
+            workDir: work,
+            voice: nil,
+            voicePlanURL: tmp.appendingPathComponent("plan.json"),
+            title: "Fixture",
+            author: "Echo",
+            maxNewChaptersPerRun: nil,
+            clearExistingCapturesBeforeRun: true)
+
+        await #expect(throws: Error.self) {
+            try await HeadlessNarrationRunner().run(config, tts: StubEngine())
+        }
+        #expect(FileManager.default.fileExists(atPath: marker.path))
+    }
+
     @Test func partialRunLeavesPronunciationReviewPendingWithoutInvokingGenerator() async throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
             UUID().uuidString, isDirectory: true)
