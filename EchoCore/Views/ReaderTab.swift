@@ -12,6 +12,7 @@ struct ReaderTab: View {
     let viewportAnchor: ReaderViewportAnchor?
     let viewportPublicationContext: ReaderViewportPublicationContext
     let onViewportAnchorCaptured: (ReaderViewportPublication) -> Void
+    let rootOverlayClearance: CGFloat
     let returnRequest: Int
     let claimReturnRequest: (Int) -> Bool
     let onReturnTargetResolved: (Bool) -> Void
@@ -24,6 +25,7 @@ struct ReaderTab: View {
         viewportAnchor: ReaderViewportAnchor?,
         viewportPublicationContext: ReaderViewportPublicationContext,
         onViewportAnchorCaptured: @escaping (ReaderViewportPublication) -> Void,
+        rootOverlayClearance: CGFloat,
         returnRequest: Int,
         claimReturnRequest: @escaping (Int) -> Bool,
         onReturnTargetResolved: @escaping (Bool) -> Void
@@ -34,6 +36,7 @@ struct ReaderTab: View {
         self.viewportAnchor = viewportAnchor
         self.viewportPublicationContext = viewportPublicationContext
         self.onViewportAnchorCaptured = onViewportAnchorCaptured
+        self.rootOverlayClearance = rootOverlayClearance
         self.returnRequest = returnRequest
         self.claimReturnRequest = claimReturnRequest
         self.onReturnTargetResolved = onReturnTargetResolved
@@ -56,6 +59,7 @@ struct ReaderTab: View {
     @State internal var pulseResetTask: Task<Void, Never>?
     @State private var forceScrollBlockID: String? = nil
     @State private var forceScrollTrigger: Int = 0
+    @State private var forceScrollIntent: ReaderScrollIntent? = nil
 
     /// AVAudioPlayer for voice memo playback (Phase 4). Retained so playback
     /// continues until the user taps a different memo or leaves the screen.
@@ -75,6 +79,7 @@ struct ReaderTab: View {
     /// render into a single trailing `reload()` (reload re-reads the whole book on
     /// the main thread — running it per chapter is O(chapters²) over a render run).
     @State private var readerReloadToken = 0
+    @State private var readerIngestionReloadTracker = ReaderIngestionReloadTracker()
     @State private var showSessions = false
     @AppStorage("hasSeenReaderContextMenuHint") private var hasSeenContextMenuHint = false
     @State private var showAlignmentBanner = false
@@ -198,6 +203,7 @@ struct ReaderTab: View {
                     pulseBlockID: pulseBlockID,
                     forceScrollBlockID: forceScrollBlockID,
                     forceScrollTrigger: forceScrollTrigger,
+                    forceScrollIntent: forceScrollIntent,
                     onTapBlock: { (blockID: String) -> Void in
                         tapBlock(blockID)
                     },
@@ -484,7 +490,14 @@ struct ReaderTab: View {
             readerHeaderOverlay(vm: vm)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            Color.clear.frame(height: model.bottomInset)
+            Color.clear.frame(
+                height: CGFloat(
+                    ReaderChromeClearance.bottomInset(
+                        dockHeight: Double(model.bottomInset),
+                        overlayHeight: Double(rootOverlayClearance)
+                    )
+                )
+            )
         }
     }
 
@@ -559,7 +572,8 @@ struct ReaderTab: View {
                 onSelect: { blockID in
                     seekToBlockAndScroll(blockID)
                     forceScrollBlockID = blockID
-                    forceScrollTrigger += 1
+                    forceScrollIntent = .tableOfContents
+                    forceScrollTrigger &+= 1
                     model.showReaderTOC = false
                 }
             )
@@ -620,6 +634,11 @@ struct ReaderTab: View {
         )
         if viewModel == nil {
             loadViewModel()
+            readerIngestionReloadTracker.markInitialLoadCompleted(
+                generation: model.documentIngestionTrigger
+            )
+        } else {
+            scheduleReaderReload()
         }
     }
 
@@ -643,6 +662,7 @@ struct ReaderTab: View {
         }
         viewModel?.expandChapter(containingBlockID: activeID)
         forceScrollBlockID = activeID
+        forceScrollIntent = .returnToCurrent
         forceScrollTrigger &+= 1
     }
 
@@ -667,21 +687,25 @@ struct ReaderTab: View {
         guard let ingestedID = notification.userInfo?["audiobookID"] as? String,
             ingestedID == audiobookID
         else { return }
-        scheduleReaderReload()
+        scheduleReaderReload(receivedNotification: true)
     }
 
-    private func scheduleReaderReload() {
+    private func scheduleReaderReload(receivedNotification: Bool = false) {
+        guard readerIngestionReloadTracker.requestReload(
+            generation: model.documentIngestionTrigger,
+            receivedNotification: receivedNotification
+        ) else { return }
         readerReloadToken &+= 1
     }
 
     private func reloadReaderAfterTimelineIngestion() async {
-        guard readerReloadToken > 0 else { return }
         do {
             try await Task.sleep(for: .milliseconds(250))
         } catch {
             return
         }
         guard Task.isCancelled == false else { return }
+        guard let ticket = readerIngestionReloadTracker.nextPendingReload() else { return }
         viewModel?.reloadAndResolveActiveBlock(
             time: model.currentPlaybackTime,
             currentTrackSegmentKey: currentTrackSegmentKey,
@@ -689,6 +713,7 @@ struct ReaderTab: View {
             isPlaying: model.isPlaying,
             allowsPlaybackFollowing: followState.allowsPlaybackMovement
         )
+        readerIngestionReloadTracker.complete(ticket)
     }
 
     private func tearDownReader() {

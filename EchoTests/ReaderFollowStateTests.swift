@@ -61,4 +61,18 @@ import Testing
             ) == false
         )
     }
+
+    @Test func tableOfContentsNavigationIsAllowedWithoutResumingFollowing() {
+        let state = ReaderFollowState.exploring
+
+        #expect(
+            ReaderScrollPermission.allows(
+                intent: .tableOfContents,
+                followState: state,
+                scheduledGeneration: 3,
+                currentGeneration: 3
+            )
+        )
+        #expect(state == .exploring)
+    }
 }

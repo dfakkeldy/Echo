@@ -58,9 +58,77 @@ import UIKit
             results.value.append(result)
         }
 
-        #expect(coordinator.reportReturnTargetResolution(for: nil) == false)
-        #expect(coordinator.reportReturnTargetResolution(for: 100 ... 140))
+        #expect(
+            coordinator.reportScrollTargetResolution(
+                intent: .returnToCurrent,
+                targetRange: nil
+            ) == false
+        )
+        #expect(
+            coordinator.reportScrollTargetResolution(
+                intent: .returnToCurrent,
+                targetRange: 100 ... 140
+            )
+        )
         #expect(results.value == [false, true])
+    }
+
+    @Test func tableOfContentsCompletionKeepsExploringAndDoesNotReportReturn() {
+        let followState = MutableBox(ReaderFollowState.exploring)
+        let results = MutableBox<[Bool]>([])
+        let coordinator = makeCoordinator(followState: followState) { result in
+            results.value.append(result)
+        }
+
+        #expect(
+            coordinator.reportScrollTargetResolution(
+                intent: .tableOfContents,
+                targetRange: 100 ... 140
+            )
+        )
+        #expect(followState.value == .exploring)
+        #expect(results.value.isEmpty)
+    }
+
+    @Test func pendingReturnAndFollowWaitForSnapshotCompletionBeforeTheyDrain() {
+        let followState = MutableBox(ReaderFollowState.exploring)
+        let coordinator = makeCoordinator(followState: followState)
+
+        coordinator.enqueuePendingScroll(
+            ReaderPendingScrollRequest(
+                intent: .returnToCurrent,
+                blockID: "current",
+                wordIndex: 2
+            )
+        )
+
+        #expect(coordinator.dequeuePendingScroll(afterSnapshotCompletion: false) == nil)
+        #expect(
+            coordinator.dequeuePendingScroll(afterSnapshotCompletion: true)
+                == ReaderPendingScrollRequest(
+                    intent: .returnToCurrent,
+                    blockID: "current",
+                    wordIndex: 2
+                )
+        )
+        #expect(coordinator.dequeuePendingScroll(afterSnapshotCompletion: true) == nil)
+
+        coordinator.enqueuePendingScroll(
+            ReaderPendingScrollRequest(
+                intent: .followPlayback,
+                blockID: "later",
+                wordIndex: 4
+            )
+        )
+        #expect(coordinator.dequeuePendingScroll(afterSnapshotCompletion: false) == nil)
+        #expect(
+            coordinator.dequeuePendingScroll(afterSnapshotCompletion: true)
+                == ReaderPendingScrollRequest(
+                    intent: .followPlayback,
+                    blockID: "later",
+                    wordIndex: 4
+                )
+        )
     }
 
     @Test func recreatedCoordinatorRestoresRootOwnedViewportAnchor() {

@@ -12,6 +12,7 @@ struct PDFReadingSurface: View {
     let viewportAnchor: ReaderViewportAnchor?
     let viewportPublicationContext: ReaderViewportPublicationContext
     let onViewportAnchorCaptured: (ReaderViewportPublication) -> Void
+    let rootOverlayClearance: CGFloat
     let returnRequest: Int
     let hasPendingReturnRequest: Bool
     let claimReturnRequest: (Int) -> Bool
@@ -30,6 +31,7 @@ struct PDFReadingSurface: View {
         viewportAnchor: ReaderViewportAnchor?,
         viewportPublicationContext: ReaderViewportPublicationContext,
         onViewportAnchorCaptured: @escaping (ReaderViewportPublication) -> Void,
+        rootOverlayClearance: CGFloat,
         returnRequest: Int,
         hasPendingReturnRequest: Bool,
         claimReturnRequest: @escaping (Int) -> Bool,
@@ -41,6 +43,7 @@ struct PDFReadingSurface: View {
         self.viewportAnchor = viewportAnchor
         self.viewportPublicationContext = viewportPublicationContext
         self.onViewportAnchorCaptured = onViewportAnchorCaptured
+        self.rootOverlayClearance = rootOverlayClearance
         self.returnRequest = returnRequest
         self.hasPendingReturnRequest = hasPendingReturnRequest
         self.claimReturnRequest = claimReturnRequest
@@ -77,6 +80,7 @@ struct PDFReadingSurface: View {
                     viewportAnchor: viewportAnchor,
                     viewportPublicationContext: viewportPublicationContext,
                     onViewportAnchorCaptured: onViewportAnchorCaptured,
+                    rootOverlayClearance: rootOverlayClearance,
                     returnRequest: returnRequest,
                     claimReturnRequest: claimReturnRequest,
                     onReturnTargetResolved: onReturnTargetResolved

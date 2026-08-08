@@ -151,6 +151,7 @@ struct RootTabView: View {
     @State private var readerViewportState = ReaderViewportState()
     @State private var dockStatusFeedback: DockStatusFeedback?
     @State private var dockStatusFeedbackTask: Task<Void, Never>?
+    @State private var readerOverlayContentHeight: CGFloat = 0
 
     #if os(iOS)
         @State private var transcribeCoordinator: TranscribeBookCoordinator?
@@ -214,6 +215,7 @@ struct RootTabView: View {
                                     viewportPublicationContext:
                                         readerViewportState.publicationContext,
                                     onViewportAnchorCaptured: publishReaderViewport,
+                                    rootOverlayClearance: readerOverlayClearance,
                                     returnRequest: readerReturnRequest,
                                     hasPendingReturnRequest: readerReturnRequestTracker.hasPending(
                                         readerReturnRequest
@@ -233,6 +235,7 @@ struct RootTabView: View {
                                     viewportPublicationContext:
                                         readerViewportState.publicationContext,
                                     onViewportAnchorCaptured: publishReaderViewport,
+                                    rootOverlayClearance: readerOverlayClearance,
                                     returnRequest: readerReturnRequest,
                                     claimReturnRequest: claimReaderReturnRequest,
                                     onReturnTargetResolved: resolveReaderReturn
@@ -353,6 +356,11 @@ struct RootTabView: View {
                     if model.selectedTab == .read && readerFollowState == .exploring {
                         readerReturnButton
                     }
+                }
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.height
+                } action: { newHeight in
+                    readerOverlayContentHeight = newHeight
                 }
                 .padding(.bottom, model.bottomInset + 12)
                 .animation(
@@ -697,6 +705,14 @@ struct RootTabView: View {
         settings.experimentalNowPlayingLayout
             && model.selectedTab == .nowPlaying
             && model.folderURL != nil
+    }
+
+    /// Reader already reserves the root dock. This is only the measured stack
+    /// that floats above it (plus its fixed gap), so Dynamic Type cannot cover
+    /// the last lines or distort magnetic centering.
+    private var readerOverlayClearance: CGFloat {
+        guard model.selectedTab == .read, readerOverlayContentHeight > 0 else { return 0 }
+        return readerOverlayContentHeight + 12
     }
 
     private func resolveReaderReturn(targetResolved: Bool) {

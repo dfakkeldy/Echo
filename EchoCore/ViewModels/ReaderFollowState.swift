@@ -86,6 +86,13 @@ nonisolated enum ReaderFollowState: Equatable, Sendable {
 nonisolated enum ReaderScrollIntent: Equatable, Sendable {
     case followPlayback
     case returnToCurrent
+    case tableOfContents
+}
+
+nonisolated struct ReaderPendingScrollRequest: Equatable, Sendable {
+    let intent: ReaderScrollIntent
+    let blockID: String
+    let wordIndex: Int?
 }
 
 nonisolated enum ReaderScrollPermission {
@@ -99,8 +106,60 @@ nonisolated enum ReaderScrollPermission {
         switch intent {
         case .followPlayback:
             return followState.allowsPlaybackMovement
-        case .returnToCurrent:
+        case .returnToCurrent, .tableOfContents:
             return true
         }
+    }
+}
+
+/// Coalesces durable ingestion generations with the transient notification
+/// fast-path. A completed ticket is consumed so revisiting Reader does not
+/// repeat a full reload when nothing newer arrived while it was offscreen.
+nonisolated struct ReaderIngestionReloadTracker: Equatable, Sendable {
+    nonisolated struct Ticket: Equatable, Sendable {
+        let generation: Int
+        let notificationToken: UInt
+    }
+
+    private(set) var completedGeneration: Int
+    private var requestedGeneration: Int
+    private var notificationToken: UInt = 0
+    private var completedNotificationToken: UInt = 0
+
+    init(completedGeneration: Int = 0) {
+        self.completedGeneration = completedGeneration
+        requestedGeneration = completedGeneration
+    }
+
+    mutating func markInitialLoadCompleted(generation: Int) {
+        completedGeneration = max(completedGeneration, generation)
+        requestedGeneration = max(requestedGeneration, completedGeneration)
+    }
+
+    @discardableResult
+    mutating func requestReload(generation: Int, receivedNotification: Bool) -> Bool {
+        if receivedNotification {
+            notificationToken &+= 1
+        }
+        requestedGeneration = max(requestedGeneration, generation)
+        return requestedGeneration > completedGeneration
+            || notificationToken > completedNotificationToken
+    }
+
+    func nextPendingReload() -> Ticket? {
+        guard
+            requestedGeneration > completedGeneration
+                || notificationToken > completedNotificationToken
+        else { return nil }
+        return Ticket(
+            generation: requestedGeneration,
+            notificationToken: notificationToken
+        )
+    }
+
+    mutating func complete(_ ticket: Ticket?) {
+        guard let ticket else { return }
+        completedGeneration = max(completedGeneration, ticket.generation)
+        completedNotificationToken = max(completedNotificationToken, ticket.notificationToken)
     }
 }
