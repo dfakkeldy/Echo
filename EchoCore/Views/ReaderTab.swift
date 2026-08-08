@@ -23,7 +23,9 @@ struct ReaderTab: View {
     @State internal var showCardColorPickerForBlockID: String? = nil
     @State internal var showChapterThemePickerForBlockID: String? = nil
     @State private var isHeaderVisible = true
-    @State private var autoScrollEnabled = true
+    /// Task 4's compile-clean bridge until Task 5 moves follow ownership to the
+    /// root and injects its binding here.
+    @State private var followState = ReaderFollowState.following
     @State private var topPartTitle: String? = nil
     @State private var topChapterTitle: String? = nil
     @State private var topSectionTitle: String? = nil
@@ -151,7 +153,7 @@ struct ReaderTab: View {
                     activeBlockID: bindableVM.activeBlockID,
                     activeWord: vm.activeWord,
                     isHeaderVisible: $isHeaderVisible,
-                    autoScrollEnabled: $autoScrollEnabled,
+                    followState: $followState,
                     topPartTitle: $topPartTitle,
                     topChapterTitle: $topChapterTitle,
                     topSectionTitle: $topSectionTitle,
@@ -615,7 +617,7 @@ struct ReaderTab: View {
     }
 
     private func scrollReaderToActiveBlock() {
-        autoScrollEnabled = true
+        followState = .following
         if let activeID = viewModel?.activeBlockID {
             viewModel?.expandChapter(containingBlockID: activeID)
             forceScrollBlockID = activeID

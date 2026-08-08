@@ -26,7 +26,9 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
     /// view model's `private(set)` for nothing.
     var activeWord: (blockID: String, index: Int)? = nil
     @Binding var isHeaderVisible: Bool
-    @Binding var autoScrollEnabled: Bool
+    @Binding var followState: ReaderFollowState
+    var reduceMotion = false
+    var onReturnTargetResolved: ((Bool) -> Void)?
     @Binding var topPartTitle: String?
     @Binding var topChapterTitle: String?
     @Binding var topSectionTitle: String?
@@ -72,18 +74,21 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
     )
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(
+        let coordinator = Coordinator(
             onTapBlock: onTapBlock,
             onTapWord: onTapWord,
             onContextMenu: onContextMenu,
             onAccessibilityActions: onAccessibilityActions,
             isHeaderVisible: $isHeaderVisible,
-            autoScrollEnabled: $autoScrollEnabled,
+            followState: $followState,
             topPartTitle: $topPartTitle,
             topChapterTitle: $topChapterTitle,
             topSectionTitle: $topSectionTitle,
             topChapterThemeColor: $topChapterThemeColor
         )
+        coordinator.reduceMotion = reduceMotion
+        coordinator.onReturnTargetResolved = onReturnTargetResolved
+        return coordinator
     }
 
     func makeUIView(context: Context) -> UICollectionView {
@@ -152,6 +157,9 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         context.coordinator.onTapWord = onTapWord
         context.coordinator.onContextMenu = onContextMenu
         context.coordinator.onAccessibilityActions = onAccessibilityActions
+        context.coordinator.followState = $followState
+        context.coordinator.reduceMotion = reduceMotion
+        context.coordinator.onReturnTargetResolved = onReturnTargetResolved
         context.coordinator.onChapterHeaderContextMenu = onChapterHeaderContextMenu
         context.coordinator.onPlayMemo = onPlayMemo
         context.coordinator.offState = offState
@@ -195,6 +203,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             }
         }
 
+        let activeBlockChanged = activeBlockID != context.coordinator.activeBlockID
         context.coordinator.activeBlockID = activeBlockID
         let searchChanged = searchQuery != context.coordinator.searchQuery
         context.coordinator.searchQuery = searchQuery
@@ -207,26 +216,24 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             context.coordinator.pulseBlockID = nil
         }
 
+        var scheduledReturnToCurrent = false
         if let forceID = forceScrollBlockID,
             forceID != context.coordinator.lastForceScrolledID
                 || forceScrollTrigger != context.coordinator.lastForceScrollTrigger
         {
             context.coordinator.lastForceScrolledID = forceID
             context.coordinator.lastForceScrollTrigger = forceScrollTrigger
+            scheduledReturnToCurrent = true
             // Resolve the index path inside the Task, not synchronously here: when the
             // scroll target's chapter was just expanded (its blocks are added by the
             // snapshot apply later in this same updateUIView pass), a synchronous lookup
             // would miss the not-yet-applied item and silently skip the scroll. The Task
             // runs after this pass returns, by which point applySnapshot has updated the
             // data source's snapshot, so the lookup sees the freshly-expanded block.
-            Task { @MainActor in
-                if let indexPath = context.coordinator.dataSource?.indexPath(
-                    for: "b-\(forceID)")
-                {
-                    collectionView.scrollToItem(
-                        at: indexPath, at: .centeredVertically, animated: true)
-                }
-            }
+            context.coordinator.scheduleReturnToCurrentText(
+                blockID: forceID,
+                in: collectionView
+            )
         }
 
         let previousOpenKey = context.coordinator.openChapterKey
@@ -286,6 +293,14 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 context.coordinator.updateActiveWord(activeWord, in: collectionView)
             }
         }
+
+        if (activeBlockChanged || wordChanged) && !scheduledReturnToCurrent {
+            context.coordinator.followActiveText(
+                blockID: activeBlockID,
+                activeWord: activeWord,
+                in: collectionView
+            )
+        }
     }
 
     private func makeDataSource(for collectionView: UICollectionView)
@@ -316,7 +331,10 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         var offState: ((Int) -> ChapterOffState)?
         var onPlayMemo: ((VoiceMemoRecord) -> Void)?
         var isHeaderVisible: Binding<Bool>
-        var autoScrollEnabled: Binding<Bool>
+        var followState: Binding<ReaderFollowState>
+        var reduceMotion = false
+        var onReturnTargetResolved: ((Bool) -> Void)?
+        private(set) var scrollGeneration: UInt = 0
         var topPartTitle: Binding<String?>
         var topChapterTitle: Binding<String?>
         var topSectionTitle: Binding<String?>
@@ -344,7 +362,6 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         /// thrash the active cell. `updateUIView` fires far more often than the
         /// human eye needs the highlight to move.
         var lastWordTick: TimeInterval = 0
-        var lastScrolledBlockID: String?
         var lastForceScrolledID: String?
         var lastForceScrollTrigger: Int = 0
         /// The most recent tap location in the collection view's coordinate space,
@@ -357,7 +374,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             onTapWord: ((String, Int?) -> Void)?,
             onContextMenu: ((EPubBlockRecord, ReaderWordHit?) -> UIContextMenuConfiguration?)?,
             onAccessibilityActions: ((EPubBlockRecord) -> [UIAccessibilityCustomAction])?,
-            isHeaderVisible: Binding<Bool>, autoScrollEnabled: Binding<Bool>,
+            isHeaderVisible: Binding<Bool>, followState: Binding<ReaderFollowState>,
             topPartTitle: Binding<String?>, topChapterTitle: Binding<String?>,
             topSectionTitle: Binding<String?>, topChapterThemeColor: Binding<String?>
         ) {
@@ -366,11 +383,28 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             self.onContextMenu = onContextMenu
             self.onAccessibilityActions = onAccessibilityActions
             self.isHeaderVisible = isHeaderVisible
-            self.autoScrollEnabled = autoScrollEnabled
+            self.followState = followState
             self.topPartTitle = topPartTitle
             self.topChapterTitle = topChapterTitle
             self.topSectionTitle = topSectionTitle
             self.topChapterThemeColor = topChapterThemeColor
+        }
+
+        func mayApplyScroll(
+            intent: ReaderScrollIntent,
+            scheduledGeneration: UInt
+        ) -> Bool {
+            ReaderScrollPermission.allows(
+                intent: intent,
+                followState: followState.wrappedValue,
+                scheduledGeneration: scheduledGeneration,
+                currentGeneration: scrollGeneration
+            )
+        }
+
+        private func collectionViewLayerAnimationsToFinish(in scrollView: UIScrollView) {
+            scrollView.layer.removeAllAnimations()
+            scrollView.setContentOffset(scrollView.contentOffset, animated: false)
         }
 
         func card(for id: String) -> ReaderCardItem? {
@@ -628,6 +662,24 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             return actions
         }
 
+        private struct ViewportAnchor {
+            let itemID: String
+            let distanceFromContentOffset: CGFloat
+        }
+
+        private func viewportAnchor(in collectionView: UICollectionView) -> ViewportAnchor? {
+            guard
+                followState.wrappedValue == .exploring,
+                let indexPath = collectionView.indexPathsForVisibleItems.sorted().first,
+                let itemID = dataSource?.itemIdentifier(for: indexPath),
+                let attributes = collectionView.layoutAttributesForItem(at: indexPath)
+            else { return nil }
+            return ViewportAnchor(
+                itemID: itemID,
+                distanceFromContentOffset: attributes.frame.minY - collectionView.contentOffset.y
+            )
+        }
+
         func applySnapshot(
             animated: Bool, in collectionView: UICollectionView, reconfiguring: [String] = []
         ) {
@@ -644,7 +696,25 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 present.contains(id) && current.contains(id) && seen.insert(id).inserted
             }
             if !toReconfigure.isEmpty { snapshot.reconfigureItems(toReconfigure) }
-            dataSource?.apply(snapshot, animatingDifferences: animated)
+            let anchor = viewportAnchor(in: collectionView)
+            let scheduledGeneration = scrollGeneration
+            dataSource?.apply(snapshot, animatingDifferences: animated) { [weak self, weak collectionView] in
+                guard let self, let collectionView, let anchor else { return }
+                collectionView.layoutIfNeeded()
+                guard
+                    self.followState.wrappedValue == .exploring,
+                    scheduledGeneration == self.scrollGeneration,
+                    let indexPath = self.dataSource?.indexPath(for: anchor.itemID),
+                    let attributes = collectionView.layoutAttributesForItem(at: indexPath)
+                else { return }
+                collectionView.setContentOffset(
+                    CGPoint(
+                        x: collectionView.contentOffset.x,
+                        y: attributes.frame.minY - anchor.distanceFromContentOffset
+                    ),
+                    animated: false
+                )
+            }
             Task { @MainActor in
                 self.updateTopChapterTitle(collectionView)
             }
@@ -680,13 +750,6 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 }
             }
 
-            if autoScrollEnabled.wrappedValue, lastScrolledBlockID != blockID {
-                lastScrolledBlockID = blockID
-                Task { @MainActor in
-                    collectionView.scrollToItem(
-                        at: indexPath, at: .centeredVertically, animated: true)
-                }
-            }
         }
 
         /// Retints the *visible* active cell to the spoken word without a diffable
@@ -719,46 +782,192 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             // the highlight index and preserves the existing attributed font runs.
             if let para = cell as? ParagraphCardCell {
                 para.applyWordHighlight(word.index)
-                scrollActiveWordIfNeeded(word.index, in: para, collectionView: collectionView)
             } else if let heading = cell as? HeadingCardCell {
                 heading.applyWordHighlight(word.index)
-                scrollActiveWordIfNeeded(word.index, in: heading, collectionView: collectionView)
             }
         }
 
-        private func scrollActiveWordIfNeeded(
-            _ wordIndex: Int,
-            in cell: UICollectionViewCell,
-            collectionView: UICollectionView
+        /// The only automatic viewport operation. It either resolves the active
+        /// spoken line or, when TextKit has no line available, centers the block's
+        /// frame with the same magnetic policy.
+        func followActiveText(
+            blockID: String?,
+            activeWord: (blockID: String, index: Int)?,
+            in collectionView: UICollectionView
         ) {
-            guard autoScrollEnabled.wrappedValue else { return }
+            guard let blockID else { return }
+            let scheduledGeneration = scrollGeneration
+            let wordIndex = activeWord?.blockID == blockID ? activeWord?.index : nil
 
-            let rectInCell: CGRect?
-            if let paragraph = cell as? ParagraphCardCell {
-                rectInCell = paragraph.rectForWord(at: wordIndex)
-            } else if let heading = cell as? HeadingCardCell {
-                rectInCell = heading.rectForWord(at: wordIndex)
-            } else {
-                rectInCell = nil
-            }
+            Task { @MainActor [weak self, weak collectionView] in
+                guard
+                    let self,
+                    let collectionView,
+                    self.mayApplyScroll(
+                        intent: .followPlayback,
+                        scheduledGeneration: scheduledGeneration
+                    ),
+                    let indexPath = self.dataSource?.indexPath(for: "b-\(blockID)")
+                else { return }
 
-            guard let rectInCell else { return }
-            let wordRect = cell.contentView.convert(rectInCell, to: collectionView)
-            guard
-                let targetY = ReaderWordFollowScroll.targetOffsetY(
-                    currentOffsetY: Double(collectionView.contentOffset.y),
-                    viewportHeight: Double(collectionView.bounds.height),
-                    contentHeight: Double(collectionView.contentSize.height),
-                    wordMinY: Double(wordRect.minY),
-                    wordMaxY: Double(wordRect.maxY),
-                    topMargin: Double(collectionView.adjustedContentInset.top + 96),
-                    bottomMargin: Double(collectionView.adjustedContentInset.bottom + 120)
+                if wordIndex != nil, collectionView.cellForItem(at: indexPath) == nil {
+                    guard self.mayApplyScroll(
+                        intent: .followPlayback,
+                        scheduledGeneration: scheduledGeneration
+                    ) else { return }
+                    collectionView.scrollToItem(
+                        at: indexPath,
+                        at: .centeredVertically,
+                        animated: false
+                    )
+                    collectionView.layoutIfNeeded()
+                }
+
+                let lineRange = self.wordLineRange(
+                    at: wordIndex,
+                    indexPath: indexPath,
+                    in: collectionView
                 )
-            else { return }
+                guard
+                    let paragraphRange = self.paragraphRange(
+                        at: indexPath,
+                        in: collectionView
+                    )
+                else { return }
+                let targetRange = ReaderWordFollowScroll.preferredRange(
+                    wordLine: lineRange,
+                    paragraph: paragraphRange
+                )
+                guard let targetY = self.targetOffsetY(
+                    for: targetRange,
+                    in: collectionView
+                ) else { return }
+                guard self.mayApplyScroll(
+                    intent: .followPlayback,
+                    scheduledGeneration: scheduledGeneration
+                ) else { return }
+                collectionView.setContentOffset(
+                    CGPoint(x: collectionView.contentOffset.x, y: CGFloat(targetY)),
+                    animated: !self.reduceMotion
+                )
+            }
+        }
 
-            collectionView.setContentOffset(
-                CGPoint(x: collectionView.contentOffset.x, y: CGFloat(targetY)),
-                animated: true
+        /// Resolves a user-requested return after the snapshot that expands its
+        /// chapter has been applied. Unlike playback following, this is allowed
+        /// while exploring, but a user drag invalidates it by changing generation.
+        func scheduleReturnToCurrentText(
+            blockID: String,
+            in collectionView: UICollectionView
+        ) {
+            let scheduledGeneration = scrollGeneration
+            Task { @MainActor [weak self, weak collectionView] in
+                guard let self, let collectionView else { return }
+                guard self.mayApplyScroll(
+                    intent: .returnToCurrent,
+                    scheduledGeneration: scheduledGeneration
+                ) else {
+                    self.onReturnTargetResolved?(false)
+                    return
+                }
+                guard let indexPath = self.dataSource?.indexPath(for: "b-\(blockID)") else {
+                    self.onReturnTargetResolved?(false)
+                    return
+                }
+
+                guard self.mayApplyScroll(
+                    intent: .returnToCurrent,
+                    scheduledGeneration: scheduledGeneration
+                ) else {
+                    self.onReturnTargetResolved?(false)
+                    return
+                }
+                collectionView.scrollToItem(
+                    at: indexPath,
+                    at: .centeredVertically,
+                    animated: false
+                )
+                collectionView.layoutIfNeeded()
+
+                guard self.mayApplyScroll(
+                    intent: .returnToCurrent,
+                    scheduledGeneration: scheduledGeneration
+                ) else {
+                    self.onReturnTargetResolved?(false)
+                    return
+                }
+                let wordIndex = self.activeWord?.blockID == blockID ? self.activeWord?.index : nil
+                let lineRange = self.wordLineRange(
+                    at: wordIndex,
+                    indexPath: indexPath,
+                    in: collectionView
+                )
+                if let paragraphRange = self.paragraphRange(at: indexPath, in: collectionView) {
+                    let targetRange = ReaderWordFollowScroll.preferredRange(
+                        wordLine: lineRange,
+                        paragraph: paragraphRange
+                    )
+                    if let targetY = self.targetOffsetY(for: targetRange, in: collectionView) {
+                        guard self.mayApplyScroll(
+                            intent: .returnToCurrent,
+                            scheduledGeneration: scheduledGeneration
+                        ) else {
+                            self.onReturnTargetResolved?(false)
+                            return
+                        }
+                        collectionView.setContentOffset(
+                            CGPoint(x: collectionView.contentOffset.x, y: CGFloat(targetY)),
+                            animated: !self.reduceMotion
+                        )
+                    }
+                }
+                self.onReturnTargetResolved?(true)
+            }
+        }
+
+        private func wordLineRange(
+            at wordIndex: Int?,
+            indexPath: IndexPath,
+            in collectionView: UICollectionView
+        ) -> ClosedRange<Double>? {
+            guard
+                let wordIndex,
+                let cell = collectionView.cellForItem(at: indexPath)
+            else { return nil }
+            let lineRect: CGRect?
+            if let paragraph = cell as? ParagraphCardCell {
+                lineRect = paragraph.lineRectForWord(at: wordIndex)
+            } else if let heading = cell as? HeadingCardCell {
+                lineRect = heading.lineRectForWord(at: wordIndex)
+            } else {
+                lineRect = nil
+            }
+            guard let lineRect else { return nil }
+            let rect = cell.contentView.convert(lineRect, to: collectionView)
+            return Double(rect.minY) ... Double(rect.maxY)
+        }
+
+        private func paragraphRange(
+            at indexPath: IndexPath,
+            in collectionView: UICollectionView
+        ) -> ClosedRange<Double>? {
+            guard let frame = collectionView.layoutAttributesForItem(at: indexPath)?.frame else {
+                return nil
+            }
+            return Double(frame.minY) ... Double(frame.maxY)
+        }
+
+        private func targetOffsetY(
+            for targetRange: ClosedRange<Double>,
+            in collectionView: UICollectionView
+        ) -> Double? {
+            ReaderWordFollowScroll.targetOffsetY(
+                currentOffsetY: Double(collectionView.contentOffset.y),
+                viewportHeight: Double(collectionView.bounds.height),
+                contentHeight: Double(collectionView.contentSize.height),
+                targetRange: targetRange,
+                topInset: Double(collectionView.adjustedContentInset.top),
+                bottomInset: Double(collectionView.adjustedContentInset.bottom)
             )
         }
 
@@ -796,9 +1005,9 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         }
 
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-            if autoScrollEnabled.wrappedValue {
-                autoScrollEnabled.wrappedValue = false
-            }
+            followState.wrappedValue.detachForExploration()
+            scrollGeneration &+= 1
+            collectionViewLayerAnimationsToFinish(in: scrollView)
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {

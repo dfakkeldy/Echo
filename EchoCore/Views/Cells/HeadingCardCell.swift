@@ -249,6 +249,27 @@ final class HeadingCardCell: UICollectionViewCell {
         return label.convert(rect.insetBy(dx: -4, dy: -4), to: contentView)
     }
 
+    /// Rendered line rect in `contentView` coordinates for the indexed word.
+    /// This deliberately uses the line fragment rather than the word's glyph
+    /// bounds so the reader can keep the spoken line magnetically centered.
+    func lineRectForWord(at wordIndex: Int) -> CGRect? {
+        guard wordIndex >= 0, wordIndex < wordRanges.count else { return nil }
+        label.layoutIfNeeded()
+        label.layoutManager.ensureLayout(for: label.textContainer)
+        let glyphRange = label.layoutManager.glyphRange(
+            forCharacterRange: wordRanges[wordIndex],
+            actualCharacterRange: nil
+        )
+        guard glyphRange.length > 0 else { return nil }
+        var rect = label.layoutManager.lineFragmentUsedRect(
+            forGlyphAt: glyphRange.location,
+            effectiveRange: nil
+        )
+        rect.origin.x += label.textContainerInset.left
+        rect.origin.y += label.textContainerInset.top
+        return label.convert(rect, to: contentView)
+    }
+
     /// Maps a point in `contentView` coordinates to the index of the word under
     /// it (over `wordRanges`), or nil if the point is outside any word glyph.
     func wordIndex(at point: CGPoint) -> Int? {
