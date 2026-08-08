@@ -6,14 +6,13 @@ import Testing
 @Suite struct ReaderScrollOperationStateTests {
     @Test func queuedReturnIsDroppedWhenDragPrecedesSnapshotCompletion() throws {
         var state = ReaderScrollOperationState()
-        let request = try #require(
-            state.enqueue(
-                intent: .returnToCurrent,
-                blockID: "current",
-                wordIndex: 2,
-                scrollGeneration: 7
-            )
+        let enqueuedRequest = state.enqueue(
+            intent: .returnToCurrent,
+            blockID: "current",
+            wordIndex: 2,
+            scrollGeneration: 7
         )
+        let request = try #require(enqueuedRequest)
         #expect(request.scrollGeneration == 7)
         #expect(request.snapshotGeneration == 0)
         let snapshot = state.beginSnapshot()
@@ -21,21 +20,22 @@ import Testing
         state.invalidateForUserDrag()
         state.completeSnapshot(snapshot)
 
-        #expect(state.takeReadyRequest() == nil)
+        let readyRequestAfterDrag = state.takeReadyRequest()
+        #expect(readyRequestAfterDrag == nil)
         #expect(state.mayExecute(request, currentScrollGeneration: 8) == false)
     }
 
     @Test func newerSnapshotRebindsDrainedOperationBeforeItCanExecute() throws {
         var state = ReaderScrollOperationState()
-        let original = try #require(
-            state.enqueue(
-                intent: .followPlayback,
-                blockID: "current",
-                wordIndex: 2,
-                scrollGeneration: 4
-            )
+        let enqueuedOriginal = state.enqueue(
+            intent: .followPlayback,
+            blockID: "current",
+            wordIndex: 2,
+            scrollGeneration: 4
         )
-        let drained = try #require(state.takeReadyRequest())
+        let original = try #require(enqueuedOriginal)
+        let readyRequest = state.takeReadyRequest()
+        let drained = try #require(readyRequest)
         #expect(drained == original)
         #expect(state.mayExecute(drained, currentScrollGeneration: 4))
 
@@ -43,7 +43,8 @@ import Testing
         #expect(state.mayExecute(drained, currentScrollGeneration: 4) == false)
 
         state.completeSnapshot(snapshot)
-        let rebound = try #require(state.takeReadyRequest())
+        let reboundRequest = state.takeReadyRequest()
+        let rebound = try #require(reboundRequest)
         #expect(rebound.operationToken == original.operationToken)
         #expect(rebound.snapshotGeneration == snapshot)
         #expect(rebound != original)
@@ -52,49 +53,48 @@ import Testing
 
     @Test func supersedingReturnInvalidatesAnAlreadyDrainedFollow() throws {
         var state = ReaderScrollOperationState()
-        let follow = try #require(
-            state.enqueue(
-                intent: .followPlayback,
-                blockID: "older",
-                wordIndex: nil,
-                scrollGeneration: 2
-            )
+        let enqueuedFollow = state.enqueue(
+            intent: .followPlayback,
+            blockID: "older",
+            wordIndex: nil,
+            scrollGeneration: 2
         )
-        _ = try #require(state.takeReadyRequest())
-        let `return` = try #require(
-            state.enqueue(
-                intent: .returnToCurrent,
-                blockID: "current",
-                wordIndex: 3,
-                scrollGeneration: 2
-            )
+        let follow = try #require(enqueuedFollow)
+        let readyFollow = state.takeReadyRequest()
+        _ = try #require(readyFollow)
+        let enqueuedReturn = state.enqueue(
+            intent: .returnToCurrent,
+            blockID: "current",
+            wordIndex: 3,
+            scrollGeneration: 2
         )
+        let `return` = try #require(enqueuedReturn)
 
         #expect(`return`.operationToken == follow.operationToken &+ 1)
         #expect(state.mayExecute(follow, currentScrollGeneration: 2) == false)
-        #expect(state.takeReadyRequest() == `return`)
+        let readyReturn = state.takeReadyRequest()
+        #expect(readyReturn == `return`)
     }
 
     @Test func returnKeepsPriorityOverPlaybackFollowAndRequiresExactGenerations() throws {
         var state = ReaderScrollOperationState()
-        let `return` = try #require(
-            state.enqueue(
-                intent: .returnToCurrent,
-                blockID: "current",
-                wordIndex: 1,
-                scrollGeneration: 9
-            )
+        let enqueuedReturn = state.enqueue(
+            intent: .returnToCurrent,
+            blockID: "current",
+            wordIndex: 1,
+            scrollGeneration: 9
         )
+        let `return` = try #require(enqueuedReturn)
 
-        #expect(
-            state.enqueue(
-                intent: .followPlayback,
-                blockID: "later",
-                wordIndex: 2,
-                scrollGeneration: 9
-            ) == nil
+        let enqueuedFollow = state.enqueue(
+            intent: .followPlayback,
+            blockID: "later",
+            wordIndex: 2,
+            scrollGeneration: 9
         )
-        let drained = try #require(state.takeReadyRequest())
+        #expect(enqueuedFollow == nil)
+        let readyRequest = state.takeReadyRequest()
+        let drained = try #require(readyRequest)
         #expect(drained == `return`)
         #expect(state.mayExecute(drained, currentScrollGeneration: 8) == false)
         #expect(state.mayExecute(drained, currentScrollGeneration: 9))

@@ -9,10 +9,12 @@ import Testing
         state.detachForExploration()
         #expect(state == .exploring)
 
-        #expect(state.completeReturn(targetResolved: false) == false)
+        let unresolvedReturnCompleted = state.completeReturn(targetResolved: false)
+        #expect(unresolvedReturnCompleted == false)
         #expect(state == .exploring)
 
-        #expect(state.completeReturn(targetResolved: true))
+        let resolvedReturnCompleted = state.completeReturn(targetResolved: true)
+        #expect(resolvedReturnCompleted)
         #expect(state == .following)
     }
 

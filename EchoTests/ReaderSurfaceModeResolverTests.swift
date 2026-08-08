@@ -36,8 +36,10 @@ import Testing
         )
 
         #expect(destination == .reflow)
-        #expect(tracker.claim(request))
-        #expect(tracker.claim(request) == false)
+        let claimedRequest = tracker.claim(request)
+        #expect(claimedRequest)
+        let claimedDuplicateRequest = tracker.claim(request)
+        #expect(claimedDuplicateRequest == false)
         #expect(
             ReaderSurfaceReturnPolicy.destination(
                 currentMode: destination,

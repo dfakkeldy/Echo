@@ -37,11 +37,10 @@ import Testing
             distanceFromContentOffset: 12,
             openChapterKey: 4
         )
-        #expect(
-            state.apply(
-                ReaderViewportPublication(context: staleContext, anchor: staleAnchor)
-            ) == false
+        let appliedStalePublication = state.apply(
+            ReaderViewportPublication(context: staleContext, anchor: staleAnchor)
         )
+        #expect(appliedStalePublication == false)
         #expect(state.anchor == nil)
 
         let currentAnchor = ReaderViewportAnchor(
@@ -49,24 +48,28 @@ import Testing
             distanceFromContentOffset: 20,
             openChapterKey: 2
         )
-        #expect(
-            state.apply(
-                ReaderViewportPublication(
-                    context: state.publicationContext,
-                    anchor: currentAnchor
-                )
+        let appliedCurrentPublication = state.apply(
+            ReaderViewportPublication(
+                context: state.publicationContext,
+                anchor: currentAnchor
             )
         )
+        #expect(appliedCurrentPublication)
         #expect(state.anchor == currentAnchor)
     }
 
     @Test func eachNonzeroReturnRequestCanBeClaimedExactlyOnce() {
         var tracker = ReaderReturnRequestTracker()
 
-        #expect(tracker.claim(0) == false)
-        #expect(tracker.claim(1))
-        #expect(tracker.claim(1) == false)
-        #expect(tracker.claim(2))
-        #expect(tracker.claim(2) == false)
+        let claimedZero = tracker.claim(0)
+        #expect(claimedZero == false)
+        let claimedFirstRequest = tracker.claim(1)
+        #expect(claimedFirstRequest)
+        let claimedDuplicateFirstRequest = tracker.claim(1)
+        #expect(claimedDuplicateFirstRequest == false)
+        let claimedSecondRequest = tracker.claim(2)
+        #expect(claimedSecondRequest)
+        let claimedDuplicateSecondRequest = tracker.claim(2)
+        #expect(claimedDuplicateSecondRequest == false)
     }
 }
