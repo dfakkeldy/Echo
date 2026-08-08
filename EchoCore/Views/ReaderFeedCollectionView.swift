@@ -335,6 +335,10 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         var reduceMotion = false
         var onReturnTargetResolved: ((Bool) -> Void)?
         private(set) var scrollGeneration: UInt = 0
+        /// The final magnetic target issued by automatic following. Keeping it
+        /// for the generation prevents word ticks on the same rendered line
+        /// from restarting an in-flight UIKit scroll animation.
+        private var followTarget: (generation: UInt, offsetY: Double)?
         var topPartTitle: Binding<String?>
         var topChapterTitle: Binding<String?>
         var topSectionTitle: Binding<String?>
@@ -400,6 +404,45 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 scheduledGeneration: scheduledGeneration,
                 currentGeneration: scrollGeneration
             )
+        }
+
+        /// Reserves a final automatic target immediately before its UIKit write.
+        /// A target within the scroll policy's tolerance is already pending or
+        /// applied for this generation, so another word on the same line cannot
+        /// restart its animation while `contentOffset` is still interpolating.
+        func shouldStartFollowScroll(
+            to targetY: Double,
+            scheduledGeneration: UInt
+        ) -> Bool {
+            guard mayApplyScroll(
+                intent: .followPlayback,
+                scheduledGeneration: scheduledGeneration
+            ) else { return false }
+            if let followTarget,
+                followTarget.generation == scheduledGeneration,
+                abs(followTarget.offsetY - targetY) < 0.5
+            {
+                return false
+            }
+            followTarget = (generation: scheduledGeneration, offsetY: targetY)
+            return true
+        }
+
+        /// Reports return success only after the final line-or-paragraph geometry
+        /// is available. A nil target offset is still a valid already-centered
+        /// result; a missing paragraph range is not.
+        @discardableResult
+        func reportReturnTargetResolution(for paragraphRange: ClosedRange<Double>?) -> Bool {
+            let resolved = paragraphRange != nil
+            onReturnTargetResolved?(resolved)
+            return resolved
+        }
+
+        private func recordFollowTarget(
+            _ targetY: Double,
+            scheduledGeneration: UInt
+        ) {
+            followTarget = (generation: scheduledGeneration, offsetY: targetY)
         }
 
         private func collectionViewLayerAnimationsToFinish(in scrollView: UIScrollView) {
@@ -842,8 +885,8 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     for: targetRange,
                     in: collectionView
                 ) else { return }
-                guard self.mayApplyScroll(
-                    intent: .followPlayback,
+                guard self.shouldStartFollowScroll(
+                    to: targetY,
                     scheduledGeneration: scheduledGeneration
                 ) else { return }
                 collectionView.setContentOffset(
@@ -902,26 +945,30 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     indexPath: indexPath,
                     in: collectionView
                 )
-                if let paragraphRange = self.paragraphRange(at: indexPath, in: collectionView) {
-                    let targetRange = ReaderWordFollowScroll.preferredRange(
-                        wordLine: lineRange,
-                        paragraph: paragraphRange
-                    )
-                    if let targetY = self.targetOffsetY(for: targetRange, in: collectionView) {
-                        guard self.mayApplyScroll(
-                            intent: .returnToCurrent,
-                            scheduledGeneration: scheduledGeneration
-                        ) else {
-                            self.onReturnTargetResolved?(false)
-                            return
-                        }
-                        collectionView.setContentOffset(
-                            CGPoint(x: collectionView.contentOffset.x, y: CGFloat(targetY)),
-                            animated: !self.reduceMotion
-                        )
-                    }
+                guard let paragraphRange = self.paragraphRange(at: indexPath, in: collectionView)
+                else {
+                    self.reportReturnTargetResolution(for: nil)
+                    return
                 }
-                self.onReturnTargetResolved?(true)
+                let targetRange = ReaderWordFollowScroll.preferredRange(
+                    wordLine: lineRange,
+                    paragraph: paragraphRange
+                )
+                if let targetY = self.targetOffsetY(for: targetRange, in: collectionView) {
+                    guard self.mayApplyScroll(
+                        intent: .returnToCurrent,
+                        scheduledGeneration: scheduledGeneration
+                    ) else {
+                        self.onReturnTargetResolved?(false)
+                        return
+                    }
+                    self.recordFollowTarget(targetY, scheduledGeneration: scheduledGeneration)
+                    collectionView.setContentOffset(
+                        CGPoint(x: collectionView.contentOffset.x, y: CGFloat(targetY)),
+                        animated: !self.reduceMotion
+                    )
+                }
+                self.reportReturnTargetResolution(for: paragraphRange)
             }
         }
 
