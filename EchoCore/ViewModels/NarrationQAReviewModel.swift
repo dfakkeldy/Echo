@@ -278,6 +278,7 @@ final class NarrationQAReviewModel {
                                         chapterNumber: target.displayNumber,
                                         blocks: unit.blocks,
                                         voice: target.voice,
+                                        blockVoice: { _ in target.voice },
                                         chapterTitle: target.title)
                                 }
                             }

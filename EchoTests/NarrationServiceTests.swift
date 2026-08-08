@@ -1,9 +1,35 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import GRDB
+import Synchronization
 import Testing
 
 @testable import Echo
+
+extension NarrationService {
+    /// Keeps unrelated legacy tests focused on their own behavior while production
+    /// callers must provide the block-voice selection closure.
+    @discardableResult
+    func renderChapter(
+        chapterIndex: Int,
+        sourceChapterKey: String? = nil,
+        chapterNumber: Int? = nil,
+        blocks: [EPubBlockRecord],
+        voice: VoiceID,
+        chapterTitle: String? = nil,
+        onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)? = nil
+    ) async throws -> RenderedNarrationFile {
+        try await renderChapter(
+            chapterIndex: chapterIndex,
+            sourceChapterKey: sourceChapterKey,
+            chapterNumber: chapterNumber,
+            blocks: blocks,
+            voice: voice,
+            blockVoice: { _ in voice },
+            chapterTitle: chapterTitle,
+            onBlockProgress: onBlockProgress)
+    }
+}
 
 private enum ShadowEvaluatorOutcome: Sendable {
     case selection(ContextualCandidateSlot)
@@ -203,6 +229,47 @@ private actor ShadowEvaluatorRecorder {
         #expect(
             abs(anchors[1].audioTime - (0.4 + NarrationPlannedSilence.paragraph.duration))
                 < 0.0001)
+    }
+
+    /// A block voice is selected once before that original block's chunks are
+    /// synthesized. This catches resolving inside the chunk loop (or falling
+    /// back to the chapter voice) without changing the established anchor and
+    /// timing semantics.
+    @Test func renderChapterUsesOneSelectedVoiceForEveryChunkOfEachOriginalBlock()
+        async throws
+    {
+        let db = try DatabaseService(inMemory: ())
+        let firstBlockText = String(repeating: "alpha ", count: 50) + ". "
+            + String(repeating: "bravo ", count: 50) + "."
+        let blocks = try seed(
+            db,
+            records: [
+                block("b1", id: "s0-b0", seq: 0, text: firstBlockText),
+                block("b1", id: "s0-b1", seq: 1, text: "Charlie arrives."),
+            ])
+        let engine = MockTTSEngine(secondsPerChar: 0.1)
+        let service = makeService(db, tts: engine, writer: MockAudioWriter())
+        let selections = Mutex<[String: Int]>([:])
+
+        let rendered = try await service.renderChapter(
+            chapterIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"),
+            blockVoice: { blockID in
+                selections.withLock { counts in counts[blockID, default: 0] += 1 }
+                return blockID == "s0-b0" ? VoiceID("am_michael") : VoiceID("bf_emma")
+            })
+
+        #expect(engine.calls.map(\.voice) == [
+            VoiceID("am_michael"), VoiceID("am_michael"), VoiceID("bf_emma"),
+        ])
+        #expect(selections.withLock { $0 } == ["s0-b0": 1, "s0-b1": 1])
+        #expect(rendered.anchors.map(\.epubBlockID) == ["s0-b0", "s0-b1"])
+        #expect(rendered.anchors.allSatisfy { ($0.audioEndTime ?? $0.audioTime) > $0.audioTime })
+        #expect(
+            zip(rendered.anchors, rendered.anchors.dropFirst()).allSatisfy {
+                ($0.audioEndTime ?? $0.audioTime) <= $1.audioTime
+            })
     }
 
     @Test func plannedParagraphPauseAdvancesNextAnchorWithoutStretchingPreviousAnchor()

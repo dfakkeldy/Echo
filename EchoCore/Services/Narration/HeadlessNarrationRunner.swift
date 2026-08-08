@@ -1265,6 +1265,7 @@ struct NarrationRunResult {
             uniqueKeysWithValues: plannedChapters.map { ($0.index, $0) })
         let chapterIndices = plannedChapters.map(\.index)
         let voiceByChapterIndex: [Int: VoiceID]
+        let resolvedVoicePlan: ResolvedBlockVoicePlan?
         if let voicePlanURL = config.voicePlanURL {
             guard case .epubFile(let epubURL) = source else {
                 throw NarrationRunError.voicePlan("--voice-plan requires an EPUB file")
@@ -1281,6 +1282,7 @@ struct NarrationRunResult {
                     throw NarrationRunError.voicePlan(
                         "--voice \(explicitVoice.rawValue) conflicts with plan default \(plan.defaultVoice.rawValue)")
                 }
+                resolvedVoicePlan = plan
                 voiceByChapterIndex = Dictionary(
                     uniqueKeysWithValues: plannedChapters.map { ($0.index, plan.defaultVoice) })
             } catch let error as NarrationRunError {
@@ -1289,6 +1291,7 @@ struct NarrationRunResult {
                 throw NarrationRunError.voicePlan(error.localizedDescription)
             }
         } else {
+            resolvedVoicePlan = nil
             voiceByChapterIndex = try Self.resolvedChapterVoices(
                 defaultVoice: Self.legacyDefaultVoice(for: config),
                 overridesByDisplayNumber: config.chapterVoicesByDisplayNumber,
@@ -1474,6 +1477,15 @@ struct NarrationRunResult {
                 let chapterBlocks = plannedByChapterIndex[idx]!.blocks
                 let chapterTitle = plannedByChapterIndex[idx]?.title
                 let chapterVoice = voiceByChapterIndex[idx] ?? Self.legacyDefaultVoice(for: config)
+                let blockVoice: @Sendable (String) -> VoiceID
+                if let resolvedVoicePlan {
+                    blockVoice = {
+                        resolvedVoicePlan.voice(
+                            forBlockID: AlignmentSidecar.portableSuffix(of: $0))
+                    }
+                } else {
+                    blockVoice = { _ in chapterVoice }
+                }
                 guard let expectedCapture = expectedCaptureByChapterIndex[idx] else {
                     throw NarrationRunError.captureIdentity(
                         "chapter \(idx) has no expected capture identity")
@@ -1481,7 +1493,8 @@ struct NarrationRunResult {
 
                 let rendered = try await svc.renderChapter(
                     chapterIndex: idx, chapterNumber: displayNumber,
-                    blocks: chapterBlocks, voice: chapterVoice, chapterTitle: chapterTitle
+                    blocks: chapterBlocks, voice: chapterVoice, blockVoice: blockVoice,
+                    chapterTitle: chapterTitle
                 ) { _, blockFraction in
                     cursor.inflight[worker] = blockFraction
                     emitChapterProgress()
