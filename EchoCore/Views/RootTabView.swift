@@ -293,10 +293,13 @@ struct RootTabView: View {
                     }
                 }
             }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            // Unified Top Header System (Row 1: global navigation), overlaid
-            // at the top of the Z-stack on top of the content behind it.
+            // Root-owned global navigation, visible across primary stacks and
+            // their pushed destinations without appearing in modal sheets.
             UnifiedTopHeader(onFolderTap: { showingFolderPicker = true })
 
             // The bottom deck is root-owned so Now Playing and Reader share the

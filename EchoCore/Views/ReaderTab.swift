@@ -471,14 +471,8 @@ struct ReaderTab: View {
 
     @ViewBuilder
     private func readerLoadedContent(vm: ReaderFeedViewModel) -> some View {
-        // The collection fills the screen and scrolls behind the translucent
-        // headers. Each `.safeAreaInset` reserves native top/bottom clearance:
-        //   1. the reader's own header (self-measuring),
-        //   2. Row 1 of UnifiedTopHeader (overlaid in RootTabView),
-        //   3. the floating bottom dock.
-        // (2) must match the header's real height, or the reader's own
-        // header tucks under the glass — hence `rowOneHeight`, not a
-        // hard-coded constant that goes stale when the chips resize.
+        // The collection reserves only its local, self-measuring chapter header
+        // and the root-owned floating bottom dock.
         VStack(spacing: 0) {
             if let recap = vm.recap {
                 recapCard(recap)
@@ -488,11 +482,6 @@ struct ReaderTab: View {
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             readerHeaderOverlay(vm: vm)
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            // RootTabView owns this header and keeps it available while the
-            // reader's local utilities animate independently.
-            Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             Color.clear.frame(height: model.bottomInset)
