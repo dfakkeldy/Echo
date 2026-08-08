@@ -12,6 +12,31 @@ nonisolated enum ReaderWordFollowScroll {
         wordLine ?? paragraph
     }
 
+    /// Temporary compatibility overload for the collection-view caller.
+    /// Task 4 migrates that caller to the line-range API and removes this shim.
+    static func targetOffsetY(
+        currentOffsetY: Double,
+        viewportHeight: Double,
+        contentHeight: Double,
+        wordMinY: Double,
+        wordMaxY: Double,
+        topMargin: Double = 96,
+        bottomMargin: Double = 120
+    ) -> Double? {
+        guard viewportHeight > 0, contentHeight > viewportHeight, wordMaxY >= wordMinY else {
+            return nil
+        }
+
+        return targetOffsetY(
+            currentOffsetY: currentOffsetY,
+            viewportHeight: viewportHeight,
+            contentHeight: contentHeight,
+            targetRange: wordMinY ... wordMaxY,
+            topInset: topMargin,
+            bottomInset: bottomMargin
+        )
+    }
+
     static func targetOffsetY(
         currentOffsetY: Double,
         viewportHeight: Double,

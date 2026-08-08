@@ -4,6 +4,41 @@ import Testing
 @testable import Echo
 
 @Suite struct ReaderWordFollowScrollTests {
+    @Test func compatibilityOverloadCentersAlreadyVisibleWord() throws {
+        let target = try #require(
+            ReaderWordFollowScroll.targetOffsetY(
+                currentOffsetY: 100,
+                viewportHeight: 500,
+                contentHeight: 2_000,
+                wordMinY: 240,
+                wordMaxY: 270
+            )
+        )
+        #expect(abs(target - 17) < 0.001)
+    }
+
+    @Test func compatibilityOverloadRejectsInvertedWordBounds() {
+        let target = ReaderWordFollowScroll.targetOffsetY(
+            currentOffsetY: 100,
+            viewportHeight: 500,
+            contentHeight: 2_000,
+            wordMinY: 270,
+            wordMaxY: 240
+        )
+        #expect(target == nil)
+    }
+
+    @Test func compatibilityOverloadSkipsShortContent() {
+        let target = ReaderWordFollowScroll.targetOffsetY(
+            currentOffsetY: 0,
+            viewportHeight: 500,
+            contentHeight: 400,
+            wordMinY: 240,
+            wordMaxY: 270
+        )
+        #expect(target == nil)
+    }
+
     @Test func centersLineEvenWhenItIsAlreadyVisible() throws {
         let target = try #require(
             ReaderWordFollowScroll.targetOffsetY(
