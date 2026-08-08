@@ -15,3 +15,17 @@ Resume:
 cd /Users/dfakkeldy/Developer/Echo/.claude/worktrees/great-heisenberg-47ce71  # branch claude/echo-cover-color-scheme-700b95
 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
+
+## 2026-08-08 — build gate green (user-requested off-hours run)
+
+Done: slot-wrapped `make build-tests` + `make test-only
+FILTER=EchoTests/CoverThemeBuilderTests` passed (17/17, TEST BUILD SUCCEEDED);
+XBG_ALLOW_NOW=1 per explicit user request. Branch pushed.
+Next: simulator eyeball on real photographic covers (bucket-mean chroma may
+undershoot the 0.09 promotion floor — if so, that's the percentile-chroma
+extractor follow-up), then PR `--base nightly`.
+Resume:
+```
+cd /Users/dfakkeldy/Developer/Echo/.claude/worktrees/great-heisenberg-47ce71  # branch claude/echo-cover-color-scheme-700b95
+# next: run app in iPhone 17 sim, eyeball duotone covers, then gh pr create --base nightly
+```
