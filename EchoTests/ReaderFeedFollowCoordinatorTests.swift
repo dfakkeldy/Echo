@@ -63,8 +63,43 @@ import UIKit
         #expect(results.value == [false, true])
     }
 
+    @Test func recreatedCoordinatorRestoresRootOwnedViewportAnchor() {
+        let followState = MutableBox(ReaderFollowState.exploring)
+        let viewportAnchor = MutableBox<ReaderViewportAnchor?>(
+            ReaderViewportAnchor(itemID: "b-paragraph-17", distanceFromContentOffset: 28)
+        )
+        let firstCoordinator = makeCoordinator(
+            followState: followState,
+            viewportAnchor: viewportAnchor
+        )
+        #expect(
+            firstCoordinator.restoredContentOffsetY(
+                forItemID: "b-paragraph-17",
+                itemFrameMinY: 328
+            ) == 300
+        )
+
+        let recreatedCoordinator = makeCoordinator(
+            followState: followState,
+            viewportAnchor: viewportAnchor
+        )
+        #expect(
+            recreatedCoordinator.restoredContentOffsetY(
+                forItemID: "b-paragraph-17",
+                itemFrameMinY: 428
+            ) == 400
+        )
+        #expect(
+            recreatedCoordinator.restoredContentOffsetY(
+                forItemID: "b-another-paragraph",
+                itemFrameMinY: 428
+            ) == nil
+        )
+    }
+
     private func makeCoordinator(
         followState: MutableBox<ReaderFollowState>,
+        viewportAnchor: MutableBox<ReaderViewportAnchor?> = MutableBox(nil),
         onReturnTargetResolved: ((Bool) -> Void)? = nil
     ) -> ReaderFeedCollectionView.Coordinator {
         let coordinator = ReaderFeedCollectionView.Coordinator(
@@ -74,6 +109,7 @@ import UIKit
             onAccessibilityActions: nil,
             isHeaderVisible: .constant(true),
             followState: binding(followState),
+            viewportAnchor: binding(viewportAnchor),
             topPartTitle: Binding<String?>.constant(nil),
             topChapterTitle: Binding<String?>.constant(nil),
             topSectionTitle: Binding<String?>.constant(nil),

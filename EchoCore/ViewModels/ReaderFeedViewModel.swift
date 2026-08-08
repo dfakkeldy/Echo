@@ -974,6 +974,26 @@ final class ReaderFeedViewModel {
         audioStartTimeByBlockID = gatedStart
     }
 
+    /// Reloads durable blocks/timing and immediately resolves the spoken text.
+    /// Reader recreation uses this while paused, when no playback tick is
+    /// available to populate `activeBlockID` or `activeWord` afterward.
+    func reloadAndResolveActiveBlock(
+        time: TimeInterval,
+        currentTrackSegmentKey: String? = nil,
+        currentTrackChapterIndices: Set<Int>?,
+        isPlaying: Bool = false,
+        allowsPlaybackFollowing: Bool = true
+    ) {
+        reload()
+        updateActiveBlock(
+            time: time,
+            currentTrackSegmentKey: currentTrackSegmentKey,
+            currentTrackChapterIndices: currentTrackChapterIndices,
+            isPlaying: isPlaying,
+            allowsPlaybackFollowing: allowsPlaybackFollowing
+        )
+    }
+
     /// Update the active block based on the current playback position, scoped to
     /// the currently-playing track.
     ///

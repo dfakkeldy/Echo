@@ -27,6 +27,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
     var activeWord: (blockID: String, index: Int)? = nil
     @Binding var isHeaderVisible: Bool
     @Binding var followState: ReaderFollowState
+    @Binding var viewportAnchor: ReaderViewportAnchor?
     var reduceMotion = false
     var onReturnTargetResolved: ((Bool) -> Void)?
     @Binding var topPartTitle: String?
@@ -81,6 +82,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             onAccessibilityActions: onAccessibilityActions,
             isHeaderVisible: $isHeaderVisible,
             followState: $followState,
+            viewportAnchor: $viewportAnchor,
             topPartTitle: $topPartTitle,
             topChapterTitle: $topChapterTitle,
             topSectionTitle: $topSectionTitle,
@@ -152,12 +154,17 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         return collectionView
     }
 
+    static func dismantleUIView(_ collectionView: UICollectionView, coordinator: Coordinator) {
+        coordinator.persistViewportAnchor(in: collectionView)
+    }
+
     func updateUIView(_ collectionView: UICollectionView, context: Context) {
         context.coordinator.onTapBlock = onTapBlock
         context.coordinator.onTapWord = onTapWord
         context.coordinator.onContextMenu = onContextMenu
         context.coordinator.onAccessibilityActions = onAccessibilityActions
         context.coordinator.followState = $followState
+        context.coordinator.viewportAnchor = $viewportAnchor
         context.coordinator.reduceMotion = reduceMotion
         context.coordinator.onReturnTargetResolved = onReturnTargetResolved
         context.coordinator.onChapterHeaderContextMenu = onChapterHeaderContextMenu
@@ -332,6 +339,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         var onPlayMemo: ((VoiceMemoRecord) -> Void)?
         var isHeaderVisible: Binding<Bool>
         var followState: Binding<ReaderFollowState>
+        var viewportAnchor: Binding<ReaderViewportAnchor?>
         var reduceMotion = false
         var onReturnTargetResolved: ((Bool) -> Void)?
         private(set) var scrollGeneration: UInt = 0
@@ -379,6 +387,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             onContextMenu: ((EPubBlockRecord, ReaderWordHit?) -> UIContextMenuConfiguration?)?,
             onAccessibilityActions: ((EPubBlockRecord) -> [UIAccessibilityCustomAction])?,
             isHeaderVisible: Binding<Bool>, followState: Binding<ReaderFollowState>,
+            viewportAnchor: Binding<ReaderViewportAnchor?>,
             topPartTitle: Binding<String?>, topChapterTitle: Binding<String?>,
             topSectionTitle: Binding<String?>, topChapterThemeColor: Binding<String?>
         ) {
@@ -388,6 +397,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             self.onAccessibilityActions = onAccessibilityActions
             self.isHeaderVisible = isHeaderVisible
             self.followState = followState
+            self.viewportAnchor = viewportAnchor
             self.topPartTitle = topPartTitle
             self.topChapterTitle = topChapterTitle
             self.topSectionTitle = topSectionTitle
@@ -705,22 +715,36 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             return actions
         }
 
-        private struct ViewportAnchor {
-            let itemID: String
-            let distanceFromContentOffset: CGFloat
-        }
-
-        private func viewportAnchor(in collectionView: UICollectionView) -> ViewportAnchor? {
+        private func visibleViewportAnchor(
+            in collectionView: UICollectionView
+        ) -> ReaderViewportAnchor? {
             guard
                 followState.wrappedValue == .exploring,
                 let indexPath = collectionView.indexPathsForVisibleItems.sorted().first,
                 let itemID = dataSource?.itemIdentifier(for: indexPath),
                 let attributes = collectionView.layoutAttributesForItem(at: indexPath)
             else { return nil }
-            return ViewportAnchor(
+            return ReaderViewportAnchor(
                 itemID: itemID,
-                distanceFromContentOffset: attributes.frame.minY - collectionView.contentOffset.y
+                distanceFromContentOffset: Double(
+                    attributes.frame.minY - collectionView.contentOffset.y
+                )
             )
+        }
+
+        func persistViewportAnchor(in collectionView: UICollectionView) {
+            guard let anchor = visibleViewportAnchor(in: collectionView) else { return }
+            if viewportAnchor.wrappedValue != anchor {
+                viewportAnchor.wrappedValue = anchor
+            }
+        }
+
+        func restoredContentOffsetY(forItemID itemID: String, itemFrameMinY: Double) -> Double? {
+            guard followState.wrappedValue == .exploring,
+                let anchor = viewportAnchor.wrappedValue,
+                anchor.itemID == itemID
+            else { return nil }
+            return itemFrameMinY - anchor.distanceFromContentOffset
         }
 
         func applySnapshot(
@@ -739,21 +763,29 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 present.contains(id) && current.contains(id) && seen.insert(id).inserted
             }
             if !toReconfigure.isEmpty { snapshot.reconfigureItems(toReconfigure) }
-            let anchor = viewportAnchor(in: collectionView)
+            persistViewportAnchor(in: collectionView)
+            let anchor = viewportAnchor.wrappedValue
             let scheduledGeneration = scrollGeneration
-            dataSource?.apply(snapshot, animatingDifferences: animated) { [weak self, weak collectionView] in
+            dataSource?.apply(
+                snapshot,
+                animatingDifferences: animated
+            ) { [weak self, weak collectionView] in
                 guard let self, let collectionView, let anchor else { return }
                 collectionView.layoutIfNeeded()
                 guard
                     self.followState.wrappedValue == .exploring,
                     scheduledGeneration == self.scrollGeneration,
                     let indexPath = self.dataSource?.indexPath(for: anchor.itemID),
-                    let attributes = collectionView.layoutAttributesForItem(at: indexPath)
+                    let attributes = collectionView.layoutAttributesForItem(at: indexPath),
+                    let restoredOffsetY = self.restoredContentOffsetY(
+                        forItemID: anchor.itemID,
+                        itemFrameMinY: Double(attributes.frame.minY)
+                    )
                 else { return }
                 collectionView.setContentOffset(
                     CGPoint(
                         x: collectionView.contentOffset.x,
-                        y: attributes.frame.minY - anchor.distanceFromContentOffset
+                        y: CGFloat(restoredOffsetY)
                     ),
                     animated: false
                 )
@@ -1055,6 +1087,20 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             followState.wrappedValue.detachForExploration()
             scrollGeneration &+= 1
             collectionViewLayerAnimationsToFinish(in: scrollView)
+            guard let collectionView = scrollView as? UICollectionView else { return }
+            persistViewportAnchor(in: collectionView)
+        }
+
+        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+            guard decelerate == false, let collectionView = scrollView as? UICollectionView else {
+                return
+            }
+            persistViewportAnchor(in: collectionView)
+        }
+
+        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+            guard let collectionView = scrollView as? UICollectionView else { return }
+            persistViewportAnchor(in: collectionView)
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {

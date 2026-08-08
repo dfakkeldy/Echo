@@ -145,6 +145,8 @@ struct RootTabView: View {
     @State private var readerFollowState = ReaderFollowState.following
     @State private var readerReturnRequest = 0
     @State private var readerReturnStatus: String?
+    @State private var readerReturnRequestTracker = ReaderReturnRequestTracker()
+    @State private var readerViewportState = ReaderViewportState()
 
     #if os(iOS)
         @State private var transcribeCoordinator: TranscribeBookCoordinator?
@@ -204,7 +206,12 @@ struct RootTabView: View {
                                     folderURL: folder,
                                     bookURL: bookURL,
                                     followState: $readerFollowState,
+                                    viewportAnchor: $readerViewportState.anchor,
                                     returnRequest: readerReturnRequest,
+                                    hasPendingReturnRequest: readerReturnRequestTracker.hasPending(
+                                        readerReturnRequest
+                                    ),
+                                    claimReturnRequest: claimReaderReturnRequest,
                                     onReturnTargetResolved: resolveReaderReturn
                                 )
                             } else if model.hasEPUB,
@@ -215,7 +222,9 @@ struct RootTabView: View {
                                     folderURL: folder,
                                     bookURL: bookURL,
                                     followState: $readerFollowState,
+                                    viewportAnchor: $readerViewportState.anchor,
                                     returnRequest: readerReturnRequest,
+                                    claimReturnRequest: claimReaderReturnRequest,
                                     onReturnTargetResolved: resolveReaderReturn
                                 )
                             } else if model.hasPDF,
@@ -574,6 +583,7 @@ struct RootTabView: View {
             model.restoreLastSelectionIfPossible()
             model.selectedTab = LibraryViewModel.smartLandingTab(
                 hasCurrentBook: model.folderURL != nil)
+            readerViewportState.prepare(for: model.bookIdentityURL)
             applyPendingDeepLinkIfNeeded()
 
             // Restore navigation paths from SceneStorage
@@ -610,6 +620,7 @@ struct RootTabView: View {
             guard oldValue != newValue else { return }
             readerFollowState = .following
             readerReturnStatus = nil
+            readerViewportState.prepare(for: newValue)
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
@@ -679,6 +690,10 @@ struct RootTabView: View {
     private func resolveReaderReturn(targetResolved: Bool) {
         let resolved = readerFollowState.completeReturn(targetResolved: targetResolved)
         readerReturnStatus = resolved ? nil : String(localized: "Finding current text…")
+    }
+
+    private func claimReaderReturnRequest(_ request: Int) -> Bool {
+        readerReturnRequestTracker.claim(request)
     }
 
     private var documentImportErrorPresented: Binding<Bool> {

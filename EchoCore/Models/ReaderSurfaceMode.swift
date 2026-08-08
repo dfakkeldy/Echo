@@ -9,6 +9,17 @@ enum ReaderSurfaceMode: String, CaseIterable, Sendable {
     case reflow
 }
 
+nonisolated enum ReaderSurfaceReturnPolicy {
+    static func destination(
+        currentMode: ReaderSurfaceMode,
+        followState: ReaderFollowState,
+        hasPendingReturnRequest: Bool
+    ) -> ReaderSurfaceMode {
+        guard followState == .exploring, hasPendingReturnRequest else { return currentMode }
+        return .reflow
+    }
+}
+
 /// Pure resolver for which reading surfaces a book can offer. Mirrors the
 /// style of `TimelineIngestionFactory.strategy(...)` — no DB, no async, just
 /// availability flags in, surfaces out.

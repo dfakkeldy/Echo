@@ -9,7 +9,10 @@ struct PDFReadingSurface: View {
     let folderURL: URL
     let bookURL: URL
     @Binding private var followState: ReaderFollowState
+    @Binding private var viewportAnchor: ReaderViewportAnchor?
     let returnRequest: Int
+    let hasPendingReturnRequest: Bool
+    let claimReturnRequest: (Int) -> Bool
     let onReturnTargetResolved: (Bool) -> Void
     @State private var mode: ReaderSurfaceMode = .page
 
@@ -22,13 +25,19 @@ struct PDFReadingSurface: View {
         folderURL: URL,
         bookURL: URL? = nil,
         followState: Binding<ReaderFollowState>,
+        viewportAnchor: Binding<ReaderViewportAnchor?>,
         returnRequest: Int,
+        hasPendingReturnRequest: Bool,
+        claimReturnRequest: @escaping (Int) -> Bool,
         onReturnTargetResolved: @escaping (Bool) -> Void
     ) {
         self.folderURL = folderURL
         self.bookURL = bookURL ?? folderURL
         _followState = followState
+        _viewportAnchor = viewportAnchor
         self.returnRequest = returnRequest
+        self.hasPendingReturnRequest = hasPendingReturnRequest
+        self.claimReturnRequest = claimReturnRequest
         self.onReturnTargetResolved = onReturnTargetResolved
     }
 
@@ -59,7 +68,9 @@ struct PDFReadingSurface: View {
                     folderURL: folderURL,
                     bookURL: bookURL,
                     followState: $followState,
+                    viewportAnchor: $viewportAnchor,
                     returnRequest: returnRequest,
+                    claimReturnRequest: claimReturnRequest,
                     onReturnTargetResolved: onReturnTargetResolved
                 )
             }
@@ -95,7 +106,19 @@ struct PDFReadingSurface: View {
         }
         // Re-seed the toggle whenever the book changes; `.page` default avoids a flash.
         .task(id: audiobookID) {
-            mode = BookPreferencesService.loadPDFViewMode(for: audiobookID)
+            let savedMode = BookPreferencesService.loadPDFViewMode(for: audiobookID)
+            mode = ReaderSurfaceReturnPolicy.destination(
+                currentMode: savedMode,
+                followState: followState,
+                hasPendingReturnRequest: hasPendingReturnRequest
+            )
+        }
+        .onChange(of: returnRequest, initial: true) { _, _ in
+            mode = ReaderSurfaceReturnPolicy.destination(
+                currentMode: mode,
+                followState: followState,
+                hasPendingReturnRequest: hasPendingReturnRequest
+            )
         }
         .onChange(of: mode) { _, newMode in
             BookPreferencesService.savePDFViewMode(newMode, for: audiobookID)

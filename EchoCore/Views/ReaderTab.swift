@@ -9,7 +9,9 @@ struct ReaderTab: View {
     let folderURL: URL
     let bookURL: URL
     @Binding private var followState: ReaderFollowState
+    @Binding private var viewportAnchor: ReaderViewportAnchor?
     let returnRequest: Int
+    let claimReturnRequest: (Int) -> Bool
     let onReturnTargetResolved: (Bool) -> Void
     var audiobookID: String { bookURL.absoluteString }
 
@@ -17,13 +19,17 @@ struct ReaderTab: View {
         folderURL: URL,
         bookURL: URL? = nil,
         followState: Binding<ReaderFollowState>,
+        viewportAnchor: Binding<ReaderViewportAnchor?>,
         returnRequest: Int,
+        claimReturnRequest: @escaping (Int) -> Bool,
         onReturnTargetResolved: @escaping (Bool) -> Void
     ) {
         self.folderURL = folderURL
         self.bookURL = bookURL ?? folderURL
         _followState = followState
+        _viewportAnchor = viewportAnchor
         self.returnRequest = returnRequest
+        self.claimReturnRequest = claimReturnRequest
         self.onReturnTargetResolved = onReturnTargetResolved
     }
     @Environment(PlayerModel.self) var model
@@ -164,6 +170,7 @@ struct ReaderTab: View {
                     activeWord: vm.activeWord,
                     isHeaderVisible: $isHeaderVisible,
                     followState: $followState,
+                    viewportAnchor: $viewportAnchor,
                     reduceMotion: reduceMotion,
                     onReturnTargetResolved: onReturnTargetResolved,
                     topPartTitle: $topPartTitle,
@@ -424,14 +431,8 @@ struct ReaderTab: View {
             .onChange(of: viewModel?.activeBlockID) { _, newValue in
                 model.readerCaptureAnchorBlockID = newValue
             }
-            .onChange(of: returnRequest) { _, _ in
-                guard let activeID = viewModel?.activeBlockID else {
-                    onReturnTargetResolved(false)
-                    return
-                }
-                viewModel?.expandChapter(containingBlockID: activeID)
-                forceScrollBlockID = activeID
-                forceScrollTrigger &+= 1
+            .onChange(of: returnRequest, initial: true) { _, _ in
+                handleReturnRequest()
             }
             .onChange(of: model.currentPlaybackTime) { _, newPos in
                 updateActiveReaderBlock(time: newPos)
@@ -620,7 +621,9 @@ struct ReaderTab: View {
             globalCardTint: settingsManager.readerCardTint,
             globalAppFont: settingsManager.appFont
         )
-        loadViewModel()
+        if viewModel == nil {
+            loadViewModel()
+        }
     }
 
     private func updateReaderAppFont(_ newFont: String) {
@@ -629,6 +632,21 @@ struct ReaderTab: View {
             override: overrides.font,
             globalFont: newFont
         )
+    }
+
+    private func handleReturnRequest() {
+        guard followState == .exploring, returnRequest != 0 else { return }
+        if viewModel == nil {
+            prepareReader()
+        }
+        guard viewModel != nil, claimReturnRequest(returnRequest) else { return }
+        guard let activeID = viewModel?.activeBlockID else {
+            onReturnTargetResolved(false)
+            return
+        }
+        viewModel?.expandChapter(containingBlockID: activeID)
+        forceScrollBlockID = activeID
+        forceScrollTrigger &+= 1
     }
 
     private func updateActiveReaderBlock(time: TimeInterval) {
@@ -667,8 +685,13 @@ struct ReaderTab: View {
             return
         }
         guard Task.isCancelled == false else { return }
-        viewModel?.reload()
-        updateActiveReaderBlockForCurrentTrack()
+        viewModel?.reloadAndResolveActiveBlock(
+            time: model.currentPlaybackTime,
+            currentTrackSegmentKey: currentTrackSegmentKey,
+            currentTrackChapterIndices: currentTrackChapterIndices,
+            isPlaying: model.isPlaying,
+            allowsPlaybackFollowing: followState.allowsPlaybackMovement
+        )
     }
 
     private func tearDownReader() {
@@ -878,7 +901,13 @@ struct ReaderTab: View {
             audiobookID: audiobookID,
             db: db.writer,
             playlistFolderURL: model.persistenceFolderURL)
-        vm.reload()
+        vm.reloadAndResolveActiveBlock(
+            time: model.currentPlaybackTime,
+            currentTrackSegmentKey: currentTrackSegmentKey,
+            currentTrackChapterIndices: currentTrackChapterIndices,
+            isPlaying: model.isPlaying,
+            allowsPlaybackFollowing: followState.allowsPlaybackMovement
+        )
         self.viewModel = vm
 
         // Point the recorder at the book's own voice-memos subfolder so relative
