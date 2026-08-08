@@ -5,7 +5,7 @@ import Testing
 @testable import Echo
 
 struct BlockVoicePlanTests {
-    private let sourceSHA = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    private nonisolated static let sourceSHA = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
     @Test func resolvesBlocksRangesAndDefaultSpeaker() throws {
         let document = try BlockVoicePlanLoader.decode(data: Self.fixturePlanData)
@@ -42,6 +42,10 @@ struct BlockVoicePlanTests {
             ("{\"schemaVersion\":1,\"source\":{\"epubSHA256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"epubSHA256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"},\"defaultSpeakerID\":\"narrator\",\"speakers\":[],\"assignments\":[]}", BlockVoicePlanError.duplicateJSONKey("epubSHA256")),
             ("{\"schemaVersion\":1,\"source\":{\"epubSHA256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"},\"defaultSpeakerID\":\"narrator\",\"speakers\":[],\"assignments\":[],\"extra\":true}", BlockVoicePlanError.unknownField("extra")),
             ("{\"schemaVersion\":1,\"source\":{\"epubSHA256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"extra\":true},\"defaultSpeakerID\":\"narrator\",\"speakers\":[],\"assignments\":[]}", BlockVoicePlanError.unknownField("extra")),
+            ("{\"schemaVersion\":1,\"source\":{\"epubSHA256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"},\"defaultSpeakerID\":\"narrator\",\"speakers\":[{\"id\":\"narrator\",\"id\":\"other\",\"voiceID\":\"am_michael\"}],\"assignments\":[]}", BlockVoicePlanError.duplicateJSONKey("id")),
+            ("{\"schemaVersion\":1,\"source\":{\"epubSHA256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"},\"defaultSpeakerID\":\"narrator\",\"speakers\":[{\"id\":\"narrator\",\"voiceID\":\"am_michael\",\"extra\":true}],\"assignments\":[]}", BlockVoicePlanError.unknownField("extra")),
+            ("{\"schemaVersion\":1,\"source\":{\"epubSHA256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"},\"defaultSpeakerID\":\"narrator\",\"speakers\":[],\"assignments\":[{\"speakerID\":\"narrator\",\"range\":{\"start\":\"s0-b0\",\"start\":\"s0-b1\",\"end\":\"s0-b1\"}}]}", BlockVoicePlanError.duplicateJSONKey("start")),
+            ("{\"schemaVersion\":1,\"source\":{\"epubSHA256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"},\"defaultSpeakerID\":\"narrator\",\"speakers\":[],\"assignments\":[{\"speakerID\":\"narrator\",\"range\":{\"start\":\"s0-b0\",\"end\":\"s0-b1\",\"extra\":true}}]}", BlockVoicePlanError.unknownField("extra")),
         ])
     func rejectsInvalidDecodingInputs(json: String, expected: BlockVoicePlanError) {
         #expect(throws: expected) {
@@ -65,6 +69,7 @@ struct BlockVoicePlanTests {
         arguments: [
             (plan(schemaVersion: 2), BlockVoicePlanError.unsupportedSchema(2)),
             (plan(sourceSHA: "ABC"), .invalidSourceSHA256("ABC")),
+            (plan(defaultSpeaker: "9narrator"), .invalidSpeakerID("9narrator")),
             (plan(speakers: "[{\"id\":\"9narrator\",\"voiceID\":\"am_michael\"}]"), .invalidSpeakerID("9narrator")),
             (plan(speakers: "[{\"id\":\"narrator\",\"voiceID\":\"am_michael\"},{\"id\":\"narrator\",\"voiceID\":\"bf_emma\"}]"), .duplicateSpeaker("narrator")),
             (plan(defaultSpeaker: "missing"), .missingDefaultSpeaker("missing")),
@@ -73,6 +78,9 @@ struct BlockVoicePlanTests {
             (plan(assignments: "[{\"speakerID\":\"narrator\",\"blocks\":[\"s9-b9\"]}]"), .missingBlock("s9-b9")),
             (plan(assignments: "[{\"speakerID\":\"narrator\",\"blocks\":[\"s0-b1\"]}]"), .nonNarratableBlock("s0-b1")),
             (plan(assignments: "[{\"speakerID\":\"narrator\",\"blocks\":[]}]"), .invalidBlockID("")),
+            (plan(assignments: "[{\"speakerID\":\"narrator\"}]"), .malformedJSON("assignment")),
+            (plan(assignments: "[{\"speakerID\":\"narrator\",\"blocks\":[\"s0-b0\"],\"range\":{\"start\":\"s2-b3\",\"end\":\"s2-b3\"}}]"), .malformedJSON("assignment")),
+            (plan(assignments: "[{\"speakerID\":\"9narrator\",\"blocks\":[\"s0-b0\"]}]"), .invalidSpeakerID("9narrator")),
             (plan(assignments: "[{\"speakerID\":\"narrator\",\"blocks\":[\"s0-b0\"]},{\"speakerID\":\"narrator\",\"blocks\":[\"s0-b0\"]}]"), .duplicateAssignment("s0-b0")),
             (plan(assignments: "[{\"speakerID\":\"narrator\",\"blocks\":[\"s0-b0\",\"s0-b0\"]}]"), .duplicateAssignment("s0-b0")),
             (plan(assignments: "[{\"speakerID\":\"narrator\",\"range\":{\"start\":\"s2-b10\",\"end\":\"s2-b8\"}}]"), .invalidRange(start: "s2-b10", end: "s2-b8")),
@@ -98,6 +106,19 @@ struct BlockVoicePlanTests {
         }
     }
 
+    @Test func rejectsUndeclaredAssignmentSpeaker() throws {
+        let document = try BlockVoicePlanLoader.decode(data: Data(Self.plan(
+            assignments: "[{\"speakerID\":\"mara\",\"blocks\":[\"s0-b0\"]}]"
+        ).utf8))
+
+        #expect(throws: BlockVoicePlanError.unknownSpeaker("mara")) {
+            _ = try BlockVoicePlanLoader.resolve(
+                document: document,
+                sourceEPUBSHA256: Self.sourceSHA,
+                chapters: Self.fixtureChapters)
+        }
+    }
+
     private static var fixturePlanData: Data {
         Data(plan(
             speakers: "[{\"id\":\"narrator\",\"voiceID\":\"am_michael\"},{\"id\":\"mara\",\"voiceID\":\"bf_emma\"},{\"id\":\"jon\",\"voiceID\":\"am_fenrir\"}]",
@@ -105,10 +126,10 @@ struct BlockVoicePlanTests {
     }
 
     private static var reorderedFixturePlanData: Data {
-        Data("{\"assignments\":[{\"range\":{\"end\":\"s2-b10\",\"start\":\"s2-b8\"},\"speakerID\":\"jon\"},{\"blocks\":[\"s2-b7\",\"s2-b3\"],\"speakerID\":\"mara\"}],\"speakers\":[{\"voiceID\":\"am_fenrir\",\"id\":\"jon\"},{\"voiceID\":\"am_michael\",\"id\":\"narrator\"},{\"voiceID\":\"bf_emma\",\"id\":\"mara\"}],\"defaultSpeakerID\":\"narrator\",\"source\":{\"epubSHA256\":\"(sourceSHA)\"},\"schemaVersion\":1}".utf8)
+        Data("{\"assignments\":[{\"range\":{\"end\":\"s2-b10\",\"start\":\"s2-b8\"},\"speakerID\":\"jon\"},{\"blocks\":[\"s2-b7\",\"s2-b3\"],\"speakerID\":\"mara\"}],\"speakers\":[{\"voiceID\":\"am_fenrir\",\"id\":\"jon\"},{\"voiceID\":\"am_michael\",\"id\":\"narrator\"},{\"voiceID\":\"bf_emma\",\"id\":\"mara\"}],\"defaultSpeakerID\":\"narrator\",\"source\":{\"epubSHA256\":\"\(sourceSHA)\"},\"schemaVersion\":1}".utf8)
     }
 
-    private static func plan(
+    private nonisolated static func plan(
         schemaVersion: Int = 1,
         sourceSHA: String? = nil,
         defaultSpeaker: String = "narrator",

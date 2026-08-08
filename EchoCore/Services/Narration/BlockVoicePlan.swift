@@ -140,6 +140,7 @@ nonisolated enum BlockVoicePlanError: LocalizedError, Equatable {
     case invalidSpeakerID(String)
     case duplicateSpeaker(String)
     case missingDefaultSpeaker(String)
+    case unknownSpeaker(String)
     case unknownVoice(String)
     case invalidBlockID(String)
     case missingBlock(String)
@@ -204,8 +205,11 @@ nonisolated enum BlockVoicePlanLoader {
         var assignments: [String: (speaker: String, voice: VoiceID)] = [:]
 
         for assignment in document.assignments {
+            guard isSpeakerID(assignment.speakerID) else {
+                throw BlockVoicePlanError.invalidSpeakerID(assignment.speakerID)
+            }
             guard let voice = voiceBySpeaker[assignment.speakerID] else {
-                throw BlockVoicePlanError.missingDefaultSpeaker(assignment.speakerID)
+                throw BlockVoicePlanError.unknownSpeaker(assignment.speakerID)
             }
             let assignedIDs: [String]
             switch (assignment.blocks, assignment.range) {
