@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 import UniformTypeIdentifiers
+import UIKit
 
 /// A wrapper to make UUID Identifiable for use with `.sheet(item:)`.
 struct IdentifiableUUID: Identifiable, Hashable {
@@ -120,6 +121,7 @@ struct RootTabView: View {
     @Environment(\.displayScale) private var displayScale
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var showingFolderPicker = false
     @State private var showingSettings = false
@@ -147,6 +149,8 @@ struct RootTabView: View {
     @State private var readerReturnStatus: String?
     @State private var readerReturnRequestTracker = ReaderReturnRequestTracker()
     @State private var readerViewportState = ReaderViewportState()
+    @State private var dockStatusFeedback: DockStatusFeedback?
+    @State private var dockStatusFeedbackTask: Task<Void, Never>?
 
     #if os(iOS)
         @State private var transcribeCoordinator: TranscribeBookCoordinator?
@@ -309,6 +313,7 @@ struct RootTabView: View {
                     Spacer()
                     UnifiedBottomDock(
                         onCreateBookmark: { draft in newBookmarkDraft = draft },
+                        onMarkPassageResult: showDockStatus(for:),
                         onShowPlaybackOptions: { showingPlaybackOptions = true },
                         onShowChapters: { showingChapterPicker = true },
                         onShowBookmarks: { model.selectedTab = .read },
@@ -334,28 +339,26 @@ struct RootTabView: View {
                 .ignoresSafeArea(.container, edges: .bottom)
             }
 
-            if model.selectedTab == .read && readerFollowState == .exploring {
-                VStack {
-                    Spacer()
-                    Button {
-                        readerReturnStatus = nil
-                        readerReturnRequest &+= 1
-                    } label: {
-                        Label(
-                            readerReturnStatus ?? String(localized: "Return to current text"),
-                            systemImage: "scope"
-                        )
-                        .font(.headline)
-                        .padding(.horizontal, 18)
-                        .frame(minHeight: 44)
-                        .background(.regularMaterial, in: Capsule())
+            VStack {
+                Spacer()
+                VStack(spacing: 8) {
+                    if let dockStatusFeedback {
+                        DockStatusFeedbackCapsule(feedback: dockStatusFeedback)
+                            .transition(
+                                reduceMotion
+                                    ? .identity
+                                    : .move(edge: .bottom).combined(with: .opacity)
+                            )
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityHint(
-                        Text("Returns to the spoken text and resumes following playback")
-                    )
-                    .padding(.bottom, model.bottomInset + 12)
+                    if model.selectedTab == .read && readerFollowState == .exploring {
+                        readerReturnButton
+                    }
                 }
+                .padding(.bottom, model.bottomInset + 12)
+                .animation(
+                    reduceMotion ? nil : .easeInOut(duration: 0.2),
+                    value: dockStatusFeedback
+                )
             }
 
             if usesExperimentalPlayerChrome && !model.isPlayingVoiceMemo {
@@ -699,6 +702,41 @@ struct RootTabView: View {
     private func resolveReaderReturn(targetResolved: Bool) {
         let resolved = readerFollowState.completeReturn(targetResolved: targetResolved)
         readerReturnStatus = resolved ? nil : String(localized: "Finding current text…")
+    }
+
+    private var readerReturnButton: some View {
+        Button {
+            readerReturnStatus = nil
+            readerReturnRequest &+= 1
+        } label: {
+            Label(
+                readerReturnStatus ?? String(localized: "Return to current text"),
+                systemImage: "scope"
+            )
+            .font(.headline)
+            .padding(.horizontal, 18)
+            .frame(minHeight: 44)
+            .background(.regularMaterial, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint(
+            Text("Returns to the spoken text and resumes following playback")
+        )
+    }
+
+    private func showDockStatus(for result: MarkPassageResult) {
+        let feedback = DockStatusFeedback(result: result)
+        dockStatusFeedbackTask?.cancel()
+        dockStatusFeedback = feedback
+        UIAccessibility.post(notification: .announcement, argument: feedback.message)
+        dockStatusFeedbackTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .seconds(1.5))
+            } catch {
+                return
+            }
+            dockStatusFeedback = nil
+        }
     }
 
     private func claimReaderReturnRequest(_ request: Int) -> Bool {
