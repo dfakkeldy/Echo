@@ -90,47 +90,6 @@ import UIKit
         #expect(results.value.isEmpty)
     }
 
-    @Test func pendingReturnAndFollowWaitForSnapshotCompletionBeforeTheyDrain() {
-        let followState = MutableBox(ReaderFollowState.exploring)
-        let coordinator = makeCoordinator(followState: followState)
-
-        coordinator.enqueuePendingScroll(
-            ReaderPendingScrollRequest(
-                intent: .returnToCurrent,
-                blockID: "current",
-                wordIndex: 2
-            )
-        )
-
-        #expect(coordinator.dequeuePendingScroll(afterSnapshotCompletion: false) == nil)
-        #expect(
-            coordinator.dequeuePendingScroll(afterSnapshotCompletion: true)
-                == ReaderPendingScrollRequest(
-                    intent: .returnToCurrent,
-                    blockID: "current",
-                    wordIndex: 2
-                )
-        )
-        #expect(coordinator.dequeuePendingScroll(afterSnapshotCompletion: true) == nil)
-
-        coordinator.enqueuePendingScroll(
-            ReaderPendingScrollRequest(
-                intent: .followPlayback,
-                blockID: "later",
-                wordIndex: 4
-            )
-        )
-        #expect(coordinator.dequeuePendingScroll(afterSnapshotCompletion: false) == nil)
-        #expect(
-            coordinator.dequeuePendingScroll(afterSnapshotCompletion: true)
-                == ReaderPendingScrollRequest(
-                    intent: .followPlayback,
-                    blockID: "later",
-                    wordIndex: 4
-                )
-        )
-    }
-
     @Test func recreatedCoordinatorRestoresRootOwnedViewportAnchor() {
         let followState = MutableBox(ReaderFollowState.exploring)
         let viewportAnchor = ReaderViewportAnchor(

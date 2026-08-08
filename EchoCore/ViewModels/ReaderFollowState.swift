@@ -93,6 +93,117 @@ nonisolated struct ReaderPendingScrollRequest: Equatable, Sendable {
     let intent: ReaderScrollIntent
     let blockID: String
     let wordIndex: Int?
+    let scrollGeneration: UInt
+    let operationToken: UInt
+    let snapshotGeneration: UInt
+
+    func rebinding(to snapshotGeneration: UInt) -> Self {
+        Self(
+            intent: intent,
+            blockID: blockID,
+            wordIndex: wordIndex,
+            scrollGeneration: scrollGeneration,
+            operationToken: operationToken,
+            snapshotGeneration: snapshotGeneration
+        )
+    }
+}
+
+/// Owns the generation and operation-token contract for every delayed Reader
+/// viewport mutation. A request is valid only while it remains the latest
+/// operation, survives its originating user-scroll generation, and is bound to
+/// the most recently completed relevant diffable snapshot.
+nonisolated struct ReaderScrollOperationState: Equatable, Sendable {
+    private(set) var latestOperationToken: UInt = 0
+    private(set) var snapshotGeneration: UInt = 0
+    private(set) var completedSnapshotGeneration: UInt = 0
+    private(set) var snapshotIsApplying = false
+    private var pendingRequest: ReaderPendingScrollRequest?
+    private var executingRequest: ReaderPendingScrollRequest?
+
+    @discardableResult
+    mutating func enqueue(
+        intent: ReaderScrollIntent,
+        blockID: String,
+        wordIndex: Int?,
+        scrollGeneration: UInt
+    ) -> ReaderPendingScrollRequest? {
+        if (pendingRequest?.intent == .returnToCurrent
+            || executingRequest?.intent == .returnToCurrent)
+            && intent == .followPlayback
+        {
+            return nil
+        }
+        latestOperationToken &+= 1
+        executingRequest = nil
+        let request = ReaderPendingScrollRequest(
+            intent: intent,
+            blockID: blockID,
+            wordIndex: wordIndex,
+            scrollGeneration: scrollGeneration,
+            operationToken: latestOperationToken,
+            snapshotGeneration: snapshotIsApplying
+                ? snapshotGeneration : completedSnapshotGeneration
+        )
+        pendingRequest = request
+        return request
+    }
+
+    @discardableResult
+    mutating func beginSnapshot() -> UInt {
+        snapshotGeneration &+= 1
+        snapshotIsApplying = true
+        if let pendingRequest, pendingRequest.operationToken == latestOperationToken {
+            self.pendingRequest = pendingRequest.rebinding(to: snapshotGeneration)
+        }
+        if let executingRequest {
+            self.executingRequest = nil
+            if executingRequest.operationToken == latestOperationToken {
+                pendingRequest = executingRequest.rebinding(to: snapshotGeneration)
+            }
+        }
+        return snapshotGeneration
+    }
+
+    mutating func completeSnapshot(_ generation: UInt) {
+        guard generation == snapshotGeneration else { return }
+        completedSnapshotGeneration = generation
+        snapshotIsApplying = false
+    }
+
+    mutating func takeReadyRequest() -> ReaderPendingScrollRequest? {
+        guard
+            snapshotIsApplying == false,
+            let pendingRequest,
+            pendingRequest.operationToken == latestOperationToken,
+            pendingRequest.snapshotGeneration == completedSnapshotGeneration
+        else { return nil }
+        self.pendingRequest = nil
+        executingRequest = pendingRequest
+        return pendingRequest
+    }
+
+    func mayExecute(
+        _ request: ReaderPendingScrollRequest,
+        currentScrollGeneration: UInt
+    ) -> Bool {
+        request.scrollGeneration == currentScrollGeneration
+            && request.operationToken == latestOperationToken
+            && request.snapshotGeneration == completedSnapshotGeneration
+            && snapshotIsApplying == false
+            && executingRequest == request
+    }
+
+    mutating func finish(_ request: ReaderPendingScrollRequest) {
+        guard executingRequest == request else { return }
+        executingRequest = nil
+    }
+
+    mutating func invalidateForUserDrag() {
+        latestOperationToken &+= 1
+        pendingRequest = nil
+        executingRequest = nil
+    }
 }
 
 nonisolated enum ReaderScrollPermission {

@@ -241,11 +241,9 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             context.coordinator.lastForceScrollTrigger = forceScrollTrigger
             scheduledForcedScroll = true
             context.coordinator.enqueuePendingScroll(
-                ReaderPendingScrollRequest(
-                    intent: forceIntent,
-                    blockID: forceID,
-                    wordIndex: nil
-                )
+                intent: forceIntent,
+                blockID: forceID,
+                wordIndex: nil
             )
         }
 
@@ -311,11 +309,9 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             let activeBlockID
         {
             context.coordinator.enqueuePendingScroll(
-                ReaderPendingScrollRequest(
-                    intent: .followPlayback,
-                    blockID: activeBlockID,
-                    wordIndex: activeWord?.blockID == activeBlockID ? activeWord?.index : nil
-                )
+                intent: .followPlayback,
+                blockID: activeBlockID,
+                wordIndex: activeWord?.blockID == activeBlockID ? activeWord?.index : nil
             )
         }
 
@@ -360,9 +356,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         var reduceMotion = false
         var onReturnTargetResolved: ((Bool) -> Void)?
         private(set) var scrollGeneration: UInt = 0
-        private var snapshotIsApplying = false
-        private var snapshotGeneration: UInt = 0
-        private var pendingScrollRequest: ReaderPendingScrollRequest?
+        private var scrollOperationState = ReaderScrollOperationState()
         /// The final magnetic target issued by automatic following. Keeping it
         /// for the generation prevents word ticks on the same rendered line
         /// from restarting an in-flight UIKit scroll animation.
@@ -464,6 +458,21 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             return true
         }
 
+        func shouldStartFollowScroll(
+            to targetY: Double,
+            request: ReaderPendingScrollRequest
+        ) -> Bool {
+            guard mayExecuteScroll(request) else { return false }
+            if let followTarget,
+                followTarget.generation == request.scrollGeneration,
+                abs(followTarget.offsetY - targetY) < 0.5
+            {
+                return false
+            }
+            followTarget = (generation: request.scrollGeneration, offsetY: targetY)
+            return true
+        }
+
         /// Only the root-owned Return request may resolve return state. Other
         /// user navigation (such as TOC selection) must leave exploration intact.
         @discardableResult
@@ -477,50 +486,52 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             return resolved
         }
 
-        func enqueuePendingScroll(_ request: ReaderPendingScrollRequest) {
-            // A claimed Return is stronger than an automatic word tick that
-            // happens while its containing chapter is expanding.
-            if pendingScrollRequest?.intent == .returnToCurrent,
-                request.intent != .returnToCurrent
-            {
-                return
-            }
-            pendingScrollRequest = request
-        }
-
-        func dequeuePendingScroll(
-            afterSnapshotCompletion: Bool
-        ) -> ReaderPendingScrollRequest? {
-            guard afterSnapshotCompletion else { return nil }
-            defer { pendingScrollRequest = nil }
-            return pendingScrollRequest
+        func enqueuePendingScroll(
+            intent: ReaderScrollIntent,
+            blockID: String,
+            wordIndex: Int?
+        ) {
+            _ = scrollOperationState.enqueue(
+                intent: intent,
+                blockID: blockID,
+                wordIndex: wordIndex,
+                scrollGeneration: scrollGeneration
+            )
         }
 
         func drainPendingScrollIfReady(in collectionView: UICollectionView) {
-            guard snapshotIsApplying == false,
-                let request = dequeuePendingScroll(afterSnapshotCompletion: true)
-            else { return }
+            guard let request = scrollOperationState.takeReadyRequest() else { return }
             switch request.intent {
             case .followPlayback:
-                followActiveText(
-                    blockID: request.blockID,
-                    activeWord: request.wordIndex.map {
-                        (blockID: request.blockID, index: $0)
-                    },
-                    in: collectionView
-                )
+                followActiveText(request, in: collectionView)
             case .returnToCurrent:
-                scheduleReturnToCurrentText(blockID: request.blockID, in: collectionView)
+                scheduleReturnToCurrentText(request, in: collectionView)
             case .tableOfContents:
-                scheduleTableOfContentsNavigation(blockID: request.blockID, in: collectionView)
+                scheduleTableOfContentsNavigation(request, in: collectionView)
             }
+        }
+
+        func mayExecuteScroll(_ request: ReaderPendingScrollRequest) -> Bool {
+            scrollOperationState.mayExecute(
+                request,
+                currentScrollGeneration: scrollGeneration
+            ) && ReaderScrollPermission.allows(
+                intent: request.intent,
+                followState: followState.wrappedValue,
+                scheduledGeneration: request.scrollGeneration,
+                currentGeneration: scrollGeneration
+            )
+        }
+
+        private func finishScrollOperation(_ request: ReaderPendingScrollRequest) {
+            scrollOperationState.finish(request)
         }
 
         private func recordFollowTarget(
             _ targetY: Double,
-            scheduledGeneration: UInt
+            request: ReaderPendingScrollRequest
         ) {
-            followTarget = (generation: scheduledGeneration, offsetY: targetY)
+            followTarget = (generation: request.scrollGeneration, offsetY: targetY)
         }
 
         private func collectionViewLayerAnimationsToFinish(in scrollView: UIScrollView) {
@@ -863,11 +874,9 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             let capturedAnchor = captureAndPublishViewportAnchor(in: collectionView)
             let anchor = capturedAnchor ?? viewportAnchor
             let scheduledGeneration = scrollGeneration
-            snapshotGeneration &+= 1
-            let scheduledSnapshotGeneration = snapshotGeneration
-            snapshotIsApplying = true
+            let scheduledSnapshotGeneration = scrollOperationState.beginSnapshot()
             guard let dataSource else {
-                snapshotIsApplying = false
+                scrollOperationState.completeSnapshot(scheduledSnapshotGeneration)
                 drainPendingScrollIfReady(in: collectionView)
                 return
             }
@@ -876,7 +885,8 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 animatingDifferences: animated
             ) { [weak self, weak collectionView] in
                 guard let self, let collectionView else { return }
-                guard scheduledSnapshotGeneration == self.snapshotGeneration else { return }
+                guard scheduledSnapshotGeneration == self.scrollOperationState.snapshotGeneration
+                else { return }
                 collectionView.layoutIfNeeded()
                 if let anchor,
                     self.followState.wrappedValue == .exploring,
@@ -898,7 +908,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     )
                     collectionView.layoutIfNeeded()
                 }
-                self.snapshotIsApplying = false
+                self.scrollOperationState.completeSnapshot(scheduledSnapshotGeneration)
                 self.drainPendingScrollIfReady(in: collectionView)
             }
             Task { @MainActor in
@@ -977,30 +987,21 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         /// spoken line or, when TextKit has no line available, centers the block's
         /// frame with the same magnetic policy.
         func followActiveText(
-            blockID: String?,
-            activeWord: (blockID: String, index: Int)?,
+            _ request: ReaderPendingScrollRequest,
             in collectionView: UICollectionView
         ) {
-            guard let blockID else { return }
-            let scheduledGeneration = scrollGeneration
-            let wordIndex = activeWord?.blockID == blockID ? activeWord?.index : nil
-
             Task { @MainActor [weak self, weak collectionView] in
-                guard
-                    let self,
-                    let collectionView,
-                    self.mayApplyScroll(
-                        intent: .followPlayback,
-                        scheduledGeneration: scheduledGeneration
-                    ),
-                    let indexPath = self.dataSource?.indexPath(for: "b-\(blockID)")
+                guard let self, let collectionView else { return }
+                guard self.mayExecuteScroll(request) else {
+                    self.finishScrollOperation(request)
+                    return
+                }
+                defer { self.finishScrollOperation(request) }
+                guard let indexPath = self.dataSource?.indexPath(for: "b-\(request.blockID)")
                 else { return }
 
-                if wordIndex != nil, collectionView.cellForItem(at: indexPath) == nil {
-                    guard self.mayApplyScroll(
-                        intent: .followPlayback,
-                        scheduledGeneration: scheduledGeneration
-                    ) else { return }
+                if request.wordIndex != nil, collectionView.cellForItem(at: indexPath) == nil {
+                    guard self.mayExecuteScroll(request) else { return }
                     collectionView.scrollToItem(
                         at: indexPath,
                         at: .centeredVertically,
@@ -1010,28 +1011,20 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 }
 
                 let lineRange = self.wordLineRange(
-                    at: wordIndex,
+                    at: request.wordIndex,
                     indexPath: indexPath,
                     in: collectionView
                 )
-                guard
-                    let paragraphRange = self.paragraphRange(
-                        at: indexPath,
-                        in: collectionView
-                    )
+                guard let paragraphRange = self.paragraphRange(at: indexPath, in: collectionView)
                 else { return }
                 let targetRange = ReaderWordFollowScroll.preferredRange(
                     wordLine: lineRange,
                     paragraph: paragraphRange
                 )
-                guard let targetY = self.targetOffsetY(
-                    for: targetRange,
-                    in: collectionView
-                ) else { return }
-                guard self.shouldStartFollowScroll(
-                    to: targetY,
-                    scheduledGeneration: scheduledGeneration
-                ) else { return }
+                guard let targetY = self.targetOffsetY(for: targetRange, in: collectionView)
+                else { return }
+                guard self.shouldStartFollowScroll(to: targetY, request: request) else { return }
+                guard self.mayExecuteScroll(request) else { return }
                 collectionView.setContentOffset(
                     CGPoint(x: collectionView.contentOffset.x, y: CGFloat(targetY)),
                     animated: !self.reduceMotion
@@ -1043,32 +1036,24 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         /// chapter has been applied. Unlike playback following, this is allowed
         /// while exploring, but a user drag invalidates it by changing generation.
         func scheduleReturnToCurrentText(
-            blockID: String,
+            _ request: ReaderPendingScrollRequest,
             in collectionView: UICollectionView
         ) {
-            let scheduledGeneration = scrollGeneration
             Task { @MainActor [weak self, weak collectionView] in
                 guard let self, let collectionView else { return }
-                guard self.mayApplyScroll(
-                    intent: .returnToCurrent,
-                    scheduledGeneration: scheduledGeneration
-                ) else {
-                    self.onReturnTargetResolved?(false)
+                guard self.mayExecuteScroll(request) else {
+                    self.finishScrollOperation(request)
                     return
                 }
-                guard let indexPath = self.dataSource?.indexPath(for: "b-\(blockID)") else {
+                defer { self.finishScrollOperation(request) }
+                guard let indexPath = self.dataSource?.indexPath(for: "b-\(request.blockID)") else {
+                    guard self.mayExecuteScroll(request) else { return }
                     self.onReturnTargetResolved?(false)
                     return
                 }
 
                 if collectionView.cellForItem(at: indexPath) == nil {
-                    guard self.mayApplyScroll(
-                        intent: .returnToCurrent,
-                        scheduledGeneration: scheduledGeneration
-                    ) else {
-                        self.onReturnTargetResolved?(false)
-                        return
-                    }
+                    guard self.mayExecuteScroll(request) else { return }
                     collectionView.scrollToItem(
                         at: indexPath,
                         at: .centeredVertically,
@@ -1077,14 +1062,9 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     collectionView.layoutIfNeeded()
                 }
 
-                guard self.mayApplyScroll(
-                    intent: .returnToCurrent,
-                    scheduledGeneration: scheduledGeneration
-                ) else {
-                    self.onReturnTargetResolved?(false)
-                    return
-                }
-                let wordIndex = self.activeWord?.blockID == blockID ? self.activeWord?.index : nil
+                guard self.mayExecuteScroll(request) else { return }
+                let wordIndex = self.activeWord?.blockID == request.blockID
+                    ? self.activeWord?.index : nil
                 let lineRange = self.wordLineRange(
                     at: wordIndex,
                     indexPath: indexPath,
@@ -1092,6 +1072,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 )
                 guard let paragraphRange = self.paragraphRange(at: indexPath, in: collectionView)
                 else {
+                    guard self.mayExecuteScroll(request) else { return }
                     self.reportScrollTargetResolution(
                         intent: .returnToCurrent,
                         targetRange: nil
@@ -1103,19 +1084,15 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     paragraph: paragraphRange
                 )
                 if let targetY = self.targetOffsetY(for: targetRange, in: collectionView) {
-                    guard self.mayApplyScroll(
-                        intent: .returnToCurrent,
-                        scheduledGeneration: scheduledGeneration
-                    ) else {
-                        self.onReturnTargetResolved?(false)
-                        return
-                    }
-                    self.recordFollowTarget(targetY, scheduledGeneration: scheduledGeneration)
+                    guard self.mayExecuteScroll(request) else { return }
+                    self.recordFollowTarget(targetY, request: request)
+                    guard self.mayExecuteScroll(request) else { return }
                     collectionView.setContentOffset(
                         CGPoint(x: collectionView.contentOffset.x, y: CGFloat(targetY)),
                         animated: !self.reduceMotion
                     )
                 }
+                guard self.mayExecuteScroll(request) else { return }
                 self.reportScrollTargetResolution(
                     intent: .returnToCurrent,
                     targetRange: paragraphRange
@@ -1127,30 +1104,26 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         /// cancellation boundary as other user-directed scrolling, but is never
         /// a Return completion and therefore cannot resume playback following.
         func scheduleTableOfContentsNavigation(
-            blockID: String,
+            _ request: ReaderPendingScrollRequest,
             in collectionView: UICollectionView
         ) {
-            let scheduledGeneration = scrollGeneration
             Task { @MainActor [weak self, weak collectionView] in
-                guard
-                    let self,
-                    let collectionView,
-                    self.mayApplyScroll(
-                        intent: .tableOfContents,
-                        scheduledGeneration: scheduledGeneration
-                    ),
-                    let indexPath = self.dataSource?.indexPath(for: "b-\(blockID)")
+                guard let self, let collectionView else { return }
+                guard self.mayExecuteScroll(request) else {
+                    self.finishScrollOperation(request)
+                    return
+                }
+                defer { self.finishScrollOperation(request) }
+                guard let indexPath = self.dataSource?.indexPath(for: "b-\(request.blockID)")
                 else { return }
-                guard self.mayApplyScroll(
-                    intent: .tableOfContents,
-                    scheduledGeneration: scheduledGeneration
-                ) else { return }
+                guard self.mayExecuteScroll(request) else { return }
                 collectionView.scrollToItem(
                     at: indexPath,
                     at: .centeredVertically,
                     animated: !self.reduceMotion
                 )
                 collectionView.layoutIfNeeded()
+                guard self.mayExecuteScroll(request) else { return }
                 self.reportScrollTargetResolution(
                     intent: .tableOfContents,
                     targetRange: self.paragraphRange(at: indexPath, in: collectionView)
@@ -1240,6 +1213,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             followState.wrappedValue.detachForExploration()
             scrollGeneration &+= 1
+            scrollOperationState.invalidateForUserDrag()
             collectionViewLayerAnimationsToFinish(in: scrollView)
             guard let collectionView = scrollView as? UICollectionView else { return }
             captureAndPublishViewportAnchor(in: collectionView)
