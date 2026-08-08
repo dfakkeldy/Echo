@@ -52,6 +52,33 @@ private actor ShadowEvaluatorRecorder {
 @MainActor
 @Suite struct NarrationServiceTests {
 
+    private final class DeterministicWordTimingEngine: TTSEngine, @unchecked Sendable {
+        private(set) var calls: [(text: String, voice: VoiceID)] = []
+
+        func prepare() async throws {}
+
+        func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
+            calls.append((text, voice))
+            let duration = Double(text.count) * 0.1
+            let wordCount = WordTokenizer.words(in: text).count
+            let wordDuration = duration / Double(max(wordCount, 1))
+            let timings = (0..<wordCount).map { index in
+                ChunkWordTiming(
+                    wordIndex: index,
+                    start: Double(index) * wordDuration,
+                    end: Double(index + 1) * wordDuration)
+            }
+            let samples = (0..<max(1, text.count)).map { index in
+                index.isMultiple(of: 2) ? Float(0.05) : Float(-0.05)
+            }
+            return TTSChunk(
+                samples: samples,
+                sampleRate: 24_000,
+                duration: duration,
+                wordTimings: timings)
+        }
+    }
+
     enum SkippableRetryChildError: CaseIterable, Sendable {
         case lengthCap
         case invalidExpand
@@ -247,7 +274,7 @@ private actor ShadowEvaluatorRecorder {
                 block("b1", id: "s0-b0", seq: 0, text: firstBlockText),
                 block("b1", id: "s0-b1", seq: 1, text: "Charlie arrives."),
             ])
-        let engine = MockTTSEngine(secondsPerChar: 0.1)
+        let engine = DeterministicWordTimingEngine()
         let service = makeService(db, tts: engine, writer: MockAudioWriter())
         let selections = Mutex<[String: Int]>([:])
 
@@ -270,6 +297,22 @@ private actor ShadowEvaluatorRecorder {
             zip(rendered.anchors, rendered.anchors.dropFirst()).allSatisfy {
                 ($0.audioEndTime ?? $0.audioTime) <= $1.audioTime
             })
+
+        let words = try WordTimingDAO(db: db.writer).words(forAudiobook: "b1")
+        let firstBlockWords = try WordTimingDAO(db: db.writer).words(
+            forAudiobook: "b1", blockID: "s0-b0")
+        let secondBlockWords = try WordTimingDAO(db: db.writer).words(
+            forAudiobook: "b1", blockID: "s0-b1")
+        #expect(firstBlockWords.count == WordTokenizer.words(in: firstBlockText).count)
+        #expect(secondBlockWords.count == 2)
+        #expect(words.count == firstBlockWords.count + secondBlockWords.count)
+        #expect(words.map(\.source).allSatisfy { $0 == "synthesis" })
+        #expect(words.map(\.epubBlockID).allSatisfy { $0 == "s0-b0" || $0 == "s0-b1" })
+        #expect(zip(words, words.dropFirst()).allSatisfy {
+            $0.audioStartTime <= $0.audioEndTime && $0.audioEndTime <= $1.audioStartTime
+        })
+        #expect((try #require(firstBlockWords.last)).audioEndTime <=
+            (try #require(secondBlockWords.first)).audioStartTime)
     }
 
     @Test func plannedParagraphPauseAdvancesNextAnchorWithoutStretchingPreviousAnchor()
