@@ -8,6 +8,9 @@ import SwiftUI
 struct PDFReadingSurface: View {
     let folderURL: URL
     let bookURL: URL
+    @Binding private var followState: ReaderFollowState
+    let returnRequest: Int
+    let onReturnTargetResolved: (Bool) -> Void
     @State private var mode: ReaderSurfaceMode = .page
 
     @Environment(PlayerModel.self) private var model
@@ -15,9 +18,18 @@ struct PDFReadingSurface: View {
 
     private var audiobookID: String { bookURL.absoluteString }
 
-    init(folderURL: URL, bookURL: URL? = nil) {
+    init(
+        folderURL: URL,
+        bookURL: URL? = nil,
+        followState: Binding<ReaderFollowState>,
+        returnRequest: Int,
+        onReturnTargetResolved: @escaping (Bool) -> Void
+    ) {
         self.folderURL = folderURL
         self.bookURL = bookURL ?? folderURL
+        _followState = followState
+        self.returnRequest = returnRequest
+        self.onReturnTargetResolved = onReturnTargetResolved
     }
 
     /// The saved voice preference, or the catalog default — mirrors NowPlayingTab.
@@ -43,7 +55,13 @@ struct PDFReadingSurface: View {
             case .page:
                 PDFDocumentView(folderURL: folderURL, bookURL: bookURL)
             case .reflow:
-                ReaderTab(folderURL: folderURL, bookURL: bookURL)
+                ReaderTab(
+                    folderURL: folderURL,
+                    bookURL: bookURL,
+                    followState: $followState,
+                    returnRequest: returnRequest,
+                    onReturnTargetResolved: onReturnTargetResolved
+                )
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {

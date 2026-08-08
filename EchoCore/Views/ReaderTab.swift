@@ -8,24 +8,34 @@ import os.log
 struct ReaderTab: View {
     let folderURL: URL
     let bookURL: URL
+    @Binding private var followState: ReaderFollowState
+    let returnRequest: Int
+    let onReturnTargetResolved: (Bool) -> Void
     var audiobookID: String { bookURL.absoluteString }
 
-    init(folderURL: URL, bookURL: URL? = nil) {
+    init(
+        folderURL: URL,
+        bookURL: URL? = nil,
+        followState: Binding<ReaderFollowState>,
+        returnRequest: Int,
+        onReturnTargetResolved: @escaping (Bool) -> Void
+    ) {
         self.folderURL = folderURL
         self.bookURL = bookURL ?? folderURL
+        _followState = followState
+        self.returnRequest = returnRequest
+        self.onReturnTargetResolved = onReturnTargetResolved
     }
     @Environment(PlayerModel.self) var model
     @Environment(SettingsManager.self) private var settingsManager
     @Environment(FreeTierGate.self) var freeTierGate
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State internal var viewModel: ReaderFeedViewModel?
     @State internal var showChapterPickerForBlockID: String? = nil
     @State internal var showCardColorPickerForBlockID: String? = nil
     @State internal var showChapterThemePickerForBlockID: String? = nil
     @State private var isHeaderVisible = true
-    /// Task 4's compile-clean bridge until Task 5 moves follow ownership to the
-    /// root and injects its binding here.
-    @State private var followState = ReaderFollowState.following
     @State private var topPartTitle: String? = nil
     @State private var topChapterTitle: String? = nil
     @State private var topSectionTitle: String? = nil
@@ -154,6 +164,8 @@ struct ReaderTab: View {
                     activeWord: vm.activeWord,
                     isHeaderVisible: $isHeaderVisible,
                     followState: $followState,
+                    reduceMotion: reduceMotion,
+                    onReturnTargetResolved: onReturnTargetResolved,
                     topPartTitle: $topPartTitle,
                     topChapterTitle: $topChapterTitle,
                     topSectionTitle: $topSectionTitle,
@@ -412,11 +424,14 @@ struct ReaderTab: View {
             .onChange(of: viewModel?.activeBlockID) { _, newValue in
                 model.readerCaptureAnchorBlockID = newValue
             }
-            .onChange(of: isHeaderVisible) { _, visible in
-                model.readerChromeHidden = !visible
-            }
-            .onChange(of: model.epubScrollToActiveTrigger) { _, _ in
-                scrollReaderToActiveBlock()
+            .onChange(of: returnRequest) { _, _ in
+                guard let activeID = viewModel?.activeBlockID else {
+                    onReturnTargetResolved(false)
+                    return
+                }
+                viewModel?.expandChapter(containingBlockID: activeID)
+                forceScrollBlockID = activeID
+                forceScrollTrigger &+= 1
             }
             .onChange(of: model.currentPlaybackTime) { _, newPos in
                 updateActiveReaderBlock(time: newPos)
@@ -426,6 +441,9 @@ struct ReaderTab: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .timelineItemsIngested)) {
                 handleTimelineItemsIngested($0)
+            }
+            .onChange(of: model.documentIngestionTrigger) { _, _ in
+                scheduleReaderReload()
             }
             .task(id: readerReloadToken) {
                 await reloadReaderAfterTimelineIngestion()
@@ -463,12 +481,9 @@ struct ReaderTab: View {
             readerHeaderOverlay(vm: vm)
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            // Row-1 clearance collapses together with the chrome: while the
-            // reader header auto-hides, RootTabView fades/offsets
-            // UnifiedTopHeader away too, so keeping the reservation would
-            // leave a dead band above the chapter bar (the outer
-            // `.animation(value: isHeaderVisible)` animates the collapse).
-            Color.clear.frame(height: isHeaderVisible ? UnifiedTopHeader.rowOneHeight : 0)
+            // RootTabView owns this header and keeps it available while the
+            // reader's local utilities animate independently.
+            Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             Color.clear.frame(height: model.bottomInset)
@@ -616,21 +631,13 @@ struct ReaderTab: View {
         )
     }
 
-    private func scrollReaderToActiveBlock() {
-        followState = .following
-        if let activeID = viewModel?.activeBlockID {
-            viewModel?.expandChapter(containingBlockID: activeID)
-            forceScrollBlockID = activeID
-            forceScrollTrigger += 1
-        }
-    }
-
     private func updateActiveReaderBlock(time: TimeInterval) {
         viewModel?.updateActiveBlock(
             time: time,
             currentTrackSegmentKey: currentTrackSegmentKey,
             currentTrackChapterIndices: currentTrackChapterIndices,
-            isPlaying: model.isPlaying
+            isPlaying: model.isPlaying,
+            allowsPlaybackFollowing: followState.allowsPlaybackMovement
         )
     }
 
@@ -645,23 +652,26 @@ struct ReaderTab: View {
         guard let ingestedID = notification.userInfo?["audiobookID"] as? String,
             ingestedID == audiobookID
         else { return }
-        // Coalesce instead of reloading synchronously per post: narration posts
-        // this once per rendered chapter, and reload() re-reads the whole book
-        // on the main thread. Bump a token so a burst (e.g. the cached-chapter
-        // backfill) collapses into one trailing reload.
+        scheduleReaderReload()
+    }
+
+    private func scheduleReaderReload() {
         readerReloadToken &+= 1
     }
 
     private func reloadReaderAfterTimelineIngestion() async {
         guard readerReloadToken > 0 else { return }
-        // Quiet window; a newer post cancels this task and restarts the wait,
-        // so only the last post in a burst actually triggers the reload.
-        try? await Task.sleep(for: .milliseconds(250))
+        do {
+            try await Task.sleep(for: .milliseconds(250))
+        } catch {
+            return
+        }
+        guard Task.isCancelled == false else { return }
         viewModel?.reload()
+        updateActiveReaderBlockForCurrentTrack()
     }
 
     private func tearDownReader() {
-        model.readerChromeHidden = false
         pulseResetTask?.cancel()
         pulseResetTask = nil
         pulseBlockID = nil
@@ -1105,17 +1115,6 @@ struct ReaderTab: View {
             .padding(.vertical, 8)
             .background(Color(.secondarySystemBackground))
             .clipShape(.rect(cornerRadius: 10))
-
-            Button {
-                model.epubScrollToActiveTrigger += 1
-            } label: {
-                Image(systemName: "arrow.down.to.line")
-                    .font(.system(size: 16))
-                    .foregroundStyle(Color.accentColor)
-            }
-            .frame(width: readerHeaderButtonSize, height: readerHeaderButtonSize)
-            .background(Color(.secondarySystemBackground), in: Circle())
-            .accessibilityLabel(Text("Scroll to current playback position"))
 
             Button {
                 model.showReaderTOC = true

@@ -142,6 +142,9 @@ struct RootTabView: View {
     @State private var editingIdentifiableUUID: IdentifiableUUID?
     @State private var documentImportPhase: DocumentImportPhase = .idle
     @State private var documentImportTask: Task<Void, Never>?
+    @State private var readerFollowState = ReaderFollowState.following
+    @State private var readerReturnRequest = 0
+    @State private var readerReturnStatus: String?
 
     #if os(iOS)
         @State private var transcribeCoordinator: TranscribeBookCoordinator?
@@ -197,12 +200,24 @@ struct RootTabView: View {
                                 let folder = model.folderURL,
                                 let bookURL = model.bookIdentityURL
                             {
-                                PDFReadingSurface(folderURL: folder, bookURL: bookURL)
+                                PDFReadingSurface(
+                                    folderURL: folder,
+                                    bookURL: bookURL,
+                                    followState: $readerFollowState,
+                                    returnRequest: readerReturnRequest,
+                                    onReturnTargetResolved: resolveReaderReturn
+                                )
                             } else if model.hasEPUB,
                                 let folder = model.folderURL,
                                 let bookURL = model.bookIdentityURL
                             {
-                                ReaderTab(folderURL: folder, bookURL: bookURL)
+                                ReaderTab(
+                                    folderURL: folder,
+                                    bookURL: bookURL,
+                                    followState: $readerFollowState,
+                                    returnRequest: readerReturnRequest,
+                                    onReturnTargetResolved: resolveReaderReturn
+                                )
                             } else if model.hasPDF,
                                 let folder = model.folderURL,
                                 let bookURL = model.bookIdentityURL
@@ -268,10 +283,6 @@ struct RootTabView: View {
             // Unified Top Header System (Row 1: global navigation), overlaid
             // at the top of the Z-stack on top of the content behind it.
             UnifiedTopHeader(onFolderTap: { showingFolderPicker = true })
-                .opacity(topChromeHidden ? 0 : 1)
-                .offset(y: topChromeHidden ? -UnifiedTopHeader.rowOneHeight : 0)
-                .allowsHitTesting(!topChromeHidden)
-                .animation(.easeInOut(duration: 0.25), value: topChromeHidden)
 
             // The bottom deck is root-owned so Now Playing and Reader share the
             // exact same bottom edge during tab transitions.
@@ -303,6 +314,30 @@ struct RootTabView: View {
                     .environment(\.showPlaybackOptions, { showingPlaybackOptions = true })
                 }
                 .ignoresSafeArea(.container, edges: .bottom)
+            }
+
+            if model.selectedTab == .read && readerFollowState == .exploring {
+                VStack {
+                    Spacer()
+                    Button {
+                        readerReturnStatus = nil
+                        readerReturnRequest &+= 1
+                    } label: {
+                        Label(
+                            readerReturnStatus ?? String(localized: "Return to current text"),
+                            systemImage: "scope"
+                        )
+                        .font(.headline)
+                        .padding(.horizontal, 18)
+                        .frame(minHeight: 44)
+                        .background(.regularMaterial, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint(
+                        Text("Returns to the spoken text and resumes following playback")
+                    )
+                    .padding(.bottom, model.bottomInset + 12)
+                }
             }
 
             if usesExperimentalPlayerChrome && !model.isPlayingVoiceMemo {
@@ -571,6 +606,11 @@ struct RootTabView: View {
             guard let destination else { return }
             pushNavigationDestination(destination)
         }
+        .onChange(of: model.bookIdentityURL) { oldValue, newValue in
+            guard oldValue != newValue else { return }
+            readerFollowState = .following
+            readerReturnStatus = nil
+        }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
                 ReviewPromptManager.shared.recordSessionStart()
@@ -627,10 +667,6 @@ struct RootTabView: View {
         [UTType(filenameExtension: "epub") ?? .data, .pdf]
     }
 
-    private var topChromeHidden: Bool {
-        model.selectedTab == .read && model.readerChromeHidden
-    }
-
     /// The experimental Now Playing layout draws its own floating controls, so the
     /// shared bottom deck must stand down while that tab is frontmost. Reader and
     /// Library keep the dock untouched.
@@ -638,6 +674,11 @@ struct RootTabView: View {
         settings.experimentalNowPlayingLayout
             && model.selectedTab == .nowPlaying
             && model.folderURL != nil
+    }
+
+    private func resolveReaderReturn(targetResolved: Bool) {
+        let resolved = readerFollowState.completeReturn(targetResolved: targetResolved)
+        readerReturnStatus = resolved ? nil : String(localized: "Finding current text…")
     }
 
     private var documentImportErrorPresented: Binding<Bool> {
