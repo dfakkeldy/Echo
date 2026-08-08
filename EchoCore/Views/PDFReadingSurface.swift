@@ -9,7 +9,9 @@ struct PDFReadingSurface: View {
     let folderURL: URL
     let bookURL: URL
     @Binding private var followState: ReaderFollowState
-    @Binding private var viewportAnchor: ReaderViewportAnchor?
+    let viewportAnchor: ReaderViewportAnchor?
+    let viewportPublicationContext: ReaderViewportPublicationContext
+    let onViewportAnchorCaptured: (ReaderViewportPublication) -> Void
     let returnRequest: Int
     let hasPendingReturnRequest: Bool
     let claimReturnRequest: (Int) -> Bool
@@ -25,7 +27,9 @@ struct PDFReadingSurface: View {
         folderURL: URL,
         bookURL: URL? = nil,
         followState: Binding<ReaderFollowState>,
-        viewportAnchor: Binding<ReaderViewportAnchor?>,
+        viewportAnchor: ReaderViewportAnchor?,
+        viewportPublicationContext: ReaderViewportPublicationContext,
+        onViewportAnchorCaptured: @escaping (ReaderViewportPublication) -> Void,
         returnRequest: Int,
         hasPendingReturnRequest: Bool,
         claimReturnRequest: @escaping (Int) -> Bool,
@@ -34,7 +38,9 @@ struct PDFReadingSurface: View {
         self.folderURL = folderURL
         self.bookURL = bookURL ?? folderURL
         _followState = followState
-        _viewportAnchor = viewportAnchor
+        self.viewportAnchor = viewportAnchor
+        self.viewportPublicationContext = viewportPublicationContext
+        self.onViewportAnchorCaptured = onViewportAnchorCaptured
         self.returnRequest = returnRequest
         self.hasPendingReturnRequest = hasPendingReturnRequest
         self.claimReturnRequest = claimReturnRequest
@@ -68,7 +74,9 @@ struct PDFReadingSurface: View {
                     folderURL: folderURL,
                     bookURL: bookURL,
                     followState: $followState,
-                    viewportAnchor: $viewportAnchor,
+                    viewportAnchor: viewportAnchor,
+                    viewportPublicationContext: viewportPublicationContext,
+                    onViewportAnchorCaptured: onViewportAnchorCaptured,
                     returnRequest: returnRequest,
                     claimReturnRequest: claimReturnRequest,
                     onReturnTargetResolved: onReturnTargetResolved

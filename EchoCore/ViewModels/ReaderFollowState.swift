@@ -4,10 +4,22 @@ import Foundation
 nonisolated struct ReaderViewportAnchor: Equatable, Sendable {
     let itemID: String
     let distanceFromContentOffset: Double
+    let openChapterKey: Int?
+}
+
+nonisolated struct ReaderViewportPublicationContext: Equatable, Sendable {
+    let bookIdentityURL: URL?
+    let bookGeneration: UInt
+}
+
+nonisolated struct ReaderViewportPublication: Equatable, Sendable {
+    let context: ReaderViewportPublicationContext
+    let anchor: ReaderViewportAnchor
 }
 
 nonisolated struct ReaderViewportState: Equatable, Sendable {
     private(set) var bookIdentityURL: URL?
+    private(set) var bookGeneration: UInt = 0
     var anchor: ReaderViewportAnchor?
 
     init(bookIdentityURL: URL? = nil, anchor: ReaderViewportAnchor? = nil) {
@@ -15,10 +27,27 @@ nonisolated struct ReaderViewportState: Equatable, Sendable {
         self.anchor = anchor
     }
 
+    var publicationContext: ReaderViewportPublicationContext {
+        ReaderViewportPublicationContext(
+            bookIdentityURL: bookIdentityURL,
+            bookGeneration: bookGeneration
+        )
+    }
+
     mutating func prepare(for bookIdentityURL: URL?) {
         guard self.bookIdentityURL != bookIdentityURL else { return }
         self.bookIdentityURL = bookIdentityURL
+        bookGeneration &+= 1
         anchor = nil
+    }
+
+    @discardableResult
+    mutating func apply(_ publication: ReaderViewportPublication) -> Bool {
+        guard publication.context == publicationContext else { return false }
+        if anchor != publication.anchor {
+            anchor = publication.anchor
+        }
+        return true
     }
 }
 

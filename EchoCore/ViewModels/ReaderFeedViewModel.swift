@@ -982,7 +982,8 @@ final class ReaderFeedViewModel {
         currentTrackSegmentKey: String? = nil,
         currentTrackChapterIndices: Set<Int>?,
         isPlaying: Bool = false,
-        allowsPlaybackFollowing: Bool = true
+        allowsPlaybackFollowing: Bool = true,
+        restoringOpenChapterKey: Int? = nil
     ) {
         reload()
         updateActiveBlock(
@@ -992,6 +993,14 @@ final class ReaderFeedViewModel {
             isPlaying: isPlaying,
             allowsPlaybackFollowing: allowsPlaybackFollowing
         )
+        restoreOpenChapter(restoringOpenChapterKey)
+    }
+
+    private func restoreOpenChapter(_ chapterKey: Int?) {
+        guard let chapterKey,
+            chapterGroups.contains(where: { $0.chapterKey == chapterKey })
+        else { return }
+        expandChapter(chapterKey)
     }
 
     /// Update the active block based on the current playback position, scoped to

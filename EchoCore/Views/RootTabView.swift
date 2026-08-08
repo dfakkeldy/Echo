@@ -206,7 +206,10 @@ struct RootTabView: View {
                                     folderURL: folder,
                                     bookURL: bookURL,
                                     followState: $readerFollowState,
-                                    viewportAnchor: $readerViewportState.anchor,
+                                    viewportAnchor: readerViewportState.anchor,
+                                    viewportPublicationContext:
+                                        readerViewportState.publicationContext,
+                                    onViewportAnchorCaptured: publishReaderViewport,
                                     returnRequest: readerReturnRequest,
                                     hasPendingReturnRequest: readerReturnRequestTracker.hasPending(
                                         readerReturnRequest
@@ -222,7 +225,10 @@ struct RootTabView: View {
                                     folderURL: folder,
                                     bookURL: bookURL,
                                     followState: $readerFollowState,
-                                    viewportAnchor: $readerViewportState.anchor,
+                                    viewportAnchor: readerViewportState.anchor,
+                                    viewportPublicationContext:
+                                        readerViewportState.publicationContext,
+                                    onViewportAnchorCaptured: publishReaderViewport,
                                     returnRequest: readerReturnRequest,
                                     claimReturnRequest: claimReaderReturnRequest,
                                     onReturnTargetResolved: resolveReaderReturn
@@ -694,6 +700,10 @@ struct RootTabView: View {
 
     private func claimReaderReturnRequest(_ request: Int) -> Bool {
         readerReturnRequestTracker.claim(request)
+    }
+
+    private func publishReaderViewport(_ publication: ReaderViewportPublication) {
+        readerViewportState.apply(publication)
     }
 
     private var documentImportErrorPresented: Binding<Bool> {

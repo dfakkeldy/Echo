@@ -9,7 +9,9 @@ struct ReaderTab: View {
     let folderURL: URL
     let bookURL: URL
     @Binding private var followState: ReaderFollowState
-    @Binding private var viewportAnchor: ReaderViewportAnchor?
+    let viewportAnchor: ReaderViewportAnchor?
+    let viewportPublicationContext: ReaderViewportPublicationContext
+    let onViewportAnchorCaptured: (ReaderViewportPublication) -> Void
     let returnRequest: Int
     let claimReturnRequest: (Int) -> Bool
     let onReturnTargetResolved: (Bool) -> Void
@@ -19,7 +21,9 @@ struct ReaderTab: View {
         folderURL: URL,
         bookURL: URL? = nil,
         followState: Binding<ReaderFollowState>,
-        viewportAnchor: Binding<ReaderViewportAnchor?>,
+        viewportAnchor: ReaderViewportAnchor?,
+        viewportPublicationContext: ReaderViewportPublicationContext,
+        onViewportAnchorCaptured: @escaping (ReaderViewportPublication) -> Void,
         returnRequest: Int,
         claimReturnRequest: @escaping (Int) -> Bool,
         onReturnTargetResolved: @escaping (Bool) -> Void
@@ -27,7 +31,9 @@ struct ReaderTab: View {
         self.folderURL = folderURL
         self.bookURL = bookURL ?? folderURL
         _followState = followState
-        _viewportAnchor = viewportAnchor
+        self.viewportAnchor = viewportAnchor
+        self.viewportPublicationContext = viewportPublicationContext
+        self.onViewportAnchorCaptured = onViewportAnchorCaptured
         self.returnRequest = returnRequest
         self.claimReturnRequest = claimReturnRequest
         self.onReturnTargetResolved = onReturnTargetResolved
@@ -170,7 +176,9 @@ struct ReaderTab: View {
                     activeWord: vm.activeWord,
                     isHeaderVisible: $isHeaderVisible,
                     followState: $followState,
-                    viewportAnchor: $viewportAnchor,
+                    viewportAnchor: viewportAnchor,
+                    viewportPublicationContext: viewportPublicationContext,
+                    onViewportAnchorCaptured: onViewportAnchorCaptured,
                     reduceMotion: reduceMotion,
                     onReturnTargetResolved: onReturnTargetResolved,
                     topPartTitle: $topPartTitle,
@@ -906,7 +914,9 @@ struct ReaderTab: View {
             currentTrackSegmentKey: currentTrackSegmentKey,
             currentTrackChapterIndices: currentTrackChapterIndices,
             isPlaying: model.isPlaying,
-            allowsPlaybackFollowing: followState.allowsPlaybackMovement
+            allowsPlaybackFollowing: followState.allowsPlaybackMovement,
+            restoringOpenChapterKey: followState == .exploring
+                ? viewportAnchor?.openChapterKey : nil
         )
         self.viewModel = vm
 

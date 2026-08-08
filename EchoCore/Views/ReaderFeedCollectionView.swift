@@ -27,7 +27,9 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
     var activeWord: (blockID: String, index: Int)? = nil
     @Binding var isHeaderVisible: Bool
     @Binding var followState: ReaderFollowState
-    @Binding var viewportAnchor: ReaderViewportAnchor?
+    var viewportAnchor: ReaderViewportAnchor?
+    var viewportPublicationContext: ReaderViewportPublicationContext
+    var onViewportAnchorCaptured: ((ReaderViewportPublication) -> Void)?
     var reduceMotion = false
     var onReturnTargetResolved: ((Bool) -> Void)?
     @Binding var topPartTitle: String?
@@ -82,7 +84,10 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             onAccessibilityActions: onAccessibilityActions,
             isHeaderVisible: $isHeaderVisible,
             followState: $followState,
-            viewportAnchor: $viewportAnchor,
+            viewportAnchor: viewportAnchor,
+            viewportPublicationContext: viewportPublicationContext,
+            onViewportAnchorCaptured: onViewportAnchorCaptured,
+            openChapterKey: openChapterKey,
             topPartTitle: $topPartTitle,
             topChapterTitle: $topChapterTitle,
             topSectionTitle: $topSectionTitle,
@@ -155,7 +160,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ collectionView: UICollectionView, coordinator: Coordinator) {
-        coordinator.persistViewportAnchor(in: collectionView)
+        coordinator.captureAndPublishViewportAnchor(in: collectionView)
     }
 
     func updateUIView(_ collectionView: UICollectionView, context: Context) {
@@ -164,7 +169,9 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         context.coordinator.onContextMenu = onContextMenu
         context.coordinator.onAccessibilityActions = onAccessibilityActions
         context.coordinator.followState = $followState
-        context.coordinator.viewportAnchor = $viewportAnchor
+        context.coordinator.viewportAnchor = viewportAnchor
+        context.coordinator.viewportPublicationContext = viewportPublicationContext
+        context.coordinator.onViewportAnchorCaptured = onViewportAnchorCaptured
         context.coordinator.reduceMotion = reduceMotion
         context.coordinator.onReturnTargetResolved = onReturnTargetResolved
         context.coordinator.onChapterHeaderContextMenu = onChapterHeaderContextMenu
@@ -339,7 +346,9 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         var onPlayMemo: ((VoiceMemoRecord) -> Void)?
         var isHeaderVisible: Binding<Bool>
         var followState: Binding<ReaderFollowState>
-        var viewportAnchor: Binding<ReaderViewportAnchor?>
+        var viewportAnchor: ReaderViewportAnchor?
+        var viewportPublicationContext: ReaderViewportPublicationContext
+        var onViewportAnchorCaptured: ((ReaderViewportPublication) -> Void)?
         var reduceMotion = false
         var onReturnTargetResolved: ((Bool) -> Void)?
         private(set) var scrollGeneration: UInt = 0
@@ -387,7 +396,10 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             onContextMenu: ((EPubBlockRecord, ReaderWordHit?) -> UIContextMenuConfiguration?)?,
             onAccessibilityActions: ((EPubBlockRecord) -> [UIAccessibilityCustomAction])?,
             isHeaderVisible: Binding<Bool>, followState: Binding<ReaderFollowState>,
-            viewportAnchor: Binding<ReaderViewportAnchor?>,
+            viewportAnchor: ReaderViewportAnchor?,
+            viewportPublicationContext: ReaderViewportPublicationContext,
+            onViewportAnchorCaptured: ((ReaderViewportPublication) -> Void)?,
+            openChapterKey: Int?,
             topPartTitle: Binding<String?>, topChapterTitle: Binding<String?>,
             topSectionTitle: Binding<String?>, topChapterThemeColor: Binding<String?>
         ) {
@@ -398,6 +410,9 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             self.isHeaderVisible = isHeaderVisible
             self.followState = followState
             self.viewportAnchor = viewportAnchor
+            self.viewportPublicationContext = viewportPublicationContext
+            self.onViewportAnchorCaptured = onViewportAnchorCaptured
+            self.openChapterKey = openChapterKey
             self.topPartTitle = topPartTitle
             self.topChapterTitle = topChapterTitle
             self.topSectionTitle = topSectionTitle
@@ -728,20 +743,37 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 itemID: itemID,
                 distanceFromContentOffset: Double(
                     attributes.frame.minY - collectionView.contentOffset.y
-                )
+                ),
+                openChapterKey: openChapterKey
             )
         }
 
-        func persistViewportAnchor(in collectionView: UICollectionView) {
-            guard let anchor = visibleViewportAnchor(in: collectionView) else { return }
-            if viewportAnchor.wrappedValue != anchor {
-                viewportAnchor.wrappedValue = anchor
+        @discardableResult
+        func captureAndPublishViewportAnchor(
+            in collectionView: UICollectionView
+        ) -> ReaderViewportAnchor? {
+            guard let anchor = visibleViewportAnchor(in: collectionView) else { return nil }
+            publishViewportAnchor(anchor)
+            return anchor
+        }
+
+        private func publishViewportAnchor(_ anchor: ReaderViewportAnchor) {
+            guard anchor != viewportAnchor else { return }
+            let publication = ReaderViewportPublication(
+                context: viewportPublicationContext,
+                anchor: anchor
+            )
+            let publish = onViewportAnchorCaptured
+            // Never mutate root SwiftUI state synchronously from updateUIView or
+            // dismantleUIView. The root validates this captured book generation.
+            Task { @MainActor in
+                publish?(publication)
             }
         }
 
         func restoredContentOffsetY(forItemID itemID: String, itemFrameMinY: Double) -> Double? {
             guard followState.wrappedValue == .exploring,
-                let anchor = viewportAnchor.wrappedValue,
+                let anchor = viewportAnchor,
                 anchor.itemID == itemID
             else { return nil }
             return itemFrameMinY - anchor.distanceFromContentOffset
@@ -763,8 +795,8 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 present.contains(id) && current.contains(id) && seen.insert(id).inserted
             }
             if !toReconfigure.isEmpty { snapshot.reconfigureItems(toReconfigure) }
-            persistViewportAnchor(in: collectionView)
-            let anchor = viewportAnchor.wrappedValue
+            let capturedAnchor = captureAndPublishViewportAnchor(in: collectionView)
+            let anchor = capturedAnchor ?? viewportAnchor
             let scheduledGeneration = scrollGeneration
             dataSource?.apply(
                 snapshot,
@@ -1088,19 +1120,19 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             scrollGeneration &+= 1
             collectionViewLayerAnimationsToFinish(in: scrollView)
             guard let collectionView = scrollView as? UICollectionView else { return }
-            persistViewportAnchor(in: collectionView)
+            captureAndPublishViewportAnchor(in: collectionView)
         }
 
         func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
             guard decelerate == false, let collectionView = scrollView as? UICollectionView else {
                 return
             }
-            persistViewportAnchor(in: collectionView)
+            captureAndPublishViewportAnchor(in: collectionView)
         }
 
         func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
             guard let collectionView = scrollView as? UICollectionView else { return }
-            persistViewportAnchor(in: collectionView)
+            captureAndPublishViewportAnchor(in: collectionView)
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {

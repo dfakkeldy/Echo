@@ -65,8 +65,10 @@ import UIKit
 
     @Test func recreatedCoordinatorRestoresRootOwnedViewportAnchor() {
         let followState = MutableBox(ReaderFollowState.exploring)
-        let viewportAnchor = MutableBox<ReaderViewportAnchor?>(
-            ReaderViewportAnchor(itemID: "b-paragraph-17", distanceFromContentOffset: 28)
+        let viewportAnchor = ReaderViewportAnchor(
+            itemID: "bm-saved",
+            distanceFromContentOffset: 28,
+            openChapterKey: 1
         )
         let firstCoordinator = makeCoordinator(
             followState: followState,
@@ -74,7 +76,7 @@ import UIKit
         )
         #expect(
             firstCoordinator.restoredContentOffsetY(
-                forItemID: "b-paragraph-17",
+                forItemID: "bm-saved",
                 itemFrameMinY: 328
             ) == 300
         )
@@ -85,7 +87,7 @@ import UIKit
         )
         #expect(
             recreatedCoordinator.restoredContentOffsetY(
-                forItemID: "b-paragraph-17",
+                forItemID: "bm-saved",
                 itemFrameMinY: 428
             ) == 400
         )
@@ -99,9 +101,13 @@ import UIKit
 
     private func makeCoordinator(
         followState: MutableBox<ReaderFollowState>,
-        viewportAnchor: MutableBox<ReaderViewportAnchor?> = MutableBox(nil),
+        viewportAnchor: ReaderViewportAnchor? = nil,
         onReturnTargetResolved: ((Bool) -> Void)? = nil
     ) -> ReaderFeedCollectionView.Coordinator {
+        let viewportState = ReaderViewportState(
+            bookIdentityURL: URL(fileURLWithPath: "/books/current"),
+            anchor: viewportAnchor
+        )
         let coordinator = ReaderFeedCollectionView.Coordinator(
             onTapBlock: nil,
             onTapWord: nil,
@@ -109,7 +115,10 @@ import UIKit
             onAccessibilityActions: nil,
             isHeaderVisible: .constant(true),
             followState: binding(followState),
-            viewportAnchor: binding(viewportAnchor),
+            viewportAnchor: viewportAnchor,
+            viewportPublicationContext: viewportState.publicationContext,
+            onViewportAnchorCaptured: nil,
+            openChapterKey: viewportAnchor?.openChapterKey,
             topPartTitle: Binding<String?>.constant(nil),
             topChapterTitle: Binding<String?>.constant(nil),
             topSectionTitle: Binding<String?>.constant(nil),
