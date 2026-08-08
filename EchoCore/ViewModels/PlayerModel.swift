@@ -1183,7 +1183,7 @@ final class PlayerModel {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.markPassageAtCurrentTime() }
+            MainActor.assumeIsolated { _ = self?.markPassageAtCurrentTime() }
         }
 
         carPlayNotificationObservers = [bookmarkObs, voiceMemoObs, markPassageObs]
