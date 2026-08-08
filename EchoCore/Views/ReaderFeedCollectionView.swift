@@ -772,10 +772,22 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         }
 
         func restoredContentOffsetY(forItemID itemID: String, itemFrameMinY: Double) -> Double? {
-            guard followState.wrappedValue == .exploring,
-                let anchor = viewportAnchor,
-                anchor.itemID == itemID
-            else { return nil }
+            guard let anchor = viewportAnchor else { return nil }
+            return restoredContentOffsetY(
+                from: anchor,
+                forItemID: itemID,
+                itemFrameMinY: itemFrameMinY
+            )
+        }
+
+        func restoredContentOffsetY(
+            from anchor: ReaderViewportAnchor,
+            forItemID itemID: String,
+            itemFrameMinY: Double
+        ) -> Double? {
+            guard followState.wrappedValue == .exploring, anchor.itemID == itemID else {
+                return nil
+            }
             return itemFrameMinY - anchor.distanceFromContentOffset
         }
 
@@ -810,6 +822,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     let indexPath = self.dataSource?.indexPath(for: anchor.itemID),
                     let attributes = collectionView.layoutAttributesForItem(at: indexPath),
                     let restoredOffsetY = self.restoredContentOffsetY(
+                        from: anchor,
                         forItemID: anchor.itemID,
                         itemFrameMinY: Double(attributes.frame.minY)
                     )

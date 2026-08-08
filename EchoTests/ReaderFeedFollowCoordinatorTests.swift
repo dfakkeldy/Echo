@@ -99,6 +99,32 @@ import UIKit
         )
     }
 
+    @Test func sameSnapshotRestorationUsesCapturedAnchorInsteadOfStaleRootAnchor() {
+        let followState = MutableBox(ReaderFollowState.exploring)
+        let staleRootAnchor = ReaderViewportAnchor(
+            itemID: "b-stale",
+            distanceFromContentOffset: 100,
+            openChapterKey: 0
+        )
+        let capturedAnchor = ReaderViewportAnchor(
+            itemID: "bm-current",
+            distanceFromContentOffset: 28,
+            openChapterKey: 1
+        )
+        let coordinator = makeCoordinator(
+            followState: followState,
+            viewportAnchor: staleRootAnchor
+        )
+
+        #expect(
+            coordinator.restoredContentOffsetY(
+                from: capturedAnchor,
+                forItemID: "bm-current",
+                itemFrameMinY: 328
+            ) == 300
+        )
+    }
+
     private func makeCoordinator(
         followState: MutableBox<ReaderFollowState>,
         viewportAnchor: ReaderViewportAnchor? = nil,
