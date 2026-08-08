@@ -16,7 +16,7 @@ import Testing
         #expect(state == .following)
     }
 
-    @Test func queuedPlaybackScrollIsRejectedAfterDetachment() {
+    @Test func queuedPlaybackScrollRequiresFollowingStateAndCurrentGeneration() {
         #expect(
             ReaderScrollPermission.allows(
                 intent: .followPlayback,
@@ -29,6 +29,14 @@ import Testing
             ReaderScrollPermission.allows(
                 intent: .followPlayback,
                 followState: .exploring,
+                scheduledGeneration: 7,
+                currentGeneration: 7
+            ) == false
+        )
+        #expect(
+            ReaderScrollPermission.allows(
+                intent: .followPlayback,
+                followState: .following,
                 scheduledGeneration: 7,
                 currentGeneration: 8
             ) == false
