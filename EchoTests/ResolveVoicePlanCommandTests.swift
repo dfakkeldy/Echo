@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import CryptoKit
 import Foundation
 import Testing
 import ZIPFoundation
@@ -7,6 +8,77 @@ import ZIPFoundation
 
 @MainActor
 @Suite struct ResolveVoicePlanCommandTests {
+    @Test func commandPrintsTheExactCanonicalIdentity() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let expanded = try TestEPUBFixture.twoChapters(in: tmp)
+        try "<html><body></body></html>".write(
+            to: expanded.appendingPathComponent("OEBPS/chap01.xhtml"),
+            atomically: true,
+            encoding: .utf8)
+        try "<html><body></body></html>".write(
+            to: expanded.appendingPathComponent("OEBPS/chap02.xhtml"),
+            atomically: true,
+            encoding: .utf8)
+        let epub = tmp.appendingPathComponent("fixture.epub")
+        try archive(expanded, at: epub)
+        let sourceSHA256 = try HeadlessNarrationRunner.fileSHA256(at: epub)
+        let planURL = tmp.appendingPathComponent("plan.json")
+        try Data(
+            "{\"schemaVersion\":1,\"source\":{\"epubSHA256\":\"\(sourceSHA256)\"},\"defaultSpeakerID\":\"narrator\",\"speakers\":[{\"id\":\"narrator\",\"voiceID\":\"af_heart\"}],\"assignments\":[]}".utf8
+        ).write(to: planURL)
+        let canonicalPlan = "{\"blocks\":[{\"blockID\":\"s0-b0\",\"speakerID\":\"narrator\",\"voiceID\":\"af_heart\"},{\"blockID\":\"s1-b0\",\"speakerID\":\"narrator\",\"voiceID\":\"af_heart\"}],\"defaultSpeakerID\":\"narrator\",\"schemaVersion\":1,\"sourceEPUBSHA256\":\"\(sourceSHA256)\"}"
+        let voicePlanSHA256 = SHA256.hash(data: Data(canonicalPlan.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        let expected = "{\"blockCount\":2,\"defaultVoice\":\"af_heart\",\"sourceEPUBSHA256\":\"\(sourceSHA256)\",\"voicePlanID\":\"plan-\(voicePlanSHA256.prefix(12))\",\"voicePlanSHA256\":\"\(voicePlanSHA256)\"}"
+        var stdout: [String] = []
+
+        try ResolveVoicePlanCommand.run(
+            epubURL: epub,
+            voicePlanURL: planURL,
+            writeStandardOutput: { stdout.append($0) })
+
+        #expect(stdout == [expected])
+    }
+
+    @Test func commandRejectsInvalidSourceWithoutWritingOutput() {
+        var stdout: [String] = []
+
+        #expect(throws: Error.self) {
+            try ResolveVoicePlanCommand.run(
+                epubURL: URL(fileURLWithPath: "/tmp/source.pdf"),
+                voicePlanURL: URL(fileURLWithPath: "/tmp/plan.json"),
+                writeStandardOutput: { stdout.append($0) })
+        }
+
+        #expect(stdout.isEmpty)
+    }
+
+    @Test func commandRejectsInvalidPlanWithoutWritingOutput() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let expanded = try TestEPUBFixture.twoChapters(in: tmp)
+        let epub = tmp.appendingPathComponent("fixture.epub")
+        try archive(expanded, at: epub)
+        let planURL = tmp.appendingPathComponent("plan.json")
+        try Data("not JSON".utf8).write(to: planURL)
+        var stdout: [String] = []
+
+        #expect(throws: Error.self) {
+            try ResolveVoicePlanCommand.run(
+                epubURL: epub,
+                voicePlanURL: planURL,
+                writeStandardOutput: { stdout.append($0) })
+        }
+
+        #expect(stdout.isEmpty)
+    }
+
     @Test func resolverReturnsCanonicalPlanWithoutLeavingWorkFiles() throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
             UUID().uuidString, isDirectory: true)
