@@ -520,6 +520,10 @@ final class PlayerModel {
         return timelinePersistence.hasEPUB(for: bookIdentityURL?.absoluteString)
     }
 
+    var documentIngestionTrigger: Int {
+        state.documentIngestionTrigger
+    }
+
     @ObservationIgnored private var cachedHasPDF:
         (trigger: Int, bookURL: URL?, sourceDocumentURL: URL?, value: Bool)?
 

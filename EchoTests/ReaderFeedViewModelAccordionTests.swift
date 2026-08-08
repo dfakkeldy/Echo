@@ -208,6 +208,22 @@ struct ReaderFeedViewModelAccordionTests {
         #expect(vm.openChapterKey == 1)
     }
 
+    @Test func playbackDoesNotExpandAChapterWhileExploring() throws {
+        let db = try seed()
+        let vm = ReaderFeedViewModel(audiobookID: "bk", db: db.writer)
+        vm.reload()
+
+        vm.updateActiveBlock(
+            time: 100,
+            currentTrackChapterIndices: nil,
+            isPlaying: true,
+            allowsPlaybackFollowing: false
+        )
+
+        #expect(vm.activeBlockID == "c1-p")
+        #expect(vm.openChapterKey == nil)
+    }
+
     // MARK: - Phase 3: content-type filter tests
 
     @Test func settingAudioFilterDropsTextChapterFromDisplay() throws {
