@@ -62,16 +62,21 @@ nonisolated final class CoverThemeBuilderTests: XCTestCase {
     }
 
     func testSecondaryHuePicksDistinctCandidate() {
+        // The navy's chroma sits below the promotion floor (0.09) on purpose:
+        // this test exercises the secondary-ROLE picker, not accent promotion.
         let sig = CoverSignature(
             candidates: [
                 .init(hue: 95, chroma: 0.12, weight: 100),  // gold
                 .init(hue: 100, chroma: 0.10, weight: 60),  // near-duplicate — skipped
-                .init(hue: 260, chroma: 0.10, weight: 40),  // navy — distinct + heavy enough
+                .init(hue: 260, chroma: 0.06, weight: 40),  // navy — distinct + heavy enough
             ],
             isNeutral: false
         )
         let r = CoverThemeBuilder.resolve(sig, scheme: .light, brand: brand)
         XCTAssertEqual(OKLCH.fromSRGB(r.secondaryAccent).H, 260, accuracy: 20)
+        XCTAssertEqual(
+            OKLCH.fromSRGB(r.accent).H, 95, accuracy: 20,
+            "a dull secondary must not take the accent role")
     }
 
     func testSecondaryFallsBackToHueSiblingWhenNoDistinctCandidate() {
@@ -80,15 +85,20 @@ nonisolated final class CoverThemeBuilderTests: XCTestCase {
     }
 
     func testWeakSecondCandidateIsIgnored() {
+        // Weight 3 sits under BOTH gates: the secondary role's 15% share and
+        // accent promotion's 5% share.
         let sig = CoverSignature(
             candidates: [
                 .init(hue: 95, chroma: 0.12, weight: 100),
-                .init(hue: 260, chroma: 0.10, weight: 5),  // distinct but < 15% of primary
+                .init(hue: 260, chroma: 0.10, weight: 3),
             ],
             isNeutral: false
         )
         let r = CoverThemeBuilder.resolve(sig, scheme: .light, brand: brand)
         XCTAssertEqual(OKLCH.fromSRGB(r.secondaryAccent).H, 125, accuracy: 20)
+        XCTAssertEqual(
+            OKLCH.fromSRGB(r.accent).H, 95, accuracy: 20,
+            "a stray vivid speck must not take the accent role")
     }
 
     func testNeutralSignatureProducesNeutralFallback() {
@@ -204,6 +214,197 @@ nonisolated final class CoverThemeBuilderTests: XCTestCase {
             signature(hue: 22, chroma: 0.12), scheme: .dark, brand: brand)
         XCTAssertGreaterThan(
             OKLCH.fromSRGB(r.accent).L, 0.65, "standard dark accent stays light/tonal")
+    }
+
+    // MARK: - Amber rotation (dark rooms in the yellow band)
+
+    private func roomRoles(_ r: CoverThemeBuilder.Resolved) -> [ColorMetrics.RGB] {
+        [r.backgroundTop, r.backgroundBottom, r.chip]
+    }
+
+    func testDarkYellowRoomRotatesTowardAmberAndKeepsTheAccentHue() {
+        // sRGB has no dark saturated yellow, so the dark recipe at hue 110 lands
+        // on #383800 — red and green channels EQUAL, i.e. olive-drab, the
+        // "murky brown room". The ramp rotates toward amber until the warm
+        // channel leads; what the cover IS (the accent hue) does not move.
+        let r = CoverThemeBuilder.resolve(signature(hue: 110), scheme: .dark, brand: brand)
+        for surface in roomRoles(r) {
+            XCTAssertEqual(
+                OKLCH.fromSRGB(surface).H, 96, accuracy: 2,
+                "the room rotates ~14° toward amber, not past the band's warm edge")
+            XCTAssertGreaterThan(
+                surface.r, surface.g,
+                "warm channel must lead — equal r/g is exactly the olive-drab bug")
+        }
+        XCTAssertEqual(
+            OKLCH.fromSRGB(r.accent).H, 110, accuracy: 1,
+            "the accent keeps the cover's own hue; only the room rotates")
+        XCTAssertEqual(
+            OKLCH.fromSRGB(r.secondaryAccent).H, 140, accuracy: 1,
+            "the secondary keeps its +30° sibling of the COVER hue, not the room hue")
+    }
+
+    func testAmberRotationIsDarkSchemeAndBandScoped() {
+        // The light recipe's L 0.91 ramp over the same hues is pale cream, which
+        // already reads as gold — rotating it would only cost cover fidelity.
+        let light = CoverThemeBuilder.resolve(signature(hue: 110), scheme: .light, brand: brand)
+        for surface in roomRoles(light) {
+            XCTAssertEqual(
+                OKLCH.fromSRGB(surface).H, 110, accuracy: 1, "light ramp keeps the cover hue")
+        }
+        // Just outside either edge of the band, the dark ramp is untouched too:
+        // 65° is already amber, and 115° is yellow-GREEN, where rotating down
+        // would drop the room INTO the olive pit.
+        for hue in [65.0, 115.0] {
+            let dark = CoverThemeBuilder.resolve(signature(hue: hue), scheme: .dark, brand: brand)
+            for surface in roomRoles(dark) {
+                XCTAssertEqual(
+                    OKLCH.fromSRGB(surface).H, hue, accuracy: 1,
+                    "hue \(hue) sits outside the yellow band and must not rotate")
+            }
+        }
+    }
+
+    func testAmberRotationKeepsBandInteriorCoversDistinct() {
+        // The band is compressed toward its warm edge rather than shifted by a
+        // fixed amount, so distinct covers keep distinct rooms — a truncating
+        // clamp would collapse everything from 70° to 84° onto one hue.
+        let rooms = [75.0, 90.0, 105.0].map { hue -> Double in
+            let r = CoverThemeBuilder.resolve(signature(hue: hue), scheme: .dark, brand: brand)
+            return OKLCH.fromSRGB(r.backgroundTop).H
+        }
+        XCTAssertLessThan(rooms[0], rooms[1])
+        XCTAssertLessThan(rooms[1], rooms[2])
+        for (room, cover) in zip(rooms, [75.0, 90.0, 105.0]) {
+            XCTAssertLessThan(room, cover, "every band-interior room warms")
+            XCTAssertGreaterThanOrEqual(room, 70, "and none overshoots the band's warm edge")
+        }
+    }
+
+    // MARK: - Accent promotion (duotone covers)
+
+    /// "The Long Leverage" shape: purple-dominant cover with vivid neon-green
+    /// bars. The neon is hue-distinct, vivid, and well above the 5% weight
+    /// share, so it is promotion-eligible in both schemes; whether it wins
+    /// depends on the drift gate per scheme.
+    private let duotoneLeverage = CoverSignature(
+        candidates: [
+            .init(hue: 302, chroma: 0.117, weight: 100, lightness: 0.31),
+            .init(hue: 122, chroma: 0.208, weight: 80, lightness: 0.90),
+        ],
+        isNeutral: false
+    )
+
+    func testVividCounterColourIsPromotedToAccent() {
+        // Dark scheme: the neon (observed L 0.90) clears every floor against
+        // the purple room without moving, so it takes the accent role and the
+        // primary-hue accent moves to the secondary role. The room itself
+        // always keeps the primary hue.
+        let r = CoverThemeBuilder.resolve(duotoneLeverage, scheme: .dark, brand: brand)
+        let accent = OKLCH.fromSRGB(r.accent)
+        XCTAssertEqual(accent.H, 122, accuracy: 20, "neon counter-colour takes the accent role")
+        XCTAssertGreaterThanOrEqual(accent.L, 0.75, "promoted accent keeps the cover's tone")
+        XCTAssertEqual(
+            OKLCH.fromSRGB(r.secondaryAccent).H, 302, accuracy: 20,
+            "primary-hue accent moves to the secondary role")
+        for bg in [r.backgroundTop, r.backgroundBottom] {
+            XCTAssertEqual(
+                OKLCH.fromSRGB(bg).H, 302, accuracy: 25, "room keeps the primary hue")
+            XCTAssertGreaterThanOrEqual(
+                ColorMetrics.contrastRatio(r.accent, bg), CoverThemeBuilder.accentFloor)
+        }
+        XCTAssertGreaterThanOrEqual(
+            ColorMetrics.contrastRatio(r.accent, r.chip), CoverThemeBuilder.chipFloor)
+        XCTAssertGreaterThanOrEqual(
+            ColorMetrics.contrastRatio(r.onAccent, r.accent), CoverThemeBuilder.onAccentFloor)
+    }
+
+    func testPromotionRejectedWhenEnforcementWouldDriftIdentity() {
+        // Light scheme, same cover: clearing 3:1 against the pale wash drags
+        // the neon from L 0.90 to ~0.54, where the eye reads olive, not neon.
+        // The drift gate rejects it and the accent keeps the primary purple.
+        let r = CoverThemeBuilder.resolve(duotoneLeverage, scheme: .light, brand: brand)
+        XCTAssertEqual(
+            OKLCH.fromSRGB(r.accent).H, 302, accuracy: 20,
+            "drifted counter-colour falls back to the primary-hue accent")
+    }
+
+    func testGeodeCounterColourRescuesGoldAccent() {
+        // Gold geode with purple veins. Gold forced dark enough to clear a
+        // cream wash collapses to brown-olive (an sRGB gamut fact — dark vivid
+        // yellow does not exist), while the cover's own purple (observed
+        // L ≈ 0.50) survives enforcement in both schemes. The veins carry ~7%
+        // of the primary's weight — under the secondary role's 15% gate, which
+        // is exactly why promotion gates on vividness instead of area.
+        let sig = CoverSignature(
+            candidates: [
+                .init(hue: 82, chroma: 0.12, weight: 100, lightness: 0.74),
+                .init(hue: 304, chroma: 0.13, weight: 7, lightness: 0.50),
+            ],
+            isNeutral: false
+        )
+        for scheme in [ColorScheme.light, ColorScheme.dark] {
+            let r = CoverThemeBuilder.resolve(sig, scheme: scheme, brand: brand)
+            let accent = OKLCH.fromSRGB(r.accent)
+            XCTAssertEqual(
+                accent.H, 304, accuracy: 20, "purple veins take the accent in \(scheme)")
+            XCTAssertLessThanOrEqual(
+                abs(accent.L - 0.50), 0.16, "promoted accent honours the drift gate in \(scheme)")
+            XCTAssertEqual(
+                OKLCH.fromSRGB(r.backgroundTop).H, 82, accuracy: 25,
+                "wash stays gold in \(scheme)")
+            for bg in [r.backgroundTop, r.backgroundBottom] {
+                XCTAssertGreaterThanOrEqual(
+                    ColorMetrics.contrastRatio(r.accent, bg), CoverThemeBuilder.accentFloor)
+            }
+            XCTAssertGreaterThanOrEqual(
+                ColorMetrics.contrastRatio(r.onAccent, r.accent), CoverThemeBuilder.onAccentFloor)
+        }
+    }
+
+    func testPromotedPathClearsContrastFloorsForAllHues() {
+        // Whether or not a given (primary, counter) pair promotes, every floor
+        // must hold; whenever promotion happens, the enforced accent honours
+        // the drift gate relative to the cover's observed lightness.
+        func circularDelta(_ a: Double, _ b: Double) -> Double {
+            let d = abs(a - b).truncatingRemainder(dividingBy: 360)
+            return min(d, 360 - d)
+        }
+        for scheme in [ColorScheme.light, ColorScheme.dark] {
+            for hue in 0..<360 {
+                let counterHue = Double((hue + 150) % 360)
+                let sig = CoverSignature(
+                    candidates: [
+                        .init(hue: Double(hue), chroma: 0.12, weight: 100, lightness: 0.5),
+                        .init(hue: counterHue, chroma: 0.15, weight: 50, lightness: 0.85),
+                    ],
+                    isNeutral: false
+                )
+                let r = CoverThemeBuilder.resolve(sig, scheme: scheme, brand: brand)
+                for bg in [r.backgroundTop, r.backgroundBottom] {
+                    XCTAssertGreaterThanOrEqual(
+                        ColorMetrics.contrastRatio(r.accent, bg), CoverThemeBuilder.accentFloor,
+                        "accent vs bg at hue \(hue), \(scheme)")
+                    XCTAssertGreaterThanOrEqual(
+                        ColorMetrics.contrastRatio(r.secondaryAccent, bg),
+                        CoverThemeBuilder.accentFloor,
+                        "secondary vs bg at hue \(hue), \(scheme)")
+                }
+                XCTAssertGreaterThanOrEqual(
+                    ColorMetrics.contrastRatio(r.accent, r.chip), CoverThemeBuilder.chipFloor,
+                    "accent vs chip at hue \(hue), \(scheme)")
+                XCTAssertGreaterThanOrEqual(
+                    ColorMetrics.contrastRatio(r.onAccent, r.accent),
+                    CoverThemeBuilder.onAccentFloor,
+                    "onAccent at hue \(hue), \(scheme)")
+                let accent = OKLCH.fromSRGB(r.accent)
+                if circularDelta(accent.H, counterHue) < 25 {
+                    XCTAssertLessThanOrEqual(
+                        abs(accent.L - 0.85), 0.16,
+                        "promoted accent at hue \(hue), \(scheme) exceeded the drift gate")
+                }
+            }
+        }
     }
 
     func testEveryHueClearsContrastFloorsAtBoldChroma() {

@@ -36,3 +36,33 @@ nonisolated enum WidgetProgressAccentPolicy {
         return .cover(rgb)
     }
 }
+
+nonisolated enum WidgetCoverRampStyle: Equatable, Sendable {
+    case systemBacking
+    case ramp(top: HexRGB, bottom: HexRGB)
+}
+
+nonisolated enum WidgetCoverRampPolicy {
+    /// Both ends or neither: a gradient drawn from one valid hex and one
+    /// fallback is not the cover's ramp, it is a different colour that happens
+    /// to start in the right place.
+    ///
+    /// Outside full colour the system flattens whatever the widget supplies, so
+    /// the ramp yields to the calibrated container backing rather than spending
+    /// the same grey twice.
+    static func style(
+        topHex: String?,
+        bottomHex: String?,
+        preservesExactCoverColor: Bool
+    ) -> WidgetCoverRampStyle {
+        guard preservesExactCoverColor,
+            let topHex,
+            let bottomHex,
+            let top = HexRGB(hex: topHex),
+            let bottom = HexRGB(hex: bottomHex)
+        else {
+            return .systemBacking
+        }
+        return .ramp(top: top, bottom: bottom)
+    }
+}

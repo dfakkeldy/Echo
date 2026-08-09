@@ -66,6 +66,32 @@ nonisolated enum CoverThemeBuilder {
     private static let neutralHue: Double = 80.0
     private static let neutralRampChroma: Double = 0.010
 
+    // MARK: - Amber rotation (dark rooms in the yellow band)
+
+    /// sRGB has no dark saturated yellow, so the dark recipe's L 0.33 room at a
+    /// yellow-band hue lands on olive-drab instead of the warm gold the cover
+    /// promises: at hue 110 it resolves to #383800 — red and green channels
+    /// equal, army-surplus green. Rotating the ROOM toward amber recovers the
+    /// warmth (the same recipe gives #403400 at hue 96) without touching what
+    /// the cover IS.
+    ///
+    /// Dark scheme only: the light recipe's L 0.91 ramp over the same hues is
+    /// pale cream, which already reads as gold. Background and chip only: the
+    /// dark accent sits at L 0.78, high enough to still read as yellow, so it
+    /// keeps the cover's true hue and the rotation costs at most
+    /// `amberRotation` degrees of accent-vs-room split.
+    ///
+    /// The band is COMPRESSED toward its warm edge rather than shifted by a
+    /// fixed amount. Two consequences, both wanted: covers inside the band stay
+    /// distinguishable from one another (a truncating clamp would give a 70°
+    /// cover and an 84° cover the identical room), and the warm edge stays
+    /// continuous with the oranges just below it. The cool edge is a genuine
+    /// cliff, and deliberately so — hues above `upperBound` are yellow-GREEN,
+    /// and easing them down would drop them into the very olive pit this
+    /// rotation exists to climb out of.
+    private static let amberBand: ClosedRange<Double> = 70...110
+    private static let amberRotation: Double = 14.0
+
     /// Bold/vivid accent for high-contrast covers whose primary accent is strongly
     /// saturated (a deep accent on black/white — e.g. the red on "Everything But
     /// the Code"). The standard recipes lighten accents for tonal harmony (the dark
@@ -90,6 +116,33 @@ nonisolated enum CoverThemeBuilder {
     static let accentFloor: Double = 3.0
     static let chipFloor: Double = 2.5
     static let onAccentFloor: Double = 4.5
+
+    // MARK: - Accent promotion (duotone covers)
+
+    /// A vivid secondary hue can take the ACCENT role — the background ramp
+    /// always keeps the primary hue (identity), but a cover that carries a
+    /// distinct counter-colour (neon green on a purple cover, purple veins in
+    /// a gold geode) reads far richer with that counter-colour as the tint.
+    /// Eligibility is gated on VIVIDNESS, not area: `weight` is
+    /// saturation²×coverage and thus area-dominated, which is right for
+    /// choosing the background but wrong for an accent — a bold element at
+    /// ~6% weight (the geode's purple) is exactly what promotion exists for.
+    /// The old 15%-weight gate remains on the secondary-role picker below.
+    private static let promotionHueSeparation: Double = 60.0
+    private static let promotionChromaFloor: Double = 0.09
+    private static let promotionWeightShare: Double = 0.05
+
+    /// Identity-drift gate: the promoted accent is seeded from the cover's own
+    /// observed colour (its bucket L/C), then contrast-enforced. If enforcement
+    /// must move lightness further than this, the colour has lost the identity
+    /// that justified promoting it (a neon at L 0.90 dragged to L 0.54 against
+    /// a pale wash reads olive, not neon) — fall back to the primary-hue
+    /// accent, which the recipes already make legible for every hue.
+    private static let promotionMaxLightnessDrift: Double = 0.15
+    /// The enforced result must also stay saturated enough to read as a
+    /// colour, not a grey — the gamut clamp can hollow out chroma while L
+    /// stays put.
+    private static let promotionMinChroma: Double = 0.10
 
     // MARK: - Public API
 
@@ -125,23 +178,38 @@ nonisolated enum CoverThemeBuilder {
         // cover's primary hue — even for black/white-dominant covers.
         let isBoldAccent = primary.chroma >= boldAccentChromaFloor
 
-        let backgroundTop = roleColor(recipe.backgroundTop, hue: primaryHue)
-        let backgroundBottom = roleColor(recipe.backgroundBottom, hue: primaryHue)
-        let chip = roleColor(recipe.chip, hue: primaryHue)
+        let roomHue = amberedRampHue(primaryHue, scheme: scheme)
+        let backgroundTop = roleColor(recipe.backgroundTop, hue: roomHue)
+        let backgroundBottom = roleColor(recipe.backgroundBottom, hue: roomHue)
+        let chip = roleColor(recipe.chip, hue: roomHue)
 
         let accentRole =
             isBoldAccent ? (scheme == .dark ? boldAccentDark : boldAccentLight) : recipe.accent
-        let accent = enforcedAccent(
+        let primaryAccent = enforcedAccent(
             roleColor(accentRole, hue: primaryHue), hue: primaryHue,
             backgrounds: [backgroundTop, backgroundBottom], chip: chip
         )
-        let onAccent = legibleOnAccent(for: accent)
 
-        let secondHue = secondaryHue(for: signature, primary: primary)
-        let secondary = enforcedAccent(
-            roleColor(accentRole, hue: secondHue), hue: secondHue,
-            backgrounds: [backgroundTop, backgroundBottom], chip: chip
-        )
+        // Duotone promotion: a vivid counter-colour takes the accent role and
+        // the primary-hue accent moves to the secondary role. Without a
+        // promotable candidate, both roles keep their original construction.
+        let accent: ColorMetrics.RGB
+        let secondary: ColorMetrics.RGB
+        if let promoted = promotedAccent(
+            for: signature, primary: primary,
+            backgrounds: [backgroundTop, backgroundBottom], chip: chip)
+        {
+            accent = promoted
+            secondary = primaryAccent
+        } else {
+            accent = primaryAccent
+            let secondHue = secondaryHue(for: signature, primary: primary)
+            secondary = enforcedAccent(
+                roleColor(accentRole, hue: secondHue), hue: secondHue,
+                backgrounds: [backgroundTop, backgroundBottom], chip: chip
+            )
+        }
+        let onAccent = legibleOnAccent(for: accent)
 
         return Resolved(
             accent: accent,
@@ -170,9 +238,60 @@ nonisolated enum CoverThemeBuilder {
 
     // MARK: - Role construction
 
+    /// Hue for the dark scheme's background/chip ramp (see `amberBand`);
+    /// identity for the light scheme and for hues outside the band. The neutral
+    /// fallback ramp is not routed through here: it is near-grey by
+    /// construction (`neutralRampChroma` 0.010), so its hue carries no warmth
+    /// to correct.
+    private static func amberedRampHue(_ hue: Double, scheme: ColorScheme) -> Double {
+        guard scheme == .dark, amberBand.contains(hue) else { return hue }
+        let span = amberBand.upperBound - amberBand.lowerBound
+        let compression = (span - amberRotation) / span
+        return amberBand.lowerBound + (hue - amberBand.lowerBound) * compression
+    }
+
     private static func roleColor(_ role: (l: Double, c: Double), hue: Double) -> ColorMetrics.RGB {
         let c = OKLCH.clampedChroma(L: role.l, C: role.c, H: hue)
         return OKLCH.toSRGB(OKLCH.LCH(L: role.l, C: c, H: hue))
+    }
+
+    /// Scans non-primary candidates in weight order for one that can carry the
+    /// accent role with its identity intact: hue-distinct and vivid to be
+    /// eligible, then seeded from the cover's OWN observed L/C (not the
+    /// recipe's fixed lightness — forcing a neon through the bold seed's
+    /// L 0.57 yields olive) and contrast-enforced. A candidate whose enforced
+    /// result drifts past the identity gate is skipped, not clamped: the next
+    /// candidate gets a try, and with none left the caller keeps the
+    /// primary-hue accent. Floors hold by construction (`enforcedAccent`).
+    private static func promotedAccent(
+        for signature: CoverSignature,
+        primary: CoverSignature.HueCandidate,
+        backgrounds: [ColorMetrics.RGB],
+        chip: ColorMetrics.RGB
+    ) -> ColorMetrics.RGB? {
+        for candidate in signature.candidates.dropFirst() {
+            let delta = abs(candidate.hue - primary.hue)
+            let separation = min(delta, 360 - delta)
+            guard separation >= promotionHueSeparation,
+                candidate.chroma >= promotionChromaFloor,
+                candidate.weight >= primary.weight * promotionWeightShare
+            else { continue }
+
+            let seedChroma = OKLCH.clampedChroma(
+                L: candidate.lightness, C: candidate.chroma, H: candidate.hue)
+            let seed = OKLCH.toSRGB(
+                OKLCH.LCH(L: candidate.lightness, C: seedChroma, H: candidate.hue))
+            let enforced = enforcedAccent(
+                seed, hue: candidate.hue, backgrounds: backgrounds, chip: chip)
+
+            let lch = OKLCH.fromSRGB(enforced)
+            if abs(lch.L - candidate.lightness) <= promotionMaxLightnessDrift,
+                lch.C >= promotionMinChroma
+            {
+                return enforced
+            }
+        }
+        return nil
     }
 
     /// First candidate ≥60° (circular) from the primary with ≥15% of its

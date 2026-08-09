@@ -61,8 +61,10 @@ struct PlayerMoreMenuTests {
             "UnifiedTopHeader should no longer host the global settings menu."
         )
         #expect(
-            header.contains("model.selectedTab == .library") && header.contains("SleepTimerPill()"),
-            "UnifiedTopHeader should be limited to the Library folder chip and sleep-timer pill."
+            header.contains("model.selectedTab == .library") == false
+                && header.contains("Button(action: onFolderTap)")
+                && header.contains("SleepTimerPill()"),
+            "UnifiedTopHeader should always show the folder chip and sleep-timer pill."
         )
     }
 
@@ -118,7 +120,7 @@ struct PlayerMoreMenuTests {
             return "onShowChapters: onShowBookmarks: onSettings: onAddDocument: ChapterPickerSheet "
                 + ".fileImporter( companionDocumentTypes .pdf model.importPDFDocument(from: url) model.importEPUBDocument(from: url)"
         } else if fileName == "Components/UnifiedTopHeader.swift" {
-            return "model.selectedTab == .library SleepTimerPill()"
+            return "Button(action: onFolderTap) SleepTimerPill()"
         }
         throw CocoaError(.fileNoSuchFile)
     }

@@ -165,6 +165,18 @@ struct UnifiedChromeLayoutTests {
         )
     }
 
+    @Test func rootOwnsTheOnlyGlobalHeaderReservation() throws {
+        let root = try Self.source(named: "RootTabView.swift")
+        let reader = try Self.source(named: "ReaderTab.swift")
+        let nowPlaying = try Self.source(named: "NowPlayingTab.swift")
+        let shelf = try Self.source(named: "Library/LibraryShelfGrid.swift")
+
+        #expect(root.contains("Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)"))
+        #expect(reader.contains("UnifiedTopHeader.rowOneHeight") == false)
+        #expect(nowPlaying.contains("UnifiedTopHeader.rowOneHeight") == false)
+        #expect(shelf.contains("UnifiedTopHeader.rowOneHeight") == false)
+    }
+
     private static func source(named fileName: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

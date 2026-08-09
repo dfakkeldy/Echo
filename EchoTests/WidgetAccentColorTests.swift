@@ -54,4 +54,45 @@ import Testing
             ) == .systemTint
         )
     }
+
+    // MARK: - Background ramp
+
+    @Test("the ramp is taken only when both ends survive parsing")
+    func rampNeedsBothEnds() throws {
+        let top = try #require(HexRGB(hex: "#3A2A12"))
+        let bottom = try #require(HexRGB(hex: "#2C1F0D"))
+
+        #expect(
+            WidgetCoverRampPolicy.style(
+                topHex: "#3A2A12",
+                bottomHex: "#2C1F0D",
+                preservesExactCoverColor: true
+            ) == .ramp(top: top, bottom: bottom)
+        )
+
+        // A gradient built from one good hex and one fallback is not the
+        // cover's ramp, so a half-parsed pair yields the system backing.
+        for (topHex, bottomHex) in [
+            ("#GG0000", "#2C1F0D"), ("#3A2A12", "#GG0000"), (nil, "#2C1F0D"), ("#3A2A12", nil),
+        ] as [(String?, String?)] {
+            #expect(
+                WidgetCoverRampPolicy.style(
+                    topHex: topHex,
+                    bottomHex: bottomHex,
+                    preservesExactCoverColor: true
+                ) == .systemBacking
+            )
+        }
+    }
+
+    @Test("tinted and vibrant faces keep the system backing")
+    func rampYieldsOutsideFullColor() {
+        #expect(
+            WidgetCoverRampPolicy.style(
+                topHex: "#3A2A12",
+                bottomHex: "#2C1F0D",
+                preservesExactCoverColor: false
+            ) == .systemBacking
+        )
+    }
 }

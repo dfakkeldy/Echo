@@ -121,6 +121,8 @@
             s.watchDateFormat =
                 settings?.watchDateFormat ?? SettingsManager.Defaults.watchDateFormat
             s.artworkAccentColorHex = artworkAccentColorHex
+            s.coverRampTopHex = coverRampTopHex
+            s.coverRampBottomHex = coverRampBottomHex
 
             // Thumbnail availability
             s.hasThumbnail = watchThumbnailData != nil

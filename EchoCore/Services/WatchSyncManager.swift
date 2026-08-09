@@ -302,6 +302,7 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
             "linearBarMode", "linearBarHidden", "circularRingMode",
             "circularRingHidden", "watchArtworkLayout", "watchBackgroundStyle",
             "watchTitleScrollEnabled", "artworkAccentColorHex",
+            "coverRampTopHex", "coverRampBottomHex",
             "bookBoundaryFractions", "outputGainDB", "crownVolumeSensitivity",
         ]
 

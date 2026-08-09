@@ -223,6 +223,7 @@ final class PlayerLoadingCoordinator {
         clearBookAggregationState(state)
         state.durationSeconds = nil
         state.thumbnailImage = nil
+        state.sourceCoverSignature = nil
         artworkCoordinator?.invalidateCache()
         state.transcription = []
         state.enhancedTranscription = []
@@ -396,12 +397,10 @@ final class PlayerLoadingCoordinator {
             let previousDocumentPlaceholder =
                 previousSourceDocumentURL?.deletingPathExtension().lastPathComponent
             if !PlaylistManager.isDocumentFile(sourceURL)
-                || (
-                    persistedTitle.localizedStandardCompare(parentPlaceholder) != .orderedSame
-                        && previousDocumentPlaceholder.map {
-                            persistedTitle.localizedStandardCompare($0) != .orderedSame
-                        } ?? true
-                )
+                || (persistedTitle.localizedStandardCompare(parentPlaceholder) != .orderedSame
+                    && previousDocumentPlaceholder.map {
+                        persistedTitle.localizedStandardCompare($0) != .orderedSame
+                    } ?? true)
             {
                 return persistedTitle
             }
@@ -764,6 +763,7 @@ final class PlayerLoadingCoordinator {
         transcriptService: TranscriptService
     ) {
         state.thumbnailImage = nil
+        state.sourceCoverSignature = nil
         state.chapters = []
         state.currentChapterIndex = nil
         state.transcription = []
@@ -993,9 +993,11 @@ enum PlaylistSelectionResolver {
             if url.pathExtension.lowercased() == "m4b" {
                 return Result(
                     isDirectory: false,
-                    tracks: [Track(
-                        url: url,
-                        title: url.deletingPathExtension().lastPathComponent)],
+                    tracks: [
+                        Track(
+                            url: url,
+                            title: url.deletingPathExtension().lastPathComponent)
+                    ],
                     preferredTrackURL: nil)
             }
 

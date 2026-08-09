@@ -5,28 +5,6 @@ import Observation
 import UIKit
 import os.log
 
-private nonisolated final class ObserverTokenBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var token: (any NSObjectProtocol)?
-
-    func set(_ newToken: any NSObjectProtocol) {
-        lock.lock()
-        defer { lock.unlock() }
-        token = newToken
-    }
-
-    func removeObserver() {
-        lock.lock()
-        let currentToken = token
-        token = nil
-        lock.unlock()
-
-        if let currentToken {
-            NotificationCenter.default.removeObserver(currentToken)
-        }
-    }
-}
-
 struct SourceAnchoredCardTriggerSummary: Equatable, Sendable {
     var activeBlockID: String?
     var candidateCount: Int
@@ -192,9 +170,6 @@ final class ReaderFeedViewModel {
             || sessionScope != .wholeBook
     }
 
-    /// Retains the timeline observer so it can be removed from nonisolated `deinit`.
-    @ObservationIgnored private nonisolated let timelineObserverToken = ObserverTokenBox()
-
     init(audiobookID: String, db: DatabaseWriter, playlistFolderURL: URL? = nil) {
         self.audiobookID = audiobookID
         self.blockDAO = EPubBlockDAO(db: db)
@@ -207,20 +182,6 @@ final class ReaderFeedViewModel {
         self.playlistFolderURL = playlistFolderURL
         self.offResolver = OffStateResolver(db: db, folderURL: playlistFolderURL)
         self.db = db
-        timelineObserverToken.set(
-            NotificationCenter.default.addObserver(
-                forName: .timelineItemsIngested,
-                object: nil, queue: .main
-            ) { [weak self] _ in
-                guard let viewModel = self else { return }
-                Task { @MainActor in
-                    viewModel.reload()
-                }
-            })
-    }
-
-    deinit {
-        timelineObserverToken.removeObserver()
     }
 
     /// Load blocks from the database and build the card array.
@@ -1013,6 +974,35 @@ final class ReaderFeedViewModel {
         audioStartTimeByBlockID = gatedStart
     }
 
+    /// Reloads durable blocks/timing and immediately resolves the spoken text.
+    /// Reader recreation uses this while paused, when no playback tick is
+    /// available to populate `activeBlockID` or `activeWord` afterward.
+    func reloadAndResolveActiveBlock(
+        time: TimeInterval,
+        currentTrackSegmentKey: String? = nil,
+        currentTrackChapterIndices: Set<Int>?,
+        isPlaying: Bool = false,
+        allowsPlaybackFollowing: Bool = true,
+        restoringOpenChapterKey: Int? = nil
+    ) {
+        reload()
+        updateActiveBlock(
+            time: time,
+            currentTrackSegmentKey: currentTrackSegmentKey,
+            currentTrackChapterIndices: currentTrackChapterIndices,
+            isPlaying: isPlaying,
+            allowsPlaybackFollowing: allowsPlaybackFollowing
+        )
+        restoreOpenChapter(restoringOpenChapterKey)
+    }
+
+    private func restoreOpenChapter(_ chapterKey: Int?) {
+        guard let chapterKey,
+            chapterGroups.contains(where: { $0.chapterKey == chapterKey })
+        else { return }
+        expandChapter(chapterKey)
+    }
+
     /// Update the active block based on the current playback position, scoped to
     /// the currently-playing track.
     ///
@@ -1025,7 +1015,8 @@ final class ReaderFeedViewModel {
         time: TimeInterval,
         currentTrackSegmentKey: String? = nil,
         currentTrackChapterIndices: Set<Int>?,
-        isPlaying: Bool = false
+        isPlaying: Bool = false,
+        allowsPlaybackFollowing: Bool = true
     ) {
         if currentTrackScope != currentTrackChapterIndices {
             applyTrackScope(currentTrackChapterIndices)
@@ -1058,7 +1049,7 @@ final class ReaderFeedViewModel {
         // Auto-expand the chapter being played — but only WHILE PLAYING (so a
         // fresh/resumed-but-paused book stays a collapsed TOC) and only on a real
         // chapter transition (so a manual collapse within the same chapter sticks).
-        if isPlaying {
+        if isPlaying && allowsPlaybackFollowing {
             let playingChapterKey = foundBlockID.flatMap { chapterIndexByBlockID[$0] ?? nil }
             let nextOpen = FeedAccordion.autoExpand(
                 current: openChapterKey, playingChapterKey: playingChapterKey,

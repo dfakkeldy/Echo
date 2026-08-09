@@ -53,6 +53,20 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         return Color(hex: hex)
     }
 
+    var coverRampTopHex: String? = nil
+    var coverRampBottomHex: String? = nil
+
+    /// The cover's room, for surfaces that would otherwise be flat black. Nil
+    /// for a neutral cover or before the first state reply lands, so callers
+    /// keep the black they already had — on an OLED watch that costs no power
+    /// and is the right answer, not a placeholder.
+    var coverRampGradient: LinearGradient? {
+        guard let top = coverRampTopHex.flatMap({ Color(hex: $0) }),
+            let bottom = coverRampBottomHex.flatMap({ Color(hex: $0) })
+        else { return nil }
+        return LinearGradient(colors: [top, bottom], startPoint: .top, endPoint: .bottom)
+    }
+
     var isPlaying: Bool = false
     var title: String = "No track selected"
     var thumbnailImage: UIImage? = nil
@@ -389,6 +403,8 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         }
 
         artworkAccentColorHex = defaults.string(forKey: "artworkAccentColorHex")
+        coverRampTopHex = defaults.string(forKey: "coverRampTopHex")
+        coverRampBottomHex = defaults.string(forKey: "coverRampBottomHex")
         let storedPomDuration = defaults.double(forKey: "pomodoroDuration")
         pomodoroDuration = storedPomDuration > 0 ? storedPomDuration : (25 * 60)
         pomodoroRemaining = pomodoroDuration
@@ -538,6 +554,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             currentIsPlaying: isPlaying,
             currentTrackId: trackId,
             currentAccentHex: artworkAccentColorHex,
+            currentRampTopHex: coverRampTopHex,
             hasCachedThumbnail: thumbnailImage != nil
                 || defaults.data(forKey: "thumbnailData") != nil)
 
@@ -769,6 +786,34 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             } else if state["trackId"] != nil, self.trackId != previousTrackId {
                 self.artworkAccentColorHex = nil
                 self.defaults.removeObject(forKey: "artworkAccentColorHex")
+            }
+            // The ramp ends follow the accent's contract exactly: an empty
+            // string is an explicit clear, and a track change without the key
+            // drops the previous book's room rather than leaving it behind the
+            // new one.
+            if let topHex = state["coverRampTopHex"] as? String {
+                if topHex.isEmpty {
+                    self.coverRampTopHex = nil
+                    self.defaults.removeObject(forKey: "coverRampTopHex")
+                } else {
+                    self.coverRampTopHex = topHex
+                    self.defaults.set(topHex, forKey: "coverRampTopHex")
+                }
+            } else if state["trackId"] != nil, self.trackId != previousTrackId {
+                self.coverRampTopHex = nil
+                self.defaults.removeObject(forKey: "coverRampTopHex")
+            }
+            if let bottomHex = state["coverRampBottomHex"] as? String {
+                if bottomHex.isEmpty {
+                    self.coverRampBottomHex = nil
+                    self.defaults.removeObject(forKey: "coverRampBottomHex")
+                } else {
+                    self.coverRampBottomHex = bottomHex
+                    self.defaults.set(bottomHex, forKey: "coverRampBottomHex")
+                }
+            } else if state["trackId"] != nil, self.trackId != previousTrackId {
+                self.coverRampBottomHex = nil
+                self.defaults.removeObject(forKey: "coverRampBottomHex")
             }
             if let wordCloudJSON = state["wordCloudJSON"] as? String,
                 let jsonData = wordCloudJSON.data(using: .utf8),
