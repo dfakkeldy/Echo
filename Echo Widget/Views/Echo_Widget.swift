@@ -10,7 +10,8 @@ struct Provider: TimelineProvider {
     func placeholder(in context: Context) -> SimpleEntry {
         SimpleEntry(
             date: Date(), title: "Book Title", isPlaying: false, progressFraction: 0.3,
-            thumbnailData: nil, artworkAccentColorHex: "#FF8000")
+            thumbnailData: nil, artworkAccentColorHex: "#FF8000",
+            coverRampTopHex: "#3A2A12", coverRampBottomHex: "#2C1F0D")
     }
 
     // Helper to ensure image data isn't too large for the widget
@@ -45,7 +46,9 @@ struct Provider: TimelineProvider {
 
         return SimpleEntry(
             date: Date(), title: title, isPlaying: isPlaying, progressFraction: progressFraction,
-            thumbnailData: thumbnailData, artworkAccentColorHex: artworkAccentColorHex)
+            thumbnailData: thumbnailData, artworkAccentColorHex: artworkAccentColorHex,
+            coverRampTopHex: defaults.string(forKey: "coverRampTopHex"),
+            coverRampBottomHex: defaults.string(forKey: "coverRampBottomHex"))
     }
 
     func getSnapshot(in context: Context, completion: @escaping (SimpleEntry) -> Void) {
@@ -67,6 +70,10 @@ struct SimpleEntry: TimelineEntry {
     let progressFraction: Double
     let thumbnailData: Data?
     let artworkAccentColorHex: String?
+    /// Ends of the cover ramp, written into the app group by the Watch app when
+    /// a state reply lands. Nil for a neutral cover.
+    let coverRampTopHex: String?
+    let coverRampBottomHex: String?
 
     var relevance: TimelineEntryRelevance? {
         TimelineEntryRelevance(score: isPlaying ? 100.0 : 0.0)

@@ -352,6 +352,11 @@ final class PlayerModel {
     @ObservationIgnored private var cachedThemeVersion: Int = -1
     @ObservationIgnored private var cachedThemeScheme: ColorScheme = .light
 
+    // The Watch's roles need no scheme in the cache key: they are always
+    // resolved dark, so unlike `cachedTheme` they survive a light/dark switch.
+    @ObservationIgnored private var cachedWatchRoles: CoverThemeBuilder.Resolved?
+    @ObservationIgnored private var cachedWatchRolesVersion: Int = -1
+
     /// One cached signature for the current cover. Base artwork prefers the
     /// signature extracted from the SOURCE cover at load time
     /// (`PlaybackState.sourceCoverSignature`): the displayed images are the
@@ -425,21 +430,48 @@ final class PlayerModel {
         }
     }
 
-    /// Accent hex for the Watch, built with the DARK recipe — Watch surfaces
+    /// Cover roles for the Watch, built with the DARK recipe — Watch surfaces
     /// are always dark regardless of the phone's scheme.
-    var artworkAccentColorHex: String? {
-        guard let signature = currentSignature, !signature.isNeutral else { return nil }
-        let resolved = CoverThemeBuilder.resolve(
-            signature,
-            scheme: .dark,
-            brand: ColorMetrics.rgb(Color.accentColor)
-        )
-        let a = resolved.accent
-        return String(
+    ///
+    /// Nil for a neutral cover, which keeps the Watch on flat black rather than
+    /// trading it for the near-grey neutral room: on an OLED watch face black
+    /// costs no power and says the same nothing more cheaply.
+    /// Cached like `coverTheme` is: all three hexes below read this, and
+    /// `watchStateContext()` reads all three on every progress tick, so an
+    /// uncached resolve would run the OKLCH work three times a second on the
+    /// main actor for a cover that has not changed.
+    private var watchCoverRoles: CoverThemeBuilder.Resolved? {
+        let version = currentDisplayArtworkVersion
+        if version == cachedWatchRolesVersion { return cachedWatchRoles }
+
+        let roles: CoverThemeBuilder.Resolved? =
+            if let signature = currentSignature, !signature.isNeutral {
+                CoverThemeBuilder.resolve(
+                    signature,
+                    scheme: .dark,
+                    brand: ColorMetrics.rgb(Color.accentColor)
+                )
+            } else {
+                nil
+            }
+        cachedWatchRoles = roles
+        cachedWatchRolesVersion = version
+        return roles
+    }
+
+    var artworkAccentColorHex: String? { watchCoverRoles.map { Self.hex($0.accent) } }
+
+    /// Ends of the Watch's background ramp. They ride the same state replies as
+    /// the accent — three short strings, never image data (PR #521).
+    var coverRampTopHex: String? { watchCoverRoles.map { Self.hex($0.backgroundTop) } }
+    var coverRampBottomHex: String? { watchCoverRoles.map { Self.hex($0.backgroundBottom) } }
+
+    private static func hex(_ c: ColorMetrics.RGB) -> String {
+        String(
             format: "#%02X%02X%02X",
-            Int((a.r * 255).rounded()),
-            Int((a.g * 255).rounded()),
-            Int((a.b * 255).rounded()))
+            Int((c.r * 255).rounded()),
+            Int((c.g * 255).rounded()),
+            Int((c.b * 255).rounded()))
     }
 
     // MARK: - Chapters (pass-through to PlaybackState)

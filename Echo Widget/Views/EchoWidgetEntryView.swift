@@ -6,6 +6,7 @@ struct Echo_WidgetEntryView: View {
     let entry: SimpleEntry
 
     @Environment(\.widgetFamily) private var widgetFamily
+    @Environment(\.widgetRenderingMode) private var renderingMode
 
     var body: some View {
         Group {
@@ -15,11 +16,34 @@ struct Echo_WidgetEntryView: View {
                 EchoCircularWidgetView(entry: entry)
             }
         }
-        .containerBackground(.fill.tertiary, for: .widget)
+        .containerBackground(for: .widget) { coverRamp }
         .widgetURL(URL(string: "echoaudio://play"))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(entry.title)
         .accessibilityValue(entry.accessibilityValue)
+    }
+
+    /// The cover's room behind the complication, falling back to the container
+    /// backing the system already calibrates for the face it is drawn on.
+    @ViewBuilder
+    private var coverRamp: some View {
+        switch WidgetCoverRampPolicy.style(
+            topHex: entry.coverRampTopHex,
+            bottomHex: entry.coverRampBottomHex,
+            preservesExactCoverColor: renderingMode == .fullColor
+        ) {
+        case .systemBacking:
+            Rectangle().fill(.fill.tertiary)
+        case .ramp(let top, let bottom):
+            LinearGradient(
+                colors: [
+                    Color(red: top.red, green: top.green, blue: top.blue),
+                    Color(red: bottom.red, green: bottom.green, blue: bottom.blue),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
     }
 }
 
