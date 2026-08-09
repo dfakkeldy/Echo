@@ -16,6 +16,23 @@ cd /Users/dfakkeldy/Developer/Echo/.claude/worktrees/great-heisenberg-47ce71  # 
 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
+## 2026-08-08 — simulator pass: promotion VERIFIED on-device
+
+Done: purple+neon m4b in iPhone 17 sim — dark player = purple room + neon
+accent `#C3ED2C`-ish (promotion fires); light player = lavender + purple accent
+(drift gate refuses neon). Seeding route: File Provider Storage + in-app folder
+picker; appAppearance lives in the app CONTAINER plist (device-level `defaults
+write` is ignored).
+FINDING: extraction runs on the ThumbnailRenderer square composite
+(`currentDisplayArtwork`), not the raw cover — blur+margins dilute small
+counter-colours (geode vein share 6.9%→4.6%, under the 5% floor → no promotion
+for photographic duotones with small accents). Fix = compute CoverSignature
+from the SOURCE artwork at load time; separate change.
+TRAP: install sim builds from the DerivedData whose info.plist WorkspacePath
+matches THIS worktree (`Echo-dpekmwydszdpzycupaorwkjtywyt`) — newest-mtime
+picked a Codex worktree's stale binary and promotion "didn't work".
+Next: PR to nightly; then the extraction-source follow-up.
+
 ## 2026-08-08 — build gate green (user-requested off-hours run)
 
 Done: slot-wrapped `make build-tests` + `make test-only
