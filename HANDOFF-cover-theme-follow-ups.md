@@ -67,3 +67,26 @@ WatchWidgetPresentationSource 6/6, full `make test` SUCCEEDED). Confirm the
 Echo Watch App scheme, then push and open a PR to nightly. Device QA: both
 Dan's iPhone and Dan's Apple Watch are paired and reachable via devicectl.
 ```
+
+## 2026-08-09 — item 3 open and green; phone install done
+
+Done: rebased onto `nightly` (which now carries #528), so the branch is items
+1+2+3 in one line. **PR #529** open to `nightly`, `Build gate + tests` SUCCESS.
+Local gates: full `make test` SUCCEEDED; `Echo Watch App` scheme 25/25
+(`xcresulttool` `result: Passed`) — read the RESULT BUNDLE, never the log, as
+xcodebuild's own line says `Executed 0 tests` for a green Swift Testing run.
+Debug build of `3bcb90eb` installed and launched on Dan's iPhone; the watch app
+and complication are embedded in that bundle (`Embed Watch Content`,
+`platformFilter = ios`) but propagation to the Series 11 is UNCONFIRMED — the
+watch would not hold a devicectl tunnel (Bluetooth pairing timeout).
+Next: human device acceptance. Nothing is blocked on code.
+Resume:
+
+```
+Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/distracted-yalow-ad102f,
+branch feature/cover-theme-watch-ramp. PR #529 is open and CI-green; it is
+Dan's to merge. Only device acceptance remains: does the amber rotation fix the
+murky-brown rooms, do the player sheets keep the wash, and does the watch
+player show the ramp instead of black before artwork arrives. Delete this
+handoff file in the PR that closes the task.
+```
