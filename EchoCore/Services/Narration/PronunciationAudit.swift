@@ -446,11 +446,17 @@ nonisolated enum PronunciationAuditCoverage: String, Codable, Equatable, Sendabl
     case incompleteEvidence
 }
 
+nonisolated struct PronunciationBlockVoiceProvenance: Equatable, Sendable {
+    let voicePlanSHA256: String
+    let blockVoices: [String: VoiceID]
+}
+
 /// Schema-versioned local receipt for every pronunciation choice used by one
 /// completed narration render. File references deliberately contain names only:
 /// the manifest can move with its sibling audiobook without leaking a local path.
 nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
     static let currentSchemaVersion = 6
+    static let planSchemaVersion = 7
 
     let schemaVersion: Int
     let renderVersion: Int
@@ -458,6 +464,8 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
     /// Complete raw EPUB chapter-index to voice mapping for mixed-voice runs.
     /// Empty only for legacy/internal callers that do not supply chapter provenance.
     let chapterVoices: [String: String]
+    let voicePlanSHA256: String?
+    let blockVoices: [String: String]?
     let coverage: PronunciationAuditCoverage
     let legacyChapterIndexes: [Int]
     let audiobookFileName: String
@@ -474,6 +482,29 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
         renderVersion: Int,
         voice: VoiceID,
         chapterVoices: [Int: VoiceID] = [:],
+        captureCoverage: PronunciationAuditCoverage,
+        legacyChapterIndexes: [Int],
+        audiobookURL: URL,
+        reelURL: URL?,
+        audiobookSHA256: String,
+        listeningReelSHA256: String?,
+        watchWords: [String],
+        decisions: [PronunciationAuditDecision],
+        diagnostics: [PronunciationAuditDiagnostic]
+    ) -> PronunciationAuditManifest {
+        make(
+            renderVersion: renderVersion, voice: voice, chapterVoices: chapterVoices,
+            blockVoiceProvenance: nil, captureCoverage: captureCoverage,
+            legacyChapterIndexes: legacyChapterIndexes, audiobookURL: audiobookURL, reelURL: reelURL,
+            audiobookSHA256: audiobookSHA256, listeningReelSHA256: listeningReelSHA256,
+            watchWords: watchWords, decisions: decisions, diagnostics: diagnostics)
+    }
+
+    static func make(
+        renderVersion: Int,
+        voice: VoiceID,
+        chapterVoices: [Int: VoiceID] = [:],
+        blockVoiceProvenance: PronunciationBlockVoiceProvenance?,
         captureCoverage: PronunciationAuditCoverage,
         legacyChapterIndexes: [Int],
         audiobookURL: URL,
@@ -508,14 +539,26 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
             effectiveCoverage = .complete
         }
 
+        let resolvedBlockVoices = blockVoiceProvenance.map { provenance in
+            Dictionary(uniqueKeysWithValues: provenance.blockVoices.map { ($0.key, $0.value.rawValue) })
+        }
+        let resolvedVoice: String
+        if let resolvedBlockVoices {
+            let distinctVoices = Set(resolvedBlockVoices.values)
+            resolvedVoice = distinctVoices.count == 1 ? distinctVoices.first ?? voice.rawValue : "mixed"
+        } else {
+            resolvedVoice = voice.rawValue
+        }
+
         return PronunciationAuditManifest(
-            schemaVersion: currentSchemaVersion,
+            schemaVersion: blockVoiceProvenance == nil ? currentSchemaVersion : planSchemaVersion,
             renderVersion: renderVersion,
-            voice: voice.rawValue,
-            chapterVoices: Dictionary(
-                uniqueKeysWithValues: chapterVoices.map {
-                    (String($0.key), $0.value.rawValue)
-                }),
+            voice: resolvedVoice,
+            chapterVoices: blockVoiceProvenance == nil
+                ? Dictionary(uniqueKeysWithValues: chapterVoices.map { (String($0.key), $0.value.rawValue) })
+                : [:],
+            voicePlanSHA256: blockVoiceProvenance?.voicePlanSHA256,
+            blockVoices: resolvedBlockVoices,
             coverage: effectiveCoverage,
             legacyChapterIndexes: normalizedLegacyChapterIndexes,
             audiobookFileName: audiobookURL.lastPathComponent,
@@ -570,10 +613,46 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
     }
 
     private func validateFields() throws {
-        guard (3...Self.currentSchemaVersion).contains(schemaVersion) else {
+        guard (3...Self.planSchemaVersion).contains(schemaVersion) else {
             throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
                 "unsupported pronunciation-audit schema \(schemaVersion)")
         }
+        if schemaVersion == Self.planSchemaVersion {
+            guard let voicePlanSHA256, let blockVoices, !blockVoices.isEmpty else {
+                throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                    "plan pronunciation audit requires complete block voice provenance")
+            }
+            guard chapterVoices.isEmpty else {
+                throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                    "plan pronunciation audit cannot contain chapter voices")
+            }
+            guard PronunciationArtifactIntegrity.isLowercaseSHA256(voicePlanSHA256) else {
+                throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                    "voice-plan SHA-256 is not 64 lowercase hexadecimal characters")
+            }
+            for (blockID, blockVoice) in blockVoices {
+                guard Self.isPortableBlockID(blockID),
+                    VoiceCatalog.voice(for: VoiceID(blockVoice)) != nil
+                else {
+                    throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                        "plan pronunciation audit contains an invalid block voice")
+                }
+            }
+            let voices = Set(blockVoices.values)
+            let expectedVoice = voices.count == 1 ? voices.first! : "mixed"
+            guard voice == expectedVoice else {
+                throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                    "plan pronunciation audit disagrees with block voices")
+            }
+            for decision in decisions where blockVoices[decision.blockID] == nil {
+                throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                    "pronunciation decision references a block absent from the voice plan")
+            }
+        } else {
+            guard voicePlanSHA256 == nil, blockVoices == nil else {
+                throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                    "legacy pronunciation audit cannot contain block voice provenance")
+            }
         for (chapterIndex, chapterVoice) in chapterVoices {
             guard let parsedIndex = Int(chapterIndex),
                 parsedIndex >= 0,
@@ -598,6 +677,7 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
         else {
             throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
                 "uniform pronunciation audit disagrees with chapter voices")
+        }
         }
         guard PronunciationArtifactIntegrity.isLowercaseSHA256(audiobookSHA256) else {
             throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
@@ -655,7 +735,7 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
                 switch schemaVersion {
                 case 5:
                     isValidEvidence = evidence.isValidLegacySchemaFive(for: decision)
-                case Self.currentSchemaVersion:
+                case Self.currentSchemaVersion, Self.planSchemaVersion:
                     isValidEvidence = evidence.isValid(for: decision)
                 default:
                     isValidEvidence = true
@@ -672,7 +752,7 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
                     hasValidReceipt =
                         decision.advisoryEvidence?
                         .isValidLegacySchemaFive(for: decision) == true
-                case Self.currentSchemaVersion:
+                case Self.currentSchemaVersion, Self.planSchemaVersion:
                     hasValidReceipt = decision.isEvidenceOnlyInvalidOutputAdvisory
                 default:
                     hasValidReceipt = true
@@ -709,6 +789,16 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
         return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private static func isPortableBlockID(_ value: String) -> Bool {
+        let components = value.split(separator: "-", omittingEmptySubsequences: false)
+        guard components.count == 2,
+            components[0].first == "s", components[1].first == "b"
+        else { return false }
+        return components[0].dropFirst().allSatisfy(\.isNumber)
+            && components[1].dropFirst().allSatisfy(\.isNumber)
+            && components[0].count > 1 && components[1].count > 1
+    }
+
     /// Writes through a unique sibling, then atomically promotes it over the
     /// prior receipt so readers never observe a partially encoded manifest.
     func write(to destinationURL: URL, fileManager: FileManager = .default) throws {
@@ -733,6 +823,8 @@ extension PronunciationAuditManifest {
         case renderVersion
         case voice
         case chapterVoices
+        case voicePlanSHA256
+        case blockVoices
         case coverage
         case legacyChapterIndexes
         case audiobookFileName
@@ -818,7 +910,7 @@ extension PronunciationAuditManifest {
     nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
-        guard (3...Self.currentSchemaVersion).contains(schemaVersion) else {
+        guard (3...Self.planSchemaVersion).contains(schemaVersion) else {
             throw DecodingError.dataCorruptedError(
                 forKey: .schemaVersion,
                 in: container,
@@ -835,6 +927,8 @@ extension PronunciationAuditManifest {
         chapterVoices = try container.decode(
             [String: String].self,
             forKey: .chapterVoices)
+        voicePlanSHA256 = try container.decodeIfPresent(String.self, forKey: .voicePlanSHA256)
+        blockVoices = try container.decodeIfPresent([String: String].self, forKey: .blockVoices)
         legacyChapterIndexes = try container.decode(
             [Int].self,
             forKey: .legacyChapterIndexes)
@@ -883,10 +977,14 @@ extension PronunciationAuditManifest {
     nonisolated func encode(to encoder: Encoder) throws {
         try currentSchemaEncodingProjection().validateFields()
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(Self.currentSchemaVersion, forKey: .schemaVersion)
+        try container.encode(
+            voicePlanSHA256 == nil ? Self.currentSchemaVersion : Self.planSchemaVersion,
+            forKey: .schemaVersion)
         try container.encode(renderVersion, forKey: .renderVersion)
         try container.encode(voice, forKey: .voice)
         try container.encode(chapterVoices, forKey: .chapterVoices)
+        try container.encodeIfPresent(voicePlanSHA256, forKey: .voicePlanSHA256)
+        try container.encodeIfPresent(blockVoices, forKey: .blockVoices)
         try container.encode(coverage, forKey: .coverage)
         try container.encode(legacyChapterIndexes, forKey: .legacyChapterIndexes)
         try container.encode(audiobookFileName, forKey: .audiobookFileName)
@@ -906,10 +1004,12 @@ extension PronunciationAuditManifest {
     /// current-schema projection before making that claim for a legacy receipt.
     nonisolated private func currentSchemaEncodingProjection() -> PronunciationAuditManifest {
         PronunciationAuditManifest(
-            schemaVersion: Self.currentSchemaVersion,
+            schemaVersion: voicePlanSHA256 == nil ? Self.currentSchemaVersion : Self.planSchemaVersion,
             renderVersion: renderVersion,
             voice: voice,
             chapterVoices: chapterVoices,
+            voicePlanSHA256: voicePlanSHA256,
+            blockVoices: blockVoices,
             coverage: coverage,
             legacyChapterIndexes: legacyChapterIndexes,
             audiobookFileName: audiobookFileName,

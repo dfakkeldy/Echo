@@ -498,6 +498,51 @@ import ZIPFoundation
         }
     }
 
+    @Test func planRunSuppliesEveryResolvedBlockVoiceToTheAuditRequest() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let expanded = try TestEPUBFixture.twoChapters(in: tmp)
+        let epub = tmp.appendingPathComponent("fixture.epub")
+        try FileManager.default.zipItem(at: expanded, to: epub, shouldKeepParent: false)
+        let sourceSHA = try HeadlessNarrationRunner.fileSHA256(at: epub)
+        let planURL = tmp.appendingPathComponent("fixture.voice-plan.json")
+        try Data(
+            """
+            {"schemaVersion":1,"source":{"epubSHA256":"\(sourceSHA)"},"defaultSpeakerID":"narrator","speakers":[{"id":"narrator","voiceID":"af_heart"},{"id":"mara","voiceID":"bf_emma"}],"assignments":[{"speakerID":"mara","blocks":["s0-b0"]}]}
+            """.utf8).write(to: planURL)
+        let resolved = try HeadlessNarrationRunner.resolveVoicePlan(
+            epubURL: epub, voicePlanURL: planURL)
+        let config = NarrationRunConfig(
+            epubURL: epub,
+            outM4BURL: tmp.appendingPathComponent("voice-plan.m4b"),
+            sidecarURL: nil,
+            workDir: tmp.appendingPathComponent("voice-plan-work"),
+            voice: nil,
+            voicePlanURL: planURL,
+            title: "Fixture",
+            author: "Echo",
+            maxNewChaptersPerRun: nil)
+        var capturedRequest: PronunciationReviewRequest?
+
+        let result = try await HeadlessNarrationRunner().run(
+            config,
+            tts: StubEngine(),
+            reviewGenerator: { request in
+                capturedRequest = request
+                return .auditOnly(auditURL: request.auditURL)
+            })
+
+        let request = try #require(capturedRequest)
+        let provenance = try #require(request.blockVoiceProvenance)
+        #expect(result.complete)
+        #expect(provenance.voicePlanSHA256 == resolved.voicePlanSHA256)
+        #expect(provenance.blockVoices == Dictionary(
+            uniqueKeysWithValues: resolved.blocks.map { ($0.blockID, $0.voiceID) }))
+    }
+
     @Test func planWithPDFFailsBeforeFreshCleanup() async throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
             UUID().uuidString, isDirectory: true)

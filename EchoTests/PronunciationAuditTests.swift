@@ -307,6 +307,92 @@ import Testing
         #expect(throws: Never.self) { _ = try manifest.encoded() }
     }
 
+    @Test func planManifestBindsCompleteBlockVoiceProvenance() throws {
+        let audiobookSHA256 = String(repeating: "a", count: 64)
+        let reelSHA256 = String(repeating: "b", count: 64)
+        let provenance = PronunciationBlockVoiceProvenance(
+            voicePlanSHA256: String(repeating: "c", count: 64),
+            blockVoices: [
+                "s0-b1": VoiceID("bf_emma"),
+                "s0-b0": VoiceID("am_michael"),
+            ])
+        let manifest = PronunciationAuditManifest.make(
+            renderVersion: 15,
+            voice: VoiceID("am_michael"),
+            chapterVoices: [:],
+            blockVoiceProvenance: provenance,
+            captureCoverage: .complete,
+            legacyChapterIndexes: [],
+            audiobookURL: URL(fileURLWithPath: "/tmp/voice-plan.m4b"),
+            reelURL: URL(fileURLWithPath: "/tmp/voice-plan.pronunciation-reel.m4b"),
+            audiobookSHA256: audiobookSHA256,
+            listeningReelSHA256: reelSHA256,
+            watchWords: [],
+            decisions: [],
+            diagnostics: [])
+
+        #expect(manifest.schemaVersion == 7)
+        #expect(manifest.voice == "mixed")
+        #expect(manifest.chapterVoices.isEmpty)
+        #expect(manifest.voicePlanSHA256 == provenance.voicePlanSHA256)
+        #expect(manifest.blockVoices == ["s0-b0": "am_michael", "s0-b1": "bf_emma"])
+        #expect(manifest.audiobookSHA256 == audiobookSHA256)
+        #expect(manifest.listeningReelSHA256 == reelSHA256)
+
+        let encoded = try String(decoding: manifest.encoded(), as: UTF8.self)
+        let firstBlock = #require(encoded.range(of: "\"s0-b0\""))
+        let secondBlock = #require(encoded.range(of: "\"s0-b1\""))
+        #expect(firstBlock.lowerBound < secondBlock.lowerBound)
+    }
+
+    @Test func planManifestRejectsIncompleteOrInvalidBlockVoiceProvenance() throws {
+        let provenance = PronunciationBlockVoiceProvenance(
+            voicePlanSHA256: String(repeating: "c", count: 64),
+            blockVoices: ["s0-b0": VoiceID("am_michael")])
+        let manifest = PronunciationAuditManifest.make(
+            renderVersion: 15,
+            voice: VoiceID("am_michael"),
+            blockVoiceProvenance: provenance,
+            captureCoverage: .complete,
+            legacyChapterIndexes: [],
+            audiobookURL: URL(fileURLWithPath: "/tmp/voice-plan.m4b"),
+            reelURL: nil,
+            audiobookSHA256: String(repeating: "a", count: 64),
+            listeningReelSHA256: nil,
+            watchWords: [],
+            decisions: [],
+            diagnostics: [])
+        let validObject = #require(
+            JSONSerialization.jsonObject(with: manifest.encoded()) as? [String: Any])
+
+        let invalidObjects: [[String: Any]] = [
+            validObject.merging(["voicePlanSHA256": NSNull()]) { _, new in new },
+            validObject.merging(["blockVoices": NSNull()]) { _, new in new },
+            validObject.merging(["voicePlanSHA256": "not-a-sha256"]) { _, new in new },
+            validObject.merging(["blockVoices": ["s0-b0": "not_a_voice"]]) { _, new in new },
+            validObject.merging(["blockVoices": ["not-a-portable-block": "am_michael"]]) {
+                _, new in new
+            },
+        ]
+
+        for object in invalidObjects {
+            let data = try JSONSerialization.data(withJSONObject: object)
+            #expect(throws: (any Error).self) {
+                _ = try JSONDecoder().decode(PronunciationAuditManifest.self, from: data)
+            }
+        }
+
+        let absentBlockDecision = decision(
+            word: "mara", ruleID: "g2p.lexicon.mara", chapterIndex: 1)
+        let objectWithAbsentDecision = validObject.merging(
+            ["decisions": try JSONSerialization.jsonObject(with: JSONEncoder().encode([absentBlockDecision]))]
+        ) { _, new in new }
+        let absentDecisionData = try JSONSerialization.data(withJSONObject: objectWithAbsentDecision)
+        #expect(throws: (any Error).self) {
+            _ = try JSONDecoder().decode(PronunciationAuditManifest.self, from: absentDecisionData)
+        }
+    }
+
     @Test func manifestRejectsMalformedChapterVoiceProvenance() throws {
         let valid = PronunciationAuditManifest.make(
             renderVersion: 15,

@@ -1867,7 +1867,15 @@ struct NarrationRunResult {
                         reelURL: reelURL,
                         renderVersion: NarrationFileNaming.renderVersion,
                         voice: uniformVoice ?? VoiceID("mixed"),
-                        chapterVoices: voiceByChapterIndex,
+                        chapterVoices: resolvedVoicePlan == nil ? voiceByChapterIndex : [:],
+                        blockVoiceProvenance: resolvedVoicePlan.map { plan in
+                            PronunciationBlockVoiceProvenance(
+                                voicePlanSHA256: plan.voicePlanSHA256,
+                                blockVoices: Dictionary(
+                                    uniqueKeysWithValues: plan.blocks.map {
+                                        ($0.blockID, $0.voiceID)
+                                    }))
+                        },
                         captureCoverage: pronunciationEvidence.coverage,
                         legacyChapterIndexes: pronunciationEvidence.legacyChapterIndexes,
                         decisions: pronunciationEvidence.decisions,
