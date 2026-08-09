@@ -164,7 +164,7 @@ struct BookSettingsView: View {
     @State private var readAlongStatus: String?
 
     var body: some View {
-        NavigationStack {
+        CoverThemedSheet(theme: model.coverTheme) {
             Form {
                 Section("Study") {
                     Button("Study Plan", systemImage: "rectangle.stack.badge.play") {
@@ -329,7 +329,8 @@ struct BookSettingsView: View {
                     if qaModel.hasPronunciationReviewIssues {
                         Label(
                             "Pronunciation review available",
-                            systemImage: "textformat.abc")
+                            systemImage: "textformat.abc"
+                        )
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     }
