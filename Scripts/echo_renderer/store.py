@@ -60,12 +60,14 @@ _LEGACY_MINOS_PATTERN = re.compile(
 # The surfaces the governed wrappers actually invoke. There are no
 # `--pronunciation-*` narrate flags: the pronunciation audit and listening
 # reel are default `narrate` outputs, and `--no-pronunciation-review` is the
-# opt-out. `verify-sidecar` is a required subcommand, not a narrate flag, so
-# it is probed and reported separately from the narrate capability set.
+# opt-out. The block-plan operations are required subcommands, not narrate
+# flags, so each is probed and reported separately from the narrate capability
+# set.
 _REQUIRED_NARRATE_CAPABILITIES = (
     "--cover",
     "--sidecar",
     "--voice",
+    "--voice-plan",
     "--chapter-voice",
     "--db",
     "--work-dir",
@@ -75,8 +77,15 @@ _REQUIRED_NARRATE_CAPABILITIES = (
     "--max-chapters",
     "--no-pronunciation-review",
 )
-_VERIFY_SIDECAR_SUBCOMMAND = "verify-sidecar"
-_REQUIRED_CAPABILITIES = _REQUIRED_NARRATE_CAPABILITIES + (_VERIFY_SIDECAR_SUBCOMMAND,)
+_REQUIRED_SUBCOMMAND_CAPABILITIES = (
+    "export-blocks",
+    "resolve-voice-plan",
+    "verify-sidecar",
+)
+_REQUIRED_CAPABILITIES = (
+    *_REQUIRED_NARRATE_CAPABILITIES,
+    *_REQUIRED_SUBCOMMAND_CAPABILITIES,
+)
 
 
 class RendererIncompatibleError(ValueError):
@@ -228,16 +237,19 @@ def probe_release_cli(
             f"echo-cli narrate help is missing capabilities: {missing_capabilities}"
         )
 
-    verify_sidecar_help_output = _run_probe(
-        runner,
-        [str(executable), _VERIFY_SIDECAR_SUBCOMMAND, "--help"],
-        environment=environment,
-    )
-    if not _capability_present(_VERIFY_SIDECAR_SUBCOMMAND, verify_sidecar_help_output):
-        raise RendererIncompatibleError(
-            f"echo-cli is missing the {_VERIFY_SIDECAR_SUBCOMMAND} subcommand"
+    observed_subcommands = []
+    for capability in _REQUIRED_SUBCOMMAND_CAPABILITIES:
+        subcommand_help_output = _run_probe(
+            runner,
+            [str(executable), capability, "--help"],
+            environment=environment,
         )
-    observed_capabilities = observed_capabilities + (_VERIFY_SIDECAR_SUBCOMMAND,)
+        if not _capability_present(capability, subcommand_help_output):
+            raise RendererIncompatibleError(
+                f"echo-cli is missing the {capability} subcommand"
+            )
+        observed_subcommands.append(capability)
+    observed_capabilities = observed_capabilities + tuple(observed_subcommands)
 
     architecture_output = _run_probe(
         runner, ["/usr/bin/lipo", "-archs", str(executable)]

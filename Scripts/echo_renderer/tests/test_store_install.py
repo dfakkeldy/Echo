@@ -25,6 +25,7 @@ REQUIRED_NARRATE_CAPABILITIES = (
     "--cover",
     "--sidecar",
     "--voice",
+    "--voice-plan",
     "--chapter-voice",
     "--db",
     "--work-dir",
@@ -34,7 +35,12 @@ REQUIRED_NARRATE_CAPABILITIES = (
     "--max-chapters",
     "--no-pronunciation-review",
 )
-REQUIRED_CAPABILITIES = REQUIRED_NARRATE_CAPABILITIES + ("verify-sidecar",)
+REQUIRED_SUBCOMMAND_CAPABILITIES = (
+    "export-blocks",
+    "resolve-voice-plan",
+    "verify-sidecar",
+)
+REQUIRED_CAPABILITIES = REQUIRED_NARRATE_CAPABILITIES + REQUIRED_SUBCOMMAND_CAPABILITIES
 GIT = "/usr/bin/git"
 MAKE = "/usr/bin/make"
 MODEL_REVISION = "1939ad2a8e416c0acfeecc08a694d14ef25f2231"
@@ -151,12 +157,14 @@ class InstallRunner:
         elif arguments[1:] == ["narrate", "--help"]:
             self._record("narrate-help")
             stdout = "USAGE: echo-cli narrate " + " ".join(self.capabilities) + "\n"
-        elif arguments[1:] == ["verify-sidecar", "--help"]:
-            self._record("verify-sidecar-help")
-            stdout = (
-                "USAGE: echo-cli verify-sidecar --epub <epub> --audio <audio> "
-                "--sidecar <sidecar>\n"
-            )
+        elif len(arguments) == 3 and arguments[2] == "--help":
+            subcommand = arguments[1]
+            if subcommand not in REQUIRED_SUBCOMMAND_CAPABILITIES:
+                raise AssertionError(
+                    f"unexpected install runner subcommand: {subcommand!r}"
+                )
+            self._record(f"{subcommand}-help")
+            stdout = f"USAGE: echo-cli {subcommand} --fixture\n"
         else:
             raise AssertionError(f"unexpected install runner arguments: {arguments!r}")
         return subprocess.CompletedProcess(arguments, 0, stdout=stdout, stderr="")
@@ -306,7 +314,7 @@ class InstallationOrderTests(InstallFixture):
         kinds = [event[0] for event in events]
         expected_kinds = (
             ["attest", "attest", "lease", "reattest", "reattest"]
-            + ["runner"] * 7
+            + ["runner"] * 9
             + ["reattest", "reattest", "rename"]
         )
         self.assertEqual(kinds, expected_kinds)
@@ -316,8 +324,8 @@ class InstallationOrderTests(InstallFixture):
         self.assertEqual(events[1][1], str(self.source_worktree))
         self.assertEqual(events[3][1], str(self.installer_worktree))
         self.assertEqual(events[4][1], str(self.source_worktree))
-        self.assertEqual(events[12][1], str(self.installer_worktree))
-        self.assertEqual(events[13][1], str(self.source_worktree))
+        self.assertEqual(events[14][1], str(self.installer_worktree))
+        self.assertEqual(events[15][1], str(self.source_worktree))
 
         # Lease covers exactly the installer root, source root, and build output.
         self.assertEqual(
@@ -334,7 +342,7 @@ class InstallationOrderTests(InstallFixture):
             ),
         )
 
-        # Runner call order: gate, make, then the five release-CLI probes.
+        # Runner call order: gate, make, then the seven release-CLI probes.
         runner_argument_lists = [call[0] for call in self.runner.calls]
         self.assertEqual(runner_argument_lists[0], (str(self.build_gate), "--wait"))
         self.assertEqual(
@@ -342,9 +350,13 @@ class InstallationOrderTests(InstallFixture):
         )
         self.assertEqual(runner_argument_lists[2][1:], ("--version",))
         self.assertEqual(runner_argument_lists[3][1:], ("narrate", "--help"))
-        self.assertEqual(runner_argument_lists[4][1:], ("verify-sidecar", "--help"))
-        self.assertEqual(runner_argument_lists[5][0], "/usr/bin/lipo")
-        self.assertEqual(runner_argument_lists[6][0], "/usr/bin/otool")
+        self.assertEqual(runner_argument_lists[4][1:], ("export-blocks", "--help"))
+        self.assertEqual(
+            runner_argument_lists[5][1:], ("resolve-voice-plan", "--help")
+        )
+        self.assertEqual(runner_argument_lists[6][1:], ("verify-sidecar", "--help"))
+        self.assertEqual(runner_argument_lists[7][0], "/usr/bin/lipo")
+        self.assertEqual(runner_argument_lists[8][0], "/usr/bin/otool")
 
         # Rename is the final step, landing at <source SHA>/<manifest SHA>.
         verified = result.verified
@@ -362,9 +374,7 @@ class InstallationOrderTests(InstallFixture):
         )
         self.assertTrue(verified.executable.is_file())
         self.assertEqual(stat.S_IMODE(verified.executable.stat().st_mode), 0o755)
-        self.assertEqual(
-            tuple(sorted(verified.manifest.capabilities)), tuple(sorted(REQUIRED_CAPABILITIES))
-        )
+        self.assertEqual(REQUIRED_CAPABILITIES, tuple(verified.manifest.capabilities))
 
         # The published package independently re-verifies through Task 4's
         # already-approved, read-only verification path.
