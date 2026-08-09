@@ -340,8 +340,8 @@ import Testing
         #expect(manifest.listeningReelSHA256 == reelSHA256)
 
         let encoded = try String(decoding: manifest.encoded(), as: UTF8.self)
-        let firstBlock = #require(encoded.range(of: "\"s0-b0\""))
-        let secondBlock = #require(encoded.range(of: "\"s0-b1\""))
+        let firstBlock = try #require(encoded.range(of: "\"s0-b0\""))
+        let secondBlock = try #require(encoded.range(of: "\"s0-b1\""))
         #expect(firstBlock.lowerBound < secondBlock.lowerBound)
     }
 
@@ -362,7 +362,7 @@ import Testing
             watchWords: [],
             decisions: [],
             diagnostics: [])
-        let validObject = #require(
+        let validObject = try #require(
             JSONSerialization.jsonObject(with: manifest.encoded()) as? [String: Any])
 
         let invalidObjects: [[String: Any]] = [
