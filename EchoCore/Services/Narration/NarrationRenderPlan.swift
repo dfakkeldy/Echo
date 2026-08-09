@@ -232,7 +232,8 @@ enum NarrationRenderPlanner {
                                         && pronunciationPack.automaticCandidate(
                                             for: normalizedWord) == nil))
                     }
-                    decisionSeeds = uniqueDecisionSeeds(decisionSeeds + rawTokenDecisionSeeds)
+                    decisionSeeds = uniqueDecisionSeeds(
+                        decisionSeeds + prioritizingContextualFamilySeeds(rawTokenDecisionSeeds))
                     let rescueChunk = try planner.planDeterministicSpellingRescue(
                         displayText: MisakiPronunciationMarkup.displayText(from: fragment))
                     synthesisChunks.append(rescueChunk)
@@ -255,7 +256,8 @@ enum NarrationRenderPlanner {
                 }
                 // Explicit rewrite-stage decisions remain first so they win any
                 // collision with evidence emitted by the final G2P pass.
-                decisionSeeds = uniqueDecisionSeeds(decisionSeeds + tokenDecisionSeeds)
+                decisionSeeds = uniqueDecisionSeeds(
+                    decisionSeeds + prioritizingContextualFamilySeeds(tokenDecisionSeeds))
                 synthesisChunks.append(chunk)
                 wordBase += chunk.wordCount
             }
@@ -628,6 +630,26 @@ enum NarrationRenderPlanner {
                 pronunciationDecisions: block.pronunciationDecisions,
                 pronunciationDecisionDiagnostics: block.pronunciationDecisionDiagnostics,
                 trailingSilence: silence)
+        }
+    }
+
+    /// Contextual evidence is keyed by whitespace word span, and a hyphenated
+    /// compound such as "re-read" emits one G2P token seed per component at
+    /// that same span. Only the contextual-family component's seed can pass
+    /// phase-two identity validation for the span's evidence, so it must be
+    /// the seed that survives `uniqueDecisionSeeds` first-wins dedup; any
+    /// other component winning the span (for example "re" minted as an
+    /// audit-pack comparison candidate) fails validation and aborts the
+    /// render with `contextualEvidenceIdentityMismatch`.
+    private static func prioritizingContextualFamilySeeds(
+        _ seeds: [PronunciationDecisionSeed]
+    ) -> [PronunciationDecisionSeed] {
+        let familySeeds = seeds.filter {
+            ContextualPronunciationFamilies.family(for: $0.normalizedWord) != nil
+        }
+        guard !familySeeds.isEmpty else { return seeds }
+        return familySeeds + seeds.filter {
+            ContextualPronunciationFamilies.family(for: $0.normalizedWord) == nil
         }
     }
 
