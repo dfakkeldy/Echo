@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import CryptoKit
 import Foundation
 import Testing
 
@@ -1295,6 +1296,84 @@ import Testing
         #expect(plan.pronunciationAuditDiagnostics.isEmpty)
     }
 
+    @Test func hyphenatedCompoundFamilySeedSurvivesAuditComparisonComponent() throws {
+        // Regression: with an audit-pack entry for "re", the "re" token of
+        // "re-read" minted a comparison-candidate seed at the same whitespace
+        // word span as the family "read" seed, won first-wins dedup, consumed
+        // the span-keyed contextual evidence, and failed phase-two identity
+        // validation — aborting the whole render.
+        let text = "A figure resurfaces; a wall of prose mostly does not get re-read."
+        let occurrence = try #require(
+            ContextualPronunciationDiscovery.discover(
+                text: text,
+                blockID: "hyphenated-audit-context"
+            ).first)
+        let evidence = contextualEvidence(for: occurrence, slot: .a)
+        let key = ContextualPronunciationKey(
+            blockID: occurrence.blockID,
+            wordStart: occurrence.wordStart,
+            wordEnd: occurrence.wordEnd)
+
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "hyphenated-audit-context", text: text, index: 0)],
+            overrides: PronunciationOverrides(entries: [:]),
+            pronunciationAuditPack: auditPack(coveringWords: ["re"]),
+            contextualEvidence: [key: evidence])
+        let decision = try #require(
+            plan.blocks.first?.pronunciationDecisions.first {
+                $0.normalizedWord == "read"
+            })
+
+        #expect(decision.wordStart == occurrence.wordStart)
+        #expect(decision.wordEnd == occurrence.wordEnd)
+        #expect(decision.source == .monitoredLexicon)
+        #expect(decision.contextualEvidence == evidence)
+        #expect(plan.pronunciationAuditDiagnostics.isEmpty)
+    }
+
+    @Test func hyphenatedCompoundClassFamilyDecisionsReceiveContextualEvidence() throws {
+        // Same class as "re-read": the non-family component leads the
+        // compound and carries an audit-pack comparison entry.
+        let cases: [(text: String, familyWord: String)] = [
+            ("She is well-read.", "read"),
+            ("They pre-record the intro.", "record"),
+            ("They re-record the intro.", "record"),
+        ]
+        let comparisonAuditPack = try auditPack(coveringWords: ["re", "pre", "well"])
+
+        for (index, testCase) in cases.enumerated() {
+            let blockID = "hyphenated-class-\(index)"
+            let occurrence = try #require(
+                ContextualPronunciationDiscovery.discover(
+                    text: testCase.text,
+                    blockID: blockID
+                ).first,
+                "Expected a contextual occurrence in \(testCase.text)")
+            let evidence = contextualEvidence(for: occurrence, slot: .a)
+            let key = ContextualPronunciationKey(
+                blockID: occurrence.blockID,
+                wordStart: occurrence.wordStart,
+                wordEnd: occurrence.wordEnd)
+
+            let plan = try NarrationRenderPlanner.make(
+                blocks: [block(id: blockID, text: testCase.text, index: 0)],
+                overrides: PronunciationOverrides(entries: [:]),
+                pronunciationAuditPack: comparisonAuditPack,
+                contextualEvidence: [key: evidence])
+            let decision = try #require(
+                plan.blocks.first?.pronunciationDecisions.first {
+                    $0.normalizedWord == testCase.familyWord
+                },
+                "Expected a \(testCase.familyWord) decision for \(testCase.text)")
+
+            #expect(decision.wordStart == occurrence.wordStart)
+            #expect(decision.wordEnd == occurrence.wordEnd)
+            #expect(decision.source == .monitoredLexicon)
+            #expect(decision.contextualEvidence == evidence)
+            #expect(plan.pronunciationAuditDiagnostics.isEmpty)
+        }
+    }
+
     @Test func emDashJoinedMonitoredLexiconDecisionReceivesContextualEvidence() throws {
         let text = "Generate code or content—so it works."
         let occurrence = try #require(
@@ -1574,6 +1653,63 @@ import Testing
         #expect(timed.selectedIPA == decision.selectedIPA)
         #expect(timed.kokoroTokenIDs == decision.kokoroTokenIDs)
         #expect(timed.contextualEvidence?.modelCandidateID == "record.noun")
+    }
+
+    /// Builds a valid audit pack whose entries cover exactly `words`, cloning
+    /// the bundled "record" entry's candidates so the pack's structural
+    /// invariants (source roles, disagreement, Kokoro vocabulary) hold, then
+    /// recomputing candidate IDs and digests for the new words.
+    private func auditPack(
+        coveringWords words: [String]
+    ) throws -> EnglishPronunciationAuditPack {
+        func digest(_ data: Data) -> String {
+            "sha256:" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        }
+        func canonicalData(_ object: Any) throws -> Data {
+            try JSONSerialization.data(
+                withJSONObject: object,
+                options: [.sortedKeys, .withoutEscapingSlashes])
+        }
+
+        let url = try #require(NarrationResources.url(
+            forResource: "us_pronunciation_audit_pack", withExtension: "json"))
+        var root = try #require(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let entries = try #require(root["entries"] as? [String: Any])
+        let donor = try #require(entries["record"] as? [String: Any])
+        let donorCandidates = try #require(donor["candidates"] as? [[String: Any]])
+
+        var clonedEntries: [String: Any] = [:]
+        var candidateCount = 0
+        for word in words {
+            let candidates = try donorCandidates.map { candidate -> [String: Any] in
+                var clone = candidate
+                let sourceID = try #require(candidate["sourceID"] as? String)
+                let ipa = try #require(candidate["ipa"] as? String)
+                let idDigest = SHA256.hash(data: Data("\(sourceID)\0\(word)\0\(ipa)".utf8))
+                    .map { String(format: "%02x", $0) }
+                    .joined()
+                clone["candidateID"] = "\(sourceID).\(word).\(idDigest.prefix(12))"
+                return clone
+            }
+            clonedEntries[word] = ["normalizedWord": word, "candidates": candidates]
+            candidateCount += candidates.count
+        }
+        root["entries"] = clonedEntries
+        root["entryCount"] = words.count
+        root["candidateCount"] = candidateCount
+        root["report"] = [
+            "overlaps": words.count,
+            "disagreements": words.count,
+            "incompatible": 0,
+        ]
+        let entriesDigest = digest(try canonicalData(clonedEntries))
+        root["normalizedDataSHA256"] = entriesDigest
+        var identity = try #require(root["semanticIdentityPayload"] as? [String: Any])
+        identity["normalizedDataSHA256"] = entriesDigest
+        root["semanticIdentityPayload"] = identity
+        root["auditPackVersion"] = digest(try canonicalData(identity))
+        return try EnglishPronunciationAuditPack(data: try canonicalData(root))
     }
 
     private func contextualEvidence(
