@@ -315,7 +315,8 @@ final class PlayerModel {
     /// One DB lookup per loaded book (same retry-free cache pattern as
     /// `cachedSignature`); metadata enriched after this session shows up on
     /// the next book load.
-    @ObservationIgnored private var cachedBookChrome: (identity: URL, title: String, author: String?)?
+    @ObservationIgnored private var cachedBookChrome:
+        (identity: URL, title: String, author: String?)?
 
     private var bookChrome: (title: String, author: String?) {
         guard let identity = bookIdentityURL else {
@@ -351,14 +352,25 @@ final class PlayerModel {
     @ObservationIgnored private var cachedThemeVersion: Int = -1
     @ObservationIgnored private var cachedThemeScheme: ColorScheme = .light
 
-    /// One cached extraction pass for the current cover (or thumbnail).
-    /// Nil ONLY while no artwork is loaded, so the next access retries —
-    /// the same retry contract the old palette cache had.
+    /// One cached signature for the current cover. Base artwork prefers the
+    /// signature extracted from the SOURCE cover at load time
+    /// (`PlaybackState.sourceCoverSignature`): the displayed images are the
+    /// square blur-fill composites whose margins and scrim dilute small vivid
+    /// counter-colours below the accent-promotion floor. Bookmark artwork is
+    /// displayed un-composited, so extracting from the displayed image stays
+    /// correct there. Nil ONLY while no artwork is loaded, so the next access
+    /// retries — the same retry contract the old palette cache had.
     private var currentSignature: CoverSignature? {
         let version = currentDisplayArtworkVersion
         if version != cachedSignatureVersion || cachedSignature == nil {
-            guard let image = currentDisplayArtwork ?? thumbnailImage else { return nil }
-            cachedSignature = DominantColorExtractor.signature(from: image)
+            if !artworkCoordinator.isShowingBookmarkArtwork,
+                let source = state.sourceCoverSignature
+            {
+                cachedSignature = source
+            } else {
+                guard let image = currentDisplayArtwork ?? thumbnailImage else { return nil }
+                cachedSignature = DominantColorExtractor.signature(from: image)
+            }
             cachedSignatureVersion = version
         }
         return cachedSignature
@@ -554,11 +566,12 @@ final class PlayerModel {
                 $0.pathExtension.localizedCaseInsensitiveCompare("pdf") == .orderedSame
             }
             if let bookURL, bookURL != folderURL {
-                value = CompanionDocumentSelector.select(
-                    documents: pdfs,
-                    for: bookURL,
-                    folderIsDirectory: false,
-                    siblingFiles: contents) != nil
+                value =
+                    CompanionDocumentSelector.select(
+                        documents: pdfs,
+                        for: bookURL,
+                        folderIsDirectory: false,
+                        siblingFiles: contents) != nil
             } else {
                 value = !pdfs.isEmpty
             }

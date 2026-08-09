@@ -40,6 +40,13 @@ final class BookmarkArtworkCoordinator {
         return "\(trackId)#\(currentDisplayArtworkKey ?? "base")"
     }
 
+    /// True while a bookmark-specific image (not the base cover) is displayed.
+    /// Theming extracts from the displayed bookmark image in that case instead
+    /// of using the stored source-cover signature.
+    var isShowingBookmarkArtwork: Bool {
+        currentDisplayArtworkKey?.hasPrefix("bookmark:") == true
+    }
+
     // MARK: - Thumbnail generation
 
     func generateThumbnail(for url: URL) async {
@@ -62,16 +69,24 @@ final class BookmarkArtworkCoordinator {
         let scale = displayScale
         let result = ArtworkCache.generateThumbnails(from: sourceImage, displayScale: scale)
 
-        applyBaseArtwork(thumbnail: result.0, watchData: result.1)
+        applyBaseArtwork(
+            thumbnail: result.0, watchData: result.1,
+            signature: DominantColorExtractor.signature(from: sourceImage))
     }
 
     func applyBaseArtwork(_ sourceImage: UIImage) {
         let result = ArtworkCache.generateThumbnails(from: sourceImage, displayScale: displayScale)
-        applyBaseArtwork(thumbnail: result.0, watchData: result.1)
+        applyBaseArtwork(
+            thumbnail: result.0, watchData: result.1,
+            signature: DominantColorExtractor.signature(from: sourceImage))
     }
 
-    private func applyBaseArtwork(thumbnail: UIImage, watchData: Data?) {
+    /// The signature is extracted from the SOURCE cover, never from the square
+    /// blur-fill composite: the composite's margins and scrim dilute small vivid
+    /// counter-colours below the accent-promotion floor.
+    private func applyBaseArtwork(thumbnail: UIImage, watchData: Data?, signature: CoverSignature) {
         state?.thumbnailImage = thumbnail
+        state?.sourceCoverSignature = signature
         baseWatchThumbnailData = watchData
         let currentTime = currentPlaybackTimeProvider?() ?? 0
         updateCurrentDisplayArtwork(at: currentTime, force: true)
@@ -140,6 +155,7 @@ final class BookmarkArtworkCoordinator {
     /// resources in the unit-test host.
     func clearUnavailableArtwork() {
         state?.thumbnailImage = nil
+        state?.sourceCoverSignature = nil
         baseWatchThumbnailData = nil
         clearDisplayArtwork()
         onUpdateNowPlaying?(!(isPlayingProvider?() ?? false))
