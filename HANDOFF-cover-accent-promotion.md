@@ -46,3 +46,21 @@ Resume:
 cd /Users/dfakkeldy/Developer/Echo/.claude/worktrees/great-heisenberg-47ce71  # branch claude/echo-cover-color-scheme-700b95
 # next: run app in iPhone 17 sim, eyeball duotone covers, then gh pr create --base nightly
 ```
+
+## 2026-08-08 — extraction-source fix implemented (commit 5f5aff2d), awaiting 22:00 window
+
+Done: CoverSignature now extracted from SOURCE artwork at load
+(BookmarkArtworkCoordinator), stored in `PlaybackState.sourceCoverSignature`
+(iOS-gated), preferred by `PlayerModel.currentSignature` for base artwork;
+bookmark artwork keeps per-image extraction; cleared on book/track reset. 5
+tests added. macOS CG harness (real OKLCH/ThumbnailRenderer geometry/resolve)
+confirms geode fixture: source plum share 10.8% vs composite 3.3% (floor 5%),
+promotion flips in both schemes.
+Next: slot-wrapped `make build-tests` (background waiter armed for 22:00),
+then `make test-only FILTER=EchoTests`; push.
+Resume:
+```
+cd /Users/dfakkeldy/Developer/Echo/.claude/worktrees/great-heisenberg-47ce71  # branch claude/echo-cover-color-scheme-700b95
+/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests
+```
