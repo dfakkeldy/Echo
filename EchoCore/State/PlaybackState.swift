@@ -36,7 +36,8 @@ struct PlaybackBookTimeIndex: Equatable, Sendable {
     }
 
     init(tracks: [TrackTime]) {
-        self.tracks = tracks
+        self.tracks =
+            tracks
             .filter { $0.duration.isFinite && $0.duration > 0 }
             .sorted {
                 if $0.startTime == $1.startTime { return $0.trackIndex < $1.trackIndex }
@@ -262,6 +263,12 @@ final class PlaybackState {
     #if os(iOS)
         var thumbnailImage: UIImage? = nil
         var currentDisplayArtwork: UIImage? = nil
+        /// Identity signature extracted from the SOURCE cover at load time.
+        /// `thumbnailImage` is the square blur-fill composite whose margins and
+        /// scrim dilute small vivid counter-colours below the accent-promotion
+        /// floor, so theming must never extract from it when this is available.
+        /// Tiny value struct — never retains the full-size cover.
+        var sourceCoverSignature: CoverSignature? = nil
     #endif
     var currentDisplayArtworkVersion: Int = 0
     var watchThumbnailData: Data? = nil
