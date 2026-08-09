@@ -178,6 +178,7 @@ struct NarrationRunResult {
     // MARK: Capture & sidecar assembly
 
     static let chapterCaptureSchemaVersion = 1
+    static let planChapterCaptureSchemaVersion = 2
 
     struct ExpectedChapterCaptureIdentity: Equatable, Sendable {
         let schemaVersion: Int
@@ -190,6 +191,39 @@ struct NarrationRunResult {
         let chapterIndex: Int
         let chapterContentSignature: String
         let audioFileName: String
+        /// Full canonical plan identity for schema-2 captures. Schema-1
+        /// captures deliberately omit both plan fields byte-for-byte.
+        let voicePlanSHA256: String?
+        /// Canonical ordered block-map digest scoped to this chapter.
+        let chapterVoicePlanSHA256: String?
+
+        init(
+            schemaVersion: Int,
+            captureSetID: String,
+            sourceFingerprint: String,
+            voice: VoiceID,
+            renderVersion: Int,
+            rendererIdentity: String,
+            normalizationMode: String,
+            chapterIndex: Int,
+            chapterContentSignature: String,
+            audioFileName: String,
+            voicePlanSHA256: String? = nil,
+            chapterVoicePlanSHA256: String? = nil
+        ) {
+            self.schemaVersion = schemaVersion
+            self.captureSetID = captureSetID
+            self.sourceFingerprint = sourceFingerprint
+            self.voice = voice
+            self.renderVersion = renderVersion
+            self.rendererIdentity = rendererIdentity
+            self.normalizationMode = normalizationMode
+            self.chapterIndex = chapterIndex
+            self.chapterContentSignature = chapterContentSignature
+            self.audioFileName = audioFileName
+            self.voicePlanSHA256 = voicePlanSHA256
+            self.chapterVoicePlanSHA256 = chapterVoicePlanSHA256
+        }
 
         func materialized(
             audioFileByteCount: Int64,
@@ -209,7 +243,9 @@ struct NarrationRunResult {
                 audioFileName: audioFileName,
                 audioFileByteCount: audioFileByteCount,
                 audioSHA256: audioSHA256,
-                payloadSHA256: payloadSHA256)
+                payloadSHA256: payloadSHA256,
+                voicePlanSHA256: voicePlanSHA256,
+                chapterVoicePlanSHA256: chapterVoicePlanSHA256)
         }
     }
 
@@ -257,6 +293,8 @@ struct NarrationRunResult {
             let audioSHA256: String
             /// SHA-256 of the deterministic canonical capture payload excluding identity.
             let payloadSHA256: String
+            let voicePlanSHA256: String?
+            let chapterVoicePlanSHA256: String?
 
             init(
                 schemaVersion: Int,
@@ -271,7 +309,9 @@ struct NarrationRunResult {
                 audioFileName: String,
                 audioFileByteCount: Int64,
                 audioSHA256: String = "",
-                payloadSHA256: String = ""
+                payloadSHA256: String = "",
+                voicePlanSHA256: String? = nil,
+                chapterVoicePlanSHA256: String? = nil
             ) {
                 self.schemaVersion = schemaVersion
                 self.captureSetID = captureSetID
@@ -286,6 +326,8 @@ struct NarrationRunResult {
                 self.audioFileByteCount = audioFileByteCount
                 self.audioSHA256 = audioSHA256
                 self.payloadSHA256 = payloadSHA256
+                self.voicePlanSHA256 = voicePlanSHA256
+                self.chapterVoicePlanSHA256 = chapterVoicePlanSHA256
             }
 
             var expected: ExpectedChapterCaptureIdentity {
@@ -299,7 +341,9 @@ struct NarrationRunResult {
                     normalizationMode: normalizationMode,
                     chapterIndex: chapterIndex,
                     chapterContentSignature: chapterContentSignature,
-                    audioFileName: audioFileName)
+                    audioFileName: audioFileName,
+                    voicePlanSHA256: voicePlanSHA256,
+                    chapterVoicePlanSHA256: chapterVoicePlanSHA256)
             }
         }
 
@@ -444,6 +488,34 @@ struct NarrationRunResult {
                 "normalization=\(normalizationMode)",
                 "chapter-count=\(orderedChapterSignatures.count)",
             ] + orderedChapterSignatures)
+    }
+
+    /// Plan-backed captures intentionally have a separate schema and bind both
+    /// the whole canonical plan and each chapter's ordered resolved block map.
+    /// The default voice remains present for compatibility, but it is not proof
+    /// of all voices used by the rendered chapter.
+    static func captureSetID(
+        sourceFingerprint: String,
+        voice: VoiceID,
+        voicePlanSHA256: String,
+        renderVersion: Int,
+        rendererIdentity: String,
+        normalizationMode: String,
+        orderedChapterSignatures: [String],
+        orderedChapterVoicePlanDigests: [String]
+    ) -> String {
+        sha256Hex(
+            framed: [
+                "capture-schema=\(planChapterCaptureSchemaVersion)",
+                "source=\(sourceFingerprint)",
+                "voice=\(voice.rawValue)",
+                "voice-plan=\(voicePlanSHA256)",
+                "render-version=\(renderVersion)",
+                "renderer=\(rendererIdentity)",
+                "normalization=\(normalizationMode)",
+                "chapter-count=\(orderedChapterSignatures.count)",
+                "chapter-plan-count=\(orderedChapterVoicePlanDigests.count)",
+            ] + orderedChapterSignatures + orderedChapterVoicePlanDigests)
     }
 
     static func resolvedChapterVoices(
@@ -608,8 +680,13 @@ struct NarrationRunResult {
         try validateCapturePayload(capture, chapterIndex: chapterIndex)
 
         guard let identity = capture.identity else {
+            guard expected.schemaVersion == chapterCaptureSchemaVersion else {
+                throw NarrationRunError.captureIdentity(
+                    "chapter \(chapterIndex) legacy marker cannot resume a plan capture")
+            }
             return audioURL
         }
+        try validateCapturePlanSchema(identity, expected: expected, chapterIndex: chapterIndex)
         guard identity.expected == expected else {
             throw NarrationRunError.captureIdentity(
                 "chapter \(chapterIndex) source, voice, renderer, or content no longer matches")
@@ -627,6 +704,49 @@ struct NarrationRunResult {
                 "chapter \(chapterIndex) marker payload changed")
         }
         return audioURL
+    }
+
+    private static func validateCapturePlanSchema(
+        _ identity: ChapterCapture.Identity,
+        expected: ExpectedChapterCaptureIdentity,
+        chapterIndex: Int
+    ) throws {
+        func reject(_ detail: String) throws {
+            throw NarrationRunError.captureIdentity("chapter \(chapterIndex) \(detail)")
+        }
+
+        switch expected.schemaVersion {
+        case chapterCaptureSchemaVersion:
+            guard expected.voicePlanSHA256 == nil,
+                expected.chapterVoicePlanSHA256 == nil
+            else {
+                try reject("legacy expectation contains a voice plan")
+                return
+            }
+            guard identity.schemaVersion == chapterCaptureSchemaVersion,
+                identity.voicePlanSHA256 == nil,
+                identity.chapterVoicePlanSHA256 == nil
+            else {
+                try reject("plan marker cannot resume a legacy capture")
+                return
+            }
+        case planChapterCaptureSchemaVersion:
+            guard let expectedPlan = expected.voicePlanSHA256,
+                let expectedChapterDigest = expected.chapterVoicePlanSHA256
+            else {
+                try reject("plan expectation is incomplete")
+                return
+            }
+            guard identity.schemaVersion == planChapterCaptureSchemaVersion,
+                identity.voicePlanSHA256 == expectedPlan,
+                identity.chapterVoicePlanSHA256 == expectedChapterDigest
+            else {
+                try reject("voice plan no longer matches")
+                return
+            }
+        default:
+            try reject("uses unsupported capture schema \(expected.schemaVersion)")
+        }
     }
 
     static func sealedCapture(
@@ -1347,9 +1467,32 @@ struct NarrationRunResult {
         }
         let uniqueVoices = Set(voiceByChapterIndex.values)
         let uniformVoice = uniqueVoices.count == 1 ? uniqueVoices.first : nil
-        let captureSetID =
-            uniformVoice != nil
-            ? Self.captureSetID(
+        let chapterVoicePlanDigests = resolvedVoicePlan.map { plan in
+            Dictionary(
+                uniqueKeysWithValues: chapterIndices.map { chapterIndex in
+                    let blockIDs = plannedByChapterIndex[chapterIndex]!.blocks.map {
+                        AlignmentSidecar.portableSuffix(of: $0.id)
+                    }
+                    return (chapterIndex, plan.chapterDigest(blockIDs: blockIDs))
+                })
+        }
+        let captureSetID: String
+        if let resolvedVoicePlan, let chapterVoicePlanDigests {
+            captureSetID = Self.captureSetID(
+                sourceFingerprint: sourceFingerprint,
+                voice: resolvedVoicePlan.defaultVoice,
+                voicePlanSHA256: resolvedVoicePlan.voicePlanSHA256,
+                renderVersion: NarrationFileNaming.renderVersion,
+                rendererIdentity: NarrationFileNaming.rendererIdentity,
+                normalizationMode: normalizationMode,
+                orderedChapterSignatures: chapterIndices.map {
+                    "\($0):\(chapterContentSignatures[$0]!)"
+                },
+                orderedChapterVoicePlanDigests: chapterIndices.map {
+                    "\($0):\(chapterVoicePlanDigests[$0]!)"
+                })
+        } else if uniformVoice != nil {
+            captureSetID = Self.captureSetID(
                 sourceFingerprint: sourceFingerprint,
                 voice: uniformVoice ?? Self.legacyDefaultVoice(for: config),
                 renderVersion: NarrationFileNaming.renderVersion,
@@ -1358,7 +1501,8 @@ struct NarrationRunResult {
                 orderedChapterSignatures: chapterIndices.map {
                     "\($0):\(chapterContentSignatures[$0]!)"
                 })
-            : Self.captureSetID(
+        } else {
+            captureSetID = Self.captureSetID(
                 sourceFingerprint: sourceFingerprint,
                 orderedChapterVoices: orderedVoices,
                 renderVersion: NarrationFileNaming.renderVersion,
@@ -1367,19 +1511,23 @@ struct NarrationRunResult {
                 orderedChapterSignatures: chapterIndices.map {
                     "\($0):\(chapterContentSignatures[$0]!)"
                 })
+        }
         let expectedCaptureByChapterIndex = Dictionary(
             uniqueKeysWithValues: chapterIndices.map { chapterIndex in
                 let signature = chapterContentSignatures[chapterIndex]!
                 let chapterVoice = voiceByChapterIndex[chapterIndex] ?? Self.legacyDefaultVoice(for: config)
+                let renderIdentityToken = resolvedVoicePlan?.voicePlanID ?? chapterVoice.rawValue
                 let audioFileName = NarrationFileNaming.chapterFileName(
                     audiobookID: audiobookID,
                     chapterIndex: chapterIndex,
-                    voice: chapterVoice,
+                    renderIdentityToken: renderIdentityToken,
                     contentSignature: signature)
                 return (
                     chapterIndex,
                     ExpectedChapterCaptureIdentity(
-                        schemaVersion: Self.chapterCaptureSchemaVersion,
+                        schemaVersion: resolvedVoicePlan == nil
+                            ? Self.chapterCaptureSchemaVersion
+                            : Self.planChapterCaptureSchemaVersion,
                         captureSetID: captureSetID,
                         sourceFingerprint: sourceFingerprint,
                         voice: chapterVoice,
@@ -1388,7 +1536,9 @@ struct NarrationRunResult {
                         normalizationMode: normalizationMode,
                         chapterIndex: chapterIndex,
                         chapterContentSignature: signature,
-                        audioFileName: audioFileName)
+                        audioFileName: audioFileName,
+                        voicePlanSHA256: resolvedVoicePlan?.voicePlanSHA256,
+                        chapterVoicePlanSHA256: chapterVoicePlanDigests?[chapterIndex])
                 )
             })
 
@@ -1494,6 +1644,7 @@ struct NarrationRunResult {
                 let rendered = try await svc.renderChapter(
                     chapterIndex: idx, chapterNumber: displayNumber,
                     blocks: chapterBlocks, voice: chapterVoice, blockVoice: blockVoice,
+                    renderIdentityToken: resolvedVoicePlan?.voicePlanID,
                     chapterTitle: chapterTitle
                 ) { _, blockFraction in
                     cursor.inflight[worker] = blockFraction

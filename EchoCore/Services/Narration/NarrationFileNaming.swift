@@ -108,13 +108,32 @@ nonisolated enum NarrationFileNaming {
         voice: VoiceID,
         contentSignature: String? = nil
     ) -> String {
+        chapterFileName(
+            audiobookID: audiobookID,
+            chapterIndex: chapterIndex,
+            sourceChapterKey: sourceChapterKey,
+            renderIdentityToken: voice.rawValue,
+            contentSignature: contentSignature)
+    }
+
+    /// The token naming the audio-render inputs for a chapter. Legacy callers
+    /// continue to supply their voice raw value; source-bound block plans supply
+    /// their resolved `plan-<12>` identity instead.
+    static func chapterFileName(
+        audiobookID: String,
+        chapterIndex: Int,
+        sourceChapterKey: String? = nil,
+        renderIdentityToken identityToken: String,
+        contentSignature: String? = nil
+    ) -> String {
         let signature = signatureFragment(contentSignature)
+        let token = renderIdentityToken(identityToken)
         if let sourceChapterKey {
             return
-                "\(safeToken(audiobookID))-ck\(stableChapterToken(for: sourceChapterKey))\(signature)-\(voice.rawValue)-v\(renderVersion).m4a"
+                "\(safeToken(audiobookID))-ck\(stableChapterToken(for: sourceChapterKey))\(signature)-\(token)-v\(renderVersion).m4a"
         }
         return
-            "\(safeToken(audiobookID))-ch\(chapterIndex)\(signature)-\(voice.rawValue)-v\(renderVersion).m4a"
+            "\(safeToken(audiobookID))-ch\(chapterIndex)\(signature)-\(token)-v\(renderVersion).m4a"
     }
 
     static func segmentFileName(
@@ -290,13 +309,18 @@ nonisolated enum NarrationFileNaming {
         return safe.isEmpty ? "" : "-h\(safe)"
     }
 
+    private static func renderIdentityToken(_ token: String) -> String {
+        let safe = token.filter { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }
+        return safe.isEmpty ? "voice" : safe
+    }
+
     private static let stableLocationPattern = try! NSRegularExpression(
         pattern:
-            "^[A-Za-z0-9_]+-ck([0-9a-f]{32})(?:-s([0-9]+))?(?:-h[A-Za-z0-9]+)?-[A-Za-z0-9_]+-v([0-9]+)\\.m4a$"
+            "^[A-Za-z0-9_]+-ck([0-9a-f]{32})(?:-s([0-9]+))?(?:-h[A-Za-z0-9]+)?-[A-Za-z0-9_-]+-v([0-9]+)\\.m4a$"
     )
     private static let legacyLocationPattern = try! NSRegularExpression(
         pattern:
-            "^[A-Za-z0-9_]+-ch([0-9]+)(?:-s([0-9]+))?(?:-h[A-Za-z0-9]+)?-[A-Za-z0-9_]+(?:-v[0-9]+)?\\.m4a$"
+            "^[A-Za-z0-9_]+-ch([0-9]+)(?:-s([0-9]+))?(?:-h[A-Za-z0-9]+)?-[A-Za-z0-9_-]+(?:-v[0-9]+)?\\.m4a$"
     )
 
     private static func integerCapture(

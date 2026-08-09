@@ -261,6 +261,206 @@ import ZIPFoundation
         #expect(HeadlessNarrationRunner.legacyDefaultVoice(for: config) == VoiceCatalog.default.id)
     }
 
+    @Test func planCaptureIdentityUsesSchemaTwoAndRejectsLegacyResume() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let planHash = String(repeating: "a", count: 64)
+        let chapterPlanHash = String(repeating: "b", count: 64)
+        let audioName = "runner-book-ch0-hsig-plan-0123456789ab-v22.m4a"
+        let audio = tmp.appendingPathComponent(audioName)
+        try Data([1, 2, 3, 4]).write(to: audio)
+        let planExpected = HeadlessNarrationRunner.ExpectedChapterCaptureIdentity(
+            schemaVersion: 2,
+            captureSetID: "plan-set",
+            sourceFingerprint: "source-a",
+            voice: VoiceID("af_heart"),
+            renderVersion: 22,
+            rendererIdentity: NarrationFileNaming.rendererIdentity,
+            normalizationMode: "deterministic",
+            chapterIndex: 0,
+            chapterContentSignature: "sig",
+            audioFileName: audioName,
+            voicePlanSHA256: planHash,
+            chapterVoicePlanSHA256: chapterPlanHash)
+        let legacyExpected = HeadlessNarrationRunner.ExpectedChapterCaptureIdentity(
+            schemaVersion: 1,
+            captureSetID: "legacy-set",
+            sourceFingerprint: "source-a",
+            voice: VoiceID("af_heart"),
+            renderVersion: 22,
+            rendererIdentity: NarrationFileNaming.rendererIdentity,
+            normalizationMode: "deterministic",
+            chapterIndex: 0,
+            chapterContentSignature: "sig",
+            audioFileName: audioName)
+
+        let sealedPlanCapture = try HeadlessNarrationRunner.sealedCapture(
+            .init(duration: 1, anchors: [], pronunciationEvidence: .init(decisions: [], diagnostics: [])),
+            audioURL: audio,
+            expected: planExpected,
+            workDir: tmp)
+        let identity = try #require(sealedPlanCapture.identity)
+        #expect(identity.schemaVersion == 2)
+        #expect(identity.voicePlanSHA256 == planHash)
+        #expect(identity.chapterVoicePlanSHA256 == chapterPlanHash)
+        #expect(identity.audioFileName.contains("plan-0123456789ab"))
+        #expect(
+            try HeadlessNarrationRunner.validateCapture(
+                sealedPlanCapture, chapterIndex: 0, expected: planExpected, workDir: tmp) == audio)
+        #expect(throws: Error.self) {
+            _ = try HeadlessNarrationRunner.validateCapture(
+                sealedPlanCapture, chapterIndex: 0, expected: legacyExpected, workDir: tmp)
+        }
+    }
+
+    @Test func legacyCaptureIdentityCannotResumeAsPlanCapture() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let audioName = "runner-book-ch0-hsig-af_heart-v22.m4a"
+        let audio = tmp.appendingPathComponent(audioName)
+        try Data([1, 2, 3, 4]).write(to: audio)
+        let legacyExpected = HeadlessNarrationRunner.ExpectedChapterCaptureIdentity(
+            schemaVersion: 1,
+            captureSetID: "legacy-set",
+            sourceFingerprint: "source-a",
+            voice: VoiceID("af_heart"),
+            renderVersion: 22,
+            rendererIdentity: NarrationFileNaming.rendererIdentity,
+            normalizationMode: "deterministic",
+            chapterIndex: 0,
+            chapterContentSignature: "sig",
+            audioFileName: audioName)
+        let planExpected = HeadlessNarrationRunner.ExpectedChapterCaptureIdentity(
+            schemaVersion: 2,
+            captureSetID: "plan-set",
+            sourceFingerprint: "source-a",
+            voice: VoiceID("af_heart"),
+            renderVersion: 22,
+            rendererIdentity: NarrationFileNaming.rendererIdentity,
+            normalizationMode: "deterministic",
+            chapterIndex: 0,
+            chapterContentSignature: "sig",
+            audioFileName: audioName,
+            voicePlanSHA256: String(repeating: "a", count: 64),
+            chapterVoicePlanSHA256: String(repeating: "b", count: 64))
+
+        let sealedLegacyCapture = try HeadlessNarrationRunner.sealedCapture(
+            .init(duration: 1, anchors: [], pronunciationEvidence: .init(decisions: [], diagnostics: [])),
+            audioURL: audio,
+            expected: legacyExpected,
+            workDir: tmp)
+        #expect(throws: Error.self) {
+            _ = try HeadlessNarrationRunner.validateCapture(
+                sealedLegacyCapture, chapterIndex: 0, expected: planExpected, workDir: tmp)
+        }
+    }
+
+    @Test func planCaptureSetIdentityBindsFullPlanAndOrderedChapterDigests() {
+        let baseline = HeadlessNarrationRunner.captureSetID(
+            sourceFingerprint: "source-a",
+            voice: VoiceID("af_heart"),
+            voicePlanSHA256: String(repeating: "a", count: 64),
+            renderVersion: 22,
+            rendererIdentity: NarrationFileNaming.rendererIdentity,
+            normalizationMode: "deterministic",
+            orderedChapterSignatures: ["0:content-a", "1:content-b"],
+            orderedChapterVoicePlanDigests: ["0:chapter-a", "1:chapter-b"])
+        let changedDefaultOrSpeaker = HeadlessNarrationRunner.captureSetID(
+            sourceFingerprint: "source-a",
+            voice: VoiceID("af_heart"),
+            voicePlanSHA256: String(repeating: "c", count: 64),
+            renderVersion: 22,
+            rendererIdentity: NarrationFileNaming.rendererIdentity,
+            normalizationMode: "deterministic",
+            orderedChapterSignatures: ["0:content-a", "1:content-b"],
+            orderedChapterVoicePlanDigests: ["0:chapter-a", "1:chapter-b"])
+        let changedExplicitBlockOrRange = HeadlessNarrationRunner.captureSetID(
+            sourceFingerprint: "source-a",
+            voice: VoiceID("af_heart"),
+            voicePlanSHA256: String(repeating: "a", count: 64),
+            renderVersion: 22,
+            rendererIdentity: NarrationFileNaming.rendererIdentity,
+            normalizationMode: "deterministic",
+            orderedChapterSignatures: ["0:content-a", "1:content-b"],
+            orderedChapterVoicePlanDigests: ["0:chapter-z", "1:chapter-b"])
+        let reorderedChapterDigests = HeadlessNarrationRunner.captureSetID(
+            sourceFingerprint: "source-a",
+            voice: VoiceID("af_heart"),
+            voicePlanSHA256: String(repeating: "a", count: 64),
+            renderVersion: 22,
+            rendererIdentity: NarrationFileNaming.rendererIdentity,
+            normalizationMode: "deterministic",
+            orderedChapterSignatures: ["0:content-a", "1:content-b"],
+            orderedChapterVoicePlanDigests: ["1:chapter-b", "0:chapter-a"])
+
+        #expect(
+            Set([baseline, changedDefaultOrSpeaker, changedExplicitBlockOrRange, reorderedChapterDigests])
+                .count == 4)
+    }
+
+    @Test func equivalentPlanResumesSchemaTwoCaptureAndChangedPlanFailsClosed() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let expanded = try TestEPUBFixture.twoChapters(in: tmp)
+        let epub = tmp.appendingPathComponent("fixture.epub")
+        try FileManager.default.zipItem(at: expanded, to: epub, shouldKeepParent: false)
+        let sourceSHA = try HeadlessNarrationRunner.fileSHA256(at: epub)
+        let planURL = tmp.appendingPathComponent("fixture.voice-plan.json")
+        let firstPlan = """
+        {"schemaVersion":1,"source":{"epubSHA256":"\(sourceSHA)"},"defaultSpeakerID":"narrator","speakers":[{"id":"narrator","voiceID":"af_heart"},{"id":"alternate","voiceID":"am_michael"}],"assignments":[]}
+        """
+        try Data(firstPlan.utf8).write(to: planURL)
+        let resolved = try HeadlessNarrationRunner.resolveVoicePlan(
+            epubURL: epub, voicePlanURL: planURL)
+        var config = NarrationRunConfig(
+            epubURL: epub,
+            outM4BURL: tmp.appendingPathComponent("out.m4b"),
+            sidecarURL: nil,
+            workDir: tmp.appendingPathComponent("work"),
+            voice: nil,
+            voicePlanURL: planURL,
+            title: "Fixture",
+            author: "Echo",
+            maxNewChaptersPerRun: 1)
+        config.generatePronunciationReview = false
+
+        let first = try await HeadlessNarrationRunner().run(config, tts: StubEngine())
+        #expect(!first.complete)
+        #expect(first.capturedThisRun == 1)
+        let firstCapture = try JSONDecoder().decode(
+            HeadlessNarrationRunner.ChapterCapture.self,
+            from: Data(contentsOf: config.workDir.appendingPathComponent(".anchors-ch0.json")))
+        let firstIdentity = try #require(firstCapture.identity)
+        #expect(firstIdentity.schemaVersion == 2)
+        #expect(firstIdentity.voicePlanSHA256 == resolved.voicePlanSHA256)
+        #expect(firstIdentity.audioFileName.contains(resolved.voicePlanID))
+
+        let reorderedEquivalentPlan = """
+        {"assignments":[],"speakers":[{"voiceID":"am_michael","id":"alternate"},{"voiceID":"af_heart","id":"narrator"}],"defaultSpeakerID":"narrator","source":{"epubSHA256":"\(sourceSHA)"},"schemaVersion":1}
+        """
+        try Data(reorderedEquivalentPlan.utf8).write(to: planURL)
+        let second = try await HeadlessNarrationRunner().run(config, tts: StubEngine())
+        #expect(second.complete)
+        #expect(second.capturedThisRun == 1)
+
+        let changedDefaultPlan = """
+        {"schemaVersion":1,"source":{"epubSHA256":"\(sourceSHA)"},"defaultSpeakerID":"alternate","speakers":[{"id":"narrator","voiceID":"af_heart"},{"id":"alternate","voiceID":"am_michael"}],"assignments":[]}
+        """
+        try Data(changedDefaultPlan.utf8).write(to: planURL)
+        await #expect(throws: Error.self) {
+            try await HeadlessNarrationRunner().run(config, tts: StubEngine())
+        }
+    }
+
     @Test func planWithPDFFailsBeforeFreshCleanup() async throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
             UUID().uuidString, isDirectory: true)

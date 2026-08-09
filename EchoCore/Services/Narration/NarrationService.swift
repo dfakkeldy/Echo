@@ -250,6 +250,7 @@ final class NarrationService {
         sourceChapterKey: String? = nil,
         blocks: [EPubBlockRecord],
         voice: VoiceID,
+        renderIdentityToken: String? = nil,
         overrides: PronunciationOverrides,
         occurrenceOverrides: PronunciationOccurrenceOverrides,
         normalizationMode: String,
@@ -262,13 +263,23 @@ final class NarrationService {
             occurrenceOverrides: occurrenceOverrides,
             normalizationMode: normalizationMode,
             pronunciationPack: pronunciationPack)
-        return cacheDirectory.appendingPathComponent(
-            NarrationFileNaming.chapterFileName(
+        let fileName: String
+        if let renderIdentityToken {
+            fileName = NarrationFileNaming.chapterFileName(
+                audiobookID: audiobookID,
+                chapterIndex: chapterIndex,
+                sourceChapterKey: sourceChapterKey,
+                renderIdentityToken: renderIdentityToken,
+                contentSignature: signature)
+        } else {
+            fileName = NarrationFileNaming.chapterFileName(
                 audiobookID: audiobookID,
                 chapterIndex: chapterIndex,
                 sourceChapterKey: sourceChapterKey,
                 voice: voice,
-                contentSignature: signature))
+                contentSignature: signature)
+        }
+        return cacheDirectory.appendingPathComponent(fileName)
     }
 
     private func segmentCacheURL(
@@ -445,6 +456,7 @@ final class NarrationService {
         chapterIndex: Int, sourceChapterKey: String? = nil, chapterNumber: Int? = nil,
         blocks: [EPubBlockRecord], voice: VoiceID,
         blockVoice: @escaping @Sendable (String) -> VoiceID,
+        renderIdentityToken: String? = nil,
         chapterTitle: String? = nil,
         onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)? =
             nil
@@ -461,6 +473,7 @@ final class NarrationService {
             sourceChapterKey: sourceChapterKey,
             blocks: blocks,
             voice: voice,
+            renderIdentityToken: renderIdentityToken,
             overrides: overrides,
             occurrenceOverrides: occurrenceOverrides,
             normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled),
