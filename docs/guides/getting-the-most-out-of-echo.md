@@ -10,6 +10,26 @@ You don't need to read this front to back. Jump to whatever feature you're curio
 
 ---
 
+## Does listening even count? — reading vs. listening, honestly
+
+Before any features, the question every audiobook learner eventually gets asked — or asks themselves. The research gives a clear two-part answer, and Echo is built on taking *both* parts seriously.
+
+**Part one: your brain doesn't much care.** UC Berkeley researchers (Deniz et al., 2019) used fMRI to map brain activity word-by-word while people listened to hours of stories, then read the very same stories. The resulting semantic maps — which patch of cortex handles which kind of meaning — were nearly identical across the two formats. That's less surprising than it sounds: the brain has no purpose-built reading center. Reading is a recent cultural invention that borrows the speech-comprehension machinery you've had since infancy. And for narrative books, head-to-head comparisons agree: Rogowsky and colleagues (2016) found no comprehension difference between reading, listening, and doing both at once — tested immediately *and* two weeks later. As far as the meaning-making parts of your brain are concerned, listening to a story is reading it.
+
+**Part two: passive listening still loses on dense material.** Daniel & Woody (2010) gave students the same psychology material as text or as audio. The listeners scored about 28% lower on the quiz — roughly an A versus a D. (Most had *preferred* audio beforehand; they changed their minds when the scores came back.) The literature points to two culprits:
+
+- **Audio has no "flip back."** Print gives you effortless random access — glance back at a definition, re-scan the start of the argument. A bare audio stream just marches on (Willingham, 2018).
+- **Minds wander more by ear.** Listening produces measurably more mind-wandering and weaker recall than reading the same material (Varao Sousa, Carriere & Smilek, 2013) — partly because audio never offers the natural pause-and-check points that page turns and paragraph breaks build into print.
+
+Look at those two failure modes again: neither is a property of your ears. They're missing *affordances* — things a printed page happens to hand you that a bare audio stream doesn't. Restoring them is this entire app's job description:
+
+- **No random access?** [Read Along](#8-read-along--the-synced-epub--pdf-reader) bolts print's superpower onto audio: tap a paragraph to jump the narration there, search a phrase and land on the second it's spoken. [Smart Rewind](#7-smart-rewind--pick-up-where-your-mind-left-off) rebuilds context after every interruption, and [Chapter Looping](#6-chapter-looping--repetition-on-your-terms) makes "read that again" a single switch.
+- **No pause points?** Bookmarks, voice memos, and the [study system](#2-the-study-system--spaced-repetition-explained-from-zero) manufacture them — moments where you stop receiving and start retrieving, which is where memory actually forms.
+
+One more honest note from the same research: **attention beats format.** An audiobook heard with real attention outperforms a page skimmed while half-distracted — and the reverse is just as true. Nothing in this guide makes distracted listening free; it makes *recovering* from distraction cheap, and turns listening from a passive stream into something your brain has to answer to.
+
+---
+
 ## 1. Photo & Place Bookmarks — borrow your brain's sense of place
 
 **What it does:** When you create a bookmark, you can attach a photo — snap something around you or pick one from your photo library. Later, as playback passes that bookmark, Echo switches the player artwork to your photo. Your bookmarks become a visual journal of the book, and each photo becomes a doorway back to what you were hearing.
@@ -230,6 +250,11 @@ None of these steps is hard; the entire system is designed to run inside a life 
 
 ## Sources & further reading
 
+- Deniz, Nunez-Elizalde, Huth & Gallant (2019). The representation of semantic information across human cerebral cortex during listening versus reading is invariant to stimulus modality. *Journal of Neuroscience.*
+- Rogowsky, Calhoun & Tallal (2016). Does modality matter? The effects of reading, listening, and dual modality on comprehension. *SAGE Open.*
+- Daniel & Woody (2010). They hear, but do not listen: Retention for podcasted material in a classroom context. *Teaching of Psychology.*
+- Willingham (2018). Is listening to a book the same thing as reading it? *The New York Times.*
+- Varao Sousa, Carriere & Smilek (2013). The way we encounter reading material influences how frequently we mind wander. *Frontiers in Psychology.*
 - Godden & Baddeley (1975). Context-dependent memory in two natural environments. *British Journal of Psychology.*
 - Smith & Vela (2001). Environmental context-dependent memory: A review and meta-analysis. *Psychonomic Bulletin & Review.*
 - Tulving & Thomson (1973). Encoding specificity and retrieval processes in episodic memory. *Psychological Review.*
