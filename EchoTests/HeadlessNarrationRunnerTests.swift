@@ -8,6 +8,11 @@ import ZIPFoundation
 
 @MainActor
 @Suite struct HeadlessNarrationRunnerTests {
+    private enum VoicePlanResumeMutation: String, CaseIterable, Sendable {
+        case usedSpeakerVoice
+        case explicitBlockMove
+        case rangeEndpoint
+    }
     private actor EvaluatedWords {
         private var words: [String] = []
 
@@ -361,47 +366,79 @@ import ZIPFoundation
         }
     }
 
-    @Test func planCaptureSetIdentityBindsFullPlanAndOrderedChapterDigests() {
-        let baseline = HeadlessNarrationRunner.captureSetID(
-            sourceFingerprint: "source-a",
-            voice: VoiceID("af_heart"),
-            voicePlanSHA256: String(repeating: "a", count: 64),
-            renderVersion: 22,
-            rendererIdentity: NarrationFileNaming.rendererIdentity,
-            normalizationMode: "deterministic",
-            orderedChapterSignatures: ["0:content-a", "1:content-b"],
-            orderedChapterVoicePlanDigests: ["0:chapter-a", "1:chapter-b"])
-        let changedDefaultOrSpeaker = HeadlessNarrationRunner.captureSetID(
-            sourceFingerprint: "source-a",
-            voice: VoiceID("af_heart"),
-            voicePlanSHA256: String(repeating: "c", count: 64),
-            renderVersion: 22,
-            rendererIdentity: NarrationFileNaming.rendererIdentity,
-            normalizationMode: "deterministic",
-            orderedChapterSignatures: ["0:content-a", "1:content-b"],
-            orderedChapterVoicePlanDigests: ["0:chapter-a", "1:chapter-b"])
-        let changedExplicitBlockOrRange = HeadlessNarrationRunner.captureSetID(
-            sourceFingerprint: "source-a",
-            voice: VoiceID("af_heart"),
-            voicePlanSHA256: String(repeating: "a", count: 64),
-            renderVersion: 22,
-            rendererIdentity: NarrationFileNaming.rendererIdentity,
-            normalizationMode: "deterministic",
-            orderedChapterSignatures: ["0:content-a", "1:content-b"],
-            orderedChapterVoicePlanDigests: ["0:chapter-z", "1:chapter-b"])
-        let reorderedChapterDigests = HeadlessNarrationRunner.captureSetID(
-            sourceFingerprint: "source-a",
-            voice: VoiceID("af_heart"),
-            voicePlanSHA256: String(repeating: "a", count: 64),
-            renderVersion: 22,
-            rendererIdentity: NarrationFileNaming.rendererIdentity,
-            normalizationMode: "deterministic",
-            orderedChapterSignatures: ["0:content-a", "1:content-b"],
-            orderedChapterVoicePlanDigests: ["1:chapter-b", "0:chapter-a"])
+    @Test(arguments: VoicePlanResumeMutation.allCases)
+    private func changedResolvedPlanRejectsInterruptedCaptureAndPreservesWorkDirectory(
+        mutation: VoicePlanResumeMutation
+    ) async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
 
+        let expanded = try TestEPUBFixture.twoChapters(in: tmp)
+        let epub = tmp.appendingPathComponent("fixture.epub")
+        try FileManager.default.zipItem(at: expanded, to: epub, shouldKeepParent: false)
+        let sourceSHA = try HeadlessNarrationRunner.fileSHA256(at: epub)
+        let planURL = tmp.appendingPathComponent("fixture.voice-plan.json")
+        let seedPlan = """
+        {"schemaVersion":1,"source":{"epubSHA256":"\(sourceSHA)"},"defaultSpeakerID":"narrator","speakers":[{"id":"narrator","voiceID":"af_heart"},{"id":"dialogue","voiceID":"bf_emma"}],"assignments":[]}
+        """
+        try Data(seedPlan.utf8).write(to: planURL)
+        let seedResolved = try HeadlessNarrationRunner.resolveVoicePlan(
+            epubURL: epub, voicePlanURL: planURL)
+        let firstChapter = seedResolved.blocks.filter { $0.blockID.hasPrefix("s0-") }
+        let secondChapter = seedResolved.blocks.filter { $0.blockID.hasPrefix("s1-") }
+        let explicitOriginal = try #require(firstChapter.first?.blockID)
+        let explicitMoved = try #require(firstChapter.dropFirst().first?.blockID)
+        let rangeStart = try #require(secondChapter.first?.blockID)
+        let rangeEnd = try #require(secondChapter.dropFirst().first?.blockID)
+        let extendedRangeEnd = try #require(secondChapter.dropFirst(2).first?.blockID)
+
+        func plan(dialogueVoice: String, explicitBlock: String, rangeEnd: String) -> String {
+            """
+            {"schemaVersion":1,"source":{"epubSHA256":"\(sourceSHA)"},"defaultSpeakerID":"narrator","speakers":[{"id":"narrator","voiceID":"af_heart"},{"id":"dialogue","voiceID":"\(dialogueVoice)"}],"assignments":[{"speakerID":"dialogue","blocks":["\(explicitBlock)"]},{"speakerID":"dialogue","range":{"start":"\(rangeStart)","end":"\(rangeEnd)"}}]}
+            """
+        }
+        let baselineJSON = plan(
+            dialogueVoice: "bf_emma", explicitBlock: explicitOriginal, rangeEnd: rangeEnd)
+        try Data(baselineJSON.utf8).write(to: planURL)
+        let baseline = try HeadlessNarrationRunner.resolveVoicePlan(epubURL: epub, voicePlanURL: planURL)
+        var config = NarrationRunConfig(
+            epubURL: epub, outM4BURL: tmp.appendingPathComponent("out.m4b"), sidecarURL: nil,
+            workDir: tmp.appendingPathComponent("work"), voice: nil, voicePlanURL: planURL,
+            title: "Fixture", author: "Echo", maxNewChaptersPerRun: 1)
+        config.generatePronunciationReview = false
+        _ = try await HeadlessNarrationRunner().run(config, tts: StubEngine())
+        let marker = config.workDir.appendingPathComponent(".anchors-ch0.json")
+        let before = try Data(contentsOf: marker)
+        let contentsBefore = try FileManager.default.contentsOfDirectory(
+            atPath: config.workDir.path).sorted()
+
+        let changedJSON: String
+        switch mutation {
+        case .usedSpeakerVoice:
+            changedJSON = plan(dialogueVoice: "bm_fable", explicitBlock: explicitOriginal, rangeEnd: rangeEnd)
+        case .explicitBlockMove:
+            changedJSON = plan(dialogueVoice: "bf_emma", explicitBlock: explicitMoved, rangeEnd: rangeEnd)
+        case .rangeEndpoint:
+            changedJSON = plan(dialogueVoice: "bf_emma", explicitBlock: explicitOriginal, rangeEnd: extendedRangeEnd)
+        }
+        try Data(changedJSON.utf8).write(to: planURL)
+        let changed = try HeadlessNarrationRunner.resolveVoicePlan(epubURL: epub, voicePlanURL: planURL)
+        #expect(changed.voicePlanSHA256 != baseline.voicePlanSHA256)
         #expect(
-            Set([baseline, changedDefaultOrSpeaker, changedExplicitBlockOrRange, reorderedChapterDigests])
-                .count == 4)
+            changed.chapterDigest(blockIDs: firstChapter.map(\.blockID))
+                != baseline.chapterDigest(blockIDs: firstChapter.map(\.blockID))
+                || changed.chapterDigest(blockIDs: secondChapter.map(\.blockID))
+                    != baseline.chapterDigest(blockIDs: secondChapter.map(\.blockID)))
+
+        await #expect(throws: Error.self) {
+            try await HeadlessNarrationRunner().run(config, tts: StubEngine())
+        }
+        #expect(try Data(contentsOf: marker) == before)
+        #expect(
+            try FileManager.default.contentsOfDirectory(atPath: config.workDir.path).sorted()
+                == contentsBefore)
     }
 
     @Test func equivalentPlanResumesSchemaTwoCaptureAndChangedPlanFailsClosed() async throws {
