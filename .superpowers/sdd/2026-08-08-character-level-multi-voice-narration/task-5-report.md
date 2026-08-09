@@ -19,7 +19,19 @@
 
 - The isolated initial PDF-test SIGKILL did not reproduce on the immediate full-suite rerun. No product behavior was changed to mask it.
 
+## Fix Round 1 — Review Findings
+
+- RED (portable-ID boundary): the focused audit suite reported 28 passed, 1 failed, because schema 7 decoded `s١-b٢`; the test expected decoding to reject that Unicode-numeric key.
+- GREEN (portable-ID boundary): portable block-ID validation now accepts only ASCII scalar digits `0x30...0x39`, matching `^s[0-9]+-b[0-9]+$`.
+- RED (authoritative provenance): the new decoded-artifact test failed the test build with the expected missing `expectedBlockVoiceProvenance` artifact-validation argument.
+- GREEN (authoritative provenance): schema-7 final artifact validation now requires the runner's authoritative resolved provenance and compares both the exact plan SHA-256 and the exact complete block-to-voice map. Legacy schema-6 calls retain the existing two-URL validator path.
+- The listening-reel generator forwards the runner-supplied provenance to both audit-only and reel-bearing final artifact validation paths; no reel timing or media assembly changed.
+- Fresh captured test build: `** TEST BUILD SUCCEEDED **`.
+- Focused audit verification: `PronunciationAuditTests` — 30 passed, 0 failed, 30 total.
+- Focused runner verification: `HeadlessNarrationRunnerTests` — 63 passed, 0 failed, 63 total.
+
 ## Commit
 
 - `531e7a9b feat(narration): audit block voice provenance`
 - This follow-up test/report commit records the completed clean-build diagnosis and verification evidence.
+- The next follow-up commit records Fix Round 1 review remediation and its RED/GREEN evidence.

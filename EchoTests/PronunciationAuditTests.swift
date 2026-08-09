@@ -373,6 +373,9 @@ import Testing
             validObject.merging(["blockVoices": ["not-a-portable-block": "am_michael"]]) {
                 _, new in new
             },
+            validObject.merging(["blockVoices": ["s١-b٢": "am_michael"]]) {
+                _, new in new
+            },
         ]
 
         for object in invalidObjects {
@@ -390,6 +393,68 @@ import Testing
         let absentDecisionData = try JSONSerialization.data(withJSONObject: objectWithAbsentDecision)
         #expect(throws: (any Error).self) {
             _ = try JSONDecoder().decode(PronunciationAuditManifest.self, from: absentDecisionData)
+        }
+    }
+
+    @Test func planArtifactValidationRejectsDriftFromResolvedProvenance() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let audiobookURL = tmp.appendingPathComponent("voice-plan.m4b")
+        try Data("exact audiobook bytes".utf8).write(to: audiobookURL)
+        let provenance = PronunciationBlockVoiceProvenance(
+            voicePlanSHA256: String(repeating: "c", count: 64),
+            blockVoices: [
+                "s0-b0": VoiceID("am_michael"),
+                "s0-b1": VoiceID("am_michael"),
+            ])
+        let manifest = PronunciationAuditManifest.make(
+            renderVersion: 15,
+            voice: VoiceID("am_michael"),
+            blockVoiceProvenance: provenance,
+            captureCoverage: .complete,
+            legacyChapterIndexes: [],
+            audiobookURL: audiobookURL,
+            reelURL: nil,
+            audiobookSHA256: try PronunciationArtifactIntegrity.sha256Hex(of: audiobookURL),
+            listeningReelSHA256: nil,
+            watchWords: [],
+            decisions: [],
+            diagnostics: [])
+        let validObject = try #require(
+            JSONSerialization.jsonObject(with: manifest.encoded()) as? [String: Any])
+
+        let driftedObjects: [[String: Any]] = [
+            validObject.merging(["blockVoices": ["s0-b0": "am_michael"]]) { _, new in new },
+            validObject.merging([
+                "blockVoices": [
+                    "s0-b0": "am_michael",
+                    "s0-b1": "am_michael",
+                    "s9-b9": "am_michael",
+                ],
+            ]) { _, new in new },
+            validObject.merging(["voicePlanSHA256": String(repeating: "d", count: 64)]) {
+                _, new in new
+            },
+        ]
+
+        try manifest.validateArtifacts(
+            audiobookURL: audiobookURL,
+            reelURL: nil,
+            expectedBlockVoiceProvenance: provenance)
+
+        for object in driftedObjects {
+            let decoded = try JSONDecoder().decode(
+                PronunciationAuditManifest.self,
+                from: JSONSerialization.data(withJSONObject: object))
+            #expect(throws: (any Error).self) {
+                try decoded.validateArtifacts(
+                    audiobookURL: audiobookURL,
+                    reelURL: nil,
+                    expectedBlockVoiceProvenance: provenance)
+            }
         }
     }
 

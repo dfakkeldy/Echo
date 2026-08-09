@@ -380,7 +380,8 @@ nonisolated enum PronunciationListeningReel {
             try manifest.write(to: request.auditURL, fileManager: fileManager)
             try manifest.validateArtifacts(
                 audiobookURL: request.audiobookURL,
-                reelURL: nil)
+                reelURL: nil,
+                expectedBlockVoiceProvenance: request.blockVoiceProvenance)
             return .auditOnly(auditURL: request.auditURL)
         }
 
@@ -419,7 +420,8 @@ nonisolated enum PronunciationListeningReel {
         try manifest.write(to: request.auditURL, fileManager: fileManager)
         try manifest.validateArtifacts(
             audiobookURL: request.audiobookURL,
-            reelURL: request.reelURL)
+            reelURL: request.reelURL,
+            expectedBlockVoiceProvenance: request.blockVoiceProvenance)
         return .generated(auditURL: request.auditURL, reelURL: request.reelURL)
     }
 

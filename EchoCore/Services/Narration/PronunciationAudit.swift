@@ -581,7 +581,42 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
     /// Verifies both manifest schema and the exact raw sibling bytes. Callers
     /// pass explicit URLs so the portable manifest never persists local paths.
     func validateArtifacts(audiobookURL: URL, reelURL: URL?) throws {
+        try validateArtifacts(
+            audiobookURL: audiobookURL,
+            reelURL: reelURL,
+            expectedBlockVoiceProvenance: nil)
+    }
+
+    /// Verifies the final sibling bytes and, for schema-7 receipts, the exact
+    /// resolved voice-plan provenance that authorized the render.
+    func validateArtifacts(
+        audiobookURL: URL,
+        reelURL: URL?,
+        expectedBlockVoiceProvenance: PronunciationBlockVoiceProvenance?
+    ) throws {
         try validateFields()
+        switch schemaVersion {
+        case Self.planSchemaVersion:
+            guard let expectedBlockVoiceProvenance else {
+                throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                    "plan pronunciation audit requires resolved voice-plan provenance")
+            }
+            let expectedBlockVoices = Dictionary(
+                uniqueKeysWithValues: expectedBlockVoiceProvenance.blockVoices.map {
+                    ($0.key, $0.value.rawValue)
+                })
+            guard voicePlanSHA256 == expectedBlockVoiceProvenance.voicePlanSHA256,
+                blockVoices == expectedBlockVoices
+            else {
+                throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                    "plan pronunciation audit does not match the resolved voice plan")
+            }
+        default:
+            guard expectedBlockVoiceProvenance == nil else {
+                throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                    "legacy pronunciation audit cannot validate resolved voice-plan provenance")
+            }
+        }
         guard audiobookFileName == audiobookURL.lastPathComponent else {
             throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
                 "audiobook filename does not match the manifest")
@@ -794,9 +829,13 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
         guard components.count == 2,
             components[0].first == "s", components[1].first == "b"
         else { return false }
-        return components[0].dropFirst().allSatisfy(\.isNumber)
-            && components[1].dropFirst().allSatisfy(\.isNumber)
+        return components[0].dropFirst().unicodeScalars.allSatisfy(Self.isASCIIDigit)
+            && components[1].dropFirst().unicodeScalars.allSatisfy(Self.isASCIIDigit)
             && components[0].count > 1 && components[1].count > 1
+    }
+
+    private static func isASCIIDigit(_ scalar: Unicode.Scalar) -> Bool {
+        (48...57).contains(scalar.value)
     }
 
     /// Writes through a unique sibling, then atomically promotes it over the
