@@ -707,13 +707,26 @@ import ZIPFoundation
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
-        let source = try TestEPUBFixture.twoChapters(in: tmp)
+        let source = tmp.appendingPathComponent("source", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        let expanded = try TestEPUBFixture.twoChapters(in: source)
+        let boundEPUB = source.appendingPathComponent("bound.epub")
+        try FileManager.default.zipItem(at: expanded, to: boundEPUB, shouldKeepParent: false)
+        let plan = tmp.appendingPathComponent("plan.json")
+        try Data(
+            "{\"schemaVersion\":1,\"source\":{\"epubSHA256\":\"\(try HeadlessNarrationRunner.fileSHA256(at: boundEPUB))\"},\"defaultSpeakerID\":\"narrator\",\"speakers\":[{\"id\":\"narrator\",\"voiceID\":\"af_heart\"}],\"assignments\":[]}".utf8
+        ).write(to: plan)
         let work = tmp.appendingPathComponent("work"); try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
-        let marker = work.appendingPathComponent(".anchors-ch0.json"); try Data("keep".utf8).write(to: marker)
-        let output = tmp.appendingPathComponent("out.m4b"); try Data("keep".utf8).write(to: output)
-        let config = NarrationRunConfig(epubURL: source, outM4BURL: output, sidecarURL: nil, workDir: work, voice: nil, voicePlanURL: tmp.appendingPathComponent("plan.json"), title: "Fixture", author: "Echo", maxNewChaptersPerRun: nil, clearExistingCapturesBeforeRun: true)
+        let marker = work.appendingPathComponent(".anchors-ch0.json")
+        let markerBytes = Data("keep marker".utf8)
+        try markerBytes.write(to: marker)
+        let output = tmp.appendingPathComponent("out.m4b")
+        let outputBytes = Data("keep output".utf8)
+        try outputBytes.write(to: output)
+        let config = NarrationRunConfig(epubURL: source, outM4BURL: output, sidecarURL: nil, workDir: work, voice: nil, voicePlanURL: plan, title: "Fixture", author: "Echo", maxNewChaptersPerRun: nil, clearExistingCapturesBeforeRun: true)
         await #expect(throws: Error.self) { try await HeadlessNarrationRunner().run(config, tts: StubEngine()) }
-        #expect(FileManager.default.fileExists(atPath: marker.path)); #expect(FileManager.default.fileExists(atPath: output.path))
+        #expect(try Data(contentsOf: marker) == markerBytes)
+        #expect(try Data(contentsOf: output) == outputBytes)
     }
 
     @Test func partialRunLeavesPronunciationReviewPendingWithoutInvokingGenerator() async throws {
@@ -2609,6 +2622,108 @@ import ZIPFoundation
         #expect(legacy.complete)
         #expect(FileManager.default.fileExists(atPath: legacyConfig.outM4BURL.path))
         #expect(FileManager.default.fileExists(atPath: legacyConfig.sidecarURL!.path))
+    }
+
+    @Test func planDigestSkipsVisibleNonSpeakableBlocksAndResumesToCompletion() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let expanded = try TestEPUBFixture.twoChapters(in: tmp)
+        let oebps = expanded.appendingPathComponent("OEBPS", isDirectory: true)
+        try """
+        <?xml version="1.0" encoding="utf-8"?>
+        <!DOCTYPE html>
+        <html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+        <body><section>
+        <h1>Digest Fixture</h1>
+        <p>Speakable prose before the image.</p>
+        <img src="no-alt.png"/>
+        <p></p>
+        <p>   </p>
+        <p>Speakable prose after the image.</p>
+        </section></body></html>
+        """.write(
+            to: oebps.appendingPathComponent("chap01.xhtml"),
+            atomically: true,
+            encoding: .utf8)
+        try Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9aRX0AAAAASUVORK5CYII=")!
+            .write(to: oebps.appendingPathComponent("no-alt.png"))
+        let opfURL = oebps.appendingPathComponent("content.opf")
+        var opf = try String(contentsOf: opfURL, encoding: .utf8)
+        opf = opf.replacingOccurrences(
+            of: "<item id=\"chap01\"",
+            with: "<item id=\"no-alt\" href=\"no-alt.png\" media-type=\"image/png\"/>\\n<item id=\"chap01\"")
+        try opf.write(to: opfURL, atomically: true, encoding: .utf8)
+
+        let epub = tmp.appendingPathComponent("digest.epub")
+        try FileManager.default.zipItem(at: expanded, to: epub, shouldKeepParent: false)
+        let sourceSHA = try HeadlessNarrationRunner.fileSHA256(at: epub)
+        let planURL = tmp.appendingPathComponent("digest.voice-plan.json")
+        try Data(
+            """
+            {"schemaVersion":1,"source":{"epubSHA256":"\(sourceSHA)"},"defaultSpeakerID":"narrator","speakers":[{"id":"narrator","voiceID":"af_heart"}],"assignments":[]}
+            """.utf8).write(to: planURL)
+
+        let resolved = try HeadlessNarrationRunner.resolveVoicePlan(
+            epubURL: epub, voicePlanURL: planURL)
+        let parsedEPUB = try parseEPUBBlocks(audiobookID: "digest", epubURL: expanded)
+        var blocks = parsedEPUB.blocks
+        _ = try EPUBImportService.resolveTOCEntriesAndAssignChapterIndices(
+            parse: parsedEPUB,
+            audiobookID: "digest",
+            assignsStructureChapterIndices: true,
+            blocks: &blocks)
+        let firstChapter = try #require(NarrationChapterPlanner.plan(from: blocks).first)
+        let firstChapterIDs = firstChapter.blocks.map { AlignmentSidecar.portableSuffix(of: $0.id) }
+        let noAltImage = try #require(firstChapter.blocks.first(where: {
+            $0.blockKind == EPubBlockRecord.Kind.image.rawValue && $0.text == nil && !$0.isHidden
+        }))
+        let noAltImageID = AlignmentSidecar.portableSuffix(of: noAltImage.id)
+        #expect(firstChapterIDs.contains(noAltImageID))
+        #expect(!resolved.blocks.map(\.blockID).contains(noAltImageID))
+        let resolvedFirstChapterIDs = firstChapterIDs.filter { id in
+            resolved.blocks.contains(where: { $0.blockID == id })
+        }
+        #expect(resolvedFirstChapterIDs.count < firstChapterIDs.count)
+
+        let output = tmp.appendingPathComponent("digest.m4b")
+        let sidecar = tmp.appendingPathComponent("digest.alignment.json")
+        var config = NarrationRunConfig(
+            epubURL: epub,
+            outM4BURL: output,
+            sidecarURL: sidecar,
+            workDir: tmp.appendingPathComponent("digest-work"),
+            voice: nil,
+            voicePlanURL: planURL,
+            title: "Digest Fixture",
+            author: "Echo",
+            maxNewChaptersPerRun: 1)
+        config.generatePronunciationReview = false
+
+        let first = try await HeadlessNarrationRunner().run(config, tts: StubEngine())
+        #expect(!first.complete)
+        #expect(first.capturedThisRun == 1)
+        let firstCapture = try JSONDecoder().decode(
+            HeadlessNarrationRunner.ChapterCapture.self,
+            from: Data(contentsOf: config.workDir.appendingPathComponent(".anchors-ch0.json")))
+        let firstIdentity = try #require(firstCapture.identity)
+        #expect(firstIdentity.schemaVersion == HeadlessNarrationRunner.planChapterCaptureSchemaVersion)
+        #expect(firstIdentity.chapterVoicePlanSHA256 == resolved.chapterDigest(blockIDs: firstChapterIDs))
+        #expect(firstIdentity.chapterVoicePlanSHA256 == resolved.chapterDigest(blockIDs: resolvedFirstChapterIDs))
+
+        config.maxNewChaptersPerRun = nil
+        let completed = try await HeadlessNarrationRunner().run(config, tts: StubEngine())
+        #expect(completed.complete)
+        #expect(completed.capturedThisRun == 1)
+        #expect(FileManager.default.fileExists(atPath: output.path))
+        #expect(FileManager.default.fileExists(atPath: sidecar.path))
+
+        let resumed = try await HeadlessNarrationRunner().run(config, tts: StubEngine())
+        #expect(resumed.complete)
+        #expect(resumed.capturedThisRun == 0)
     }
 
     @Test func sidecarCarriesWordTimingsFromSynthesis() async throws {

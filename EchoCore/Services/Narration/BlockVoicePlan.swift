@@ -58,6 +58,7 @@ nonisolated struct ResolvedBlockVoicePlan: Equatable, Sendable {
 
     private let voicesByBlockID: [String: VoiceID]
     private let speakersByBlockID: [String: String]
+    private let resolvedBlocksByID: [String: ResolvedBlockVoice]
     private let defaultVoiceID: VoiceID
 
     init(
@@ -71,6 +72,7 @@ nonisolated struct ResolvedBlockVoicePlan: Equatable, Sendable {
         self.blocks = blocks
         voicesByBlockID = Dictionary(uniqueKeysWithValues: blocks.map { ($0.blockID, $0.voiceID) })
         speakersByBlockID = Dictionary(uniqueKeysWithValues: blocks.map { ($0.blockID, $0.speakerID) })
+        resolvedBlocksByID = Dictionary(uniqueKeysWithValues: blocks.map { ($0.blockID, $0) })
         self.defaultVoiceID = defaultVoiceID
         voicePlanSHA256 = Self.sha256(of: Self.canonicalData(
             sourceEPUBSHA256: sourceEPUBSHA256,
@@ -92,13 +94,7 @@ nonisolated struct ResolvedBlockVoicePlan: Equatable, Sendable {
     }
 
     func chapterDigest(blockIDs: [String]) -> String {
-        let chapterBlocks = blockIDs.map { blockID -> ResolvedBlockVoice in
-            precondition(voicesByBlockID[blockID] != nil, "Voice plan omitted speakable block \(blockID).")
-            return ResolvedBlockVoice(
-                blockID: blockID,
-                speakerID: speakersByBlockID[blockID]!,
-                voiceID: voicesByBlockID[blockID]!)
-        }
+        let chapterBlocks = blockIDs.compactMap { resolvedBlocksByID[$0] }
         return Self.sha256(of: try! JSONEncoder.compactSortedData(chapterBlocks))
     }
 

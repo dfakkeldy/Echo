@@ -112,6 +112,26 @@ import ZIPFoundation
         }
     }
 
+    @Test func resolverRejectsParentDirectoryContainingBoundEPUB() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let parent = tmp.appendingPathComponent("source", isDirectory: true)
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        let expanded = try TestEPUBFixture.twoChapters(in: parent)
+        let epub = parent.appendingPathComponent("bound.epub")
+        try archive(expanded, at: epub)
+        let planURL = tmp.appendingPathComponent("plan.json")
+        try Data(
+            "{\"schemaVersion\":1,\"source\":{\"epubSHA256\":\"\(try HeadlessNarrationRunner.fileSHA256(at: epub))\"},\"defaultSpeakerID\":\"narrator\",\"speakers\":[{\"id\":\"narrator\",\"voiceID\":\"af_heart\"}],\"assignments\":[]}".utf8
+        ).write(to: planURL)
+
+        #expect(throws: Error.self) {
+            try HeadlessNarrationRunner.resolveVoicePlan(epubURL: parent, voicePlanURL: planURL)
+        }
+    }
+
     @Test func resolverIdentityIsTheExactCompactContract() throws {
         let resolved = ResolvedBlockVoicePlan(
             sourceEPUBSHA256: String(repeating: "a", count: 64),

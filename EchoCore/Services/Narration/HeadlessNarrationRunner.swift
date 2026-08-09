@@ -587,9 +587,7 @@ struct NarrationRunResult {
         epubURL: URL,
         voicePlanURL: URL
     ) throws -> ResolvedBlockVoicePlan {
-        guard epubURL.pathExtension.lowercased() == "epub" else {
-            throw NarrationRunError.voicePlan("--voice-plan requires an EPUB file")
-        }
+        try validateVoicePlanEPUBURL(epubURL)
         let sourceSHA256 = try fileSHA256(at: epubURL)
         let document: BlockVoicePlanDocument
         do {
@@ -1325,6 +1323,9 @@ struct NarrationRunResult {
             },
         progress: @escaping @MainActor (NarrationRunProgress) -> Void = { _ in }
     ) async throws -> NarrationRunResult {
+        if config.voicePlanURL != nil {
+            try Self.validateVoicePlanEPUBURL(config.epubURL)
+        }
         let source = try resolveNarrationSource(at: config.epubURL)
         if config.voicePlanURL != nil {
             guard case .epubFile = source else {
@@ -1993,6 +1994,14 @@ struct NarrationRunResult {
             return .pdf(sourceURL)
         default:
             throw NarrationRunError.unsupportedInput(sourceURL)
+        }
+    }
+
+    private static func validateVoicePlanEPUBURL(_ epubURL: URL) throws {
+        guard epubURL.pathExtension.lowercased() == "epub",
+            (try? epubURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+        else {
+            throw NarrationRunError.voicePlan("--voice-plan requires a regular .epub file")
         }
     }
 
