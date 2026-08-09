@@ -106,15 +106,26 @@ enum WatchWidgetReloadPolicy {
         currentIsPlaying: Bool,
         currentTrackId: String?,
         currentAccentHex: String?,
+        currentRampTopHex: String?,
         hasCachedThumbnail: Bool
     ) -> Bool {
         let incomingAccent = (state["artworkAccentColorHex"] as? String).flatMap {
+            $0.isEmpty ? nil : $0
+        }
+        // The ramp needs its own clause because it does NOT move with the
+        // accent. The ramp follows the primary hue, but a promoted accent is
+        // seeded from a different candidate entirely, so displayed bookmark
+        // artwork can change the room while leaving the accent and the track
+        // untouched. Only the top end is checked: both ends come out of one
+        // resolve at the same hue, so they cannot move independently.
+        let incomingRampTop = (state["coverRampTopHex"] as? String).flatMap {
             $0.isEmpty ? nil : $0
         }
 
         return ((state["isPlaying"] as? Bool).map { $0 != currentIsPlaying } ?? false)
             || ((state["trackId"] as? String).map { $0 != currentTrackId } ?? false)
             || (state["artworkAccentColorHex"] != nil && incomingAccent != currentAccentHex)
+            || (state["coverRampTopHex"] != nil && incomingRampTop != currentRampTopHex)
             || state["thumbnailData"] != nil
             || (state["hasThumbnail"] as? Bool == false && hasCachedThumbnail)
     }

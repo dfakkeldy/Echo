@@ -10,7 +10,9 @@ import WidgetKit
             isPlaying: false,
             progressFraction: 0,
             thumbnailData: nil,
-            artworkAccentColorHex: nil
+            artworkAccentColorHex: nil,
+            coverRampTopHex: nil,
+            coverRampBottomHex: nil
         )
 
         static let previewPlaying = SimpleEntry(
@@ -19,7 +21,9 @@ import WidgetKit
             isPlaying: true,
             progressFraction: 0.42,
             thumbnailData: nil,
-            artworkAccentColorHex: "#FF8000"
+            artworkAccentColorHex: "#FF8000",
+            coverRampTopHex: "#3A2A12",
+            coverRampBottomHex: "#2C1F0D"
         )
 
         static let previewComplete = SimpleEntry(
@@ -28,7 +32,9 @@ import WidgetKit
             isPlaying: false,
             progressFraction: 1,
             thumbnailData: nil,
-            artworkAccentColorHex: "#GG0000"
+            artworkAccentColorHex: "#GG0000",
+            coverRampTopHex: "#GG0000",
+            coverRampBottomHex: "#2C1F0D"
         )
     }
 

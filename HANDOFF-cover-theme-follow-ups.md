@@ -4,8 +4,8 @@ Three follow-ups to PR #525 (cover-theme accent promotion), each its own
 branch + PR off `origin/nightly`, smallest first.
 
 1. Dark-yellow amber rotation — merged, PR #526 (`d292fb5b`)
-2. Book-detail + chapter-sheet theming (iOS) — `feature/cover-theme-sheet-wash`
-3. Widget + watch background-ramp roles — not started
+2. Book-detail + chapter-sheet theming (iOS) — merged, PR #528 (`1688ae62`)
+3. Widget + watch background-ramp roles — `feature/cover-theme-watch-ramp`
 
 ## 2026-08-08 — item 1 verified green
 
@@ -42,4 +42,28 @@ the app-group + WatchState channels (mirror artworkAccentColorHex's 10 sites),
 consume in Echo Widget/Views + Echo Watch App ContentView.artworkBackground.
 Run cross-platform-parity-reviewer before opening the PR. Device acceptance via
 iPhone Mirroring, not the simulator.
+```
+
+## 2026-08-09 — item 3 implemented
+
+Done: cover ramp (`coverRampTopHex`/`coverRampBottomHex`, DARK recipe so it
+inherits item 1's amber rotation) rides the WatchState reply and lands in the
+watch app-group. Consumed by `ContentView.artworkBackground`'s flat-black
+fallback and the complication's `containerBackground` under `.fullColor`.
+Topology correction: `Echo WidgetExtension` is `SDKROOT = watchos` — there is no
+iOS widget, so this is ONE channel, not two.
+Parity review found and fixed: unmemoized `watchCoverRoles` (3x resolve per
+tick), missing watch + widget test coverage, and a real hole in "ramp and accent
+always move together" (a promoted accent is seeded from a different candidate,
+so bookmark artwork can move the ramp alone) — now its own reload clause.
+Next: full `make test` + watch scheme, then device acceptance on the Series 11.
+Resume:
+
+```
+Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/distracted-yalow-ad102f,
+branch feature/cover-theme-watch-ramp. Unit suites green
+(WatchStateContextBuilder 28/28, WidgetAccentColor 5/5,
+WatchWidgetPresentationSource 6/6, full `make test` SUCCEEDED). Confirm the
+Echo Watch App scheme, then push and open a PR to nightly. Device QA: both
+Dan's iPhone and Dan's Apple Watch are paired and reachable via devicectl.
 ```
