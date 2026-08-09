@@ -99,19 +99,31 @@ import Testing
     }
 
     @Test func stableLocationRejectsMalformedOrAmbiguousNames() {
+        let stablePrefix = "book-ck0123456789abcdef0123456789abcdef"
         #expect(NarrationFileNaming.location(fromFileName: "book-ckABC-s0-af_heart-v22.m4a") == nil)
         #expect(
             NarrationFileNaming.location(
                 fromFileName: "book-ck0123456789abcdef0123456789abcdef-s-af_heart-v22.m4a") == nil)
         #expect(
             NarrationFileNaming.location(
-                fromFileName: "book-ck0123456789abcdef0123456789abcdef-s0-s1-af_heart-v22.m4a")
-                == nil)
-        #expect(
-            NarrationFileNaming.location(
                 fromFileName:
                     "book-ck0123456789abcdef0123456789abcdef-s0-af_heart-v\(NarrationFileNaming.renderVersion - 1).m4a"
             ) == nil)
+        #expect(NarrationFileNaming.location(fromFileName: "\(stablePrefix)-ch4-af_heart-v22.m4a") == nil)
+        #expect(NarrationFileNaming.location(fromFileName: "\(stablePrefix)--ch-af_heart-v22.m4a") == nil)
+        #expect(NarrationFileNaming.location(fromFileName: "\(stablePrefix)-s0-s1-af_heart-v22.m4a") == nil)
+        #expect(NarrationFileNaming.location(fromFileName: "book-ch3-s-af_heart-v22.m4a") == nil)
+        #expect(NarrationFileNaming.location(fromFileName: "book-ch3-ch4-af_heart-v22.m4a") == nil)
+        #expect(NarrationFileNaming.location(fromFileName: "book-ch3--ch-af_heart-v22.m4a") == nil)
+        #expect(NarrationFileNaming.location(fromFileName: "book-ch3-s0-s1-af_heart-v22.m4a") == nil)
+        #expect(NarrationFileNaming.location(fromFileName: "book-ch3-plan-0123456789-v22.m4a") == nil)
+        #expect(NarrationFileNaming.location(fromFileName: "book-ch3-plan-0123456789ag-v22.m4a") == nil)
+        #expect(NarrationFileNaming.location(fromFileName: "\(stablePrefix)-plan-0123456789-v22.m4a") == nil)
+        #expect(NarrationFileNaming.location(fromFileName: "\(stablePrefix)-plan-0123456789ag-v22.m4a") == nil)
+        #expect(NarrationFileNaming.location(fromFileName: "book-ch3-af_heart-v22.m4a")?.chapterIndex == 3)
+        #expect(NarrationFileNaming.location(fromFileName: "book-ch3-plan-0123456789ab-v22.m4a")?.chapterIndex == 3)
+        #expect(NarrationFileNaming.location(fromFileName: "book-ck0123456789abcdef0123456789abcdef-af_heart-v22.m4a")?.stableChapterToken != nil)
+        #expect(NarrationFileNaming.location(fromFileName: "\(stablePrefix)-plan-0123456789ab-v22.m4a")?.stableChapterToken != nil)
     }
 
     @Test func contentSignatureChangesWithRenderedTextBlockIdentityAndRenderParameters() {

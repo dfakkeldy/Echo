@@ -1,9 +1,35 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import GRDB
+import Synchronization
 import Testing
 
 @testable import Echo
+
+extension NarrationService {
+    /// Keeps unrelated legacy tests focused on their own behavior while production
+    /// callers must provide the block-voice selection closure.
+    @discardableResult
+    func renderChapter(
+        chapterIndex: Int,
+        sourceChapterKey: String? = nil,
+        chapterNumber: Int? = nil,
+        blocks: [EPubBlockRecord],
+        voice: VoiceID,
+        chapterTitle: String? = nil,
+        onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)? = nil
+    ) async throws -> RenderedNarrationFile {
+        try await renderChapter(
+            chapterIndex: chapterIndex,
+            sourceChapterKey: sourceChapterKey,
+            chapterNumber: chapterNumber,
+            blocks: blocks,
+            voice: voice,
+            blockVoice: { _ in voice },
+            chapterTitle: chapterTitle,
+            onBlockProgress: onBlockProgress)
+    }
+}
 
 private enum ShadowEvaluatorOutcome: Sendable {
     case selection(ContextualCandidateSlot)
@@ -25,6 +51,33 @@ private actor ShadowEvaluatorRecorder {
 
 @MainActor
 @Suite struct NarrationServiceTests {
+
+    private final class DeterministicWordTimingEngine: TTSEngine, @unchecked Sendable {
+        private(set) var calls: [(text: String, voice: VoiceID)] = []
+
+        func prepare() async throws {}
+
+        func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
+            calls.append((text, voice))
+            let duration = Double(text.count) * 0.1
+            let wordCount = WordTokenizer.words(in: text).count
+            let wordDuration = duration / Double(max(wordCount, 1))
+            let timings = (0..<wordCount).map { index in
+                ChunkWordTiming(
+                    wordIndex: index,
+                    start: Double(index) * wordDuration,
+                    end: Double(index + 1) * wordDuration)
+            }
+            let samples = (0..<max(1, text.count)).map { index in
+                index.isMultiple(of: 2) ? Float(0.05) : Float(-0.05)
+            }
+            return TTSChunk(
+                samples: samples,
+                sampleRate: 24_000,
+                duration: duration,
+                wordTimings: timings)
+        }
+    }
 
     enum SkippableRetryChildError: CaseIterable, Sendable {
         case lengthCap
@@ -203,6 +256,63 @@ private actor ShadowEvaluatorRecorder {
         #expect(
             abs(anchors[1].audioTime - (0.4 + NarrationPlannedSilence.paragraph.duration))
                 < 0.0001)
+    }
+
+    /// A block voice is selected once before that original block's chunks are
+    /// synthesized. This catches resolving inside the chunk loop (or falling
+    /// back to the chapter voice) without changing the established anchor and
+    /// timing semantics.
+    @Test func renderChapterUsesOneSelectedVoiceForEveryChunkOfEachOriginalBlock()
+        async throws
+    {
+        let db = try DatabaseService(inMemory: ())
+        let firstBlockText = String(repeating: "alpha ", count: 50) + ". "
+            + String(repeating: "bravo ", count: 50) + "."
+        let blocks = try seed(
+            db,
+            records: [
+                block("b1", id: "s0-b0", seq: 0, text: firstBlockText),
+                block("b1", id: "s0-b1", seq: 1, text: "Charlie arrives."),
+            ])
+        let engine = DeterministicWordTimingEngine()
+        let service = makeService(db, tts: engine, writer: MockAudioWriter())
+        let selections = Mutex<[String: Int]>([:])
+
+        let rendered = try await service.renderChapter(
+            chapterIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"),
+            blockVoice: { blockID in
+                selections.withLock { counts in counts[blockID, default: 0] += 1 }
+                return blockID == "s0-b0" ? VoiceID("am_michael") : VoiceID("bf_emma")
+            })
+
+        #expect(engine.calls.map(\.voice) == [
+            VoiceID("am_michael"), VoiceID("am_michael"), VoiceID("bf_emma"),
+        ])
+        #expect(selections.withLock { $0 } == ["s0-b0": 1, "s0-b1": 1])
+        #expect(rendered.anchors.map(\.epubBlockID) == ["s0-b0", "s0-b1"])
+        #expect(rendered.anchors.allSatisfy { ($0.audioEndTime ?? $0.audioTime) > $0.audioTime })
+        #expect(
+            zip(rendered.anchors, rendered.anchors.dropFirst()).allSatisfy {
+                ($0.audioEndTime ?? $0.audioTime) <= $1.audioTime
+            })
+
+        let words = try WordTimingDAO(db: db.writer).words(forAudiobook: "b1")
+        let firstBlockWords = try WordTimingDAO(db: db.writer).words(
+            forAudiobook: "b1", blockID: "s0-b0")
+        let secondBlockWords = try WordTimingDAO(db: db.writer).words(
+            forAudiobook: "b1", blockID: "s0-b1")
+        #expect(firstBlockWords.count == WordTokenizer.words(in: firstBlockText).count)
+        #expect(secondBlockWords.count == 2)
+        #expect(words.count == firstBlockWords.count + secondBlockWords.count)
+        #expect(words.map(\.source).allSatisfy { $0 == "synthesis" })
+        #expect(words.map(\.epubBlockID).allSatisfy { $0 == "s0-b0" || $0 == "s0-b1" })
+        #expect(zip(words, words.dropFirst()).allSatisfy {
+            $0.audioStartTime <= $0.audioEndTime && $0.audioEndTime <= $1.audioStartTime
+        })
+        #expect((try #require(firstBlockWords.last)).audioEndTime <=
+            (try #require(secondBlockWords.first)).audioStartTime)
     }
 
     @Test func plannedParagraphPauseAdvancesNextAnchorWithoutStretchingPreviousAnchor()

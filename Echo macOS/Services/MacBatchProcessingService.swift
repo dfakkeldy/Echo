@@ -379,6 +379,7 @@ final class MacBatchProcessingService {
                             sourceChapterKey: chapter.sourceChapterKey,
                             chapterNumber: chapter.displayNumber,
                             blocks: chapter.blocks, voice: chapter.voice,
+                            blockVoice: { _ in chapter.voice },
                             chapterTitle: chapter.title)
                     } catch is CancellationError {
                         throw CancellationError()
@@ -398,6 +399,7 @@ final class MacBatchProcessingService {
                                 sourceChapterKey: failedChapter.sourceChapterKey,
                                 chapterNumber: failedChapter.displayNumber,
                                 blocks: failedChapter.blocks, voice: failedChapter.voice,
+                                blockVoice: { _ in failedChapter.voice },
                                 chapterTitle: failedChapter.title)
                         } catch is CancellationError {
                             throw CancellationError()
