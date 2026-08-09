@@ -171,6 +171,15 @@ import ZIPFoundation
 
         func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
             await recorder.append(text: text, voice: voice)
+            return chunk(for: text)
+        }
+
+        func synthesize(_ plan: PlannedSynthesisChunk, voice: VoiceID) async throws -> TTSChunk {
+            await recorder.append(text: plan.displayText, voice: voice)
+            return chunk(for: plan.g2pInputText)
+        }
+
+        private func chunk(for text: String) -> TTSChunk {
             let words = text.split(whereSeparator: { $0.isWhitespace }).count
             let duration = Double(max(words, 1)) * 0.2
             let samples = [Float](repeating: 0.05, count: Int(duration * 24_000))
@@ -2475,12 +2484,20 @@ import ZIPFoundation
             """.utf8).write(to: planURL)
         let seedResolved = try HeadlessNarrationRunner.resolveVoicePlan(
             epubURL: epub, voicePlanURL: planURL)
-        let portableIDs = seedResolved.blocks.map(\.blockID)
-        let povIDs = portableIDs.enumerated().compactMap { index, blockID in
-            index % 3 == 1 ? blockID : nil
+        let parsed = try parseEPUBBlocks(audiobookID: "story", epubURL: expanded).blocks
+        let portableIDByText = Dictionary(uniqueKeysWithValues: parsed.compactMap { block in
+            block.text.map { ($0, AlignmentSidecar.portableSuffix(of: block.id)) }
+        })
+        let narratorTexts = ["Narrator opens the northern road.", "Narrator follows the southern road."]
+        let povTexts = ["Mara sees a light ahead.", "Mara names the harbor."]
+        let dialogueTexts = ["Jon answers from the bridge.", "Jon closes the gate."]
+        let povIDs = try povTexts.map { text in
+            guard let id = portableIDByText[text] else { throw CocoaError(.fileNoSuchFile) }
+            return id
         }
-        let dialogueIDs = portableIDs.enumerated().compactMap { index, blockID in
-            index % 3 == 2 ? blockID : nil
+        let dialogueIDs = try dialogueTexts.map { text in
+            guard let id = portableIDByText[text] else { throw CocoaError(.fileNoSuchFile) }
+            return id
         }
         #expect(!povIDs.isEmpty)
         #expect(!dialogueIDs.isEmpty)
@@ -2527,7 +2544,15 @@ import ZIPFoundation
         #expect(result.chapters == 2)
         #expect(FileManager.default.fileExists(atPath: output.path))
         #expect(FileManager.default.fileExists(atPath: sidecar.path))
-        #expect((await recorder.snapshot()).map(\.voice) == resolved.blocks.map(\.voiceID))
+        let recorded = await recorder.snapshot()
+        #expect(recorded.map(\.voice) == resolved.blocks.map(\.voiceID))
+        let expectedVoicesByText = Dictionary(uniqueKeysWithValues: narratorTexts.map {
+            ($0, VoiceID("am_michael"))
+        } + povTexts.map { ($0, VoiceID("bf_emma")) }
+            + dialogueTexts.map { ($0, VoiceID("am_fenrir")) })
+        let sourceBoundCalls = recorded.filter { expectedVoicesByText[$0.text] != nil }
+        #expect(sourceBoundCalls.count == expectedVoicesByText.count)
+        #expect(sourceBoundCalls.allSatisfy { expectedVoicesByText[$0.text] == $0.voice })
 
         let asset = AVURLAsset(url: output)
         let locales = try await asset.load(.availableChapterLocales)

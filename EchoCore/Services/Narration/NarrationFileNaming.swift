@@ -320,7 +320,7 @@ nonisolated enum NarrationFileNaming {
     )
     private static let legacyLocationPattern = try! NSRegularExpression(
         pattern:
-            "^[A-Za-z0-9_]+-ch([0-9]+)(?:-s([0-9]+))?(?:-h[A-Za-z0-9]+)?-[A-Za-z0-9_-]+(?:-v[0-9]+)?\\.m4a$"
+            "^[A-Za-z0-9_]+-ch([0-9]+)(?:-s([0-9]+))?(?:-h[A-Za-z0-9]+)?-(?!s(?:[0-9]+)?-)[A-Za-z0-9_-]+(?:-v[0-9]+)?\\.m4a$"
     )
 
     private static func integerCapture(
