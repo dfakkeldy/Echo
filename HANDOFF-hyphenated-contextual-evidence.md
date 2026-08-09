@@ -18,3 +18,14 @@ branch fix/hyphenated-compound-contextual-evidence. Run
 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationRenderPlanTests
 then full `make test` if green; fix failures; delete this file in the closing commit.
 ```
+
+## 2026-08-09 — CI failure fixed: family promotion narrowed to evidenced spans
+
+Done: First CI run on PR #530 failed one test —
+NarrationServiceTests.plainURLMonitoredComponentDoesNotCreateContextualEvidenceIdentityMismatch.
+Unconditional family-seed promotion let "content" inside a /wp-content/ URL
+win its span with no evidence to attach → missingContextualEvidence
+diagnostic. Fixed in ce4766c8: promote family seeds only at spans with
+pending contextual evidence. Pushed; CI re-running.
+Next: watch CI; local slot-gated run still queued for 22:00 (tests HEAD as of
+run time). Resume: same as above.
