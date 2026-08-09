@@ -233,7 +233,9 @@ enum NarrationRenderPlanner {
                                             for: normalizedWord) == nil))
                     }
                     decisionSeeds = uniqueDecisionSeeds(
-                        decisionSeeds + prioritizingContextualFamilySeeds(rawTokenDecisionSeeds))
+                        decisionSeeds + prioritizingContextualFamilySeeds(
+                            rawTokenDecisionSeeds,
+                            contextualEvidence: unusedContextualEvidence))
                     let rescueChunk = try planner.planDeterministicSpellingRescue(
                         displayText: MisakiPronunciationMarkup.displayText(from: fragment))
                     synthesisChunks.append(rescueChunk)
@@ -257,7 +259,9 @@ enum NarrationRenderPlanner {
                 // Explicit rewrite-stage decisions remain first so they win any
                 // collision with evidence emitted by the final G2P pass.
                 decisionSeeds = uniqueDecisionSeeds(
-                    decisionSeeds + prioritizingContextualFamilySeeds(tokenDecisionSeeds))
+                    decisionSeeds + prioritizingContextualFamilySeeds(
+                        tokenDecisionSeeds,
+                        contextualEvidence: unusedContextualEvidence))
                 synthesisChunks.append(chunk)
                 wordBase += chunk.wordCount
             }
@@ -640,17 +644,26 @@ enum NarrationRenderPlanner {
     /// the seed that survives `uniqueDecisionSeeds` first-wins dedup; any
     /// other component winning the span (for example "re" minted as an
     /// audit-pack comparison candidate) fails validation and aborts the
-    /// render with `contextualEvidenceIdentityMismatch`.
+    /// render with `contextualEvidenceIdentityMismatch`. Promotion is limited
+    /// to spans that actually hold pending evidence: discovery deliberately
+    /// emits no occurrence for words like plain URLs, and promoting a family
+    /// component there (for example "content" inside a `/wp-content/` URL)
+    /// would demand evidence that legitimately does not exist.
     private static func prioritizingContextualFamilySeeds(
-        _ seeds: [PronunciationDecisionSeed]
+        _ seeds: [PronunciationDecisionSeed],
+        contextualEvidence: [ContextualPronunciationKey: ContextualPronunciationEvidence]
     ) -> [PronunciationDecisionSeed] {
-        let familySeeds = seeds.filter {
-            ContextualPronunciationFamilies.family(for: $0.normalizedWord) != nil
+        guard !contextualEvidence.isEmpty else { return seeds }
+        func isEvidencedFamilySeed(_ seed: PronunciationDecisionSeed) -> Bool {
+            ContextualPronunciationFamilies.family(for: seed.normalizedWord) != nil
+                && contextualEvidence[ContextualPronunciationKey(
+                    blockID: seed.blockID,
+                    wordStart: seed.wordStart,
+                    wordEnd: seed.wordEnd)] != nil
         }
+        let familySeeds = seeds.filter(isEvidencedFamilySeed)
         guard !familySeeds.isEmpty else { return seeds }
-        return familySeeds + seeds.filter {
-            ContextualPronunciationFamilies.family(for: $0.normalizedWord) == nil
-        }
+        return familySeeds + seeds.filter { !isEvidencedFamilySeed($0) }
     }
 
     private static func uniqueDecisionSeeds(
