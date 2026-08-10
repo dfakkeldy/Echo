@@ -36,6 +36,12 @@
                     ExperimentalMetadataView(showBookSettings: showBookSettings)
                         .padding(.horizontal, NowPlayingLayout.horizontalPadding)
 
+                    if model.isNarrationBook && NarrationCapability.supportsOnDeviceNarration {
+                        NarrationStatusView(state: model.narrationPlaybackState)
+                            .padding(.horizontal, NowPlayingLayout.horizontalPadding)
+                            .padding(.top, 8)
+                    }
+
                     PlayerScrubberView()
                         .containerRelativeFrame(.horizontal) { width, _ in
                             max(0, width - 2 * NowPlayingLayout.horizontalPadding)

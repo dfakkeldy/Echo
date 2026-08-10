@@ -38,6 +38,8 @@ final class PlayerLoadingCoordinator {
     private var postLoadTask: Task<Void, Never>?
     private var transcriptLoadingTask: Task<Void, Never>?
     private var documentImportGeneration = 0
+    private var autoplayGeneration = 0
+    private var autoplayAllowed = true
 
     /// Value providers for properties owned by PlayerModel.
     @ObservationIgnored var databaseServiceProvider: (() -> DatabaseService?)?
@@ -52,6 +54,7 @@ final class PlayerLoadingCoordinator {
     @ObservationIgnored var onResetBookmarkCheckSecond: (() -> Void)?
     @ObservationIgnored var onConfigureContinuousAlignment: (() -> Void)?
     @ObservationIgnored var onSavedPlaybackProgress: (() -> Void)?
+    @ObservationIgnored var onPlaybackQueueMutation: (() -> Void)?
 
     // MARK: - Folder loading
 
@@ -65,6 +68,12 @@ final class PlayerLoadingCoordinator {
         guard let state, let playbackController, let playlistManager, let persistence,
             let timelinePersistence, let bookSettingsOverrideStore, let bookmarkStore
         else { return }
+
+        if autoplay {
+            allowAutoplay()
+        } else {
+            suppressAutoplay()
+        }
 
         // ── Save the *current* book's progress before it gets overwritten ──
         // stop() zeroes audioEngine.currentTime, and state.folderURL is about to
@@ -658,6 +667,31 @@ final class PlayerLoadingCoordinator {
 
     // MARK: - Track preparation
 
+    @discardableResult
+    func registerAutoplayRequest() -> Int {
+        autoplayGeneration &+= 1
+        return autoplayGeneration
+    }
+
+    /// Invalidates only the deferred play decision. Post-load metadata, artwork,
+    /// and document-import work continues for the active track.
+    func cancelPendingAutoplay() {
+        autoplayGeneration &+= 1
+    }
+
+    func allowAutoplay() {
+        autoplayAllowed = true
+    }
+
+    func suppressAutoplay() {
+        autoplayAllowed = false
+        cancelPendingAutoplay()
+    }
+
+    func isAutoplayRequestCurrent(_ request: Int) -> Bool {
+        autoplayAllowed && request == autoplayGeneration
+    }
+
     func prepareToPlay(index: Int, autoplay: Bool) {
         guard let state, let audioEngine, let playbackController, let persistence,
             let artworkCoordinator,
@@ -666,15 +700,29 @@ final class PlayerLoadingCoordinator {
         else { return }
         guard state.tracks.indices.contains(index) else { return }
 
+        let autoplayRequest: Int?
+        if autoplay {
+            autoplayRequest = registerAutoplayRequest()
+        } else {
+            cancelPendingAutoplay()
+            autoplayRequest = nil
+        }
+        let shouldReportPlaybackActivity =
+            autoplayRequest.map { isAutoplayRequestCurrent($0) } ?? true
+
         saveProgressBeforeTrackChange(
             state: state, persistence: persistence, audioEngine: audioEngine)
         configureTrackState(
             state: state, index: index, persistence: persistence,
             playbackController: playbackController, audioEngine: audioEngine)
+        onPlaybackQueueMutation?()
         resetPerTrackState(
             state: state, artworkCoordinator: artworkCoordinator,
             transcriptService: transcriptService)
-        setupAudioForTrack(
+        if shouldReportPlaybackActivity {
+            playbackController.reportTrackLoading()
+        }
+        let loadResult = setupAudioForTrack(
             state: state, index: index, audioEngine: audioEngine,
             playbackController: playbackController)
 
@@ -683,11 +731,18 @@ final class PlayerLoadingCoordinator {
         progressPresenter.updateProgress()
         watchSyncManager.syncToWatch()
 
+        if case .failure(let failure) = loadResult {
+            if shouldReportPlaybackActivity {
+                playbackController.reportTrackLoadFailure(failure)
+            }
+            return
+        }
+
         // Load chapters, thumbnail, and handle autoplay/seek.
         performPostLoadTasks(
             state: state, audioEngine: audioEngine, playbackController: playbackController,
             chapterLoadingCoordinator: chapterLoadingCoordinator,
-            artworkCoordinator: artworkCoordinator, autoplay: autoplay)
+            artworkCoordinator: artworkCoordinator, autoplayRequest: autoplayRequest)
     }
 
     // MARK: - prepareToPlay helpers
@@ -789,7 +844,7 @@ final class PlayerLoadingCoordinator {
     private func setupAudioForTrack(
         state: PlaybackState, index: Int, audioEngine: AudioEngine,
         playbackController: PlaybackController
-    ) {
+    ) -> Result<Void, AudioItemLoadFailure> {
         if let folderURL = state.folderURL {
             securityScope?.startSelection(url: folderURL)
         }
@@ -801,15 +856,16 @@ final class PlayerLoadingCoordinator {
         pendingArtworkTask = Task { await ArtworkCache.ensureItemIsAvailable(url: trackURL) }
 
         audioEngine.configureAudioSession()
-        audioEngine.replaceCurrentItem(with: trackURL)
+        let result = audioEngine.replaceCurrentItem(with: trackURL)
         playbackController.applySpeedToCurrentItem()
         onConfigureRemoteCommands?()
+        return result
     }
 
     private func performPostLoadTasks(
         state: PlaybackState, audioEngine: AudioEngine, playbackController: PlaybackController,
         chapterLoadingCoordinator: ChapterLoadingCoordinator,
-        artworkCoordinator: BookmarkArtworkCoordinator, autoplay: Bool
+        artworkCoordinator: BookmarkArtworkCoordinator, autoplayRequest: Int?
     ) {
         let trackURL = state.tracks[state.currentIndex].url
         guard let bookURL = state.activeBookURL else { return }
@@ -844,7 +900,9 @@ final class PlayerLoadingCoordinator {
                         audioEngine.seek(to: intraBookTime) { [weak self] _ in
                             self?.playbackController?.resumeAfterSeek()
                         }
-                    } else if autoplay {
+                    } else if let autoplayRequest,
+                        self.isAutoplayRequestCurrent(autoplayRequest)
+                    {
                         playbackController.play()
                     }
 

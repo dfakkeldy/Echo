@@ -359,14 +359,14 @@ final class MacBatchProcessingService {
                         blocks: chapter.blocks,
                         voice: chapter.voice)
                     if FileManager.default.fileExists(atPath: cachedFile.path) {
-                        try await service.updateCachedNarrationTitle(
+                        let reusedCachedNarration = try await service.updateCachedNarrationTitle(
                             chapterIndex: chapter.chapterIndex,
                             sourceChapterKey: chapter.sourceChapterKey,
                             chapterDisplayNumber: chapter.displayNumber,
                             blocks: chapter.blocks,
                             voice: chapter.voice,
                             chapterTitle: chapter.title)
-                        continue
+                        if reusedCachedNarration { continue }
                     }
 
                     progress(

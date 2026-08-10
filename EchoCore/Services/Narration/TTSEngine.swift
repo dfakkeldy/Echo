@@ -82,23 +82,26 @@ protocol TTSEngine: Sendable {
 }
 
 /// One step of the engine's one-time `prepare()` — surfaced so the UI can show
-/// real progress instead of sitting on "Narrating chapter 1" while the model set
-/// downloads and the CoreML graphs compile.
+/// real progress instead of sitting on "Narrating chapter 1" while the ONNX model
+/// is delivered and loaded.
 nonisolated enum NarrationPrepareProgress: Sendable, Equatable {
-    case downloadingModels(fraction: Double)  // 0…1
-    case compilingModels(done: Int, total: Int)
+    case checkingModel(expectedBytes: Int64)
+    case modelCacheHit(byteCount: Int64)
+    case downloadingModel(receivedBytes: Int64, totalBytes: Int64)
+    case validatingModel(byteCount: Int64)
+    case loadingModel
     case ready
 }
 
 extension TTSEngine {
-    /// Default implementation of the `prepare(progress:)` requirement: ignore the
-    /// callback and run the plain `prepare()`. The real engine (`OnnxKokoroEngine`)
-    /// overrides it to report download/load progress; `MockTTSEngine` inherits this
-    /// no-op.
+    /// Default implementation of the `prepare(progress:)` requirement: run the
+    /// plain `prepare()`, then report readiness. The real engine (`OnnxKokoroEngine`)
+    /// overrides it to report model-delivery and load progress.
     func prepare(
         progress: @escaping @Sendable (NarrationPrepareProgress) -> Void
     ) async throws {
         try await prepare()
+        progress(.ready)
     }
 
     /// Compatibility path for engines that still accept text. Production Kokoro
@@ -112,23 +115,43 @@ extension TTSEngine {
 
 /// Pure mapping from a prepare step to the macOS batch item's (fraction, message).
 /// Prepare occupies the item's first 0→0.15 band so the bar stays monotonic with
-/// the chapter loop (rebased to 0.15 + 0.80·n/count). Download fills 0→0.075,
-/// compile fills 0.075→0.15; the detail text carries the real granularity.
+/// the chapter loop (rebased to 0.15 + 0.80·n/count). Model delivery fills
+/// 0→0.135 and session load fills 0.135→0.15; detail text carries exact bytes.
 enum NarrationPrepareStatus {
     static func batch(for progress: NarrationPrepareProgress) -> (fraction: Double, message: String)
     {
         switch progress {
-        case .downloadingModels(let f):
-            let c = min(max(f, 0), 1)
-            return (0.075 * c, "Preparing voice models (one-time, ~850 MB)… \(Int(c * 100))%")
-        case .compilingModels(let done, let total):
-            // "Loading" not "Compiling": after the first run every model is a fast
-            // cache-load (the compile is persisted), yet this callback still fires
-            // per model — "Compiling" on a sub-second load would be misleading.
-            let frac = total > 0 ? Double(done) / Double(total) : 0
-            return (0.075 + 0.075 * frac, "Loading voice models… \(done) of \(total)")
+        case .checkingModel:
+            return (0, String(localized: "Checking narration model…"))
+        case .modelCacheHit(let byteCount):
+            return (
+                0.135,
+                String(localized: "Narration model cached · \(megabytes(byteCount)) MB")
+            )
+        case .downloadingModel(let receivedBytes, let totalBytes):
+            let fraction = totalBytes > 0
+                ? min(max(Double(receivedBytes) / Double(totalBytes), 0), 1)
+                : 0
+            return (
+                0.135 * fraction,
+                String(
+                    localized:
+                        "Downloading narration model… \(Int(fraction * 100))% · \(megabytes(receivedBytes)) of \(megabytes(totalBytes)) MB"
+                )
+            )
+        case .validatingModel(let byteCount):
+            return (
+                0.135,
+                String(localized: "Validating narration model… \(megabytes(byteCount)) MB")
+            )
+        case .loadingModel:
+            return (0.135, String(localized: "Loading narration model…"))
         case .ready:
-            return (0.15, "Voice models ready")
+            return (0.15, String(localized: "Narration model ready"))
         }
+    }
+
+    private static func megabytes(_ bytes: Int64) -> Int64 {
+        max(0, bytes) / 1_000_000
     }
 }

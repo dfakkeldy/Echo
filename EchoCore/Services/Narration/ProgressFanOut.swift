@@ -7,13 +7,12 @@ import Foundation
 /// synchronously (and in order: download events, then load, then ready) from a
 /// non-isolated progress callback inside the engine's background prepare task.
 ///
-/// Terminal-replay: once `.ready` is emitted it is stored as `terminalProgress`.
-/// Any subscriber added AFTER the terminal event immediately receives a synchronous
-/// replay rather than being silently dropped — defending against a race where a
-/// UI component joins after the engine's prepare task has already completed.
+/// Latest-state replay: every emitted value is stored as `latestProgress`. A caller
+/// joining an in-flight prepare receives that state synchronously, then subscribes
+/// to later values. `.ready` is replayed without retaining a terminal subscriber.
 ///
 /// Safety boundary: `@unchecked Sendable` is intentional — all mutable state
-/// (`subscribers`, `terminalProgress`) is protected by `lock`. No mutation ever
+/// (`subscribers`, `latestProgress`) is protected by `lock`. No mutation ever
 /// escapes the lock-protected region, so the class is safe across isolation
 /// domains despite the compiler-unseen lock discipline.
 ///
@@ -22,30 +21,23 @@ import Foundation
 nonisolated final class ProgressFanOut: @unchecked Sendable {
     private let lock = NSLock()
     private var subscribers: [@Sendable (NarrationPrepareProgress) -> Void] = []
-    private var terminalProgress: NarrationPrepareProgress?
+    private var latestProgress: NarrationPrepareProgress?
 
     func add(_ subscriber: @escaping @Sendable (NarrationPrepareProgress) -> Void) {
-        let replay: NarrationPrepareProgress?
         lock.lock()
-        if let terminalProgress {
-            replay = terminalProgress
-        } else {
+        if let latestProgress {
+            subscriber(latestProgress)
+        }
+        if latestProgress != .ready {
             subscribers.append(subscriber)
-            replay = nil
         }
         lock.unlock()
-
-        if let replay {
-            subscriber(replay)
-        }
     }
 
     func emit(_ progress: NarrationPrepareProgress) {
         let current: [@Sendable (NarrationPrepareProgress) -> Void]
         lock.lock()
-        if progress == .ready {
-            terminalProgress = progress
-        }
+        latestProgress = progress
         current = subscribers
         lock.unlock()
 
@@ -58,6 +50,6 @@ nonisolated final class ProgressFanOut: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         subscribers.removeAll()
-        terminalProgress = nil
+        latestProgress = nil
     }
 }

@@ -360,6 +360,11 @@ final class NarrationService {
         nonisolated static let debugNormalizeBlocksRanOnMainThread = Mutex<Bool?>(nil)
         /// Same seam for `contentSignatureOffMain`.
         nonisolated static let debugContentSignatureOffMainRanOnMainThread = Mutex<Bool?>(nil)
+        /// Same empirical executor seam for cached-file validation.
+        nonisolated static let debugCacheValidationRanOnMainThread = Mutex<Bool?>(nil)
+        /// Records the executor at the invalid-cache deletion point separately,
+        /// so validation cannot move off-main while deletion drifts back onto it.
+        nonisolated static let debugInvalidCacheDeletionRanOnMainThread = Mutex<Bool?>(nil)
         /// `Thread.isMainThread` is `NS_SWIFT_UNAVAILABLE_FROM_ASYNC` — reading it
         /// directly inside an `async` function body doesn't compile. This
         /// synchronous wrapper is the sanctioned way to read it from async code.
@@ -458,8 +463,7 @@ final class NarrationService {
         blockVoice: @escaping @Sendable (String) -> VoiceID,
         renderIdentityToken: String? = nil,
         chapterTitle: String? = nil,
-        onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)? =
-            nil
+        onBlockProgress: (@MainActor (NarrationRenderProgress) -> Void)? = nil
     ) async throws -> RenderedNarrationFile {
         let displayNumber = chapterNumber ?? (chapterIndex + 1)
         let savedTitle = Self.savedTitle(
@@ -503,7 +507,6 @@ final class NarrationService {
             sortOrder: chapterIndex,
             voice: voice)
 
-        state.renderedChapterCount += 1
         logger.notice(
             "Chapter \(displayNumber) rendered: \(rendered.anchors.count) anchors, ~\(Int(rendered.duration))s audio, in \(Int(Date().timeIntervalSince(chapterStart)))s."
         )
@@ -514,6 +517,7 @@ final class NarrationService {
     /// remain segment-local (0-based) and the matching timeline rows are stamped
     /// with `segment_key` so read-along can disambiguate same-chapter time
     /// collisions when segment files are eventually queued for playback.
+    @discardableResult
     func renderSegment(
         chapterIndex: Int,
         sourceChapterKey: String? = nil,
@@ -522,9 +526,8 @@ final class NarrationService {
         blocks: [EPubBlockRecord],
         voice: VoiceID,
         chapterTitle: String? = nil,
-        onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)? =
-            nil
-    ) async throws {
+        onBlockProgress: (@MainActor (NarrationRenderProgress) -> Void)? = nil
+    ) async throws -> RenderedNarrationFile {
         let savedTitle = Self.savedTitle(
             displayNumber: chapterDisplayNumber, blocks: blocks, chapterTitle: chapterTitle)
         let rendered = try await renderSegmentFile(
@@ -549,8 +552,14 @@ final class NarrationService {
             segmentKey: ReaderActiveBlockResolver.segmentKey(
                 forChapter: chapterIndex,
                 segment: segmentIndex))
+        return rendered
     }
 
+    /// Reconciles persisted metadata for a validated cache file.
+    ///
+    /// Returns `false` after removing an invalid cache candidate so the caller
+    /// can run its normal, observable rendering path.
+    @discardableResult
     func updateCachedNarrationTitle(
         chapterIndex: Int,
         sourceChapterKey: String? = nil,
@@ -559,7 +568,7 @@ final class NarrationService {
         blocks: [EPubBlockRecord],
         voice: VoiceID,
         chapterTitle: String? = nil
-    ) async throws {
+    ) async throws -> Bool {
         let savedTitle = Self.savedTitle(
             displayNumber: chapterDisplayNumber, blocks: blocks, chapterTitle: chapterTitle)
         let fileURL: URL
@@ -584,66 +593,72 @@ final class NarrationService {
             segmentIndex: segmentIndex)
         let sortOrder = segmentIndex.map { chapterIndex * 1000 + $0 } ?? chapterIndex
 
-        do {
-            let duration = try await Self.validatedDuration(ofCachedFile: fileURL)
-            try Task.checkCancellation()
-            try await db.write { db in
-                let existing = try TrackRecord
-                    .filter(Column("id") == trackID && Column("audiobook_id") == audiobookID)
-                    .fetchOne(db)
-                var track = TrackRecord(
-                    id: trackID,
-                    audiobookID: audiobookID,
-                    title: savedTitle,
-                    duration: duration,
-                    filePath: fileURL.path,
-                    isEnabled: existing?.isEnabled ?? true,
-                    sortOrder: sortOrder,
-                    playlistPosition: existing?.playlistPosition,
-                    narrationVoice: voice.rawValue)
-                try track.save(db)
+        guard let duration = try await Self.validatedDurationOrRemoveInvalidCache(
+            ofCachedFile: fileURL)
+        else {
+            return false
+        }
+        try Task.checkCancellation()
+        try await db.write { db in
+            let existing = try TrackRecord
+                .filter(Column("id") == trackID && Column("audiobook_id") == audiobookID)
+                .fetchOne(db)
+            var track = TrackRecord(
+                id: trackID,
+                audiobookID: audiobookID,
+                title: savedTitle,
+                duration: duration,
+                filePath: fileURL.path,
+                isEnabled: existing?.isEnabled ?? true,
+                sortOrder: sortOrder,
+                playlistPosition: existing?.playlistPosition,
+                narrationVoice: voice.rawValue)
+            try track.save(db)
+        }
+        return true
+    }
+
+    /// Validates and, when invalid, removes a published cache file off the main
+    /// actor. `@concurrent` is required because this project enables
+    /// `NonisolatedNonsendingByDefault`; plain `nonisolated async` would inherit
+    /// the caller's executor and leave synchronous resource metadata and deletion
+    /// on `MainActor`.
+    @concurrent
+    private nonisolated static func validatedDurationOrRemoveInvalidCache(
+        ofCachedFile fileURL: URL
+    ) async throws -> TimeInterval? {
+        #if DEBUG
+            let validationRanOnMainThread = Self.debugIsMainThread()
+            Self.debugCacheValidationRanOnMainThread.withLock {
+                $0 = validationRanOnMainThread
             }
+        #endif
+        do {
+            let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
+            guard values.isRegularFile == true else {
+                throw CocoaError(.fileReadNoSuchFile)
+            }
+            let duration = CMTimeGetSeconds(try await AVURLAsset(url: fileURL).load(.duration))
+            guard duration.isFinite, duration > 0 else {
+                throw NarrationError.synthesisFailed
+            }
+            return duration
         } catch is CancellationError {
             throw CancellationError()
         } catch {
             // A durable filename can survive process death after publish but before
             // persistence. Reuse only when AVFoundation proves the file duration;
-            // otherwise discard the untrusted cache and rebuild this exact unit.
+            // otherwise discard the untrusted cache. The player owns rerendering so
+            // progress, backpressure, and lifecycle events stay truthful.
+            #if DEBUG
+                let deletionRanOnMainThread = Self.debugIsMainThread()
+                Self.debugInvalidCacheDeletionRanOnMainThread.withLock {
+                    $0 = deletionRanOnMainThread
+                }
+            #endif
             try? FileManager.default.removeItem(at: fileURL)
-            if let segmentIndex {
-                try await renderSegment(
-                    chapterIndex: chapterIndex,
-                    sourceChapterKey: sourceChapterKey,
-                    chapterDisplayNumber: chapterDisplayNumber,
-                    segmentIndex: segmentIndex,
-                    blocks: blocks,
-                    voice: voice,
-                    chapterTitle: chapterTitle)
-            } else {
-                try await renderChapter(
-                    chapterIndex: chapterIndex,
-                    sourceChapterKey: sourceChapterKey,
-                    chapterNumber: chapterDisplayNumber,
-                    blocks: blocks,
-                    voice: voice,
-                    blockVoice: { _ in voice },
-                    chapterTitle: chapterTitle)
-            }
+            return nil
         }
-    }
-
-    private nonisolated static func validatedDuration(
-        ofCachedFile fileURL: URL
-    ) async throws -> TimeInterval {
-        let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
-        guard values.isRegularFile == true else {
-            throw CocoaError(.fileReadNoSuchFile)
-        }
-        let duration = CMTimeGetSeconds(try await AVURLAsset(url: fileURL).load(.duration))
-        guard duration.isFinite, duration > 0 else {
-            throw NarrationError.synthesisFailed
-        }
-        return duration
     }
 
     /// Render one complete segment file without mutating playback, alignment, or
@@ -657,8 +672,7 @@ final class NarrationService {
         segmentIndex: Int,
         blocks: [EPubBlockRecord],
         voice: VoiceID,
-        onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)? =
-            nil
+        onBlockProgress: (@MainActor (NarrationRenderProgress) -> Void)? = nil
     ) async throws -> RenderedNarrationFile {
         let overrides = pronunciationOverrides()
         let occurrenceOverrides = pronunciationOccurrenceOverrides()
@@ -750,9 +764,13 @@ final class NarrationService {
                     excluding: advisoryPreflightRecords)
             }
         } catch {
-            let message = "Operational report-write error: pronunciation fallback discovery failed: \(error.localizedDescription)"
-            logger.error("\(message)")
-            state.log(message)
+            state.record(
+                .init(
+                    category: .error,
+                    severity: .warning,
+                    message: String(localized: "Narration diagnostics could not be saved"),
+                    developerMessage: "pronunciation fallback discovery failed",
+                    privateDetail: error.localizedDescription))
             fallbackRecords = nil
         }
 
@@ -776,9 +794,13 @@ final class NarrationService {
                         ])
                 }
             } catch {
-                let message = "Operational report-write error: \(error.localizedDescription)"
-                logger.error("\(message)")
-                state.log(message)
+                state.record(
+                    .init(
+                        category: .error,
+                        severity: .warning,
+                        message: String(localized: "Narration diagnostics could not be saved"),
+                        developerMessage: "advisory report write failed",
+                        privateDetail: error.localizedDescription))
             }
         }
 
@@ -887,14 +909,8 @@ final class NarrationService {
         overrides: PronunciationOverrides,
         occurrenceOverrides: PronunciationOccurrenceOverrides,
         fmEnabled: Bool,
-        onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)?
+        onBlockProgress: (@MainActor (NarrationRenderProgress) -> Void)?
     ) async throws -> RenderedNarrationFile {
-        if reportsProgress {
-            state.update(
-                phase: .preparingChapter, progress: 0,
-                statusMessage: "Preparing chapter \(chapterDisplayNumber)…")
-        }
-
         let plan = try await renderPlan(
             for: blocks,
             overrides: overrides,
@@ -902,6 +918,29 @@ final class NarrationService {
             fmEnabled: fmEnabled)
         let speakableBlockIDs = plan.blocks.filter(\.isSpeakable).map(\.blockID)
         var renderedSpeakableBlocks = 0
+        let renderStartedAt = Date()
+        if reportsProgress {
+            state.transitionRender(
+                to: .rendering(
+                    NarrationRenderUnitStatus(
+                        chapterDisplayNumber: chapterDisplayNumber,
+                        segmentIndex: segmentIndex,
+                        voiceID: voice,
+                        completedBlocks: renderedSpeakableBlocks,
+                        totalBlocks: speakableBlockIDs.count,
+                        startedAt: renderStartedAt,
+                        lastProgressAt: renderStartedAt)),
+                event: nil,
+                at: renderStartedAt)
+        }
+        onBlockProgress?(
+            NarrationRenderProgress(
+                chapterDisplayNumber: chapterDisplayNumber,
+                segmentIndex: segmentIndex,
+                voiceID: voice,
+                completedBlocks: renderedSpeakableBlocks,
+                totalBlocks: speakableBlockIDs.count,
+                timestamp: renderStartedAt))
         let unitLabel =
             segmentIndex.map {
                 "Chapter \(chapterDisplayNumber) segment \($0 + 1)"
@@ -1049,15 +1088,29 @@ final class NarrationService {
                 logger.notice(
                     "  \(unitLabel): block \(renderedSpeakableBlocks)/\(speakableBlockIDs.count) synthesized"
                 )
-                let progress =
-                    Double(renderedSpeakableBlocks) / Double(max(speakableBlockIDs.count, 1))
+                let progressAt = Date()
                 if reportsProgress {
-                    state.update(
-                        phase: .preparingChapter,
-                        progress: progress,
-                        statusMessage: "Preparing chapter \(chapterDisplayNumber)…")
+                    state.transitionRender(
+                        to: .rendering(
+                            NarrationRenderUnitStatus(
+                                chapterDisplayNumber: chapterDisplayNumber,
+                                segmentIndex: segmentIndex,
+                                voiceID: voice,
+                                completedBlocks: renderedSpeakableBlocks,
+                                totalBlocks: speakableBlockIDs.count,
+                                startedAt: renderStartedAt,
+                                lastProgressAt: progressAt)),
+                        event: nil,
+                        at: progressAt)
                 }
-                onBlockProgress?(chapterDisplayNumber, progress)
+                onBlockProgress?(
+                    NarrationRenderProgress(
+                        chapterDisplayNumber: chapterDisplayNumber,
+                        segmentIndex: segmentIndex,
+                        voiceID: voice,
+                        completedBlocks: renderedSpeakableBlocks,
+                        totalBlocks: speakableBlockIDs.count,
+                        timestamp: progressAt))
             }
             if let silence = plannedBlock.trailingSilence {
                 try await stream.append(.silence(seconds: silence.duration, sampleRate: 24_000))

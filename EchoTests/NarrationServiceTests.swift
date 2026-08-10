@@ -17,7 +17,7 @@ extension NarrationService {
         blocks: [EPubBlockRecord],
         voice: VoiceID,
         chapterTitle: String? = nil,
-        onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)? = nil
+        onBlockProgress: (@MainActor (NarrationRenderProgress) -> Void)? = nil
     ) async throws -> RenderedNarrationFile {
         try await renderChapter(
             chapterIndex: chapterIndex,
@@ -433,10 +433,17 @@ private actor ShadowEvaluatorRecorder {
         let writer = MockAudioWriter()
         let svc = makeService(
             db, tts: MockTTSEngine(secondsPerChar: 0.1), writer: writer)
-        svc.state.update(
-            phase: .renderingAhead,
-            progress: 0.42,
-            statusMessage: "Rendering next chapter…")
+        let now = Date(timeIntervalSince1970: 100)
+        let activity = NarrationRenderActivity.rendering(
+            NarrationRenderUnitStatus(
+                chapterDisplayNumber: 7,
+                segmentIndex: 1,
+                voiceID: VoiceID("af_heart"),
+                completedBlocks: 2,
+                totalBlocks: 5,
+                startedAt: now,
+                lastProgressAt: now))
+        svc.state.transitionRender(to: activity, event: nil)
 
         let rendered = try await svc.renderSegmentFile(
             chapterIndex: 0,
@@ -483,10 +490,32 @@ private actor ShadowEvaluatorRecorder {
         #expect(trackCount == 0)
         #expect(persistedAnchorCount == 0)
         #expect(alignedTimelineRows == 0)
-        #expect(svc.state.phase == .renderingAhead)
-        #expect(svc.state.progress == 0.42)
-        #expect(svc.state.statusMessage == "Rendering next chapter…")
-        #expect(svc.state.renderedChapterCount == 0)
+        #expect(svc.state.snapshot.render == activity)
+    }
+
+    @Test func renderChapterPublishesStructuredBlockProgressWithoutCompletingSession()
+        async throws
+    {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["first", "second"])
+        let svc = makeService(
+            db, tts: MockTTSEngine(secondsPerChar: 0.1), writer: MockAudioWriter())
+
+        _ = try await svc.renderChapter(
+            chapterIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+
+        guard case .rendering(let unit) = svc.state.snapshot.render else {
+            Issue.record("Expected structured render-unit progress after chapter rendering.")
+            return
+        }
+        #expect(unit.chapterDisplayNumber == 1)
+        #expect(unit.segmentIndex == nil)
+        #expect(unit.voiceID == VoiceID("af_heart"))
+        #expect(unit.completedBlocks == 2)
+        #expect(unit.totalBlocks == 2)
+        #expect(svc.state.phase == .preparingChapter)
     }
 
     @Test func renderSegmentFileCacheNameChangesWhenPronunciationOverrideChangesSpokenText()
@@ -1356,6 +1385,53 @@ private actor ShadowEvaluatorRecorder {
             ])
     }
 
+    @Test func renderSegmentReportsZeroThenEachSpeakableBlock() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let chapterBlocks = try seed(db, ["One.", "Two.", "Three."])
+        let service = makeService(
+            db,
+            tts: MockTTSEngine(secondsPerChar: 0.1),
+            writer: MockAudioWriter())
+        var values: [NarrationRenderProgress] = []
+
+        _ = try await service.renderSegment(
+            chapterIndex: 0,
+            chapterDisplayNumber: 1,
+            segmentIndex: 0,
+            blocks: chapterBlocks,
+            voice: VoiceID("af_heart"),
+            onBlockProgress: { values.append($0) })
+
+        #expect(values.map(\.completedBlocks) == [0, 1, 2, 3])
+        #expect(values.allSatisfy { $0.totalBlocks == 3 })
+        #expect(values.allSatisfy { $0.chapterDisplayNumber == 1 })
+        #expect(values.allSatisfy { $0.segmentIndex == 0 })
+        #expect(values.allSatisfy { $0.voiceID == VoiceID("af_heart") })
+    }
+
+    @Test func renderSegmentReturnsPersistedRenderedMetadata() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["Metadata"])
+        let service = makeService(
+            db,
+            tts: MockTTSEngine(secondsPerChar: 0.1),
+            writer: MockAudioWriter())
+
+        let rendered = try await service.renderSegment(
+            chapterIndex: 4,
+            chapterDisplayNumber: 5,
+            segmentIndex: 2,
+            blocks: blocks,
+            voice: VoiceID("bm_daniel"))
+
+        #expect(rendered.chapterIndex == 4)
+        #expect(rendered.chapterDisplayNumber == 5)
+        #expect(rendered.segmentIndex == 2)
+        #expect(rendered.duration == 0.8)
+        let tracks = try TrackDAO(db: db.writer).tracks(for: "b1")
+        #expect(tracks.map(\.filePath) == [rendered.fileURL.path])
+    }
+
     @Test func stableCachedSegmentReorderUpdatesSortOrderWithoutSynthesizing() async throws {
         let db = try DatabaseService(inMemory: ())
         let blocks = try seed(db, ["first"])
@@ -1424,7 +1500,7 @@ private actor ShadowEvaluatorRecorder {
             [TTSChunk(samples: samples, sampleRate: 24_000, duration: 0.1)],
             to: fileURL)
 
-        try await service.updateCachedNarrationTitle(
+        let reused = try await service.updateCachedNarrationTitle(
             chapterIndex: 4,
             sourceChapterKey: sourceChapterKey,
             chapterDisplayNumber: 2,
@@ -1440,6 +1516,122 @@ private actor ShadowEvaluatorRecorder {
         #expect(track.title == "Recovered cache")
         #expect(track.sortOrder == 4_000)
         #expect(track.narrationVoice == voice.rawValue)
+        #expect(reused)
+    }
+
+    @Test func invalidCachedSegmentIsRemovedAndReportedForCallerRender() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["invalid cache"])
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let tts = MockTTSEngine(secondsPerChar: 0.1)
+        let service = NarrationService(
+            db: db.writer, audiobookID: "b1", tts: tts,
+            audioWriter: MockAudioWriter(), cacheDirectory: tmp,
+            state: NarrationState(), fmEnabled: { false })
+        let voice = VoiceID("af_heart")
+        let fileURL = await service.segmentCacheURL(
+            chapterIndex: 4,
+            segmentIndex: 0,
+            blocks: blocks,
+            voice: voice)
+        try Data("not an audio file".utf8).write(to: fileURL)
+
+        let reused = try await service.updateCachedNarrationTitle(
+            chapterIndex: 4,
+            chapterDisplayNumber: 5,
+            segmentIndex: 0,
+            blocks: blocks,
+            voice: voice,
+            chapterTitle: "Invalid cache")
+
+        #expect(reused == false)
+        #expect(FileManager.default.fileExists(atPath: fileURL.path) == false)
+        #expect(tts.calls.isEmpty)
+    }
+
+    @Test func invalidCacheValidationAndDeletionRunOffTheMainThread() async throws {
+        NarrationService.debugCacheValidationRanOnMainThread.withLock { $0 = nil }
+        NarrationService.debugInvalidCacheDeletionRanOnMainThread.withLock { $0 = nil }
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["off-main invalid cache"])
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let service = NarrationService(
+            db: db.writer, audiobookID: "b1", tts: MockTTSEngine(secondsPerChar: 0.1),
+            audioWriter: MockAudioWriter(), cacheDirectory: tmp,
+            state: NarrationState(), fmEnabled: { false })
+        let voice = VoiceID("af_heart")
+        let fileURL = await service.segmentCacheURL(
+            chapterIndex: 4,
+            segmentIndex: 0,
+            blocks: blocks,
+            voice: voice)
+        try Data("not an audio file".utf8).write(to: fileURL)
+
+        let reused = try await service.updateCachedNarrationTitle(
+            chapterIndex: 4,
+            chapterDisplayNumber: 5,
+            segmentIndex: 0,
+            blocks: blocks,
+            voice: voice,
+            chapterTitle: "Invalid cache")
+
+        let validationRanOnMainThread = NarrationService.debugCacheValidationRanOnMainThread
+            .withLock { $0 }
+        let deletionRanOnMainThread = NarrationService.debugInvalidCacheDeletionRanOnMainThread
+            .withLock { $0 }
+        #expect(reused == false)
+        #expect(validationRanOnMainThread == false)
+        #expect(deletionRanOnMainThread == false)
+        #expect(FileManager.default.fileExists(atPath: fileURL.path) == false)
+    }
+
+    @Test func cachedSegmentDatabaseFailurePropagatesWithoutDeletingValidAudio() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["preserve valid cache"])
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let service = NarrationService(
+            db: db.writer, audiobookID: "b1", tts: MockTTSEngine(secondsPerChar: 0.1),
+            audioWriter: AVFoundationAudioWriter(), cacheDirectory: tmp,
+            state: NarrationState(), fmEnabled: { false })
+        let voice = VoiceID("af_heart")
+        let fileURL = await service.segmentCacheURL(
+            chapterIndex: 4,
+            segmentIndex: 0,
+            blocks: blocks,
+            voice: voice)
+        let samples = [Float](repeating: 0.1, count: 2_400)
+        _ = try await AVFoundationAudioWriter().write(
+            [TTSChunk(samples: samples, sampleRate: 24_000, duration: 0.1)],
+            to: fileURL)
+        try db.write { database in
+            try database.execute(sql: "DROP TABLE track")
+        }
+
+        do {
+            _ = try await service.updateCachedNarrationTitle(
+                chapterIndex: 4,
+                chapterDisplayNumber: 5,
+                segmentIndex: 0,
+                blocks: blocks,
+                voice: voice,
+                chapterTitle: "Database failure")
+            Issue.record("Expected the track persistence failure to propagate.")
+        } catch is GRDB.DatabaseError {
+            // Expected: persistence failures must not be mistaken for invalid audio.
+        } catch {
+            Issue.record("Expected a GRDB database error, got \(error).")
+        }
+
+        #expect(FileManager.default.fileExists(atPath: fileURL.path))
     }
 
     @Test func stableSegmentVoiceChangeCreatesOnlyThatChaptersNewCacheFile() async throws {
@@ -2544,7 +2736,75 @@ private actor ShadowEvaluatorRecorder {
             try TrackRecord.filter(Column("audiobook_id") == "b1").fetchOne(db)
         }
         #expect(persistedTrack != nil)
-        #expect(state.debugLog.contains { $0.contains("Operational report-write error") })
+        let event = try #require(state.events.last)
+        #expect(event.category == .error)
+        #expect(event.severity == .warning)
+        #expect(event.message == "Narration diagnostics could not be saved")
+        #expect(event.descriptor.developerMessage == "advisory report write failed")
+        #expect(event.descriptor.privateDetail?.isEmpty == false)
+        #expect(
+            event.descriptor.developerMessage.contains(event.descriptor.privateDetail ?? "")
+                == false)
+    }
+
+    @Test func cancellationDuringPersistenceDoesNotRecordWarningIntoReplacementSession()
+        async throws
+    {
+        enum FallbackFailure: Error { case unavailable }
+
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["A cancelled render must not diagnose its replacement."])
+        let writeGate = NarrationPersistenceWriteGate()
+        try db.write { database in
+            database.add(
+                function: DatabaseFunction(
+                    "task8_pause_narration_persist", argumentCount: 0, pure: false
+                ) { _ in
+                    writeGate.signalEnteredAndWaitForRelease()
+                    return 0
+                })
+            try database.execute(
+                sql: """
+                    CREATE TEMP TRIGGER task8_pause_narration_persist
+                    BEFORE INSERT ON track
+                    BEGIN
+                        SELECT task8_pause_narration_persist();
+                    END
+                    """)
+        }
+
+        let state = NarrationState()
+        state.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        let service = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: MockTTSEngine(secondsPerChar: 0.1),
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: state,
+            fallbackDiscoveryRecordBuilder: { _, _ in throw FallbackFailure.unavailable },
+            fmEnabled: { false })
+
+        let renderTask = Task {
+            try await service.renderChapter(
+                chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
+        }
+        await writeGate.waitUntilEntered()
+
+        renderTask.cancel()
+        state.beginSession(defaultVoiceID: VoiceID("bf_emma"))
+        writeGate.release()
+
+        await #expect(throws: CancellationError.self) {
+            try await renderTask.value
+        }
+        let persistedTrackCount = try db.read { database in
+            try TrackRecord.fetchCount(database)
+        }
+        #expect(persistedTrackCount == 0)
+        #expect(state.snapshot.defaultVoiceID == VoiceID("bf_emma"))
+        #expect(
+            state.events.map(\.descriptor.developerMessage) == ["narration requested"])
     }
 
     @Test func fallbackDiscoveryFailureDoesNotBlockTheRenderedChapter() async throws {
@@ -2586,7 +2846,15 @@ private actor ShadowEvaluatorRecorder {
             try TrackRecord.filter(Column("audiobook_id") == "b1").fetchOne(database)
         }
         #expect(track != nil)
-        #expect(state.debugLog.contains { $0.contains("pronunciation fallback discovery failed") })
+        let event = try #require(state.events.last)
+        #expect(event.category == .error)
+        #expect(event.severity == .warning)
+        #expect(event.message == "Narration diagnostics could not be saved")
+        #expect(event.descriptor.developerMessage == "pronunciation fallback discovery failed")
+        #expect(event.descriptor.privateDetail?.isEmpty == false)
+        #expect(
+            event.descriptor.developerMessage.contains(event.descriptor.privateDetail ?? "")
+                == false)
         #expect(
             Set(try issueDAO.issues(for: "b1").map(\.id)) == [
                 oldPreflight.id, oldAcoustic.id,
@@ -2643,7 +2911,12 @@ private actor ShadowEvaluatorRecorder {
                 oldPreflight.id, oldAcoustic.id,
             ])
         #expect(try issueDAO.issues(for: "b2").map(\.id) == [conflictingExisting.id])
-        #expect(state.debugLog.contains { $0.contains("Operational report-write error") })
+        let event = try #require(state.events.last)
+        #expect(event.category == .error)
+        #expect(event.severity == .warning)
+        #expect(event.message == "Narration diagnostics could not be saved")
+        #expect(event.descriptor.developerMessage == "advisory report write failed")
+        #expect(event.descriptor.privateDetail?.isEmpty == false)
         let track = try db.read { database in
             try TrackRecord.filter(Column("audiobook_id") == "b1").fetchOne(database)
         }
@@ -2673,6 +2946,30 @@ extension Array where Element: Equatable {
         return indices.dropLast(candidate.count - 1).contains { start in
             Array(self[start..<(start + candidate.count)]) == candidate
         }
+    }
+}
+
+private nonisolated final class NarrationPersistenceWriteGate: @unchecked Sendable {
+    private let entered = DispatchSemaphore(value: 0)
+    private let releaseWriter = DispatchSemaphore(value: 0)
+
+    func signalEnteredAndWaitForRelease() {
+        entered.signal()
+        releaseWriter.wait()
+    }
+
+    func waitUntilEntered() async {
+        await Task.detached {
+            self.blockingWaitUntilEntered()
+        }.value
+    }
+
+    func release() {
+        releaseWriter.signal()
+    }
+
+    private func blockingWaitUntilEntered() {
+        entered.wait()
     }
 }
 

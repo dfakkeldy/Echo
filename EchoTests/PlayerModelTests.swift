@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import GRDB
+import MediaPlayer
+import Observation
 import Testing
 import UIKit
 
@@ -468,6 +470,9 @@ struct PlayerModelTests {
     @Test("free users hit narration paywall after first uncached chapter")
     func narrationRenderGateShowsPaywallWhenFreeCapReached() {
         let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.narrationPlaybackState.transitionPlayback(
+            to: .playing(chapterDisplayNumber: 1), event: nil)
         model.state.narrationRenderInFlight = true
         model.state.awaitingNarrationChapter = true
         model.setFreeTierGate(
@@ -485,9 +490,19 @@ struct PlayerModelTests {
         )
         #expect(model.showPaywall)
         #expect(model.paywallContext == .narrationCap)
-        #expect(!model.state.narrationRenderInFlight)
-        #expect(!model.state.awaitingNarrationChapter)
-        #expect(model.narrationPlaybackState.phase == .failed)
+        #expect(model.state.narrationRenderInFlight == false)
+        #expect(model.state.awaitingNarrationChapter == false)
+        #expect(
+            model.narrationPlaybackState.snapshot.render
+                == .blocked(message: PaywallContext.narrationCap.subheadline))
+        #expect(model.narrationPlaybackState.snapshot.playback == .stopped)
+        let event = model.narrationPlaybackState.events.last
+        #expect(event?.category == .error)
+        #expect(event?.severity == .warning)
+        #expect(event?.message == PaywallContext.narrationCap.subheadline)
+        #expect(event?.descriptor.developerMessage == "render blocked by narration entitlement")
+        #expect(event?.descriptor.privateDetail == nil)
+        #expect(event?.descriptor.developerMessage.contains("book") == false)
     }
 
     @Test("cached narration chapters stay playable at the free cap")
@@ -545,51 +560,1090 @@ struct PlayerModelTests {
         let bookURL = URL(fileURLWithPath: "/same-book", isDirectory: true)
         model.folderURL = bookURL
         let staleOperation = model.replaceNarrationOperation()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
 
         model.handleNarrationPreparationProgress(
             .ready,
             operation: staleOperation,
             audiobookID: bookURL.absoluteString)
-        #expect(model.narrationPlaybackState.phase == .preparingEngine)
-        #expect(model.narrationPlaybackState.progress == 1)
+        #expect(model.narrationPlaybackState.snapshot.render == .modelReady)
 
         _ = model.replaceNarrationOperation()
-        model.narrationPlaybackState.update(
-            phase: .renderingAhead,
-            progress: 0.25,
-            statusMessage: "Current operation")
+        model.narrationPlaybackState.transitionRender(
+            to: .planning,
+            event: nil)
         model.handleNarrationPreparationProgress(
             .ready,
             operation: staleOperation,
             audiobookID: bookURL.absoluteString)
 
-        #expect(model.narrationPlaybackState.phase == .renderingAhead)
-        #expect(model.narrationPlaybackState.progress == 0.25)
-        #expect(model.narrationPlaybackState.statusMessage == "Current operation")
+        #expect(model.narrationPlaybackState.snapshot.render == .planning)
+    }
+
+    @Test func preparationProgressMapsToExactLifecycle() {
+        let (model, operation, audiobookID) = preparationContext()
+        let center = MPNowPlayingInfoCenter.default()
+        let priorInfo = center.nowPlayingInfo
+        defer { center.nowPlayingInfo = priorInfo }
+        model.state.currentTitle = "Downloading lifecycle"
+
+        model.handleNarrationPreparationProgress(
+            .downloadingModel(receivedBytes: 50, totalBytes: 100),
+            operation: operation, audiobookID: audiobookID)
+
+        #expect(
+            model.narrationPlaybackState.snapshot.render
+                == .downloadingModel(receivedBytes: 50, totalBytes: 100))
+        #expect(
+            model.narrationPlaybackState.events.last?.descriptor
+                == .init(
+                    category: .model, severity: .info,
+                    message: "Downloading model (50%)",
+                    developerMessage: "model download received=50 total=100"))
+        #expect(
+            center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String
+                == "Downloading lifecycle")
+    }
+
+    @Test func checkingModelMapsEventAndPublishesNowPlaying() {
+        let (model, operation, audiobookID) = preparationContext()
+        let center = MPNowPlayingInfoCenter.default()
+        let priorInfo = center.nowPlayingInfo
+        defer { center.nowPlayingInfo = priorInfo }
+        model.state.currentTitle = "Checking lifecycle"
+
+        model.handleNarrationPreparationProgress(
+            .checkingModel(expectedBytes: 42),
+            operation: operation, audiobookID: audiobookID)
+
+        #expect(
+            model.narrationPlaybackState.snapshot.render
+                == .checkingModel(expectedBytes: 42))
+        #expect(
+            model.narrationPlaybackState.events.last?.descriptor
+                == .init(
+                    category: .model, severity: .info,
+                    message: "Checking narration model",
+                    developerMessage: "model cache check expectedBytes=42"))
+        #expect(
+            center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String
+                == "Checking lifecycle")
+    }
+
+    @Test func modelCacheHitMapsEventAndPublishesNowPlaying() {
+        let (model, operation, audiobookID) = preparationContext()
+        let center = MPNowPlayingInfoCenter.default()
+        let priorInfo = center.nowPlayingInfo
+        defer { center.nowPlayingInfo = priorInfo }
+        model.state.currentTitle = "Cache lifecycle"
+
+        model.handleNarrationPreparationProgress(
+            .modelCacheHit(byteCount: 84),
+            operation: operation, audiobookID: audiobookID)
+
+        #expect(
+            model.narrationPlaybackState.snapshot.render
+                == .validatingModel(byteCount: 84))
+        #expect(
+            model.narrationPlaybackState.events.last?.descriptor
+                == .init(
+                    category: .model, severity: .notice,
+                    message: "Narration model found in cache",
+                    developerMessage: "model cache hit bytes=84"))
+        #expect(
+            center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String
+                == "Cache lifecycle")
+    }
+
+    @Test func validatingModelMapsEventAndPublishesNowPlaying() {
+        let (model, operation, audiobookID) = preparationContext()
+        let center = MPNowPlayingInfoCenter.default()
+        let priorInfo = center.nowPlayingInfo
+        defer { center.nowPlayingInfo = priorInfo }
+        model.state.currentTitle = "Validation lifecycle"
+
+        model.handleNarrationPreparationProgress(
+            .validatingModel(byteCount: 126),
+            operation: operation, audiobookID: audiobookID)
+
+        #expect(
+            model.narrationPlaybackState.snapshot.render
+                == .validatingModel(byteCount: 126))
+        #expect(
+            model.narrationPlaybackState.events.last?.descriptor
+                == .init(
+                    category: .model, severity: .info,
+                    message: "Validating narration model",
+                    developerMessage: "model validating bytes=126"))
+        #expect(
+            center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String
+                == "Validation lifecycle")
+    }
+
+    @Test func loadingModelMapsEventAndPublishesNowPlaying() {
+        let (model, operation, audiobookID) = preparationContext()
+        let center = MPNowPlayingInfoCenter.default()
+        let priorInfo = center.nowPlayingInfo
+        defer { center.nowPlayingInfo = priorInfo }
+        model.state.currentTitle = "Loading lifecycle"
+        let before = Date()
+
+        model.handleNarrationPreparationProgress(
+            .loadingModel,
+            operation: operation, audiobookID: audiobookID)
+
+        guard case .loadingModel(let startedAt) = model.narrationPlaybackState.snapshot.render
+        else {
+            Issue.record("Expected loading-model render activity")
+            return
+        }
+        #expect(startedAt >= before)
+        #expect(startedAt <= Date())
+        #expect(
+            model.narrationPlaybackState.events.last?.descriptor
+                == .init(
+                    category: .model, severity: .notice,
+                    message: "Loading narration model",
+                    developerMessage: "model session loading"))
+        #expect(
+            center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String
+                == "Loading lifecycle")
+    }
+
+    @Test func readyMapsEventAndPublishesNowPlaying() {
+        let (model, operation, audiobookID) = preparationContext()
+        let center = MPNowPlayingInfoCenter.default()
+        let priorInfo = center.nowPlayingInfo
+        defer { center.nowPlayingInfo = priorInfo }
+        model.state.currentTitle = "Ready lifecycle"
+
+        model.handleNarrationPreparationProgress(
+            .ready,
+            operation: operation, audiobookID: audiobookID)
+
+        #expect(model.narrationPlaybackState.snapshot.render == .modelReady)
+        #expect(
+            model.narrationPlaybackState.events.last?.descriptor
+                == .init(
+                    category: .model, severity: .notice,
+                    message: "Narration model ready",
+                    developerMessage: "model session ready"))
+        #expect(
+            center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String
+                == "Ready lifecycle")
+    }
+
+    @Test func modelDownloadPublishesOnlyNewMilestones() {
+        let (model, operation, audiobookID) = preparationContext()
+        let center = MPNowPlayingInfoCenter.default()
+        let priorInfo = center.nowPlayingInfo
+        defer { center.nowPlayingInfo = priorInfo }
+
+        model.state.currentTitle = "Initial milestone"
+        model.handleNarrationPreparationProgress(
+            .downloadingModel(receivedBytes: 1, totalBytes: 100),
+            operation: operation, audiobookID: audiobookID)
+        #expect(
+            center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String
+                == "Initial milestone")
+
+        model.state.currentTitle = "Same milestone"
+        model.handleNarrationPreparationProgress(
+            .downloadingModel(receivedBytes: 4, totalBytes: 100),
+            operation: operation, audiobookID: audiobookID)
+        #expect(
+            center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String
+                == "Initial milestone")
+
+        model.state.currentTitle = "Next milestone"
+        model.handleNarrationPreparationProgress(
+            .downloadingModel(receivedBytes: 5, totalBytes: 100),
+            operation: operation, audiobookID: audiobookID)
+        #expect(
+            center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String
+                == "Next milestone")
+    }
+
+    @Test func planPreparationRecordsBufferSelectedVoiceAndZeroOverrides() throws {
+        let model = PlayerModel()
+        let voice = try #require(VoiceCatalog.voice(for: VoiceID("bm_daniel")))
+        model.narrationPlaybackState.beginSession(defaultVoiceID: voice.id)
+
+        model.recordNarrationPlanPreparation(
+            totalSegments: 7,
+            voice: voice,
+            voiceOverrideCount: 0)
+
+        #expect(model.narrationPlaybackState.snapshot.buffer.totalSegments == 7)
+        #expect(model.state.narrationDefaultVoice == VoiceID("bm_daniel"))
+        #expect(model.state.narrationVoiceOverrideCount == 0)
+        #expect(
+            model.narrationPlaybackState.events.suffix(2).map(\.descriptor)
+                == [
+                    .init(
+                        category: .voice, severity: .notice,
+                        message: "Selected voice: Daniel",
+                        developerMessage: "default voice selected id=bm_daniel"),
+                    .init(
+                        category: .voice, severity: .info,
+                        message: "Chapter voice overrides: 0",
+                        developerMessage: "chapter voice overrides count=0"),
+                ])
+    }
+
+    @Test func queuedNarrationSegmentUpdatesPlayableBuffer() {
+        let model = PlayerModel()
+        model.tracks = [
+            Track(url: URL(fileURLWithPath: "/segment-0.m4a"), title: "One"),
+            Track(url: URL(fileURLWithPath: "/segment-1.m4a"), title: "Two"),
+            Track(url: URL(fileURLWithPath: "/segment-2.m4a"), title: "Three"),
+        ]
+        model.state.currentIndex = 1
+
+        model.recordNarrationSegmentQueued(
+            totalSegments: 6,
+            chapterDisplayNumber: 2,
+            segmentIndex: 1)
+
+        #expect(model.narrationPlaybackState.snapshot.buffer.readyAhead == 1)
+        #expect(model.narrationPlaybackState.events.last?.category == .buffer)
+        #expect(model.narrationPlaybackState.events.last?.message == "Chapter 2 added to playback queue")
+    }
+
+    @Test func narrationBufferRefreshesWhenPlaybackAdvancesWithoutInsertion() {
+        let model = PlayerModel()
+        model.folderURL = URL(fileURLWithPath: "/tmp/narration-book", isDirectory: true)
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.tracks = [
+            Track(url: URL(fileURLWithPath: "/missing/segment-0.m4a"), title: "One"),
+            Track(url: URL(fileURLWithPath: "/missing/segment-1.m4a"), title: "Two"),
+            Track(url: URL(fileURLWithPath: "/missing/segment-2.m4a"), title: "Three"),
+        ]
+        model.state.currentIndex = 0
+        model.recordNarrationSegmentQueued(
+            totalSegments: 3, chapterDisplayNumber: 3, segmentIndex: 2)
+        #expect(model.narrationPlaybackState.snapshot.buffer.readyAhead == 2)
+
+        model.playerLoadingCoordinator.prepareToPlay(index: 1, autoplay: false)
+
+        #expect(model.state.currentIndex == 1)
+        #expect(model.narrationPlaybackState.snapshot.buffer.currentPlaybackIndex == 1)
+        #expect(model.narrationPlaybackState.snapshot.buffer.readyAhead == 1)
+    }
+
+    @Test func narrationBufferRefreshesWhenFutureQueueItemsAreRemoved() throws {
+        let model = PlayerModel()
+        let database = try DatabaseService(inMemory: ())
+        model.databaseService = database
+        model.folderURL = URL(fileURLWithPath: "/tmp/narration-book", isDirectory: true)
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.tracks = [
+            Track(url: URL(fileURLWithPath: "/tmp/segment-0.m4a"), title: "One"),
+            Track(url: URL(fileURLWithPath: "/tmp/segment-1.m4a"), title: "Two"),
+            Track(url: URL(fileURLWithPath: "/tmp/segment-2.m4a"), title: "Three"),
+        ]
+        model.state.currentIndex = 0
+        model.state.narrationOutline = [
+            NarrationOutlineChapter(
+                chapterIndex: 1, displayNumber: 2, title: "Private title",
+                isExcluded: false, isRendered: true)
+        ]
+        model.narrationExpectedFileNamesByChapter = [
+            1: ["segment-1.m4a", "segment-2.m4a"]
+        ]
+        model.recordNarrationSegmentQueued(
+            totalSegments: 3, chapterDisplayNumber: 3, segmentIndex: 2)
+
+        model.toggleNarrationChapterExcluded(chapterIndex: 1)
+
+        #expect(model.tracks.count == 1)
+        #expect(model.narrationPlaybackState.snapshot.buffer.queuedSegments == 1)
+        #expect(model.narrationPlaybackState.snapshot.buffer.readyAhead == 0)
+    }
+
+    @Test func firstTrackPreparationPublishesNarrationLoading() async throws {
+        let audioURL = try await SilentAudioFixture.makeSilentM4A(seconds: 1)
+        defer { try? FileManager.default.removeItem(at: audioURL) }
+        let model = PlayerModel()
+        model.folderURL = audioURL.deletingLastPathComponent()
+        model.tracks = [Track(url: audioURL, title: "Private title")]
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+
+        model.playerLoadingCoordinator.prepareToPlay(index: 0, autoplay: false)
+
+        #expect(
+            model.narrationPlaybackState.snapshot.playback
+                == .loading(chapterDisplayNumber: 1))
+        #expect(model.narrationPlaybackState.events.last?.message == "Loading narration audio")
+    }
+
+    @Test func failedNarrationAudioLoadDoesNotReportPlayingOrExposePathPublicly() {
+        let model = PlayerModel()
+        model.folderURL = URL(fileURLWithPath: "/tmp/narration-book", isDirectory: true)
+        model.tracks = [
+            Track(
+                url: URL(fileURLWithPath: "/private/missing/Hidden Title.m4a"),
+                title: "Hidden Title")
+        ]
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+
+        model.play()
+
+        #expect(
+            model.narrationPlaybackState.snapshot.playback
+                == .failed(message: "Unable to load narration audio"))
+        #expect(model.isPlaying == false)
+        let event = model.narrationPlaybackState.events.last
+        #expect(event?.message == "Unable to load narration audio")
+        #expect(event?.descriptor.developerMessage == "playback audio load failed")
+        #expect(event?.descriptor.privateDetail?.isEmpty == false)
+        #expect(event?.message.contains("Hidden Title") == false)
+        #expect(event?.descriptor.developerMessage.contains("Hidden Title") == false)
+    }
+
+    @Test func modelReadyRenderInFlightGapDoesNotRestartNarrationFromPlay() throws {
+        let (model, root) = try makeNarrationModel(tts: MockTTSEngine(), text: "Narrate me")
+        defer {
+            model.narrationRenderTask?.cancel()
+            try? FileManager.default.removeItem(at: root)
+        }
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.narrationPlaybackState.transitionRender(to: .modelReady, event: nil)
+        model.state.narrationRenderInFlight = true
+
+        model.play()
+
+        #expect(model.narrationPlaybackState.snapshot.render == .modelReady)
+    }
+
+    @Test func startingRenderRecordsStructuredUnitAndVoiceName() {
+        let model = PlayerModel()
+        let startedAt = Date(timeIntervalSince1970: 100)
+
+        let unit = model.beginNarrationRenderUnit(
+            chapterDisplayNumber: 2,
+            segmentIndex: 1,
+            voiceID: VoiceID("bm_daniel"),
+            totalBlocks: 4,
+            at: startedAt)
+
+        #expect(
+            unit
+                == NarrationRenderUnitStatus(
+                    chapterDisplayNumber: 2,
+                    segmentIndex: 1,
+                    voiceID: VoiceID("bm_daniel"),
+                    completedBlocks: 0,
+                    totalBlocks: 4,
+                    startedAt: startedAt,
+                    lastProgressAt: startedAt))
+        #expect(model.narrationPlaybackState.snapshot.render == .rendering(unit))
+        #expect(model.narrationPlaybackState.events.last?.message == "Rendering chapter 2 with Daniel")
+    }
+
+    @Test func backpressureRecordsOnceAndResumesTheSameUnit() {
+        let model = PlayerModel()
+        let unit = model.beginNarrationRenderUnit(
+            chapterDisplayNumber: 2,
+            segmentIndex: 1,
+            voiceID: VoiceID("bm_daniel"),
+            totalBlocks: 4,
+            at: Date(timeIntervalSince1970: 100))
+        let eventCountBeforeHold = model.narrationPlaybackState.events.count
+
+        model.holdNarrationRenderForBackpressure()
+        model.holdNarrationRenderForBackpressure()
+
+        #expect(model.narrationPlaybackState.snapshot.render == .heldByBackpressure(unit))
+        #expect(model.narrationPlaybackState.events.count == eventCountBeforeHold + 1)
+
+        model.resumeNarrationRenderAfterBackpressure()
+
+        #expect(model.narrationPlaybackState.snapshot.render == .rendering(unit))
+        #expect(model.narrationPlaybackState.events.count == eventCountBeforeHold + 1)
+    }
+
+    @Test func completingRenderDoesNotCompletePlayback() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.narrationPlaybackState.transitionPlayback(
+            to: .playing(chapterDisplayNumber: 2),
+            event: nil)
+
+        model.completeNarrationRendering()
+
+        #expect(model.narrationPlaybackState.snapshot.render == .complete)
+        #expect(
+            model.narrationPlaybackState.snapshot.playback
+                == .playing(chapterDisplayNumber: 2))
+        #expect(model.narrationPlaybackState.events.last?.category == .render)
+        #expect(model.narrationPlaybackState.events.last?.severity == .notice)
+        #expect(model.narrationPlaybackState.events.last?.message == "All narration rendered")
+        #expect(
+            model.narrationPlaybackState.events.last?.descriptor.developerMessage
+                == "render complete")
+    }
+
+    @Test func narrationWithNoPlannedChaptersStopsWithVisibleTerminalState() async throws {
+        let (model, root) = try makeNarrationModel(tts: MockTTSEngine(), text: nil)
+        defer {
+            model.narrationRenderTask?.cancel()
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        model.startNarrationPlayback()
+        await model.narrationRenderTask?.value
+
+        #expect(model.narrationPlaybackState.hasSession)
+        #expect(model.narrationPlaybackState.snapshot.render == .noNarratableText)
+        #expect(model.narrationPlaybackState.snapshot.playback == .stopped)
+        let event = model.narrationPlaybackState.events.last
+        #expect(event?.category == .render)
+        #expect(event?.severity == .notice)
+        #expect(event?.message == "No text to narrate")
+        #expect(event?.descriptor.developerMessage == "render stopped no narratable text")
+        #expect(event?.descriptor.privateDetail == nil)
+    }
+
+    @Test func genericNarrationFailureKeepsPrivateDescriptionOutOfPublicDiagnostics()
+        async throws
+    {
+        let (model, root) = try makeNarrationModel(
+            tts: AlwaysFailingNarrationEngine(), text: "Private source words")
+        defer {
+            model.narrationRenderTask?.cancel()
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        model.startNarrationPlayback()
+        await model.narrationRenderTask?.value
+
+        let privateDescription = try #require(PrivateNarrationFailure().errorDescription)
+        #expect(
+            model.narrationPlaybackState.snapshot.render
+                == .failed(message: privateDescription))
+        let event = try #require(model.narrationPlaybackState.events.last)
+        #expect(event.category == .error)
+        #expect(event.severity == .error)
+        #expect(event.message == privateDescription)
+        #expect(event.descriptor.developerMessage.hasPrefix("render failed type="))
+        #expect(event.descriptor.developerMessage.contains(privateDescription) == false)
+        #expect(event.descriptor.developerMessage.contains(root.path) == false)
+        #expect(event.descriptor.privateDetail == privateDescription)
+    }
+
+    @Test func cancellingCurrentNarrationOperationLeavesVisibleCancelledState() async throws {
+        let probe = NarrationPrepareStartProbe()
+        let (model, root) = try makeNarrationModel(
+            tts: BlockingNarrationPrepareEngine(probe: probe), text: "Narrate this")
+        defer {
+            model.narrationRenderTask?.cancel()
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        model.startNarrationPlayback()
+        let task = try #require(model.narrationRenderTask)
+        await probe.waitForStartCount(1)
+        task.cancel()
+        await task.value
+
+        #expect(model.narrationPlaybackState.snapshot.render == .cancelled)
+        #expect(model.narrationPlaybackState.hasSession)
+        let event = model.narrationPlaybackState.events.last
+        #expect(event?.category == .render)
+        #expect(event?.severity == .notice)
+        #expect(event?.message == "Narration cancelled")
+        #expect(event?.descriptor.developerMessage == "render cancelled")
+        #expect(event?.descriptor.privateDetail == nil)
+    }
+
+    @Test func staleCancellationDoesNotMutateReplacementNarrationSession() async throws {
+        let probe = NarrationPrepareStartProbe()
+        let (model, root) = try makeNarrationModel(
+            tts: BlockingNarrationPrepareEngine(probe: probe), text: "Narrate this")
+        defer {
+            model.narrationRenderTask?.cancel()
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        model.startNarrationPlayback()
+        let staleTask = try #require(model.narrationRenderTask)
+        await probe.waitForStartCount(1)
+
+        model.startNarrationPlayback()
+        let replacementTask = try #require(model.narrationRenderTask)
+        await probe.waitForStartCount(2)
+        await staleTask.value
+
+        #expect(model.narrationPlaybackState.hasSession)
+        #expect(model.narrationPlaybackState.snapshot.render == .planning)
+        #expect(
+            model.narrationPlaybackState.events.contains { event in
+                event.descriptor.developerMessage == "render cancelled"
+            } == false)
+
+        replacementTask.cancel()
+        await replacementTask.value
+    }
+
+    @Test func loadFolderInvalidatesNarrationBeforeRecordingBookChangeAndReset() throws {
+        let source = try Self.source(named: "PlayerModel.swift")
+        let loadFolder = try #require(source.range(of: "func loadFolder("))
+        let renderTaskCancellation = try #require(
+            source.range(
+                of: "narrationRenderTask?.cancel()",
+                range: loadFolder.upperBound..<source.endIndex))
+        let operationInvalidation = try #require(
+            source.range(
+                of: "replaceNarrationOperation()",
+                range: renderTaskCancellation.upperBound..<source.endIndex))
+        let cancellationEvent = try #require(
+            source.range(
+                of: "Narration cancelled because the active book changed",
+                range: operationInvalidation.upperBound..<source.endIndex))
+        let reset = try #require(
+            source.range(
+                of: "narrationPlaybackState.reset()",
+                range: cancellationEvent.upperBound..<source.endIndex))
+
+        #expect(renderTaskCancellation.lowerBound < operationInvalidation.lowerBound)
+        #expect(operationInvalidation.lowerBound < cancellationEvent.lowerBound)
+        #expect(cancellationEvent.lowerBound < reset.lowerBound)
+    }
+
+    @Test(
+        "Loading a new book does not cancel an already-terminal narration session",
+        arguments: [
+            NarrationRenderActivity.complete,
+            NarrationRenderActivity.failed(message: "Model unavailable"),
+            NarrationRenderActivity.noNarratableText,
+        ])
+    func loadFolderDoesNotRecordBookChangeCancellationForTerminalNarration(
+        activity: NarrationRenderActivity
+    ) throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.narrationPlaybackState.transitionRender(to: activity, event: nil)
+        let probe = NarrationEventMutationProbe(state: model.narrationPlaybackState)
+
+        model.loadFolder(folder, autoplay: false, persistBookmark: false)
+
+        #expect(model.narrationPlaybackState.hasSession == false)
+        #expect(
+            probe.developerMessagesBeforeMutation.contains(
+                "render cancelled active book changed") == false)
+    }
+
+    @Test func loadFolderRecordsBookChangeCancellationForActiveNarrationBeforeReset() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.narrationPlaybackState.transitionRender(to: .planning, event: nil)
+        let probe = NarrationEventMutationProbe(state: model.narrationPlaybackState)
+
+        model.loadFolder(folder, autoplay: false, persistBookmark: false)
+
+        #expect(model.narrationPlaybackState.hasSession == false)
+        #expect(
+            probe.developerMessagesBeforeMutation.contains(
+                "render cancelled active book changed"))
+    }
+
+    @Test func narrationQueueWaitResumePlayingEventsStayOrdered() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.state.tracks = [
+            Track(
+                url: URL(
+                    fileURLWithPath:
+                        "/tmp/private_title_book-ch2-s0-af_heart-v22.m4a"),
+                title: "Private Chapter Title")
+        ]
+        model.state.currentIndex = 0
+        let renderUnit = NarrationRenderUnitStatus(
+            chapterDisplayNumber: 3,
+            segmentIndex: 0,
+            voiceID: VoiceID("af_heart"),
+            completedBlocks: 0,
+            totalBlocks: 4,
+            startedAt: Date(timeIntervalSince1970: 100),
+            lastProgressAt: Date(timeIntervalSince1970: 100))
+        model.narrationPlaybackState.transitionRender(to: .rendering(renderUnit), event: nil)
+
+        model.narrationPlaybackState.transitionPlayback(
+            to: .waitingForRender(chapterDisplayNumber: 3),
+            event: model.playbackEvent("Waiting for rendered narration", severity: .warning))
+        model.narrationPlaybackState.transitionPlayback(
+            to: .resuming(chapterDisplayNumber: 3),
+            event: model.playbackEvent("Chapter 3 ready · resuming", severity: .notice))
+        model.narrationPlaybackState.transitionPlayback(
+            to: .playing(chapterDisplayNumber: 3),
+            event: model.playbackEvent("Playing", severity: .notice))
+
+        #expect(model.currentNarrationChapterDisplayNumber == 3)
+        #expect(model.currentRenderingChapterDisplayNumber == 3)
+        #expect(
+            model.narrationPlaybackState.events.suffix(3).map(\.message)
+                == [
+                    "Waiting for rendered narration",
+                    "Chapter 3 ready · resuming",
+                    "Playing",
+                ])
+        let developerMessages = model.narrationPlaybackState.events.suffix(3).map {
+            $0.descriptor.developerMessage
+        }
+        #expect(developerMessages.allSatisfy { !$0.contains("/tmp/") })
+        #expect(developerMessages.allSatisfy { !$0.contains("Private Chapter Title") })
+    }
+
+    @Test func playbackChangesUpdateActiveNarrationSession() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.state.tracks = [
+            Track(
+                url: URL(fileURLWithPath: "/tmp/book-ch2-s0-af_heart-v22.m4a"),
+                title: "Chapter 3")
+        ]
+        model.state.currentIndex = 0
+        model.narrationPlaybackState.transitionRender(
+            to: .rendering(
+                NarrationRenderUnitStatus(
+                    chapterDisplayNumber: 4,
+                    segmentIndex: 0,
+                    voiceID: VoiceID("af_heart"),
+                    completedBlocks: 0,
+                    totalBlocks: 4,
+                    startedAt: Date(timeIntervalSince1970: 100),
+                    lastProgressAt: Date(timeIntervalSince1970: 100))),
+            event: nil)
+
+        model.playbackController.coordinator_playStateChanged?(.waitingForNarration)
+        #expect(
+            model.narrationPlaybackState.snapshot.playback
+                == .waitingForRender(chapterDisplayNumber: 4))
+        #expect(model.narrationPlaybackState.events.last?.message == "Waiting for rendered narration")
+
+        model.playbackController.coordinator_playStateChanged?(.playing)
+        #expect(
+            model.narrationPlaybackState.snapshot.playback
+                == .playing(chapterDisplayNumber: 3))
+
+        model.playbackController.coordinator_playStateChanged?(.paused)
+        #expect(
+            model.narrationPlaybackState.snapshot.playback
+                == .paused(chapterDisplayNumber: 3))
+
+        model.playbackController.coordinator_playStateChanged?(.reachedNaturalEnd)
+        #expect(model.narrationPlaybackState.snapshot.playback == .completed)
+        #expect(model.narrationPlaybackState.events.last?.message == "Narration playback complete")
+    }
+
+    @Test func sleepTimerCancelsNarrationQueueWait() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.narrationPlaybackState.transitionPlayback(
+            to: .waitingForRender(chapterDisplayNumber: 3),
+            event: nil)
+        model.state.awaitingNarrationChapter = true
+        let autoplayRequest = model.playerLoadingCoordinator.registerAutoplayRequest()
+        model.sleepTimerManager.setTimer(.endOfChapter)
+
+        model.sleepTimerManager.evaluateAtChapterEnd()
+
+        #expect(!model.state.awaitingNarrationChapter)
+        #expect(
+            model.playerLoadingCoordinator.isAutoplayRequestCurrent(autoplayRequest) == false)
+        #expect(
+            model.narrationPlaybackState.snapshot.playback
+                == .paused(chapterDisplayNumber: nil))
+        #expect(
+            model.narrationPlaybackState.events.last?.message
+                == "Narration wait cancelled by sleep timer")
+    }
+
+    @Test func sleepTimerCancelsPendingNarrationAutoplayAfterResumeBegins() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.narrationPlaybackState.transitionPlayback(
+            to: .resuming(chapterDisplayNumber: 3), event: nil)
+        let autoplayRequest = model.playerLoadingCoordinator.registerAutoplayRequest()
+        model.sleepTimerManager.setTimer(.endOfChapter)
+
+        model.sleepTimerManager.evaluateAtChapterEnd()
+
+        #expect(
+            model.playerLoadingCoordinator.isAutoplayRequestCurrent(autoplayRequest) == false)
+        #expect(
+            model.narrationPlaybackState.snapshot.playback
+                == .paused(chapterDisplayNumber: nil))
+        #expect(
+            model.narrationPlaybackState.events.last?.message
+                == "Narration wait cancelled by sleep timer")
+    }
+
+    @Test func explicitStopMarksActiveNarrationSessionStopped() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.state.tracks = [
+            Track(
+                url: URL(fileURLWithPath: "/tmp/book-ch2-s0-af_heart-v22.m4a"),
+                title: "Private Chapter Title")
+        ]
+        model.state.currentIndex = 0
+
+        model.stop()
+
+        #expect(model.narrationPlaybackState.snapshot.playback == .stopped)
+        let event = model.narrationPlaybackState.events.last
+        #expect(event?.category == .playback)
+        #expect(event?.severity == .notice)
+        #expect(event?.message == "Narration playback stopped")
+        #expect(event?.descriptor.developerMessage == "playback stopped chapter=3")
+        #expect(event?.descriptor.privateDetail == nil)
+    }
+
+    @Test func explicitStopCancelsNarrationQueueWait() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.narrationPlaybackState.transitionPlayback(
+            to: .waitingForRender(chapterDisplayNumber: 3), event: nil)
+        model.state.awaitingNarrationChapter = true
+        let autoplayRequest = model.playerLoadingCoordinator.registerAutoplayRequest()
+
+        model.stop()
+
+        #expect(model.state.awaitingNarrationChapter == false)
+        #expect(
+            model.playerLoadingCoordinator.isAutoplayRequestCurrent(autoplayRequest) == false)
+        #expect(model.narrationPlaybackState.snapshot.playback == .stopped)
+    }
+
+    @Test func pauseInvalidatesAutoplayRegisteredBeforeDeferredLoadCompletes() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        let autoplayRequest = model.playerLoadingCoordinator.registerAutoplayRequest()
+
+        model.pause()
+
+        #expect(
+            model.playerLoadingCoordinator.isAutoplayRequestCurrent(autoplayRequest) == false)
+    }
+
+    @Test func directControllerPauseInvalidatesDeferredAutoplay() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        let autoplayRequest = model.playerLoadingCoordinator.registerAutoplayRequest()
+
+        model.playbackController.pause()
+
+        #expect(
+            model.playerLoadingCoordinator.isAutoplayRequestCurrent(autoplayRequest) == false)
+    }
+
+    @Test func stopBeforeFirstSegmentPreventsFutureAutoplayRegistration() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+
+        model.stop()
+        let futureRequest = model.playerLoadingCoordinator.registerAutoplayRequest()
+
+        #expect(model.playerLoadingCoordinator.isAutoplayRequestCurrent(futureRequest) == false)
+    }
+
+    @Test func pauseBeforeFirstSegmentPreservesPausedStateDuringFuturePreparation() async throws {
+        let audioURL = try await SilentAudioFixture.makeSilentM4A(seconds: 1)
+        defer { try? FileManager.default.removeItem(at: audioURL) }
+        let model = PlayerModel()
+        model.folderURL = audioURL.deletingLastPathComponent()
+        model.tracks = [Track(url: audioURL, title: "Private title")]
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+
+        model.pause()
+        let pausedPlayback = model.narrationPlaybackState.snapshot.playback
+        model.playerLoadingCoordinator.prepareToPlay(index: 0, autoplay: true)
+
+        #expect(pausedPlayback == .paused(chapterDisplayNumber: 1))
+        #expect(model.narrationPlaybackState.snapshot.playback == pausedPlayback)
+        #expect(model.isPlaying == false)
+    }
+
+    @Test func stopBeforeFirstSegmentPreservesStoppedStateDuringFuturePreparation() async throws {
+        let audioURL = try await SilentAudioFixture.makeSilentM4A(seconds: 1)
+        defer { try? FileManager.default.removeItem(at: audioURL) }
+        let model = PlayerModel()
+        model.folderURL = audioURL.deletingLastPathComponent()
+        model.tracks = [Track(url: audioURL, title: "Private title")]
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+
+        model.stop()
+        model.playerLoadingCoordinator.prepareToPlay(index: 0, autoplay: true)
+
+        #expect(model.narrationPlaybackState.snapshot.playback == .stopped)
+        #expect(model.isPlaying == false)
+    }
+
+    @Test func explicitBookLoadAutoplayChoiceReplacesPriorIntent() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let model = PlayerModel()
+
+        model.stop()
+        model.loadFolder(folder, autoplay: true)
+        let allowedRequest = model.playerLoadingCoordinator.registerAutoplayRequest()
+        #expect(model.playerLoadingCoordinator.isAutoplayRequestCurrent(allowedRequest))
+
+        model.loadFolder(folder, autoplay: false)
+        let suppressedRequest = model.playerLoadingCoordinator.registerAutoplayRequest()
+        #expect(model.playerLoadingCoordinator.isAutoplayRequestCurrent(suppressedRequest) == false)
+    }
+
+    @Test func preparationProgressRelayIsOrderedAndAwaited() async throws {
+        let probe = PreparationProgressRelayProbe()
+        let relayTask = Task {
+            try await NarrationPreparationProgressRelay.run(
+                prepare: { progress in
+                    progress(.checkingModel(expectedBytes: 1))
+                    progress(.loadingModel)
+                    progress(.ready)
+                },
+                receive: { progress in
+                    await probe.receive(progress)
+                })
+            await probe.markRelayReturned()
+        }
+
+        await probe.waitUntilFirstReceiveStarts()
+        await Task.yield()
+        #expect(!(await probe.relayReturned))
+
+        await probe.releaseFirstReceive()
+        try await relayTask.value
+
+        #expect(
+            await probe.received
+                == [
+                    .checkingModel(expectedBytes: 1),
+                    .loadingModel,
+                    .ready,
+                ])
+        #expect(await probe.relayReturned)
+    }
+
+    @Test func preparationProgressRelayPropagatesCancellation() async {
+        let relayTask = Task {
+            try await NarrationPreparationProgressRelay.run(
+                prepare: { progress in
+                    progress(.checkingModel(expectedBytes: 1))
+                    try await Task.sleep(for: .seconds(60))
+                },
+                receive: { _ in })
+        }
+
+        await Task.yield()
+        relayTask.cancel()
+
+        await #expect(throws: CancellationError.self) {
+            try await relayTask.value
+        }
+    }
+
+    @Test func preparationProgressRelayThrowsWhenCancelledWhileDraining() async {
+        let probe = PreparationProgressCancellationProbe()
+        let relayTask = Task {
+            try await NarrationPreparationProgressRelay.run(
+                prepare: { progress in
+                    progress(.checkingModel(expectedBytes: 1))
+                },
+                receive: { _ in
+                    await probe.receive()
+                })
+        }
+
+        await probe.waitUntilReceiveStarts()
+        relayTask.cancel()
+
+        await #expect(throws: CancellationError.self) {
+            try await relayTask.value
+        }
+    }
+
+    @Test func narrationSessionStartsBeforeImportAwait() throws {
+        let source = try Self.source(named: "PlayerModel+Narration.swift")
+        let begin = try #require(source.range(of: "narrationPlaybackState.beginSession("))
+        let importAwait = try #require(
+            source.range(of: "await self.playerLoadingCoordinator.documentImportTask?.value"))
+        #expect(begin.lowerBound < importAwait.lowerBound)
     }
 
     @Test func sameBookRestartRejectsStaleBlockProgress() {
         let model = PlayerModel()
         let bookURL = URL(fileURLWithPath: "/same-book", isDirectory: true)
         model.folderURL = bookURL
+        model.state.currentSubtitle = "Current chapter"
         let staleOperation = model.replaceNarrationOperation()
+        let startedAt = Date(timeIntervalSince1970: 100)
+        model.narrationPlaybackState.transitionRender(
+            to: .rendering(
+                NarrationRenderUnitStatus(
+                    chapterDisplayNumber: 3,
+                    segmentIndex: 0,
+                    voiceID: VoiceID("af_heart"),
+                    completedBlocks: 0,
+                    totalBlocks: 2,
+                    startedAt: startedAt,
+                    lastProgressAt: startedAt)),
+            event: nil)
 
         model.handleNarrationBlockProgress(
-            chapterDisplayNumber: 3,
-            fraction: 0.5,
+            NarrationRenderProgress(
+                chapterDisplayNumber: 3,
+                segmentIndex: 0,
+                voiceID: VoiceID("af_heart"),
+                completedBlocks: 1,
+                totalBlocks: 2,
+                timestamp: Date(timeIntervalSince1970: 101)),
             operation: staleOperation,
             audiobookID: bookURL.absoluteString)
-        #expect(model.state.currentSubtitle == "Preparing chapter 3… 50%")
+        #expect(model.state.currentSubtitle == "Current chapter")
 
         _ = model.replaceNarrationOperation()
         model.state.currentSubtitle = "Current operation"
+        let renderBeforeStaleCallback = model.narrationPlaybackState.snapshot.render
+        let eventCountBeforeStaleCallback = model.narrationPlaybackState.events.count
         model.handleNarrationBlockProgress(
-            chapterDisplayNumber: 8,
-            fraction: 0.75,
+            NarrationRenderProgress(
+                chapterDisplayNumber: 8,
+                segmentIndex: 4,
+                voiceID: VoiceID("bm_daniel"),
+                completedBlocks: 3,
+                totalBlocks: 4,
+                timestamp: Date(timeIntervalSince1970: 102)),
             operation: staleOperation,
             audiobookID: bookURL.absoluteString)
 
         #expect(model.state.currentSubtitle == "Current operation")
+        #expect(model.narrationPlaybackState.snapshot.render == renderBeforeStaleCallback)
+        #expect(model.narrationPlaybackState.events.count == eventCountBeforeStaleCallback)
+    }
+
+    @Test func nowPlayingSubtitleProviderPrefersOperationalNarrationStatus() {
+        let model = PlayerModel()
+        model.state.currentSubtitle = "Current chapter"
+        let now = Date()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"), at: now)
+        model.narrationPlaybackState.transitionRender(
+            to: .rendering(
+                NarrationRenderUnitStatus(
+                    chapterDisplayNumber: 4,
+                    segmentIndex: 0,
+                    voiceID: VoiceID("af_heart"),
+                    completedBlocks: 1,
+                    totalBlocks: 2,
+                    startedAt: now,
+                    lastProgressAt: now)),
+            event: nil,
+            at: now)
+
+        #expect(
+            model.progressPresenter.currentSubtitleProvider?()
+                == "Rendering chapter 4 with Ava. Rendering chapter 4, segment 1 · block 1 of 2 · Ava · 50%")
+        #expect(model.state.currentSubtitle == "Current chapter")
+    }
+
+    @Test func nowPlayingSubtitleProviderIncludesModelLoadElapsedTime() throws {
+        let model = PlayerModel()
+        model.state.currentSubtitle = "Current chapter"
+        let now = Date()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"), at: now)
+        model.narrationPlaybackState.transitionRender(
+            to: .loadingModel(startedAt: now),
+            event: nil,
+            at: now)
+
+        let subtitle = try #require(model.progressPresenter.currentSubtitleProvider?())
+        #expect(subtitle.hasPrefix("Loading narration model. "))
+        #expect(subtitle.hasSuffix("s elapsed"))
+        #expect(model.state.currentSubtitle == "Current chapter")
+    }
+
+    @Test func nowPlayingSubtitleProviderFallsBackToCurrentChapterWithoutSession() {
+        let model = PlayerModel()
+        model.state.currentSubtitle = "Current chapter"
+
+        #expect(model.progressPresenter.currentSubtitleProvider?() == "Current chapter")
+    }
+
+    @Test func nowPlayingSubtitleProviderCallsFormatterBeforeChapterFallback() throws {
+        let source = try Self.source(named: "PlayerModel.swift")
+        let provider = try #require(
+            source.range(of: "progressPresenter.currentSubtitleProvider ="))
+        let presentation = try #require(
+            source.range(
+                of: "NarrationStatusFormatter.presentation(",
+                range: provider.upperBound..<source.endIndex))
+        let fallback = try #require(
+            source.range(
+                of: "?.lockScreenSubtitle ?? self.currentSubtitle",
+                range: presentation.upperBound..<source.endIndex))
+
+        #expect(provider.lowerBound < presentation.lowerBound)
+        #expect(presentation.lowerBound < fallback.lowerBound)
+    }
+
+    @Test func blockProgressPreservesRenderStartAndRecordsCompletion() {
+        let model = PlayerModel()
+        let bookURL = URL(fileURLWithPath: "/same-book", isDirectory: true)
+        model.folderURL = bookURL
+        let operation = model.replaceNarrationOperation()
+        let startedAt = Date(timeIntervalSince1970: 100)
+        model.narrationPlaybackState.transitionRender(
+            to: .rendering(
+                NarrationRenderUnitStatus(
+                    chapterDisplayNumber: 3,
+                    segmentIndex: 0,
+                    voiceID: VoiceID("af_heart"),
+                    completedBlocks: 0,
+                    totalBlocks: 2,
+                    startedAt: startedAt,
+                    lastProgressAt: startedAt)),
+            event: nil)
+        let progressAt = Date(timeIntervalSince1970: 101)
+
+        model.handleNarrationBlockProgress(
+            NarrationRenderProgress(
+                chapterDisplayNumber: 3,
+                segmentIndex: 0,
+                voiceID: VoiceID("af_heart"),
+                completedBlocks: 1,
+                totalBlocks: 2,
+                timestamp: progressAt),
+            operation: operation,
+            audiobookID: bookURL.absoluteString)
+
+        #expect(
+            model.narrationPlaybackState.snapshot.render
+                == .rendering(
+                    NarrationRenderUnitStatus(
+                        chapterDisplayNumber: 3,
+                        segmentIndex: 0,
+                        voiceID: VoiceID("af_heart"),
+                        completedBlocks: 1,
+                        totalBlocks: 2,
+                        startedAt: startedAt,
+                        lastProgressAt: progressAt)))
+        #expect(model.narrationPlaybackState.events.last?.category == .render)
+        #expect(model.narrationPlaybackState.events.last?.message == "Chapter 3 · block 1 of 2")
     }
 
     @Test func narrationPreparationIsGuardedBeforeMutationAndTTS() throws {
@@ -606,7 +1660,7 @@ struct PlayerModelTests {
             source.range(
                 of: "try NarrationRenderPolicy.checkTaskIsActive(",
                 range: preparation.upperBound..<source.endIndex))
-        let stateMutation = try #require(source.range(of: "self.state.narrationDefaultVoice ="))
+        let stateMutation = try #require(source.range(of: "self.recordNarrationPlanPreparation("))
         let ttsPreparation = try #require(source.range(of: "self.narrationTTS.prepare("))
 
         #expect(importAwait.lowerBound < firstGuard.lowerBound)
@@ -637,5 +1691,190 @@ struct PlayerModelTests {
         }
 
         throw CocoaError(.fileNoSuchFile)
+    }
+
+    private func preparationContext() -> (PlayerModel, NarrationOperationToken, String) {
+        let model = PlayerModel()
+        let bookURL = URL(fileURLWithPath: "/same-book", isDirectory: true)
+        model.folderURL = bookURL
+        let operation = model.replaceNarrationOperation()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        return (model, operation, bookURL.absoluteString)
+    }
+
+    private func makeNarrationModel(
+        tts: any TTSEngine,
+        text: String?
+    ) throws -> (model: PlayerModel, root: URL) {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let audiobookID = root.absoluteString
+        let database = try DatabaseService(inMemory: ())
+        try database.writer.write { db in
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES (?, ?, 0)",
+                arguments: [audiobookID, "Private Test Book"])
+        }
+        if let text {
+            try EPubBlockDAO(db: database.writer).insertAll([
+                EPubBlockRecord(
+                    id: "block-1",
+                    audiobookID: audiobookID,
+                    spineHref: "chapter.xhtml",
+                    spineIndex: 0,
+                    blockIndex: 0,
+                    sequenceIndex: 0,
+                    blockKind: EPubBlockRecord.Kind.paragraph.rawValue,
+                    text: text,
+                    htmlContent: nil,
+                    cardColor: nil,
+                    chapterThemeColor: nil,
+                    imagePath: nil,
+                    chapterIndex: 0,
+                    isHidden: false,
+                    hiddenReason: nil,
+                    isFrontMatter: false,
+                    wordCount: nil,
+                    markers: nil,
+                    textFormats: nil,
+                    createdAt: nil,
+                    modifiedAt: nil)
+            ])
+        }
+
+        let model = PlayerModel()
+        model.databaseService = database
+        model.folderURL = root
+        model.narrationTTS = tts
+        model.narrationAudioWriter = MockAudioWriter()
+        model.narrationCacheDirectoryProvider = { root }
+        return (model, root)
+    }
+}
+
+private struct PrivateNarrationFailure: LocalizedError {
+    var errorDescription: String? {
+        "Rendering failed for /private/books/Hidden Title.epub"
+    }
+}
+
+private struct AlwaysFailingNarrationEngine: TTSEngine {
+    func prepare() async throws {}
+
+    func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
+        throw PrivateNarrationFailure()
+    }
+}
+
+private struct BlockingNarrationPrepareEngine: TTSEngine {
+    let probe: NarrationPrepareStartProbe
+
+    func prepare() async throws {
+        await probe.recordStart()
+        try await Task.sleep(for: .seconds(60))
+    }
+
+    func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
+        TTSChunk(samples: [0.1], sampleRate: 24_000, duration: 1)
+    }
+}
+
+private actor NarrationPrepareStartProbe {
+    private var startCount = 0
+    private var waiters: [(expected: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    func recordStart() {
+        startCount += 1
+        let ready = waiters.filter { startCount >= $0.expected }
+        waiters.removeAll { startCount >= $0.expected }
+        ready.forEach { $0.continuation.resume() }
+    }
+
+    func waitForStartCount(_ expected: Int) async {
+        guard startCount < expected else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append((expected, continuation))
+        }
+    }
+}
+
+@MainActor
+private final class NarrationEventMutationProbe {
+    private let state: NarrationState
+    private(set) var developerMessagesBeforeMutation: [String] = []
+
+    init(state: NarrationState) {
+        self.state = state
+        observeNextMutation()
+    }
+
+    private func observeNextMutation() {
+        withObservationTracking {
+            _ = state.events
+        } onChange: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if let developerMessage = self.state.events.last?.descriptor.developerMessage {
+                    self.developerMessagesBeforeMutation.append(developerMessage)
+                }
+                self.observeNextMutation()
+            }
+        }
+    }
+}
+
+private actor PreparationProgressRelayProbe {
+    private(set) var received: [NarrationPrepareProgress] = []
+    private(set) var relayReturned = false
+    private var firstReceiveStarted = false
+    private var firstReceiveWaiters: [CheckedContinuation<Void, Never>] = []
+    private var firstReceiveContinuation: CheckedContinuation<Void, Never>?
+
+    func receive(_ progress: NarrationPrepareProgress) async {
+        if case .checkingModel = progress {
+            firstReceiveStarted = true
+            firstReceiveWaiters.forEach { $0.resume() }
+            firstReceiveWaiters.removeAll()
+            await withCheckedContinuation { continuation in
+                firstReceiveContinuation = continuation
+            }
+        }
+        received.append(progress)
+    }
+
+    func waitUntilFirstReceiveStarts() async {
+        guard !firstReceiveStarted else { return }
+        await withCheckedContinuation { continuation in
+            firstReceiveWaiters.append(continuation)
+        }
+    }
+
+    func releaseFirstReceive() {
+        firstReceiveContinuation?.resume()
+        firstReceiveContinuation = nil
+    }
+
+    func markRelayReturned() {
+        relayReturned = true
+    }
+}
+
+private actor PreparationProgressCancellationProbe {
+    private var receiveStarted = false
+    private var receiveWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func receive() async {
+        receiveStarted = true
+        receiveWaiters.forEach { $0.resume() }
+        receiveWaiters.removeAll()
+        try? await Task.sleep(for: .seconds(60))
+    }
+
+    func waitUntilReceiveStarts() async {
+        guard !receiveStarted else { return }
+        await withCheckedContinuation { continuation in
+            receiveWaiters.append(continuation)
+        }
     }
 }

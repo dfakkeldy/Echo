@@ -3,6 +3,10 @@
 import Observation
 import os.log
 
+nonisolated struct AudioItemLoadFailure: Error, Equatable, Sendable {
+    let privateDetail: String
+}
+
 // MARK: - AudioEngineDelegate
 
 protocol AudioEngineDelegate: AnyObject {
@@ -341,7 +345,10 @@ final class AudioEngine {
 
     /// Loads an audio file and schedules it from the given startTime.
     /// Maintains the play/pause state across item replacement.
-    func replaceCurrentItem(with url: URL, startTime: TimeInterval? = nil) {
+    @discardableResult
+    func replaceCurrentItem(
+        with url: URL, startTime: TimeInterval? = nil
+    ) -> Result<Void, AudioItemLoadFailure> {
         let wasPlaying = isPlaying
         isPlaying = false
         stopTimeTimer()
@@ -353,7 +360,10 @@ final class AudioEngine {
         currentTime = initialOffset
         duration = nil
 
-        guard let playerNode, engine != nil else { return }
+        guard let playerNode, engine != nil else {
+            return .failure(
+                AudioItemLoadFailure(privateDetail: "Audio engine is not configured"))
+        }
 
         do {
             // Use prebuffered file if it matches the target URL (saves disk I/O).
@@ -374,7 +384,12 @@ final class AudioEngine {
             let startFrame = AVAudioFramePosition(clampedOffset * sampleRate)
             let framesToPlay = AVAudioFrameCount(file.length - startFrame)
 
-            guard framesToPlay > 0 else { return }
+            guard framesToPlay > 0 else {
+                audioFile = nil
+                duration = nil
+                return .failure(
+                    AudioItemLoadFailure(privateDetail: "Audio file contains no playable frames"))
+            }
 
             seekOffset = clampedOffset
             currentTime = clampedOffset
@@ -388,12 +403,17 @@ final class AudioEngine {
                 isPlaying = true
                 startTimeTimer()
             }
+            return .success(())
         } catch {
             os_log(
                 .error, "AudioEngine: replaceCurrentItem error: %{private}@",
                 error.localizedDescription)
             audioFile = nil
             duration = nil
+            return .failure(
+                AudioItemLoadFailure(
+                    privateDetail:
+                        "\(String(reflecting: type(of: error))): \(error.localizedDescription)"))
         }
     }
 

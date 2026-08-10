@@ -615,7 +615,7 @@ struct AnthologyBuilderViewModelTests {
             encoding: .utf8)
         #expect(
             playerSource.contains(
-                "statusMessage: String(localized: \"Voice models ready\")"))
+                "message: String(localized: \"Narration model ready\")"))
     }
 }
 

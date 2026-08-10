@@ -178,15 +178,17 @@ import ZIPFoundation
 
     @Test func prepareFractionCollapsesStepsMonotonically() {
         #expect(
-            HeadlessNarrationRunner.prepareFraction(.downloadingModels(fraction: 0)) == 0)
+            HeadlessNarrationRunner.prepareFraction(.checkingModel(expectedBytes: 100)) == 0)
         #expect(
-            HeadlessNarrationRunner.prepareFraction(.downloadingModels(fraction: 0.5)) == 0.45)
+            HeadlessNarrationRunner.prepareFraction(.modelCacheHit(byteCount: 100)) == 0.9)
         #expect(
-            HeadlessNarrationRunner.prepareFraction(.downloadingModels(fraction: 1)) == 0.9)
+            HeadlessNarrationRunner.prepareFraction(
+                .downloadingModel(receivedBytes: 50, totalBytes: 100)) == 0.45)
         #expect(
-            HeadlessNarrationRunner.prepareFraction(.compilingModels(done: 0, total: 1)) == 0.9)
+            HeadlessNarrationRunner.prepareFraction(
+                .validatingModel(byteCount: 100)) == 0.9)
         #expect(
-            HeadlessNarrationRunner.prepareFraction(.compilingModels(done: 1, total: 1)) == 1.0)
+            HeadlessNarrationRunner.prepareFraction(.loadingModel) == 0.9)
         #expect(HeadlessNarrationRunner.prepareFraction(.ready) == 1.0)
     }
 

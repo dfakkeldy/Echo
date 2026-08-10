@@ -570,6 +570,10 @@ final class PlayerModel {
         return timelinePersistence.hasEPUB(for: bookIdentityURL?.absoluteString)
     }
 
+    var hasActiveNarrationWork: Bool {
+        narrationPlaybackState.isRunning || state.narrationRenderInFlight
+    }
+
     var documentIngestionTrigger: Int {
         state.documentIngestionTrigger
     }
@@ -907,8 +911,30 @@ final class PlayerModel {
             // is already false, so pause() (which clears the flag) won't run — clear it
             // here so a chapter that finishes rendering after the cutoff doesn't auto-
             // advance one chapter past the sleep cutoff.
+            let narrationPlayback = self.narrationPlaybackState.snapshot.playback
+            let narrationAutoplayWasPending: Bool
+            switch narrationPlayback {
+            case .waitingForRender, .resuming:
+                narrationAutoplayWasPending = true
+            default:
+                narrationAutoplayWasPending = false
+            }
+            let cancelledNarrationWait =
+                self.narrationPlaybackState.hasSession
+                && (self.state.awaitingNarrationChapter || narrationAutoplayWasPending)
             self.state.awaitingNarrationChapter = false
+            if cancelledNarrationWait {
+                self.playerLoadingCoordinator.suppressAutoplay()
+            }
             if self.isPlaying { self.pause() }
+            if cancelledNarrationWait {
+                self.narrationPlaybackState.transitionPlayback(
+                    to: .paused(
+                        chapterDisplayNumber: self.currentNarrationChapterDisplayNumber),
+                    event: self.playbackEvent(
+                        "Narration wait cancelled by sleep timer", severity: .notice))
+                self.publishNarrationStatusToNowPlaying()
+            }
             self.syncToWatch()
         }
         sleepTimerManager.onTick = { [weak self] in
@@ -943,7 +969,13 @@ final class PlayerModel {
         progressPresenter.nowPlayingController = nowPlayingController
         progressPresenter.speedProvider = { [weak self] in self?.speed ?? 1.0 }
         progressPresenter.currentTitleProvider = { [weak self] in self?.currentTitle ?? "" }
-        progressPresenter.currentSubtitleProvider = { [weak self] in self?.currentSubtitle ?? "" }
+        progressPresenter.currentSubtitleProvider = { [weak self] in
+            guard let self else { return "" }
+            return NarrationStatusFormatter.presentation(
+                for: self.narrationPlaybackState.snapshot,
+                hasSession: self.narrationPlaybackState.hasSession,
+                now: Date())?.lockScreenSubtitle ?? self.currentSubtitle
+        }
         progressPresenter.currentDisplayArtworkProvider = { [weak self] in
             self?.currentDisplayArtwork
         }
@@ -1074,6 +1106,10 @@ final class PlayerModel {
             }
             self?.maybePushABSProgress(force: true)
         }
+        playerLoadingCoordinator.onPlaybackQueueMutation = { [weak self] in
+            guard let self, self.narrationPlaybackState.hasSession else { return }
+            self.refreshNarrationBufferStatus()
+        }
 
         // Wire PlaybackController coordination closures.
         playbackController.coordinator_seekBackwardDuration = { [weak self] in
@@ -1095,6 +1131,9 @@ final class PlayerModel {
         }
         playbackController.coordinator_loadTrack = { [weak self] index, autoplay in
             self?.playerLoadingCoordinator.prepareToPlay(index: index, autoplay: autoplay)
+        }
+        playbackController.coordinator_pauseRequested = { [weak self] in
+            self?.playerLoadingCoordinator.suppressAutoplay()
         }
         playbackController.coordinator_persistAndSync = { [weak self] isPaused in
             self?.updateNowPlayingInfo(isPaused: isPaused)
@@ -1178,9 +1217,9 @@ final class PlayerModel {
             self?.startSelectionSecurityScopeIfNeeded()
             self?.startCurrentFileSecurityScopeIfNeeded()
         }
-        playbackController.coordinator_playStateChanged = { [weak self] isPlaying in
+        playbackController.coordinator_playStateChanged = { [weak self] change in
             guard let self else { return }
-            if isPlaying {
+            if change == .playing {
                 self.startPlaybackSessionLogging()
                 self.sessionRecorder?.yield(
                     .opened(
@@ -1201,6 +1240,49 @@ final class PlayerModel {
                     .closed(position: self.audioEngine.currentTime, at: Date()))
                 self.continuousAlignmentService?.stop()
             }
+
+            guard self.narrationPlaybackState.hasSession else { return }
+            switch change {
+            case .loading:
+                self.narrationPlaybackState.transitionPlayback(
+                    to: .loading(
+                        chapterDisplayNumber: self.currentNarrationChapterDisplayNumber),
+                    event: .init(
+                        category: .playback, severity: .info,
+                        message: String(localized: "Loading narration audio"),
+                        developerMessage: "playback audio loading"))
+            case .playing:
+                self.narrationPlaybackState.transitionPlayback(
+                    to: .playing(
+                        chapterDisplayNumber: self.currentNarrationChapterDisplayNumber),
+                    event: self.playbackEvent("Playing", severity: .notice))
+            case .paused:
+                self.narrationPlaybackState.transitionPlayback(
+                    to: .paused(
+                        chapterDisplayNumber: self.currentNarrationChapterDisplayNumber),
+                    event: self.playbackEvent("Paused", severity: .notice))
+            case .waitingForNarration:
+                self.narrationPlaybackState.transitionPlayback(
+                    to: .waitingForRender(
+                        chapterDisplayNumber: self.currentRenderingChapterDisplayNumber),
+                    event: self.playbackEvent(
+                        "Waiting for rendered narration", severity: .warning))
+            case .reachedNaturalEnd:
+                self.narrationPlaybackState.transitionPlayback(
+                    to: .completed,
+                    event: self.playbackEvent(
+                        "Narration playback complete", severity: .notice))
+            case .failed(let privateDetail):
+                let message = String(localized: "Unable to load narration audio")
+                self.narrationPlaybackState.transitionPlayback(
+                    to: .failed(message: message),
+                    event: .init(
+                        category: .error, severity: .error,
+                        message: message,
+                        developerMessage: "playback audio load failed",
+                        privateDetail: privateDetail))
+            }
+            self.publishNarrationStatusToNowPlaying()
         }
         playlistManager.coordinator_postResetRefresh = { [weak self] in
             self?.updateCurrentChapterFromPlayerTime()
@@ -1364,9 +1446,20 @@ final class PlayerModel {
         // Stop narrating the previous book before its tracks are replaced, so a
         // stale render can't append chapters onto the newly loaded book, and
         // clear its narration playback state so the new book starts fresh.
+        let hadActiveNarrationWork = hasActiveNarrationWork
         narrationRenderTask?.cancel()
         narrationRenderTask = nil
         replaceNarrationOperation()
+        if hadActiveNarrationWork {
+            narrationPlaybackState.transitionRender(
+                to: .cancelled,
+                event: .init(
+                    category: .render,
+                    severity: .notice,
+                    message: String(
+                        localized: "Narration cancelled because the active book changed"),
+                    developerMessage: "render cancelled active book changed"))
+        }
         state.narrationRenderInFlight = false
         state.awaitingNarrationChapter = false
         state.narrationDefaultVoice = nil
@@ -1582,9 +1675,10 @@ final class PlayerModel {
     }
 
     func play() {
+        playerLoadingCoordinator.allowAutoplay()
         // For narration-only books (EPUB with no audio tracks), pressing Play
         // should start narration instead of no-op'ing (§8.1).
-        if state.tracks.isEmpty, hasEPUB, !narrationPlaybackState.isRunning {
+        if state.tracks.isEmpty, hasEPUB, !hasActiveNarrationWork {
             let voiceID = settingsManager?.narrationVoiceID ?? ""
             let voice =
                 voiceID.isEmpty
@@ -1772,7 +1866,24 @@ final class PlayerModel {
     }
 
     func stop() {
+        playerLoadingCoordinator.suppressAutoplay()
+        if narrationPlaybackState.hasSession {
+            state.awaitingNarrationChapter = false
+        }
         playbackController.stop()
+        if narrationPlaybackState.hasSession {
+            let chapterSuffix = currentNarrationChapterDisplayNumber.map {
+                " chapter=\($0)"
+            } ?? ""
+            narrationPlaybackState.transitionPlayback(
+                to: .stopped,
+                event: .init(
+                    category: .playback,
+                    severity: .notice,
+                    message: String(localized: "Narration playback stopped"),
+                    developerMessage: "playback stopped\(chapterSuffix)"))
+            publishNarrationStatusToNowPlaying()
+        }
         // stop() doesn't flow through the play/pause persistAndSync path, so
         // without this the iOS widget + Control Center toggle stay stuck on the
         // last "playing" snapshot. Publish the stopped state explicitly.

@@ -156,6 +156,15 @@ struct MacReaderParityTests {
         #expect(src.contains("voice: failedChapter.voice"))
     }
 
+    @Test func batchNarrationOnlySkipsValidatedCache() throws {
+        let src = try MacSource.read("Services/MacBatchProcessingService.swift")
+
+        #expect(
+            src.contains(
+                "let reusedCachedNarration = try await service.updateCachedNarrationTitle("))
+        #expect(src.contains("if reusedCachedNarration { continue }"))
+    }
+
     @Test func readerHasAlignmentContextMenu() throws {
         let src = try MacSource.read("Views/MacReaderFeedView.swift")
         #expect(

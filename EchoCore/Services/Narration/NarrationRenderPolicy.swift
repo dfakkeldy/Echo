@@ -14,6 +14,7 @@ nonisolated struct NarrationOperationToken: Equatable, Sendable {
 /// look-ahead backpressure, pause-awareness, at-gap deadlock prevention,
 /// and book-switch guard are testable without constructing a full `PlayerModel`.
 nonisolated enum NarrationRenderPolicy {
+    static let lookAhead = 2
 
     /// Throws when a cooperative render task was cancelled or its captured book
     /// is no longer active. Call immediately after suspension before side effects.
