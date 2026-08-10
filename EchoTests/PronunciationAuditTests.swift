@@ -90,10 +90,11 @@ import Testing
         word: String,
         ruleID: String,
         chapterIndex: Int,
+        blockID: String? = nil,
         range: PronunciationAuditDecision.AudioRange? = .init(start: 1, end: 1.4)
     ) -> PronunciationAuditDecision {
         PronunciationAuditDecision(
-            blockID: "s\(chapterIndex)-b0",
+            blockID: blockID ?? "s\(chapterIndex)-b0",
             wordStart: 2,
             wordEnd: 2,
             normalizedWord: word,
@@ -345,6 +346,37 @@ import Testing
         #expect(firstBlock.lowerBound < secondBlock.lowerBound)
     }
 
+    @Test func planManifestAcceptsImportedDecisionIDMatchingPortableVoiceProvenance() throws {
+        let importedBlockID = "epub-runner-voice-plan-fixture.epub-s0-b0"
+        let provenance = PronunciationBlockVoiceProvenance(
+            voicePlanSHA256: String(repeating: "c", count: 64),
+            blockVoices: ["s0-b0": VoiceID("am_michael")])
+        let manifest = PronunciationAuditManifest.make(
+            renderVersion: 15,
+            voice: VoiceID("am_michael"),
+            blockVoiceProvenance: provenance,
+            captureCoverage: .complete,
+            legacyChapterIndexes: [],
+            audiobookURL: URL(fileURLWithPath: "/tmp/voice-plan.m4b"),
+            reelURL: nil,
+            audiobookSHA256: String(repeating: "a", count: 64),
+            listeningReelSHA256: nil,
+            watchWords: [],
+            decisions: [
+                decision(
+                    word: "record",
+                    ruleID: "g2p.lexicon.record",
+                    chapterIndex: 0,
+                    blockID: importedBlockID),
+            ],
+            diagnostics: [])
+
+        let encoded = try manifest.encoded()
+        let decoded = try JSONDecoder().decode(PronunciationAuditManifest.self, from: encoded)
+        #expect(decoded.blockVoices == ["s0-b0": "am_michael"])
+        #expect(decoded.decisions.map(\.blockID) == [importedBlockID])
+    }
+
     @Test func planManifestRejectsIncompleteOrInvalidBlockVoiceProvenance() throws {
         let provenance = PronunciationBlockVoiceProvenance(
             voicePlanSHA256: String(repeating: "c", count: 64),
@@ -386,7 +418,10 @@ import Testing
         }
 
         let absentBlockDecision = decision(
-            word: "mara", ruleID: "g2p.lexicon.mara", chapterIndex: 1)
+            word: "mara",
+            ruleID: "g2p.lexicon.mara",
+            chapterIndex: 1,
+            blockID: "epub-runner-voice-plan-fixture.epub-s1-b0")
         let objectWithAbsentDecision = validObject.merging(
             ["decisions": try JSONSerialization.jsonObject(with: JSONEncoder().encode([absentBlockDecision]))]
         ) { _, new in new }

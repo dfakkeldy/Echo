@@ -679,7 +679,8 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
                 throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
                     "plan pronunciation audit disagrees with block voices")
             }
-            for decision in decisions where blockVoices[decision.blockID] == nil {
+            for decision in decisions
+                where blockVoices[AlignmentSidecar.portableSuffix(of: decision.blockID)] == nil {
                 throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
                     "pronunciation decision references a block absent from the voice plan")
             }
