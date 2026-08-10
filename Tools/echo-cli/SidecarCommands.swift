@@ -86,12 +86,14 @@ struct VerifySidecarCommand: AsyncParsableCommand {
 /// Dump an EPUB's visible source blocks as JSON, guaranteeing block-id parity
 /// with alignment sidecars: each block carries the portable `s<i>-b<j>` id that
 /// sidecar anchors reference, produced by the same import stack as the reader.
+/// Regular EPUB-file inputs also carry their exact byte SHA-256; expanded EPUB
+/// directory inputs encode a null digest and cannot satisfy file-bound consumers.
 struct ExportBlocksCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "export-blocks",
-        abstract: "Export an EPUB's visible source blocks as sidecar-parity JSON.")
+        abstract: "Export an EPUB's visible blocks as v2 sidecar-parity JSON.")
 
-    @Option(help: "EPUB source file or expanded-EPUB directory.")
+    @Option(help: "Direct EPUB file (SHA-256 bound) or expanded-EPUB directory (SHA-256 null).")
     var epub: String
     @Option(help: "Output .json path.")
     var out: String
@@ -100,9 +102,11 @@ struct ExportBlocksCommand: AsyncParsableCommand {
         let sourceURL = URL(fileURLWithPath: epub)
         let outputURL = URL(fileURLWithPath: out)
 
-        let blocks = try await SidecarSourceBlockLoader.blocks(from: sourceURL)
+        let source = try BlockExportSourceResolver.resolve(at: sourceURL)
+        let blocks = try await SidecarSourceBlockLoader.blocks(from: source.url)
         let document = BlockExportDocument(
-            epubName: sourceURL.lastPathComponent,
+            epubName: source.epubName,
+            epubSHA256: source.epubSHA256,
             records: blocks
         )
 
