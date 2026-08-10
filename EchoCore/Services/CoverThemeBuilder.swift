@@ -45,6 +45,9 @@ nonisolated enum CoverThemeBuilder {
     /// wash visibly reads as the cover's colour — the earlier near-white ramp
     /// plus a NavigationStack occlusion left the player looking untinted).
     /// Extreme hues ride the gamut clamp (`clampedChroma`) and soften gracefully.
+    /// Since 2026-08 the background/chip entries serve the NEUTRAL ramp and the
+    /// black/white-dominant wash only; tonal covers anchor the wash to their own
+    /// observed tone (see `washPlan`).
     private static let light = Recipe(
         backgroundTop: (0.91, 0.070),
         backgroundBottom: (0.86, 0.095),
@@ -53,7 +56,8 @@ nonisolated enum CoverThemeBuilder {
         onAccent: (0.97, 0.020)
     )
 
-    /// Immersive coloured room (spec §4, dark column; same 2026-07 chroma raise).
+    /// Immersive coloured room (spec §4, dark column; same 2026-07 chroma raise,
+    /// same 2026-08 anchored-wash note).
     private static let dark = Recipe(
         backgroundTop: (0.33, 0.085),
         backgroundBottom: (0.26, 0.095),
@@ -61,6 +65,57 @@ nonisolated enum CoverThemeBuilder {
         accent: (0.78, 0.120),
         onAccent: (0.22, 0.040)
     )
+
+    // MARK: - Cover-anchored wash
+
+    /// Per-scheme bounds for anchoring the wash to the cover's own tone.
+    ///
+    /// The fixed recipes carry only the cover's HUE, which leaves a visible seam
+    /// between a saturated cover and its pale wash. Anchoring pulls the wash's
+    /// lightness and chroma toward the cover's observed tone, clamped into a
+    /// band where the accent construction can still clear every contrast floor.
+    ///
+    /// The dark band deepens only (its ceiling ≈ the old fixed L 0.33): a
+    /// mid-lightness room is accent-hostile — neither a light nor a dark accent
+    /// reaches 3:1 against it without drifting to an extreme — so pale covers
+    /// keep today's deep room and dark covers earn deeper, richer ones.
+    private struct WashBounds {
+        let lightness: ClosedRange<Double>  // candidate-anchored wash-top band
+        let chroma: ClosedRange<Double>  // wash-top chroma band (before gamut clamp)
+        let edgeAdmit: ClosedRange<Double>  // edge tones eligible for continuation
+        let edgeLightness: ClosedRange<Double>  // exact-continuation clamp band
+        let bottomDelta: (l: Double, c: Double)  // ramp shape, relative to top
+        let chipDelta: (l: Double, c: Double)
+    }
+
+    private static let lightWash = WashBounds(
+        lightness: 0.80...0.93,
+        chroma: 0.05...0.135,
+        edgeAdmit: 0.68...1.0,
+        edgeLightness: 0.74...0.95,
+        bottomDelta: (l: -0.05, c: 0.025),
+        chipDelta: (l: -0.09, c: 0.035)
+    )
+
+    private static let darkWash = WashBounds(
+        lightness: 0.20...0.34,
+        chroma: 0.05...0.12,
+        edgeAdmit: 0.12...0.44,
+        edgeLightness: 0.18...0.38,
+        bottomDelta: (l: -0.07, c: 0.01),
+        chipDelta: (l: 0.06, c: 0.025)
+    )
+
+    /// An edge field below this chroma is a white/grey/black border — nothing
+    /// to continue; the anchored ramp (or the B/W wash) handles it better.
+    private static let edgeChromaFloor = 0.015
+
+    /// Combined near-black + near-white share above which the cover reads as
+    /// black/white-dominant. Its "main colour" is then the B/W field, not the
+    /// accent's bucket, so the wash keeps the designed recipe tone — anchored
+    /// only toward the scheme's matching pole (deep room under a black-field
+    /// cover, paper-pale under a white-field one).
+    private static let bwDominantShare = 0.45
 
     /// Warm-grey ramp hue for neutral (greyscale / no-artwork) covers.
     private static let neutralHue: Double = 80.0
@@ -146,18 +201,20 @@ nonisolated enum CoverThemeBuilder {
 
     // MARK: - Public API
 
-    static func build(from signature: CoverSignature, scheme: ColorScheme) -> CoverTheme {
-        let r = resolve(signature, scheme: scheme, brand: ColorMetrics.rgb(Color.accentColor))
-        return CoverTheme(
-            accent: ColorMetrics.color(r.accent),
-            onAccent: ColorMetrics.color(r.onAccent),
-            secondaryAccent: ColorMetrics.color(r.secondaryAccent),
-            backgroundTop: ColorMetrics.color(r.backgroundTop),
-            backgroundBottom: ColorMetrics.color(r.backgroundBottom),
-            chip: ColorMetrics.color(r.chip),
-            isNeutralFallback: r.isNeutralFallback
-        )
-    }
+    #if canImport(UIKit)
+        static func build(from signature: CoverSignature, scheme: ColorScheme) -> CoverTheme {
+            let r = resolve(signature, scheme: scheme, brand: ColorMetrics.rgb(Color.accentColor))
+            return CoverTheme(
+                accent: ColorMetrics.color(r.accent),
+                onAccent: ColorMetrics.color(r.onAccent),
+                secondaryAccent: ColorMetrics.color(r.secondaryAccent),
+                backgroundTop: ColorMetrics.color(r.backgroundTop),
+                backgroundBottom: ColorMetrics.color(r.backgroundBottom),
+                chip: ColorMetrics.color(r.chip),
+                isNeutralFallback: r.isNeutralFallback
+            )
+        }
+    #endif
 
     /// Pure core. `brand` is injected so tests don't depend on the asset catalog.
     static func resolve(
@@ -178,10 +235,15 @@ nonisolated enum CoverThemeBuilder {
         // cover's primary hue — even for black/white-dominant covers.
         let isBoldAccent = primary.chroma >= boldAccentChromaFloor
 
-        let roomHue = amberedRampHue(primaryHue, scheme: scheme)
-        let backgroundTop = roleColor(recipe.backgroundTop, hue: roomHue)
-        let backgroundBottom = roleColor(recipe.backgroundBottom, hue: roomHue)
-        let chip = roleColor(recipe.chip, hue: roomHue)
+        let bounds = scheme == .dark ? darkWash : lightWash
+        let plan = washPlan(for: signature, primary: primary, scheme: scheme, recipe: recipe)
+        let backgroundTop = roleColor((l: plan.topL, c: plan.topC), hue: plan.hue)
+        let backgroundBottom = roleColor(
+            (l: plan.topL + bounds.bottomDelta.l, c: plan.topC + bounds.bottomDelta.c),
+            hue: plan.hue)
+        let chip = roleColor(
+            (l: plan.topL + bounds.chipDelta.l, c: plan.topC + bounds.chipDelta.c),
+            hue: plan.hue)
 
         let accentRole =
             isBoldAccent ? (scheme == .dark ? boldAccentDark : boldAccentLight) : recipe.accent
@@ -237,6 +299,66 @@ nonisolated enum CoverThemeBuilder {
     }
 
     // MARK: - Role construction
+
+    /// The wash-top tone and ramp hue for a tonal cover; bottom and chip
+    /// derive from it via the scheme's deltas.
+    private struct WashPlan {
+        let topL: Double
+        let topC: Double
+        let hue: Double
+    }
+
+    private static func washPlan(
+        for signature: CoverSignature,
+        primary: CoverSignature.HueCandidate,
+        scheme: ColorScheme,
+        recipe: Recipe
+    ) -> WashPlan {
+        let bounds = scheme == .dark ? darkWash : lightWash
+
+        // Seamless continuation: a coloured, near-uniform border within reach
+        // of the scheme's band is reproduced (nearly) exactly, so the cover
+        // flows into the screen with no seam. No amber rotation here — this is
+        // a colour the cover actually has, not a constructed room.
+        if let edge = signature.edgeField,
+            edge.chroma >= edgeChromaFloor,
+            bounds.edgeAdmit.contains(edge.lightness)
+        {
+            return WashPlan(
+                topL: clamp(edge.lightness, to: bounds.edgeLightness),
+                topC: min(edge.chroma, bounds.chroma.upperBound),
+                hue: edge.hue)
+        }
+
+        // Black/white-dominant covers: the field IS the identity, and the
+        // primary candidate is a small accent whose tone must not decide the
+        // whole room. Anchor to the band pole matching the field; keep the
+        // designed recipe tone when field and scheme point opposite ways.
+        if signature.nearBlackShare + signature.nearWhiteShare >= bwDominantShare {
+            let blackDominant = signature.nearBlackShare >= signature.nearWhiteShare
+            let topL: Double
+            if scheme == .dark, blackDominant {
+                topL = bounds.lightness.lowerBound
+            } else if scheme == .light, !blackDominant {
+                topL = bounds.lightness.upperBound
+            } else {
+                topL = recipe.backgroundTop.l
+            }
+            return WashPlan(
+                topL: topL,
+                topC: recipe.backgroundTop.c,
+                hue: amberedRampHue(primary.hue, scheme: scheme))
+        }
+
+        return WashPlan(
+            topL: clamp(primary.lightness, to: bounds.lightness),
+            topC: clamp(primary.chroma, to: bounds.chroma),
+            hue: amberedRampHue(primary.hue, scheme: scheme))
+    }
+
+    private static func clamp(_ value: Double, to range: ClosedRange<Double>) -> Double {
+        min(max(value, range.lowerBound), range.upperBound)
+    }
 
     /// Hue for the dark scheme's background/chip ramp (see `amberBand`);
     /// identity for the light scheme and for hues outside the band. The neutral
@@ -348,9 +470,15 @@ nonisolated enum CoverThemeBuilder {
         return enforced(result, hue: hue, floor: accentFloor, against: backgrounds)
     }
 
-    /// Steps lightness away from `surfaces` in 0.01 increments (re-clamping
-    /// chroma each step) until every surface clears `floor`. Bounded by L
-    /// reaching 0 or 1 — at the bound it returns the max-contrast candidate.
+    /// Steps lightness away from the seed in 0.01 increments (re-clamping
+    /// chroma each step) until every surface clears `floor`. The direction is
+    /// chosen by RESULT, not by a luminance guess: both directions are walked
+    /// and the clearing candidate fewest steps from the seed wins. The old
+    /// mean-luminance heuristic chose "lighten" against the anchored
+    /// mid-luminance washes (Y just under 0.5), where no amount of lightening
+    /// can reach 3:1 — only darkening can — and returned a white accent that
+    /// violated the floor. If neither direction clears, the max-contrast
+    /// candidate wins.
     private static func enforced(
         _ color: ColorMetrics.RGB,
         hue: Double,
@@ -362,20 +490,34 @@ nonisolated enum CoverThemeBuilder {
         }
         if clears(color) { return color }
 
-        let meanSurfaceLuminance =
-            surfaces
-            .map(ColorMetrics.relativeLuminance)
-            .reduce(0, +) / Double(surfaces.count)
-        let step: Double = meanSurfaceLuminance > 0.5 ? -0.01 : 0.01
+        let seed = OKLCH.fromSRGB(color)
 
-        var lch = OKLCH.fromSRGB(color)
-        var candidate = color
-        while lch.L > 0 && lch.L < 1 {
-            lch.L = min(max(lch.L + step, 0), 1)
-            let c = OKLCH.clampedChroma(L: lch.L, C: lch.C, H: hue)
-            candidate = OKLCH.toSRGB(OKLCH.LCH(L: lch.L, C: c, H: hue))
-            if clears(candidate) { return candidate }
+        func walk(_ step: Double) -> (candidate: ColorMetrics.RGB, steps: Int?) {
+            var lch = seed
+            var candidate = color
+            var count = 0
+            while lch.L > 0 && lch.L < 1 {
+                lch.L = min(max(lch.L + step, 0), 1)
+                count += 1
+                let c = OKLCH.clampedChroma(L: lch.L, C: lch.C, H: hue)
+                candidate = OKLCH.toSRGB(OKLCH.LCH(L: lch.L, C: c, H: hue))
+                if clears(candidate) { return (candidate, count) }
+            }
+            return (candidate, nil)
         }
-        return candidate
+
+        let darker = walk(-0.01)
+        let lighter = walk(0.01)
+        switch (darker.steps, lighter.steps) {
+        case (let d?, let l?): return d <= l ? darker.candidate : lighter.candidate
+        case (.some, nil): return darker.candidate
+        case (nil, .some): return lighter.candidate
+        case (nil, nil):
+            func worstRatio(_ rgb: ColorMetrics.RGB) -> Double {
+                surfaces.map { ColorMetrics.contrastRatio(rgb, $0) }.min() ?? 0
+            }
+            return worstRatio(darker.candidate) >= worstRatio(lighter.candidate)
+                ? darker.candidate : lighter.candidate
+        }
     }
 }

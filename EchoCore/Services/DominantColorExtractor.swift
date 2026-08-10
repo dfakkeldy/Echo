@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import UIKit
+import CoreGraphics
+import Foundation
+
+#if canImport(UIKit)
+    import UIKit
+#endif
 
 /// What a cover IS — its identity hues — with no opinion about how the UI
 /// should look. `CoverThemeBuilder` owns appearance.
@@ -40,6 +45,18 @@ nonisolated struct CoverSignature: Equatable {
     /// (tests, `.neutral`) need no change.
     var nearBlackShare: Double = 0
     var nearWhiteShare: Double = 0
+
+    /// The cover's border tone (OKLCH) when the outer edge ring is near-uniform —
+    /// a solid field the background wash can continue seamlessly. Nil when the
+    /// edge is busy. Reported even for near-neutral (white/grey/black) edges;
+    /// `CoverThemeBuilder` decides whether the tone is usable. Defaulted so
+    /// existing constructions need no change.
+    struct EdgeField: Equatable {
+        let lightness: Double
+        let chroma: Double
+        let hue: Double  // degrees; carries little meaning when chroma ≈ 0
+    }
+    var edgeField: EdgeField? = nil
 
     static let neutral = CoverSignature(candidates: [], isNeutral: true)
 }
@@ -83,13 +100,37 @@ nonisolated enum DominantColorExtractor {
     /// white, where the colourable share would otherwise be 100%).
     private static let minVividPixelFraction: Double = 0.004
 
+    /// Width of the border ring inspected for a uniform edge field, in
+    /// downsampled pixels (the outer 4% of the cover).
+    private static let edgeRingWidth = 4
+
+    /// A ring pixel joins the edge consensus when its OKLab distance to the
+    /// ring mean is at most this — a clearly-related shade of the same field.
+    private static let edgeInlierRadius = 0.10
+
+    /// Share of ring pixels that must join the consensus. Robust to small
+    /// intrusions (a figure or badge crossing the border) while rejecting
+    /// genuinely split edges (two fields meeting at the border).
+    private static let edgeMinInlierShare = 0.75
+
+    /// RMS OKLab deviation the consensus itself must stay under to count as a
+    /// solid field rather than a textured region that merely averages out.
+    private static let edgeMaxInlierRMS = 0.045
+
     // MARK: - Public API
 
-    /// Single downsample + histogram pass emitting identity hues only.
-    static func signature(from image: UIImage) -> CoverSignature {
-        guard let cgImage = image.cgImage,
-            let pixelData = downsampleAndRead(cgImage)
-        else {
+    #if canImport(UIKit)
+        /// Single downsample + histogram pass emitting identity hues only.
+        static func signature(from image: UIImage) -> CoverSignature {
+            guard let cgImage = image.cgImage else { return .neutral }
+            return signature(from: cgImage)
+        }
+    #endif
+
+    /// CGImage core — platform-neutral so headless tools share the exact
+    /// extraction the app uses.
+    static func signature(from cgImage: CGImage) -> CoverSignature {
+        guard let pixelData = downsampleAndRead(cgImage) else {
             return .neutral
         }
 
@@ -166,7 +207,69 @@ nonisolated enum DominantColorExtractor {
             candidates: candidates,
             isNeutral: false,
             nearBlackShare: Double(nearBlackCount) / Double(pixelCount),
-            nearWhiteShare: Double(nearWhiteCount) / Double(pixelCount))
+            nearWhiteShare: Double(nearWhiteCount) / Double(pixelCount),
+            edgeField: detectEdgeField(pixelData))
+    }
+
+    // MARK: - Edge field
+
+    /// Robust consensus over the border ring: mean in OKLab, keep pixels near
+    /// that mean, and accept only when the inliers dominate the ring AND are
+    /// themselves tight. Means live in OKLab (not LCH) because hue angles
+    /// cannot be averaged across the 0°/360° seam.
+    private static func detectEdgeField(_ pixelData: [UInt8]) -> CoverSignature.EdgeField? {
+        struct Lab { var L: Double, a: Double, b: Double }
+        var ring: [Lab] = []
+        ring.reserveCapacity(4 * sampleSize * edgeRingWidth)
+
+        for y in 0..<sampleSize {
+            for x in 0..<sampleSize {
+                let onRing =
+                    x < edgeRingWidth || x >= sampleSize - edgeRingWidth
+                    || y < edgeRingWidth || y >= sampleSize - edgeRingWidth
+                guard onRing else { continue }
+                let offset = (y * sampleSize + x) * 4
+                let lch = OKLCH.fromSRGB(
+                    ColorMetrics.RGB(
+                        r: Double(pixelData[offset]) / 255.0,
+                        g: Double(pixelData[offset + 1]) / 255.0,
+                        b: Double(pixelData[offset + 2]) / 255.0))
+                let radians = lch.H * .pi / 180
+                ring.append(Lab(L: lch.L, a: lch.C * cos(radians), b: lch.C * sin(radians)))
+            }
+        }
+        guard !ring.isEmpty else { return nil }
+
+        func mean(_ points: [Lab]) -> Lab {
+            let n = Double(points.count)
+            return Lab(
+                L: points.reduce(0) { $0 + $1.L } / n,
+                a: points.reduce(0) { $0 + $1.a } / n,
+                b: points.reduce(0) { $0 + $1.b } / n)
+        }
+        func distanceSquared(_ p: Lab, _ q: Lab) -> Double {
+            let dL = p.L - q.L
+            let da = p.a - q.a
+            let db = p.b - q.b
+            return dL * dL + da * da + db * db
+        }
+
+        let ringMean = mean(ring)
+        let inliers = ring.filter {
+            distanceSquared($0, ringMean) <= edgeInlierRadius * edgeInlierRadius
+        }
+        guard Double(inliers.count) / Double(ring.count) >= edgeMinInlierShare else { return nil }
+
+        let field = mean(inliers)
+        let rms =
+            (inliers.reduce(0) { $0 + distanceSquared($1, field) } / Double(inliers.count))
+            .squareRoot()
+        guard rms <= edgeMaxInlierRMS else { return nil }
+
+        let chroma = (field.a * field.a + field.b * field.b).squareRoot()
+        var hue = atan2(field.b, field.a) * 180 / .pi
+        if hue < 0 { hue += 360 }
+        return CoverSignature.EdgeField(lightness: field.L, chroma: chroma, hue: hue)
     }
 
     // MARK: - Downsampling

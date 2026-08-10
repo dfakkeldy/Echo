@@ -141,6 +141,44 @@ nonisolated final class DominantColorExtractorTests: XCTestCase {
             sig.nearBlackShare + sig.nearWhiteShare, 0.45, "cover reads as black/white-dominant")
     }
 
+    // MARK: - Edge field
+
+    func testSolidBorderReportsEdgeField() throws {
+        // Blue field with a busy red centre: the ring is uniform blue.
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 100, height: 100)).image { ctx in
+            UIColor.systemBlue.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+            UIColor.systemRed.setFill()
+            ctx.fill(CGRect(x: 20, y: 20, width: 60, height: 60))
+        }
+        let edge = try XCTUnwrap(DominantColorExtractor.signature(from: image).edgeField)
+        XCTAssertEqual(edge.hue, 258, accuracy: 25)
+        XCTAssertGreaterThan(edge.chroma, 0.05)
+    }
+
+    func testSplitBorderReportsNoEdgeField() {
+        // Two fields meet at the border (half blue / half orange ring) — no
+        // single tone can continue such an edge.
+        let sig = DominantColorExtractor.signature(
+            from: twoToneImage(
+                left: .systemBlue, right: .systemOrange, leftFraction: 0.5,
+                size: CGSize(width: 100, height: 100)))
+        XCTAssertNil(sig.edgeField)
+    }
+
+    func testEdgeFieldSurvivesSmallIntrusion() throws {
+        // A figure crossing the bottom border (≈6% of the ring) must not defeat
+        // the consensus — this is Traction's running man clipping the edge.
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 100, height: 100)).image { ctx in
+            UIColor(red: 0.66, green: 0.83, blue: 0.92, alpha: 1).setFill()  // sky blue
+            ctx.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+            UIColor.black.setFill()
+            ctx.fill(CGRect(x: 70, y: 88, width: 22, height: 12))  // corner figure
+        }
+        let edge = try XCTUnwrap(DominantColorExtractor.signature(from: image).edgeField)
+        XCTAssertEqual(edge.lightness, 0.85, accuracy: 0.05, "consensus stays on the sky field")
+    }
+
     func testColourfulCoverHasLowBlackWhiteShares() {
         // A solid vivid cover has almost no near-black/near-white pixels, so it must
         // NOT trip the neutral-ramp share gate.
