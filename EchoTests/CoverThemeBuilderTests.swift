@@ -11,9 +11,11 @@ nonisolated final class CoverThemeBuilderTests: XCTestCase {
     /// Fixed stand-in so tests don't depend on the asset-catalog brand color.
     private let brand = ColorMetrics.RGB(r: 1.0, g: 0.36, b: 0.0)
 
-    private func signature(hue: Double, chroma: Double = 0.12) -> CoverSignature {
+    private func signature(
+        hue: Double, chroma: Double = 0.12, lightness: Double = 0.55
+    ) -> CoverSignature {
         CoverSignature(
-            candidates: [.init(hue: hue, chroma: chroma, weight: 100)],
+            candidates: [.init(hue: hue, chroma: chroma, weight: 100, lightness: lightness)],
             isNeutral: false
         )
     }
@@ -114,6 +116,131 @@ nonisolated final class CoverThemeBuilderTests: XCTestCase {
         let r = CoverThemeBuilder.resolve(signature(hue: 40), scheme: .dark, brand: brand)
         XCTAssertLessThan(OKLCH.fromSRGB(r.backgroundTop).L, 0.35)
         XCTAssertLessThan(OKLCH.fromSRGB(r.backgroundBottom).L, 0.30)
+    }
+
+    // MARK: - Cover-anchored wash
+
+    func testLightWashAnchorsToPaleCoverTone() {
+        // The "Traction" effect: a pale sky-blue cover (observed L 0.85, C 0.06)
+        // gets a wash at essentially its own tone, not the fixed L 0.91 — the
+        // cover flows into the background.
+        let r = CoverThemeBuilder.resolve(
+            signature(hue: 250, chroma: 0.06, lightness: 0.85), scheme: .light, brand: brand)
+        let top = OKLCH.fromSRGB(r.backgroundTop)
+        XCTAssertEqual(top.L, 0.85, accuracy: 0.02)
+        XCTAssertEqual(top.C, 0.06, accuracy: 0.015)
+    }
+
+    func testLightWashDeepensAndSaturatesForVividMidCover() {
+        // A saturated orange cover (L 0.68, C 0.17): the wash lands at the band
+        // floor with near-cap chroma — rich apricot, not pale shell.
+        let r = CoverThemeBuilder.resolve(
+            signature(hue: 55, chroma: 0.17, lightness: 0.68), scheme: .light, brand: brand)
+        let top = OKLCH.fromSRGB(r.backgroundTop)
+        XCTAssertEqual(top.L, 0.80, accuracy: 0.02)
+        XCTAssertGreaterThanOrEqual(top.C, 0.10)
+    }
+
+    func testDarkWashDeepensForDarkCoverButNeverLightens() {
+        let deep = CoverThemeBuilder.resolve(
+            signature(hue: 302, chroma: 0.12, lightness: 0.24), scheme: .dark, brand: brand)
+        XCTAssertEqual(OKLCH.fromSRGB(deep.backgroundTop).L, 0.24, accuracy: 0.02)
+        // A pale cover must NOT lighten the dark room past the accent-safe
+        // ceiling (≈ the old fixed L 0.33): a mid-lightness room can give
+        // neither light nor dark accents 3:1, and dark mode stays dark.
+        let pale = CoverThemeBuilder.resolve(
+            signature(hue: 250, chroma: 0.06, lightness: 0.87), scheme: .dark, brand: brand)
+        XCTAssertLessThanOrEqual(OKLCH.fromSRGB(pale.backgroundTop).L, 0.35)
+    }
+
+    func testEdgeFieldContinuesExactlyInLightAndFallsBackInDark() {
+        var sig = signature(hue: 250, chroma: 0.07, lightness: 0.80)
+        sig.edgeField = .init(lightness: 0.86, chroma: 0.055, hue: 250)
+        let light = CoverThemeBuilder.resolve(sig, scheme: .light, brand: brand)
+        let top = OKLCH.fromSRGB(light.backgroundTop)
+        XCTAssertEqual(top.L, 0.86, accuracy: 0.01, "in-band edge tone continues exactly")
+        XCTAssertEqual(top.C, 0.055, accuracy: 0.01)
+        // In dark the pale edge is out of reach; the anchored ramp takes over.
+        let dark = CoverThemeBuilder.resolve(sig, scheme: .dark, brand: brand)
+        XCTAssertLessThanOrEqual(OKLCH.fromSRGB(dark.backgroundTop).L, 0.35)
+    }
+
+    func testNearNeutralEdgeIsNotContinued() {
+        // A white border (chroma ≈ 0) has nothing to continue — the tinted
+        // anchored ramp keeps the cover-derived identity instead. This guards
+        // the 2026-07 lesson: a near-white wash reads as "no theme".
+        var sig = signature(hue: 55, chroma: 0.12, lightness: 0.55)
+        sig.edgeField = .init(lightness: 0.97, chroma: 0.005, hue: 55)
+        let r = CoverThemeBuilder.resolve(sig, scheme: .light, brand: brand)
+        let top = OKLCH.fromSRGB(r.backgroundTop)
+        XCTAssertEqual(top.L, 0.80, accuracy: 0.02, "wash follows the candidate anchor")
+        XCTAssertGreaterThanOrEqual(top.C, 0.04, "and stays visibly tinted")
+    }
+
+    func testEdgeContinuationSkipsAmberRotation() {
+        // An olive-gold border reproduced exactly must NOT be rotated toward
+        // amber — rotation exists for constructed rooms, not colours the cover
+        // actually has.
+        var sig = signature(hue: 100, chroma: 0.08, lightness: 0.30)
+        sig.edgeField = .init(lightness: 0.30, chroma: 0.06, hue: 100)
+        let r = CoverThemeBuilder.resolve(sig, scheme: .dark, brand: brand)
+        XCTAssertEqual(OKLCH.fromSRGB(r.backgroundTop).H, 100, accuracy: 3)
+    }
+
+    func testBWDominantCoverKeepsDesignedWashAndDeepensUnderBlack() {
+        // White-dominant (a red mark on white): the accent bucket's mid tone
+        // must not drag the wash — light sits at the pale pole, dark keeps the
+        // designed deep room.
+        let white = boldSignature(hue: 22, chroma: 0.162, nearBlack: 0.13, nearWhite: 0.53)
+        let light = CoverThemeBuilder.resolve(white, scheme: .light, brand: brand)
+        XCTAssertGreaterThanOrEqual(OKLCH.fromSRGB(light.backgroundTop).L, 0.90)
+        let dark = CoverThemeBuilder.resolve(white, scheme: .dark, brand: brand)
+        XCTAssertEqual(OKLCH.fromSRGB(dark.backgroundTop).L, 0.33, accuracy: 0.02)
+        // Black-dominant: the dark room deepens to the band floor — an
+        // OLED-true continuation of the black field.
+        let black = boldSignature(hue: 22, chroma: 0.162, nearBlack: 0.60, nearWhite: 0.06)
+        let deep = CoverThemeBuilder.resolve(black, scheme: .dark, brand: brand)
+        XCTAssertEqual(OKLCH.fromSRGB(deep.backgroundTop).L, 0.20, accuracy: 0.02)
+    }
+
+    func testEveryHueClearsContrastFloorsAcrossCoverTones() {
+        // The anchored wash moves with the cover's own tone, so the floors must
+        // hold across the whole (hue × tone) plane in both schemes — edge
+        // continuation included.
+        for scheme in [ColorScheme.light, ColorScheme.dark] {
+            for hue in stride(from: 0.0, to: 360.0, by: 5.0) {
+                for lightness in [0.15, 0.35, 0.55, 0.75, 0.92] {
+                    for chroma in [0.06, 0.17] {
+                        var sig = signature(hue: hue, chroma: chroma, lightness: lightness)
+                        if Int(hue) % 10 == 0 {
+                            // Edge at the cover's own tone for half the grid.
+                            sig.edgeField = .init(
+                                lightness: lightness, chroma: chroma, hue: hue)
+                        }
+                        let r = CoverThemeBuilder.resolve(sig, scheme: scheme, brand: brand)
+                        assertContrastFloors(
+                            r, "hue \(hue) L \(lightness) C \(chroma) \(scheme)")
+                    }
+                }
+            }
+        }
+    }
+
+    private func assertContrastFloors(_ r: CoverThemeBuilder.Resolved, _ label: String) {
+        for bg in [r.backgroundTop, r.backgroundBottom] {
+            XCTAssertGreaterThanOrEqual(
+                ColorMetrics.contrastRatio(r.accent, bg), CoverThemeBuilder.accentFloor,
+                "accent vs bg — \(label)")
+            XCTAssertGreaterThanOrEqual(
+                ColorMetrics.contrastRatio(r.secondaryAccent, bg), CoverThemeBuilder.accentFloor,
+                "secondary vs bg — \(label)")
+        }
+        XCTAssertGreaterThanOrEqual(
+            ColorMetrics.contrastRatio(r.accent, r.chip), CoverThemeBuilder.chipFloor,
+            "accent vs chip — \(label)")
+        XCTAssertGreaterThanOrEqual(
+            ColorMetrics.contrastRatio(r.onAccent, r.accent), CoverThemeBuilder.onAccentFloor,
+            "onAccent — \(label)")
     }
 
     // MARK: - Bold accent for high-contrast covers
