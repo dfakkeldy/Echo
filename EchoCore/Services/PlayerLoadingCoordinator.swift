@@ -38,6 +38,7 @@ final class PlayerLoadingCoordinator {
     private var postLoadTask: Task<Void, Never>?
     private var transcriptLoadingTask: Task<Void, Never>?
     private var documentImportGeneration = 0
+    private var autoplayGeneration = 0
 
     /// Value providers for properties owned by PlayerModel.
     @ObservationIgnored var databaseServiceProvider: (() -> DatabaseService?)?
@@ -658,6 +659,22 @@ final class PlayerLoadingCoordinator {
 
     // MARK: - Track preparation
 
+    @discardableResult
+    func registerAutoplayRequest() -> Int {
+        autoplayGeneration &+= 1
+        return autoplayGeneration
+    }
+
+    /// Invalidates only the deferred play decision. Post-load metadata, artwork,
+    /// and document-import work continues for the active track.
+    func cancelPendingAutoplay() {
+        autoplayGeneration &+= 1
+    }
+
+    func isAutoplayRequestCurrent(_ request: Int) -> Bool {
+        request == autoplayGeneration
+    }
+
     func prepareToPlay(index: Int, autoplay: Bool) {
         guard let state, let audioEngine, let playbackController, let persistence,
             let artworkCoordinator,
@@ -665,6 +682,14 @@ final class PlayerLoadingCoordinator {
             let watchSyncManager, let transcriptService
         else { return }
         guard state.tracks.indices.contains(index) else { return }
+
+        let autoplayRequest: Int?
+        if autoplay {
+            autoplayRequest = registerAutoplayRequest()
+        } else {
+            cancelPendingAutoplay()
+            autoplayRequest = nil
+        }
 
         saveProgressBeforeTrackChange(
             state: state, persistence: persistence, audioEngine: audioEngine)
@@ -687,7 +712,7 @@ final class PlayerLoadingCoordinator {
         performPostLoadTasks(
             state: state, audioEngine: audioEngine, playbackController: playbackController,
             chapterLoadingCoordinator: chapterLoadingCoordinator,
-            artworkCoordinator: artworkCoordinator, autoplay: autoplay)
+            artworkCoordinator: artworkCoordinator, autoplayRequest: autoplayRequest)
     }
 
     // MARK: - prepareToPlay helpers
@@ -809,7 +834,7 @@ final class PlayerLoadingCoordinator {
     private func performPostLoadTasks(
         state: PlaybackState, audioEngine: AudioEngine, playbackController: PlaybackController,
         chapterLoadingCoordinator: ChapterLoadingCoordinator,
-        artworkCoordinator: BookmarkArtworkCoordinator, autoplay: Bool
+        artworkCoordinator: BookmarkArtworkCoordinator, autoplayRequest: Int?
     ) {
         let trackURL = state.tracks[state.currentIndex].url
         guard let bookURL = state.activeBookURL else { return }
@@ -844,7 +869,9 @@ final class PlayerLoadingCoordinator {
                         audioEngine.seek(to: intraBookTime) { [weak self] _ in
                             self?.playbackController?.resumeAfterSeek()
                         }
-                    } else if autoplay {
+                    } else if let autoplayRequest,
+                        self.isAutoplayRequestCurrent(autoplayRequest)
+                    {
                         playbackController.play()
                     }
 

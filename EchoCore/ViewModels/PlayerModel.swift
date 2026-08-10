@@ -899,10 +899,23 @@ final class PlayerModel {
             // is already false, so pause() (which clears the flag) won't run — clear it
             // here so a chapter that finishes rendering after the cutoff doesn't auto-
             // advance one chapter past the sleep cutoff.
-            let cancelledNarrationWait = self.state.awaitingNarrationChapter
+            let narrationPlayback = self.narrationPlaybackState.snapshot.playback
+            let narrationAutoplayWasPending: Bool
+            switch narrationPlayback {
+            case .waitingForRender, .resuming:
+                narrationAutoplayWasPending = true
+            default:
+                narrationAutoplayWasPending = false
+            }
+            let cancelledNarrationWait =
+                self.narrationPlaybackState.hasSession
+                && (self.state.awaitingNarrationChapter || narrationAutoplayWasPending)
             self.state.awaitingNarrationChapter = false
+            if cancelledNarrationWait {
+                self.playerLoadingCoordinator.cancelPendingAutoplay()
+            }
             if self.isPlaying { self.pause() }
-            if cancelledNarrationWait, self.narrationPlaybackState.hasSession {
+            if cancelledNarrationWait {
                 self.narrationPlaybackState.transitionPlayback(
                     to: .paused(
                         chapterDisplayNumber: self.currentNarrationChapterDisplayNumber),
@@ -1799,6 +1812,10 @@ final class PlayerModel {
     }
 
     func stop() {
+        if narrationPlaybackState.hasSession {
+            state.awaitingNarrationChapter = false
+            playerLoadingCoordinator.cancelPendingAutoplay()
+        }
         playbackController.stop()
         if narrationPlaybackState.hasSession {
             let chapterSuffix = currentNarrationChapterDisplayNumber.map {

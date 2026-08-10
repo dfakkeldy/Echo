@@ -77,6 +77,70 @@ import Testing
         #expect(changes.last == .reachedNaturalEnd)
     }
 
+    @Test func naturalEndIsNotEmittedBeforeNextEmbeddedChapter() {
+        let controller = PlaybackController()
+        var changes: [PlaybackActivityChange] = []
+        controller.coordinator_playStateChanged = { changes.append($0) }
+        controller.state.tracks = [
+            Track(url: URL(fileURLWithPath: "/tmp/book.m4b"), title: "Book")
+        ]
+        controller.state.currentIndex = 0
+        controller.state.chapters = [
+            Chapter(index: 0, title: "One", startSeconds: 0, endSeconds: 10),
+            Chapter(index: 1, title: "Two", startSeconds: 10, endSeconds: 20),
+        ]
+        controller.state.currentChapterIndex = 0
+
+        controller.nextTrack(naturalEnd: true)
+
+        #expect(changes.contains(.reachedNaturalEnd) == false)
+    }
+
+    @Test func naturalEndIsNotEmittedBeforeNextAggregatedChapter() {
+        let controller = PlaybackController()
+        var changes: [PlaybackActivityChange] = []
+        controller.coordinator_playStateChanged = { changes.append($0) }
+        let firstURL = URL(fileURLWithPath: "/tmp/volume-one.m4b")
+        let secondURL = URL(fileURLWithPath: "/tmp/volume-two.m4b")
+        let currentChapters = [
+            Chapter(index: 0, title: "Two-A", startSeconds: 0, endSeconds: 5),
+            Chapter(index: 1, title: "Two-B", startSeconds: 5, endSeconds: 10),
+        ]
+        controller.state.tracks = [
+            Track(url: firstURL, title: "Volume One"),
+            Track(url: secondURL, title: "Volume Two"),
+        ]
+        controller.state.currentIndex = 1
+        controller.state.chapters = currentChapters
+        controller.state.currentChapterIndex = 0
+        controller.state.m4bBooks = [
+            M4BBook(
+                url: firstURL, title: "Volume One", duration: 10, chapters: [],
+                cumulativeStartOffset: 0, trackIndex: 0),
+            M4BBook(
+                url: secondURL, title: "Volume Two", duration: 10,
+                chapters: currentChapters, cumulativeStartOffset: 10, trackIndex: 1),
+        ]
+        controller.state.aggregatedChapters = [
+            AggregatedChapter(
+                bookTitle: "Volume One", bookIndex: 0, chapterTitle: "One",
+                chapterIndex: 0, startSeconds: 0, endSeconds: 10,
+                sourceBookURL: firstURL),
+            AggregatedChapter(
+                bookTitle: "Volume Two", bookIndex: 1, chapterTitle: "Two-A",
+                chapterIndex: 0, startSeconds: 10, endSeconds: 15,
+                sourceBookURL: secondURL),
+            AggregatedChapter(
+                bookTitle: "Volume Two", bookIndex: 1, chapterTitle: "Two-B",
+                chapterIndex: 1, startSeconds: 15, endSeconds: 20,
+                sourceBookURL: secondURL),
+        ]
+
+        controller.nextTrack(naturalEnd: true)
+
+        #expect(changes.contains(.reachedNaturalEnd) == false)
+    }
+
     @Test func endOfBookDoesNotWrapToStart() {
         // Last chapter of a single-track book: nextChapter() must stay put, not
         // auto-restart the book from chapter 0 (§5.2). Previously it fell through

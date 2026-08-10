@@ -487,7 +487,7 @@ struct PlayerModelTests {
         #expect(model.showPaywall)
         #expect(model.paywallContext == .narrationCap)
         #expect(!model.state.narrationRenderInFlight)
-        #expect(!model.state.awaitingNarrationChapter)
+        #expect(model.state.awaitingNarrationChapter == false)
         #expect(model.narrationPlaybackState.phase == .failed)
     }
 
@@ -953,11 +953,34 @@ struct PlayerModelTests {
             to: .waitingForRender(chapterDisplayNumber: 3),
             event: nil)
         model.state.awaitingNarrationChapter = true
+        let autoplayRequest = model.playerLoadingCoordinator.registerAutoplayRequest()
         model.sleepTimerManager.setTimer(.endOfChapter)
 
         model.sleepTimerManager.evaluateAtChapterEnd()
 
         #expect(!model.state.awaitingNarrationChapter)
+        #expect(
+            model.playerLoadingCoordinator.isAutoplayRequestCurrent(autoplayRequest) == false)
+        #expect(
+            model.narrationPlaybackState.snapshot.playback
+                == .paused(chapterDisplayNumber: nil))
+        #expect(
+            model.narrationPlaybackState.events.last?.message
+                == "Narration wait cancelled by sleep timer")
+    }
+
+    @Test func sleepTimerCancelsPendingNarrationAutoplayAfterResumeBegins() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.narrationPlaybackState.transitionPlayback(
+            to: .resuming(chapterDisplayNumber: 3), event: nil)
+        let autoplayRequest = model.playerLoadingCoordinator.registerAutoplayRequest()
+        model.sleepTimerManager.setTimer(.endOfChapter)
+
+        model.sleepTimerManager.evaluateAtChapterEnd()
+
+        #expect(
+            model.playerLoadingCoordinator.isAutoplayRequestCurrent(autoplayRequest) == false)
         #expect(
             model.narrationPlaybackState.snapshot.playback
                 == .paused(chapterDisplayNumber: nil))
@@ -985,6 +1008,22 @@ struct PlayerModelTests {
         #expect(event?.message == "Narration playback stopped")
         #expect(event?.descriptor.developerMessage == "playback stopped chapter=3")
         #expect(event?.descriptor.privateDetail == nil)
+    }
+
+    @Test func explicitStopCancelsNarrationQueueWait() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.narrationPlaybackState.transitionPlayback(
+            to: .waitingForRender(chapterDisplayNumber: 3), event: nil)
+        model.state.awaitingNarrationChapter = true
+        let autoplayRequest = model.playerLoadingCoordinator.registerAutoplayRequest()
+
+        model.stop()
+
+        #expect(model.state.awaitingNarrationChapter == false)
+        #expect(
+            model.playerLoadingCoordinator.isAutoplayRequestCurrent(autoplayRequest) == false)
+        #expect(model.narrationPlaybackState.snapshot.playback == .stopped)
     }
 
     @Test func preparationProgressRelayIsOrderedAndAwaited() async throws {

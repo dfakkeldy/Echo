@@ -388,10 +388,13 @@ final class PlaybackController {
 
     func nextTrack(naturalEnd: Bool = false) {
         if state.chapters.count >= 2 {
+            let hasNextEnabledLogicalChapter = hasNextEnabledLogicalChapter()
             let hasNextEnabledTrack = findNextEnabledTrackIndex(
                 in: state.tracks, currentIndex: state.currentIndex) != nil
             nextChapter()
-            if naturalEnd, !hasNextEnabledTrack, !state.narrationRenderInFlight {
+            if naturalEnd, !hasNextEnabledLogicalChapter, !hasNextEnabledTrack,
+                !state.narrationRenderInFlight
+            {
                 coordinator_playStateChanged?(.reachedNaturalEnd)
             }
             return
@@ -418,6 +421,16 @@ final class PlaybackController {
         }
         // End of book: stay put (§5.2). Do NOT wrap to the first enabled track —
         // that would auto-restart a finished book with loopMode == .off.
+    }
+
+    private func hasNextEnabledLogicalChapter() -> Bool {
+        if state.isMultiM4B, !state.aggregatedChapters.isEmpty {
+            let globalTime = state.currentBookStartOffset + audioEngine.currentTime
+            return Self.nextAggregatedIndex(
+                chapters: state.aggregatedChapters, globalTime: globalTime) != nil
+        }
+        let currentIndex = state.currentChapterIndex ?? -1
+        return ChapterService.nextEnabledIndex(after: currentIndex, in: state.chapters) != nil
     }
 
     func previousTrackOrRestart() {
