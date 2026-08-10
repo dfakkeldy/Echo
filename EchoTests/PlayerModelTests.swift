@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import GRDB
+import MediaPlayer
 import Testing
 import UIKit
 
@@ -566,19 +567,284 @@ struct PlayerModelTests {
     }
 
     @Test func preparationProgressMapsToExactLifecycle() {
-        let model = PlayerModel()
-        let bookURL = URL(fileURLWithPath: "/same-book", isDirectory: true)
-        model.folderURL = bookURL
-        let operation = model.replaceNarrationOperation()
-        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        let (model, operation, audiobookID) = preparationContext()
+        let center = MPNowPlayingInfoCenter.default()
+        let priorInfo = center.nowPlayingInfo
+        defer { center.nowPlayingInfo = priorInfo }
+        model.state.currentTitle = "Downloading lifecycle"
 
         model.handleNarrationPreparationProgress(
             .downloadingModel(receivedBytes: 50, totalBytes: 100),
-            operation: operation, audiobookID: bookURL.absoluteString)
+            operation: operation, audiobookID: audiobookID)
 
         #expect(
             model.narrationPlaybackState.snapshot.render
                 == .downloadingModel(receivedBytes: 50, totalBytes: 100))
+        #expect(
+            model.narrationPlaybackState.events.last?.descriptor
+                == .init(
+                    category: .model, severity: .info,
+                    message: "Downloading model (50%)",
+                    developerMessage: "model download received=50 total=100"))
+        #expect(
+            center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String
+                == "Downloading lifecycle")
+    }
+
+    @Test func checkingModelMapsEventAndPublishesNowPlaying() {
+        let (model, operation, audiobookID) = preparationContext()
+        let center = MPNowPlayingInfoCenter.default()
+        let priorInfo = center.nowPlayingInfo
+        defer { center.nowPlayingInfo = priorInfo }
+        model.state.currentTitle = "Checking lifecycle"
+
+        model.handleNarrationPreparationProgress(
+            .checkingModel(expectedBytes: 42),
+            operation: operation, audiobookID: audiobookID)
+
+        #expect(
+            model.narrationPlaybackState.snapshot.render
+                == .checkingModel(expectedBytes: 42))
+        #expect(
+            model.narrationPlaybackState.events.last?.descriptor
+                == .init(
+                    category: .model, severity: .info,
+                    message: "Checking narration model",
+                    developerMessage: "model cache check expectedBytes=42"))
+        #expect(
+            center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String
+                == "Checking lifecycle")
+    }
+
+    @Test func modelCacheHitMapsEventAndPublishesNowPlaying() {
+        let (model, operation, audiobookID) = preparationContext()
+        let center = MPNowPlayingInfoCenter.default()
+        let priorInfo = center.nowPlayingInfo
+        defer { center.nowPlayingInfo = priorInfo }
+        model.state.currentTitle = "Cache lifecycle"
+
+        model.handleNarrationPreparationProgress(
+            .modelCacheHit(byteCount: 84),
+            operation: operation, audiobookID: audiobookID)
+
+        #expect(
+            model.narrationPlaybackState.snapshot.render
+                == .validatingModel(byteCount: 84))
+        #expect(
+            model.narrationPlaybackState.events.last?.descriptor
+                == .init(
+                    category: .model, severity: .notice,
+                    message: "Narration model found in cache",
+                    developerMessage: "model cache hit bytes=84"))
+        #expect(
+            center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String
+                == "Cache lifecycle")
+    }
+
+    @Test func validatingModelMapsEventAndPublishesNowPlaying() {
+        let (model, operation, audiobookID) = preparationContext()
+        let center = MPNowPlayingInfoCenter.default()
+        let priorInfo = center.nowPlayingInfo
+        defer { center.nowPlayingInfo = priorInfo }
+        model.state.currentTitle = "Validation lifecycle"
+
+        model.handleNarrationPreparationProgress(
+            .validatingModel(byteCount: 126),
+            operation: operation, audiobookID: audiobookID)
+
+        #expect(
+            model.narrationPlaybackState.snapshot.render
+                == .validatingModel(byteCount: 126))
+        #expect(
+            model.narrationPlaybackState.events.last?.descriptor
+                == .init(
+                    category: .model, severity: .info,
+                    message: "Validating narration model",
+                    developerMessage: "model validating bytes=126"))
+        #expect(
+            center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String
+                == "Validation lifecycle")
+    }
+
+    @Test func loadingModelMapsEventAndPublishesNowPlaying() {
+        let (model, operation, audiobookID) = preparationContext()
+        let center = MPNowPlayingInfoCenter.default()
+        let priorInfo = center.nowPlayingInfo
+        defer { center.nowPlayingInfo = priorInfo }
+        model.state.currentTitle = "Loading lifecycle"
+        let before = Date()
+
+        model.handleNarrationPreparationProgress(
+            .loadingModel,
+            operation: operation, audiobookID: audiobookID)
+
+        guard case .loadingModel(let startedAt) = model.narrationPlaybackState.snapshot.render
+        else {
+            Issue.record("Expected loading-model render activity")
+            return
+        }
+        #expect(startedAt >= before)
+        #expect(startedAt <= Date())
+        #expect(
+            model.narrationPlaybackState.events.last?.descriptor
+                == .init(
+                    category: .model, severity: .notice,
+                    message: "Loading narration model",
+                    developerMessage: "model session loading"))
+        #expect(
+            center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String
+                == "Loading lifecycle")
+    }
+
+    @Test func readyMapsEventAndPublishesNowPlaying() {
+        let (model, operation, audiobookID) = preparationContext()
+        let center = MPNowPlayingInfoCenter.default()
+        let priorInfo = center.nowPlayingInfo
+        defer { center.nowPlayingInfo = priorInfo }
+        model.state.currentTitle = "Ready lifecycle"
+
+        model.handleNarrationPreparationProgress(
+            .ready,
+            operation: operation, audiobookID: audiobookID)
+
+        #expect(model.narrationPlaybackState.snapshot.render == .modelReady)
+        #expect(
+            model.narrationPlaybackState.events.last?.descriptor
+                == .init(
+                    category: .model, severity: .notice,
+                    message: "Narration model ready",
+                    developerMessage: "model session ready"))
+        #expect(
+            center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String
+                == "Ready lifecycle")
+    }
+
+    @Test func modelDownloadPublishesOnlyNewMilestones() {
+        let (model, operation, audiobookID) = preparationContext()
+        let center = MPNowPlayingInfoCenter.default()
+        let priorInfo = center.nowPlayingInfo
+        defer { center.nowPlayingInfo = priorInfo }
+
+        model.state.currentTitle = "Initial milestone"
+        model.handleNarrationPreparationProgress(
+            .downloadingModel(receivedBytes: 1, totalBytes: 100),
+            operation: operation, audiobookID: audiobookID)
+        #expect(
+            center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String
+                == "Initial milestone")
+
+        model.state.currentTitle = "Same milestone"
+        model.handleNarrationPreparationProgress(
+            .downloadingModel(receivedBytes: 4, totalBytes: 100),
+            operation: operation, audiobookID: audiobookID)
+        #expect(
+            center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String
+                == "Initial milestone")
+
+        model.state.currentTitle = "Next milestone"
+        model.handleNarrationPreparationProgress(
+            .downloadingModel(receivedBytes: 5, totalBytes: 100),
+            operation: operation, audiobookID: audiobookID)
+        #expect(
+            center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String
+                == "Next milestone")
+    }
+
+    @Test func planPreparationRecordsBufferSelectedVoiceAndZeroOverrides() throws {
+        let model = PlayerModel()
+        let voice = try #require(VoiceCatalog.voice(for: VoiceID("bm_daniel")))
+        model.narrationPlaybackState.beginSession(defaultVoiceID: voice.id)
+
+        model.recordNarrationPlanPreparation(
+            totalSegments: 7,
+            voice: voice,
+            voiceOverrideCount: 0)
+
+        #expect(model.narrationPlaybackState.snapshot.buffer.totalSegments == 7)
+        #expect(model.state.narrationDefaultVoice == VoiceID("bm_daniel"))
+        #expect(model.state.narrationVoiceOverrideCount == 0)
+        #expect(
+            model.narrationPlaybackState.events.suffix(2).map(\.descriptor)
+                == [
+                    .init(
+                        category: .voice, severity: .notice,
+                        message: "Selected voice: Daniel",
+                        developerMessage: "default voice selected id=bm_daniel"),
+                    .init(
+                        category: .voice, severity: .info,
+                        message: "Chapter voice overrides: 0",
+                        developerMessage: "chapter voice overrides count=0"),
+                ])
+    }
+
+    @Test func preparationProgressRelayIsOrderedAndAwaited() async throws {
+        let probe = PreparationProgressRelayProbe()
+        let relayTask = Task {
+            try await NarrationPreparationProgressRelay.run(
+                prepare: { progress in
+                    progress(.checkingModel(expectedBytes: 1))
+                    progress(.loadingModel)
+                    progress(.ready)
+                },
+                receive: { progress in
+                    await probe.receive(progress)
+                })
+            await probe.markRelayReturned()
+        }
+
+        await probe.waitUntilFirstReceiveStarts()
+        await Task.yield()
+        #expect(!(await probe.relayReturned))
+
+        await probe.releaseFirstReceive()
+        try await relayTask.value
+
+        #expect(
+            await probe.received
+                == [
+                    .checkingModel(expectedBytes: 1),
+                    .loadingModel,
+                    .ready,
+                ])
+        #expect(await probe.relayReturned)
+    }
+
+    @Test func preparationProgressRelayPropagatesCancellation() async {
+        let relayTask = Task {
+            try await NarrationPreparationProgressRelay.run(
+                prepare: { progress in
+                    progress(.checkingModel(expectedBytes: 1))
+                    try await Task.sleep(for: .seconds(60))
+                },
+                receive: { _ in })
+        }
+
+        await Task.yield()
+        relayTask.cancel()
+
+        await #expect(throws: CancellationError.self) {
+            try await relayTask.value
+        }
+    }
+
+    @Test func preparationProgressRelayThrowsWhenCancelledWhileDraining() async {
+        let probe = PreparationProgressCancellationProbe()
+        let relayTask = Task {
+            try await NarrationPreparationProgressRelay.run(
+                prepare: { progress in
+                    progress(.checkingModel(expectedBytes: 1))
+                },
+                receive: { _ in
+                    await probe.receive()
+                })
+        }
+
+        await probe.waitUntilReceiveStarts()
+        relayTask.cancel()
+
+        await #expect(throws: CancellationError.self) {
+            try await relayTask.value
+        }
     }
 
     @Test func narrationSessionStartsBeforeImportAwait() throws {
@@ -627,7 +893,7 @@ struct PlayerModelTests {
             source.range(
                 of: "try NarrationRenderPolicy.checkTaskIsActive(",
                 range: preparation.upperBound..<source.endIndex))
-        let stateMutation = try #require(source.range(of: "self.state.narrationDefaultVoice ="))
+        let stateMutation = try #require(source.range(of: "self.recordNarrationPlanPreparation("))
         let ttsPreparation = try #require(source.range(of: "self.narrationTTS.prepare("))
 
         #expect(importAwait.lowerBound < firstGuard.lowerBound)
@@ -658,5 +924,69 @@ struct PlayerModelTests {
         }
 
         throw CocoaError(.fileNoSuchFile)
+    }
+
+    private func preparationContext() -> (PlayerModel, NarrationOperationToken, String) {
+        let model = PlayerModel()
+        let bookURL = URL(fileURLWithPath: "/same-book", isDirectory: true)
+        model.folderURL = bookURL
+        let operation = model.replaceNarrationOperation()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        return (model, operation, bookURL.absoluteString)
+    }
+}
+
+private actor PreparationProgressRelayProbe {
+    private(set) var received: [NarrationPrepareProgress] = []
+    private(set) var relayReturned = false
+    private var firstReceiveStarted = false
+    private var firstReceiveWaiters: [CheckedContinuation<Void, Never>] = []
+    private var firstReceiveContinuation: CheckedContinuation<Void, Never>?
+
+    func receive(_ progress: NarrationPrepareProgress) async {
+        if case .checkingModel = progress {
+            firstReceiveStarted = true
+            firstReceiveWaiters.forEach { $0.resume() }
+            firstReceiveWaiters.removeAll()
+            await withCheckedContinuation { continuation in
+                firstReceiveContinuation = continuation
+            }
+        }
+        received.append(progress)
+    }
+
+    func waitUntilFirstReceiveStarts() async {
+        guard !firstReceiveStarted else { return }
+        await withCheckedContinuation { continuation in
+            firstReceiveWaiters.append(continuation)
+        }
+    }
+
+    func releaseFirstReceive() {
+        firstReceiveContinuation?.resume()
+        firstReceiveContinuation = nil
+    }
+
+    func markRelayReturned() {
+        relayReturned = true
+    }
+}
+
+private actor PreparationProgressCancellationProbe {
+    private var receiveStarted = false
+    private var receiveWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func receive() async {
+        receiveStarted = true
+        receiveWaiters.forEach { $0.resume() }
+        receiveWaiters.removeAll()
+        try? await Task.sleep(for: .seconds(60))
+    }
+
+    func waitUntilReceiveStarts() async {
+        guard !receiveStarted else { return }
+        await withCheckedContinuation { continuation in
+            receiveWaiters.append(continuation)
+        }
     }
 }

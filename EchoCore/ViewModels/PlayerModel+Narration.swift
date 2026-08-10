@@ -17,6 +17,44 @@
         }
     }
 
+    /// Bridges the synchronous preparation callback into one ordered consumer.
+    /// The consumer is explicitly awaited so preparation cannot complete while
+    /// lifecycle updates are still queued on the main actor.
+    enum NarrationPreparationProgressRelay {
+        static func run(
+            prepare: (@escaping @Sendable (NarrationPrepareProgress) -> Void) async throws -> Void,
+            receive: @escaping @MainActor @Sendable (NarrationPrepareProgress) async -> Void
+        ) async throws {
+            let (stream, continuation) = AsyncStream.makeStream(
+                of: NarrationPrepareProgress.self,
+                bufferingPolicy: .unbounded)
+            let consumer = Task { @MainActor in
+                for await progress in stream {
+                    await receive(progress)
+                }
+            }
+
+            try await withTaskCancellationHandler {
+                do {
+                    try await prepare { progress in
+                        continuation.yield(progress)
+                    }
+                    continuation.finish()
+                    await consumer.value
+                    try Task.checkCancellation()
+                } catch {
+                    continuation.finish()
+                    consumer.cancel()
+                    await consumer.value
+                    throw error
+                }
+            } onCancel: {
+                continuation.finish()
+                consumer.cancel()
+            }
+        }
+    }
+
     // MARK: - On-device narration playback
 
     extension PlayerModel {
@@ -83,6 +121,28 @@
 
         func publishNarrationStatusToNowPlaying() {
             progressPresenter.updateNowPlayingInfo(isPaused: !isPlaying)
+        }
+
+        func recordNarrationPlanPreparation(
+            totalSegments: Int,
+            voice: NarrationVoice,
+            voiceOverrideCount: Int
+        ) {
+            var buffer = narrationPlaybackState.snapshot.buffer
+            buffer.totalSegments = totalSegments
+            narrationPlaybackState.updateBuffer(buffer)
+            state.narrationDefaultVoice = voice.id
+            narrationPlaybackState.record(
+                .init(
+                    category: .voice, severity: .notice,
+                    message: String(localized: "Selected voice: \(voice.displayName)"),
+                    developerMessage: "default voice selected id=\(voice.id.rawValue)"))
+            state.narrationVoiceOverrideCount = voiceOverrideCount
+            narrationPlaybackState.record(
+                .init(
+                    category: .voice, severity: .info,
+                    message: String(localized: "Chapter voice overrides: \(voiceOverrideCount)"),
+                    developerMessage: "chapter voice overrides count=\(voiceOverrideCount)"))
         }
 
         func handleNarrationBlockProgress(
@@ -244,22 +304,10 @@
                         currentFolderURL: self.bookIdentityURL?.absoluteString,
                         audiobookID: audiobookID)
 
-                    var buffer = self.narrationPlaybackState.snapshot.buffer
-                    buffer.totalSegments = preparation.segments.count
-                    self.narrationPlaybackState.updateBuffer(buffer)
-                    self.state.narrationDefaultVoice = voice.id
-                    self.narrationPlaybackState.record(
-                        .init(
-                            category: .voice, severity: .notice,
-                            message: String(localized: "Selected voice: \(voice.displayName)"),
-                            developerMessage: "default voice selected id=\(voice.id.rawValue)"))
-                    let count = preparation.voiceOverrideCount
-                    self.state.narrationVoiceOverrideCount = count
-                    self.narrationPlaybackState.record(
-                        .init(
-                            category: .voice, severity: .info,
-                            message: String(localized: "Chapter voice overrides: \(count)"),
-                            developerMessage: "chapter voice overrides count=\(count)"))
+                    self.recordNarrationPlanPreparation(
+                        totalSegments: preparation.segments.count,
+                        voice: voice,
+                        voiceOverrideCount: preparation.voiceOverrideCount)
                     self.narrationExpectedFileNamesByChapter =
                         preparation.expectedFileNamesByChapter
                     self.refreshNarrationOutline(allBlocks: allBlocks)
@@ -358,12 +406,14 @@
                     try NarrationRenderPolicy.checkTaskIsActive(
                         currentFolderURL: self.bookIdentityURL?.absoluteString,
                         audiobookID: audiobookID)
-                    try await self.narrationTTS.prepare(progress: { [weak self] p in
-                        Task { @MainActor [weak self] in
+                    try await NarrationPreparationProgressRelay.run(
+                        prepare: { progress in
+                            try await self.narrationTTS.prepare(progress: progress)
+                        },
+                        receive: { [weak self] progress in
                             self?.handleNarrationPreparationProgress(
-                                p, operation: operation, audiobookID: audiobookID)
-                        }
-                    })
+                                progress, operation: operation, audiobookID: audiobookID)
+                        })
                     try NarrationRenderPolicy.checkTaskIsActive(
                         currentFolderURL: self.bookIdentityURL?.absoluteString,
                         audiobookID: audiobookID)
