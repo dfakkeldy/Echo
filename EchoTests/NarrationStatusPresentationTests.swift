@@ -72,4 +72,48 @@ import Testing
         #expect(value?.secondaryText == "Model unavailable")
         #expect(value?.isFailure == true)
     }
+
+    @Test func allRenderedPlaybackAddsReadyDetail() {
+        var snapshot = NarrationStatusSnapshot()
+        snapshot.render = .complete
+        snapshot.playback = .playing(chapterDisplayNumber: 2)
+
+        let value = NarrationStatusFormatter.presentation(
+            for: snapshot, hasSession: true, now: .distantPast)
+
+        #expect(value?.primaryText == "Playing chapter 2")
+        #expect(value?.secondaryText == "All chapters rendered")
+    }
+
+    @Test func terminalPlaybackOutranksCompletedRender() {
+        var snapshot = NarrationStatusSnapshot()
+        snapshot.render = .complete
+        snapshot.playback = .completed
+
+        let value = NarrationStatusFormatter.presentation(
+            for: snapshot, hasSession: true, now: .distantPast)
+
+        #expect(value?.primaryText == "Playback completed")
+    }
+
+    @Test func stoppedPlaybackOutranksCompletedRender() {
+        var snapshot = NarrationStatusSnapshot()
+        snapshot.render = .complete
+        snapshot.playback = .stopped
+
+        let value = NarrationStatusFormatter.presentation(
+            for: snapshot, hasSession: true, now: .distantPast)
+
+        #expect(value?.primaryText == "Narration stopped")
+    }
+
+    @Test func cancelledRenderIsTerminal() {
+        var snapshot = NarrationStatusSnapshot()
+        snapshot.render = .cancelled
+
+        let value = NarrationStatusFormatter.presentation(
+            for: snapshot, hasSession: true, now: .distantPast)
+
+        #expect(value?.primaryText == "Narration cancelled")
+    }
 }
