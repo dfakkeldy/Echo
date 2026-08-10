@@ -271,10 +271,9 @@
                 event: .init(
                     category: .render,
                     severity: .notice,
-                    message: String(localized: "All chapters rendered"),
+                    message: String(localized: "All narration rendered"),
                     developerMessage: "render complete"),
                 at: date)
-            narrationPlaybackState.complete()
             publishNarrationStatusToNowPlaying()
         }
 
@@ -393,8 +392,19 @@
                     let allChapters = NarrationChapterPlanner.plan(from: allBlocks)
                     guard !chapters.isEmpty else {
                         self.state.narrationRenderInFlight = false
-                        self.state.currentSubtitle = String(localized: "No text to narrate")
-                        self.progressPresenter.updateNowPlayingInfo(isPaused: true)
+                        let message = String(localized: "No text to narrate")
+                        self.state.currentSubtitle = message
+                        self.narrationPlaybackState.transitionRender(
+                            to: .noNarratableText,
+                            event: .init(
+                                category: .render,
+                                severity: .notice,
+                                message: message,
+                                developerMessage: "render stopped no narratable text"))
+                        self.narrationPlaybackState.transitionPlayback(
+                            to: .stopped,
+                            event: nil)
+                        self.publishNarrationStatusToNowPlaying()
                         return
                     }
 
@@ -867,32 +877,66 @@
                     // (or a later replay of this one) re-prepares lazily.
                     await self.narrationTTS.unload()
                 } catch is CancellationError {
-                    // Switched books or stopped — loadFolder resets the flags.
+                    guard
+                        NarrationRenderPolicy.callbackIsCurrent(
+                            operation: operation,
+                            currentOperation: self.narrationOperation,
+                            currentFolderURL: self.bookIdentityURL?.absoluteString,
+                            audiobookID: audiobookID)
+                    else { return }
+                    self.state.narrationRenderInFlight = false
+                    self.narrationPlaybackState.transitionRender(
+                        to: .cancelled,
+                        event: .init(
+                            category: .render,
+                            severity: .notice,
+                            message: String(localized: "Narration cancelled"),
+                            developerMessage: "render cancelled"))
+                    self.publishNarrationStatusToNowPlaying()
                 } catch where error is AnthologyBuildManifestValidationError
                     || error is NarrationChapterRenderPlanError
                 {
                     guard
-                        NarrationRenderPolicy.bookWasSwitched(
+                        NarrationRenderPolicy.callbackIsCurrent(
+                            operation: operation,
+                            currentOperation: self.narrationOperation,
                             currentFolderURL: self.bookIdentityURL?.absoluteString,
-                            audiobookID: audiobookID
-                        ) == false
+                            audiobookID: audiobookID)
                     else { return }
                     self.state.narrationRenderInFlight = false
-                    self.narrationPlaybackState.fail(
-                        String(
-                            localized:
-                                "Rebuild this anthology to refresh its narration plan, then try again."
-                        ))
+                    let message = String(
+                        localized:
+                            "Rebuild this anthology to refresh its narration plan, then try again."
+                    )
+                    self.narrationPlaybackState.transitionRender(
+                        to: .failed(message: message),
+                        event: .init(
+                            category: .error,
+                            severity: .error,
+                            message: message,
+                            developerMessage: "render failed type=plan-validation"))
+                    self.publishNarrationStatusToNowPlaying()
                 } catch {
-                    // Don't stamp a stale failure onto a book the user switched to.
+                    // Don't stamp a stale failure onto a replacement render or book.
                     guard
-                        NarrationRenderPolicy.bookWasSwitched(
+                        NarrationRenderPolicy.callbackIsCurrent(
+                            operation: operation,
+                            currentOperation: self.narrationOperation,
                             currentFolderURL: self.bookIdentityURL?.absoluteString,
-                            audiobookID: audiobookID
-                        ) == false
+                            audiobookID: audiobookID)
                     else { return }
                     self.state.narrationRenderInFlight = false
-                    self.narrationPlaybackState.fail(error.localizedDescription)
+                    let message = error.localizedDescription
+                    self.narrationPlaybackState.transitionRender(
+                        to: .failed(message: message),
+                        event: .init(
+                            category: .error,
+                            severity: .error,
+                            message: message,
+                            developerMessage:
+                                "render failed type=\(String(reflecting: type(of: error)))",
+                            privateDetail: message))
+                    self.publishNarrationStatusToNowPlaying()
                 }
             }
         }
@@ -1020,8 +1064,17 @@
             state.awaitingNarrationChapter = false
             paywallContext = .narrationCap
             showPaywall = true
-            narrationPlaybackState.fail(PaywallContext.narrationCap.subheadline)
-            progressPresenter.updateNowPlayingInfo(isPaused: true)
+            let message = String(
+                localized: String.LocalizationValue(PaywallContext.narrationCap.subheadline))
+            narrationPlaybackState.transitionRender(
+                to: .blocked(message: message),
+                event: .init(
+                    category: .error,
+                    severity: .warning,
+                    message: message,
+                    developerMessage: "render blocked by narration entitlement"))
+            narrationPlaybackState.transitionPlayback(to: .stopped, event: nil)
+            publishNarrationStatusToNowPlaying()
             return false
         }
 

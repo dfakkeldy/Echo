@@ -1413,6 +1413,16 @@ final class PlayerModel {
         narrationRenderTask?.cancel()
         narrationRenderTask = nil
         replaceNarrationOperation()
+        if narrationPlaybackState.hasSession {
+            narrationPlaybackState.transitionRender(
+                to: .cancelled,
+                event: .init(
+                    category: .render,
+                    severity: .notice,
+                    message: String(
+                        localized: "Narration cancelled because the active book changed"),
+                    developerMessage: "render cancelled active book changed"))
+        }
         state.narrationRenderInFlight = false
         state.awaitingNarrationChapter = false
         state.narrationDefaultVoice = nil

@@ -507,7 +507,6 @@ final class NarrationService {
             sortOrder: chapterIndex,
             voice: voice)
 
-        state.renderedChapterCount += 1
         logger.notice(
             "Chapter \(displayNumber) rendered: \(rendered.anchors.count) anchors, ~\(Int(rendered.duration))s audio, in \(Int(Date().timeIntervalSince(chapterStart)))s."
         )
@@ -765,9 +764,13 @@ final class NarrationService {
                     excluding: advisoryPreflightRecords)
             }
         } catch {
-            let message = "Operational report-write error: pronunciation fallback discovery failed: \(error.localizedDescription)"
-            logger.error("\(message)")
-            state.log(message)
+            state.record(
+                .init(
+                    category: .error,
+                    severity: .warning,
+                    message: String(localized: "Narration diagnostics could not be saved"),
+                    developerMessage: "pronunciation fallback discovery failed",
+                    privateDetail: error.localizedDescription))
             fallbackRecords = nil
         }
 
@@ -791,9 +794,13 @@ final class NarrationService {
                         ])
                 }
             } catch {
-                let message = "Operational report-write error: \(error.localizedDescription)"
-                logger.error("\(message)")
-                state.log(message)
+                state.record(
+                    .init(
+                        category: .error,
+                        severity: .warning,
+                        message: String(localized: "Narration diagnostics could not be saved"),
+                        developerMessage: "advisory report write failed",
+                        privateDetail: error.localizedDescription))
             }
         }
 
@@ -904,12 +911,6 @@ final class NarrationService {
         fmEnabled: Bool,
         onBlockProgress: (@MainActor (NarrationRenderProgress) -> Void)?
     ) async throws -> RenderedNarrationFile {
-        if reportsProgress {
-            state.update(
-                phase: .preparingChapter, progress: 0,
-                statusMessage: "Preparing chapter \(chapterDisplayNumber)…")
-        }
-
         let plan = try await renderPlan(
             for: blocks,
             overrides: overrides,
@@ -917,6 +918,21 @@ final class NarrationService {
             fmEnabled: fmEnabled)
         let speakableBlockIDs = plan.blocks.filter(\.isSpeakable).map(\.blockID)
         var renderedSpeakableBlocks = 0
+        let renderStartedAt = Date()
+        if reportsProgress {
+            state.transitionRender(
+                to: .rendering(
+                    NarrationRenderUnitStatus(
+                        chapterDisplayNumber: chapterDisplayNumber,
+                        segmentIndex: segmentIndex,
+                        voiceID: voice,
+                        completedBlocks: renderedSpeakableBlocks,
+                        totalBlocks: speakableBlockIDs.count,
+                        startedAt: renderStartedAt,
+                        lastProgressAt: renderStartedAt)),
+                event: nil,
+                at: renderStartedAt)
+        }
         onBlockProgress?(
             NarrationRenderProgress(
                 chapterDisplayNumber: chapterDisplayNumber,
@@ -924,7 +940,7 @@ final class NarrationService {
                 voiceID: voice,
                 completedBlocks: renderedSpeakableBlocks,
                 totalBlocks: speakableBlockIDs.count,
-                timestamp: Date()))
+                timestamp: renderStartedAt))
         let unitLabel =
             segmentIndex.map {
                 "Chapter \(chapterDisplayNumber) segment \($0 + 1)"
@@ -1072,13 +1088,20 @@ final class NarrationService {
                 logger.notice(
                     "  \(unitLabel): block \(renderedSpeakableBlocks)/\(speakableBlockIDs.count) synthesized"
                 )
-                let progress =
-                    Double(renderedSpeakableBlocks) / Double(max(speakableBlockIDs.count, 1))
+                let progressAt = Date()
                 if reportsProgress {
-                    state.update(
-                        phase: .preparingChapter,
-                        progress: progress,
-                        statusMessage: "Preparing chapter \(chapterDisplayNumber)…")
+                    state.transitionRender(
+                        to: .rendering(
+                            NarrationRenderUnitStatus(
+                                chapterDisplayNumber: chapterDisplayNumber,
+                                segmentIndex: segmentIndex,
+                                voiceID: voice,
+                                completedBlocks: renderedSpeakableBlocks,
+                                totalBlocks: speakableBlockIDs.count,
+                                startedAt: renderStartedAt,
+                                lastProgressAt: progressAt)),
+                        event: nil,
+                        at: progressAt)
                 }
                 onBlockProgress?(
                     NarrationRenderProgress(
@@ -1087,7 +1110,7 @@ final class NarrationService {
                         voiceID: voice,
                         completedBlocks: renderedSpeakableBlocks,
                         totalBlocks: speakableBlockIDs.count,
-                        timestamp: Date()))
+                        timestamp: progressAt))
             }
             if let silence = plannedBlock.trailingSilence {
                 try await stream.append(.silence(seconds: silence.duration, sampleRate: 24_000))

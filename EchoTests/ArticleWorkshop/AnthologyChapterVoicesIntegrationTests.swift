@@ -20,8 +20,7 @@ struct AnthologyChapterVoicesIntegrationTests {
         renderCallCounts.append(initial.renderCallCount)
 
         #expect(initial.importedSourceChapterKeys == [entryA, entryB, entryC])
-        #expect(initial.narrationPhase == .completed)
-        #expect(initial.narrationError == nil)
+        #expect(initial.narrationRender == .complete)
         #expect(initial.persistedVoices == ["af_heart", "bf_emma", "am_michael"])
         #expect(initial.effectiveDefaultVoice == VoiceID("af_heart"))
         #expect(initial.voiceOverrideCount == 2)
@@ -101,8 +100,19 @@ struct AnthologyChapterVoicesIntegrationTests {
         let invalidReceiptRun = try await fixture.run(preferredVoice: VoiceID("af_bella"))
         renderCallCounts.append(invalidReceiptRun.renderCallCount)
 
-        #expect(invalidReceiptRun.narrationPhase == .failed)
-        #expect(invalidReceiptRun.narrationError != nil)
+        guard case .failed(let message) = invalidReceiptRun.narrationRender else {
+            Issue.record("Expected invalid narration plan to leave a visible render failure.")
+            return
+        }
+        #expect(
+            message
+                == "Rebuild this anthology to refresh its narration plan, then try again.")
+        #expect(invalidReceiptRun.narrationPlayback != .completed)
+        let failureEvent = try #require(invalidReceiptRun.narrationEvents.last)
+        #expect(failureEvent.category == .error)
+        #expect(failureEvent.severity == .error)
+        #expect(failureEvent.descriptor.developerMessage == "render failed type=plan-validation")
+        #expect(failureEvent.descriptor.privateDetail == nil)
         #expect(invalidReceiptRun.rawSynthesisCallCount == 0)
         #expect(fixture.fileExists(at: staleSentinel))
         #expect(provenAudioURLs.allSatisfy { fixture.fileExists(at: $0) })
@@ -126,8 +136,9 @@ private final class ThreeVoiceAnthologyFixture {
         let currentTrackURL: URL?
         let effectiveDefaultVoice: VoiceID?
         let voiceOverrideCount: Int
-        let narrationPhase: NarrationState.Phase
-        let narrationError: String?
+        let narrationRender: NarrationRenderActivity
+        let narrationPlayback: NarrationPlaybackActivity
+        let narrationEvents: [NarrationEvent]
     }
 
     let database: DatabaseService
@@ -226,8 +237,9 @@ private final class ThreeVoiceAnthologyFixture {
                 ? model.tracks[model.currentIndex].url : nil,
             effectiveDefaultVoice: model.state.narrationDefaultVoice,
             voiceOverrideCount: model.state.narrationVoiceOverrideCount,
-            narrationPhase: model.narrationPlaybackState.phase,
-            narrationError: model.narrationPlaybackState.errorMessage)
+            narrationRender: model.narrationPlaybackState.snapshot.render,
+            narrationPlayback: model.narrationPlaybackState.snapshot.playback,
+            narrationEvents: model.narrationPlaybackState.events)
     }
 
     func exportItems(preferredVoice: VoiceID) async throws -> [ExportItem] {

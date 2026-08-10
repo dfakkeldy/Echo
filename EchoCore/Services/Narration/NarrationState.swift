@@ -8,21 +8,13 @@ import OSLog
 final class NarrationState {
     enum Phase: String, Sendable {
         case idle
-        case preparingEngine  // one-time model download + CoreML compile
+        case preparingEngine  // one-time model delivery + ONNX session load
         case preparingChapter  // cold start / seek: rendering the current chapter
         case renderingAhead  // playing, rendering the next chapter in background
         case completed
         case failed
     }
 
-    var phase: Phase = .idle
-    var progress: Double = 0.0
-    var statusMessage: String = ""
-    var currentChapterIndex: Int = 0
-    var totalChapters: Int = 0
-    var renderedChapterCount: Int = 0
-    var errorMessage: String?
-    var debugLog: [String] = []
     private(set) var snapshot = NarrationStatusSnapshot()
     private(set) var events: [NarrationEvent] = []
     private(set) var hasSession = false
@@ -33,36 +25,32 @@ final class NarrationState {
     private let eventLimit = 200
     private var lastDownloadMilestone = -1
 
+    var phase: Phase {
+        switch (snapshot.render, snapshot.playback) {
+        case (.failed(_), _), (.blocked(_), _), (_, .failed(_)):
+            return .failed
+        case (.complete, .completed):
+            return .completed
+        case (.checkingModel(_), _), (.downloadingModel(_, _), _),
+             (.validatingModel(_), _), (.loadingModel(_), _), (.modelReady, _):
+            return .preparingEngine
+        case (.rendering(_), .playing(_)), (.heldByBackpressure(_), .playing(_)):
+            return .renderingAhead
+        case (.planning, _), (.rendering(_), _), (.heldByBackpressure(_), _):
+            return .preparingChapter
+        default:
+            return .idle
+        }
+    }
+
     var isRunning: Bool {
         switch snapshot.render {
         case .planning, .checkingModel, .downloadingModel, .validatingModel, .loadingModel,
              .rendering, .heldByBackpressure:
             return true
         default:
-            break
+            return false
         }
-        switch phase {
-        case .idle, .completed, .failed: return false
-        case .preparingEngine, .preparingChapter, .renderingAhead: return true
-        }
-    }
-
-    func log(_ message: String) { debugLog.append(message) }
-
-    func update(phase: Phase, progress: Double, statusMessage: String) {
-        self.phase = phase
-        self.progress = progress
-        self.statusMessage = statusMessage
-    }
-
-    func fail(_ message: String) {
-        phase = .failed
-        errorMessage = message
-    }
-
-    func complete() {
-        phase = .completed
-        progress = 1.0
     }
 
     func beginSession(defaultVoiceID: VoiceID, at date: Date = Date()) {
@@ -161,13 +149,6 @@ final class NarrationState {
     }
 
     func reset() {
-        phase = .idle
-        progress = 0
-        statusMessage = ""
-        currentChapterIndex = 0
-        renderedChapterCount = 0
-        errorMessage = nil
-        debugLog.removeAll()
         snapshot = NarrationStatusSnapshot()
         events.removeAll()
         hasSession = false

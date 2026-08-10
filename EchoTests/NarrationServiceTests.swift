@@ -433,10 +433,17 @@ private actor ShadowEvaluatorRecorder {
         let writer = MockAudioWriter()
         let svc = makeService(
             db, tts: MockTTSEngine(secondsPerChar: 0.1), writer: writer)
-        svc.state.update(
-            phase: .renderingAhead,
-            progress: 0.42,
-            statusMessage: "Rendering next chapter…")
+        let now = Date(timeIntervalSince1970: 100)
+        let activity = NarrationRenderActivity.rendering(
+            NarrationRenderUnitStatus(
+                chapterDisplayNumber: 7,
+                segmentIndex: 1,
+                voiceID: VoiceID("af_heart"),
+                completedBlocks: 2,
+                totalBlocks: 5,
+                startedAt: now,
+                lastProgressAt: now))
+        svc.state.transitionRender(to: activity, event: nil)
 
         let rendered = try await svc.renderSegmentFile(
             chapterIndex: 0,
@@ -483,10 +490,32 @@ private actor ShadowEvaluatorRecorder {
         #expect(trackCount == 0)
         #expect(persistedAnchorCount == 0)
         #expect(alignedTimelineRows == 0)
-        #expect(svc.state.phase == .renderingAhead)
-        #expect(svc.state.progress == 0.42)
-        #expect(svc.state.statusMessage == "Rendering next chapter…")
-        #expect(svc.state.renderedChapterCount == 0)
+        #expect(svc.state.snapshot.render == activity)
+    }
+
+    @Test func renderChapterPublishesStructuredBlockProgressWithoutCompletingSession()
+        async throws
+    {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["first", "second"])
+        let svc = makeService(
+            db, tts: MockTTSEngine(secondsPerChar: 0.1), writer: MockAudioWriter())
+
+        _ = try await svc.renderChapter(
+            chapterIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+
+        guard case .rendering(let unit) = svc.state.snapshot.render else {
+            Issue.record("Expected structured render-unit progress after chapter rendering.")
+            return
+        }
+        #expect(unit.chapterDisplayNumber == 1)
+        #expect(unit.segmentIndex == nil)
+        #expect(unit.voiceID == VoiceID("af_heart"))
+        #expect(unit.completedBlocks == 2)
+        #expect(unit.totalBlocks == 2)
+        #expect(svc.state.phase == .preparingChapter)
     }
 
     @Test func renderSegmentFileCacheNameChangesWhenPronunciationOverrideChangesSpokenText()
@@ -2707,7 +2736,15 @@ private actor ShadowEvaluatorRecorder {
             try TrackRecord.filter(Column("audiobook_id") == "b1").fetchOne(db)
         }
         #expect(persistedTrack != nil)
-        #expect(state.debugLog.contains { $0.contains("Operational report-write error") })
+        let event = try #require(state.events.last)
+        #expect(event.category == .error)
+        #expect(event.severity == .warning)
+        #expect(event.message == "Narration diagnostics could not be saved")
+        #expect(event.descriptor.developerMessage == "advisory report write failed")
+        #expect(event.descriptor.privateDetail?.isEmpty == false)
+        #expect(
+            event.descriptor.developerMessage.contains(event.descriptor.privateDetail ?? "")
+                == false)
     }
 
     @Test func fallbackDiscoveryFailureDoesNotBlockTheRenderedChapter() async throws {
@@ -2749,7 +2786,15 @@ private actor ShadowEvaluatorRecorder {
             try TrackRecord.filter(Column("audiobook_id") == "b1").fetchOne(database)
         }
         #expect(track != nil)
-        #expect(state.debugLog.contains { $0.contains("pronunciation fallback discovery failed") })
+        let event = try #require(state.events.last)
+        #expect(event.category == .error)
+        #expect(event.severity == .warning)
+        #expect(event.message == "Narration diagnostics could not be saved")
+        #expect(event.descriptor.developerMessage == "pronunciation fallback discovery failed")
+        #expect(event.descriptor.privateDetail?.isEmpty == false)
+        #expect(
+            event.descriptor.developerMessage.contains(event.descriptor.privateDetail ?? "")
+                == false)
         #expect(
             Set(try issueDAO.issues(for: "b1").map(\.id)) == [
                 oldPreflight.id, oldAcoustic.id,
@@ -2806,7 +2851,12 @@ private actor ShadowEvaluatorRecorder {
                 oldPreflight.id, oldAcoustic.id,
             ])
         #expect(try issueDAO.issues(for: "b2").map(\.id) == [conflictingExisting.id])
-        #expect(state.debugLog.contains { $0.contains("Operational report-write error") })
+        let event = try #require(state.events.last)
+        #expect(event.category == .error)
+        #expect(event.severity == .warning)
+        #expect(event.message == "Narration diagnostics could not be saved")
+        #expect(event.descriptor.developerMessage == "advisory report write failed")
+        #expect(event.descriptor.privateDetail?.isEmpty == false)
         let track = try db.read { database in
             try TrackRecord.filter(Column("audiobook_id") == "b1").fetchOne(database)
         }

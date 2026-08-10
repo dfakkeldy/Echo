@@ -469,6 +469,9 @@ struct PlayerModelTests {
     @Test("free users hit narration paywall after first uncached chapter")
     func narrationRenderGateShowsPaywallWhenFreeCapReached() {
         let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.narrationPlaybackState.transitionPlayback(
+            to: .playing(chapterDisplayNumber: 1), event: nil)
         model.state.narrationRenderInFlight = true
         model.state.awaitingNarrationChapter = true
         model.setFreeTierGate(
@@ -486,9 +489,19 @@ struct PlayerModelTests {
         )
         #expect(model.showPaywall)
         #expect(model.paywallContext == .narrationCap)
-        #expect(!model.state.narrationRenderInFlight)
+        #expect(model.state.narrationRenderInFlight == false)
         #expect(model.state.awaitingNarrationChapter == false)
-        #expect(model.narrationPlaybackState.phase == .failed)
+        #expect(
+            model.narrationPlaybackState.snapshot.render
+                == .blocked(message: PaywallContext.narrationCap.subheadline))
+        #expect(model.narrationPlaybackState.snapshot.playback == .stopped)
+        let event = model.narrationPlaybackState.events.last
+        #expect(event?.category == .error)
+        #expect(event?.severity == .warning)
+        #expect(event?.message == PaywallContext.narrationCap.subheadline)
+        #expect(event?.descriptor.developerMessage == "render blocked by narration entitlement")
+        #expect(event?.descriptor.privateDetail == nil)
+        #expect(event?.descriptor.developerMessage.contains("book") == false)
     }
 
     @Test("cached narration chapters stay playable at the free cap")
@@ -845,6 +858,7 @@ struct PlayerModelTests {
 
     @Test func completingRenderDoesNotCompletePlayback() {
         let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
         model.narrationPlaybackState.transitionPlayback(
             to: .playing(chapterDisplayNumber: 2),
             event: nil)
@@ -855,6 +869,139 @@ struct PlayerModelTests {
         #expect(
             model.narrationPlaybackState.snapshot.playback
                 == .playing(chapterDisplayNumber: 2))
+        #expect(model.narrationPlaybackState.events.last?.category == .render)
+        #expect(model.narrationPlaybackState.events.last?.severity == .notice)
+        #expect(model.narrationPlaybackState.events.last?.message == "All narration rendered")
+        #expect(
+            model.narrationPlaybackState.events.last?.descriptor.developerMessage
+                == "render complete")
+    }
+
+    @Test func narrationWithNoPlannedChaptersStopsWithVisibleTerminalState() async throws {
+        let (model, root) = try makeNarrationModel(tts: MockTTSEngine(), text: nil)
+        defer {
+            model.narrationRenderTask?.cancel()
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        model.startNarrationPlayback()
+        await model.narrationRenderTask?.value
+
+        #expect(model.narrationPlaybackState.hasSession)
+        #expect(model.narrationPlaybackState.snapshot.render == .noNarratableText)
+        #expect(model.narrationPlaybackState.snapshot.playback == .stopped)
+        let event = model.narrationPlaybackState.events.last
+        #expect(event?.category == .render)
+        #expect(event?.severity == .notice)
+        #expect(event?.message == "No text to narrate")
+        #expect(event?.descriptor.developerMessage == "render stopped no narratable text")
+        #expect(event?.descriptor.privateDetail == nil)
+    }
+
+    @Test func genericNarrationFailureKeepsPrivateDescriptionOutOfPublicDiagnostics()
+        async throws
+    {
+        let (model, root) = try makeNarrationModel(
+            tts: AlwaysFailingNarrationEngine(), text: "Private source words")
+        defer {
+            model.narrationRenderTask?.cancel()
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        model.startNarrationPlayback()
+        await model.narrationRenderTask?.value
+
+        let privateDescription = try #require(PrivateNarrationFailure().errorDescription)
+        #expect(
+            model.narrationPlaybackState.snapshot.render
+                == .failed(message: privateDescription))
+        let event = try #require(model.narrationPlaybackState.events.last)
+        #expect(event.category == .error)
+        #expect(event.severity == .error)
+        #expect(event.message == privateDescription)
+        #expect(event.descriptor.developerMessage.hasPrefix("render failed type="))
+        #expect(event.descriptor.developerMessage.contains(privateDescription) == false)
+        #expect(event.descriptor.developerMessage.contains(root.path) == false)
+        #expect(event.descriptor.privateDetail == privateDescription)
+    }
+
+    @Test func cancellingCurrentNarrationOperationLeavesVisibleCancelledState() async throws {
+        let probe = NarrationPrepareStartProbe()
+        let (model, root) = try makeNarrationModel(
+            tts: BlockingNarrationPrepareEngine(probe: probe), text: "Narrate this")
+        defer {
+            model.narrationRenderTask?.cancel()
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        model.startNarrationPlayback()
+        let task = try #require(model.narrationRenderTask)
+        await probe.waitForStartCount(1)
+        task.cancel()
+        await task.value
+
+        #expect(model.narrationPlaybackState.snapshot.render == .cancelled)
+        #expect(model.narrationPlaybackState.hasSession)
+        let event = model.narrationPlaybackState.events.last
+        #expect(event?.category == .render)
+        #expect(event?.severity == .notice)
+        #expect(event?.message == "Narration cancelled")
+        #expect(event?.descriptor.developerMessage == "render cancelled")
+        #expect(event?.descriptor.privateDetail == nil)
+    }
+
+    @Test func staleCancellationDoesNotMutateReplacementNarrationSession() async throws {
+        let probe = NarrationPrepareStartProbe()
+        let (model, root) = try makeNarrationModel(
+            tts: BlockingNarrationPrepareEngine(probe: probe), text: "Narrate this")
+        defer {
+            model.narrationRenderTask?.cancel()
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        model.startNarrationPlayback()
+        let staleTask = try #require(model.narrationRenderTask)
+        await probe.waitForStartCount(1)
+
+        model.startNarrationPlayback()
+        let replacementTask = try #require(model.narrationRenderTask)
+        await probe.waitForStartCount(2)
+        await staleTask.value
+
+        #expect(model.narrationPlaybackState.hasSession)
+        #expect(model.narrationPlaybackState.snapshot.render == .planning)
+        #expect(
+            model.narrationPlaybackState.events.contains { event in
+                event.descriptor.developerMessage == "render cancelled"
+            } == false)
+
+        replacementTask.cancel()
+        await replacementTask.value
+    }
+
+    @Test func loadFolderInvalidatesNarrationBeforeRecordingBookChangeAndReset() throws {
+        let source = try Self.source(named: "PlayerModel.swift")
+        let loadFolder = try #require(source.range(of: "func loadFolder("))
+        let renderTaskCancellation = try #require(
+            source.range(
+                of: "narrationRenderTask?.cancel()",
+                range: loadFolder.upperBound..<source.endIndex))
+        let operationInvalidation = try #require(
+            source.range(
+                of: "replaceNarrationOperation()",
+                range: renderTaskCancellation.upperBound..<source.endIndex))
+        let cancellationEvent = try #require(
+            source.range(
+                of: "Narration cancelled because the active book changed",
+                range: operationInvalidation.upperBound..<source.endIndex))
+        let reset = try #require(
+            source.range(
+                of: "narrationPlaybackState.reset()",
+                range: cancellationEvent.upperBound..<source.endIndex))
+
+        #expect(renderTaskCancellation.lowerBound < operationInvalidation.lowerBound)
+        #expect(operationInvalidation.lowerBound < cancellationEvent.lowerBound)
+        #expect(cancellationEvent.lowerBound < reset.lowerBound)
     }
 
     @Test func narrationQueueWaitResumePlayingEventsStayOrdered() {
@@ -1318,6 +1465,102 @@ struct PlayerModelTests {
         let operation = model.replaceNarrationOperation()
         model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
         return (model, operation, bookURL.absoluteString)
+    }
+
+    private func makeNarrationModel(
+        tts: any TTSEngine,
+        text: String?
+    ) throws -> (model: PlayerModel, root: URL) {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let audiobookID = root.absoluteString
+        let database = try DatabaseService(inMemory: ())
+        try database.writer.write { db in
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES (?, ?, 0)",
+                arguments: [audiobookID, "Private Test Book"])
+        }
+        if let text {
+            try EPubBlockDAO(db: database.writer).insertAll([
+                EPubBlockRecord(
+                    id: "block-1",
+                    audiobookID: audiobookID,
+                    spineHref: "chapter.xhtml",
+                    spineIndex: 0,
+                    blockIndex: 0,
+                    sequenceIndex: 0,
+                    blockKind: EPubBlockRecord.Kind.paragraph.rawValue,
+                    text: text,
+                    htmlContent: nil,
+                    cardColor: nil,
+                    chapterThemeColor: nil,
+                    imagePath: nil,
+                    chapterIndex: 0,
+                    isHidden: false,
+                    hiddenReason: nil,
+                    isFrontMatter: false,
+                    wordCount: nil,
+                    markers: nil,
+                    textFormats: nil,
+                    createdAt: nil,
+                    modifiedAt: nil)
+            ])
+        }
+
+        let model = PlayerModel()
+        model.databaseService = database
+        model.folderURL = root
+        model.narrationTTS = tts
+        model.narrationAudioWriter = MockAudioWriter()
+        model.narrationCacheDirectoryProvider = { root }
+        return (model, root)
+    }
+}
+
+private struct PrivateNarrationFailure: LocalizedError {
+    var errorDescription: String? {
+        "Rendering failed for /private/books/Hidden Title.epub"
+    }
+}
+
+private struct AlwaysFailingNarrationEngine: TTSEngine {
+    func prepare() async throws {}
+
+    func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
+        throw PrivateNarrationFailure()
+    }
+}
+
+private struct BlockingNarrationPrepareEngine: TTSEngine {
+    let probe: NarrationPrepareStartProbe
+
+    func prepare() async throws {
+        await probe.recordStart()
+        try await Task.sleep(for: .seconds(60))
+    }
+
+    func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
+        TTSChunk(samples: [0.1], sampleRate: 24_000, duration: 1)
+    }
+}
+
+private actor NarrationPrepareStartProbe {
+    private var startCount = 0
+    private var waiters: [(expected: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    func recordStart() {
+        startCount += 1
+        let ready = waiters.filter { startCount >= $0.expected }
+        waiters.removeAll { startCount >= $0.expected }
+        ready.forEach { $0.continuation.resume() }
+    }
+
+    func waitForStartCount(_ expected: Int) async {
+        guard startCount < expected else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append((expected, continuation))
+        }
     }
 }
 
