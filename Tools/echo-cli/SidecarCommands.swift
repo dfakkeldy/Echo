@@ -91,9 +91,9 @@ struct VerifySidecarCommand: AsyncParsableCommand {
 struct ExportBlocksCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "export-blocks",
-        abstract: "Export an EPUB's visible blocks as file-bound sidecar-parity JSON.")
+        abstract: "Export an EPUB's visible blocks as v2 sidecar-parity JSON.")
 
-    @Option(help: "EPUB source file (SHA-256 bound) or expanded-EPUB directory (SHA-256 null).")
+    @Option(help: "Direct EPUB file (SHA-256 bound) or expanded-EPUB directory (SHA-256 null).")
     var epub: String
     @Option(help: "Output .json path.")
     var out: String
@@ -102,8 +102,13 @@ struct ExportBlocksCommand: AsyncParsableCommand {
         let sourceURL = URL(fileURLWithPath: epub)
         let outputURL = URL(fileURLWithPath: out)
 
-        let blocks = try await SidecarSourceBlockLoader.blocks(from: sourceURL)
-        let document = try BlockExportDocument(epubURL: sourceURL, records: blocks)
+        let source = try BlockExportSourceResolver.resolve(at: sourceURL)
+        let blocks = try await SidecarSourceBlockLoader.blocks(from: source.url)
+        let document = BlockExportDocument(
+            epubName: source.epubName,
+            epubSHA256: source.epubSHA256,
+            records: blocks
+        )
 
         try outputURL.createParentDirectoryIfNeeded()
         let encoder = JSONEncoder()

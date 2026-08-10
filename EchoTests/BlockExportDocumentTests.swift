@@ -18,9 +18,12 @@ import Testing
 
         #expect(document.version == 2)
         #expect(document.source.epub == "book.epub")
-        let source = try encodedSource(of: document)
+        let root = try encodedRoot(of: document)
+        #expect(Set(root.keys) == ["blocks", "source", "version"])
+        let source = try #require(root["source"] as? [String: Any])
         #expect(source["epub"] as? String == "book.epub")
         #expect(source["epubSHA256"] is NSNull)
+        #expect(Set(source.keys) == ["epub", "epubSHA256"])
         #expect(document.blocks.map(\.id) == ["s0-b0", "s0-b1", "s1-b0", "s1-b1"])
         #expect(document.blocks.map(\.kind) == ["heading", "sentence", "paragraph", "code"])
         #expect(document.blocks.map(\.sequenceIndex) == [0, 1, 2, 3])
@@ -77,7 +80,11 @@ import Testing
             0xEF, 0x00, 0x01, 0x02, 0x03,
         ]).write(to: epubURL)
 
-        let document = try BlockExportDocument(epubURL: epubURL, records: [])
+        let resolved = try BlockExportSourceResolver.resolve(at: epubURL)
+        let document = BlockExportDocument(
+            epubName: resolved.epubName,
+            epubSHA256: resolved.epubSHA256,
+            records: [])
         let source = try encodedSource(of: document)
 
         #expect(source["epub"] as? String == epubURL.lastPathComponent)
@@ -93,7 +100,16 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directoryURL) }
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
 
-        let document = try BlockExportDocument(epubURL: directoryURL, records: [])
+        let metaInfURL = directoryURL.appendingPathComponent("META-INF", isDirectory: true)
+        try FileManager.default.createDirectory(at: metaInfURL, withIntermediateDirectories: true)
+        try Data("application/epub+zip".utf8).write(
+            to: directoryURL.appendingPathComponent("mimetype"))
+        try Data("<container/>".utf8).write(to: metaInfURL.appendingPathComponent("container.xml"))
+        let resolved = try BlockExportSourceResolver.resolve(at: directoryURL)
+        let document = BlockExportDocument(
+            epubName: resolved.epubName,
+            epubSHA256: resolved.epubSHA256,
+            records: [])
         let source = try encodedSource(of: document)
 
         #expect(source["epub"] as? String == directoryURL.lastPathComponent)
@@ -110,12 +126,16 @@ import Testing
     }
 
     private func encodedSource(of document: BlockExportDocument) throws -> [String: Any] {
+        let root = try encodedRoot(of: document)
+        return try #require(root["source"] as? [String: Any])
+    }
+
+    private func encodedRoot(of document: BlockExportDocument) throws -> [String: Any] {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(document)
         let object = try JSONSerialization.jsonObject(with: data)
-        let root = try #require(object as? [String: Any])
-        return try #require(root["source"] as? [String: Any])
+        return try #require(object as? [String: Any])
     }
 
     private func block(

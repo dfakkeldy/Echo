@@ -83,21 +83,6 @@ nonisolated struct BlockExportDocument: Encodable {
             .map(Block.init(record:))
     }
 
-    /// Builds a v2 document from the exact CLI input path. Regular archive
-    /// files carry a streaming SHA-256; expanded EPUB directories encode a
-    /// null digest and therefore cannot satisfy file-bound consumers.
-    init(epubURL: URL, records: [EPubBlockRecord]) throws {
-        let values = try epubURL.resourceValues(forKeys: [.isRegularFileKey])
-        let epubSHA256 =
-            values.isRegularFile == true
-            ? try PronunciationArtifactIntegrity.sha256Hex(of: epubURL) : nil
-        self.init(
-            epubName: epubURL.lastPathComponent,
-            epubSHA256: epubSHA256,
-            records: records
-        )
-    }
-
     /// Per-kind block counts for the CLI summary line.
     var kindCounts: (paragraphs: Int, headings: Int, sentences: Int, images: Int, code: Int) {
         var paragraphs = 0
