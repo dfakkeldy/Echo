@@ -1173,7 +1173,25 @@ struct PlayerModelTests {
             event: nil,
             at: now)
 
-        #expect(model.progressPresenter.currentSubtitleProvider?() == "Rendering chapter 4 · 50%")
+        #expect(
+            model.progressPresenter.currentSubtitleProvider?()
+                == "Rendering chapter 4 with Ava. Rendering chapter 4 · 50%")
+        #expect(model.state.currentSubtitle == "Current chapter")
+    }
+
+    @Test func nowPlayingSubtitleProviderKeepsPrimaryOnlyOperationalStatus() {
+        let model = PlayerModel()
+        model.state.currentSubtitle = "Current chapter"
+        let now = Date()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"), at: now)
+        model.narrationPlaybackState.transitionRender(
+            to: .loadingModel(startedAt: now),
+            event: nil,
+            at: now)
+
+        #expect(
+            model.progressPresenter.currentSubtitleProvider?()
+                == "Loading narration model")
         #expect(model.state.currentSubtitle == "Current chapter")
     }
 

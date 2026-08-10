@@ -189,7 +189,7 @@ nonisolated enum NarrationStatusFormatter {
             primaryText: primary, secondaryText: secondary, progress: progress,
             systemImage: image, showsActivity: showsActivity, isFailure: isFailure,
             accessibilityLabel: accessibilityLabel(primary: primary, secondary: secondary),
-            lockScreenSubtitle: secondary)
+            lockScreenSubtitle: accessibilityLabel(primary: primary, secondary: secondary))
     }
 
     private static func fraction(_ numerator: Int64, _ denominator: Int64) -> Double {

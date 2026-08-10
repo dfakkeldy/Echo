@@ -22,7 +22,9 @@ import Testing
         #expect(value?.primaryText == "Playing chapter 2")
         #expect(value?.secondaryText == "Rendering chapter 4 · 42% · 1 ready ahead")
         #expect(value?.progress == 8.0 / 19.0)
-        #expect(value?.lockScreenSubtitle == "Rendering chapter 4 · 42% · 1 ready ahead")
+        #expect(
+            value?.lockScreenSubtitle
+                == "Playing chapter 2. Rendering chapter 4 · 42% · 1 ready ahead")
     }
 
     @Test func queueWaitOutranksGenericPause() {
@@ -37,6 +39,35 @@ import Testing
             for: snapshot, hasSession: true, now: .distantPast)
         #expect(value?.primaryText == "Waiting for chapter 3")
         #expect(value?.secondaryText == "Rendering 71%")
+        #expect(value?.lockScreenSubtitle == "Waiting for chapter 3. Rendering 71%")
+    }
+
+    @Test func modelDownloadLockScreenSubtitleIncludesActivityAndProgress() {
+        var snapshot = NarrationStatusSnapshot()
+        snapshot.render = .downloadingModel(
+            receivedBytes: 134_000_000,
+            totalBytes: 163_234_740)
+
+        let value = NarrationStatusFormatter.presentation(
+            for: snapshot, hasSession: true, now: .distantPast)
+
+        #expect(value?.primaryText == "Downloading narration model")
+        #expect(value?.secondaryText == "134 of 163 MB · 82%")
+        #expect(
+            value?.lockScreenSubtitle
+                == "Downloading narration model. 134 of 163 MB · 82%")
+    }
+
+    @Test func modelLoadingLockScreenSubtitleIncludesActivity() {
+        var snapshot = NarrationStatusSnapshot()
+        snapshot.render = .loadingModel(startedAt: .distantPast)
+
+        let value = NarrationStatusFormatter.presentation(
+            for: snapshot, hasSession: true, now: .distantPast)
+
+        #expect(value?.primaryText == "Loading narration model")
+        #expect(value?.secondaryText == nil)
+        #expect(value?.lockScreenSubtitle == "Loading narration model")
     }
 
     @Test func reportsExactDecimalMegabytes() {
