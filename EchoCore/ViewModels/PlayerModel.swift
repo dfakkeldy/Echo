@@ -957,7 +957,13 @@ final class PlayerModel {
         progressPresenter.nowPlayingController = nowPlayingController
         progressPresenter.speedProvider = { [weak self] in self?.speed ?? 1.0 }
         progressPresenter.currentTitleProvider = { [weak self] in self?.currentTitle ?? "" }
-        progressPresenter.currentSubtitleProvider = { [weak self] in self?.currentSubtitle ?? "" }
+        progressPresenter.currentSubtitleProvider = { [weak self] in
+            guard let self else { return "" }
+            return NarrationStatusFormatter.presentation(
+                for: self.narrationPlaybackState.snapshot,
+                hasSession: self.narrationPlaybackState.hasSession,
+                now: Date())?.lockScreenSubtitle ?? self.currentSubtitle
+        }
         progressPresenter.currentDisplayArtworkProvider = { [weak self] in
             self?.currentDisplayArtwork
         }

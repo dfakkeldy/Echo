@@ -320,9 +320,6 @@
                 to: .rendering(unit),
                 event: event,
                 at: progress.timestamp)
-            state.currentSubtitle = NarrationProgressText.subtitle(
-                chapterDisplayNumber: progress.chapterDisplayNumber,
-                fraction: unit.fraction)
             publishNarrationStatusToNowPlaying()
         }
 
@@ -660,13 +657,6 @@
                                 ) == false
                             else { return }
                             self.resumeNarrationRenderAfterBackpressure()
-                            // Lock screen: name the chapter being prepared (the in-app NarrationStatusView
-                            // already shows the per-block bar; the lock screen otherwise sits on the stale
-                            // "Preparing narration…"). The per-block percent is refreshed in the cover
-                            // callback below.
-                            self.state.currentSubtitle = NarrationProgressText.subtitle(
-                                chapterDisplayNumber: segment.chapterDisplayNumber, fraction: 0)
-                            self.progressPresenter.updateNowPlayingInfo(isPaused: true)
                             let rendered = try await service.renderSegment(
                                 chapterIndex: segment.chapterIndex,
                                 sourceChapterKey: segment.sourceChapterKey,

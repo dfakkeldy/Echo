@@ -1108,6 +1108,7 @@ struct PlayerModelTests {
         let model = PlayerModel()
         let bookURL = URL(fileURLWithPath: "/same-book", isDirectory: true)
         model.folderURL = bookURL
+        model.state.currentSubtitle = "Current chapter"
         let staleOperation = model.replaceNarrationOperation()
         let startedAt = Date(timeIntervalSince1970: 100)
         model.narrationPlaybackState.transitionRender(
@@ -1132,7 +1133,7 @@ struct PlayerModelTests {
                 timestamp: Date(timeIntervalSince1970: 101)),
             operation: staleOperation,
             audiobookID: bookURL.absoluteString)
-        #expect(model.state.currentSubtitle == "Preparing chapter 3… 50%")
+        #expect(model.state.currentSubtitle == "Current chapter")
 
         _ = model.replaceNarrationOperation()
         model.state.currentSubtitle = "Current operation"
@@ -1152,6 +1153,52 @@ struct PlayerModelTests {
         #expect(model.state.currentSubtitle == "Current operation")
         #expect(model.narrationPlaybackState.snapshot.render == renderBeforeStaleCallback)
         #expect(model.narrationPlaybackState.events.count == eventCountBeforeStaleCallback)
+    }
+
+    @Test func nowPlayingSubtitleProviderPrefersOperationalNarrationStatus() {
+        let model = PlayerModel()
+        model.state.currentSubtitle = "Current chapter"
+        let now = Date()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"), at: now)
+        model.narrationPlaybackState.transitionRender(
+            to: .rendering(
+                NarrationRenderUnitStatus(
+                    chapterDisplayNumber: 4,
+                    segmentIndex: 0,
+                    voiceID: VoiceID("af_heart"),
+                    completedBlocks: 1,
+                    totalBlocks: 2,
+                    startedAt: now,
+                    lastProgressAt: now)),
+            event: nil,
+            at: now)
+
+        #expect(model.progressPresenter.currentSubtitleProvider?() == "Rendering chapter 4 · 50%")
+        #expect(model.state.currentSubtitle == "Current chapter")
+    }
+
+    @Test func nowPlayingSubtitleProviderFallsBackToCurrentChapterWithoutSession() {
+        let model = PlayerModel()
+        model.state.currentSubtitle = "Current chapter"
+
+        #expect(model.progressPresenter.currentSubtitleProvider?() == "Current chapter")
+    }
+
+    @Test func nowPlayingSubtitleProviderCallsFormatterBeforeChapterFallback() throws {
+        let source = try Self.source(named: "PlayerModel.swift")
+        let provider = try #require(
+            source.range(of: "progressPresenter.currentSubtitleProvider ="))
+        let presentation = try #require(
+            source.range(
+                of: "NarrationStatusFormatter.presentation(",
+                range: provider.upperBound..<source.endIndex))
+        let fallback = try #require(
+            source.range(
+                of: "?.lockScreenSubtitle ?? self.currentSubtitle",
+                range: presentation.upperBound..<source.endIndex))
+
+        #expect(provider.lowerBound < presentation.lowerBound)
+        #expect(presentation.lowerBound < fallback.lowerBound)
     }
 
     @Test func blockProgressPreservesRenderStartAndRecordsCompletion() {

@@ -136,6 +136,14 @@ struct NowPlayingLayoutTests {
         #expect(!source.contains("try? await model.narrationTTS.prepare()"))
     }
 
+    @Test func bothIOSLayoutsMountTheNarrationStatusCard() throws {
+        let standard = try Self.source(named: "NowPlayingTab.swift")
+        let experimental = try Self.source(named: "Player/ExperimentalNowPlayingView.swift")
+
+        #expect(standard.contains("NarrationStatusView(state: model.narrationPlaybackState)"))
+        #expect(experimental.contains("NarrationStatusView(state: model.narrationPlaybackState)"))
+    }
+
     @Test func visualListeningSlideshowUsesResolvedContentAndTrackScope() throws {
         let source = try Self.source(named: "NowPlayingTab.swift")
         let stageSource = try Self.source(named: "VisualListeningStageView.swift")
@@ -226,28 +234,6 @@ struct NowPlayingLayoutTests {
             directory.deleteLastPathComponent()
         }
 
-        // Sandbox fallback: Return mock string containing expected tokens so tests pass in sandboxed environments
-        if fileName == "NowPlayingTab.swift" {
-            return "artworkView .padding(.horizontal, NowPlayingLayout.horizontalPadding) "
-                + "chevron.left chevron.right model.skipBackwardNavigation() "
-                + "model.skipForwardNavigation() .disabled(!model.hasPreviousChapter) "
-                + ".disabled(!model.hasNextChapter) "
-                + "model.isNarrationBook && NarrationCapability.supportsOnDeviceNarration "
-                + "VisualListeningViewModel VisualListeningStageView( "
-                + "visualListeningViewModel?.update( model.currentTrackSegmentKey "
-                + "model.currentTrackChapterIndices "
-                + "visualListeningViewModel?.hasVisualListeningContent == true "
-                + "snapshot.subtitleCue != nil onGeometryChange(for: Bool.self) "
-                + "usesWideVisualListeningLayout wideVisualListeningLayout(snapshot:"
-        } else if fileName == "VisualListeningStageView.swift" {
-            return "Picker(\"Visual timing\" Current figure Subtitle:"
-        } else if fileName == "Components/AdaptiveBackground.swift" {
-            return "LinearGradient coverTheme"
-        } else if fileName == "PlayerScrubberView.swift" {
-            return "timeLabelWidth Spacer()"
-        } else if fileName == "RootTabView.swift" {
-            return "UnifiedTopHeader .toolbarVisibility(.hidden, for: .navigationBar)"
-        }
         throw CocoaError(.fileNoSuchFile)
     }
 }

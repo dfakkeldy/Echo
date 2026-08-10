@@ -1001,7 +1001,7 @@ Add a placement test that reads both actual sources without a fallback fixture:
 }
 ```
 
-In `NarrationStatusViewContractTests`, assert the source contains `DisclosureGroup`, reverse chronological `state.events.reversed()`, a bounded event-list frame, `accessibilityIdentifier("narration.status.details")`, and `accessibilityLiveRegion(.polite)`. Add a PlayerModel source test that the Now Playing subtitle provider calls `NarrationStatusFormatter.presentation` before falling back to `currentSubtitle`.
+In `NarrationStatusViewContractTests`, assert the source contains `DisclosureGroup`, reverse chronological `state.events.reversed()`, a bounded event-list frame, `accessibilityIdentifier("narration.status.details")`, and the native SwiftUI `.accessibilityAddTraits(.updatesFrequently)` API. Add a PlayerModel source test that the Now Playing subtitle provider calls `NarrationStatusFormatter.presentation` before falling back to `currentSubtitle`.
 
 Make the view-contract suite self-contained with this resolver:
 
@@ -1092,7 +1092,7 @@ private struct NarrationEventRow: View {
 }
 ```
 
-Format event timestamps with date omitted and standard time. Use category symbols without relying on color as the only carrier of meaning. Apply `.accessibilityLiveRegion(.polite)` to the combined collapsed summary, not the per-block event list. Respect Reduce Motion by using no insertion transition when `accessibilityReduceMotion` is true.
+Format event timestamps with date omitted and standard time. Use category symbols without relying on color as the only carrier of meaning. Apply `.accessibilityAddTraits(.updatesFrequently)` to the combined collapsed summary, not the per-block event list. Xcode 26.6's iOS 26.5 SwiftUI SDK exposes no `accessibilityLiveRegion` modifier; the native frequently-updated trait preserves the noninterrupting status-update intent without manually posting per-block announcements. Respect Reduce Motion by using no insertion transition when `accessibilityReduceMotion` is true.
 
 - [ ] **Step 4: Mount the same card in both layouts**
 
