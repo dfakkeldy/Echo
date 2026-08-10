@@ -34,35 +34,55 @@
             else { return }
 
             switch progress {
-            case .checkingModel:
-                narrationPlaybackState.update(
-                    phase: .preparingEngine, progress: 0,
-                    statusMessage: String(localized: "Checking narration model…"))
-            case .modelCacheHit:
-                narrationPlaybackState.update(
-                    phase: .preparingEngine, progress: 0.9,
-                    statusMessage: String(localized: "Narration model cached"))
+            case .checkingModel(let expectedBytes):
+                narrationPlaybackState.transitionRender(
+                    to: .checkingModel(expectedBytes: expectedBytes),
+                    event: .init(
+                        category: .model, severity: .info,
+                        message: String(localized: "Checking narration model"),
+                        developerMessage: "model cache check expectedBytes=\(expectedBytes)"))
+                publishNarrationStatusToNowPlaying()
+            case .modelCacheHit(let byteCount):
+                narrationPlaybackState.transitionRender(
+                    to: .validatingModel(byteCount: byteCount),
+                    event: .init(
+                        category: .model, severity: .notice,
+                        message: String(localized: "Narration model found in cache"),
+                        developerMessage: "model cache hit bytes=\(byteCount)"))
+                publishNarrationStatusToNowPlaying()
             case .downloadingModel(let receivedBytes, let totalBytes):
-                let fraction = totalBytes > 0
-                    ? min(max(Double(receivedBytes) / Double(totalBytes), 0), 1)
-                    : 0
-                narrationPlaybackState.update(
-                    phase: .preparingEngine, progress: 0.9 * fraction,
-                    statusMessage: String(
-                        localized: "Downloading narration model… \(Int(fraction * 100))%"))
-            case .validatingModel:
-                narrationPlaybackState.update(
-                    phase: .preparingEngine, progress: 0.9,
-                    statusMessage: String(localized: "Validating narration model…"))
+                let publishesMilestone = narrationPlaybackState.reportModelDownload(
+                    receivedBytes: receivedBytes, totalBytes: totalBytes)
+                if publishesMilestone { publishNarrationStatusToNowPlaying() }
+            case .validatingModel(let byteCount):
+                narrationPlaybackState.transitionRender(
+                    to: .validatingModel(byteCount: byteCount),
+                    event: .init(
+                        category: .model, severity: .info,
+                        message: String(localized: "Validating narration model"),
+                        developerMessage: "model validating bytes=\(byteCount)"))
+                publishNarrationStatusToNowPlaying()
             case .loadingModel:
-                narrationPlaybackState.update(
-                    phase: .preparingEngine, progress: 0.9,
-                    statusMessage: String(localized: "Loading narration model…"))
+                narrationPlaybackState.transitionRender(
+                    to: .loadingModel(startedAt: Date()),
+                    event: .init(
+                        category: .model, severity: .notice,
+                        message: String(localized: "Loading narration model"),
+                        developerMessage: "model session loading"))
+                publishNarrationStatusToNowPlaying()
             case .ready:
-                narrationPlaybackState.update(
-                    phase: .preparingEngine, progress: 1.0,
-                    statusMessage: String(localized: "Narration model ready"))
+                narrationPlaybackState.transitionRender(
+                    to: .modelReady,
+                    event: .init(
+                        category: .model, severity: .notice,
+                        message: String(localized: "Narration model ready"),
+                        developerMessage: "model session ready"))
+                publishNarrationStatusToNowPlaying()
             }
+        }
+
+        func publishNarrationStatusToNowPlaying() {
+            progressPresenter.updateNowPlayingInfo(isPaused: !isPlaying)
         }
 
         func handleNarrationBlockProgress(
@@ -108,6 +128,13 @@
             narrationRenderTask?.cancel()
             let operation = replaceNarrationOperation()
             narrationPlaybackState.reset()
+            narrationPlaybackState.beginSession(defaultVoiceID: voice.id)
+            narrationPlaybackState.transitionRender(
+                to: .planning,
+                event: .init(
+                    category: .preparation, severity: .notice,
+                    message: String(localized: "Preparing narration plan"),
+                    developerMessage: "preparation planning started"))
             state.narrationRenderInFlight = true
             state.awaitingNarrationChapter = false
             state.narrationDefaultVoice = nil
@@ -126,7 +153,7 @@
                 state.currentTitle = identityURL.deletingPathExtension().lastPathComponent
             }
             state.currentSubtitle = String(localized: "Preparing narration…")
-            progressPresenter.updateNowPlayingInfo(isPaused: true)
+            publishNarrationStatusToNowPlaying()
 
             let cacheDirectory = narrationCacheDirectoryProvider()
             narrationRenderTask = Task { [weak self] in
@@ -217,8 +244,22 @@
                         currentFolderURL: self.bookIdentityURL?.absoluteString,
                         audiobookID: audiobookID)
 
+                    var buffer = self.narrationPlaybackState.snapshot.buffer
+                    buffer.totalSegments = preparation.segments.count
+                    self.narrationPlaybackState.updateBuffer(buffer)
                     self.state.narrationDefaultVoice = voice.id
-                    self.state.narrationVoiceOverrideCount = preparation.voiceOverrideCount
+                    self.narrationPlaybackState.record(
+                        .init(
+                            category: .voice, severity: .notice,
+                            message: String(localized: "Selected voice: \(voice.displayName)"),
+                            developerMessage: "default voice selected id=\(voice.id.rawValue)"))
+                    let count = preparation.voiceOverrideCount
+                    self.state.narrationVoiceOverrideCount = count
+                    self.narrationPlaybackState.record(
+                        .init(
+                            category: .voice, severity: .info,
+                            message: String(localized: "Chapter voice overrides: \(count)"),
+                            developerMessage: "chapter voice overrides count=\(count)"))
                     self.narrationExpectedFileNamesByChapter =
                         preparation.expectedFileNamesByChapter
                     self.refreshNarrationOutline(allBlocks: allBlocks)

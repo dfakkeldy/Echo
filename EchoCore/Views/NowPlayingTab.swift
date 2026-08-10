@@ -96,12 +96,6 @@ struct NowPlayingTab: View {
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
         .task(id: model.bookIdentityURL) {
             await reloadVisualListeningViewModel()
-
-            // Pre-warm the ANE model compile so the first Listen tap isn't a long
-            // stall — only where narration is actually supported (A15+).
-            if model.isNarrationBook && NarrationCapability.supportsOnDeviceNarration {
-                try? await model.narrationTTS.prepare()
-            }
         }
         .onChange(of: model.currentPlaybackTime) { _, newTime in
             updateVisualListeningSnapshot(time: newTime)

@@ -545,27 +545,48 @@ struct PlayerModelTests {
         let bookURL = URL(fileURLWithPath: "/same-book", isDirectory: true)
         model.folderURL = bookURL
         let staleOperation = model.replaceNarrationOperation()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
 
         model.handleNarrationPreparationProgress(
             .ready,
             operation: staleOperation,
             audiobookID: bookURL.absoluteString)
-        #expect(model.narrationPlaybackState.phase == .preparingEngine)
-        #expect(model.narrationPlaybackState.progress == 1)
+        #expect(model.narrationPlaybackState.snapshot.render == .modelReady)
 
         _ = model.replaceNarrationOperation()
-        model.narrationPlaybackState.update(
-            phase: .renderingAhead,
-            progress: 0.25,
-            statusMessage: "Current operation")
+        model.narrationPlaybackState.transitionRender(
+            to: .planning,
+            event: nil)
         model.handleNarrationPreparationProgress(
             .ready,
             operation: staleOperation,
             audiobookID: bookURL.absoluteString)
 
-        #expect(model.narrationPlaybackState.phase == .renderingAhead)
-        #expect(model.narrationPlaybackState.progress == 0.25)
-        #expect(model.narrationPlaybackState.statusMessage == "Current operation")
+        #expect(model.narrationPlaybackState.snapshot.render == .planning)
+    }
+
+    @Test func preparationProgressMapsToExactLifecycle() {
+        let model = PlayerModel()
+        let bookURL = URL(fileURLWithPath: "/same-book", isDirectory: true)
+        model.folderURL = bookURL
+        let operation = model.replaceNarrationOperation()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+
+        model.handleNarrationPreparationProgress(
+            .downloadingModel(receivedBytes: 50, totalBytes: 100),
+            operation: operation, audiobookID: bookURL.absoluteString)
+
+        #expect(
+            model.narrationPlaybackState.snapshot.render
+                == .downloadingModel(receivedBytes: 50, totalBytes: 100))
+    }
+
+    @Test func narrationSessionStartsBeforeImportAwait() throws {
+        let source = try Self.source(named: "PlayerModel+Narration.swift")
+        let begin = try #require(source.range(of: "narrationPlaybackState.beginSession("))
+        let importAwait = try #require(
+            source.range(of: "await self.playerLoadingCoordinator.documentImportTask?.value"))
+        #expect(begin.lowerBound < importAwait.lowerBound)
     }
 
     @Test func sameBookRestartRejectsStaleBlockProgress() {

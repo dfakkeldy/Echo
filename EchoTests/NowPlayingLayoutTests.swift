@@ -131,6 +131,11 @@ struct NowPlayingLayoutTests {
         )
     }
 
+    @Test func nowPlayingDoesNotSilentlyPrewarmNarrationModel() throws {
+        let source = try Self.source(named: "NowPlayingTab.swift")
+        #expect(!source.contains("try? await model.narrationTTS.prepare()"))
+    }
+
     @Test func visualListeningSlideshowUsesResolvedContentAndTrackScope() throws {
         let source = try Self.source(named: "NowPlayingTab.swift")
         let stageSource = try Self.source(named: "VisualListeningStageView.swift")
