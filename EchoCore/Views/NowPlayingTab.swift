@@ -314,6 +314,21 @@ struct NowPlayingTab: View {
         .clipShape(.rect(cornerRadius: 16))
         .padding(.horizontal, NowPlayingLayout.horizontalPadding)
         .shadow(color: .black.opacity(0.25), radius: 16, x: 0, y: 8)
+        .background {
+            // Ambient bloom: the theme's chip tone — the wash family pushed
+            // more chromatic, and in dark mode lighter than the room — spills
+            // softly past the cover, so the artwork reads as lighting the
+            // wash rather than floating on it. The shadow above stays inside
+            // this modifier so the blurred ellipse casts none of its own;
+            // shadow supplies depth, this layer supplies the colour.
+            Ellipse()
+                .fill(model.coverTheme.chip)
+                .opacity(model.uiColorScheme == .dark ? 0.55 : 0.45)
+                .blur(radius: 46)
+                .scaleEffect(x: 1.2, y: 1.12)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
     }
 
     private var metadataArea: some View {
