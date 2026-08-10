@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
-import UniformTypeIdentifiers
 import UIKit
+import UniformTypeIdentifiers
 
 /// A wrapper to make UUID Identifiable for use with `.sheet(item:)`.
 struct IdentifiableUUID: Identifiable, Hashable {
@@ -690,6 +690,7 @@ struct RootTabView: View {
         switch appearance {
         case "Light": return .light
         case "Dark": return .dark
+        case "Cover": return model.coverPreferredScheme
         default: return nil
         }
     }

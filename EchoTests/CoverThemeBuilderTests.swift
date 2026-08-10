@@ -303,6 +303,58 @@ nonisolated final class CoverThemeBuilderTests: XCTestCase {
         }
     }
 
+    // MARK: - Cover appearance mode
+
+    func testPreferredSchemeFollowsAnchorTone() {
+        // Pale and vivid-light covers ask for the light room; deep covers for
+        // the dark one. The pick must agree with where washPlan would anchor.
+        XCTAssertEqual(
+            CoverThemeBuilder.preferredScheme(for: signature(hue: 250, lightness: 0.86)), .light)
+        XCTAssertEqual(
+            CoverThemeBuilder.preferredScheme(for: signature(hue: 43, lightness: 0.71)), .light)
+        XCTAssertEqual(
+            CoverThemeBuilder.preferredScheme(for: signature(hue: 250, lightness: 0.24)), .dark)
+    }
+
+    func testPreferredSchemeMidToneHasNoPreference() {
+        // L 0.57 is equidistant from the light (0.80...) and dark (...0.34)
+        // bands — forcing either scheme would look arbitrary.
+        XCTAssertNil(CoverThemeBuilder.preferredScheme(for: signature(hue: 100, lightness: 0.57)))
+    }
+
+    func testPreferredSchemeEdgeFieldOutranksPrimary() {
+        // A deep border around a pale centre: the border is the room's seam,
+        // so it decides the scheme.
+        var deepBorder = signature(hue: 30, lightness: 0.85)
+        deepBorder.edgeField = .init(lightness: 0.22, chroma: 0.05, hue: 30)
+        XCTAssertEqual(CoverThemeBuilder.preferredScheme(for: deepBorder), .dark)
+        // A near-neutral white border is never continued as a colour, but it
+        // still says "pale room".
+        var whiteBorder = signature(hue: 30, lightness: 0.30)
+        whiteBorder.edgeField = .init(lightness: 0.96, chroma: 0.005, hue: 0)
+        XCTAssertEqual(CoverThemeBuilder.preferredScheme(for: whiteBorder), .light)
+    }
+
+    func testPreferredSchemeBlackWhiteFieldDecides() {
+        XCTAssertEqual(
+            CoverThemeBuilder.preferredScheme(
+                for: boldSignature(hue: 22, chroma: 0.162, nearBlack: 0.13, nearWhite: 0.53)),
+            .light)
+        XCTAssertEqual(
+            CoverThemeBuilder.preferredScheme(
+                for: boldSignature(hue: 22, chroma: 0.162, nearBlack: 0.53, nearWhite: 0.13)),
+            .dark)
+        // A balanced black/white field expresses no preference.
+        XCTAssertNil(
+            CoverThemeBuilder.preferredScheme(
+                for: boldSignature(hue: 22, chroma: 0.162, nearBlack: 0.33, nearWhite: 0.32)))
+    }
+
+    func testPreferredSchemeAbsentOrNeutralFollowsSystem() {
+        XCTAssertNil(CoverThemeBuilder.preferredScheme(for: nil))
+        XCTAssertNil(CoverThemeBuilder.preferredScheme(for: .neutral))
+    }
+
     func testRampsAreVisiblyCoverTinted() {
         // The full-screen wash must READ as the cover's colour at a glance
         // (pale tinted paper in light, an immersive coloured room in dark) —

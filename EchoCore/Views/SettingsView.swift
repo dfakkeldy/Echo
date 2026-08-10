@@ -203,6 +203,7 @@ struct SettingsView: View {
         switch appearance {
         case "Light": return .light
         case "Dark": return .dark
+        case "Cover": return model.coverPreferredScheme
         default: return nil
         }
     }

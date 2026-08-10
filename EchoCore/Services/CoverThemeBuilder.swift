@@ -360,6 +360,62 @@ nonisolated enum CoverThemeBuilder {
         min(max(value, range.lowerBound), range.upperBound)
     }
 
+    // MARK: - Cover appearance mode
+
+    /// Half-width of the no-preference zone around the tone equidistant from
+    /// the two wash bands (L ≈ 0.57): a cover anchoring inside it would look
+    /// arbitrary either way, so Cover appearance follows the system scheme.
+    private static let schemeTieMargin = 0.04
+
+    /// Lead one black/white pole needs over the other before a
+    /// black/white-dominant cover picks that pole's scheme; a balanced field
+    /// (half black, half white) expresses no preference.
+    private static let bwPoleMargin = 0.15
+
+    /// The scheme whose wash band needs the least reshaping of the cover's
+    /// anchor tone. Because `washPlan` is what the room becomes, "least
+    /// reshaping" IS "the scheme that matches the cover best" — the pick and
+    /// the resulting wash agree by construction. Nil when the cover expresses
+    /// no preference (no signature, a balanced black/white field, a mid tone
+    /// equidistant from both bands); callers then follow the system scheme.
+    static func preferredScheme(for signature: CoverSignature?) -> ColorScheme? {
+        guard let signature else { return nil }
+
+        // Black/white-dominant covers: the field decides, not the accent.
+        if signature.nearBlackShare + signature.nearWhiteShare >= bwDominantShare {
+            if signature.nearWhiteShare >= signature.nearBlackShare + bwPoleMargin {
+                return .light
+            }
+            if signature.nearBlackShare >= signature.nearWhiteShare + bwPoleMargin {
+                return .dark
+            }
+            return nil
+        }
+
+        // The same anchor precedence as the wash: a border field outranks the
+        // primary bucket. No chroma gate here — a near-neutral white border
+        // is not continued as a colour, but it still says "pale room".
+        let anchor: Double
+        if let edge = signature.edgeField {
+            anchor = edge.lightness
+        } else if let primary = signature.candidates.first {
+            anchor = primary.lightness
+        } else {
+            return nil
+        }
+
+        let lightDistance = bandDistance(anchor, lightWash.lightness)
+        let darkDistance = bandDistance(anchor, darkWash.lightness)
+        if abs(lightDistance - darkDistance) < schemeTieMargin { return nil }
+        return lightDistance < darkDistance ? .light : .dark
+    }
+
+    private static func bandDistance(_ value: Double, _ band: ClosedRange<Double>) -> Double {
+        value < band.lowerBound
+            ? band.lowerBound - value
+            : max(0, value - band.upperBound)
+    }
+
     /// Hue for the dark scheme's background/chip ramp (see `amberBand`);
     /// identity for the light scheme and for hues outside the band. The neutral
     /// fallback ramp is not routed through here: it is near-grey by

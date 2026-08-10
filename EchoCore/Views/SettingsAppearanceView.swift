@@ -16,7 +16,12 @@ struct SettingsAppearanceView: View {
                     Text("System").tag("System")
                     Text("Light").tag("Light")
                     Text("Dark").tag("Dark")
+                    Text("Cover").tag("Cover")
                 }
+            } footer: {
+                Text(
+                    "Cover follows the book you're listening to: light for pale covers, dark for deep ones. Books with no preference follow the system."
+                )
             }
             #if os(iOS)
                 Section("App Icon") {
