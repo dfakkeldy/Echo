@@ -857,6 +857,136 @@ struct PlayerModelTests {
                 == .playing(chapterDisplayNumber: 2))
     }
 
+    @Test func narrationQueueWaitResumePlayingEventsStayOrdered() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.state.tracks = [
+            Track(
+                url: URL(
+                    fileURLWithPath:
+                        "/tmp/private_title_book-ch2-s0-af_heart-v22.m4a"),
+                title: "Private Chapter Title")
+        ]
+        model.state.currentIndex = 0
+        let renderUnit = NarrationRenderUnitStatus(
+            chapterDisplayNumber: 3,
+            segmentIndex: 0,
+            voiceID: VoiceID("af_heart"),
+            completedBlocks: 0,
+            totalBlocks: 4,
+            startedAt: Date(timeIntervalSince1970: 100),
+            lastProgressAt: Date(timeIntervalSince1970: 100))
+        model.narrationPlaybackState.transitionRender(to: .rendering(renderUnit), event: nil)
+
+        model.narrationPlaybackState.transitionPlayback(
+            to: .waitingForRender(chapterDisplayNumber: 3),
+            event: model.playbackEvent("Waiting for rendered narration", severity: .warning))
+        model.narrationPlaybackState.transitionPlayback(
+            to: .resuming(chapterDisplayNumber: 3),
+            event: model.playbackEvent("Chapter 3 ready · resuming", severity: .notice))
+        model.narrationPlaybackState.transitionPlayback(
+            to: .playing(chapterDisplayNumber: 3),
+            event: model.playbackEvent("Playing", severity: .notice))
+
+        #expect(model.currentNarrationChapterDisplayNumber == 3)
+        #expect(model.currentRenderingChapterDisplayNumber == 3)
+        #expect(
+            model.narrationPlaybackState.events.suffix(3).map(\.message)
+                == [
+                    "Waiting for rendered narration",
+                    "Chapter 3 ready · resuming",
+                    "Playing",
+                ])
+        let developerMessages = model.narrationPlaybackState.events.suffix(3).map {
+            $0.descriptor.developerMessage
+        }
+        #expect(developerMessages.allSatisfy { !$0.contains("/tmp/") })
+        #expect(developerMessages.allSatisfy { !$0.contains("Private Chapter Title") })
+    }
+
+    @Test func playbackChangesUpdateActiveNarrationSession() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.state.tracks = [
+            Track(
+                url: URL(fileURLWithPath: "/tmp/book-ch2-s0-af_heart-v22.m4a"),
+                title: "Chapter 3")
+        ]
+        model.state.currentIndex = 0
+        model.narrationPlaybackState.transitionRender(
+            to: .rendering(
+                NarrationRenderUnitStatus(
+                    chapterDisplayNumber: 4,
+                    segmentIndex: 0,
+                    voiceID: VoiceID("af_heart"),
+                    completedBlocks: 0,
+                    totalBlocks: 4,
+                    startedAt: Date(timeIntervalSince1970: 100),
+                    lastProgressAt: Date(timeIntervalSince1970: 100))),
+            event: nil)
+
+        model.playbackController.coordinator_playStateChanged?(.waitingForNarration)
+        #expect(
+            model.narrationPlaybackState.snapshot.playback
+                == .waitingForRender(chapterDisplayNumber: 4))
+        #expect(model.narrationPlaybackState.events.last?.message == "Waiting for rendered narration")
+
+        model.playbackController.coordinator_playStateChanged?(.playing)
+        #expect(
+            model.narrationPlaybackState.snapshot.playback
+                == .playing(chapterDisplayNumber: 3))
+
+        model.playbackController.coordinator_playStateChanged?(.paused)
+        #expect(
+            model.narrationPlaybackState.snapshot.playback
+                == .paused(chapterDisplayNumber: 3))
+
+        model.playbackController.coordinator_playStateChanged?(.reachedNaturalEnd)
+        #expect(model.narrationPlaybackState.snapshot.playback == .completed)
+        #expect(model.narrationPlaybackState.events.last?.message == "Narration playback complete")
+    }
+
+    @Test func sleepTimerCancelsNarrationQueueWait() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.narrationPlaybackState.transitionPlayback(
+            to: .waitingForRender(chapterDisplayNumber: 3),
+            event: nil)
+        model.state.awaitingNarrationChapter = true
+        model.sleepTimerManager.setTimer(.endOfChapter)
+
+        model.sleepTimerManager.evaluateAtChapterEnd()
+
+        #expect(!model.state.awaitingNarrationChapter)
+        #expect(
+            model.narrationPlaybackState.snapshot.playback
+                == .paused(chapterDisplayNumber: nil))
+        #expect(
+            model.narrationPlaybackState.events.last?.message
+                == "Narration wait cancelled by sleep timer")
+    }
+
+    @Test func explicitStopMarksActiveNarrationSessionStopped() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.state.tracks = [
+            Track(
+                url: URL(fileURLWithPath: "/tmp/book-ch2-s0-af_heart-v22.m4a"),
+                title: "Private Chapter Title")
+        ]
+        model.state.currentIndex = 0
+
+        model.stop()
+
+        #expect(model.narrationPlaybackState.snapshot.playback == .stopped)
+        let event = model.narrationPlaybackState.events.last
+        #expect(event?.category == .playback)
+        #expect(event?.severity == .notice)
+        #expect(event?.message == "Narration playback stopped")
+        #expect(event?.descriptor.developerMessage == "playback stopped chapter=3")
+        #expect(event?.descriptor.privateDetail == nil)
+    }
+
     @Test func preparationProgressRelayIsOrderedAndAwaited() async throws {
         let probe = PreparationProgressRelayProbe()
         let relayTask = Task {

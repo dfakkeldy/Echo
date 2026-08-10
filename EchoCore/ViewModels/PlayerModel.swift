@@ -899,8 +899,17 @@ final class PlayerModel {
             // is already false, so pause() (which clears the flag) won't run — clear it
             // here so a chapter that finishes rendering after the cutoff doesn't auto-
             // advance one chapter past the sleep cutoff.
+            let cancelledNarrationWait = self.state.awaitingNarrationChapter
             self.state.awaitingNarrationChapter = false
             if self.isPlaying { self.pause() }
+            if cancelledNarrationWait, self.narrationPlaybackState.hasSession {
+                self.narrationPlaybackState.transitionPlayback(
+                    to: .paused(
+                        chapterDisplayNumber: self.currentNarrationChapterDisplayNumber),
+                    event: self.playbackEvent(
+                        "Narration wait cancelled by sleep timer", severity: .notice))
+                self.publishNarrationStatusToNowPlaying()
+            }
             self.syncToWatch()
         }
         sleepTimerManager.onTick = { [weak self] in
@@ -1170,9 +1179,9 @@ final class PlayerModel {
             self?.startSelectionSecurityScopeIfNeeded()
             self?.startCurrentFileSecurityScopeIfNeeded()
         }
-        playbackController.coordinator_playStateChanged = { [weak self] isPlaying in
+        playbackController.coordinator_playStateChanged = { [weak self] change in
             guard let self else { return }
-            if isPlaying {
+            if change == .playing {
                 self.startPlaybackSessionLogging()
                 self.sessionRecorder?.yield(
                     .opened(
@@ -1193,6 +1202,32 @@ final class PlayerModel {
                     .closed(position: self.audioEngine.currentTime, at: Date()))
                 self.continuousAlignmentService?.stop()
             }
+
+            guard self.narrationPlaybackState.hasSession else { return }
+            switch change {
+            case .playing:
+                self.narrationPlaybackState.transitionPlayback(
+                    to: .playing(
+                        chapterDisplayNumber: self.currentNarrationChapterDisplayNumber),
+                    event: self.playbackEvent("Playing", severity: .notice))
+            case .paused:
+                self.narrationPlaybackState.transitionPlayback(
+                    to: .paused(
+                        chapterDisplayNumber: self.currentNarrationChapterDisplayNumber),
+                    event: self.playbackEvent("Paused", severity: .notice))
+            case .waitingForNarration:
+                self.narrationPlaybackState.transitionPlayback(
+                    to: .waitingForRender(
+                        chapterDisplayNumber: self.currentRenderingChapterDisplayNumber),
+                    event: self.playbackEvent(
+                        "Waiting for rendered narration", severity: .warning))
+            case .reachedNaturalEnd:
+                self.narrationPlaybackState.transitionPlayback(
+                    to: .completed,
+                    event: self.playbackEvent(
+                        "Narration playback complete", severity: .notice))
+            }
+            self.publishNarrationStatusToNowPlaying()
         }
         playlistManager.coordinator_postResetRefresh = { [weak self] in
             self?.updateCurrentChapterFromPlayerTime()
@@ -1765,6 +1800,19 @@ final class PlayerModel {
 
     func stop() {
         playbackController.stop()
+        if narrationPlaybackState.hasSession {
+            let chapterSuffix = currentNarrationChapterDisplayNumber.map {
+                " chapter=\($0)"
+            } ?? ""
+            narrationPlaybackState.transitionPlayback(
+                to: .stopped,
+                event: .init(
+                    category: .playback,
+                    severity: .notice,
+                    message: String(localized: "Narration playback stopped"),
+                    developerMessage: "playback stopped\(chapterSuffix)"))
+            publishNarrationStatusToNowPlaying()
+        }
         // stop() doesn't flow through the play/pause persistAndSync path, so
         // without this the iOS widget + Control Center toggle stay stuck on the
         // last "playing" snapshot. Publish the stopped state explicitly.

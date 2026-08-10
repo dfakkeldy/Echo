@@ -44,6 +44,39 @@ import Testing
         #expect(c.state.isPlaying == false)
     }
 
+    @Test func ordinaryPauseAndNarrationGapEmitDifferentChanges() {
+        let ordinary = PlaybackController()
+        var ordinaryChanges: [PlaybackActivityChange] = []
+        ordinary.coordinator_playStateChanged = { ordinaryChanges.append($0) }
+        ordinary.pause()
+        #expect(ordinaryChanges.last == .paused)
+
+        let gap = PlaybackController()
+        var gapChanges: [PlaybackActivityChange] = []
+        gap.coordinator_playStateChanged = { gapChanges.append($0) }
+        gap.state.tracks = [
+            Track(url: URL(fileURLWithPath: "/tmp/ch0.m4a"), title: "Chapter 1")
+        ]
+        gap.state.currentIndex = 0
+        gap.state.narrationRenderInFlight = true
+        gap.nextTrack()
+        #expect(gapChanges.last == .waitingForNarration)
+        #expect(gap.state.awaitingNarrationChapter)
+    }
+
+    @Test func naturalEndIsNotEmittedForManualNextAtQueueEnd() {
+        let controller = PlaybackController()
+        var changes: [PlaybackActivityChange] = []
+        controller.coordinator_playStateChanged = { changes.append($0) }
+        controller.state.tracks = [
+            Track(url: URL(fileURLWithPath: "/tmp/ch0.m4a"), title: "Chapter 1")
+        ]
+        controller.nextTrack()
+        #expect(!changes.contains(.reachedNaturalEnd))
+        controller.nextTrack(naturalEnd: true)
+        #expect(changes.last == .reachedNaturalEnd)
+    }
+
     @Test func endOfBookDoesNotWrapToStart() {
         // Last chapter of a single-track book: nextChapter() must stay put, not
         // auto-restart the book from chapter 0 (§5.2). Previously it fell through

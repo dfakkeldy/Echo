@@ -59,6 +59,42 @@
 
     extension PlayerModel {
 
+        var currentNarrationChapterDisplayNumber: Int? {
+            guard state.tracks.indices.contains(state.currentIndex) else { return nil }
+            let fileName = state.tracks[state.currentIndex].url.lastPathComponent
+            return NarrationFileNaming.location(fromFileName: fileName)?.chapterIndex.map {
+                $0 + 1
+            } ?? (state.currentIndex + 1)
+        }
+
+        var currentRenderingChapterDisplayNumber: Int? {
+            switch narrationPlaybackState.snapshot.render {
+            case .rendering(let unit), .heldByBackpressure(.some(let unit)):
+                return unit.chapterDisplayNumber
+            default:
+                return nil
+            }
+        }
+
+        func playbackEvent(
+            _ message: String,
+            severity: NarrationEventDescriptor.Severity
+        ) -> NarrationEventDescriptor {
+            let activity = message.lowercased()
+            let chapterSuffix = currentNarrationChapterDisplayNumber.map {
+                " chapter=\($0)"
+            } ?? ""
+            let renderingChapterSuffix = currentRenderingChapterDisplayNumber.map {
+                " renderingChapter=\($0)"
+            } ?? ""
+            return .init(
+                category: .playback,
+                severity: severity,
+                message: String(localized: String.LocalizationValue(message)),
+                developerMessage:
+                    "playback \(activity)\(chapterSuffix)\(renderingChapterSuffix)")
+        }
+
         func handleNarrationPreparationProgress(
             _ progress: NarrationPrepareProgress,
             operation: NarrationOperationToken,
@@ -688,6 +724,17 @@
                             // If playback paused at the end of the queue waiting for
                             // this chapter, advance into it now.
                             if self.state.awaitingNarrationChapter {
+                                self.narrationPlaybackState.transitionPlayback(
+                                    to: .resuming(
+                                        chapterDisplayNumber: segment.chapterDisplayNumber),
+                                    event: .init(
+                                        category: .playback,
+                                        severity: .notice,
+                                        message: String(
+                                            localized:
+                                                "Chapter \(segment.chapterDisplayNumber) ready · resuming"),
+                                        developerMessage:
+                                            "playback resuming chapter=\(segment.chapterDisplayNumber)"))
                                 self.state.awaitingNarrationChapter = false
                                 self.playbackController.nextTrack()
                             }

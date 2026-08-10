@@ -13,6 +13,18 @@ protocol PlaybackControllerDelegate: AnyObject {
     func playbackControllerInterruptionEnded(_ controller: PlaybackController, shouldResume: Bool)
 }
 
+nonisolated enum PlaybackActivityChange: Equatable, Sendable {
+    case playing
+    case paused
+    case waitingForNarration
+    case reachedNaturalEnd
+}
+
+nonisolated enum PlaybackPauseReason: Equatable, Sendable {
+    case userOrSystem
+    case narrationQueueWait
+}
+
 // MARK: - PlaybackController
 
 @MainActor @Observable
@@ -55,7 +67,7 @@ final class PlaybackController {
     @ObservationIgnored var coordinator_isRewindEnabled: (() -> Bool)?
     @ObservationIgnored var coordinator_configureAudioSession: (() -> Void)?
     @ObservationIgnored var coordinator_startSecurityScope: (() -> Void)?
-    @ObservationIgnored var coordinator_playStateChanged: ((_ isPlaying: Bool) -> Void)?
+    @ObservationIgnored var coordinator_playStateChanged: ((PlaybackActivityChange) -> Void)?
     @ObservationIgnored var coordinator_seekBackwardDuration: (() -> Double)?
     @ObservationIgnored var coordinator_seekForwardDuration: (() -> Double)?
 
@@ -208,7 +220,7 @@ final class PlaybackController {
         // Lock Screen may show the wrong transport button.
         state.isPlaying = true
         coordinator_persistAndSync?(false)
-        coordinator_playStateChanged?(true)
+        coordinator_playStateChanged?(.playing)
 
         audioEngine.playImmediately(atRate: speed)
         if audioEngine.currentTime.isFinite {
@@ -282,7 +294,7 @@ final class PlaybackController {
         return target
     }
 
-    func pause() {
+    func pause(reason: PlaybackPauseReason = .userOrSystem) {
         audioEngine.pause()
         state.isPlaying = false
 
@@ -295,7 +307,8 @@ final class PlaybackController {
 
         coordinator_endBackgroundTask?()
         coordinator_persistAndSync?(true)
-        coordinator_playStateChanged?(false)
+        coordinator_playStateChanged?(
+            reason == .narrationQueueWait ? .waitingForNarration : .paused)
 
         if audioEngine.isItemLoaded,
             let folder = state.activeBookURL?.absoluteString,
@@ -373,9 +386,14 @@ final class PlaybackController {
 
     // MARK: - Navigation
 
-    func nextTrack() {
+    func nextTrack(naturalEnd: Bool = false) {
         if state.chapters.count >= 2 {
+            let hasNextEnabledTrack = findNextEnabledTrackIndex(
+                in: state.tracks, currentIndex: state.currentIndex) != nil
             nextChapter()
+            if naturalEnd, !hasNextEnabledTrack, !state.narrationRenderInFlight {
+                coordinator_playStateChanged?(.reachedNaturalEnd)
+            }
             return
         }
         if let newIndex = findNextEnabledTrackIndex(
@@ -393,8 +411,10 @@ final class PlaybackController {
             // MUST stay pause()-then-set: pause() clears awaitingNarrationChapter, so
             // setting it BEFORE pause() would be wiped and playback would stall forever
             // waiting for an auto-advance that never fires.
-            pause()
+            pause(reason: .narrationQueueWait)
             state.awaitingNarrationChapter = true
+        } else if naturalEnd {
+            coordinator_playStateChanged?(.reachedNaturalEnd)
         }
         // End of book: stay put (§5.2). Do NOT wrap to the first enabled track —
         // that would auto-restart a finished book with loopMode == .off.
@@ -969,7 +989,7 @@ final class PlaybackController {
                     return
                 }
             }
-            nextTrack()
+            nextTrack(naturalEnd: true)
             return
         }
 
@@ -987,7 +1007,7 @@ final class PlaybackController {
                 self.coordinator_refreshProgress?()
             }
         } else {
-            nextTrack()
+            nextTrack(naturalEnd: true)
         }
     }
 
