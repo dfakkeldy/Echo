@@ -31,6 +31,7 @@ REQUIRED_NARRATE_CAPABILITIES = (
     "--cover",
     "--sidecar",
     "--voice",
+    "--voice-plan",
     "--chapter-voice",
     "--db",
     "--work-dir",
@@ -40,7 +41,12 @@ REQUIRED_NARRATE_CAPABILITIES = (
     "--max-chapters",
     "--no-pronunciation-review",
 )
-REQUIRED_CAPABILITIES = REQUIRED_NARRATE_CAPABILITIES + ("verify-sidecar",)
+REQUIRED_SUBCOMMAND_CAPABILITIES = (
+    "export-blocks",
+    "resolve-voice-plan",
+    "verify-sidecar",
+)
+REQUIRED_CAPABILITIES = REQUIRED_NARRATE_CAPABILITIES + REQUIRED_SUBCOMMAND_CAPABILITIES
 
 
 class ProbeRunner:
@@ -49,20 +55,13 @@ class ProbeRunner:
         *,
         version: str = "ONNX rv15 (Release)\n",
         capabilities: tuple[str, ...] = REQUIRED_NARRATE_CAPABILITIES,
-        verify_sidecar_help: str | None = (
-            "USAGE: echo-cli verify-sidecar --epub <epub> --audio <audio> "
-            "--sidecar <sidecar>\n"
-        ),
+        subcommand_capabilities: tuple[str, ...] = REQUIRED_SUBCOMMAND_CAPABILITIES,
         architectures: tuple[str, ...] = (platform.machine(),),
         minimum_macos_version: str = "15.0",
     ) -> None:
         self.version = version
         self.capabilities = capabilities
-        self.verify_sidecar_help = (
-            verify_sidecar_help
-            if verify_sidecar_help is not None
-            else "USAGE: echo-cli narrate ...\n"
-        )
+        self.subcommand_capabilities = subcommand_capabilities
         self.architectures = architectures
         self.minimum_macos_version = minimum_macos_version
         self.calls: list[tuple[tuple[str, ...], dict[str, object]]] = []
@@ -86,8 +85,13 @@ class ProbeRunner:
             stdout = self.version
         elif arguments[1:] == ["narrate", "--help"]:
             stdout = "USAGE: echo-cli narrate " + " ".join(self.capabilities) + "\n"
-        elif arguments[1:] == ["verify-sidecar", "--help"]:
-            stdout = self.verify_sidecar_help
+        elif len(arguments) == 3 and arguments[2] == "--help":
+            subcommand = arguments[1]
+            stdout = (
+                f"USAGE: echo-cli {subcommand} --fixture\n"
+                if subcommand in self.subcommand_capabilities
+                else "USAGE: echo-cli narrate ...\n"
+            )
         else:
             raise AssertionError(f"unexpected probe arguments: {arguments!r}")
         return subprocess.CompletedProcess(arguments, 0, stdout=stdout, stderr="")
@@ -332,12 +336,14 @@ class ReleaseCLIProbeTests(RendererPackageFixture):
             [
                 (str(self.executable), "--version"),
                 (str(self.executable), "narrate", "--help"),
+                (str(self.executable), "export-blocks", "--help"),
+                (str(self.executable), "resolve-voice-plan", "--help"),
                 (str(self.executable), "verify-sidecar", "--help"),
                 ("/usr/bin/lipo", "-archs", str(self.executable)),
                 ("/usr/bin/otool", "-l", str(self.executable)),
             ],
         )
-        for arguments, keywords in self.runner.calls[:3]:
+        for arguments, keywords in self.runner.calls[:5]:
             self.assertEqual(
                 keywords["env"]["ECHO_RESOURCE_DIR"],
                 str(self.build_root / "EchoNarrationResources"),
@@ -373,13 +379,20 @@ class ReleaseCLIProbeTests(RendererPackageFixture):
                         runner=ProbeRunner(capabilities=capabilities),
                     )
 
-    def test_rejects_a_missing_verify_sidecar_subcommand(self):
-        with self.assertRaises(ValueError):
-            probe_release_cli(
-                self.executable,
-                self.build_root / "EchoNarrationResources",
-                runner=ProbeRunner(verify_sidecar_help=None),
-            )
+    def test_rejects_each_missing_required_subcommand(self):
+        for missing in REQUIRED_SUBCOMMAND_CAPABILITIES:
+            with self.subTest(missing=missing):
+                available = tuple(
+                    capability
+                    for capability in REQUIRED_SUBCOMMAND_CAPABILITIES
+                    if capability != missing
+                )
+                with self.assertRaises(ValueError):
+                    probe_release_cli(
+                        self.executable,
+                        self.build_root / "EchoNarrationResources",
+                        runner=ProbeRunner(subcommand_capabilities=available),
+                    )
 
     def test_returns_only_the_capabilities_actually_observed(self):
         probe = probe_release_cli(
