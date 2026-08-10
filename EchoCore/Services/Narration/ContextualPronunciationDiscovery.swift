@@ -344,6 +344,7 @@ nonisolated enum ContextualPronunciationDiscovery {
             let hasExactProperNameContext =
                 analysis.ruleID == "homograph.live.product.weather-link-live"
                 || analysis.ruleID == "homograph.record.noun.preceder"
+                || analysis.ruleID == "homograph.record.noun.compound"
                 || analysis.ruleID == "homograph.content.noun.follower"
             guard !properNameRisks[familyOffset] || hasExactProperNameContext else {
                 continue

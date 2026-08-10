@@ -195,6 +195,31 @@ import Testing
         #expect(occurrence.deterministicRuleID == "homograph.content.noun.follower")
     }
 
+    @Test func titleCaseGovernanceNounsRetainContextualEvidence() {
+        let labels = ContextualPronunciationDiscovery.discover(
+            text: "Saye, Asha Ren, Mara Venn, Record Integrity, Harmful Content Containment.",
+            blockID: "governance-labels")
+        let checked = ContextualPronunciationDiscovery.discover(
+            text: "Harmful Content had checked the phrase against abuse patterns.",
+            blockID: "governance-checked")
+        let recommended = ContextualPronunciationDiscovery.discover(
+            text: "Harmful Content had recommended continued observability.",
+            blockID: "governance-recommended")
+
+        #expect(labels.map(\.targetWord) == ["Record", "Content"])
+        #expect(labels.map(\.deterministicCandidateID) == ["record.noun", "content.material"])
+        #expect(labels.map(\.deterministicRuleID) == [
+            "homograph.record.noun.compound",
+            "homograph.content.noun.follower",
+        ])
+        #expect(checked.map(\.targetWord) == ["Content"])
+        #expect(checked.map(\.deterministicCandidateID) == ["content.material"])
+        #expect(checked.map(\.deterministicRuleID) == ["homograph.content.noun.follower"])
+        #expect(recommended.map(\.targetWord) == ["Content"])
+        #expect(recommended.map(\.deterministicCandidateID) == ["content.material"])
+        #expect(recommended.map(\.deterministicRuleID) == ["homograph.content.noun.follower"])
+    }
+
     @Test func discoveryAdmitsExactWeatherLinkLiveProductEvidence() throws {
         let occurrence = try #require(
             ContextualPronunciationDiscovery.discover(
