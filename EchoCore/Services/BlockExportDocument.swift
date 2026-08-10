@@ -7,10 +7,26 @@ import Foundation
 /// exported blocks against sidecar anchors. Consumed by `echo-cli export-blocks`.
 nonisolated struct BlockExportDocument: Encodable {
     /// Bump when the JSON contract changes shape.
-    static let currentVersion = 1
+    static let currentVersion = 2
 
     struct Source: Encodable {
         let epub: String
+        /// SHA-256 of the exact source archive bytes, or `nil` when the input
+        /// was an expanded EPUB directory and cannot bind file-byte consumers.
+        let epubSHA256: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case epub, epubSHA256
+        }
+
+        func encode(to encoder: any Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(epub, forKey: .epub)
+            // Deliberately encode `nil` as JSON null: v2 consumers must be
+            // able to reject expanded-directory exports where file-byte
+            // identity is unavailable.
+            try container.encode(epubSHA256, forKey: .epubSHA256)
+        }
     }
 
     struct Block: Encodable {
@@ -58,13 +74,28 @@ nonisolated struct BlockExportDocument: Encodable {
     let source: Source
     let blocks: [Block]
 
-    init(epubName: String, records: [EPubBlockRecord]) {
+    init(epubName: String, epubSHA256: String? = nil, records: [EPubBlockRecord]) {
         self.version = Self.currentVersion
-        self.source = Source(epub: epubName)
+        self.source = Source(epub: epubName, epubSHA256: epubSHA256)
         self.blocks =
             records
             .sorted { $0.sequenceIndex < $1.sequenceIndex }
             .map(Block.init(record:))
+    }
+
+    /// Builds a v2 document from the exact CLI input path. Regular archive
+    /// files carry a streaming SHA-256; expanded EPUB directories encode a
+    /// null digest and therefore cannot satisfy file-bound consumers.
+    init(epubURL: URL, records: [EPubBlockRecord]) throws {
+        let values = try epubURL.resourceValues(forKeys: [.isRegularFileKey])
+        let epubSHA256 =
+            values.isRegularFile == true
+            ? try PronunciationArtifactIntegrity.sha256Hex(of: epubURL) : nil
+        self.init(
+            epubName: epubURL.lastPathComponent,
+            epubSHA256: epubSHA256,
+            records: records
+        )
     }
 
     /// Per-kind block counts for the CLI summary line.
