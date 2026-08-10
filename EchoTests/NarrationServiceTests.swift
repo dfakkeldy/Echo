@@ -1523,6 +1523,88 @@ private actor ShadowEvaluatorRecorder {
         #expect(tts.calls.isEmpty)
     }
 
+    @Test func invalidCacheValidationAndDeletionRunOffTheMainThread() async throws {
+        NarrationService.debugCacheValidationRanOnMainThread.withLock { $0 = nil }
+        NarrationService.debugInvalidCacheDeletionRanOnMainThread.withLock { $0 = nil }
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["off-main invalid cache"])
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let service = NarrationService(
+            db: db.writer, audiobookID: "b1", tts: MockTTSEngine(secondsPerChar: 0.1),
+            audioWriter: MockAudioWriter(), cacheDirectory: tmp,
+            state: NarrationState(), fmEnabled: { false })
+        let voice = VoiceID("af_heart")
+        let fileURL = await service.segmentCacheURL(
+            chapterIndex: 4,
+            segmentIndex: 0,
+            blocks: blocks,
+            voice: voice)
+        try Data("not an audio file".utf8).write(to: fileURL)
+
+        let reused = try await service.updateCachedNarrationTitle(
+            chapterIndex: 4,
+            chapterDisplayNumber: 5,
+            segmentIndex: 0,
+            blocks: blocks,
+            voice: voice,
+            chapterTitle: "Invalid cache")
+
+        let validationRanOnMainThread = NarrationService.debugCacheValidationRanOnMainThread
+            .withLock { $0 }
+        let deletionRanOnMainThread = NarrationService.debugInvalidCacheDeletionRanOnMainThread
+            .withLock { $0 }
+        #expect(reused == false)
+        #expect(validationRanOnMainThread == false)
+        #expect(deletionRanOnMainThread == false)
+        #expect(FileManager.default.fileExists(atPath: fileURL.path) == false)
+    }
+
+    @Test func cachedSegmentDatabaseFailurePropagatesWithoutDeletingValidAudio() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["preserve valid cache"])
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let service = NarrationService(
+            db: db.writer, audiobookID: "b1", tts: MockTTSEngine(secondsPerChar: 0.1),
+            audioWriter: AVFoundationAudioWriter(), cacheDirectory: tmp,
+            state: NarrationState(), fmEnabled: { false })
+        let voice = VoiceID("af_heart")
+        let fileURL = await service.segmentCacheURL(
+            chapterIndex: 4,
+            segmentIndex: 0,
+            blocks: blocks,
+            voice: voice)
+        let samples = [Float](repeating: 0.1, count: 2_400)
+        _ = try await AVFoundationAudioWriter().write(
+            [TTSChunk(samples: samples, sampleRate: 24_000, duration: 0.1)],
+            to: fileURL)
+        try db.write { database in
+            try database.execute(sql: "DROP TABLE track")
+        }
+
+        do {
+            _ = try await service.updateCachedNarrationTitle(
+                chapterIndex: 4,
+                chapterDisplayNumber: 5,
+                segmentIndex: 0,
+                blocks: blocks,
+                voice: voice,
+                chapterTitle: "Database failure")
+            Issue.record("Expected the track persistence failure to propagate.")
+        } catch is GRDB.DatabaseError {
+            // Expected: persistence failures must not be mistaken for invalid audio.
+        } catch {
+            Issue.record("Expected a GRDB database error, got \(error).")
+        }
+
+        #expect(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
     @Test func stableSegmentVoiceChangeCreatesOnlyThatChaptersNewCacheFile() async throws {
         let db = try DatabaseService(inMemory: ())
         let blocks = try seed(db, ["first"])

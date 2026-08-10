@@ -360,6 +360,11 @@ final class NarrationService {
         nonisolated static let debugNormalizeBlocksRanOnMainThread = Mutex<Bool?>(nil)
         /// Same seam for `contentSignatureOffMain`.
         nonisolated static let debugContentSignatureOffMainRanOnMainThread = Mutex<Bool?>(nil)
+        /// Same empirical executor seam for cached-file validation.
+        nonisolated static let debugCacheValidationRanOnMainThread = Mutex<Bool?>(nil)
+        /// Records the executor at the invalid-cache deletion point separately,
+        /// so validation cannot move off-main while deletion drifts back onto it.
+        nonisolated static let debugInvalidCacheDeletionRanOnMainThread = Mutex<Bool?>(nil)
         /// `Thread.isMainThread` is `NS_SWIFT_UNAVAILABLE_FROM_ASYNC` — reading it
         /// directly inside an `async` function body doesn't compile. This
         /// synchronous wrapper is the sanctioned way to read it from async code.
@@ -589,26 +594,56 @@ final class NarrationService {
             segmentIndex: segmentIndex)
         let sortOrder = segmentIndex.map { chapterIndex * 1000 + $0 } ?? chapterIndex
 
-        do {
-            let duration = try await Self.validatedDuration(ofCachedFile: fileURL)
-            try Task.checkCancellation()
-            try await db.write { db in
-                let existing = try TrackRecord
-                    .filter(Column("id") == trackID && Column("audiobook_id") == audiobookID)
-                    .fetchOne(db)
-                var track = TrackRecord(
-                    id: trackID,
-                    audiobookID: audiobookID,
-                    title: savedTitle,
-                    duration: duration,
-                    filePath: fileURL.path,
-                    isEnabled: existing?.isEnabled ?? true,
-                    sortOrder: sortOrder,
-                    playlistPosition: existing?.playlistPosition,
-                    narrationVoice: voice.rawValue)
-                try track.save(db)
+        guard let duration = try await Self.validatedDurationOrRemoveInvalidCache(
+            ofCachedFile: fileURL)
+        else {
+            return false
+        }
+        try Task.checkCancellation()
+        try await db.write { db in
+            let existing = try TrackRecord
+                .filter(Column("id") == trackID && Column("audiobook_id") == audiobookID)
+                .fetchOne(db)
+            var track = TrackRecord(
+                id: trackID,
+                audiobookID: audiobookID,
+                title: savedTitle,
+                duration: duration,
+                filePath: fileURL.path,
+                isEnabled: existing?.isEnabled ?? true,
+                sortOrder: sortOrder,
+                playlistPosition: existing?.playlistPosition,
+                narrationVoice: voice.rawValue)
+            try track.save(db)
+        }
+        return true
+    }
+
+    /// Validates and, when invalid, removes a published cache file off the main
+    /// actor. `@concurrent` is required because this project enables
+    /// `NonisolatedNonsendingByDefault`; plain `nonisolated async` would inherit
+    /// the caller's executor and leave synchronous resource metadata and deletion
+    /// on `MainActor`.
+    @concurrent
+    private nonisolated static func validatedDurationOrRemoveInvalidCache(
+        ofCachedFile fileURL: URL
+    ) async throws -> TimeInterval? {
+        #if DEBUG
+            let validationRanOnMainThread = Self.debugIsMainThread()
+            Self.debugCacheValidationRanOnMainThread.withLock {
+                $0 = validationRanOnMainThread
             }
-            return true
+        #endif
+        do {
+            let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
+            guard values.isRegularFile == true else {
+                throw CocoaError(.fileReadNoSuchFile)
+            }
+            let duration = CMTimeGetSeconds(try await AVURLAsset(url: fileURL).load(.duration))
+            guard duration.isFinite, duration > 0 else {
+                throw NarrationError.synthesisFailed
+            }
+            return duration
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -616,23 +651,15 @@ final class NarrationService {
             // persistence. Reuse only when AVFoundation proves the file duration;
             // otherwise discard the untrusted cache. The player owns rerendering so
             // progress, backpressure, and lifecycle events stay truthful.
+            #if DEBUG
+                let deletionRanOnMainThread = Self.debugIsMainThread()
+                Self.debugInvalidCacheDeletionRanOnMainThread.withLock {
+                    $0 = deletionRanOnMainThread
+                }
+            #endif
             try? FileManager.default.removeItem(at: fileURL)
-            return false
+            return nil
         }
-    }
-
-    private nonisolated static func validatedDuration(
-        ofCachedFile fileURL: URL
-    ) async throws -> TimeInterval {
-        let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
-        guard values.isRegularFile == true else {
-            throw CocoaError(.fileReadNoSuchFile)
-        }
-        let duration = CMTimeGetSeconds(try await AVURLAsset(url: fileURL).load(.duration))
-        guard duration.isFinite, duration > 0 else {
-            throw NarrationError.synthesisFailed
-        }
-        return duration
     }
 
     /// Render one complete segment file without mutating playback, alignment, or
