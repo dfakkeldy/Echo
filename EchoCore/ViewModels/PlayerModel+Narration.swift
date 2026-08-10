@@ -145,9 +145,105 @@
                     developerMessage: "chapter voice overrides count=\(voiceOverrideCount)"))
         }
 
-        func handleNarrationBlockProgress(
+        @discardableResult
+        func beginNarrationRenderUnit(
             chapterDisplayNumber: Int,
-            fraction: Double,
+            segmentIndex: Int,
+            voiceID: VoiceID,
+            totalBlocks: Int,
+            at date: Date = Date()
+        ) -> NarrationRenderUnitStatus {
+            let unit = NarrationRenderUnitStatus(
+                chapterDisplayNumber: chapterDisplayNumber,
+                segmentIndex: segmentIndex,
+                voiceID: voiceID,
+                completedBlocks: 0,
+                totalBlocks: max(0, totalBlocks),
+                startedAt: date,
+                lastProgressAt: date)
+            let voiceName = VoiceCatalog.voice(for: voiceID)?.displayName ?? voiceID.rawValue
+            narrationPlaybackState.transitionRender(
+                to: .rendering(unit),
+                event: .init(
+                    category: .render,
+                    severity: .notice,
+                    message: String(
+                        localized:
+                            "Rendering chapter \(chapterDisplayNumber) with \(voiceName)"),
+                    developerMessage:
+                        "render started chapter=\(chapterDisplayNumber) segment=\(segmentIndex) voiceID=\(voiceID.rawValue) voiceName=\(voiceName) totalBlocks=\(unit.totalBlocks)"),
+                at: date)
+            publishNarrationStatusToNowPlaying()
+            return unit
+        }
+
+        func holdNarrationRenderForBackpressure(at date: Date = Date()) {
+            if case .heldByBackpressure = narrationPlaybackState.snapshot.render {
+                return
+            }
+            let unit: NarrationRenderUnitStatus?
+            if case .rendering(let current) = narrationPlaybackState.snapshot.render {
+                unit = current
+            } else {
+                unit = nil
+            }
+            narrationPlaybackState.transitionRender(
+                to: .heldByBackpressure(unit),
+                event: .init(
+                    category: .buffer,
+                    severity: .info,
+                    message: String(
+                        localized: "Rendering paused while playback catches up"),
+                    developerMessage: "render held by playback backpressure"),
+                at: date)
+            publishNarrationStatusToNowPlaying()
+        }
+
+        func resumeNarrationRenderAfterBackpressure() {
+            guard case .heldByBackpressure(let unit?) = narrationPlaybackState.snapshot.render else {
+                return
+            }
+            narrationPlaybackState.transitionRender(to: .rendering(unit), event: nil)
+            publishNarrationStatusToNowPlaying()
+        }
+
+        func recordNarrationSegmentQueued(
+            totalSegments: Int,
+            chapterDisplayNumber: Int,
+            segmentIndex: Int
+        ) {
+            let buffer = NarrationBufferStatus(
+                totalSegments: totalSegments,
+                queuedSegments: tracks.count,
+                currentPlaybackIndex: state.currentIndex)
+            narrationPlaybackState.updateBuffer(buffer)
+            narrationPlaybackState.record(
+                .init(
+                    category: .buffer,
+                    severity: .notice,
+                    message: String(
+                        localized:
+                            "Chapter \(chapterDisplayNumber) added to playback queue"),
+                    developerMessage:
+                        "buffer queued chapter=\(chapterDisplayNumber) segment=\(segmentIndex) queuedSegments=\(buffer.queuedSegments) totalSegments=\(buffer.totalSegments) currentPlaybackIndex=\(buffer.currentPlaybackIndex) readyAhead=\(buffer.readyAhead)"))
+            publishNarrationStatusToNowPlaying()
+        }
+
+        func completeNarrationRendering(at date: Date = Date()) {
+            narrationPlaybackState.transitionRender(
+                to: .complete,
+                event: .init(
+                    category: .render,
+                    severity: .notice,
+                    message: String(localized: "All chapters rendered"),
+                    developerMessage: "render complete"),
+                at: date)
+            narrationPlaybackState.complete()
+            publishNarrationStatusToNowPlaying()
+        }
+
+        func handleNarrationBlockProgress(
+            _ progress: NarrationRenderProgress,
             operation: NarrationOperationToken,
             audiobookID: String
         ) {
@@ -158,11 +254,40 @@
                 audiobookID: audiobookID)
             else { return }
 
+            let previousUnit: NarrationRenderUnitStatus?
+            switch narrationPlaybackState.snapshot.render {
+            case .rendering(let unit), .heldByBackpressure(.some(let unit)):
+                previousUnit = unit
+            default:
+                previousUnit = nil
+            }
+            let unit = NarrationRenderUnitStatus(
+                chapterDisplayNumber: progress.chapterDisplayNumber,
+                segmentIndex: progress.segmentIndex,
+                voiceID: progress.voiceID,
+                completedBlocks: progress.completedBlocks,
+                totalBlocks: progress.totalBlocks,
+                startedAt: previousUnit?.startedAt ?? progress.timestamp,
+                lastProgressAt: progress.timestamp)
+            let completedNewBlock = progress.completedBlocks > (previousUnit?.completedBlocks ?? 0)
+            let event: NarrationEventDescriptor? = completedNewBlock
+                ? .init(
+                    category: .render,
+                    severity: .info,
+                    message: String(
+                        localized:
+                            "Chapter \(progress.chapterDisplayNumber) · block \(progress.completedBlocks) of \(progress.totalBlocks)"),
+                    developerMessage:
+                        "render progress chapter=\(progress.chapterDisplayNumber) segment=\(progress.segmentIndex.map(String.init) ?? "chapter") voiceID=\(progress.voiceID.rawValue) completedBlocks=\(progress.completedBlocks) totalBlocks=\(progress.totalBlocks)")
+                : nil
+            narrationPlaybackState.transitionRender(
+                to: .rendering(unit),
+                event: event,
+                at: progress.timestamp)
             state.currentSubtitle = NarrationProgressText.subtitle(
-                chapterDisplayNumber: chapterDisplayNumber, fraction: fraction)
-            // This callback only fires while the chapter is still rendering
-            // (render-then-play), so no audio is playing yet.
-            progressPresenter.updateNowPlayingInfo(isPaused: true)
+                chapterDisplayNumber: progress.chapterDisplayNumber,
+                fraction: unit.fraction)
+            publishNarrationStatusToNowPlaying()
         }
 
         /// Plays an audio-less study book's narration through the main playback
@@ -418,7 +543,7 @@
                         currentFolderURL: self.bookIdentityURL?.absoluteString,
                         audiobookID: audiobookID)
 
-                    let lookAhead = 2
+                    let lookAhead = NarrationRenderPolicy.lookAhead
                     for (offset, segment) in forwardSegments.enumerated() {
                         try Task.checkCancellation()
 
@@ -432,24 +557,48 @@
                             currentFolderURL: self.bookIdentityURL?.absoluteString,
                             audiobookID: audiobookID)
 
+                        let cacheFileExists = FileManager.default.fileExists(
+                            atPath: fileURL.path)
+                        let reusedCachedNarration: Bool
+                        if cacheFileExists {
+                            reusedCachedNarration = try await service.updateCachedNarrationTitle(
+                                chapterIndex: segment.chapterIndex,
+                                sourceChapterKey: segment.sourceChapterKey,
+                                chapterDisplayNumber: segment.chapterDisplayNumber,
+                                segmentIndex: segment.segmentIndex,
+                                blocks: segment.blocks,
+                                voice: segment.voice,
+                                chapterTitle: segment.chapterTitle)
+                            try NarrationRenderPolicy.checkTaskIsActive(
+                                currentFolderURL: self.bookIdentityURL?.absoluteString,
+                                audiobookID: audiobookID)
+                        } else {
+                            reusedCachedNarration = false
+                        }
+
                         // Persistence: a segment already rendered for this voice is
                         // reused as-is. Re-synthesising it would burn seconds of CPU
                         // time + battery + heat per segment and defeat the durable
                         // cache (and make export / per-item narration pointlessly
                         // expensive). So we only render — and only apply look-ahead
                         // backpressure — when the file is actually missing.
-                        if !FileManager.default.fileExists(atPath: fileURL.path) {
+                        if !reusedCachedNarration {
                             let alreadyRenderedThisChapter = Self.narrationCacheContainsChapter(
                                 audiobookID: audiobookID,
                                 chapterIndex: segment.chapterIndex,
                                 sourceChapterKey: segment.sourceChapterKey,
                                 voice: segment.voice,
-                                cacheDirectory: cacheDirectory)
+                                cacheDirectory: cacheDirectory) || cacheFileExists
                             guard
                                 self.allowNarrationRenderOrPresentPaywall(
                                     audiobookID: audiobookID,
                                     alreadyRenderedThisChapter: alreadyRenderedThisChapter)
                             else { return }
+                            self.beginNarrationRenderUnit(
+                                chapterDisplayNumber: segment.chapterDisplayNumber,
+                                segmentIndex: segment.segmentIndex,
+                                voiceID: segment.voice,
+                                totalBlocks: segment.blocks.count)
                             // Render-ahead backpressure via NarrationRenderPolicy
                             // (extracted for testability — see NarrationRenderPolicyTests).
                             while NarrationRenderPolicy.shouldPauseRender(
@@ -464,6 +613,7 @@
                                     audiobookID: audiobookID
                                 ) == false
                             {
+                                self.holdNarrationRenderForBackpressure()
                                 try await Task.sleep(for: .seconds(1))
                                 try Task.checkCancellation()
                             }
@@ -473,6 +623,7 @@
                                     audiobookID: audiobookID
                                 ) == false
                             else { return }
+                            self.resumeNarrationRenderAfterBackpressure()
                             // Lock screen: name the chapter being prepared (the in-app NarrationStatusView
                             // already shows the per-block bar; the lock screen otherwise sits on the stale
                             // "Preparing narration…"). The per-block percent is refreshed in the cover
@@ -480,7 +631,7 @@
                             self.state.currentSubtitle = NarrationProgressText.subtitle(
                                 chapterDisplayNumber: segment.chapterDisplayNumber, fraction: 0)
                             self.progressPresenter.updateNowPlayingInfo(isPaused: true)
-                            try await service.renderSegment(
+                            let rendered = try await service.renderSegment(
                                 chapterIndex: segment.chapterIndex,
                                 sourceChapterKey: segment.sourceChapterKey,
                                 chapterDisplayNumber: segment.chapterDisplayNumber,
@@ -488,10 +639,9 @@
                                 blocks: segment.blocks,
                                 voice: segment.voice,
                                 chapterTitle: segment.chapterTitle,
-                                onBlockProgress: { [weak self] displayNumber, fraction in
+                                onBlockProgress: { [weak self] progress in
                                     self?.handleNarrationBlockProgress(
-                                        chapterDisplayNumber: displayNumber,
-                                        fraction: fraction,
+                                        progress,
                                         operation: operation,
                                         audiobookID: audiobookID)
                                 })
@@ -503,18 +653,25 @@
                                     audiobookID: audiobookID
                                 ) == false
                             else { return }
+                            self.narrationPlaybackState.record(
+                                .init(
+                                    category: .render,
+                                    severity: .notice,
+                                    message: String(
+                                        localized:
+                                            "Chapter \(segment.chapterDisplayNumber) ready · \(Int(rendered.duration))s audio"),
+                                    developerMessage:
+                                        "render ready chapter=\(segment.chapterDisplayNumber) segment=\(segment.segmentIndex) durationSeconds=\(Int(rendered.duration))"))
                         } else {
-                            try await service.updateCachedNarrationTitle(
-                                chapterIndex: segment.chapterIndex,
-                                sourceChapterKey: segment.sourceChapterKey,
-                                chapterDisplayNumber: segment.chapterDisplayNumber,
-                                segmentIndex: segment.segmentIndex,
-                                blocks: segment.blocks,
-                                voice: segment.voice,
-                                chapterTitle: segment.chapterTitle)
-                            try NarrationRenderPolicy.checkTaskIsActive(
-                                currentFolderURL: self.bookIdentityURL?.absoluteString,
-                                audiobookID: audiobookID)
+                            self.narrationPlaybackState.record(
+                                .init(
+                                    category: .render,
+                                    severity: .info,
+                                    message: String(
+                                        localized:
+                                            "Using cached narration for chapter \(segment.chapterDisplayNumber)"),
+                                    developerMessage:
+                                        "render cache hit chapter=\(segment.chapterDisplayNumber) segment=\(segment.segmentIndex)"))
                         }
 
                         let track = Track(
@@ -535,6 +692,10 @@
                                 self.playbackController.nextTrack()
                             }
                         }
+                        self.recordNarrationSegmentQueued(
+                            totalSegments: segments.count,
+                            chapterDisplayNumber: segment.chapterDisplayNumber,
+                            segmentIndex: segment.segmentIndex)
                     }
 
                     // Backfill the earlier chapters so resume keeps the FULL queue
@@ -557,15 +718,33 @@
                         try NarrationRenderPolicy.checkTaskIsActive(
                             currentFolderURL: self.bookIdentityURL?.absoluteString,
                             audiobookID: audiobookID)
+                        let cacheFileExists = FileManager.default.fileExists(
+                            atPath: fileURL.path)
+                        let reusedCachedNarration: Bool
+                        if cacheFileExists {
+                            reusedCachedNarration = try await service.updateCachedNarrationTitle(
+                                chapterIndex: segment.chapterIndex,
+                                sourceChapterKey: segment.sourceChapterKey,
+                                chapterDisplayNumber: segment.chapterDisplayNumber,
+                                segmentIndex: segment.segmentIndex,
+                                blocks: segment.blocks,
+                                voice: segment.voice,
+                                chapterTitle: segment.chapterTitle)
+                            try NarrationRenderPolicy.checkTaskIsActive(
+                                currentFolderURL: self.bookIdentityURL?.absoluteString,
+                                audiobookID: audiobookID)
+                        } else {
+                            reusedCachedNarration = false
+                        }
                         // Reuse an already-rendered segment (persistence) — only
                         // synthesise the ones missing from the cache.
-                        if !FileManager.default.fileExists(atPath: fileURL.path) {
+                        if !reusedCachedNarration {
                             let alreadyRenderedThisChapter = Self.narrationCacheContainsChapter(
                                 audiobookID: audiobookID,
                                 chapterIndex: segment.chapterIndex,
                                 sourceChapterKey: segment.sourceChapterKey,
                                 voice: segment.voice,
-                                cacheDirectory: cacheDirectory)
+                                cacheDirectory: cacheDirectory) || cacheFileExists
                             guard
                                 self.allowNarrationRenderOrPresentPaywall(
                                     audiobookID: audiobookID,
@@ -577,14 +756,25 @@
                                     audiobookID: audiobookID
                                 ) == false
                             else { return }
-                            try await service.renderSegment(
+                            self.beginNarrationRenderUnit(
+                                chapterDisplayNumber: segment.chapterDisplayNumber,
+                                segmentIndex: segment.segmentIndex,
+                                voiceID: segment.voice,
+                                totalBlocks: segment.blocks.count)
+                            let rendered = try await service.renderSegment(
                                 chapterIndex: segment.chapterIndex,
                                 sourceChapterKey: segment.sourceChapterKey,
                                 chapterDisplayNumber: segment.chapterDisplayNumber,
                                 segmentIndex: segment.segmentIndex,
                                 blocks: segment.blocks,
                                 voice: segment.voice,
-                                chapterTitle: segment.chapterTitle)
+                                chapterTitle: segment.chapterTitle,
+                                onBlockProgress: { [weak self] progress in
+                                    self?.handleNarrationBlockProgress(
+                                        progress,
+                                        operation: operation,
+                                        audiobookID: audiobookID)
+                                })
                             try Task.checkCancellation()
                             guard
                                 NarrationRenderPolicy.bookWasSwitched(
@@ -592,18 +782,25 @@
                                     audiobookID: audiobookID
                                 ) == false
                             else { return }
+                            self.narrationPlaybackState.record(
+                                .init(
+                                    category: .render,
+                                    severity: .notice,
+                                    message: String(
+                                        localized:
+                                            "Chapter \(segment.chapterDisplayNumber) ready · \(Int(rendered.duration))s audio"),
+                                    developerMessage:
+                                        "render ready chapter=\(segment.chapterDisplayNumber) segment=\(segment.segmentIndex) durationSeconds=\(Int(rendered.duration))"))
                         } else {
-                            try await service.updateCachedNarrationTitle(
-                                chapterIndex: segment.chapterIndex,
-                                sourceChapterKey: segment.sourceChapterKey,
-                                chapterDisplayNumber: segment.chapterDisplayNumber,
-                                segmentIndex: segment.segmentIndex,
-                                blocks: segment.blocks,
-                                voice: segment.voice,
-                                chapterTitle: segment.chapterTitle)
-                            try NarrationRenderPolicy.checkTaskIsActive(
-                                currentFolderURL: self.bookIdentityURL?.absoluteString,
-                                audiobookID: audiobookID)
+                            self.narrationPlaybackState.record(
+                                .init(
+                                    category: .render,
+                                    severity: .info,
+                                    message: String(
+                                        localized:
+                                            "Using cached narration for chapter \(segment.chapterDisplayNumber)"),
+                                    developerMessage:
+                                        "render cache hit chapter=\(segment.chapterDisplayNumber) segment=\(segment.segmentIndex)"))
                         }
 
                         let track = Track(
@@ -612,6 +809,10 @@
                         self.tracks.insert(track, at: 0)
                         // The playing track shifted one slot right; keep currentIndex on it.
                         self.state.currentIndex += 1
+                        self.recordNarrationSegmentQueued(
+                            totalSegments: segments.count,
+                            chapterDisplayNumber: segment.chapterDisplayNumber,
+                            segmentIndex: segment.segmentIndex)
                     }
 
                     // All chapters rendered and queued.
@@ -623,7 +824,7 @@
                     else { return }
                     self.refreshNarrationOutline(allBlocks: allBlocks)
                     self.state.narrationRenderInFlight = false
-                    self.narrationPlaybackState.complete()
+                    self.completeNarrationRendering()
                     // Release both ONNX sessions and the grown arena now that every
                     // chapter of this book is rendered/queued (§7.1). The next book
                     // (or a later replay of this one) re-prepares lazily.

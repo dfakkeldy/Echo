@@ -1654,8 +1654,9 @@ struct NarrationRunResult {
                     blocks: chapterBlocks, voice: chapterVoice, blockVoice: blockVoice,
                     renderIdentityToken: resolvedVoicePlan?.voicePlanID,
                     chapterTitle: chapterTitle
-                ) { _, blockFraction in
-                    cursor.inflight[worker] = blockFraction
+                ) { progress in
+                    cursor.inflight[worker] =
+                        Double(progress.completedBlocks) / Double(max(progress.totalBlocks, 1))
                     emitChapterProgress()
                 }
                 // Capture anchors + track duration for this chapter.

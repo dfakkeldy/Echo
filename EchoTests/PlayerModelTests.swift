@@ -777,6 +777,86 @@ struct PlayerModelTests {
                 ])
     }
 
+    @Test func queuedNarrationSegmentUpdatesPlayableBuffer() {
+        let model = PlayerModel()
+        model.tracks = [
+            Track(url: URL(fileURLWithPath: "/segment-0.m4a"), title: "One"),
+            Track(url: URL(fileURLWithPath: "/segment-1.m4a"), title: "Two"),
+            Track(url: URL(fileURLWithPath: "/segment-2.m4a"), title: "Three"),
+        ]
+        model.state.currentIndex = 1
+
+        model.recordNarrationSegmentQueued(
+            totalSegments: 6,
+            chapterDisplayNumber: 2,
+            segmentIndex: 1)
+
+        #expect(model.narrationPlaybackState.snapshot.buffer.readyAhead == 1)
+        #expect(model.narrationPlaybackState.events.last?.category == .buffer)
+        #expect(model.narrationPlaybackState.events.last?.message == "Chapter 2 added to playback queue")
+    }
+
+    @Test func startingRenderRecordsStructuredUnitAndVoiceName() {
+        let model = PlayerModel()
+        let startedAt = Date(timeIntervalSince1970: 100)
+
+        let unit = model.beginNarrationRenderUnit(
+            chapterDisplayNumber: 2,
+            segmentIndex: 1,
+            voiceID: VoiceID("bm_daniel"),
+            totalBlocks: 4,
+            at: startedAt)
+
+        #expect(
+            unit
+                == NarrationRenderUnitStatus(
+                    chapterDisplayNumber: 2,
+                    segmentIndex: 1,
+                    voiceID: VoiceID("bm_daniel"),
+                    completedBlocks: 0,
+                    totalBlocks: 4,
+                    startedAt: startedAt,
+                    lastProgressAt: startedAt))
+        #expect(model.narrationPlaybackState.snapshot.render == .rendering(unit))
+        #expect(model.narrationPlaybackState.events.last?.message == "Rendering chapter 2 with Daniel")
+    }
+
+    @Test func backpressureRecordsOnceAndResumesTheSameUnit() {
+        let model = PlayerModel()
+        let unit = model.beginNarrationRenderUnit(
+            chapterDisplayNumber: 2,
+            segmentIndex: 1,
+            voiceID: VoiceID("bm_daniel"),
+            totalBlocks: 4,
+            at: Date(timeIntervalSince1970: 100))
+        let eventCountBeforeHold = model.narrationPlaybackState.events.count
+
+        model.holdNarrationRenderForBackpressure()
+        model.holdNarrationRenderForBackpressure()
+
+        #expect(model.narrationPlaybackState.snapshot.render == .heldByBackpressure(unit))
+        #expect(model.narrationPlaybackState.events.count == eventCountBeforeHold + 1)
+
+        model.resumeNarrationRenderAfterBackpressure()
+
+        #expect(model.narrationPlaybackState.snapshot.render == .rendering(unit))
+        #expect(model.narrationPlaybackState.events.count == eventCountBeforeHold + 1)
+    }
+
+    @Test func completingRenderDoesNotCompletePlayback() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.transitionPlayback(
+            to: .playing(chapterDisplayNumber: 2),
+            event: nil)
+
+        model.completeNarrationRendering()
+
+        #expect(model.narrationPlaybackState.snapshot.render == .complete)
+        #expect(
+            model.narrationPlaybackState.snapshot.playback
+                == .playing(chapterDisplayNumber: 2))
+    }
+
     @Test func preparationProgressRelayIsOrderedAndAwaited() async throws {
         let probe = PreparationProgressRelayProbe()
         let relayTask = Task {
@@ -860,23 +940,94 @@ struct PlayerModelTests {
         let bookURL = URL(fileURLWithPath: "/same-book", isDirectory: true)
         model.folderURL = bookURL
         let staleOperation = model.replaceNarrationOperation()
+        let startedAt = Date(timeIntervalSince1970: 100)
+        model.narrationPlaybackState.transitionRender(
+            to: .rendering(
+                NarrationRenderUnitStatus(
+                    chapterDisplayNumber: 3,
+                    segmentIndex: 0,
+                    voiceID: VoiceID("af_heart"),
+                    completedBlocks: 0,
+                    totalBlocks: 2,
+                    startedAt: startedAt,
+                    lastProgressAt: startedAt)),
+            event: nil)
 
         model.handleNarrationBlockProgress(
-            chapterDisplayNumber: 3,
-            fraction: 0.5,
+            NarrationRenderProgress(
+                chapterDisplayNumber: 3,
+                segmentIndex: 0,
+                voiceID: VoiceID("af_heart"),
+                completedBlocks: 1,
+                totalBlocks: 2,
+                timestamp: Date(timeIntervalSince1970: 101)),
             operation: staleOperation,
             audiobookID: bookURL.absoluteString)
         #expect(model.state.currentSubtitle == "Preparing chapter 3… 50%")
 
         _ = model.replaceNarrationOperation()
         model.state.currentSubtitle = "Current operation"
+        let renderBeforeStaleCallback = model.narrationPlaybackState.snapshot.render
+        let eventCountBeforeStaleCallback = model.narrationPlaybackState.events.count
         model.handleNarrationBlockProgress(
-            chapterDisplayNumber: 8,
-            fraction: 0.75,
+            NarrationRenderProgress(
+                chapterDisplayNumber: 8,
+                segmentIndex: 4,
+                voiceID: VoiceID("bm_daniel"),
+                completedBlocks: 3,
+                totalBlocks: 4,
+                timestamp: Date(timeIntervalSince1970: 102)),
             operation: staleOperation,
             audiobookID: bookURL.absoluteString)
 
         #expect(model.state.currentSubtitle == "Current operation")
+        #expect(model.narrationPlaybackState.snapshot.render == renderBeforeStaleCallback)
+        #expect(model.narrationPlaybackState.events.count == eventCountBeforeStaleCallback)
+    }
+
+    @Test func blockProgressPreservesRenderStartAndRecordsCompletion() {
+        let model = PlayerModel()
+        let bookURL = URL(fileURLWithPath: "/same-book", isDirectory: true)
+        model.folderURL = bookURL
+        let operation = model.replaceNarrationOperation()
+        let startedAt = Date(timeIntervalSince1970: 100)
+        model.narrationPlaybackState.transitionRender(
+            to: .rendering(
+                NarrationRenderUnitStatus(
+                    chapterDisplayNumber: 3,
+                    segmentIndex: 0,
+                    voiceID: VoiceID("af_heart"),
+                    completedBlocks: 0,
+                    totalBlocks: 2,
+                    startedAt: startedAt,
+                    lastProgressAt: startedAt)),
+            event: nil)
+        let progressAt = Date(timeIntervalSince1970: 101)
+
+        model.handleNarrationBlockProgress(
+            NarrationRenderProgress(
+                chapterDisplayNumber: 3,
+                segmentIndex: 0,
+                voiceID: VoiceID("af_heart"),
+                completedBlocks: 1,
+                totalBlocks: 2,
+                timestamp: progressAt),
+            operation: operation,
+            audiobookID: bookURL.absoluteString)
+
+        #expect(
+            model.narrationPlaybackState.snapshot.render
+                == .rendering(
+                    NarrationRenderUnitStatus(
+                        chapterDisplayNumber: 3,
+                        segmentIndex: 0,
+                        voiceID: VoiceID("af_heart"),
+                        completedBlocks: 1,
+                        totalBlocks: 2,
+                        startedAt: startedAt,
+                        lastProgressAt: progressAt)))
+        #expect(model.narrationPlaybackState.events.last?.category == .render)
+        #expect(model.narrationPlaybackState.events.last?.message == "Chapter 3 · block 1 of 2")
     }
 
     @Test func narrationPreparationIsGuardedBeforeMutationAndTTS() throws {

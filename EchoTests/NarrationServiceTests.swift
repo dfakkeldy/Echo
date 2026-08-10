@@ -17,7 +17,7 @@ extension NarrationService {
         blocks: [EPubBlockRecord],
         voice: VoiceID,
         chapterTitle: String? = nil,
-        onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)? = nil
+        onBlockProgress: (@MainActor (NarrationRenderProgress) -> Void)? = nil
     ) async throws -> RenderedNarrationFile {
         try await renderChapter(
             chapterIndex: chapterIndex,
@@ -1356,6 +1356,53 @@ private actor ShadowEvaluatorRecorder {
             ])
     }
 
+    @Test func renderSegmentReportsZeroThenEachSpeakableBlock() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let chapterBlocks = try seed(db, ["One.", "Two.", "Three."])
+        let service = makeService(
+            db,
+            tts: MockTTSEngine(secondsPerChar: 0.1),
+            writer: MockAudioWriter())
+        var values: [NarrationRenderProgress] = []
+
+        _ = try await service.renderSegment(
+            chapterIndex: 0,
+            chapterDisplayNumber: 1,
+            segmentIndex: 0,
+            blocks: chapterBlocks,
+            voice: VoiceID("af_heart"),
+            onBlockProgress: { values.append($0) })
+
+        #expect(values.map(\.completedBlocks) == [0, 1, 2, 3])
+        #expect(values.allSatisfy { $0.totalBlocks == 3 })
+        #expect(values.allSatisfy { $0.chapterDisplayNumber == 1 })
+        #expect(values.allSatisfy { $0.segmentIndex == 0 })
+        #expect(values.allSatisfy { $0.voiceID == VoiceID("af_heart") })
+    }
+
+    @Test func renderSegmentReturnsPersistedRenderedMetadata() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["Metadata"])
+        let service = makeService(
+            db,
+            tts: MockTTSEngine(secondsPerChar: 0.1),
+            writer: MockAudioWriter())
+
+        let rendered = try await service.renderSegment(
+            chapterIndex: 4,
+            chapterDisplayNumber: 5,
+            segmentIndex: 2,
+            blocks: blocks,
+            voice: VoiceID("bm_daniel"))
+
+        #expect(rendered.chapterIndex == 4)
+        #expect(rendered.chapterDisplayNumber == 5)
+        #expect(rendered.segmentIndex == 2)
+        #expect(rendered.duration == 0.8)
+        let tracks = try TrackDAO(db: db.writer).tracks(for: "b1")
+        #expect(tracks.map(\.filePath) == [rendered.fileURL.path])
+    }
+
     @Test func stableCachedSegmentReorderUpdatesSortOrderWithoutSynthesizing() async throws {
         let db = try DatabaseService(inMemory: ())
         let blocks = try seed(db, ["first"])
@@ -1424,7 +1471,7 @@ private actor ShadowEvaluatorRecorder {
             [TTSChunk(samples: samples, sampleRate: 24_000, duration: 0.1)],
             to: fileURL)
 
-        try await service.updateCachedNarrationTitle(
+        let reused = try await service.updateCachedNarrationTitle(
             chapterIndex: 4,
             sourceChapterKey: sourceChapterKey,
             chapterDisplayNumber: 2,
@@ -1440,6 +1487,40 @@ private actor ShadowEvaluatorRecorder {
         #expect(track.title == "Recovered cache")
         #expect(track.sortOrder == 4_000)
         #expect(track.narrationVoice == voice.rawValue)
+        #expect(reused)
+    }
+
+    @Test func invalidCachedSegmentIsRemovedAndReportedForCallerRender() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["invalid cache"])
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let tts = MockTTSEngine(secondsPerChar: 0.1)
+        let service = NarrationService(
+            db: db.writer, audiobookID: "b1", tts: tts,
+            audioWriter: MockAudioWriter(), cacheDirectory: tmp,
+            state: NarrationState(), fmEnabled: { false })
+        let voice = VoiceID("af_heart")
+        let fileURL = await service.segmentCacheURL(
+            chapterIndex: 4,
+            segmentIndex: 0,
+            blocks: blocks,
+            voice: voice)
+        try Data("not an audio file".utf8).write(to: fileURL)
+
+        let reused = try await service.updateCachedNarrationTitle(
+            chapterIndex: 4,
+            chapterDisplayNumber: 5,
+            segmentIndex: 0,
+            blocks: blocks,
+            voice: voice,
+            chapterTitle: "Invalid cache")
+
+        #expect(reused == false)
+        #expect(FileManager.default.fileExists(atPath: fileURL.path) == false)
+        #expect(tts.calls.isEmpty)
     }
 
     @Test func stableSegmentVoiceChangeCreatesOnlyThatChaptersNewCacheFile() async throws {

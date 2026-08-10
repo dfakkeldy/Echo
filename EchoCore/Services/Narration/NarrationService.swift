@@ -458,8 +458,7 @@ final class NarrationService {
         blockVoice: @escaping @Sendable (String) -> VoiceID,
         renderIdentityToken: String? = nil,
         chapterTitle: String? = nil,
-        onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)? =
-            nil
+        onBlockProgress: (@MainActor (NarrationRenderProgress) -> Void)? = nil
     ) async throws -> RenderedNarrationFile {
         let displayNumber = chapterNumber ?? (chapterIndex + 1)
         let savedTitle = Self.savedTitle(
@@ -514,6 +513,7 @@ final class NarrationService {
     /// remain segment-local (0-based) and the matching timeline rows are stamped
     /// with `segment_key` so read-along can disambiguate same-chapter time
     /// collisions when segment files are eventually queued for playback.
+    @discardableResult
     func renderSegment(
         chapterIndex: Int,
         sourceChapterKey: String? = nil,
@@ -522,9 +522,8 @@ final class NarrationService {
         blocks: [EPubBlockRecord],
         voice: VoiceID,
         chapterTitle: String? = nil,
-        onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)? =
-            nil
-    ) async throws {
+        onBlockProgress: (@MainActor (NarrationRenderProgress) -> Void)? = nil
+    ) async throws -> RenderedNarrationFile {
         let savedTitle = Self.savedTitle(
             displayNumber: chapterDisplayNumber, blocks: blocks, chapterTitle: chapterTitle)
         let rendered = try await renderSegmentFile(
@@ -549,8 +548,14 @@ final class NarrationService {
             segmentKey: ReaderActiveBlockResolver.segmentKey(
                 forChapter: chapterIndex,
                 segment: segmentIndex))
+        return rendered
     }
 
+    /// Reconciles persisted metadata for a validated cache file.
+    ///
+    /// Returns `false` after removing an invalid cache candidate so the caller
+    /// can run its normal, observable rendering path.
+    @discardableResult
     func updateCachedNarrationTitle(
         chapterIndex: Int,
         sourceChapterKey: String? = nil,
@@ -559,7 +564,7 @@ final class NarrationService {
         blocks: [EPubBlockRecord],
         voice: VoiceID,
         chapterTitle: String? = nil
-    ) async throws {
+    ) async throws -> Bool {
         let savedTitle = Self.savedTitle(
             displayNumber: chapterDisplayNumber, blocks: blocks, chapterTitle: chapterTitle)
         let fileURL: URL
@@ -603,32 +608,16 @@ final class NarrationService {
                     narrationVoice: voice.rawValue)
                 try track.save(db)
             }
+            return true
         } catch is CancellationError {
             throw CancellationError()
         } catch {
             // A durable filename can survive process death after publish but before
             // persistence. Reuse only when AVFoundation proves the file duration;
-            // otherwise discard the untrusted cache and rebuild this exact unit.
+            // otherwise discard the untrusted cache. The player owns rerendering so
+            // progress, backpressure, and lifecycle events stay truthful.
             try? FileManager.default.removeItem(at: fileURL)
-            if let segmentIndex {
-                try await renderSegment(
-                    chapterIndex: chapterIndex,
-                    sourceChapterKey: sourceChapterKey,
-                    chapterDisplayNumber: chapterDisplayNumber,
-                    segmentIndex: segmentIndex,
-                    blocks: blocks,
-                    voice: voice,
-                    chapterTitle: chapterTitle)
-            } else {
-                try await renderChapter(
-                    chapterIndex: chapterIndex,
-                    sourceChapterKey: sourceChapterKey,
-                    chapterNumber: chapterDisplayNumber,
-                    blocks: blocks,
-                    voice: voice,
-                    blockVoice: { _ in voice },
-                    chapterTitle: chapterTitle)
-            }
+            return false
         }
     }
 
@@ -657,8 +646,7 @@ final class NarrationService {
         segmentIndex: Int,
         blocks: [EPubBlockRecord],
         voice: VoiceID,
-        onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)? =
-            nil
+        onBlockProgress: (@MainActor (NarrationRenderProgress) -> Void)? = nil
     ) async throws -> RenderedNarrationFile {
         let overrides = pronunciationOverrides()
         let occurrenceOverrides = pronunciationOccurrenceOverrides()
@@ -887,7 +875,7 @@ final class NarrationService {
         overrides: PronunciationOverrides,
         occurrenceOverrides: PronunciationOccurrenceOverrides,
         fmEnabled: Bool,
-        onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)?
+        onBlockProgress: (@MainActor (NarrationRenderProgress) -> Void)?
     ) async throws -> RenderedNarrationFile {
         if reportsProgress {
             state.update(
@@ -902,6 +890,14 @@ final class NarrationService {
             fmEnabled: fmEnabled)
         let speakableBlockIDs = plan.blocks.filter(\.isSpeakable).map(\.blockID)
         var renderedSpeakableBlocks = 0
+        onBlockProgress?(
+            NarrationRenderProgress(
+                chapterDisplayNumber: chapterDisplayNumber,
+                segmentIndex: segmentIndex,
+                voiceID: voice,
+                completedBlocks: renderedSpeakableBlocks,
+                totalBlocks: speakableBlockIDs.count,
+                timestamp: Date()))
         let unitLabel =
             segmentIndex.map {
                 "Chapter \(chapterDisplayNumber) segment \($0 + 1)"
@@ -1057,7 +1053,14 @@ final class NarrationService {
                         progress: progress,
                         statusMessage: "Preparing chapter \(chapterDisplayNumber)…")
                 }
-                onBlockProgress?(chapterDisplayNumber, progress)
+                onBlockProgress?(
+                    NarrationRenderProgress(
+                        chapterDisplayNumber: chapterDisplayNumber,
+                        segmentIndex: segmentIndex,
+                        voiceID: voice,
+                        completedBlocks: renderedSpeakableBlocks,
+                        totalBlocks: speakableBlockIDs.count,
+                        timestamp: Date()))
             }
             if let silence = plannedBlock.trailingSilence {
                 try await stream.append(.silence(seconds: silence.duration, sampleRate: 24_000))
