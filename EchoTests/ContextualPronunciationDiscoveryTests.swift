@@ -182,6 +182,19 @@ import Testing
         #expect(occurrence.deterministicRuleID == "homograph.record.noun.preceder")
     }
 
+    @Test func allCapsContentBeforeCorrectnessRetainsExactNounEvidence() throws {
+        let occurrence = try #require(
+            ContextualPronunciationDiscovery.discover(
+                text: "CONTENT CORRECTNESS: NOT ASSESSED",
+                blockID: "content-correctness"
+            ).first)
+
+        #expect(occurrence.targetWord == "CONTENT")
+        #expect(occurrence.familyID == "content")
+        #expect(occurrence.deterministicCandidateID == "content.material")
+        #expect(occurrence.deterministicRuleID == "homograph.content.noun.follower")
+    }
+
     @Test func discoveryAdmitsExactWeatherLinkLiveProductEvidence() throws {
         let occurrence = try #require(
             ContextualPronunciationDiscovery.discover(
