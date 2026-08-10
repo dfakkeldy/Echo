@@ -20,23 +20,40 @@ import Testing
     }
 
     @Test func mapsMonotonicallyIntoTheReservedFirstBand() {
-        let d0 = NarrationPrepareStatus.batch(for: .downloadingModels(fraction: 0))
-        let d1 = NarrationPrepareStatus.batch(for: .downloadingModels(fraction: 1))
-        let c0 = NarrationPrepareStatus.batch(for: .compilingModels(done: 0, total: 20))
-        let c1 = NarrationPrepareStatus.batch(for: .compilingModels(done: 20, total: 20))
+        let checking = NarrationPrepareStatus.batch(for: .checkingModel(expectedBytes: 100_000_000))
+        let d0 = NarrationPrepareStatus.batch(
+            for: .downloadingModel(receivedBytes: 0, totalBytes: 100_000_000))
+        let d1 = NarrationPrepareStatus.batch(
+            for: .downloadingModel(receivedBytes: 100_000_000, totalBytes: 100_000_000))
+        let validating = NarrationPrepareStatus.batch(for: .validatingModel(byteCount: 100_000_000))
+        let loading = NarrationPrepareStatus.batch(for: .loadingModel)
         let ready = NarrationPrepareStatus.batch(for: .ready)
 
+        #expect(checking.fraction == 0)
         #expect(d0.fraction == 0)
-        #expect(d1.fraction <= c0.fraction)  // download band ends at/below compile band start
-        #expect(c1.fraction <= ready.fraction)
+        #expect(d1.fraction <= validating.fraction)
+        #expect(validating.fraction <= loading.fraction)
+        #expect(loading.fraction <= ready.fraction)
         #expect(ready.fraction == 0.15)  // never exceeds the reserved prepare band
         #expect(d1.message.contains("100%"))
-        #expect(c0.message == "Loading voice models… 0 of 20")
+        #expect(loading.message == "Loading narration model…")
     }
 
-    @Test func compileTotalZeroDoesNotDivideByZero() {
-        let s = NarrationPrepareStatus.batch(for: .compilingModels(done: 0, total: 0))
+    @Test func downloadTotalZeroDoesNotDivideByZero() {
+        let s = NarrationPrepareStatus.batch(
+            for: .downloadingModel(receivedBytes: 0, totalBytes: 0))
         #expect(s.fraction.isFinite)
+    }
+
+    @Test func reportsExactBatchModelDeliveryText() {
+        let downloading = NarrationPrepareStatus.batch(
+            for: .downloadingModel(
+                receivedBytes: 50_000_000, totalBytes: 100_000_000))
+        let cached = NarrationPrepareStatus.batch(
+            for: .modelCacheHit(byteCount: 163_234_740))
+
+        #expect(downloading.message == "Downloading narration model… 50% · 50 of 100 MB")
+        #expect(cached.message == "Narration model cached · 163 MB")
     }
 
     /// Regression: `prepare(progress:)` must reach a concrete engine's override
@@ -64,6 +81,20 @@ import Testing
         #expect(box.items == [.ready])
     }
 
+    @Test func defaultPrepareProgressFinishesReady() async throws {
+        final class DefaultEngine: TTSEngine, @unchecked Sendable {
+            func prepare() async throws {}
+            func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
+                TTSChunk(samples: [], sampleRate: 24_000, duration: 0)
+            }
+        }
+
+        let box = ProgressBox()
+        let engine: any TTSEngine = DefaultEngine()
+        try await engine.prepare(progress: { box.append($0) })
+        #expect(box.items == [.ready])
+    }
+
     /// Regression for the coalescing-join drop: a subscriber that joins an
     /// in-flight prepare (via `ProgressFanOut`) must still receive subsequent
     /// events, in order. Without this the iOS Listen tap that arrives after the
@@ -73,15 +104,29 @@ import Testing
         let early = ProgressBox()
         let late = ProgressBox()
         fan.add { early.append($0) }
-        fan.emit(.downloadingModels(fraction: 0.5))
+        fan.emit(.downloadingModel(receivedBytes: 50, totalBytes: 100))
         fan.add { late.append($0) }  // joins after the first event
-        fan.emit(.compilingModels(done: 1, total: 2))
+        fan.emit(.validatingModel(byteCount: 100))
+        fan.emit(.loadingModel)
         fan.emit(.ready)
         #expect(
             early.items == [
-                .downloadingModels(fraction: 0.5), .compilingModels(done: 1, total: 2), .ready,
+                .downloadingModel(receivedBytes: 50, totalBytes: 100),
+                .validatingModel(byteCount: 100), .loadingModel, .ready,
             ])
-        #expect(late.items == [.compilingModels(done: 1, total: 2), .ready])
+        #expect(
+            late.items == [
+                .downloadingModel(receivedBytes: 50, totalBytes: 100),
+                .validatingModel(byteCount: 100), .loadingModel, .ready,
+            ])
+    }
+
+    @Test func fanOutReplaysLatestProgressToLateJoiner() {
+        let fan = ProgressFanOut()
+        let late = ProgressBox()
+        fan.emit(.downloadingModel(receivedBytes: 50, totalBytes: 100))
+        fan.add { late.append($0) }
+        #expect(late.items == [.downloadingModel(receivedBytes: 50, totalBytes: 100)])
     }
 
     /// Terminal-replay: a subscriber added AFTER `.ready` has already been emitted
@@ -97,18 +142,18 @@ import Testing
         #expect(box.items == [.ready])
     }
 
-    /// `clear()` must reset the stored terminal state too, not just the subscriber
-    /// list — otherwise a recycled fan-out would replay a stale `.ready` to a new
-    /// subscriber and skip intermediate progress. After clear() a fresh subscriber
-    /// receives nothing until new events are emitted, proving the box is reusable.
-    @Test func clearResetsTerminalReplay() {
+    /// `clear()` must reset the stored latest state too, not just the subscriber
+    /// list — otherwise a recycled fan-out could replay stale progress to a new
+    /// subscriber. After clear() a fresh subscriber receives nothing until new
+    /// events are emitted, proving the box is reusable.
+    @Test func clearResetsLatestReplay() {
         let fan = ProgressFanOut()
         fan.emit(.ready)
         fan.clear()
         let box = ProgressBox()
         fan.add { box.append($0) }  // after clear — must NOT get a stale .ready replay
         #expect(box.items.isEmpty)
-        fan.emit(.downloadingModels(fraction: 0.1))  // box is reusable post-clear
-        #expect(box.items == [.downloadingModels(fraction: 0.1)])
+        fan.emit(.downloadingModel(receivedBytes: 10, totalBytes: 100))
+        #expect(box.items == [.downloadingModel(receivedBytes: 10, totalBytes: 100)])
     }
 }

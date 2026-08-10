@@ -34,21 +34,33 @@
             else { return }
 
             switch progress {
-            case .downloadingModels(let fraction):
+            case .checkingModel:
                 narrationPlaybackState.update(
-                    phase: .preparingEngine, progress: 0.5 * fraction,
-                    statusMessage:
-                        "Downloading voice models… \(Int(min(max(fraction, 0), 1) * 100))%"
-                )
-            case .compilingModels(let done, let total):
-                let fraction = total > 0 ? Double(done) / Double(total) : 0
+                    phase: .preparingEngine, progress: 0,
+                    statusMessage: "Checking narration model…")
+            case .modelCacheHit:
                 narrationPlaybackState.update(
-                    phase: .preparingEngine, progress: 0.5 + 0.5 * fraction,
-                    statusMessage: "Loading voice models… \(done) of \(total)")
+                    phase: .preparingEngine, progress: 0.9,
+                    statusMessage: "Narration model cached")
+            case .downloadingModel(let receivedBytes, let totalBytes):
+                let fraction = totalBytes > 0
+                    ? min(max(Double(receivedBytes) / Double(totalBytes), 0), 1)
+                    : 0
+                narrationPlaybackState.update(
+                    phase: .preparingEngine, progress: 0.9 * fraction,
+                    statusMessage: "Downloading narration model… \(Int(fraction * 100))%")
+            case .validatingModel:
+                narrationPlaybackState.update(
+                    phase: .preparingEngine, progress: 0.9,
+                    statusMessage: "Validating narration model…")
+            case .loadingModel:
+                narrationPlaybackState.update(
+                    phase: .preparingEngine, progress: 0.9,
+                    statusMessage: "Loading narration model…")
             case .ready:
                 narrationPlaybackState.update(
                     phase: .preparingEngine, progress: 1.0,
-                    statusMessage: String(localized: "Voice models ready"))
+                    statusMessage: "Narration model ready")
             }
         }
 
@@ -299,7 +311,7 @@
 
                     // Pay the one-time model download + ONNX session load before the
                     // first chapter, reporting real progress so the user sees
-                    // "Downloading… %" / "Loading voice models… N of M" instead of a
+                    // Exact model-delivery / load status instead of a
                     // silent "Preparing narration…" spinner.
                     try NarrationRenderPolicy.checkTaskIsActive(
                         currentFolderURL: self.bookIdentityURL?.absoluteString,

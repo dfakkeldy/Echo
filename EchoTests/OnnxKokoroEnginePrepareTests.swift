@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #if os(iOS) || os(macOS)
     import Foundation
+    import Synchronization
     import Testing
 
     @testable import Echo
@@ -43,6 +44,36 @@
 
             // Two prepares, two real attempts — not one cached failure replayed.
             #expect(await counter.count == 2)
+        }
+
+        @Test func providerProgressIsForwardedWithoutLosingExactBytes() async {
+            nonisolated final class ProgressBox: Sendable {
+                private let values = Mutex<[NarrationPrepareProgress]>([])
+
+                var items: [NarrationPrepareProgress] { values.withLock { $0 } }
+
+                func append(_ progress: NarrationPrepareProgress) {
+                    values.withLock { $0.append(progress) }
+                }
+            }
+
+            let box = ProgressBox()
+            let engine = OnnxKokoroEngine(modelProvider: { progress in
+                progress(.checkingModel(expectedBytes: 163_234_740))
+                progress(
+                    .downloadingModel(
+                        receivedBytes: 65_536, totalBytes: 163_234_740))
+                throw NarrationError.engineUnavailable
+            })
+
+            await #expect(throws: (any Error).self) {
+                try await engine.prepare(progress: { box.append($0) })
+            }
+            #expect(
+                box.items == [
+                    .checkingModel(expectedBytes: 163_234_740),
+                    .downloadingModel(receivedBytes: 65_536, totalBytes: 163_234_740),
+                ])
         }
     }
 #endif

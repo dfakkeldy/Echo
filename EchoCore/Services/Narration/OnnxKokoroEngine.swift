@@ -58,7 +58,8 @@
         /// Resolves the local model URL (downloading once if absent). Injected so a
         /// test can exercise the failure path of `prepare()` without a network or
         /// the 163 MB model; defaults to the real `ensureModel`.
-        private let modelProvider: @Sendable (@Sendable (Double) -> Void) async throws -> URL
+        private let modelProvider:
+            @Sendable (@Sendable (NarrationPrepareProgress) -> Void) async throws -> URL
 
         /// Intra-op thread count for the CPU EP. The A14 has 2 performance cores;
         /// pinning intra-op parallelism to them is the throughput lever measured on
@@ -76,7 +77,9 @@
         /// Test seam: inject a custom model provider (e.g. one that throws) to drive
         /// the no-cache-on-failure retry path.
         init(
-            modelProvider: @escaping @Sendable (@Sendable (Double) -> Void) async throws -> URL,
+            modelProvider: @escaping @Sendable (
+                @Sendable (NarrationPrepareProgress) -> Void
+            ) async throws -> URL,
             intraOpThreads: Int32 = 2
         ) {
             self.modelProvider = modelProvider
@@ -163,9 +166,7 @@
             let generation = lifecycleGeneration
             let task = Task<Void, Error> { [logger, modelProvider, intraOpThreads, generation] in
                 defer { fan.clear() }
-                let modelURL = try await modelProvider { f in
-                    fan.emit(.downloadingModels(fraction: f))
-                }
+                let modelURL = try await modelProvider { fan.emit($0) }
                 // A concurrent unload() during the await above bumped
                 // lifecycleGeneration and cancelled this task; bail before doing
                 // any more work (including the possibly multi-second session
@@ -173,7 +174,6 @@
                 try Task.checkCancellation()
                 // No Espresso/AOT compile — session-create is the whole cost, and
                 // it's seconds. Time it so the A14 spike has the load number.
-                fan.emit(.compilingModels(done: 0, total: 1))
                 let loadStart = Date()
                 let env = try ORTEnv(loggingLevel: ORTLoggingLevel.warning)
                 let options = try ORTSessionOptions()
@@ -181,6 +181,7 @@
                 // A14 performance cores. CPU EP only — no ANE (the A14 trap path).
                 try options.setGraphOptimizationLevel(.all)
                 try options.setIntraOpNumThreads(intraOpThreads)
+                fan.emit(.loadingModel)
                 let session = try ORTSession(
                     env: env, modelPath: modelURL.path, sessionOptions: options)
                 let loadMs = Int(Date().timeIntervalSince(loadStart) * 1000)
@@ -211,7 +212,6 @@
                 self.store(
                     env: env, session: session, durationSession: durationSession,
                     ifGeneration: generation)
-                fan.emit(.compilingModels(done: 1, total: 1))
                 fan.emit(.ready)
             }
             initializationTask = task
@@ -507,14 +507,17 @@
         /// to a temp file with byte-level progress, and is size-validated before its
         /// path is handed to ORT (which would otherwise fail later with an opaque
         /// session-create error).
-        private nonisolated static func ensureModel(progress: @Sendable (Double) -> Void)
+        private nonisolated static func ensureModel(
+            progress: @Sendable (NarrationPrepareProgress) -> Void
+        )
             async throws -> URL
         {
             let dest = modelURL()
             let fm = FileManager.default
+            progress(.checkingModel(expectedBytes: Int64(expectedModelBytes)))
             if fm.fileExists(atPath: dest.path) {
                 if fileHasExpectedSize(at: dest, expectedBytes: expectedModelBytes) {
-                    progress(1.0)
+                    progress(.modelCacheHit(byteCount: Int64(expectedModelBytes)))
                     return dest
                 }
                 try? fm.removeItem(at: dest)  // corrupt / partial / stale — re-fetch
@@ -528,18 +531,40 @@
                 throw NarrationError.modelDownloadFailed(name: modelFileName, underlying: nil)
             }
 
-            // Stream the body to a temp file in 64 KB chunks — so the 163 MB model never
-            // sits in memory — reporting progress against the known pinned size. The
-            // `progress` closure is called inline (never stored), so this needs no
-            // escaping closure; the per-byte loop overhead is hidden behind network I/O.
             let tempURL = modelDirectory().appendingPathComponent("\(modelFileName).download")
-            try? fm.removeItem(at: tempURL)
-            fm.createFile(atPath: tempURL.path, contents: nil)
-            let handle = try FileHandle(forWritingTo: tempURL)
-            let total = Double(expectedModelBytes)
+            do {
+                try await writeModelBytes(
+                    byteStream, to: tempURL, expectedBytes: expectedModelBytes,
+                    progress: progress)
+            } catch {
+                try? fm.removeItem(at: tempURL)
+                throw NarrationError.modelDownloadFailed(name: modelFileName, underlying: error)
+            }
+
+            try? fm.removeItem(at: dest)  // clear any stale file before the atomic move
+            try fm.moveItem(at: tempURL, to: dest)
+            return dest
+        }
+
+        /// Streams model bytes to disk without retaining the model in memory. Progress
+        /// reports exact byte counts after every 64 KB write and the final partial
+        /// write, then reports validation only after the expected size is confirmed.
+        nonisolated static func writeModelBytes<S: AsyncSequence>(
+            _ byteStream: S,
+            to destination: URL,
+            expectedBytes: Int,
+            progress: @Sendable (NarrationPrepareProgress) -> Void
+        ) async throws where S.Element == UInt8 {
+            let fm = FileManager.default
+            try? fm.removeItem(at: destination)
+            fm.createFile(atPath: destination.path, contents: nil)
+            let handle = try FileHandle(forWritingTo: destination)
             var received = 0
             var chunk = [UInt8]()
             chunk.reserveCapacity(1 << 16)
+            progress(
+                .downloadingModel(
+                    receivedBytes: 0, totalBytes: Int64(expectedBytes)))
             do {
                 for try await byte in byteStream {
                     chunk.append(byte)
@@ -547,28 +572,32 @@
                         try handle.write(contentsOf: Data(chunk))
                         received += chunk.count
                         chunk.removeAll(keepingCapacity: true)
-                        progress(min(1.0, Double(received) / total))
+                        progress(
+                            .downloadingModel(
+                                receivedBytes: Int64(received),
+                                totalBytes: Int64(expectedBytes)))
                     }
                 }
                 if !chunk.isEmpty {
                     try handle.write(contentsOf: Data(chunk))
                     received += chunk.count
+                    progress(
+                        .downloadingModel(
+                            receivedBytes: Int64(received),
+                            totalBytes: Int64(expectedBytes)))
                 }
                 try handle.close()
             } catch {
                 try? handle.close()
-                try? fm.removeItem(at: tempURL)
-                throw NarrationError.modelDownloadFailed(name: modelFileName, underlying: error)
+                try? fm.removeItem(at: destination)
+                throw error
             }
 
-            guard fileHasExpectedSize(at: tempURL, expectedBytes: expectedModelBytes) else {
-                try? fm.removeItem(at: tempURL)
+            guard fileHasExpectedSize(at: destination, expectedBytes: expectedBytes) else {
+                try? fm.removeItem(at: destination)
                 throw NarrationError.modelDownloadFailed(name: modelFileName, underlying: nil)
             }
-            try? fm.removeItem(at: dest)  // clear any stale file before the atomic move
-            try fm.moveItem(at: tempURL, to: dest)
-            progress(1.0)
-            return dest
+            progress(.validatingModel(byteCount: Int64(received)))
         }
     }
 

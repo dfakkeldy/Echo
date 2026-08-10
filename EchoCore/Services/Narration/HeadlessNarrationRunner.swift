@@ -1169,10 +1169,17 @@ struct NarrationRunResult {
     /// load 0.9…1.0. Pure — unit-tested without an engine.
     static func prepareFraction(_ step: NarrationPrepareProgress) -> Double {
         switch step {
-        case .downloadingModels(let fraction):
-            return 0.9 * min(max(fraction, 0), 1)
-        case .compilingModels(let done, let total):
-            return 0.9 + 0.1 * (total > 0 ? Double(done) / Double(total) : 0)
+        case .checkingModel:
+            return 0
+        case .modelCacheHit:
+            return 0.9
+        case .downloadingModel(let receivedBytes, let totalBytes):
+            let fraction = totalBytes > 0
+                ? min(max(Double(receivedBytes) / Double(totalBytes), 0), 1)
+                : 0
+            return 0.9 * fraction
+        case .validatingModel, .loadingModel:
+            return 0.9
         case .ready:
             return 1.0
         }

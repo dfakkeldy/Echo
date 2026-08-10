@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #if os(iOS) || os(macOS)
     import Foundation
+    import Synchronization
     import Testing
 
     @testable import Echo
@@ -11,6 +12,15 @@
     /// disk lets a truncated/interrupted download be reused forever. These lock in the
     /// pin and the exact-size check that closes both holes.
     @Suite struct OnnxKokoroEngineModelDeliveryTests {
+        private nonisolated final class ProgressBox: Sendable {
+            private let values = Mutex<[NarrationPrepareProgress]>([])
+
+            var items: [NarrationPrepareProgress] { values.withLock { $0 } }
+
+            func append(_ progress: NarrationPrepareProgress) {
+                values.withLock { $0.append(progress) }
+            }
+        }
 
         @Test func modelURLIsPinnedToAnImmutableRevisionNotMain() {
             let url = OnnxKokoroEngine.remoteModelURLForTesting.absoluteString
@@ -45,6 +55,33 @@
             let missing = FileManager.default.temporaryDirectory
                 .appendingPathComponent("echo-model-missing-\(UUID().uuidString).bin")
             #expect(!OnnxKokoroEngine.fileHasExpectedSize(at: missing, expectedBytes: 2_048))
+        }
+
+        @Test func streamedModelReportsZeroFullChunkFinalPartialAndValidation() async throws {
+            let tmp = FileManager.default.temporaryDirectory
+                .appendingPathComponent("echo-model-stream-\(UUID().uuidString).bin")
+            defer { try? FileManager.default.removeItem(at: tmp) }
+            let payload = [UInt8](repeating: 0xA5, count: 65_537)
+            let bytes = AsyncStream<UInt8> { continuation in
+                for byte in payload {
+                    continuation.yield(byte)
+                }
+                continuation.finish()
+            }
+            let box = ProgressBox()
+
+            try await OnnxKokoroEngine.writeModelBytes(
+                bytes, to: tmp, expectedBytes: payload.count,
+                progress: { box.append($0) })
+
+            #expect(OnnxKokoroEngine.fileHasExpectedSize(at: tmp, expectedBytes: payload.count))
+            #expect(
+                box.items == [
+                    .downloadingModel(receivedBytes: 0, totalBytes: 65_537),
+                    .downloadingModel(receivedBytes: 65_536, totalBytes: 65_537),
+                    .downloadingModel(receivedBytes: 65_537, totalBytes: 65_537),
+                    .validatingModel(byteCount: 65_537),
+                ])
         }
     }
 #endif
