@@ -20,6 +20,7 @@ import Testing
         #expect(document.source.epub == "book.epub")
         let root = try encodedRoot(of: document)
         #expect(Set(root.keys) == ["blocks", "source", "version"])
+        #expect(root["version"] as? Int == 2)
         let source = try #require(root["source"] as? [String: Any])
         #expect(source["epub"] as? String == "book.epub")
         #expect(source["epubSHA256"] is NSNull)

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import Darwin
 import Foundation
 import Testing
 
@@ -70,6 +71,17 @@ import Testing
 
         #expect(throws: BlockExportSourceResolver.Error.symbolicLink(link)) {
             try BlockExportSourceResolver.resolve(at: link)
+        }
+    }
+
+    @Test func rejectsNonregularFIFOInputWithoutOpeningIt() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fifo = root.appendingPathComponent("source.epub")
+        #expect(mkfifo(fifo.path, mode_t(S_IRUSR | S_IWUSR)) == 0)
+
+        #expect(throws: BlockExportSourceResolver.Error.unsupportedInput(fifo)) {
+            try BlockExportSourceResolver.resolve(at: fifo)
         }
     }
 
