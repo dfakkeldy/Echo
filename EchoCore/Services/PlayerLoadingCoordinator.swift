@@ -707,6 +707,8 @@ final class PlayerLoadingCoordinator {
             cancelPendingAutoplay()
             autoplayRequest = nil
         }
+        let shouldReportPlaybackActivity =
+            autoplayRequest.map { isAutoplayRequestCurrent($0) } ?? true
 
         saveProgressBeforeTrackChange(
             state: state, persistence: persistence, audioEngine: audioEngine)
@@ -717,7 +719,9 @@ final class PlayerLoadingCoordinator {
         resetPerTrackState(
             state: state, artworkCoordinator: artworkCoordinator,
             transcriptService: transcriptService)
-        playbackController.reportTrackLoading()
+        if shouldReportPlaybackActivity {
+            playbackController.reportTrackLoading()
+        }
         let loadResult = setupAudioForTrack(
             state: state, index: index, audioEngine: audioEngine,
             playbackController: playbackController)
@@ -728,7 +732,9 @@ final class PlayerLoadingCoordinator {
         watchSyncManager.syncToWatch()
 
         if case .failure(let failure) = loadResult {
-            playbackController.reportTrackLoadFailure(failure)
+            if shouldReportPlaybackActivity {
+                playbackController.reportTrackLoadFailure(failure)
+            }
             return
         }
 

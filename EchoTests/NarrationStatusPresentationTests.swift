@@ -23,6 +23,10 @@ import Testing
             playback: .resuming(chapterDisplayNumber: 3),
             expectedPrimary: "Resuming chapter 3"),
         PrecedenceCase(
+            render: .rendering(renderUnit),
+            playback: .loading(chapterDisplayNumber: 3),
+            expectedPrimary: "Loading chapter 3"),
+        PrecedenceCase(
             render: .rendering(renderUnit), playback: .stopped,
             expectedPrimary: "Narration stopped"),
         PrecedenceCase(
@@ -154,6 +158,43 @@ import Testing
             #expect(
                 value?.secondaryText
                     == "Rendering chapter 4, segment 1 · block 8 of 19 · Ava · 42%")
+        }
+    }
+
+    @Test func loadingPlaybackOutranksRenderingAndKeepsRenderDetail() {
+        var snapshot = NarrationStatusSnapshot()
+        snapshot.render = .rendering(Self.renderUnit)
+        snapshot.playback = .loading(chapterDisplayNumber: 3)
+
+        let value = NarrationStatusFormatter.presentation(
+            for: snapshot, hasSession: true,
+            now: Date(timeIntervalSince1970: 200))
+
+        #expect(value?.primaryText == "Loading chapter 3")
+        #expect(
+            value?.secondaryText
+                == "Rendering chapter 4, segment 1 · block 8 of 19 · Ava · 42%")
+        #expect(value?.progress == 8.0 / 19.0)
+        #expect(value?.systemImage == "arrow.clockwise")
+        #expect(value?.showsActivity == true)
+    }
+
+    @Test func completedRenderLoadingAndResumingShowActivity() {
+        for (playback, primary) in [
+            (NarrationPlaybackActivity.loading(chapterDisplayNumber: 3), "Loading chapter 3"),
+            (.resuming(chapterDisplayNumber: 3), "Resuming chapter 3"),
+        ] {
+            var snapshot = NarrationStatusSnapshot()
+            snapshot.render = .complete
+            snapshot.playback = playback
+
+            let value = NarrationStatusFormatter.presentation(
+                for: snapshot, hasSession: true, now: .distantPast)
+
+            #expect(value?.primaryText == primary)
+            #expect(value?.secondaryText == "All chapters rendered")
+            #expect(value?.systemImage == "arrow.clockwise")
+            #expect(value?.showsActivity == true)
         }
     }
 

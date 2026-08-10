@@ -54,13 +54,22 @@ nonisolated enum NarrationStatusFormatter {
                     primary: playbackText(for: snapshot.playback),
                     secondary: String(localized: "All chapters rendered"),
                     image: playbackImage(for: snapshot.playback),
-                    showsActivity: isPlaying(snapshot.playback))
+                    showsActivity: showsPlaybackActivity(snapshot.playback))
             default:
                 return status(
                     primary: String(localized: "All chapters rendered"),
                     secondary: String(localized: "Ready to play"),
                     image: "checkmark.circle")
             }
+        }
+
+        if case .loading(let chapter) = snapshot.playback {
+            let render = renderDetail(
+                for: snapshot.render, buffer: snapshot.buffer, now: now, includeChapter: true)
+            return status(
+                primary: chapterText(String(localized: "Loading"), chapter: chapter),
+                secondary: render.text, progress: render.progress,
+                image: "arrow.clockwise", showsActivity: true)
         }
 
         if case .playing(let chapter) = snapshot.playback {
@@ -274,14 +283,19 @@ nonisolated enum NarrationStatusFormatter {
         }
     }
 
-    private static func isPlaying(_ playback: NarrationPlaybackActivity) -> Bool {
-        if case .playing = playback { return true }
-        return false
+    private static func showsPlaybackActivity(_ playback: NarrationPlaybackActivity) -> Bool {
+        switch playback {
+        case .playing, .loading, .resuming: return true
+        default: return false
+        }
     }
 
     private static func playbackImage(for playback: NarrationPlaybackActivity) -> String {
-        if case .paused = playback { return "pause.fill" }
-        return "play.fill"
+        switch playback {
+        case .paused: return "pause.fill"
+        case .loading, .resuming: return "arrow.clockwise"
+        default: return "play.fill"
+        }
     }
 
     private static func accessibilityLabel(primary: String, secondary: String?) -> String {

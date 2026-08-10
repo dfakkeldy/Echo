@@ -1359,6 +1359,38 @@ struct PlayerModelTests {
         #expect(model.playerLoadingCoordinator.isAutoplayRequestCurrent(futureRequest) == false)
     }
 
+    @Test func pauseBeforeFirstSegmentPreservesPausedStateDuringFuturePreparation() async throws {
+        let audioURL = try await SilentAudioFixture.makeSilentM4A(seconds: 1)
+        defer { try? FileManager.default.removeItem(at: audioURL) }
+        let model = PlayerModel()
+        model.folderURL = audioURL.deletingLastPathComponent()
+        model.tracks = [Track(url: audioURL, title: "Private title")]
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+
+        model.pause()
+        let pausedPlayback = model.narrationPlaybackState.snapshot.playback
+        model.playerLoadingCoordinator.prepareToPlay(index: 0, autoplay: true)
+
+        #expect(pausedPlayback == .paused(chapterDisplayNumber: 1))
+        #expect(model.narrationPlaybackState.snapshot.playback == pausedPlayback)
+        #expect(model.isPlaying == false)
+    }
+
+    @Test func stopBeforeFirstSegmentPreservesStoppedStateDuringFuturePreparation() async throws {
+        let audioURL = try await SilentAudioFixture.makeSilentM4A(seconds: 1)
+        defer { try? FileManager.default.removeItem(at: audioURL) }
+        let model = PlayerModel()
+        model.folderURL = audioURL.deletingLastPathComponent()
+        model.tracks = [Track(url: audioURL, title: "Private title")]
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+
+        model.stop()
+        model.playerLoadingCoordinator.prepareToPlay(index: 0, autoplay: true)
+
+        #expect(model.narrationPlaybackState.snapshot.playback == .stopped)
+        #expect(model.isPlaying == false)
+    }
+
     @Test func explicitBookLoadAutoplayChoiceReplacesPriorIntent() throws {
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
