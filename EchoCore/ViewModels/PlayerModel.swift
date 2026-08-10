@@ -401,6 +401,14 @@ final class PlayerModel {
         return theme
     }
 
+    /// The scheme the current cover asks for when the appearance setting is
+    /// "Cover": light for covers anchoring pale, dark for covers anchoring
+    /// deep, nil (follow system) when no artwork is loaded or the cover
+    /// expresses no preference.
+    var coverPreferredScheme: ColorScheme? {
+        CoverThemeBuilder.preferredScheme(for: currentSignature)
+    }
+
     /// Artwork accent facade. Nil when the cover has no vivid colour
     /// (greyscale / no image) so callers' `?? .accentColor` fallbacks engage.
     var artworkAccentColor: Color? {
