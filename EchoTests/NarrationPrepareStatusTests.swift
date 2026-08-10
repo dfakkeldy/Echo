@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import Foundation
 import Synchronization
 import Testing
 
@@ -54,6 +55,37 @@ import Testing
 
         #expect(downloading.message == "Downloading narration model… 50% · 50 of 100 MB")
         #expect(cached.message == "Narration model cached · 163 MB")
+    }
+
+    @Test func catalogContainsNarrationPreparationMessages() throws {
+        let catalogURL = try repositoryRoot().appending(path: "EchoCore/Localizable.xcstrings")
+        let data = try Data(contentsOf: catalogURL)
+        let root = try #require(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            "Localizable.xcstrings must be a JSON object.")
+        let strings = try #require(
+            root["strings"] as? [String: Any],
+            "Localizable.xcstrings must contain strings.")
+
+        for key in [
+            "Checking narration model…",
+            "Narration model cached",
+            "Narration model cached · %lld MB",
+            "Downloading narration model… %lld%%",
+            "Downloading narration model… %lld%% · %lld of %lld MB",
+            "Validating narration model…",
+            "Validating narration model… %lld MB",
+            "Loading narration model…",
+            "Narration model ready",
+        ] {
+            let entry = try #require(
+                strings[key] as? [String: Any], "Missing catalog key: \(key)")
+            let localizations = try #require(
+                entry["localizations"] as? [String: Any],
+                "Missing localizations for: \(key)")
+            #expect(localizations["en"] != nil, "Missing English localization: \(key)")
+            #expect(localizations["nl"] != nil, "Missing Dutch localization: \(key)")
+        }
     }
 
     /// Regression: `prepare(progress:)` must reach a concrete engine's override
@@ -155,5 +187,19 @@ import Testing
         #expect(box.items.isEmpty)
         fan.emit(.downloadingModel(receivedBytes: 10, totalBytes: 100))
         #expect(box.items == [.downloadingModel(receivedBytes: 10, totalBytes: 100)])
+    }
+
+    private func repositoryRoot() throws -> URL {
+        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        while directory.path != "/" {
+            let candidate = directory.deletingLastPathComponent()
+            if FileManager.default.fileExists(
+                atPath: candidate.appending(path: "Echo.xcodeproj").path)
+            {
+                return candidate
+            }
+            directory.deleteLastPathComponent()
+        }
+        throw CocoaError(.fileNoSuchFile)
     }
 }

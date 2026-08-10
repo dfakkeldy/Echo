@@ -37,30 +37,31 @@
             case .checkingModel:
                 narrationPlaybackState.update(
                     phase: .preparingEngine, progress: 0,
-                    statusMessage: "Checking narration model…")
+                    statusMessage: String(localized: "Checking narration model…"))
             case .modelCacheHit:
                 narrationPlaybackState.update(
                     phase: .preparingEngine, progress: 0.9,
-                    statusMessage: "Narration model cached")
+                    statusMessage: String(localized: "Narration model cached"))
             case .downloadingModel(let receivedBytes, let totalBytes):
                 let fraction = totalBytes > 0
                     ? min(max(Double(receivedBytes) / Double(totalBytes), 0), 1)
                     : 0
                 narrationPlaybackState.update(
                     phase: .preparingEngine, progress: 0.9 * fraction,
-                    statusMessage: "Downloading narration model… \(Int(fraction * 100))%")
+                    statusMessage: String(
+                        localized: "Downloading narration model… \(Int(fraction * 100))%"))
             case .validatingModel:
                 narrationPlaybackState.update(
                     phase: .preparingEngine, progress: 0.9,
-                    statusMessage: "Validating narration model…")
+                    statusMessage: String(localized: "Validating narration model…"))
             case .loadingModel:
                 narrationPlaybackState.update(
                     phase: .preparingEngine, progress: 0.9,
-                    statusMessage: "Loading narration model…")
+                    statusMessage: String(localized: "Loading narration model…"))
             case .ready:
                 narrationPlaybackState.update(
                     phase: .preparingEngine, progress: 1.0,
-                    statusMessage: "Narration model ready")
+                    statusMessage: String(localized: "Narration model ready"))
             }
         }
 

@@ -122,23 +122,32 @@ enum NarrationPrepareStatus {
     {
         switch progress {
         case .checkingModel:
-            return (0, "Checking narration model…")
+            return (0, String(localized: "Checking narration model…"))
         case .modelCacheHit(let byteCount):
-            return (0.135, "Narration model cached · \(megabytes(byteCount)) MB")
+            return (
+                0.135,
+                String(localized: "Narration model cached · \(megabytes(byteCount)) MB")
+            )
         case .downloadingModel(let receivedBytes, let totalBytes):
             let fraction = totalBytes > 0
                 ? min(max(Double(receivedBytes) / Double(totalBytes), 0), 1)
                 : 0
             return (
                 0.135 * fraction,
-                "Downloading narration model… \(Int(fraction * 100))% · \(megabytes(receivedBytes)) of \(megabytes(totalBytes)) MB"
+                String(
+                    localized:
+                        "Downloading narration model… \(Int(fraction * 100))% · \(megabytes(receivedBytes)) of \(megabytes(totalBytes)) MB"
+                )
             )
         case .validatingModel(let byteCount):
-            return (0.135, "Validating narration model… \(megabytes(byteCount)) MB")
+            return (
+                0.135,
+                String(localized: "Validating narration model… \(megabytes(byteCount)) MB")
+            )
         case .loadingModel:
-            return (0.135, "Loading narration model…")
+            return (0.135, String(localized: "Loading narration model…"))
         case .ready:
-            return (0.15, "Narration model ready")
+            return (0.15, String(localized: "Narration model ready"))
         }
     }
 

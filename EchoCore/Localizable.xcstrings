@@ -1649,6 +1649,168 @@
         }
       }
     },
+    "Checking narration model…" : {
+      "comment" : "Narration preparation status shown while checking whether the on-device narration model is cached.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checking narration model…"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertelmodel controleren…"
+          }
+        }
+      }
+    },
+    "Narration model cached" : {
+      "comment" : "Narration preparation status shown when the on-device narration model was found in the cache.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Narration model cached"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertelmodel in cache"
+          }
+        }
+      }
+    },
+    "Narration model cached · %lld MB" : {
+      "comment" : "Narration preparation status shown when the on-device narration model was found in the cache. The argument is the model size in decimal megabytes.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Narration model cached · %lld MB"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertelmodel in cache · %lld MB"
+          }
+        }
+      }
+    },
+    "Downloading narration model… %lld%%" : {
+      "comment" : "Narration preparation status shown while downloading the on-device narration model. The argument is the downloaded percentage.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Downloading narration model… %lld%%"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertelmodel downloaden… %lld%%"
+          }
+        }
+      }
+    },
+    "Downloading narration model… %lld%% · %lld of %lld MB" : {
+      "comment" : "Narration preparation status shown while downloading the on-device narration model. The arguments are the downloaded percentage, received decimal megabytes, and total decimal megabytes.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Downloading narration model… %1$lld%% · %2$lld of %3$lld MB"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertelmodel downloaden… %1$lld%% · %2$lld van %3$lld MB"
+          }
+        }
+      }
+    },
+    "Validating narration model…" : {
+      "comment" : "Narration preparation status shown while validating the on-device narration model.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Validating narration model…"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertelmodel valideren…"
+          }
+        }
+      }
+    },
+    "Validating narration model… %lld MB" : {
+      "comment" : "Narration preparation status shown while validating the on-device narration model. The argument is the model size in decimal megabytes.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Validating narration model… %lld MB"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertelmodel valideren… %lld MB"
+          }
+        }
+      }
+    },
+    "Loading narration model…" : {
+      "comment" : "Narration preparation status shown while loading the on-device narration model.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading narration model…"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertelmodel laden…"
+          }
+        }
+      }
+    },
+    "Narration model ready" : {
+      "comment" : "Narration preparation status shown when the on-device narration model is ready.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Narration model ready"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertelmodel gereed"
+          }
+        }
+      }
+    },
     "Echo Preferred Voice" : {
       "comment" : "Picker choice that leaves a chapter voice unset so it inherits Echo's current preferred narration voice.",
       "extractionState" : "manual",
