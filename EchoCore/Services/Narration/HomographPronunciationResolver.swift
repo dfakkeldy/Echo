@@ -122,8 +122,8 @@ nonisolated enum HomographPronunciationResolver {
         "web", "your",
     ]
     private static let contentNounFollowers: Set<String> = [
-        "changed", "containment", "had", "includes", "is", "lives", "ships", "shipped", "stayed", "stays",
-        "was",
+        "changed", "containment", "correctness", "had", "includes", "is", "lives", "ships",
+        "shipped", "stayed", "stays", "was",
     ]
     private static let contentNounSentenceStartFollowers: Set<String> = [
         "i", "it", "that", "they", "this", "we", "you",
