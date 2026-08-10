@@ -11,12 +11,17 @@ probe of real sources: 360-hue + cover-tone sweeps clear all contrast floors;
 real-cover harness confirms all 4 screenshot books (Traction light = exact
 #ABDAF4 edge continuation). Contact sheet sent to Dan.
 
-Next: `make build-tests` + `make test-only FILTER=EchoTests/CoverThemeBuilderTests`
-(slot was busy; monitor armed), then push + PR `--base nightly`.
+## 2026-08-10 — sim tests green, publishing
+
+Done: `make build-tests` succeeded; CoverThemeBuilderTests (28) +
+DominantColorExtractorTests (12) passed, 0 failures. Parity review clean
+(watch/widget get new tones via phone-resolved hexes; macOS/echo-cli
+exclusions predate this change; CoverSignature never serialized).
+
+Next: push branch, open PR `--base nightly`, report CI.
 
 Resume:
 ```
 cd /Users/dfakkeldy/Developer/Echo/.claude/worktrees/great-heisenberg-47ce71
-# branch claude/cover-color-scheme-ideas-0703fa; run tests via
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+# branch claude/cover-color-scheme-ideas-0703fa — push + gh pr create --base nightly
 ```
