@@ -74,7 +74,7 @@ final class NarrationState {
             .init(
                 category: .preparation,
                 severity: .notice,
-                message: "Narration requested",
+                message: String(localized: "Narration requested"),
                 developerMessage: "narration requested"),
             at: date)
     }
@@ -132,7 +132,7 @@ final class NarrationState {
             .init(
                 category: .model,
                 severity: .info,
-                message: "Downloading model (\(milestone * 5)%)",
+                message: String(localized: "Downloading model (\(milestone * 5)%)"),
                 developerMessage: "model download received=\(clampedReceivedBytes) total=\(clampedTotalBytes)"),
             at: date)
         return true

@@ -1631,6 +1631,24 @@
         }
       }
     },
+    "Downloading model (%lld%%)" : {
+      "comment" : "Narration model download progress. The argument is the downloaded percentage.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Downloading model (%lld%%)"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Model downloaden (%lld%%)"
+          }
+        }
+      }
+    },
     "Echo Preferred Voice" : {
       "comment" : "Picker choice that leaves a chapter voice unset so it inherits Echo's current preferred narration voice.",
       "extractionState" : "manual",
@@ -1735,6 +1753,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vertelling is onvolledig voor hoofdstuk(ken) %@."
+          }
+        }
+      }
+    },
+    "Narration requested" : {
+      "comment" : "Narration status event recorded when a narration session begins.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Narration requested"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertelling aangevraagd"
           }
         }
       }
