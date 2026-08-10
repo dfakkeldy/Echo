@@ -12,6 +12,31 @@ struct WatchWidgetPresentationSourceTests {
         #expect(source.contains("artworkAccentColorHex: artworkAccentColorHex"))
     }
 
+    @Test("widget timeline entries carry the persisted cover ramp")
+    func widgetEntryCarriesCoverRamp() {
+        let source = Self.sourceIfPresent(at: "Echo Widget/Views/Echo_Widget.swift")
+
+        #expect(source.contains("let coverRampTopHex: String?"))
+        #expect(source.contains("let coverRampBottomHex: String?"))
+        #expect(source.contains("defaults.string(forKey: \"coverRampTopHex\")"))
+        #expect(source.contains("defaults.string(forKey: \"coverRampBottomHex\")"))
+    }
+
+    @Test("the container background goes through the ramp policy")
+    func containerBackgroundUsesRampPolicy() {
+        // `make test` cannot compile the watchOS widget target, so the wiring
+        // is guarded by source scan the way the accent's already is.
+        let source = Self.sourceIfPresent(
+            at: "Echo Widget/Views/EchoWidgetEntryView.swift"
+        )
+
+        #expect(source.contains("WidgetCoverRampPolicy.style("))
+        #expect(source.contains(".containerBackground(for: .widget)"))
+        // Tinted and vibrant faces flatten supplied colour, so the ramp must
+        // stay gated on the rendering mode rather than painted unconditionally.
+        #expect(source.contains("preservesExactCoverColor: renderingMode == .fullColor"))
+    }
+
     @Test("widget declares both supported Watch families")
     func widgetFamilies() {
         let source = Self.sourceIfPresent(at: "Echo Widget/Views/Echo_Widget.swift")

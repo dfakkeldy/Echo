@@ -108,13 +108,32 @@ nonisolated enum NarrationFileNaming {
         voice: VoiceID,
         contentSignature: String? = nil
     ) -> String {
+        chapterFileName(
+            audiobookID: audiobookID,
+            chapterIndex: chapterIndex,
+            sourceChapterKey: sourceChapterKey,
+            renderIdentityToken: voice.rawValue,
+            contentSignature: contentSignature)
+    }
+
+    /// The token naming the audio-render inputs for a chapter. Legacy callers
+    /// continue to supply their voice raw value; source-bound block plans supply
+    /// their resolved `plan-<12>` identity instead.
+    static func chapterFileName(
+        audiobookID: String,
+        chapterIndex: Int,
+        sourceChapterKey: String? = nil,
+        renderIdentityToken identityToken: String,
+        contentSignature: String? = nil
+    ) -> String {
         let signature = signatureFragment(contentSignature)
+        let token = renderIdentityToken(identityToken)
         if let sourceChapterKey {
             return
-                "\(safeToken(audiobookID))-ck\(stableChapterToken(for: sourceChapterKey))\(signature)-\(voice.rawValue)-v\(renderVersion).m4a"
+                "\(safeToken(audiobookID))-ck\(stableChapterToken(for: sourceChapterKey))\(signature)-\(token)-v\(renderVersion).m4a"
         }
         return
-            "\(safeToken(audiobookID))-ch\(chapterIndex)\(signature)-\(voice.rawValue)-v\(renderVersion).m4a"
+            "\(safeToken(audiobookID))-ch\(chapterIndex)\(signature)-\(token)-v\(renderVersion).m4a"
     }
 
     static func segmentFileName(
@@ -239,7 +258,10 @@ nonisolated enum NarrationFileNaming {
     static func location(fromFileName fileName: String) -> NarrationCacheLocation? {
         let range = NSRange(fileName.startIndex..., in: fileName)
         if let match = stableLocationPattern.firstMatch(in: fileName, range: range) {
-            guard integerCapture(match, at: 3, in: fileName) == renderVersion else {
+            guard integerCapture(match, at: 4, in: fileName) == renderVersion,
+                let identityToken = stringCapture(match, at: 3, in: fileName),
+                isRecognizedRenderIdentity(identityToken)
+            else {
                 return nil
             }
             let tokenRange = Range(match.range(at: 1), in: fileName)!
@@ -250,7 +272,9 @@ nonisolated enum NarrationFileNaming {
                 segmentIndex: segmentIndex)
         }
         if let match = legacyLocationPattern.firstMatch(in: fileName, range: range),
-            let chapterIndex = integerCapture(match, at: 1, in: fileName)
+            let chapterIndex = integerCapture(match, at: 1, in: fileName),
+            let identityToken = stringCapture(match, at: 3, in: fileName),
+            isRecognizedRenderIdentity(identityToken)
         {
             return NarrationCacheLocation(
                 chapterIndex: chapterIndex,
@@ -290,14 +314,24 @@ nonisolated enum NarrationFileNaming {
         return safe.isEmpty ? "" : "-h\(safe)"
     }
 
+    private static func renderIdentityToken(_ token: String) -> String {
+        let safe = token.filter { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }
+        return safe.isEmpty ? "voice" : safe
+    }
+
     private static let stableLocationPattern = try! NSRegularExpression(
         pattern:
-            "^[A-Za-z0-9_]+-ck([0-9a-f]{32})(?:-s([0-9]+))?(?:-h[A-Za-z0-9]+)?-[A-Za-z0-9_]+-v([0-9]+)\\.m4a$"
+            "^[A-Za-z0-9_]+-ck([0-9a-f]{32})(?:-s([0-9]+))?(?:-h[A-Za-z0-9]+)?-([A-Za-z0-9_-]+)-v([0-9]+)\\.m4a$"
     )
     private static let legacyLocationPattern = try! NSRegularExpression(
         pattern:
-            "^[A-Za-z0-9_]+-ch([0-9]+)(?:-s([0-9]+))?(?:-h[A-Za-z0-9]+)?-[A-Za-z0-9_]+(?:-v[0-9]+)?\\.m4a$"
+            "^[A-Za-z0-9_]+-ch([0-9]+)(?:-s([0-9]+))?(?:-h[A-Za-z0-9]+)?-([A-Za-z0-9_-]+?)(?:-v[0-9]+)?\\.m4a$"
     )
+
+    private static func isRecognizedRenderIdentity(_ token: String) -> Bool {
+        VoiceCatalog.voice(for: VoiceID(token)) != nil
+            || token.range(of: "^plan-[0-9a-f]{12}$", options: .regularExpression) != nil
+    }
 
     private static func integerCapture(
         _ match: NSTextCheckingResult,
@@ -309,6 +343,18 @@ nonisolated enum NarrationFileNaming {
             let range = Range(capture, in: fileName)
         else { return nil }
         return Int(fileName[range])
+    }
+
+    private static func stringCapture(
+        _ match: NSTextCheckingResult,
+        at index: Int,
+        in fileName: String
+    ) -> String? {
+        let capture = match.range(at: index)
+        guard capture.location != NSNotFound,
+            let range = Range(capture, in: fileName)
+        else { return nil }
+        return String(fileName[range])
     }
 }
 

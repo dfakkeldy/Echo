@@ -72,6 +72,7 @@ nonisolated struct PronunciationReviewRequest: Equatable, Sendable {
     let renderVersion: Int
     let voice: VoiceID
     let chapterVoices: [Int: VoiceID]
+    let blockVoiceProvenance: PronunciationBlockVoiceProvenance?
     let captureCoverage: PronunciationAuditCoverage
     let legacyChapterIndexes: [Int]
     let decisions: [PronunciationAuditDecision]
@@ -91,12 +92,35 @@ nonisolated struct PronunciationReviewRequest: Equatable, Sendable {
         diagnostics: [PronunciationAuditDiagnostic],
         watchWords: [String]
     ) {
+        self.init(
+            audiobookURL: audiobookURL, auditURL: auditURL, reelURL: reelURL,
+            renderVersion: renderVersion, voice: voice, chapterVoices: chapterVoices,
+            blockVoiceProvenance: nil, captureCoverage: captureCoverage,
+            legacyChapterIndexes: legacyChapterIndexes, decisions: decisions,
+            diagnostics: diagnostics, watchWords: watchWords)
+    }
+
+    init(
+        audiobookURL: URL,
+        auditURL: URL,
+        reelURL: URL,
+        renderVersion: Int,
+        voice: VoiceID,
+        chapterVoices: [Int: VoiceID] = [:],
+        blockVoiceProvenance: PronunciationBlockVoiceProvenance?,
+        captureCoverage: PronunciationAuditCoverage,
+        legacyChapterIndexes: [Int],
+        decisions: [PronunciationAuditDecision],
+        diagnostics: [PronunciationAuditDiagnostic],
+        watchWords: [String]
+    ) {
         self.audiobookURL = audiobookURL
         self.auditURL = auditURL
         self.reelURL = reelURL
         self.renderVersion = renderVersion
         self.voice = voice
         self.chapterVoices = chapterVoices
+        self.blockVoiceProvenance = blockVoiceProvenance
         self.captureCoverage = captureCoverage
         self.legacyChapterIndexes = legacyChapterIndexes
         self.decisions = decisions
@@ -356,7 +380,8 @@ nonisolated enum PronunciationListeningReel {
             try manifest.write(to: request.auditURL, fileManager: fileManager)
             try manifest.validateArtifacts(
                 audiobookURL: request.audiobookURL,
-                reelURL: nil)
+                reelURL: nil,
+                expectedBlockVoiceProvenance: request.blockVoiceProvenance)
             return .auditOnly(auditURL: request.auditURL)
         }
 
@@ -395,7 +420,8 @@ nonisolated enum PronunciationListeningReel {
         try manifest.write(to: request.auditURL, fileManager: fileManager)
         try manifest.validateArtifacts(
             audiobookURL: request.audiobookURL,
-            reelURL: request.reelURL)
+            reelURL: request.reelURL,
+            expectedBlockVoiceProvenance: request.blockVoiceProvenance)
         return .generated(auditURL: request.auditURL, reelURL: request.reelURL)
     }
 
@@ -409,6 +435,7 @@ nonisolated enum PronunciationListeningReel {
             renderVersion: request.renderVersion,
             voice: request.voice,
             chapterVoices: request.chapterVoices,
+            blockVoiceProvenance: request.blockVoiceProvenance,
             captureCoverage: request.captureCoverage,
             legacyChapterIndexes: request.legacyChapterIndexes,
             audiobookURL: request.audiobookURL,

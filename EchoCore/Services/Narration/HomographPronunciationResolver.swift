@@ -105,7 +105,7 @@ nonisolated enum HomographPronunciationResolver {
         "that", "the", "their", "these", "this", "those", "your",
     ]
     private static let recordNounCompoundFollowers: Set<String> = [
-        "label", "labels", "player", "players", "sales", "store", "stores",
+        "integrity", "label", "labels", "player", "players", "sales", "store", "stores",
     ]
     private static let recordVerbPreceders: Set<String> = [
         "can", "could", "may", "might", "must", "please", "shall", "should", "to", "will",
@@ -122,7 +122,7 @@ nonisolated enum HomographPronunciationResolver {
         "web", "your",
     ]
     private static let contentNounFollowers: Set<String> = [
-        "changed", "includes", "is", "lives", "ships", "shipped", "stayed", "stays",
+        "changed", "containment", "had", "includes", "is", "lives", "ships", "shipped", "stayed", "stays",
         "was",
     ]
     private static let contentNounSentenceStartFollowers: Set<String> = [

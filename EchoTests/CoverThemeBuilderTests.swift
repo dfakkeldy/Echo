@@ -216,6 +216,71 @@ nonisolated final class CoverThemeBuilderTests: XCTestCase {
             OKLCH.fromSRGB(r.accent).L, 0.65, "standard dark accent stays light/tonal")
     }
 
+    // MARK: - Amber rotation (dark rooms in the yellow band)
+
+    private func roomRoles(_ r: CoverThemeBuilder.Resolved) -> [ColorMetrics.RGB] {
+        [r.backgroundTop, r.backgroundBottom, r.chip]
+    }
+
+    func testDarkYellowRoomRotatesTowardAmberAndKeepsTheAccentHue() {
+        // sRGB has no dark saturated yellow, so the dark recipe at hue 110 lands
+        // on #383800 — red and green channels EQUAL, i.e. olive-drab, the
+        // "murky brown room". The ramp rotates toward amber until the warm
+        // channel leads; what the cover IS (the accent hue) does not move.
+        let r = CoverThemeBuilder.resolve(signature(hue: 110), scheme: .dark, brand: brand)
+        for surface in roomRoles(r) {
+            XCTAssertEqual(
+                OKLCH.fromSRGB(surface).H, 96, accuracy: 2,
+                "the room rotates ~14° toward amber, not past the band's warm edge")
+            XCTAssertGreaterThan(
+                surface.r, surface.g,
+                "warm channel must lead — equal r/g is exactly the olive-drab bug")
+        }
+        XCTAssertEqual(
+            OKLCH.fromSRGB(r.accent).H, 110, accuracy: 1,
+            "the accent keeps the cover's own hue; only the room rotates")
+        XCTAssertEqual(
+            OKLCH.fromSRGB(r.secondaryAccent).H, 140, accuracy: 1,
+            "the secondary keeps its +30° sibling of the COVER hue, not the room hue")
+    }
+
+    func testAmberRotationIsDarkSchemeAndBandScoped() {
+        // The light recipe's L 0.91 ramp over the same hues is pale cream, which
+        // already reads as gold — rotating it would only cost cover fidelity.
+        let light = CoverThemeBuilder.resolve(signature(hue: 110), scheme: .light, brand: brand)
+        for surface in roomRoles(light) {
+            XCTAssertEqual(
+                OKLCH.fromSRGB(surface).H, 110, accuracy: 1, "light ramp keeps the cover hue")
+        }
+        // Just outside either edge of the band, the dark ramp is untouched too:
+        // 65° is already amber, and 115° is yellow-GREEN, where rotating down
+        // would drop the room INTO the olive pit.
+        for hue in [65.0, 115.0] {
+            let dark = CoverThemeBuilder.resolve(signature(hue: hue), scheme: .dark, brand: brand)
+            for surface in roomRoles(dark) {
+                XCTAssertEqual(
+                    OKLCH.fromSRGB(surface).H, hue, accuracy: 1,
+                    "hue \(hue) sits outside the yellow band and must not rotate")
+            }
+        }
+    }
+
+    func testAmberRotationKeepsBandInteriorCoversDistinct() {
+        // The band is compressed toward its warm edge rather than shifted by a
+        // fixed amount, so distinct covers keep distinct rooms — a truncating
+        // clamp would collapse everything from 70° to 84° onto one hue.
+        let rooms = [75.0, 90.0, 105.0].map { hue -> Double in
+            let r = CoverThemeBuilder.resolve(signature(hue: hue), scheme: .dark, brand: brand)
+            return OKLCH.fromSRGB(r.backgroundTop).H
+        }
+        XCTAssertLessThan(rooms[0], rooms[1])
+        XCTAssertLessThan(rooms[1], rooms[2])
+        for (room, cover) in zip(rooms, [75.0, 90.0, 105.0]) {
+            XCTAssertLessThan(room, cover, "every band-interior room warms")
+            XCTAssertGreaterThanOrEqual(room, 70, "and none overshoots the band's warm edge")
+        }
+    }
+
     // MARK: - Accent promotion (duotone covers)
 
     /// "The Long Leverage" shape: purple-dominant cover with vivid neon-green

@@ -23,7 +23,10 @@ struct NarrateCommand: AsyncParsableCommand {
     var epub: String
     @Option(help: "Output .m4b path.") var out: String
     @Option(help: "Sidecar .alignment.json path (optional).") var sidecar: String?
-    @Option(help: "Kokoro voice id.") var voice: String = "af_heart"
+    @Option(help: "Kokoro voice id. Defaults to af_heart unless --voice-plan supplies the default.")
+    var voice: String?
+    @Option(name: .customLong("voice-plan"), help: "Source-bound block voice-plan JSON file.")
+    var voicePlan: String?
     @Option(
         name: .customLong("chapter-voice"),
         help:
@@ -65,40 +68,13 @@ struct NarrateCommand: AsyncParsableCommand {
             ?? outURL.deletingLastPathComponent()
             .appendingPathComponent("work-\(outURL.deletingPathExtension().lastPathComponent)")
 
-        // Default is a fresh render; `--resume` continues an interrupted run from
-        // its `.anchors-ch<N>.json` markers. Without it, clear prior markers (and
-        // their audio) so the book is re-rendered from scratch — loudly, because
-        // an agent retrying a failed run without --resume silently threw away
-        // every finished chapter before this warning existed.
-        if !resume {
-            let fm = FileManager.default
-            let stale =
-                ((try? fm.contentsOfDirectory(at: work, includingPropertiesForKeys: nil)) ?? [])
-                .filter {
-                    $0.lastPathComponent.hasPrefix(".anchors-ch") || $0.pathExtension == "m4a"
-                }
-                + [
-                    outURL,
-                    sidecar.map { URL(fileURLWithPath: $0) },
-                    outURL.deletingPathExtension().appendingPathExtension(
-                        "pronunciation-audit.json"),
-                    outURL.deletingPathExtension().appendingPathExtension(
-                        "pronunciation-reel.m4b"),
-                ].compactMap { $0 }.filter { fm.fileExists(atPath: $0.path) }
-            if !stale.isEmpty {
-                FileHandle.standardError.write(
-                    Data(
-                        "warning: clearing \(stale.count) prior narration artifact(s) for a fresh render — pass --resume to continue the previous run instead\n"
-                            .utf8))
-            }
-        }
-
         let config = NarrationRunConfig(
             epubURL: URL(fileURLWithPath: epub),
             outM4BURL: outURL,
             sidecarURL: sidecar.map { URL(fileURLWithPath: $0) },
             workDir: work,
-            voice: VoiceID(voice),
+            voice: voice.map { VoiceID(rawValue: $0) },
+            voicePlanURL: voicePlan.map { URL(fileURLWithPath: $0) },
             chapterVoicesByDisplayNumber: chapterVoiceAssignments.byDisplayNumber,
             title: title,
             author: author,

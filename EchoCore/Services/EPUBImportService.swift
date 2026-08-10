@@ -72,28 +72,7 @@ struct EPUBImportService {
 
         var allBlocks = parse.blocks
 
-        // 3. Rebuild the per-spine lookups for resolving TOC entries to blocks:
-        // fragment anchor → block id, plus first-heading / first-block
-        // fallbacks for entries that point at whole files. Descriptors are
-        // aligned 1:1 with blocks; kinds here are pre-TOC-promotion, matching
-        // the original ordering.
-        var anchorBlockIDBySpine: [Int: [String: String]] = [:]
-        var firstHeadingBlockIDBySpine: [Int: String] = [:]
-        var firstBlockIDBySpine: [Int: String] = [:]
-        for (block, descriptor) in zip(parse.blocks, parse.descriptors) {
-            let i = block.spineIndex
-            if firstBlockIDBySpine[i] == nil { firstBlockIDBySpine[i] = block.id }
-            if firstHeadingBlockIDBySpine[i] == nil,
-                block.blockKind == EPubBlockRecord.Kind.heading.rawValue
-            {
-                firstHeadingBlockIDBySpine[i] = block.id
-            }
-            for anchor in descriptor.anchorIDs where anchorBlockIDBySpine[i]?[anchor] == nil {
-                anchorBlockIDBySpine[i, default: [:]][anchor] = block.id
-            }
-        }
-
-        // 4. Copy images referenced in blocks to local asset storage.
+        // 3. Copy images referenced in blocks to local asset storage.
         for idx in allBlocks.indices {
             guard allBlocks[idx].blockKind == EPubBlockRecord.Kind.image.rawValue,
                 let imagePath = allBlocks[idx].imagePath
@@ -110,20 +89,13 @@ struct EPUBImportService {
             }
         }
 
-        // 5. Resolve the publisher's TOC tree (NCX navPoint / nav ol nesting)
-        // to concrete blocks, promoting fragment targets that aren't marked up
-        // as headings (table-styled topic titles) so the reader can style and
-        // anchor them. Runs before chapter-index assignment so promotions
-        // count as headings there.
-        let tocRecords = try Self.resolveTOCEntries(
-            parse.tocEntryTree,
+        // 4. Resolve the publisher's TOC tree (NCX navPoint / nav ol nesting)
+        // and apply the same structure chaptering used by read-only preflight.
+        let tocRecords = try Self.resolveTOCEntriesAndAssignChapterIndices(
+            parse: parse,
             audiobookID: audiobookID,
-            spine: parse.spine,
-            anchorBlockIDBySpine: anchorBlockIDBySpine,
-            firstHeadingBlockIDBySpine: firstHeadingBlockIDBySpine,
-            firstBlockIDBySpine: firstBlockIDBySpine,
-            blocks: &allBlocks
-        )
+            assignsStructureChapterIndices: chapters.isEmpty,
+            blocks: &allBlocks)
 
         // 7. Assign Chapter Index based on cumulative word-count fraction.
         if let duration = bookDuration, !chapters.isEmpty, !allBlocks.isEmpty {
@@ -178,20 +150,6 @@ struct EPUBImportService {
                     }
                 }
             }
-        } else if chapters.isEmpty, !allBlocks.isEmpty {
-            // No audio chapter markers — either a standalone EPUB (no audiobook)
-            // or an audiobook whose audio file carries no chapter atoms (e.g. a
-            // single-file m4b). Chapter the reader from the book's OWN structure
-            // (publisher TOC, else spine items) so it is a real multi-chapter
-            // table of contents instead of one undifferentiated "Front Matter"
-            // blob. Blocks before the first chapter (front matter) stay
-            // unassigned. The reader and on-device narration read blocks by
-            // chapter index, so this also keeps "chapter 0" non-empty.
-            let chapterIndices = EPUBStructureChaptering.chapterIndices(
-                blocks: allBlocks, tocEntries: tocRecords)
-            for i in 0..<allBlocks.count {
-                allBlocks[i].chapterIndex = chapterIndices[allBlocks[i].id]
-            }
         }
 
         // 8. Write blocks to database.
@@ -231,6 +189,47 @@ struct EPUBImportService {
     }
 
     // MARK: - TOC entry resolution
+
+    /// Resolves publisher TOC entries and, when no audio chapters exist,
+    /// applies the structure chaptering shared with resolver preflight.
+    static func resolveTOCEntriesAndAssignChapterIndices(
+        parse: EPUBBlockParse,
+        audiobookID: String,
+        assignsStructureChapterIndices: Bool,
+        blocks: inout [EPubBlockRecord]
+    ) throws -> [EPubTOCEntryRecord] {
+        var anchorBlockIDBySpine: [Int: [String: String]] = [:]
+        var firstHeadingBlockIDBySpine: [Int: String] = [:]
+        var firstBlockIDBySpine: [Int: String] = [:]
+        for (block, descriptor) in zip(blocks, parse.descriptors) {
+            let spineIndex = block.spineIndex
+            if firstBlockIDBySpine[spineIndex] == nil { firstBlockIDBySpine[spineIndex] = block.id }
+            if firstHeadingBlockIDBySpine[spineIndex] == nil,
+                block.blockKind == EPubBlockRecord.Kind.heading.rawValue
+            {
+                firstHeadingBlockIDBySpine[spineIndex] = block.id
+            }
+            for anchor in descriptor.anchorIDs where anchorBlockIDBySpine[spineIndex]?[anchor] == nil {
+                anchorBlockIDBySpine[spineIndex, default: [:]][anchor] = block.id
+            }
+        }
+        let tocRecords = try resolveTOCEntries(
+            parse.tocEntryTree,
+            audiobookID: audiobookID,
+            spine: parse.spine,
+            anchorBlockIDBySpine: anchorBlockIDBySpine,
+            firstHeadingBlockIDBySpine: firstHeadingBlockIDBySpine,
+            firstBlockIDBySpine: firstBlockIDBySpine,
+            blocks: &blocks)
+        if assignsStructureChapterIndices {
+            let chapterIndices = EPUBStructureChaptering.chapterIndices(
+                blocks: blocks, tocEntries: tocRecords)
+            for index in blocks.indices {
+                blocks[index].chapterIndex = chapterIndices[blocks[index].id]
+            }
+        }
+        return tocRecords
+    }
 
     /// Flattens the parsed TOC tree (preorder) into persistable records,
     /// resolving each entry to a block: fragment anchor when the NCX/nav names

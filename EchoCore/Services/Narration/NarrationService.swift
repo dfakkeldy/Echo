@@ -250,6 +250,7 @@ final class NarrationService {
         sourceChapterKey: String? = nil,
         blocks: [EPubBlockRecord],
         voice: VoiceID,
+        renderIdentityToken: String? = nil,
         overrides: PronunciationOverrides,
         occurrenceOverrides: PronunciationOccurrenceOverrides,
         normalizationMode: String,
@@ -262,13 +263,23 @@ final class NarrationService {
             occurrenceOverrides: occurrenceOverrides,
             normalizationMode: normalizationMode,
             pronunciationPack: pronunciationPack)
-        return cacheDirectory.appendingPathComponent(
-            NarrationFileNaming.chapterFileName(
+        let fileName: String
+        if let renderIdentityToken {
+            fileName = NarrationFileNaming.chapterFileName(
+                audiobookID: audiobookID,
+                chapterIndex: chapterIndex,
+                sourceChapterKey: sourceChapterKey,
+                renderIdentityToken: renderIdentityToken,
+                contentSignature: signature)
+        } else {
+            fileName = NarrationFileNaming.chapterFileName(
                 audiobookID: audiobookID,
                 chapterIndex: chapterIndex,
                 sourceChapterKey: sourceChapterKey,
                 voice: voice,
-                contentSignature: signature))
+                contentSignature: signature)
+        }
+        return cacheDirectory.appendingPathComponent(fileName)
     }
 
     private func segmentCacheURL(
@@ -439,10 +450,13 @@ final class NarrationService {
     /// only for the title and status text so the first real chapter reads
     /// "Chapter 1". Defaults to `chapterIndex + 1` when omitted (tests that don't
     /// exercise numbering).
+    /// Render one chapter using the selected voice for each original EPUB block.
     @discardableResult
     func renderChapter(
         chapterIndex: Int, sourceChapterKey: String? = nil, chapterNumber: Int? = nil,
         blocks: [EPubBlockRecord], voice: VoiceID,
+        blockVoice: @escaping @Sendable (String) -> VoiceID,
+        renderIdentityToken: String? = nil,
         chapterTitle: String? = nil,
         onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)? =
             nil
@@ -459,6 +473,7 @@ final class NarrationService {
             sourceChapterKey: sourceChapterKey,
             blocks: blocks,
             voice: voice,
+            renderIdentityToken: renderIdentityToken,
             overrides: overrides,
             occurrenceOverrides: occurrenceOverrides,
             normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled),
@@ -469,6 +484,7 @@ final class NarrationService {
             segmentIndex: nil,
             blocks: blocks,
             voice: voice,
+            blockVoice: blockVoice,
             fileURL: fileURL,
             includeLeadOutPad: true,
             reportsProgress: true,
@@ -610,6 +626,7 @@ final class NarrationService {
                     chapterNumber: chapterDisplayNumber,
                     blocks: blocks,
                     voice: voice,
+                    blockVoice: { _ in voice },
                     chapterTitle: chapterTitle)
             }
         }
@@ -662,6 +679,7 @@ final class NarrationService {
             segmentIndex: segmentIndex,
             blocks: blocks,
             voice: voice,
+            blockVoice: { _ in voice },
             fileURL: fileURL,
             includeLeadOutPad: false,
             reportsProgress: false,
@@ -862,6 +880,7 @@ final class NarrationService {
         segmentIndex: Int?,
         blocks: [EPubBlockRecord],
         voice: VoiceID,
+        blockVoice: @escaping @Sendable (String) -> VoiceID,
         fileURL: URL,
         includeLeadOutPad: Bool,
         reportsProgress: Bool,
@@ -918,6 +937,7 @@ final class NarrationService {
         for plannedBlock in plan.blocks {
             try Task.checkCancellation()
             let block = plannedBlock.originalBlock
+            let selectedVoice = plannedBlock.isSpeakable ? blockVoice(plannedBlock.blockID) : voice
 
             // Bound each synthesize call under Kokoro's ~510-phoneme context window
             // (see NarrationTextChunker for the budget). One anchor per ORIGINAL
@@ -937,7 +957,7 @@ final class NarrationService {
                 do {
                     let synthesisResult = try await synthesizeWithQualityRetry(
                         synthesisChunk,
-                        voice: voice
+                        voice: selectedVoice
                     )
                     let synthesizedChunks = synthesisResult.chunks
                     let originalChunkStartInFile = cursor + blockDuration

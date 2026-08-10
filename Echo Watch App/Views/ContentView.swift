@@ -374,6 +374,12 @@ struct ContentView: View {
                     .overlay(Color.black.opacity(0.6))
                     .accessibilityHidden(true)
             }
+        } else if let ramp = viewModel.coverRampGradient {
+            // No artwork on the watch — the image is a bounded transfer that
+            // often has not arrived, or never will. The cover's ramp still
+            // crossed as two hex strings, so the book keeps its room instead of
+            // falling back to an anonymous black rectangle.
+            ramp.ignoresSafeArea()
         } else {
             Color.black.ignoresSafeArea()
         }

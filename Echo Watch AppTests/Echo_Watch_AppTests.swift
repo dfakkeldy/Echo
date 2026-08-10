@@ -212,6 +212,7 @@ struct Echo_Watch_AppTests {
                 currentIsPlaying: false,
                 currentTrackId: "same-track",
                 currentAccentHex: nil,
+                currentRampTopHex: nil,
                 hasCachedThumbnail: true))
         #expect(
             !WatchWidgetReloadPolicy.shouldReload(
@@ -219,6 +220,61 @@ struct Echo_Watch_AppTests {
                 currentIsPlaying: false,
                 currentTrackId: "same-track",
                 currentAccentHex: nil,
+                currentRampTopHex: nil,
+                hasCachedThumbnail: false))
+    }
+
+    @Test func sameTrackNeutralArtworkClearsPersistedCoverRamp() throws {
+        let (defaults, suiteName) = try Self.testDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let viewModel = WatchViewModel(defaults: defaults)
+
+        #expect(
+            viewModel.applyReceivedApplicationContext([
+                "stateSeq": 30.0,
+                "trackId": "same-track",
+                "coverRampTopHex": "#3A2A12",
+                "coverRampBottomHex": "#2C1F0D",
+            ]))
+        #expect(viewModel.coverRampTopHex == "#3A2A12")
+        #expect(viewModel.coverRampBottomHex == "#2C1F0D")
+        #expect(viewModel.coverRampGradient != nil)
+
+        #expect(
+            viewModel.applyReceivedApplicationContext([
+                "stateSeq": 31.0,
+                "trackId": "same-track",
+                "coverRampTopHex": "",
+                "coverRampBottomHex": "",
+            ]))
+        #expect(viewModel.coverRampTopHex == nil)
+        #expect(defaults.object(forKey: "coverRampTopHex") == nil)
+        #expect(defaults.object(forKey: "coverRampBottomHex") == nil)
+        // With either end gone the watch keeps flat black rather than drawing
+        // half a ramp.
+        #expect(viewModel.coverRampGradient == nil)
+    }
+
+    @Test func coverRampChangeAloneRequestsImmediateWidgetReload() {
+        // A promoted accent is seeded from a different candidate than the room,
+        // so displayed bookmark artwork can change the ramp while the accent
+        // and the track stay put. Without its own clause that complication
+        // would show the previous book's room until the next poll.
+        #expect(
+            WatchWidgetReloadPolicy.shouldReload(
+                state: ["coverRampTopHex": "#3A2A12"],
+                currentIsPlaying: false,
+                currentTrackId: "same-track",
+                currentAccentHex: "#B98A2E",
+                currentRampTopHex: "#123456",
+                hasCachedThumbnail: false))
+        #expect(
+            !WatchWidgetReloadPolicy.shouldReload(
+                state: ["coverRampTopHex": "#3A2A12"],
+                currentIsPlaying: false,
+                currentTrackId: "same-track",
+                currentAccentHex: "#B98A2E",
+                currentRampTopHex: "#3A2A12",
                 hasCachedThumbnail: false))
     }
 

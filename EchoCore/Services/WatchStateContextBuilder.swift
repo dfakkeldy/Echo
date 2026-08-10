@@ -97,6 +97,11 @@ struct WatchStateSnapshot {
     // MARK: Thumbnail availability
     var hasThumbnail: Bool = false
     var artworkAccentColorHex: String?
+    /// Ends of the cover's background ramp, dark recipe. Two short strings, so
+    /// the Watch can paint the book's room even when the artwork itself never
+    /// made the trip.
+    var coverRampTopHex: String?
+    var coverRampBottomHex: String?
 
     // MARK: Sleep timer state
     var sleepTimerMode: SleepTimerMode = .off
@@ -183,6 +188,8 @@ enum WatchStateContextBuilder {
         // An empty value is an explicit clear. Omitting this key would leave a
         // same-track bookmark's old color cached when the new artwork is neutral.
         context["artworkAccentColorHex"] = s.artworkAccentColorHex ?? ""
+        context["coverRampTopHex"] = s.coverRampTopHex ?? ""
+        context["coverRampBottomHex"] = s.coverRampBottomHex ?? ""
 
         // Whole-book boundaries for segmented progress indicators. Always
         // present so a book change clears stale segments on the watch; capped

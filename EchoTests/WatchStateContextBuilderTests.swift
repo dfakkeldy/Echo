@@ -382,4 +382,44 @@ struct WatchStateContextBuilderTests {
 
         #expect(cards.isEmpty)
     }
+
+    // MARK: - Cover ramp
+
+    @Test("the cover ramp rides the state reply as two short strings")
+    func contextCarriesCoverRamp() {
+        var snap = WatchStateSnapshot()
+        snap.artworkAccentColorHex = "#B98A2E"
+        snap.coverRampTopHex = "#3A2A12"
+        snap.coverRampBottomHex = "#2C1F0D"
+
+        let ctx = WatchStateContextBuilder.build(from: snap)
+
+        #expect(ctx["coverRampTopHex"] as? String == "#3A2A12")
+        #expect(ctx["coverRampBottomHex"] as? String == "#2C1F0D")
+    }
+
+    @Test("a neutral cover clears the ramp explicitly rather than omitting it")
+    func neutralCoverClearsRamp() {
+        // Same contract as the accent: omitting the keys would leave the
+        // previous book's room cached on the watch behind a neutral cover.
+        let ctx = WatchStateContextBuilder.build(from: WatchStateSnapshot())
+
+        #expect(ctx["coverRampTopHex"] as? String == "")
+        #expect(ctx["coverRampBottomHex"] as? String == "")
+    }
+
+    @Test("the ramp keeps watch payloads bounded")
+    func rampIsCheapOnTheWire() {
+        var snap = WatchStateSnapshot()
+        snap.coverRampTopHex = "#3A2A12"
+        snap.coverRampBottomHex = "#2C1F0D"
+
+        let ctx = WatchStateContextBuilder.build(from: snap)
+        let ramp = [ctx["coverRampTopHex"], ctx["coverRampBottomHex"]].compactMap { $0 as? String }
+
+        // PR #521 bounded these replies; the ramp must stay hex strings and
+        // never grow into image data.
+        #expect(ramp.count == 2)
+        #expect(ramp.allSatisfy { $0.count <= 7 })
+    }
 }
