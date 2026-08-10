@@ -2747,6 +2747,66 @@ private actor ShadowEvaluatorRecorder {
                 == false)
     }
 
+    @Test func cancellationDuringPersistenceDoesNotRecordWarningIntoReplacementSession()
+        async throws
+    {
+        enum FallbackFailure: Error { case unavailable }
+
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["A cancelled render must not diagnose its replacement."])
+        let writeGate = NarrationPersistenceWriteGate()
+        try db.write { database in
+            database.add(
+                function: DatabaseFunction(
+                    "task8_pause_narration_persist", argumentCount: 0, pure: false
+                ) { _ in
+                    writeGate.signalEnteredAndWaitForRelease()
+                    return 0
+                })
+            try database.execute(
+                sql: """
+                    CREATE TEMP TRIGGER task8_pause_narration_persist
+                    BEFORE INSERT ON track
+                    BEGIN
+                        SELECT task8_pause_narration_persist();
+                    END
+                    """)
+        }
+
+        let state = NarrationState()
+        state.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        let service = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: MockTTSEngine(secondsPerChar: 0.1),
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: state,
+            fallbackDiscoveryRecordBuilder: { _, _ in throw FallbackFailure.unavailable },
+            fmEnabled: { false })
+
+        let renderTask = Task {
+            try await service.renderChapter(
+                chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
+        }
+        await writeGate.waitUntilEntered()
+
+        renderTask.cancel()
+        state.beginSession(defaultVoiceID: VoiceID("bf_emma"))
+        writeGate.release()
+
+        await #expect(throws: CancellationError.self) {
+            try await renderTask.value
+        }
+        let persistedTrackCount = try db.read { database in
+            try TrackRecord.fetchCount(database)
+        }
+        #expect(persistedTrackCount == 0)
+        #expect(state.snapshot.defaultVoiceID == VoiceID("bf_emma"))
+        #expect(
+            state.events.map(\.descriptor.developerMessage) == ["narration requested"])
+    }
+
     @Test func fallbackDiscoveryFailureDoesNotBlockTheRenderedChapter() async throws {
         enum FallbackFailure: Error { case unavailable }
         let db = try DatabaseService(inMemory: ())
@@ -2886,6 +2946,30 @@ extension Array where Element: Equatable {
         return indices.dropLast(candidate.count - 1).contains { start in
             Array(self[start..<(start + candidate.count)]) == candidate
         }
+    }
+}
+
+private nonisolated final class NarrationPersistenceWriteGate: @unchecked Sendable {
+    private let entered = DispatchSemaphore(value: 0)
+    private let releaseWriter = DispatchSemaphore(value: 0)
+
+    func signalEnteredAndWaitForRelease() {
+        entered.signal()
+        releaseWriter.wait()
+    }
+
+    func waitUntilEntered() async {
+        await Task.detached {
+            self.blockingWaitUntilEntered()
+        }.value
+    }
+
+    func release() {
+        releaseWriter.signal()
+    }
+
+    private func blockingWaitUntilEntered() {
+        entered.wait()
     }
 }
 

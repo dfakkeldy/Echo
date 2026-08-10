@@ -2,6 +2,7 @@
 import Foundation
 import GRDB
 import MediaPlayer
+import Observation
 import Testing
 import UIKit
 
@@ -1004,6 +1005,53 @@ struct PlayerModelTests {
         #expect(cancellationEvent.lowerBound < reset.lowerBound)
     }
 
+    @Test(
+        "Loading a new book does not cancel an already-terminal narration session",
+        arguments: [
+            NarrationRenderActivity.complete,
+            NarrationRenderActivity.failed(message: "Model unavailable"),
+            NarrationRenderActivity.noNarratableText,
+        ])
+    func loadFolderDoesNotRecordBookChangeCancellationForTerminalNarration(
+        activity: NarrationRenderActivity
+    ) throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.narrationPlaybackState.transitionRender(to: activity, event: nil)
+        let probe = NarrationEventMutationProbe(state: model.narrationPlaybackState)
+
+        model.loadFolder(folder, autoplay: false, persistBookmark: false)
+
+        #expect(model.narrationPlaybackState.hasSession == false)
+        #expect(
+            probe.developerMessagesBeforeMutation.contains(
+                "render cancelled active book changed") == false)
+    }
+
+    @Test func loadFolderRecordsBookChangeCancellationForActiveNarrationBeforeReset() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.narrationPlaybackState.transitionRender(to: .planning, event: nil)
+        let probe = NarrationEventMutationProbe(state: model.narrationPlaybackState)
+
+        model.loadFolder(folder, autoplay: false, persistBookmark: false)
+
+        #expect(model.narrationPlaybackState.hasSession == false)
+        #expect(
+            probe.developerMessagesBeforeMutation.contains(
+                "render cancelled active book changed"))
+    }
+
     @Test func narrationQueueWaitResumePlayingEventsStayOrdered() {
         let model = PlayerModel()
         model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
@@ -1560,6 +1608,31 @@ private actor NarrationPrepareStartProbe {
         guard startCount < expected else { return }
         await withCheckedContinuation { continuation in
             waiters.append((expected, continuation))
+        }
+    }
+}
+
+@MainActor
+private final class NarrationEventMutationProbe {
+    private let state: NarrationState
+    private(set) var developerMessagesBeforeMutation: [String] = []
+
+    init(state: NarrationState) {
+        self.state = state
+        observeNextMutation()
+    }
+
+    private func observeNextMutation() {
+        withObservationTracking {
+            _ = state.events
+        } onChange: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if let developerMessage = self.state.events.last?.descriptor.developerMessage {
+                    self.developerMessagesBeforeMutation.append(developerMessage)
+                }
+                self.observeNextMutation()
+            }
         }
     }
 }

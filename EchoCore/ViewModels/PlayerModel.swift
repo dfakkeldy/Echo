@@ -1410,10 +1410,12 @@ final class PlayerModel {
         // Stop narrating the previous book before its tracks are replaced, so a
         // stale render can't append chapters onto the newly loaded book, and
         // clear its narration playback state so the new book starts fresh.
+        let hadActiveNarrationWork =
+            narrationPlaybackState.isRunning || state.narrationRenderInFlight
         narrationRenderTask?.cancel()
         narrationRenderTask = nil
         replaceNarrationOperation()
-        if narrationPlaybackState.hasSession {
+        if hadActiveNarrationWork {
             narrationPlaybackState.transitionRender(
                 to: .cancelled,
                 event: .init(
