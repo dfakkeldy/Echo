@@ -1067,6 +1067,62 @@ private actor ShadowEvaluatorRecorder {
         #expect(plan.pronunciationAuditDiagnostics.isEmpty)
     }
 
+    @Test func contextualFamilyWinsOverLeadingAuditComponentInHyphenatedCompound()
+        async throws
+    {
+        // Real acceptance repro: ``harmful-content`` is one whitespace word
+        // span, but G2P emits both `harmful` and `content`. The bundled audit
+        // pack watches the leading `harmful`, while contextual preflight owns
+        // evidence only for the family word `content`.
+        let recorder = ShadowEvaluatorRecorder()
+        let service = NarrationService(
+            db: try DatabaseService(inMemory: ()).writer,
+            audiobookID: "b1",
+            tts: MockTTSEngine(),
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            pronunciationAuditPack: await EnglishPronunciationAuditPack.bundledOrEmpty(),
+            contextualPronunciationEvaluator: { request in
+                await recorder.record(request)
+                return ContextualPronunciationBatchResult(
+                    availability: .available,
+                    selections: request.occurrences.map {
+                        ContextualModelSelection(
+                            occurrenceID: $0.occurrenceID,
+                            slot: .needsReview)
+                    },
+                    failure: nil,
+                    runtime: ContextualModelRuntime(
+                        platform: "test",
+                        osBuild: "test-build",
+                        qualifiedRuntimeFamilyID: "test-runtime"))
+            },
+            fmEnabled: { false })
+        let sourceBlock = block(
+            "b1",
+            id: "harmful-content",
+            seq: 0,
+            text: "harmful-content containment.")
+
+        let plan = try await service.renderPlan(
+            for: [sourceBlock],
+            overrides: PronunciationOverrides(entries: [:]),
+            occurrenceOverrides: .empty,
+            fmEnabled: false)
+
+        #expect(await recorder.recordedTargetWords() == ["content"])
+        let decision = try #require(
+            plan.blocks.first?.pronunciationDecisions.first {
+                $0.normalizedWord == "content"
+            })
+        #expect(decision.wordStart == 0)
+        #expect(decision.wordEnd == 0)
+        #expect(decision.source == .monitoredLexicon)
+        #expect(decision.contextualEvidence?.familyID == "content")
+        #expect(plan.pronunciationAuditDiagnostics.isEmpty)
+    }
+
     @Test func contextualCancellationStopsBeforeNarrationPlanFinalization() async throws {
         let service = NarrationService(
             db: try DatabaseService(inMemory: ()).writer,
