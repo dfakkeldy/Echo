@@ -1577,6 +1577,511 @@
         }
       }
     },
+    "%@ chapter %lld" : {
+      "comment" : "Narration playback status combining an activity label and chapter number.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ chapter %2$lld"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ hoofdstuk %2$lld"
+          }
+        }
+      }
+    },
+    "%@. %@" : {
+      "comment" : "Accessibility status combining a primary narration status and supporting detail.",
+      "extractionState" : "manual",
+      "generatesSymbol" : false,
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@. %2$@"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@. %2$@"
+          }
+        }
+      }
+    },
+    "%@s elapsed" : {
+      "comment" : "Elapsed narration model loading time. The argument is a localized decimal number of seconds.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@s elapsed"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ s verstreken"
+          }
+        }
+      }
+    },
+    "%@ · %@ · %@ · %lld%%" : {
+      "comment" : "Narration render detail combining location, block progress, voice, and percent complete.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · %2$@ · %3$@ · %4$lld%%"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · %2$@ · %3$@ · %4$lld%%"
+          }
+        }
+      }
+    },
+    "%@ · %lld ready ahead" : {
+      "comment" : "Narration render detail with the number of queued segments ready ahead of playback.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · %2$lld ready ahead"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · %2$lld vooruit gereed"
+          }
+        }
+      }
+    },
+    "%@ · %lld%%" : {
+      "comment" : "Narration model download size detail followed by percent complete.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · %2$lld%%"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · %2$lld%%"
+          }
+        }
+      }
+    },
+    "%lld MB" : {
+      "comment" : "Narration model size in decimal megabytes.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld MB"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld MB"
+          }
+        }
+      }
+    },
+    "%lld MB expected" : {
+      "comment" : "Expected narration model size in decimal megabytes.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld MB expected"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld MB verwacht"
+          }
+        }
+      }
+    },
+    "%lld of %lld MB" : {
+      "comment" : "Received and total narration model size in decimal megabytes.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld of %2$lld MB"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld van %2$lld MB"
+          }
+        }
+      }
+    },
+    "Downloading narration model" : {
+      "comment" : "Narration status shown while downloading the on-device narration model.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Downloading narration model"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertelmodel downloaden"
+          }
+        }
+      }
+    },
+    "Loading" : {
+      "comment" : "Narration playback activity shown while audio is loading.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laden"
+          }
+        }
+      }
+    },
+    "Loading narration audio" : {
+      "comment" : "Narration playback status shown while opening a rendered audio segment.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading narration audio"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertellingsaudio laden"
+          }
+        }
+      }
+    },
+    "Narration ready" : {
+      "comment" : "Narration status shown when rendered audio is ready to play.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Narration ready"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertelling gereed"
+          }
+        }
+      }
+    },
+    "Narration stopped" : {
+      "comment" : "Narration status shown after playback is explicitly stopped.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Narration stopped"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertelling gestopt"
+          }
+        }
+      }
+    },
+    "Narration unavailable" : {
+      "comment" : "Public narration status shown when rendering or playback fails.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Narration unavailable"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertelling niet beschikbaar"
+          }
+        }
+      }
+    },
+    "No narratable text was found" : {
+      "comment" : "Narration failure detail shown when a book has no text that can be rendered.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No narratable text was found"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geen vertelbare tekst gevonden"
+          }
+        }
+      }
+    },
+    "Planning narration" : {
+      "comment" : "Narration status shown while determining which content to render.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Planning narration"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertelling plannen"
+          }
+        }
+      }
+    },
+    "Playback completed" : {
+      "comment" : "Narration status shown after playback reaches the end.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Playback completed"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afspelen voltooid"
+          }
+        }
+      }
+    },
+    "Ready to play" : {
+      "comment" : "Narration detail shown when all rendered audio is ready for playback.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ready to play"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gereed om af te spelen"
+          }
+        }
+      }
+    },
+    "Rendering" : {
+      "comment" : "Narration render location when no chapter or segment is available.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rendering"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Renderen"
+          }
+        }
+      }
+    },
+    "Rendering chapter %lld" : {
+      "comment" : "Narration render detail identifying the chapter being rendered.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rendering chapter %lld"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hoofdstuk %lld renderen"
+          }
+        }
+      }
+    },
+    "Rendering chapter %lld, segment %lld" : {
+      "comment" : "Narration render detail identifying the chapter and segment being rendered.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rendering chapter %1$lld, segment %2$lld"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hoofdstuk %1$lld, segment %2$lld renderen"
+          }
+        }
+      }
+    },
+    "Rendering segment %lld" : {
+      "comment" : "Narration render detail identifying the segment being rendered.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rendering segment %lld"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Segment %lld renderen"
+          }
+        }
+      }
+    },
+    "Resuming" : {
+      "comment" : "Narration playback activity shown while playback is resuming.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resuming"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hervatten"
+          }
+        }
+      }
+    },
+    "Still synthesizing block %lld · no update for %llds" : {
+      "comment" : "Narration status shown when synthesis has made no block progress for a while.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Still synthesizing block %1$lld · no update for %2$llds"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blok %1$lld wordt nog gesynthetiseerd · %2$lld s geen update"
+          }
+        }
+      }
+    },
+    "Unable to load narration audio" : {
+      "comment" : "Public narration failure shown when a rendered audio segment cannot be opened.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to load narration audio"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertellingsaudio kan niet worden geladen"
+          }
+        }
+      }
+    },
+    "Waiting for" : {
+      "comment" : "Narration playback activity shown while waiting for a chapter to render.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Waiting for"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wachten op"
+          }
+        }
+      }
+    },
+    "block %lld of %lld" : {
+      "comment" : "Narration render detail showing completed and total block counts.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "block %1$lld of %2$lld"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "blok %1$lld van %2$lld"
+          }
+        }
+      }
+    },
     "Narration cancelled" : {
       "comment" : "Narration rendering event shown when the active render is cancelled.",
       "extractionState" : "manual",
@@ -1813,6 +2318,8 @@
     },
     "Checking narration model" : {
       "comment" : "Narration preparation event shown while checking whether the on-device narration model is cached.",
+      "extractionState" : "manual",
+      "generatesSymbol" : false,
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1830,6 +2337,8 @@
     },
     "Loading narration model" : {
       "comment" : "Narration preparation event shown while loading the on-device narration model.",
+      "extractionState" : "manual",
+      "generatesSymbol" : false,
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1901,6 +2410,8 @@
     },
     "Validating narration model" : {
       "comment" : "Narration preparation event shown while validating the on-device narration model.",
+      "extractionState" : "manual",
+      "generatesSymbol" : false,
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4332,6 +4843,7 @@
     },
     "Paused" : {
       "comment" : "A text that describes the current playback status of a media item, including the title of the media item and the playback state.",
+      "extractionState" : "manual",
       "isCommentAutoGenerated" : true,
       "localizations" : {
         "en" : {
@@ -4605,6 +5117,7 @@
     },
     "Playing" : {
       "comment" : "A label that describes the current playback status of a media item. The first argument is the title of the media item. The second argument is the playback status.",
+      "extractionState" : "manual",
       "isCommentAutoGenerated" : true,
       "localizations" : {
         "en" : {

@@ -35,7 +35,7 @@ nonisolated enum NarrationStatusFormatter {
                 image: "hourglass", showsActivity: true)
         }
 
-        if let modelStatus = modelPresentation(for: snapshot.render) {
+        if let modelStatus = modelPresentation(for: snapshot.render, now: now) {
             return modelStatus
         }
 
@@ -79,6 +79,39 @@ nonisolated enum NarrationStatusFormatter {
                 progress: render.progress, image: "pause.fill")
         }
 
+        if case .resuming(let chapter) = snapshot.playback {
+            let render = renderDetail(
+                for: snapshot.render, buffer: snapshot.buffer, now: now, includeChapter: true)
+            return status(
+                primary: chapterText(String(localized: "Resuming"), chapter: chapter),
+                secondary: render.text, progress: render.progress,
+                image: "arrow.clockwise", showsActivity: true)
+        }
+
+        if case .stopped = snapshot.playback {
+            let render = renderDetail(
+                for: snapshot.render, buffer: snapshot.buffer, now: now, includeChapter: true)
+            return status(
+                primary: String(localized: "Narration stopped"),
+                secondary: render.text, progress: render.progress,
+                image: "stop.fill")
+        }
+
+        if case .planning = snapshot.render {
+            return status(
+                primary: String(localized: "Planning narration"),
+                image: "list.bullet.clipboard", showsActivity: true)
+        }
+
+        if case .heldByBackpressure = snapshot.render {
+            let render = renderDetail(
+                for: snapshot.render, buffer: snapshot.buffer, now: now, includeChapter: true)
+            return status(
+                primary: String(localized: "Rendering paused while playback catches up"),
+                secondary: render.text, progress: render.progress,
+                image: "pause.circle")
+        }
+
         if case .rendering(let unit) = snapshot.render {
             let render = renderDetail(
                 for: snapshot.render, buffer: snapshot.buffer, now: now, includeChapter: true)
@@ -92,15 +125,13 @@ nonisolated enum NarrationStatusFormatter {
         switch snapshot.playback {
         case .completed:
             return status(primary: String(localized: "Playback completed"), image: "checkmark.circle")
-        case .stopped:
-            return status(primary: String(localized: "Narration stopped"), image: "stop.fill")
-        case .loading(let chapter), .resuming(let chapter):
+        case .loading(let chapter):
             return status(
                 primary: chapterText(String(localized: "Loading"), chapter: chapter), image: "arrow.clockwise",
                 showsActivity: true)
         case .notStarted:
             return status(primary: String(localized: "Narration ready"), image: "waveform")
-        case .playing, .paused, .waitingForRender, .failed:
+        case .playing, .paused, .waitingForRender, .resuming, .stopped, .failed:
             return nil
         }
     }
@@ -120,7 +151,8 @@ nonisolated enum NarrationStatusFormatter {
     }
 
     private static func modelPresentation(
-        for render: NarrationRenderActivity
+        for render: NarrationRenderActivity,
+        now: Date
     ) -> NarrationStatusPresentation? {
         switch render {
         case .checkingModel(let expectedBytes):
@@ -139,9 +171,13 @@ nonisolated enum NarrationStatusFormatter {
                 primary: String(localized: "Validating narration model"),
                 secondary: String(localized: "\(decimalMegabytes(byteCount)) MB"),
                 image: "checkmark.shield", showsActivity: true)
-        case .loadingModel:
+        case .loadingModel(let startedAt):
+            let elapsed = max(0, now.timeIntervalSince(startedAt)).formatted(
+                .number.precision(.fractionLength(1)))
             return status(
-                primary: String(localized: "Loading narration model"), image: "arrow.clockwise",
+                primary: String(localized: "Loading narration model"),
+                secondary: String(localized: "\(elapsed)s elapsed"),
+                image: "arrow.clockwise",
                 showsActivity: true)
         case .modelReady:
             return status(primary: String(localized: "Narration model ready"), image: "checkmark.circle")
@@ -156,7 +192,15 @@ nonisolated enum NarrationStatusFormatter {
         now: Date,
         includeChapter: Bool
     ) -> (text: String?, progress: Double?) {
-        guard case .rendering(let unit) = render else { return (nil, nil) }
+        let unit: NarrationRenderUnitStatus
+        switch render {
+        case .rendering(let current):
+            unit = current
+        case .heldByBackpressure(let current?):
+            unit = current
+        default:
+            return (nil, nil)
+        }
         let progress = unit.fraction
         let secondsWithoutProgress = max(0, Int(now.timeIntervalSince(unit.lastProgressAt)))
         if secondsWithoutProgress >= 30 {
@@ -164,15 +208,25 @@ nonisolated enum NarrationStatusFormatter {
                 String(localized: "Still synthesizing block \(max(1, unit.completedBlocks + 1)) · no update for \(secondsWithoutProgress)s"),
                 progress)
         }
-        let text: String
-        if includeChapter, buffer.readyAhead > 0 {
-            text = String(localized: "Rendering chapter \(unit.chapterDisplayNumber) · \(percent(progress))% · \(buffer.readyAhead) ready ahead")
+        let location: String
+        if includeChapter, let segmentIndex = unit.segmentIndex {
+            location = String(
+                localized:
+                    "Rendering chapter \(unit.chapterDisplayNumber), segment \(segmentIndex + 1)")
         } else if includeChapter {
-            text = String(localized: "Rendering chapter \(unit.chapterDisplayNumber) · \(percent(progress))%")
-        } else if buffer.readyAhead > 0 {
-            text = String(localized: "Rendering \(percent(progress))% · \(buffer.readyAhead) ready ahead")
+            location = String(localized: "Rendering chapter \(unit.chapterDisplayNumber)")
+        } else if let segmentIndex = unit.segmentIndex {
+            location = String(localized: "Rendering segment \(segmentIndex + 1)")
         } else {
-            text = String(localized: "Rendering \(percent(progress))%")
+            location = String(localized: "Rendering")
+        }
+        let block = String(
+            localized: "block \(unit.completedBlocks) of \(unit.totalBlocks)")
+        let voice = VoiceCatalog.voice(for: unit.voiceID)?.displayName ?? unit.voiceID.rawValue
+        var text = String(
+            localized: "\(location) · \(block) · \(voice) · \(percent(progress))%")
+        if buffer.readyAhead > 0 {
+            text = String(localized: "\(text) · \(buffer.readyAhead) ready ahead")
         }
         return (text, progress)
     }
@@ -214,7 +268,8 @@ nonisolated enum NarrationStatusFormatter {
         switch playback {
         case .playing(let chapter): return chapterText(String(localized: "Playing"), chapter: chapter)
         case .paused(let chapter): return chapterText(String(localized: "Paused"), chapter: chapter)
-        case .loading(let chapter), .resuming(let chapter): return chapterText(String(localized: "Loading"), chapter: chapter)
+        case .loading(let chapter): return chapterText(String(localized: "Loading"), chapter: chapter)
+        case .resuming(let chapter): return chapterText(String(localized: "Resuming"), chapter: chapter)
         default: return String(localized: "Narration ready")
         }
     }

@@ -236,7 +236,7 @@ struct NowPlayingTab: View {
                 // Offer narration only when the book has NO audio loaded yet.
                 if NarrationNudgePolicy.showsNudge(
                     tracksEmpty: model.tracks.isEmpty,
-                    isRunning: model.narrationPlaybackState.isRunning)
+                    isRunning: model.hasActiveNarrationWork)
                 {
                     NarrationNudgeView {
                         settings.narrationVoiceID = preferredVoice.id.rawValue

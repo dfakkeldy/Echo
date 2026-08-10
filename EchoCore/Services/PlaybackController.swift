@@ -14,10 +14,12 @@ protocol PlaybackControllerDelegate: AnyObject {
 }
 
 nonisolated enum PlaybackActivityChange: Equatable, Sendable {
+    case loading
     case playing
     case paused
     case waitingForNarration
     case reachedNaturalEnd
+    case failed(privateDetail: String)
 }
 
 nonisolated enum PlaybackPauseReason: Equatable, Sendable {
@@ -68,6 +70,7 @@ final class PlaybackController {
     @ObservationIgnored var coordinator_configureAudioSession: (() -> Void)?
     @ObservationIgnored var coordinator_startSecurityScope: (() -> Void)?
     @ObservationIgnored var coordinator_playStateChanged: ((PlaybackActivityChange) -> Void)?
+    @ObservationIgnored var coordinator_pauseRequested: (() -> Void)?
     @ObservationIgnored var coordinator_seekBackwardDuration: (() -> Double)?
     @ObservationIgnored var coordinator_seekForwardDuration: (() -> Double)?
 
@@ -210,6 +213,7 @@ final class PlaybackController {
                 "coordinator_loadTrack must be wired — track loading required for playback")
             coordinator_loadTrack?(state.currentIndex, false)
         }
+        guard audioEngine.isItemLoaded else { return }
         coordinator_startSecurityScope?()
 
         applySpeedToCurrentItem()
@@ -218,11 +222,11 @@ final class PlaybackController {
         // The engine starts a repeating Timer on playImmediately; if the first
         // tick fires before MPNowPlayingInfoCenter has playbackRate set, the
         // Lock Screen may show the wrong transport button.
+        audioEngine.playImmediately(atRate: speed)
+        guard audioEngine.isPlaying else { return }
         state.isPlaying = true
         coordinator_persistAndSync?(false)
         coordinator_playStateChanged?(.playing)
-
-        audioEngine.playImmediately(atRate: speed)
         if audioEngine.currentTime.isFinite {
             coordinator_checkVoiceMemo?(audioEngine.currentTime, nil)
         }
@@ -295,6 +299,9 @@ final class PlaybackController {
     }
 
     func pause(reason: PlaybackPauseReason = .userOrSystem) {
+        if reason == .userOrSystem {
+            coordinator_pauseRequested?()
+        }
         audioEngine.pause()
         state.isPlaying = false
 
@@ -380,8 +387,21 @@ final class PlaybackController {
         coordinator_stopSecurityScope?()
     }
 
-    func replaceCurrentItem(with url: URL, startTime: TimeInterval? = nil) {
+    @discardableResult
+    func replaceCurrentItem(
+        with url: URL, startTime: TimeInterval? = nil
+    ) -> Result<Void, AudioItemLoadFailure> {
         audioEngine.replaceCurrentItem(with: url, startTime: startTime)
+    }
+
+    func reportTrackLoading() {
+        state.isPlaying = false
+        coordinator_playStateChanged?(.loading)
+    }
+
+    func reportTrackLoadFailure(_ failure: AudioItemLoadFailure) {
+        state.isPlaying = false
+        coordinator_playStateChanged?(.failed(privateDetail: failure.privateDetail))
     }
 
     // MARK: - Navigation

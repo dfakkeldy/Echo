@@ -157,7 +157,6 @@
             if let task = initializationTask {
                 progressFanOut?.add(progress)
                 try await task.value
-                progress(.ready)
                 return
             }
             let fan = ProgressFanOut()

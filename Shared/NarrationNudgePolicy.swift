@@ -18,7 +18,8 @@ enum NarrationNudgePolicy {
 
     /// - Parameters:
     ///   - tracksEmpty: `model.tracks.isEmpty` — true only when no playable audio is loaded.
-    ///   - isRunning: `model.narrationPlaybackState.isRunning` — true while a render is in flight.
+    ///   - isRunning: `model.hasActiveNarrationWork` — includes structured activity
+    ///     and the render-in-flight gap before the next state transition.
     /// - Returns: whether to show the narrate-this-book nudge + voice picker.
     static func showsNudge(tracksEmpty: Bool, isRunning: Bool) -> Bool {
         tracksEmpty && !isRunning

@@ -248,11 +248,8 @@
             chapterDisplayNumber: Int,
             segmentIndex: Int
         ) {
-            let buffer = NarrationBufferStatus(
-                totalSegments: totalSegments,
-                queuedSegments: tracks.count,
-                currentPlaybackIndex: state.currentIndex)
-            narrationPlaybackState.updateBuffer(buffer)
+            let buffer = refreshNarrationBufferStatus(
+                totalSegments: totalSegments, publish: false)
             narrationPlaybackState.record(
                 .init(
                     category: .buffer,
@@ -263,6 +260,24 @@
                     developerMessage:
                         "buffer queued chapter=\(chapterDisplayNumber) segment=\(segmentIndex) queuedSegments=\(buffer.queuedSegments) totalSegments=\(buffer.totalSegments) currentPlaybackIndex=\(buffer.currentPlaybackIndex) readyAhead=\(buffer.readyAhead)"))
             publishNarrationStatusToNowPlaying()
+        }
+
+        @discardableResult
+        func refreshNarrationBufferStatus(
+            totalSegments: Int? = nil,
+            publish: Bool = true
+        ) -> NarrationBufferStatus {
+            var buffer = narrationPlaybackState.snapshot.buffer
+            if let totalSegments {
+                buffer.totalSegments = totalSegments
+            }
+            buffer.queuedSegments = tracks.count
+            buffer.currentPlaybackIndex = state.currentIndex
+            narrationPlaybackState.updateBuffer(buffer)
+            if publish {
+                publishNarrationStatusToNowPlaying()
+            }
+            return buffer
         }
 
         func completeNarrationRendering(at date: Date = Date()) {
@@ -341,6 +356,8 @@
             guard let audiobookID = bookIdentityURL?.absoluteString,
                 let db = databaseService?.writer
             else { return }
+
+            playerLoadingCoordinator.allowAutoplay()
 
             narrationRenderTask?.cancel()
             let operation = replaceNarrationOperation()
@@ -1045,6 +1062,7 @@
                     state.tracks.remove(at: removeAt)
                     if removeAt < state.currentIndex { state.currentIndex -= 1 }
                 }
+                refreshNarrationBufferStatus()
             }
             refreshNarrationOutline()
         }

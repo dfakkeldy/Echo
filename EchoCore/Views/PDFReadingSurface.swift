@@ -64,7 +64,7 @@ struct PDFReadingSurface: View {
             && NarrationCapability.supportsOnDeviceNarration
             && NarrationNudgePolicy.showsNudge(
                 tracksEmpty: model.tracks.isEmpty,
-                isRunning: model.narrationPlaybackState.isRunning)
+                isRunning: model.hasActiveNarrationWork)
     }
 
     var body: some View {

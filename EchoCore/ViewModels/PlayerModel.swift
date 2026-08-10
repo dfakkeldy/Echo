@@ -562,6 +562,10 @@ final class PlayerModel {
         return timelinePersistence.hasEPUB(for: bookIdentityURL?.absoluteString)
     }
 
+    var hasActiveNarrationWork: Bool {
+        narrationPlaybackState.isRunning || state.narrationRenderInFlight
+    }
+
     var documentIngestionTrigger: Int {
         state.documentIngestionTrigger
     }
@@ -912,7 +916,7 @@ final class PlayerModel {
                 && (self.state.awaitingNarrationChapter || narrationAutoplayWasPending)
             self.state.awaitingNarrationChapter = false
             if cancelledNarrationWait {
-                self.playerLoadingCoordinator.cancelPendingAutoplay()
+                self.playerLoadingCoordinator.suppressAutoplay()
             }
             if self.isPlaying { self.pause() }
             if cancelledNarrationWait {
@@ -1094,6 +1098,10 @@ final class PlayerModel {
             }
             self?.maybePushABSProgress(force: true)
         }
+        playerLoadingCoordinator.onPlaybackQueueMutation = { [weak self] in
+            guard let self, self.narrationPlaybackState.hasSession else { return }
+            self.refreshNarrationBufferStatus()
+        }
 
         // Wire PlaybackController coordination closures.
         playbackController.coordinator_seekBackwardDuration = { [weak self] in
@@ -1115,6 +1123,9 @@ final class PlayerModel {
         }
         playbackController.coordinator_loadTrack = { [weak self] index, autoplay in
             self?.playerLoadingCoordinator.prepareToPlay(index: index, autoplay: autoplay)
+        }
+        playbackController.coordinator_pauseRequested = { [weak self] in
+            self?.playerLoadingCoordinator.suppressAutoplay()
         }
         playbackController.coordinator_persistAndSync = { [weak self] isPaused in
             self?.updateNowPlayingInfo(isPaused: isPaused)
@@ -1224,6 +1235,14 @@ final class PlayerModel {
 
             guard self.narrationPlaybackState.hasSession else { return }
             switch change {
+            case .loading:
+                self.narrationPlaybackState.transitionPlayback(
+                    to: .loading(
+                        chapterDisplayNumber: self.currentNarrationChapterDisplayNumber),
+                    event: .init(
+                        category: .playback, severity: .info,
+                        message: String(localized: "Loading narration audio"),
+                        developerMessage: "playback audio loading"))
             case .playing:
                 self.narrationPlaybackState.transitionPlayback(
                     to: .playing(
@@ -1245,6 +1264,15 @@ final class PlayerModel {
                     to: .completed,
                     event: self.playbackEvent(
                         "Narration playback complete", severity: .notice))
+            case .failed(let privateDetail):
+                let message = String(localized: "Unable to load narration audio")
+                self.narrationPlaybackState.transitionPlayback(
+                    to: .failed(message: message),
+                    event: .init(
+                        category: .error, severity: .error,
+                        message: message,
+                        developerMessage: "playback audio load failed",
+                        privateDetail: privateDetail))
             }
             self.publishNarrationStatusToNowPlaying()
         }
@@ -1410,8 +1438,7 @@ final class PlayerModel {
         // Stop narrating the previous book before its tracks are replaced, so a
         // stale render can't append chapters onto the newly loaded book, and
         // clear its narration playback state so the new book starts fresh.
-        let hadActiveNarrationWork =
-            narrationPlaybackState.isRunning || state.narrationRenderInFlight
+        let hadActiveNarrationWork = hasActiveNarrationWork
         narrationRenderTask?.cancel()
         narrationRenderTask = nil
         replaceNarrationOperation()
@@ -1640,9 +1667,10 @@ final class PlayerModel {
     }
 
     func play() {
+        playerLoadingCoordinator.allowAutoplay()
         // For narration-only books (EPUB with no audio tracks), pressing Play
         // should start narration instead of no-op'ing (§8.1).
-        if state.tracks.isEmpty, hasEPUB, !narrationPlaybackState.isRunning {
+        if state.tracks.isEmpty, hasEPUB, !hasActiveNarrationWork {
             let voiceID = settingsManager?.narrationVoiceID ?? ""
             let voice =
                 voiceID.isEmpty
@@ -1830,9 +1858,9 @@ final class PlayerModel {
     }
 
     func stop() {
+        playerLoadingCoordinator.suppressAutoplay()
         if narrationPlaybackState.hasSession {
             state.awaitingNarrationChapter = false
-            playerLoadingCoordinator.cancelPendingAutoplay()
         }
         playbackController.stop()
         if narrationPlaybackState.hasSession {

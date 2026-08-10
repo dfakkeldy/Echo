@@ -39,6 +39,7 @@ final class PlayerLoadingCoordinator {
     private var transcriptLoadingTask: Task<Void, Never>?
     private var documentImportGeneration = 0
     private var autoplayGeneration = 0
+    private var autoplayAllowed = true
 
     /// Value providers for properties owned by PlayerModel.
     @ObservationIgnored var databaseServiceProvider: (() -> DatabaseService?)?
@@ -53,6 +54,7 @@ final class PlayerLoadingCoordinator {
     @ObservationIgnored var onResetBookmarkCheckSecond: (() -> Void)?
     @ObservationIgnored var onConfigureContinuousAlignment: (() -> Void)?
     @ObservationIgnored var onSavedPlaybackProgress: (() -> Void)?
+    @ObservationIgnored var onPlaybackQueueMutation: (() -> Void)?
 
     // MARK: - Folder loading
 
@@ -66,6 +68,12 @@ final class PlayerLoadingCoordinator {
         guard let state, let playbackController, let playlistManager, let persistence,
             let timelinePersistence, let bookSettingsOverrideStore, let bookmarkStore
         else { return }
+
+        if autoplay {
+            allowAutoplay()
+        } else {
+            suppressAutoplay()
+        }
 
         // ── Save the *current* book's progress before it gets overwritten ──
         // stop() zeroes audioEngine.currentTime, and state.folderURL is about to
@@ -671,8 +679,17 @@ final class PlayerLoadingCoordinator {
         autoplayGeneration &+= 1
     }
 
+    func allowAutoplay() {
+        autoplayAllowed = true
+    }
+
+    func suppressAutoplay() {
+        autoplayAllowed = false
+        cancelPendingAutoplay()
+    }
+
     func isAutoplayRequestCurrent(_ request: Int) -> Bool {
-        request == autoplayGeneration
+        autoplayAllowed && request == autoplayGeneration
     }
 
     func prepareToPlay(index: Int, autoplay: Bool) {
@@ -696,10 +713,12 @@ final class PlayerLoadingCoordinator {
         configureTrackState(
             state: state, index: index, persistence: persistence,
             playbackController: playbackController, audioEngine: audioEngine)
+        onPlaybackQueueMutation?()
         resetPerTrackState(
             state: state, artworkCoordinator: artworkCoordinator,
             transcriptService: transcriptService)
-        setupAudioForTrack(
+        playbackController.reportTrackLoading()
+        let loadResult = setupAudioForTrack(
             state: state, index: index, audioEngine: audioEngine,
             playbackController: playbackController)
 
@@ -707,6 +726,11 @@ final class PlayerLoadingCoordinator {
         progressPresenter.updateNowPlayingInfo(isPaused: true)
         progressPresenter.updateProgress()
         watchSyncManager.syncToWatch()
+
+        if case .failure(let failure) = loadResult {
+            playbackController.reportTrackLoadFailure(failure)
+            return
+        }
 
         // Load chapters, thumbnail, and handle autoplay/seek.
         performPostLoadTasks(
@@ -814,7 +838,7 @@ final class PlayerLoadingCoordinator {
     private func setupAudioForTrack(
         state: PlaybackState, index: Int, audioEngine: AudioEngine,
         playbackController: PlaybackController
-    ) {
+    ) -> Result<Void, AudioItemLoadFailure> {
         if let folderURL = state.folderURL {
             securityScope?.startSelection(url: folderURL)
         }
@@ -826,9 +850,10 @@ final class PlayerLoadingCoordinator {
         pendingArtworkTask = Task { await ArtworkCache.ensureItemIsAvailable(url: trackURL) }
 
         audioEngine.configureAudioSession()
-        audioEngine.replaceCurrentItem(with: trackURL)
+        let result = audioEngine.replaceCurrentItem(with: trackURL)
         playbackController.applySpeedToCurrentItem()
         onConfigureRemoteCommands?()
+        return result
     }
 
     private func performPostLoadTasks(

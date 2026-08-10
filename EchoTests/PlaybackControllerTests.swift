@@ -64,6 +64,25 @@ import Testing
         #expect(gap.state.awaitingNarrationChapter)
     }
 
+    @Test func playDoesNotPublishPlayingWhenTrackLoadingProducesNoItem() {
+        let controller = PlaybackController()
+        controller.state.tracks = [
+            Track(url: URL(fileURLWithPath: "/missing/audio.m4a"), title: "Unavailable")
+        ]
+        controller.coordinator_configureAudioSession = {}
+        controller.coordinator_loadTrack = { _, _ in }
+        controller.coordinator_startSecurityScope = {}
+        controller.coordinator_persistAndSync = { _ in }
+        var changes: [PlaybackActivityChange] = []
+        controller.coordinator_playStateChanged = { changes.append($0) }
+
+        controller.play()
+
+        #expect(changes.contains(.playing) == false)
+        #expect(controller.state.isPlaying == false)
+        #expect(controller.isPlaying == false)
+    }
+
     @Test func naturalEndIsNotEmittedForManualNextAtQueueEnd() {
         let controller = PlaybackController()
         var changes: [PlaybackActivityChange] = []

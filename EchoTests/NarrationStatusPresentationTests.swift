@@ -5,6 +5,51 @@ import Testing
 @testable import Echo
 
 @Suite struct NarrationStatusPresentationTests {
+    struct PrecedenceCase: Sendable {
+        let render: NarrationRenderActivity
+        let playback: NarrationPlaybackActivity
+        let expectedPrimary: String
+    }
+
+    static let activeStateCases = [
+        PrecedenceCase(
+            render: .planning, playback: .notStarted,
+            expectedPrimary: "Planning narration"),
+        PrecedenceCase(
+            render: .heldByBackpressure(nil), playback: .notStarted,
+            expectedPrimary: "Rendering paused while playback catches up"),
+        PrecedenceCase(
+            render: .rendering(renderUnit),
+            playback: .resuming(chapterDisplayNumber: 3),
+            expectedPrimary: "Resuming chapter 3"),
+        PrecedenceCase(
+            render: .rendering(renderUnit), playback: .stopped,
+            expectedPrimary: "Narration stopped"),
+        PrecedenceCase(
+            render: .rendering(renderUnit), playback: .notStarted,
+            expectedPrimary: "Rendering chapter 4 with Ava"),
+    ]
+
+    static let renderUnit = NarrationRenderUnitStatus(
+        chapterDisplayNumber: 4, segmentIndex: 0,
+        voiceID: VoiceID("af_heart"), completedBlocks: 8,
+        totalBlocks: 19, startedAt: Date(timeIntervalSince1970: 200),
+        lastProgressAt: Date(timeIntervalSince1970: 200))
+
+    @Test func activeStatePrecedenceIsExplicit() {
+        for testCase in Self.activeStateCases {
+            var snapshot = NarrationStatusSnapshot()
+            snapshot.render = testCase.render
+            snapshot.playback = testCase.playback
+
+            let value = NarrationStatusFormatter.presentation(
+                for: snapshot, hasSession: true,
+                now: Date(timeIntervalSince1970: 200))
+
+            #expect(value?.primaryText == testCase.expectedPrimary)
+        }
+    }
+
     @Test func combinesPlayingRenderingAndBuffer() {
         let now = Date(timeIntervalSince1970: 200)
         var snapshot = NarrationStatusSnapshot()
@@ -20,11 +65,13 @@ import Testing
         let value = NarrationStatusFormatter.presentation(
             for: snapshot, hasSession: true, now: now)
         #expect(value?.primaryText == "Playing chapter 2")
-        #expect(value?.secondaryText == "Rendering chapter 4 · 42% · 1 ready ahead")
+        #expect(
+            value?.secondaryText
+                == "Rendering chapter 4, segment 1 · block 8 of 19 · Ava · 42% · 1 ready ahead")
         #expect(value?.progress == 8.0 / 19.0)
         #expect(
             value?.lockScreenSubtitle
-                == "Playing chapter 2. Rendering chapter 4 · 42% · 1 ready ahead")
+                == "Playing chapter 2. Rendering chapter 4, segment 1 · block 8 of 19 · Ava · 42% · 1 ready ahead")
     }
 
     @Test func queueWaitOutranksGenericPause() {
@@ -38,8 +85,12 @@ import Testing
         let value = NarrationStatusFormatter.presentation(
             for: snapshot, hasSession: true, now: .distantPast)
         #expect(value?.primaryText == "Waiting for chapter 3")
-        #expect(value?.secondaryText == "Rendering 71%")
-        #expect(value?.lockScreenSubtitle == "Waiting for chapter 3. Rendering 71%")
+        #expect(
+            value?.secondaryText
+                == "Rendering segment 1 · block 5 of 7 · Ava · 71%")
+        #expect(
+            value?.lockScreenSubtitle
+                == "Waiting for chapter 3. Rendering segment 1 · block 5 of 7 · Ava · 71%")
     }
 
     @Test func modelDownloadLockScreenSubtitleIncludesActivityAndProgress() {
@@ -60,14 +111,50 @@ import Testing
 
     @Test func modelLoadingLockScreenSubtitleIncludesActivity() {
         var snapshot = NarrationStatusSnapshot()
-        snapshot.render = .loadingModel(startedAt: .distantPast)
+        snapshot.render = .loadingModel(startedAt: Date(timeIntervalSince1970: 100))
 
         let value = NarrationStatusFormatter.presentation(
-            for: snapshot, hasSession: true, now: .distantPast)
+            for: snapshot, hasSession: true,
+            now: Date(timeIntervalSince1970: 101.2))
 
         #expect(value?.primaryText == "Loading narration model")
-        #expect(value?.secondaryText == nil)
-        #expect(value?.lockScreenSubtitle == "Loading narration model")
+        #expect(value?.secondaryText == "1.2s elapsed")
+        #expect(value?.lockScreenSubtitle == "Loading narration model. 1.2s elapsed")
+    }
+
+    @Test func heldRenderPreservesUnitDiagnostics() {
+        var snapshot = NarrationStatusSnapshot()
+        snapshot.render = .heldByBackpressure(Self.renderUnit)
+
+        let value = NarrationStatusFormatter.presentation(
+            for: snapshot, hasSession: true,
+            now: Date(timeIntervalSince1970: 200))
+
+        #expect(value?.primaryText == "Rendering paused while playback catches up")
+        #expect(
+            value?.secondaryText
+                == "Rendering chapter 4, segment 1 · block 8 of 19 · Ava · 42%")
+        #expect(value?.progress == 8.0 / 19.0)
+    }
+
+    @Test func resumingAndStoppedPlaybackKeepActiveRenderDetail() {
+        for (playback, primary) in [
+            (NarrationPlaybackActivity.resuming(chapterDisplayNumber: 3), "Resuming chapter 3"),
+            (.stopped, "Narration stopped"),
+        ] {
+            var snapshot = NarrationStatusSnapshot()
+            snapshot.render = .rendering(Self.renderUnit)
+            snapshot.playback = playback
+
+            let value = NarrationStatusFormatter.presentation(
+                for: snapshot, hasSession: true,
+                now: Date(timeIntervalSince1970: 200))
+
+            #expect(value?.primaryText == primary)
+            #expect(
+                value?.secondaryText
+                    == "Rendering chapter 4, segment 1 · block 8 of 19 · Ava · 42%")
+        }
     }
 
     @Test func reportsExactDecimalMegabytes() {

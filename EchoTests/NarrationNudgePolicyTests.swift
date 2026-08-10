@@ -30,4 +30,15 @@ import Testing
     @Test func hidesNudgeWhilePreparingBeforeFirstTrack() {
         #expect(NarrationNudgePolicy.showsNudge(tracksEmpty: true, isRunning: true) == false)
     }
+
+    @Test @MainActor func hidesNudgeDuringModelReadyRenderInFlightGap() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.transitionRender(to: .modelReady, event: nil)
+        model.state.narrationRenderInFlight = true
+
+        #expect(
+            NarrationNudgePolicy.showsNudge(
+                tracksEmpty: model.tracks.isEmpty,
+                isRunning: model.hasActiveNarrationWork) == false)
+    }
 }
