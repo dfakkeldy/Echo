@@ -1678,7 +1678,7 @@ private actor ShadowEvaluatorRecorder {
 
     @Test func skipsBlocksWithNoText() async throws {
         let db = try DatabaseService(inMemory: ())
-        let blocks = try seed(db, ["hi", nil, ""])
+        let blocks = try seed(db, ["hello", nil, ""])
         let tts = MockTTSEngine()
         let svc = makeService(db, tts: tts, writer: MockAudioWriter())
         try await svc.renderChapter(
@@ -2142,7 +2142,9 @@ private actor ShadowEvaluatorRecorder {
         try await service.renderChapter(
             chapterIndex: 0, blocks: blocks, voice: VoiceID("am_michael"))
 
-        #expect(engine.plannedCalls.count == 1)
+        #expect(
+            engine.plannedCalls.count == NarrationService.maximumQualityRetryDepth + 1)
+        #expect(engine.plannedCalls.allSatisfy { $0.chunk == planned })
     }
 
     @Test func retryAggregatesOnlyAcceptedPlannedFallbackEvidenceOnce() async throws {

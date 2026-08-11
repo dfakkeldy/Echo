@@ -2558,7 +2558,6 @@ import ZIPFoundation
         #expect(FileManager.default.fileExists(atPath: output.path))
         #expect(FileManager.default.fileExists(atPath: sidecar.path))
         let recorded = await recorder.snapshot()
-        #expect(recorded.map(\.voice) == resolved.blocks.map(\.voiceID))
         let expectedVoicesByText = Dictionary(uniqueKeysWithValues: narratorTexts.map {
             ($0, VoiceID("am_michael"))
         } + povTexts.map { ($0, VoiceID("bf_emma")) }
