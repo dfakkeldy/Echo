@@ -1,6 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
+struct ABSDownloadProgress: Equatable, Sendable {
+    let bytesReceived: Int64
+    let totalBytes: Int64?
+
+    var fractionCompleted: Double? {
+        guard let totalBytes, totalBytes > 0 else { return nil }
+        return min(1, Double(bytesReceived) / Double(totalBytes))
+    }
+}
+
 struct ABSImportedBook: Identifiable, Equatable, Sendable {
     let remoteItemID: String
     let folderURL: URL

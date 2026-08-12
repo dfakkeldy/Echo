@@ -291,30 +291,137 @@ final class AudiobookshelfService {
 
     /// Downloads the item's whole-item zip (audio + any EPUB) to `destination`, replacing
     /// any existing file there. The token is carried only in the Bearer header; on a 401 it
-    /// refreshes once and retries. The zip has no
-    /// Content-Length (streamed), so callers can't show a determinate percentage.
+    /// refreshes once and retries.
     func downloadItemZip(itemID: String, to destination: URL) async throws {
-        func attempt(_ token: String) async throws -> (URL, URLResponse) {
+        try await downloadItemZip(itemID: itemID, to: destination) { _ in }
+    }
+
+    /// Downloads the item's whole-item zip while delivering transport progress on the main
+    /// actor. The expected total is nil when the server does not provide a usable length.
+    func downloadItemZip(
+        itemID: String,
+        to destination: URL,
+        onProgress: @escaping @MainActor @Sendable (ABSDownloadProgress) -> Void
+    ) async throws {
+        func request(accessToken: String) -> URLRequest {
             var request = URLRequest(url: endpoints.downloadItem(itemID))
             request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            return try await session.download(for: request)
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            return request
         }
+
         guard let access = tokens.accessToken else { throw ABSError.unauthorized }
-        var (tempURL, response) = try await attempt(access)
-        if (response as? HTTPURLResponse)?.statusCode == 401 {
-            let refreshed = try await refreshAccessToken()
-            (tempURL, response) = try await attempt(refreshed)
+        var temporaryURL: URL?
+        defer {
+            if let temporaryURL {
+                try? FileManager.default.removeItem(at: temporaryURL)
+            }
         }
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            try? FileManager.default.removeItem(at: tempURL)  // don't leak the temp file on a non-2xx
-            throw ABSError.http((response as? HTTPURLResponse)?.statusCode ?? -1, body: nil)
+
+        do {
+            var attempt = try await downloadAttempt(
+                request(accessToken: access), onProgress: onProgress)
+            temporaryURL = attempt.temporaryURL
+            if (attempt.response as? HTTPURLResponse)?.statusCode == 401 {
+                try? FileManager.default.removeItem(at: attempt.temporaryURL)
+                temporaryURL = nil
+                let refreshed = try await refreshAccessToken()
+                attempt = try await downloadAttempt(
+                    request(accessToken: refreshed), onProgress: onProgress)
+                temporaryURL = attempt.temporaryURL
+            }
+
+            guard let http = attempt.response as? HTTPURLResponse,
+                (200..<300).contains(http.statusCode)
+            else {
+                throw ABSError.http(
+                    (attempt.response as? HTTPURLResponse)?.statusCode ?? -1, body: nil)
+            }
+
+            try Task.checkCancellation()
+            try? FileManager.default.removeItem(at: destination)
+            try FileManager.default.createDirectory(
+                at: destination.deletingLastPathComponent(),
+                withIntermediateDirectories: true)
+            try FileManager.default.moveItem(at: attempt.temporaryURL, to: destination)
+            temporaryURL = nil
+
+            let finalProgress = Self.completedDownloadProgress(
+                destination: destination,
+                response: attempt.response,
+                latestProgress: attempt.latestProgress)
+            onProgress(finalProgress)
+        } catch {
+            if Self.isCancellation(error) || Task.isCancelled {
+                throw CancellationError()
+            }
+            throw error
         }
-        try? FileManager.default.removeItem(at: destination)
-        try FileManager.default.createDirectory(
-            at: destination.deletingLastPathComponent(),
-            withIntermediateDirectories: true)
-        try FileManager.default.moveItem(at: tempURL, to: destination)
+    }
+
+    private func downloadAttempt(
+        _ request: URLRequest,
+        onProgress: @escaping @MainActor @Sendable (ABSDownloadProgress) -> Void
+    ) async throws -> ABSDownloadAttempt {
+        let delegate = ABSDownloadDelegate()
+        onProgress(ABSDownloadProgress(bytesReceived: 0, totalBytes: nil))
+        let task = Task { [session] in
+            try await session.download(for: request, delegate: delegate)
+        }
+
+        return try await withTaskCancellationHandler {
+            async let reportProgress: Void = Self.forwardDownloadProgress(
+                from: delegate.updates,
+                to: onProgress)
+            do {
+                let (temporaryURL, response) = try await task.value
+                delegate.finish()
+                await reportProgress
+                return ABSDownloadAttempt(
+                    temporaryURL: temporaryURL,
+                    response: response,
+                    latestProgress: delegate.latestProgress)
+            } catch {
+                task.cancel()
+                delegate.finish()
+                await reportProgress
+                throw error
+            }
+        } onCancel: {
+            task.cancel()
+            delegate.finish()
+        }
+    }
+
+    private nonisolated static func forwardDownloadProgress(
+        from updates: AsyncStream<ABSDownloadProgress>,
+        to onProgress: @escaping @MainActor @Sendable (ABSDownloadProgress) -> Void
+    ) async {
+        for await update in updates {
+            guard !Task.isCancelled else { return }
+            await onProgress(update)
+        }
+    }
+
+    private nonisolated static func completedDownloadProgress(
+        destination: URL,
+        response: URLResponse,
+        latestProgress: ABSDownloadProgress?
+    ) -> ABSDownloadProgress {
+        let destinationSize = (try? destination.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+            .map(Int64.init)
+        let expectedLength = normalizedDownloadLength(response.expectedContentLength)
+        return ABSDownloadProgress(
+            bytesReceived: destinationSize ?? latestProgress?.bytesReceived ?? 0,
+            totalBytes: latestProgress?.totalBytes ?? expectedLength)
+    }
+
+    private nonisolated static func normalizedDownloadLength(_ value: Int64) -> Int64? {
+        value > 0 ? value : nil
+    }
+
+    private nonisolated static func isCancellation(_ error: Error) -> Bool {
+        error is CancellationError || (error as? URLError)?.code == .cancelled
     }
 
     // MARK: Transport
@@ -373,5 +480,70 @@ final class AudiobookshelfService {
             throw ABSError.http(http.statusCode, body: String(data: data, encoding: .utf8))
         }
         return data
+    }
+}
+
+private struct ABSDownloadAttempt: Sendable {
+    let temporaryURL: URL
+    let response: URLResponse
+    let latestProgress: ABSDownloadProgress?
+}
+
+/// The URLSession callback queue is not actor-isolated. This delegate protects its stream
+/// continuation and latest value with a lock, then hands immutable progress to the service.
+nonisolated private final class ABSDownloadDelegate: NSObject, URLSessionDownloadDelegate,
+    @unchecked Sendable
+{
+    let updates: AsyncStream<ABSDownloadProgress>
+
+    private let lock = NSLock()
+    private var continuation: AsyncStream<ABSDownloadProgress>.Continuation?
+    private var didFinish = false
+    private var latest: ABSDownloadProgress?
+
+    override init() {
+        let stream = AsyncStream<ABSDownloadProgress>.makeStream(
+            bufferingPolicy: .bufferingNewest(32))
+        updates = stream.stream
+        continuation = stream.continuation
+        super.init()
+    }
+
+    var latestProgress: ABSDownloadProgress? {
+        lock.withLock { latest }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        let progress = ABSDownloadProgress(
+            bytesReceived: max(0, totalBytesWritten),
+            totalBytes: totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : nil)
+        lock.withLock {
+            guard !didFinish else { return }
+            latest = progress
+            continuation?.yield(progress)
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didCompleteWithError error: (any Error)?
+    ) {
+        finish()
+    }
+
+    func finish() {
+        lock.withLock {
+            guard !didFinish else { return }
+            didFinish = true
+            continuation?.finish()
+            continuation = nil
+        }
     }
 }

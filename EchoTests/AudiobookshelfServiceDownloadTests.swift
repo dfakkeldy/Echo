@@ -51,4 +51,23 @@ import Testing
             return false
         }
     }
+
+    @Test func progressDownloadRetainsHeaderAuthentication() async throws {
+        let service = makeService()
+        let payload = Data(repeating: 0xA5, count: 1_024)
+        URLProtocolStub.stub(
+            pathSuffix: "/download", status: 200, data: payload,
+            headers: ["Content-Type": "application/zip", "Content-Length": "1024"])
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("abs-progress-auth-\(UUID().uuidString).zip")
+        defer { try? FileManager.default.removeItem(at: destination) }
+
+        try await service.downloadItemZip(itemID: "it1", to: destination) { _ in }
+
+        let request = try #require(URLProtocolStub.requests.last)
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer acc")
+        #expect(
+            URLComponents(url: try #require(request.url), resolvingAgainstBaseURL: false)?
+                .queryItems?.contains(where: { $0.name == "token" }) == false)
+    }
 }
