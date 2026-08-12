@@ -65,58 +65,75 @@ final class ABSBrowseModel {
         let task = replaceTask(clearResults: true) { model, generation in
             try await model.loadRoot(generation: generation)
         }
-        await task.value
+        await waitForOwnedTask(task)
     }
 
-    func selectLibrary(_ libraryID: String?) {
-        guard selectedLibraryID != libraryID else { return }
+    @discardableResult
+    func selectLibrary(_ libraryID: String?) -> Task<Void, Never> {
+        guard selectedLibraryID != libraryID else { return completedTask() }
         selectedLibraryID = libraryID
         selection.options.removeAll()
         filterData = .empty
-        startSelectedLibraryLoad(clearResults: true, reloadFilterData: true)
+        return startSelectedLibraryLoad(clearResults: true, reloadFilterData: true)
     }
 
-    func setSort(_ newSort: ABSBrowseSort) {
-        guard sort != newSort else { return }
+    @discardableResult
+    func setSort(_ newSort: ABSBrowseSort) -> Task<Void, Never> {
+        guard sort != newSort else { return completedTask() }
         sort = newSort
         preferences.set(newSort.rawValue, forKey: Self.sortPreferenceKey)
-        startSelectedLibraryLoad(clearResults: true, reloadFilterData: false)
+        return startSelectedLibraryLoad(clearResults: true, reloadFilterData: false)
     }
 
-    func toggleFilter(_ option: ABSFilterOption) {
+    @discardableResult
+    func toggleFilter(_ option: ABSFilterOption) -> Task<Void, Never> {
         if selection.options.remove(option) == nil {
             selection.options.insert(option)
         }
-        startSelectedLibraryLoad(clearResults: true, reloadFilterData: false)
+        return startSelectedLibraryLoad(clearResults: true, reloadFilterData: false)
     }
 
-    func setNotAddedOnly(_ enabled: Bool) {
-        guard selection.notAddedOnly != enabled else { return }
+    @discardableResult
+    func setNotAddedOnly(_ enabled: Bool) -> Task<Void, Never> {
+        guard selection.notAddedOnly != enabled else { return completedTask() }
         selection.notAddedOnly = enabled
+        if enabled, trimmedSearchQuery.isEmpty, nextPage != nil {
+            return startSelectedLibraryLoad(clearResults: false, reloadFilterData: false)
+        }
+        if enabled {
+            return replaceTask(clearResults: false) { model, generation in
+                try await model.republishCompleteResults(generation: generation)
+            }
+        }
         publishDisplayedItems()
+        return completedTask()
     }
 
-    func clearFilters() {
+    @discardableResult
+    func clearFilters() -> Task<Void, Never> {
         let hadMetadataFilters = !selection.options.isEmpty
         selection = ABSFilterSelection()
         if hadMetadataFilters {
-            startSelectedLibraryLoad(clearResults: true, reloadFilterData: false)
+            return startSelectedLibraryLoad(clearResults: true, reloadFilterData: false)
         } else {
             publishDisplayedItems()
+            return completedTask()
         }
     }
 
-    func setSearchQuery(_ query: String) {
-        guard searchQuery != query else { return }
+    @discardableResult
+    func setSearchQuery(_ query: String) -> Task<Void, Never> {
+        guard searchQuery != query else { return completedTask() }
         searchQuery = query
-        startSelectedLibraryLoad(clearResults: true, reloadFilterData: false, debounceSearch: true)
+        return startSelectedLibraryLoad(
+            clearResults: true, reloadFilterData: false, debounceSearch: true)
     }
 
     func refresh() async {
         let task = replaceTask(clearResults: false) { model, generation in
             try await model.refreshRoot(generation: generation)
         }
-        await task.value
+        await waitForOwnedTask(task)
     }
 
     func loadNextPageIfNeeded() async {
@@ -137,7 +154,15 @@ final class ABSBrowseModel {
                 libraryID: libraryID, page: page, generation: activeGeneration)
         }
         browseTask = task
-        await task.value
+        await waitForOwnedTask(task)
+    }
+
+    func cancel() {
+        browseTask?.cancel()
+        browseTask = nil
+        generation += 1
+        isLoadingNextPage = false
+        loadState = .idle
     }
 
     private func loadRoot(generation: Int) async throws {
@@ -150,7 +175,7 @@ final class ABSBrowseModel {
             selectedLibraryID = fetchedLibraries.first?.id
             selection.options.removeAll()
         }
-        try loadAddedBooks()
+        try await loadAddedBooks()
 
         guard selectedLibraryID != nil else {
             filterData = .empty
@@ -158,6 +183,7 @@ final class ABSBrowseModel {
             displayedItems = []
             totalCount = 0
             nextPage = nil
+            searchResultsAreLimited = false
             loadState = .loaded
             return
         }
@@ -175,17 +201,28 @@ final class ABSBrowseModel {
             selectedLibraryID = fetchedLibraries.first?.id
             selection.options.removeAll()
         }
-        try loadAddedBooks()
+        try await loadAddedBooks()
+        guard selectedLibraryID != nil else {
+            filterData = .empty
+            items = []
+            displayedItems = []
+            totalCount = 0
+            nextPage = nil
+            searchResultsAreLimited = false
+            loadState = .loaded
+            return
+        }
         try await loadSelectedLibrary(
             generation: generation, reloadFilterData: true, debounceSearch: false)
     }
 
+    @discardableResult
     private func startSelectedLibraryLoad(
         clearResults: Bool,
         reloadFilterData: Bool,
         debounceSearch: Bool = false
-    ) {
-        _ = replaceTask(clearResults: clearResults) { model, generation in
+    ) -> Task<Void, Never> {
+        replaceTask(clearResults: clearResults) { model, generation in
             try await model.loadSelectedLibrary(
                 generation: generation,
                 reloadFilterData: reloadFilterData,
@@ -214,6 +251,9 @@ final class ABSBrowseModel {
 
         let task = Task { [weak self] in
             guard let self else { return }
+            defer {
+                if self.generation == activeGeneration { self.browseTask = nil }
+            }
             do {
                 try await operation(self, activeGeneration)
             } catch is CancellationError {
@@ -273,38 +313,36 @@ final class ABSBrowseModel {
             guard self.generation == generation else { return }
 
             let selectedSort = sort
-            let allowedIDs = combinedIDs(optionResults: optionResults)
-            let allItems = optionResults.values.flatMap { $0 }
-            let resolved = await Self.offMain {
-                ABSBrowseResultResolver.sorted(
-                    allItems.filter { allowedIDs.contains($0.id) }, by: selectedSort)
+            let resolved = try await Self.offMain {
+                try ABSBrowseResultResolver.resolvedCancellable(
+                    optionResults: optionResults, sort: selectedSort)
             }
             try Task.checkCancellation()
             guard self.generation == generation else { return }
             items = resolved
             serverTotal = resolved.count
             nextPage = nil
-            publishDisplayedItems(completeResult: true)
+            try await publishCompleteResults(generation: generation)
             loadState = .loaded
             return
         }
 
         var query = ABSLibraryItemsQuery(limit: Self.pageSize, sort: sort)
         query.filter = options.first
-        if sort == .series {
+        if sort == .series || selection.notAddedOnly {
             let allItems = try await service.allItems(libraryID: libraryID, query: query)
             try Task.checkCancellation()
             guard self.generation == generation else { return }
             let selectedSort = sort
-            let sortedItems = await Self.offMain {
-                ABSBrowseResultResolver.sorted(allItems, by: selectedSort)
+            let sortedItems = try await Self.offMain {
+                try ABSBrowseResultResolver.sortedCancellable(allItems, by: selectedSort)
             }
             try Task.checkCancellation()
             guard self.generation == generation else { return }
             items = sortedItems
             serverTotal = items.count
             nextPage = nil
-            publishDisplayedItems(completeResult: true)
+            try await publishCompleteResults(generation: generation)
             loadState = .loaded
             return
         }
@@ -336,15 +374,16 @@ final class ABSBrowseModel {
         guard self.generation == generation else { return }
 
         let selectedSort = sort
-        let allowedIDs = options.isEmpty ? nil : combinedIDs(optionResults: optionResults)
-        let sortedItems = await Self.offMain {
-            let filtered: [ABSLibraryItem]
-            if let allowedIDs {
-                filtered = fetchedSearchResults.filter { allowedIDs.contains($0.id) }
-            } else {
-                filtered = fetchedSearchResults
-            }
-            return ABSBrowseResultResolver.sorted(filtered, by: selectedSort)
+        let allowedIDs = try await Self.offMain {
+            try Task.checkCancellation()
+            return options.isEmpty
+                ? nil
+                : ABSBrowseResultResolver.combinedIDs(
+                    filteredBy: Self.groupedIDs(optionResults: optionResults))
+        }
+        let sortedItems = try await Self.offMain {
+            try ABSBrowseResultResolver.searchResultsCancellable(
+                fetchedSearchResults, allowedIDs: allowedIDs, sort: selectedSort)
         }
         try Task.checkCancellation()
         guard self.generation == generation else { return }
@@ -352,7 +391,7 @@ final class ABSBrowseModel {
         serverTotal = items.count
         nextPage = nil
         searchResultsAreLimited = fetchedSearchResults.count == Self.searchLimit
-        publishDisplayedItems(completeResult: true)
+        try await publishCompleteResults(generation: generation)
         loadState = .loaded
     }
 
@@ -389,21 +428,20 @@ final class ABSBrowseModel {
         }
     }
 
-    private func combinedIDs(
+    private nonisolated static func groupedIDs(
         optionResults: [ABSFilterOption: [ABSLibraryItem]]
-    ) -> Set<String> {
-        let grouped = Dictionary(grouping: optionResults.keys, by: \.group).mapValues { options in
+    ) -> [ABSFilterGroup: [[String]]] {
+        Dictionary(grouping: optionResults.keys, by: \.group).mapValues { options in
             options.map { optionResults[$0, default: []].map(\.id) }
         }
-        return ABSBrowseResultResolver.combinedIDs(filteredBy: grouped)
     }
 
     private nonisolated static func offMain<T: Sendable>(
-        _ operation: @escaping @Sendable () -> T
-    ) async -> T {
+        _ operation: @escaping @Sendable () throws -> T
+    ) async throws -> T {
         let task = Task.detached(priority: .userInitiated, operation: operation)
-        return await withTaskCancellationHandler {
-            await task.value
+        return try await withTaskCancellationHandler {
+            try await task.value
         } onCancel: {
             task.cancel()
         }
@@ -449,12 +487,16 @@ final class ABSBrowseModel {
         return page + 1
     }
 
-    private func loadAddedBooks() throws {
-        let records = try AudiobookDAO(db: db.writer).audiobookshelfRecords(serverID: serverID)
-        addedBooksByRemoteID = Dictionary(
-            uniqueKeysWithValues: ABSLocalImportStatus.usableBooks(records: records).map {
-                ($0.remoteItemID, $0)
-            })
+    private func loadAddedBooks() async throws {
+        let records = try await AudiobookDAO(db: db.writer)
+            .audiobookshelfRecordsAsync(serverID: serverID)
+        addedBooksByRemoteID = try await Self.offMain {
+            try Task.checkCancellation()
+            let books = ABSLocalImportStatus.usableBooks(records: records)
+            return Dictionary(books.map { ($0.remoteItemID, $0) }) { lhs, rhs in
+                lhs.folderURL.absoluteString <= rhs.folderURL.absoluteString ? lhs : rhs
+            }
+        }
     }
 
     private func publishDisplayedItems(completeResult: Bool? = nil) {
@@ -469,12 +511,33 @@ final class ABSBrowseModel {
             ?? (!trimmedSearchQuery.isEmpty || sort == .series || selection.options.count > 1)
         if isComplete {
             totalCount = filtered.count
-        } else if selection.notAddedOnly {
-            let removedLoadedRows = items.count - filtered.count
-            totalCount = serverTotal.map { max(0, $0 - removedLoadedRows) }
         } else {
             totalCount = serverTotal
         }
+    }
+
+    private func publishCompleteResults(generation: Int) async throws {
+        let displayed: [ABSLibraryItem]
+        if selection.notAddedOnly {
+            let allItems = items
+            let addedIDs = Set(addedBooksByRemoteID.keys)
+            displayed = try await Self.offMain {
+                try ABSBrowseResultResolver.excludingAddedCancellable(
+                    allItems, addedIDs: addedIDs)
+            }
+        } else {
+            displayed = items
+        }
+        try Task.checkCancellation()
+        guard self.generation == generation else { return }
+        displayedItems = displayed
+        totalCount = displayed.count
+    }
+
+    private func republishCompleteResults(generation: Int) async throws {
+        try await publishCompleteResults(generation: generation)
+        guard self.generation == generation else { return }
+        loadState = .loaded
     }
 
     private func deduplicated(_ values: [ABSLibraryItem]) -> [ABSLibraryItem] {
@@ -484,5 +547,22 @@ final class ABSBrowseModel {
 
     private var trimmedSearchQuery: String {
         searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func waitForOwnedTask(_ task: Task<Void, Never>) async {
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        if Task.isCancelled { cancel() }
+    }
+
+    private func completedTask() -> Task<Void, Never> {
+        Task {}
+    }
+
+    deinit {
+        browseTask?.cancel()
     }
 }

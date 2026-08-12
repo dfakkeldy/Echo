@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
-enum ABSBrowseSort: String, CaseIterable, Codable, Sendable {
+nonisolated enum ABSBrowseSort: String, CaseIterable, Codable, Sendable {
     case newestAdded, title, author, series, publicationYear
 
     var serverField: String? {
@@ -17,11 +17,11 @@ enum ABSBrowseSort: String, CaseIterable, Codable, Sendable {
     var descending: Bool { self == .newestAdded || self == .publicationYear }
 }
 
-enum ABSFilterGroup: String, CaseIterable, Codable, Sendable {
+nonisolated enum ABSFilterGroup: String, CaseIterable, Codable, Sendable {
     case authors, series, genres, tags
 }
 
-struct ABSFilterOption: Identifiable, Hashable, Sendable {
+nonisolated struct ABSFilterOption: Identifiable, Hashable, Sendable {
     let group: ABSFilterGroup
     let value: String
     let label: String
@@ -32,12 +32,12 @@ struct ABSFilterOption: Identifiable, Hashable, Sendable {
     }
 }
 
-struct ABSFilterSelection: Equatable, Sendable {
+nonisolated struct ABSFilterSelection: Equatable, Sendable {
     var options: Set<ABSFilterOption> = []
     var notAddedOnly = false
 }
 
-struct ABSLibraryFilterData: Equatable, Sendable {
+nonisolated struct ABSLibraryFilterData: Equatable, Sendable {
     let authors: [ABSFilterOption]
     let series: [ABSFilterOption]
     let genres: [ABSFilterOption]
@@ -46,7 +46,7 @@ struct ABSLibraryFilterData: Equatable, Sendable {
     static let empty = ABSLibraryFilterData(authors: [], series: [], genres: [], tags: [])
 }
 
-struct ABSLibraryItemsQuery: Equatable, Sendable {
+nonisolated struct ABSLibraryItemsQuery: Equatable, Sendable {
     var page = 0
     var limit = 100
     var sort: ABSBrowseSort = .newestAdded
@@ -81,6 +81,81 @@ enum ABSBrowseResultResolver {
         return deduplicated.sorted { isOrderedBefore($0, $1, by: sort) }
     }
 
+    nonisolated static func resolvedCancellable(
+        optionResults: [ABSFilterOption: [ABSLibraryItem]],
+        sort: ABSBrowseSort
+    ) throws -> [ABSLibraryItem] {
+        try Task.checkCancellation()
+        let grouped = Dictionary(grouping: optionResults.keys, by: \.group).mapValues { options in
+            options.map { optionResults[$0, default: []].map(\.id) }
+        }
+        let allowedIDs = combinedIDs(filteredBy: grouped)
+        try Task.checkCancellation()
+
+        var filtered: [ABSLibraryItem] = []
+        for values in optionResults.values {
+            for item in values where allowedIDs.contains(item.id) {
+                if filtered.count.isMultiple(of: 256) { try Task.checkCancellation() }
+                filtered.append(item)
+            }
+        }
+        try Task.checkCancellation()
+        return try sortedCancellable(filtered, by: sort)
+    }
+
+    nonisolated static func searchResultsCancellable(
+        _ searchResults: [ABSLibraryItem],
+        allowedIDs: Set<String>?,
+        sort: ABSBrowseSort
+    ) throws -> [ABSLibraryItem] {
+        var filtered: [ABSLibraryItem] = []
+        filtered.reserveCapacity(searchResults.count)
+        for item in searchResults {
+            if filtered.count.isMultiple(of: 256) { try Task.checkCancellation() }
+            if allowedIDs == nil || allowedIDs?.contains(item.id) == true {
+                filtered.append(item)
+            }
+        }
+        return try sortedCancellable(filtered, by: sort)
+    }
+
+    nonisolated static func excludingAddedCancellable(
+        _ items: [ABSLibraryItem], addedIDs: Set<String>
+    ) throws -> [ABSLibraryItem] {
+        var results: [ABSLibraryItem] = []
+        results.reserveCapacity(items.count)
+        for item in items {
+            if results.count.isMultiple(of: 256) { try Task.checkCancellation() }
+            if !addedIDs.contains(item.id) { results.append(item) }
+        }
+        try Task.checkCancellation()
+        return results
+    }
+
+    nonisolated static func sortedCancellable(
+        _ items: [ABSLibraryItem], by sort: ABSBrowseSort
+    ) throws -> [ABSLibraryItem] {
+        var seenIDs = Set<String>()
+        var deduplicated: [ABSLibraryItem] = []
+        deduplicated.reserveCapacity(items.count)
+        for item in items {
+            if deduplicated.count.isMultiple(of: 256) { try Task.checkCancellation() }
+            if seenIDs.insert(item.id).inserted { deduplicated.append(item) }
+        }
+
+        var canceled = false
+        let result = deduplicated.sorted { lhs, rhs in
+            if Task.isCancelled {
+                canceled = true
+                return lhs.id < rhs.id
+            }
+            return isOrderedBefore(lhs, rhs, by: sort)
+        }
+        if canceled { throw CancellationError() }
+        try Task.checkCancellation()
+        return result
+    }
+
     private nonisolated static func isOrderedBefore(
         _ lhs: ABSLibraryItem, _ rhs: ABSLibraryItem, by sort: ABSBrowseSort
     ) -> Bool {
@@ -106,7 +181,7 @@ enum ABSBrowseResultResolver {
         _ lhs: ABSLibraryItem, _ rhs: ABSLibraryItem
     ) -> Bool {
         switch (lhs.seriesName, rhs.seriesName) {
-        case let (lhsSeries?, rhsSeries?):
+        case (let lhsSeries?, let rhsSeries?):
             let seriesComparison = localized(lhsSeries, rhsSeries)
             if seriesComparison != .orderedSame {
                 return seriesComparison == .orderedAscending
@@ -148,9 +223,9 @@ enum ABSBrowseResultResolver {
 
     private nonisolated static func descending(_ lhs: Int64?, _ rhs: Int64?) -> ComparisonResult {
         switch (lhs, rhs) {
-        case let (lhs?, rhs?) where lhs > rhs:
+        case (let lhs?, let rhs?) where lhs > rhs:
             return .orderedAscending
-        case let (lhs?, rhs?) where lhs < rhs:
+        case (let lhs?, let rhs?) where lhs < rhs:
             return .orderedDescending
         case (.some, .none):
             return .orderedAscending
@@ -165,9 +240,9 @@ enum ABSBrowseResultResolver {
         _ lhs: String?, _ rhs: String?
     ) -> ComparisonResult {
         switch (numericSequence(lhs), numericSequence(rhs)) {
-        case let (lhs?, rhs?) where lhs < rhs:
+        case (let lhs?, let rhs?) where lhs < rhs:
             return .orderedAscending
-        case let (lhs?, rhs?) where lhs > rhs:
+        case (let lhs?, let rhs?) where lhs > rhs:
             return .orderedDescending
         case (.some, .none):
             return .orderedAscending

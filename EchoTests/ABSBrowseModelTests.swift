@@ -20,13 +20,14 @@ import ZIPFoundation
         #expect(query?.queryItems?.contains(.init(name: "desc", value: "1")) == true)
     }
 
-    @Test func changingSortPersistsItsRawValue() throws {
+    @Test func changingSortPersistsItsRawValue() async throws {
         let fixture = try ABSBrowseModelFixture()
 
-        fixture.model.setSort(.author)
+        let task = fixture.model.setSort(.author)
 
         #expect(fixture.persistedSortRawValue == "author")
         #expect(fixture.makeReloadedModel().sort == .author)
+        await task.value
     }
 
     @Test func notAddedRemovesUsableBook() async throws {
@@ -34,10 +35,26 @@ import ZIPFoundation
         fixture.stubLibraryItems(ids: ["i1", "i2"])
 
         await fixture.model.load()
-        fixture.model.setNotAddedOnly(true)
+        await fixture.model.setNotAddedOnly(true).value
 
         #expect(fixture.model.displayedItems.map(\.id) == ["i2"])
         #expect(fixture.model.totalCount == 1)
+    }
+
+    @Test func notAddedLoadsCompleteQueryBeforePublishingExactCount() async throws {
+        let fixture = try ABSBrowseModelFixture()
+        try fixture.insertUsableProvenance(remoteID: "i1", folderName: "first")
+        try fixture.insertUsableProvenance(remoteID: "i2", folderName: "second")
+        fixture.stubPagedItems(page: 0, ids: ["i1"], total: 3)
+        fixture.stubPagedItems(page: 1, ids: ["i2"], total: 3)
+        fixture.stubPagedItems(page: 2, ids: ["i3"], total: 3)
+        await fixture.model.load()
+
+        await fixture.model.setNotAddedOnly(true).value
+
+        #expect(fixture.model.displayedItems.map(\.id) == ["i3"])
+        #expect(fixture.model.totalCount == 1)
+        #expect(fixture.requestedItemPages == ["0", "0", "1", "2"])
     }
 
     @Test func multipleFiltersFanOutCompleteQueriesAndCombineIDs() async throws {
@@ -81,14 +98,14 @@ import ZIPFoundation
             pathSuffix: "/items", queryItems: ["sort": "media.metadata.authorName"],
             json: fixture.itemsJSON(ids: ["current"]))
 
-        fixture.model.setSort(.title)
+        let staleTask = fixture.model.setSort(.title)
         try await waitUntilRequest(in: fixture, sort: "media.metadata.title")
-        fixture.model.setSort(.author)
-        try await waitUntilLoaded(fixture.model)
+        let currentTask = fixture.model.setSort(.author)
+        await currentTask.value
         #expect(fixture.model.displayedItems.map(\.id) == ["current"])
 
         fixture.resume(pathSuffix: "/items", queryItems: ["sort": "media.metadata.title"])
-        await yieldSeveralTimes()
+        await staleTask.value
         #expect(fixture.model.displayedItems.map(\.id) == ["current"])
     }
 
@@ -138,15 +155,69 @@ import ZIPFoundation
         fixture.stubSearch(query: "new", ids: ["new"])
         await fixture.model.load()
 
-        fixture.model.setSearchQuery("old")
+        let staleTask = fixture.model.setSearchQuery("old")
         try await waitUntilRequest(in: fixture, search: "old")
-        fixture.model.setSearchQuery("new")
-        try await waitUntilLoaded(fixture.model)
+        let currentTask = fixture.model.setSearchQuery("new")
+        await currentTask.value
         #expect(fixture.model.displayedItems.map(\.id) == ["new"])
 
         fixture.resume(pathSuffix: "/search", queryItems: ["q": "old"])
-        await yieldSeveralTimes()
+        await staleTask.value
         #expect(fixture.model.displayedItems.map(\.id) == ["new"])
+    }
+
+    @Test func callerCancellationCancelsOwnedRefreshAndPendingTransport() async throws {
+        let fixture = try ABSBrowseModelFixture()
+        fixture.stubLibrariesAndEmptyItems()
+        await fixture.model.load()
+        fixture.stub(
+            pathSuffix: "/api/libraries", queryItems: [:],
+            json: #"{"libraries":[{"id":"l1","name":"Library"}]}"#,
+            suspended: true)
+
+        let priorRequestCount = fixture.requests.count
+        let refresh = Task { await fixture.model.refresh() }
+        try await waitUntilRequest(
+            in: fixture, pathSuffix: "/api/libraries", afterRequestCount: priorRequestCount)
+        refresh.cancel()
+        await refresh.value
+
+        #expect(fixture.pendingResponseCount == 0)
+    }
+
+    @Test func lifecycleCancelStopsOwnedRequestAndReturnsToIdle() async throws {
+        let fixture = try ABSBrowseModelFixture()
+        fixture.stubLibraryItems(ids: ["initial"])
+        await fixture.model.load()
+        fixture.stub(
+            pathSuffix: "/items", queryItems: ["sort": "media.metadata.title"],
+            json: fixture.itemsJSON(ids: ["late"]), suspended: true)
+
+        let load = fixture.model.setSort(.title)
+        try await waitUntilRequest(in: fixture, sort: "media.metadata.title")
+        fixture.model.cancel()
+        await load.value
+
+        #expect(fixture.model.loadState == .idle)
+        #expect(fixture.pendingResponseCount == 0)
+    }
+
+    @Test func lifecycleCancelReleasesModelAfterSuspendedNetworkingEnds() async throws {
+        var fixture: ABSBrowseModelFixture? = try ABSBrowseModelFixture()
+        fixture?.stubLibraryItems(ids: ["initial"])
+        await fixture?.model.load()
+        fixture?.stub(
+            pathSuffix: "/items", queryItems: ["sort": "media.metadata.title"],
+            json: fixture?.itemsJSON(ids: ["late"]) ?? "{}", suspended: true)
+        weak var model = fixture?.model
+
+        let load = try #require(fixture?.model.setSort(.title))
+        try await waitUntilRequest(in: try #require(fixture), sort: "media.metadata.title")
+        fixture?.model.cancel()
+        await load.value
+        fixture = nil
+
+        #expect(model == nil)
     }
 
     @Test func libraryChangeClearsMetadataFiltersButKeepsNotAdded() async throws {
@@ -181,6 +252,18 @@ import ZIPFoundation
         #expect(fixture.model.totalCount == 42)
     }
 
+    @Test func duplicateProvenanceUsesDeterministicBookWithoutTrap() async throws {
+        let fixture = try ABSBrowseModelFixture()
+        let later = try fixture.insertUsableProvenance(remoteID: "duplicate", folderName: "zeta")
+        let earlier = try fixture.insertUsableProvenance(remoteID: "duplicate", folderName: "alpha")
+        fixture.stubLibrariesAndEmptyItems()
+
+        await fixture.model.load()
+
+        #expect(fixture.model.addedBooksByRemoteID["duplicate"]?.folderURL == earlier)
+        #expect(fixture.model.addedBooksByRemoteID["duplicate"]?.folderURL != later)
+    }
+
     @Test func searchAtServerCapIsLabeledLimited() async throws {
         let fixture = try ABSBrowseModelFixture()
         fixture.stubLibrariesAndEmptyItems()
@@ -199,6 +282,21 @@ import ZIPFoundation
         #expect(query?.contains(.init(name: "limit", value: "10000")) == true)
     }
 
+    @Test func emptyLibraryRefreshClearsLimitedSearchState() async throws {
+        let fixture = try ABSBrowseModelFixture()
+        fixture.stubLibrariesAndEmptyItems()
+        fixture.stubSearch(query: "many", ids: (0..<10_000).map { "i\($0)" })
+        await fixture.model.load()
+        await fixture.model.setSearchQuery("many").value
+        #expect(fixture.model.searchResultsAreLimited)
+        fixture.stubLibraries(ids: [])
+
+        await fixture.model.refresh()
+
+        #expect(!fixture.model.searchResultsAreLimited)
+        #expect(fixture.model.totalCount == 0)
+    }
+
     private func waitUntilLoaded(_ model: ABSBrowseModel) async throws {
         for _ in 0..<50_000 {
             if model.loadState == .loaded { return }
@@ -209,13 +307,17 @@ import ZIPFoundation
 
     private func waitUntilRequest(
         in fixture: ABSBrowseModelFixture,
-        page: String? = nil, sort: String? = nil, search: String? = nil
+        pathSuffix: String? = nil,
+        page: String? = nil, sort: String? = nil, search: String? = nil,
+        afterRequestCount: Int = 0
     ) async throws {
         for _ in 0..<50_000 {
-            if fixture.requests.contains(where: { request in
+            if fixture.requests.dropFirst(afterRequestCount).contains(where: { request in
                 guard let url = request.url,
-                    let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
+                    let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
                 else { return false }
+                let query = components.queryItems ?? []
+                if let pathSuffix, !url.path.hasSuffix(pathSuffix) { return false }
                 if let page, !query.contains(.init(name: "page", value: page)) { return false }
                 if let sort, !query.contains(.init(name: "sort", value: sort)) { return false }
                 if let search, !query.contains(.init(name: "q", value: search)) { return false }
@@ -228,11 +330,36 @@ import ZIPFoundation
         throw TimeoutError()
     }
 
-    private func yieldSeveralTimes() async {
-        for _ in 0..<100 { await Task.yield() }
-    }
-
     private struct TimeoutError: Error {}
+}
+
+@Suite struct URLProtocolStubLifecycleTests {
+    @Test func canceledSuspendedRequestIsRemovedAndScopeCanBeCleaned() async throws {
+        let scope = "url-stub-lifecycle-\(UUID().uuidString)"
+        URLProtocolStub.reset(scope: scope)
+        URLProtocolStub.stub(
+            scope: scope, pathSuffix: "/suspended", json: "{}", suspended: true)
+        let session = URLProtocolStub.makeSession(scope: scope)
+        let request = Task {
+            try await session.data(from: URL(string: "http://stub.test/suspended")!)
+        }
+        for _ in 0..<50_000 {
+            if URLProtocolStub.pendingResponseCount(scope: scope) == 1 { break }
+            await Task.yield()
+        }
+        #expect(URLProtocolStub.pendingResponseCount(scope: scope) == 1)
+
+        request.cancel()
+        await #expect {
+            try await request.value
+        } throws: { error in
+            error is CancellationError || (error as? URLError)?.code == .cancelled
+        }
+        #expect(URLProtocolStub.pendingResponseCount(scope: scope) == 0)
+
+        URLProtocolStub.finish(scope: scope)
+        #expect(URLProtocolStub.requests(scope: scope).isEmpty)
+    }
 }
 
 @MainActor
@@ -253,6 +380,16 @@ private final class ABSBrowseModelFixture {
     private var managedFolder: URL?
 
     var requests: [URLRequest] { URLProtocolStub.requests(scope: scope) }
+    var pendingResponseCount: Int { URLProtocolStub.pendingResponseCount(scope: scope) }
+    var requestedItemPages: [String] {
+        requests.compactMap { request in
+            guard request.url?.path.hasSuffix("/items") == true, let url = request.url else {
+                return nil
+            }
+            return URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                .first(where: { $0.name == "page" })?.value
+        }
+    }
     var persistedSortRawValue: String? { preferences.string(forKey: "absBrowseSort") }
 
     init(
@@ -302,6 +439,7 @@ private final class ABSBrowseModelFixture {
     deinit {
         if let managedFolder { try? FileManager.default.removeItem(at: managedFolder) }
         preferences.removePersistentDomain(forName: preferencesSuiteName)
+        URLProtocolStub.finish(scope: scope)
     }
 
     func stubLibrariesAndEmptyItems() {
@@ -387,6 +525,22 @@ private final class ABSBrowseModelFixture {
 
     func resume(pathSuffix: String, queryItems: [String: String]) {
         URLProtocolStub.resume(scope: scope, pathSuffix: pathSuffix, queryItems: queryItems)
+    }
+
+    @discardableResult
+    func insertUsableProvenance(remoteID: String, folderName: String) throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appending(
+            path: "ABSBrowseModelTests-\(scope)", directoryHint: .isDirectory)
+        let folder = root.appending(path: folderName, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data().write(to: folder.appending(path: "book.m4b"))
+        managedFolder = root
+        try AudiobookDAO(db: db.writer).save(
+            AudiobookRecord(
+                id: folder.absoluteString, title: folderName, author: nil, duration: 0,
+                fileCount: 1, addedAt: "2026-08-12T00:00:00Z",
+                sourceType: "audiobookshelf", serverID: serverID, remoteItemID: remoteID))
+        return folder
     }
 
     func makeReloadedModel() -> ABSBrowseModel {

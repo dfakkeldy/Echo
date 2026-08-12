@@ -32,6 +32,10 @@ nonisolated final class URLProtocolStub: URLProtocol {
         lock.withLock { scopedRequests.compactMap { $0.0 == scope ? $0.1 : nil } }
     }
 
+    static func pendingResponseCount(scope: String) -> Int {
+        lock.withLock { pending.count { $0.scope == scope } }
+    }
+
     private struct QueryResponse {
         var scope: String
         var pathSuffix: String
@@ -50,6 +54,15 @@ nonisolated final class URLProtocolStub: URLProtocol {
     static func reset(scope: String = defaultScope) {
         lock.withLock {
             responses[scope] = [:]
+            queryResponses.removeAll { $0.scope == scope }
+            scopedRequests.removeAll { $0.0 == scope }
+            pending.removeAll { $0.scope == scope }
+        }
+    }
+
+    static func finish(scope: String) {
+        lock.withLock {
+            responses.removeValue(forKey: scope)
             queryResponses.removeAll { $0.scope == scope }
             scopedRequests.removeAll { $0.0 == scope }
             pending.removeAll { $0.scope == scope }
@@ -185,5 +198,10 @@ nonisolated final class URLProtocolStub: URLProtocol {
         client?.urlProtocol(self, didLoad: match.body)
         client?.urlProtocolDidFinishLoading(self)
     }
-    override func stopLoading() {}
+
+    override func stopLoading() {
+        Self.lock.withLock {
+            Self.pending.removeAll { $0.stub === self }
+        }
+    }
 }
