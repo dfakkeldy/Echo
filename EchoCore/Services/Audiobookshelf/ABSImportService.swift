@@ -12,11 +12,24 @@ final class ABSImportService {
     private let service: AudiobookshelfService
     private let databaseWriter: DatabaseWriter
     private let serverID: String
+    private let afterExtractedEntry: @Sendable () async -> Void
+    private let afterPersistence: @Sendable () async -> Void
+    private let beforeRestoreExistingFolder: @Sendable () throws -> Void
 
-    init(service: AudiobookshelfService, db: DatabaseService, serverID: String) {
+    init(
+        service: AudiobookshelfService,
+        db: DatabaseService,
+        serverID: String,
+        afterExtractedEntry: @escaping @Sendable () async -> Void = {},
+        afterPersistence: @escaping @Sendable () async -> Void = {},
+        beforeRestoreExistingFolder: @escaping @Sendable () throws -> Void = {}
+    ) {
         self.service = service
         self.databaseWriter = db.writer
         self.serverID = serverID
+        self.afterExtractedEntry = afterExtractedEntry
+        self.afterPersistence = afterPersistence
+        self.beforeRestoreExistingFolder = beforeRestoreExistingFolder
     }
 
     @discardableResult
@@ -28,6 +41,7 @@ final class ABSImportService {
         let stagingFolder = FileLocations.absImportStagingDirectory(remoteItemID: item.id)
         let zipURL = stagingFolder.appending(path: "__abs_download.zip")
         let identifier = Self.hashedIdentifier(serverID: serverID, remoteItemID: item.id)
+        let hadExistingUsableCopy = await Self.hasSupportedContent(finalFolder)
         var currentStage = ABSImportStage.downloading
 
         do {
@@ -52,6 +66,7 @@ final class ABSImportService {
                 zipURL: zipURL,
                 to: stagingFolder,
                 identifier: identifier,
+                afterExtractedEntry: afterExtractedEntry,
                 onProgress: onProgress)
             try await Self.removeItemIfPresent(zipURL)
 
@@ -90,25 +105,29 @@ final class ABSImportService {
                 record: record,
                 serverID: serverID,
                 remoteItemID: item.id,
-                databaseWriter: databaseWriter)
+                databaseWriter: databaseWriter,
+                identifier: identifier,
+                afterPersistence: afterPersistence,
+                beforeRestoreExistingFolder: beforeRestoreExistingFolder)
 
             currentStage = .added
-            try Task.checkCancellation()
             report(
                 ABSImportProgress(stage: .added, completedUnits: 1, totalUnits: 1),
                 identifier: identifier,
                 onProgress: onProgress)
-            try await Self.removeItemIfPresent(stagingFolder)
             return importedBook
         } catch {
-            try? await Self.removeItemIfPresent(stagingFolder)
+            await Self.cleanupItemIfPresent(stagingFolder)
             if error is CancellationError || Task.isCancelled {
                 Self.importLogger.notice(
                     "ABS import cancelled stage=\(currentStage.rawValue, privacy: .public) id=\(identifier, privacy: .private)"
                 )
                 throw CancellationError()
             }
-            let failure = Self.failure(for: error, at: currentStage)
+            let failure = Self.failure(
+                for: error,
+                at: currentStage,
+                preservedExistingCopy: hadExistingUsableCopy)
             Self.importLogger.error(
                 "ABS import failed stage=\(failure.stage.rawValue, privacy: .public) id=\(identifier, privacy: .private) category=\(Self.errorCategory(error), privacy: .public)"
             )
@@ -144,7 +163,7 @@ final class ABSImportService {
         guard item.coverPath != nil else { return nil }
         do {
             let data = try await service.coverImageData(itemID: item.id)
-            return try await Self.writeCover(
+            return try await Self.writeStagedCover(
                 data,
                 into: folder,
                 finalAudiobookID: finalAudiobookID)
@@ -154,19 +173,13 @@ final class ABSImportService {
     }
 
     @concurrent
-    nonisolated private static func writeCover(
+    nonisolated private static func writeStagedCover(
         _ data: Data,
         into folder: URL,
         finalAudiobookID: String
     ) async throws -> String {
         try data.write(to: folder.appending(path: "cover.jpg"), options: .atomic)
-        try FileManager.default.createDirectory(
-            at: FileLocations.libraryCoversDirectory,
-            withIntermediateDirectories: true)
         let filename = Self.sha256Hex(finalAudiobookID) + ".jpg"
-        try data.write(
-            to: FileLocations.libraryCoversDirectory.appending(path: filename),
-            options: .atomic)
         return filename
     }
 
@@ -184,10 +197,21 @@ final class ABSImportService {
     }
 
     @concurrent
+    nonisolated private static func cleanupItemIfPresent(_ url: URL) async {
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    @concurrent
+    nonisolated private static func hasSupportedContent(_ url: URL) async -> Bool {
+        ABSLocalImportStatus.hasSupportedRootContent(at: url)
+    }
+
+    @concurrent
     nonisolated private static func extractWholeAudiobookArchive(
         zipURL: URL,
         to destination: URL,
         identifier: String,
+        afterExtractedEntry: @escaping @Sendable () async -> Void,
         onProgress: @escaping @MainActor @Sendable (ABSImportProgress) -> Void
     ) async throws {
         let archive = try Archive(url: zipURL, accessMode: .read)
@@ -220,6 +244,7 @@ final class ABSImportService {
             _ = try archive.extract(entry, to: output)
             completedBytes += entry.uncompressedSize
             completedFiles += 1
+            await afterExtractedEntry()
             try Task.checkCancellation()
             let progress = ABSImportProgress(
                 stage: .extracting,
@@ -270,7 +295,10 @@ final class ABSImportService {
         record: AudiobookRecord,
         serverID: String,
         remoteItemID: String,
-        databaseWriter: DatabaseWriter
+        databaseWriter: DatabaseWriter,
+        identifier: String,
+        afterPersistence: @escaping @Sendable () async -> Void,
+        beforeRestoreExistingFolder: @escaping @Sendable () throws -> Void
     ) async throws -> ABSImportedBook {
         try Task.checkCancellation()
         let fileManager = FileManager.default
@@ -284,6 +312,14 @@ final class ABSImportService {
         let previousRecord = try await databaseWriter.read { db in
             try AudiobookRecord.fetchOne(db, key: record.id)
         }
+        let coverPublication = record.coverArtPath.map {
+            LibraryCoverPublication(
+                filename: $0,
+                stagingFolder: stagingFolder,
+                finalFolder: finalFolder)
+        }
+        var coverWasPublished = false
+        var existingCoverWasReplaced = false
 
         do {
             if replacedExistingFolder {
@@ -300,6 +336,14 @@ final class ABSImportService {
                 publishedNewFolder = true
             }
 
+            if let coverPublication,
+                fileManager.fileExists(atPath: coverPublication.stagedSource.path)
+            {
+                (coverWasPublished, existingCoverWasReplaced) = try publishLibraryCover(
+                    coverPublication,
+                    fileManager: fileManager)
+            }
+
             let importedBook = try await databaseWriter.write { db -> ABSImportedBook in
                 var savedRecord = record
                 try savedRecord.save(db)
@@ -314,29 +358,126 @@ final class ABSImportService {
                 }
                 return book
             }
+            await afterPersistence()
+            let cancellationArrivedAfterPersistence = Task.isCancelled
             if replacedExistingFolder { try? fileManager.removeItem(at: backupFolder) }
+            if existingCoverWasReplaced, let coverPublication {
+                try? fileManager.removeItem(at: coverPublication.backup)
+            }
+            if let coverPublication { try? fileManager.removeItem(at: coverPublication.temporary) }
+            if cancellationArrivedAfterPersistence {
+                importLogger.notice(
+                    "ABS import cancellation arrived after durable commit id=\(identifier, privacy: .private); returning committed success"
+                )
+            }
             return importedBook
         } catch {
-            try? await restoreRecord(
-                previousRecord,
-                recordID: record.id,
-                databaseWriter: databaseWriter)
+            var rollbackFailed = false
+            do {
+                try await restoreRecord(
+                    previousRecord,
+                    recordID: record.id,
+                    databaseWriter: databaseWriter)
+            } catch {
+                rollbackFailed = true
+                logRollbackFailure(identifier: identifier, category: "database")
+            }
+
+            if let coverPublication, coverWasPublished {
+                do {
+                    try rollbackLibraryCover(
+                        coverPublication,
+                        replacedExisting: existingCoverWasReplaced,
+                        fileManager: fileManager)
+                } catch {
+                    rollbackFailed = true
+                    logRollbackFailure(identifier: identifier, category: "cover")
+                }
+            }
+
             if replacedExistingFolder {
-                if fileManager.fileExists(atPath: backupFolder.path) {
+                do {
+                    try beforeRestoreExistingFolder()
+                    guard fileManager.fileExists(atPath: backupFolder.path) else {
+                        throw ABSImportRollbackError.recoveryIncomplete
+                    }
                     var resultingURL: NSURL?
-                    try? fileManager.replaceItem(
+                    try fileManager.replaceItem(
                         at: finalFolder,
                         withItemAt: backupFolder,
                         backupItemName: nil,
                         options: [],
                         resultingItemURL: &resultingURL)
+                    guard ABSLocalImportStatus.hasSupportedRootContent(at: finalFolder) else {
+                        throw ABSImportRollbackError.recoveryIncomplete
+                    }
+                    try? fileManager.removeItem(at: backupFolder)
+                } catch {
+                    rollbackFailed = true
+                    logRollbackFailure(identifier: identifier, category: "folder")
                 }
-                try? fileManager.removeItem(at: backupFolder)
             } else if publishedNewFolder {
                 try? fileManager.removeItem(at: finalFolder)
             }
+            if rollbackFailed { throw ABSImportRollbackError.recoveryIncomplete }
             throw error
         }
+    }
+
+    nonisolated private static func publishLibraryCover(
+        _ publication: LibraryCoverPublication,
+        fileManager: FileManager
+    ) throws -> (published: Bool, replacedExisting: Bool) {
+        try fileManager.createDirectory(
+            at: publication.final.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        try? fileManager.removeItem(at: publication.temporary)
+        try? fileManager.removeItem(at: publication.backup)
+        try fileManager.copyItem(at: publication.stagedSource, to: publication.temporary)
+        if fileManager.fileExists(atPath: publication.final.path) {
+            var resultingURL: NSURL?
+            try fileManager.replaceItem(
+                at: publication.final,
+                withItemAt: publication.temporary,
+                backupItemName: publication.backup.lastPathComponent,
+                options: [.withoutDeletingBackupItem],
+                resultingItemURL: &resultingURL)
+            return (true, true)
+        }
+        try fileManager.moveItem(at: publication.temporary, to: publication.final)
+        return (true, false)
+    }
+
+    nonisolated private static func rollbackLibraryCover(
+        _ publication: LibraryCoverPublication,
+        replacedExisting: Bool,
+        fileManager: FileManager
+    ) throws {
+        defer { try? fileManager.removeItem(at: publication.temporary) }
+        if replacedExisting {
+            guard fileManager.fileExists(atPath: publication.backup.path) else {
+                throw ABSImportRollbackError.recoveryIncomplete
+            }
+            var resultingURL: NSURL?
+            try fileManager.replaceItem(
+                at: publication.final,
+                withItemAt: publication.backup,
+                backupItemName: nil,
+                options: [],
+                resultingItemURL: &resultingURL)
+            guard fileManager.fileExists(atPath: publication.final.path) else {
+                throw ABSImportRollbackError.recoveryIncomplete
+            }
+            try? fileManager.removeItem(at: publication.backup)
+        } else {
+            try fileManager.removeItem(at: publication.final)
+        }
+    }
+
+    nonisolated private static func logRollbackFailure(identifier: String, category: String) {
+        importLogger.error(
+            "ABS import rollback incomplete id=\(identifier, privacy: .private) category=\(category, privacy: .public); recoverable backup retained when available"
+        )
     }
 
     nonisolated private static func restoreRecord(
@@ -368,7 +509,11 @@ final class ABSImportService {
             .joined()
     }
 
-    nonisolated private static func failure(for error: Error, at stage: ABSImportStage)
+    nonisolated private static func failure(
+        for error: Error,
+        at stage: ABSImportStage,
+        preservedExistingCopy: Bool
+    )
         -> ABSImportFailure
     {
         if let failure = error as? ABSImportFailure { return failure }
@@ -376,24 +521,36 @@ final class ABSImportService {
         case .downloading:
             return ABSImportFailure(
                 stage: stage,
-                message: "The audiobook download failed. Check the connection and try again.",
+                message: String(
+                    localized:
+                        "The audiobook download failed. Check the connection and try again."),
                 isRetryable: true)
         case .extracting:
             return ABSImportFailure(
                 stage: stage,
-                message: "Echo could not unpack this audiobook. Download it again and retry.",
+                message: String(
+                    localized: "Echo could not unpack this audiobook. Download it again and retry."),
                 isRetryable: true)
         case .validating:
             return ABSImportFailure(
                 stage: stage,
-                message:
-                    "The download does not contain supported audio or a study document at its top level.",
+                message: String(
+                    localized:
+                        "The download does not contain supported audio or a study document at its top level."
+                ),
                 isRetryable: false)
         case .addingToEcho, .added:
             return ABSImportFailure(
                 stage: .addingToEcho,
-                message:
-                    "Echo could not finish adding this audiobook. Your previous copy was preserved.",
+                message: preservedExistingCopy
+                    ? String(
+                        localized:
+                            "Echo could not finish updating this audiobook. Your previous copy was preserved."
+                    )
+                    : String(
+                        localized:
+                            "Echo could not finish adding this audiobook. No partial copy was kept."
+                    ),
                 isRetryable: true)
         }
     }
@@ -404,6 +561,7 @@ final class ABSImportService {
         if error is Archive.ArchiveError { return "archive" }
         if error is ABSPreparedFolderValidationError { return "unsupported content" }
         if error is ABSImportVerificationError { return "verification" }
+        if error is ABSImportRollbackError { return "rollback" }
         if error is CancellationError { return "cancelled" }
         if error is GRDB.DatabaseError { return "database" }
         if error is CocoaError { return "filesystem" }
@@ -417,4 +575,24 @@ private nonisolated enum ABSPreparedFolderValidationError: Error {
 
 private nonisolated enum ABSImportVerificationError: Error {
     case unresolvedProvenance
+}
+
+private nonisolated enum ABSImportRollbackError: Error {
+    case recoveryIncomplete
+}
+
+private nonisolated struct LibraryCoverPublication: Sendable {
+    let final: URL
+    let stagedSource: URL
+    let temporary: URL
+    let backup: URL
+
+    init(filename: String, stagingFolder: URL, finalFolder: URL) {
+        final = FileLocations.libraryCoversDirectory.appending(path: filename)
+        stagedSource = stagingFolder.appending(path: "cover.jpg")
+        temporary = FileLocations.libraryCoversDirectory.appending(
+            path: ".\(filename)-import-\(UUID().uuidString)")
+        backup = FileLocations.libraryCoversDirectory.appending(
+            path: ".\(filename)-backup-\(UUID().uuidString)")
+    }
 }
