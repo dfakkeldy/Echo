@@ -163,6 +163,54 @@ import Testing
         #expect(requestedPages == ["1"])
     }
 
+    @Test func fetchAllItemsStopsAfterFullNonzeroFinalPageUsingTotalOffset() async throws {
+        let service = makeService()
+        URLProtocolStub.stub(
+            pathSuffix: "/items",
+            queryItems: ["page": "1", "limit": "2"],
+            json: """
+                {"total":4,"limit":2,"page":1,"results":[
+                  {"id":"itC","libraryId":"lib1","media":{"metadata":{"title":"C Book"}}},
+                  {"id":"itD","libraryId":"lib1","media":{"metadata":{"title":"D Book"}}}
+                ]}
+                """)
+
+        let items = try await service.allItems(
+            libraryID: "lib1", query: ABSLibraryItemsQuery(page: 1, limit: 2, sort: .title))
+        let requestedPages = requestedItemPages()
+
+        #expect(items.map(\.id) == ["itC", "itD"])
+        #expect(requestedPages == ["1"])
+    }
+
+    @Test func fetchAllItemsContinuesWhenServerCapsPageSize() async throws {
+        let service = makeService()
+        URLProtocolStub.stub(
+            pathSuffix: "/items",
+            queryItems: ["page": "0", "limit": "100"],
+            json: """
+                {"total":3,"limit":2,"page":0,"results":[
+                  {"id":"itA","libraryId":"lib1","media":{"metadata":{"title":"A Book"}}},
+                  {"id":"itB","libraryId":"lib1","media":{"metadata":{"title":"B Book"}}}
+                ]}
+                """)
+        URLProtocolStub.stub(
+            pathSuffix: "/items",
+            queryItems: ["page": "1", "limit": "100"],
+            json: """
+                {"total":3,"limit":2,"page":1,"results":[
+                  {"id":"itC","libraryId":"lib1","media":{"metadata":{"title":"C Book"}}}
+                ]}
+                """)
+
+        let items = try await service.allItems(
+            libraryID: "lib1", query: ABSLibraryItemsQuery(limit: 100, sort: .title))
+        let requestedPages = requestedItemPages()
+
+        #expect(items.map(\.id) == ["itA", "itB", "itC"])
+        #expect(requestedPages == ["0", "1"])
+    }
+
     @Test func pagedItemsEmitsPagesBeforeLaterPageFails() async throws {
         let service = makeService()
         URLProtocolStub.stub(
@@ -227,5 +275,15 @@ import Testing
         #expect(request.url?.path == "/api/items/it1/cover")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer acc")
         #expect(!queryItems.contains { $0.name == "token" })
+    }
+
+    private func requestedItemPages() -> [String] {
+        URLProtocolStub.requests.compactMap { request -> String? in
+            guard request.url?.path.hasSuffix("/items") == true,
+                let url = request.url
+            else { return nil }
+            return URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "page" })?.value
+        }
     }
 }
