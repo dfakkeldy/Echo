@@ -54,6 +54,17 @@ struct LibraryViewModelTests {
             AudiobookRecord(
                 id: "file:///Lib/VMDuneText/", title: "Dune", author: nil,
                 duration: 0, fileCount: 0, addedAt: "2026-07-10T00:00:01Z", isAvailable: true))
+        // A real imported epub row always carries its parsed blocks; without
+        // one this aged text row would be junk to the regroup's prune pass.
+        try db.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO epub_block
+                        (id, audiobook_id, spine_href, spine_index, block_index,
+                         sequence_index, block_kind, text)
+                    VALUES ('b1', 'file:///Lib/VMDuneText/', 'ch1.xhtml', 0, 0, 0, 'p', 'Dune.')
+                    """)
+        }
 
         let vm = LibraryViewModel(db: db, openBook: { _ in })
         vm.reload()
@@ -113,6 +124,48 @@ struct LibraryViewModelTests {
         vm.reload()
 
         #expect(vm.statusMap["a"]?.processing.contains(.narrated) == true)
+    }
+
+    @Test func statusMapFoldsSiblingEditionProgressIntoVisibleCard() throws {
+        // Progress and processing recorded against a hidden duplicate row (the
+        // same book opened through another URL form) must surface on the card
+        // the shelf actually shows.
+        let db = try DatabaseService(inMemory: ())
+        let dao = AudiobookDAO(db: db.writer)
+        try dao.save(
+            AudiobookRecord(
+                id: "file:///Lib/FoldVisible/", title: "Fold", author: "An Author",
+                duration: 100, fileCount: 1, addedAt: "2026-07-10T00:00:00Z",
+                isAvailable: true, sourceRootID: "root-1", editionGroupID: "fold-g"))
+        try dao.save(
+            AudiobookRecord(
+                id: "file:///Lib/FoldDirect/", title: "Fold", author: "An Author",
+                duration: 100, fileCount: 1, addedAt: "2026-07-10T00:00:01Z",
+                isAvailable: true, editionGroupID: "fold-g"))
+        try db.writer.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO playback_state (audiobook_id, last_position, speed)
+                    VALUES ('file:///Lib/FoldDirect/', 99, 1.0)
+                    """)
+            try db.execute(
+                sql: """
+                    INSERT INTO track
+                        (id, audiobook_id, title, duration, file_path, sort_order,
+                         narration_voice)
+                    VALUES ('t-fold', 'file:///Lib/FoldDirect/', 'T', 10, 'file:///t.mp3', 0,
+                            'af_heart')
+                    """)
+        }
+
+        let vm = LibraryViewModel(db: db, openBook: { _ in })
+        vm.reload()
+
+        let visible = vm.sections.flatMap(\.books)
+        #expect(visible.map(\.id) == ["file:///Lib/FoldVisible/"])
+        let status = try #require(vm.statusMap["file:///Lib/FoldVisible/"])
+        #expect(status.study == .finished)
+        #expect(status.processing.contains(.narrated))
     }
 
     @Test func siblingEditionsReturnOtherMembersInGroup() throws {

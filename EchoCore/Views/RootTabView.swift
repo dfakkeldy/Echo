@@ -282,20 +282,30 @@ struct RootTabView: View {
                     }
                 case .library:
                     NavigationStack(path: $libraryPath) {
-                        if let db = model.databaseService {
-                            LibraryView(
-                                db: db,
-                                openBook: { model.openLibraryBook($0) },
-                                onAddFolder: { showingFolderPicker = true },
-                                onConnectServer: { showingSettings = true }
-                            )
-                            .toolbarVisibility(.hidden, for: .navigationBar)
-                            .navigationDestination(for: NavigationDestination.self) { dest in
-                                dest.view(using: model)
+                        Group {
+                            if let db = model.databaseService {
+                                LibraryView(
+                                    db: db,
+                                    openBook: { model.openLibraryBook($0) },
+                                    onAddFolder: { showingFolderPicker = true },
+                                    onConnectServer: { showingSettings = true }
+                                )
+                                .navigationDestination(for: NavigationDestination.self) { dest in
+                                    dest.view(using: model)
+                                }
+                            } else {
+                                ProgressView()
                             }
-                        } else {
-                            ProgressView()
-                                .toolbarVisibility(.hidden, for: .navigationBar)
+                        }
+                        .toolbarVisibility(.hidden, for: .navigationBar)
+                        // The outer reservation below sits outside the
+                        // UIKit-backed NavigationStack and never reaches its
+                        // content, so the Library mode picker rendered under
+                        // the floating header chips. Reserve the row inside
+                        // the stack, on its root content, where safe-area
+                        // insets actually apply.
+                        .safeAreaInset(edge: .top, spacing: 0) {
+                            Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
                         }
                     }
                 }
