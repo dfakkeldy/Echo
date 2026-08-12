@@ -55,3 +55,131 @@ struct ABSLibraryItemsQuery: Equatable, Sendable {
     var sortField: String? { sort.serverField }
     var descending: Bool { sort.descending }
 }
+
+enum ABSBrowseResultResolver {
+    nonisolated static func combinedIDs(
+        filteredBy groups: [ABSFilterGroup: [[String]]]
+    ) -> Set<String> {
+        var groupIDs = groups.values.map { selections in
+            selections.reduce(into: Set<String>()) { ids, selection in
+                ids.formUnion(selection)
+            }
+        }
+
+        guard var combined = groupIDs.popLast() else { return [] }
+        for ids in groupIDs {
+            combined.formIntersection(ids)
+        }
+        return combined
+    }
+
+    nonisolated static func sorted(
+        _ items: [ABSLibraryItem], by sort: ABSBrowseSort
+    ) -> [ABSLibraryItem] {
+        let ordered = items.sorted { isOrderedBefore($0, $1, by: sort) }
+        var seenIDs = Set<String>()
+        return ordered.filter { seenIDs.insert($0.id).inserted }
+    }
+
+    private nonisolated static func isOrderedBefore(
+        _ lhs: ABSLibraryItem, _ rhs: ABSLibraryItem, by sort: ABSBrowseSort
+    ) -> Bool {
+        let comparison: ComparisonResult
+        switch sort {
+        case .newestAdded:
+            comparison = descending(lhs.addedAt, rhs.addedAt)
+        case .title:
+            comparison = localized(lhs.title, rhs.title)
+        case .author:
+            comparison = localized(lhs.author, rhs.author)
+        case .series:
+            return isSeriesOrderedBefore(lhs, rhs)
+        case .publicationYear:
+            comparison = descendingLocalized(lhs.publishedYear, rhs.publishedYear)
+        }
+
+        if comparison != .orderedSame { return comparison == .orderedAscending }
+        return isTitleThenIDOrderedBefore(lhs, rhs)
+    }
+
+    private nonisolated static func isSeriesOrderedBefore(
+        _ lhs: ABSLibraryItem, _ rhs: ABSLibraryItem
+    ) -> Bool {
+        switch (lhs.seriesName, rhs.seriesName) {
+        case let (lhsSeries?, rhsSeries?):
+            let seriesComparison = localized(lhsSeries, rhsSeries)
+            if seriesComparison != .orderedSame {
+                return seriesComparison == .orderedAscending
+            }
+
+            let sequenceComparison = ascendingSequence(lhs.seriesSequence, rhs.seriesSequence)
+            if sequenceComparison != .orderedSame {
+                return sequenceComparison == .orderedAscending
+            }
+            return isTitleThenIDOrderedBefore(lhs, rhs)
+        case (.some, .none):
+            return true
+        case (.none, .some):
+            return false
+        case (.none, .none):
+            return isTitleThenIDOrderedBefore(lhs, rhs)
+        }
+    }
+
+    private nonisolated static func isTitleThenIDOrderedBefore(
+        _ lhs: ABSLibraryItem, _ rhs: ABSLibraryItem
+    ) -> Bool {
+        let titleComparison = localized(lhs.title, rhs.title)
+        if titleComparison != .orderedSame {
+            return titleComparison == .orderedAscending
+        }
+        return lhs.id < rhs.id
+    }
+
+    private nonisolated static func localized(_ lhs: String?, _ rhs: String?) -> ComparisonResult {
+        (lhs ?? "").localizedStandardCompare(rhs ?? "")
+    }
+
+    private nonisolated static func descendingLocalized(
+        _ lhs: String?, _ rhs: String?
+    ) -> ComparisonResult {
+        localized(rhs, lhs)
+    }
+
+    private nonisolated static func descending(_ lhs: Int64?, _ rhs: Int64?) -> ComparisonResult {
+        switch (lhs, rhs) {
+        case let (lhs?, rhs?) where lhs > rhs:
+            return .orderedAscending
+        case let (lhs?, rhs?) where lhs < rhs:
+            return .orderedDescending
+        case (.some, .none):
+            return .orderedAscending
+        case (.none, .some):
+            return .orderedDescending
+        default:
+            return .orderedSame
+        }
+    }
+
+    private nonisolated static func ascendingSequence(
+        _ lhs: String?, _ rhs: String?
+    ) -> ComparisonResult {
+        switch (numericSequence(lhs), numericSequence(rhs)) {
+        case let (lhs?, rhs?) where lhs < rhs:
+            return .orderedAscending
+        case let (lhs?, rhs?) where lhs > rhs:
+            return .orderedDescending
+        case (.some, .none):
+            return .orderedAscending
+        case (.none, .some):
+            return .orderedDescending
+        default:
+            return .orderedSame
+        }
+    }
+
+    private nonisolated static func numericSequence(_ value: String?) -> Double? {
+        guard let value, let sequence = Double(value), sequence.isFinite else { return nil }
+        return sequence
+    }
+}
