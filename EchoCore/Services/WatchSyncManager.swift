@@ -83,6 +83,23 @@ struct WatchThumbnailTransferPolicy {
             "thumbnailData": data,
         ]
     }
+
+    /// Answers a watch that reported which artwork transfer it last applied
+    /// (`0` = none). When the watch is behind the current artwork, the dedup
+    /// memory is cleared so the same image can be sent again — a lost or purged
+    /// `transferUserInfo` would otherwise never be retried within a phone-app
+    /// session. Self-limiting: a watch that holds the current artwork reports
+    /// its sequence and no payload is produced.
+    mutating func resendPayload(
+        artworkKey: String?, data: Data?, artworkSequence: Double?,
+        watchHeldArtworkSequence: Double
+    ) -> [String: Any]? {
+        guard let artworkSequence, artworkSequence.isFinite, artworkSequence > 0,
+            watchHeldArtworkSequence < artworkSequence
+        else { return nil }
+        lastTransfer = nil
+        return payload(artworkKey: artworkKey, data: data, artworkSequence: artworkSequence)
+    }
 }
 
 /// Manages bidirectional WatchConnectivity communication with the Apple Watch companion.
@@ -207,6 +224,24 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
         sendThumbnailIfNeeded(artworkSequence: artworkSequence)
     }
 
+    /// Re-offers the current thumbnail when the watch reports it holds an older
+    /// artwork transfer (or none, after a clear or fresh install). Sent via
+    /// `transferUserInfo` like the normal path, so it queues if the watch
+    /// backgrounds before it lands.
+    func resendThumbnailIfWatchBehind(
+        watchHeldArtworkSequence: Double, currentArtworkSequence: Double?
+    ) {
+        let session = WCSession.default
+        guard session.activationState == .activated,
+            let (artworkKey, data) = thumbnailProvider?(),
+            let payload = thumbnailTransferPolicy.resendPayload(
+                artworkKey: artworkKey, data: data,
+                artworkSequence: currentArtworkSequence,
+                watchHeldArtworkSequence: watchHeldArtworkSequence)
+        else { return }
+        session.transferUserInfo(payload)
+    }
+
     private func sendThumbnailIfNeeded(artworkSequence: Double?) {
         let session = WCSession.default
         guard session.activationState == .activated,
@@ -236,6 +271,17 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
             }
             return
         }
+        Task { @MainActor [weak self] in
+            self?.syncToWatch()
+        }
+    }
+
+    nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
+        // The watch app just came to the foreground (or the link was
+        // re-established). Push fresh state so the watch converges even when
+        // its own wake-time pull failed — the first seconds after watch-wake
+        // are exactly when its sendMessage errors with "not reachable".
+        guard session.isReachable else { return }
         Task { @MainActor [weak self] in
             self?.syncToWatch()
         }

@@ -125,10 +125,12 @@ final class BookmarkArtworkCoordinator {
                 state?.watchThumbnailData = watchData
             } else {
                 logger.error("Failed to load bookmark artwork: \(fileName)")
+                healBaseWatchThumbnailIfNeeded()
                 state?.currentDisplayArtwork = state?.thumbnailImage
                 state?.watchThumbnailData = baseWatchThumbnailData
             }
         } else {
+            healBaseWatchThumbnailIfNeeded()
             state?.currentDisplayArtwork = state?.thumbnailImage
             state?.watchThumbnailData = baseWatchThumbnailData
         }
@@ -150,6 +152,16 @@ final class BookmarkArtworkCoordinator {
         clearDisplayArtwork()
     }
 
+    /// Invalidates only bookmark-derived artwork, preserving the base cover's
+    /// watch payload. Bookmark edits cannot change the base cover, and
+    /// `baseWatchThumbnailData` is only regenerated on track load — a full
+    /// `invalidateCache()` on every bookmark change left it nil mid-book, so
+    /// every later watch context said `hasThumbnail: false` and the watch
+    /// deleted its cover until the book was reloaded on the phone.
+    func invalidateBookmarkArtwork() {
+        bookmarkArtworkCache.removeAll()
+    }
+
     /// Publishes the absence of artwork after all source fallbacks fail.
     /// Internal so tests can pin callback ordering without depending on app-icon
     /// resources in the unit-test host.
@@ -160,6 +172,16 @@ final class BookmarkArtworkCoordinator {
         clearDisplayArtwork()
         onUpdateNowPlaying?(!(isPlayingProvider?() ?? false))
         onSyncToWatch?()
+    }
+
+    /// Rebuilds the base cover's watch payload from the phone thumbnail when an
+    /// earlier full invalidation dropped it mid-book (regeneration otherwise
+    /// only happens on track load). Without this, the phone keeps showing its
+    /// cover while telling the watch there is none. Runs at most once per
+    /// display-key change, so the encode cost is not on the tick path.
+    private func healBaseWatchThumbnailIfNeeded() {
+        guard baseWatchThumbnailData == nil, let base = state?.thumbnailImage else { return }
+        baseWatchThumbnailData = makeWatchThumbnailData(from: base)
     }
 
     private func clearDisplayArtwork() {

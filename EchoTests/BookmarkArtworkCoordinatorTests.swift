@@ -95,6 +95,44 @@ import UIKit
         #expect(versionSeenByWatch == 1)
     }
 
+    @Test("bookmark-change invalidation preserves the base cover's watch payload")
+    func bookmarkInvalidationPreservesBaseWatchThumbnail() throws {
+        let state = PlaybackState()
+        let coordinator = BookmarkArtworkCoordinator()
+        coordinator.state = state
+        coordinator.applyBaseArtwork(goldPlumPortraitCover())
+        let baseData = try #require(coordinator.baseWatchThumbnailData)
+
+        // The bookmark-change path: only bookmark-derived artwork is dropped.
+        // A full invalidateCache() here nils the base watch payload, which
+        // nothing regenerates until track load — every later context would say
+        // hasThumbnail: false and the watch would delete its cover.
+        coordinator.invalidateBookmarkArtwork()
+        coordinator.updateCurrentDisplayArtwork(at: 0, force: true)
+
+        #expect(coordinator.baseWatchThumbnailData == baseData)
+        #expect(state.watchThumbnailData == baseData)
+    }
+
+    @Test("full invalidation mid-book self-heals the watch payload from the phone thumbnail")
+    func fullInvalidationSelfHealsWatchThumbnail() throws {
+        let state = PlaybackState()
+        let coordinator = BookmarkArtworkCoordinator()
+        coordinator.state = state
+        coordinator.applyBaseArtwork(goldPlumPortraitCover())
+
+        coordinator.invalidateCache()
+        // Invalidation drops the watch payload but keeps the phone thumbnail —
+        // exactly the asymmetry that left the watch coverless mid-book.
+        #expect(state.thumbnailImage != nil)
+        #expect(state.watchThumbnailData == nil)
+
+        coordinator.updateCurrentDisplayArtwork(at: 0, force: true)
+
+        #expect(coordinator.baseWatchThumbnailData != nil)
+        #expect(state.watchThumbnailData != nil)
+    }
+
     @Test("cache invalidation advances the artwork version and clears display state")
     func invalidationAdvancesArtworkVersion() {
         let state = PlaybackState()
