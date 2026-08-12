@@ -193,7 +193,7 @@ struct ABSLibraryItem: Decodable, Identifiable {
     // If media.metadata is present, these convenience accessors surface the
     // relevant metadata fields.
     nonisolated var title: String? { media?.metadata?.title }
-    nonisolated var author: String? { media?.metadata?.authorName }
+    nonisolated var author: String? { media?.metadata?.author }
     nonisolated var publishedYear: String? { media?.metadata?.publishedYear }
     var numTracks: Int? { media?.numTracks }
     var duration: Double? { media?.duration }
