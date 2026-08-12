@@ -111,44 +111,43 @@ final class AudiobookshelfService {
         return try await authorized(request, decode: ABSLibrariesResponse.self).libraries
     }
 
-    func items(libraryID: String, page: Int = 0, limit: Int = 50, filter: String? = nil)
-        async throws -> ABSLibraryItemsResponse
-    {
-        let request = URLRequest(
-            url: endpoints.items(libraryID: libraryID, page: page, limit: limit, filter: filter))
+    func items(libraryID: String, query: ABSLibraryItemsQuery) async throws -> ABSLibraryItemsResponse {
+        let request = URLRequest(url: endpoints.items(libraryID: libraryID, query: query))
         return try await authorized(request, decode: ABSLibraryItemsResponse.self)
     }
 
-    func allItems(libraryID: String, pageSize: Int = 100, filter: String? = nil)
-        async throws -> [ABSLibraryItem]
-    {
-        try await pagedItems(libraryID: libraryID, pageSize: pageSize, filter: filter) { _ in }
+    func allItems(libraryID: String, query: ABSLibraryItemsQuery) async throws -> [ABSLibraryItem] {
+        try await pagedItems(libraryID: libraryID, query: query) { _ in }
+    }
+
+    func libraryFilterData(libraryID: String) async throws -> ABSLibraryFilterData {
+        let request = URLRequest(url: endpoints.libraryFilterData(libraryID))
+        let response = try await authorized(request, decode: ABSLibraryFilterDataResponse.self)
+        return response.browseFilterData
     }
 
     func pagedItems(
         libraryID: String,
-        pageSize: Int = 100,
-        filter: String? = nil,
+        query: ABSLibraryItemsQuery,
         onPage: ([ABSLibraryItem]) async throws -> Void
     ) async throws -> [ABSLibraryItem] {
-        let limit = max(1, pageSize)
-        var page = 0
+        var query = query
+        query.limit = max(1, query.limit)
         var results: [ABSLibraryItem] = []
 
         while true {
-            let response = try await items(
-                libraryID: libraryID, page: page, limit: limit, filter: filter)
+            let response = try await items(libraryID: libraryID, query: query)
             guard !response.results.isEmpty else { return results }
 
             results.append(contentsOf: response.results)
             try await onPage(response.results)
             if let total = response.total, results.count >= total { return results }
-            if let numPages = response.numPages, page + 1 >= numPages { return results }
-            if response.total == nil, response.numPages == nil, response.results.count < limit {
+            if let numPages = response.numPages, query.page + 1 >= numPages { return results }
+            if response.total == nil, response.numPages == nil, response.results.count < query.limit {
                 return results
             }
 
-            page += 1
+            query.page += 1
         }
     }
 
@@ -175,7 +174,9 @@ final class AudiobookshelfService {
         authorNames: [String],
         limit: Int
     ) async throws -> [ABSLibraryItem] {
-        let items = try await allItems(libraryID: libraryID, pageSize: max(limit, 25))
+        let items = try await allItems(
+            libraryID: libraryID,
+            query: ABSLibraryItemsQuery(limit: max(limit, 25), sort: .title))
         var seen = Set<String>()
         let matches = items.filter { item in
             guard let author = item.author else { return false }

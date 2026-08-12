@@ -180,7 +180,8 @@ struct ABSBrowseView: View {
             defer { isLoadingItems = false }
             items = []
             browseErrorMessage = nil
-            _ = try await service.pagedItems(libraryID: lib.id) { pageItems in
+            _ = try await service.pagedItems(
+                libraryID: lib.id, query: ABSLibraryItemsQuery(sort: .title)) { pageItems in
                 try Task.checkCancellation()
                 items.append(contentsOf: pageItems)
             }

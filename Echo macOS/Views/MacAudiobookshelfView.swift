@@ -253,7 +253,8 @@ final class MacAudiobookshelfViewModel {
         isLoading = true
         defer { isLoading = false }
         do {
-            items = try await service.allItems(libraryID: libraryID)
+            items = try await service.allItems(
+                libraryID: libraryID, query: ABSLibraryItemsQuery(sort: .title))
         } catch {
             errorMessage = error.localizedDescription
         }

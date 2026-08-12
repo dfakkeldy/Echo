@@ -138,6 +138,43 @@ struct ABSLibraryItemsResponse: Decodable {
     let numPages: Int?
 }
 
+struct ABSLibraryFilterDataResponse: Decodable {
+    let filterdata: FilterData?
+
+    struct FilterData: Decodable {
+        let authors: [NamedValue]?
+        let series: [NamedValue]?
+        let genres: [String]?
+        let tags: [String]?
+    }
+
+    struct NamedValue: Decodable {
+        let id: String
+        let name: String
+    }
+
+    var browseFilterData: ABSLibraryFilterData {
+        guard let filterdata else { return .empty }
+        return ABSLibraryFilterData(
+            authors: Self.options(filterdata.authors, group: .authors),
+            series: Self.options(filterdata.series, group: .series),
+            genres: Self.options(filterdata.genres, group: .genres),
+            tags: Self.options(filterdata.tags, group: .tags))
+    }
+
+    private static func options(
+        _ values: [NamedValue]?, group: ABSFilterGroup
+    ) -> [ABSFilterOption] {
+        (values ?? []).map { ABSFilterOption(group: group, value: $0.id, label: $0.name) }
+    }
+
+    private static func options(
+        _ values: [String]?, group: ABSFilterGroup
+    ) -> [ABSFilterOption] {
+        (values ?? []).map { ABSFilterOption(group: group, value: $0, label: $0) }
+    }
+}
+
 // MARK: - Library Item
 
 struct ABSLibraryItem: Decodable, Identifiable {
@@ -150,6 +187,7 @@ struct ABSLibraryItem: Decodable, Identifiable {
     let isFile: Bool?
     let mimeType: String?
     let size: Int64?
+    let addedAt: Int64?
     let media: ABSMedia?
 
     // If media.metadata is present, these convenience accessors surface the
@@ -160,6 +198,8 @@ struct ABSLibraryItem: Decodable, Identifiable {
     var numTracks: Int? { media?.numTracks }
     var duration: Double? { media?.duration }
     var coverPath: String? { media?.coverPath }
+    var seriesName: String? { media?.metadata?.series }
+    var seriesSequence: String? { media?.metadata?.seriesSequence }
     var hasAudioContent: Bool { media?.hasAudioContent == true }
 
     /// Genre + tag + series, deduped — the "topics" Echo persists on import.
@@ -211,6 +251,7 @@ struct ABSLibraryItem: Decodable, Identifiable {
         let asin: String?
         let language: String?
         let explicit: Bool?
+        let seriesSequence: String?
 
         var authorName: String? { author }
         var userReadableDescription: String? {
@@ -243,6 +284,7 @@ struct ABSLibraryItem: Decodable, Identifiable {
                 Self.string(in: container, forKey: .series)
                 ?? Self.string(in: container, forKey: .seriesName)
                 ?? Self.joined(Self.namedValues(in: container, forKey: .series))
+            seriesSequence = Self.firstSeriesSequence(in: container)
             description = Self.string(in: container, forKey: .description)
             genres = Self.stringArray(in: container, forKey: .genres)
             publishedYear = Self.string(in: container, forKey: .publishedYear)
@@ -255,6 +297,18 @@ struct ABSLibraryItem: Decodable, Identifiable {
 
         private struct NamedValue: Decodable {
             let name: String?
+        }
+
+        private struct SeriesValue: Decodable {
+            let sequence: String?
+        }
+
+        private static func firstSeriesSequence(
+            in container: KeyedDecodingContainer<CodingKeys>
+        ) -> String? {
+            guard let values = try? container.decodeIfPresent([SeriesValue].self, forKey: .series)
+            else { return nil }
+            return normalized(values.first?.sequence)
         }
 
         private static func string(
