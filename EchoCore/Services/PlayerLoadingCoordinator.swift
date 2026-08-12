@@ -178,9 +178,17 @@ final class PlayerLoadingCoordinator {
         // Folder playlists and directly opened documents keep their established
         // folder identity; a directly opened M4B uses its file URL so unrelated
         // sibling books cannot overwrite its progress or chapter rows.
-        timelinePersistence.persistAudiobookToSQL(
-            folderURL: canonicalBookURL, tracks: state.tracks, duration: state.durationSeconds
-        )
+        // Exception: a picked folder with no tracks and no study document is a
+        // container whose books live in subfolders (the track scan is shallow).
+        // Persisting it would create a dead, coverless Library card, so no row
+        // is written — the auto-import below is gated by the same shallow scan.
+        if !Self.isContainerFolderPick(
+            url: url, isDirectory: isDir, hasTracks: !state.tracks.isEmpty)
+        {
+            timelinePersistence.persistAudiobookToSQL(
+                folderURL: canonicalBookURL, tracks: state.tracks, duration: state.durationSeconds
+            )
+        }
 
         // Ingest chapter metadata (M4B aggregation or multi-track chapter parsing).
         ingestChapterMetadata(
@@ -220,6 +228,26 @@ final class PlayerLoadingCoordinator {
                 generation: currentDocumentImportGeneration,
                 state: state, db: db)
         }
+    }
+
+    /// Whether a pick is a container folder — a directory that yielded no
+    /// tracks (the track scan is shallow) and directly holds no study
+    /// document. Such a pick must not persist an audiobook row: the row would
+    /// render as a dead, coverless Library card beside the real per-subfolder
+    /// books. Internal for tests.
+    static func isContainerFolderPick(url: URL, isDirectory: Bool, hasTracks: Bool) -> Bool {
+        isDirectory && !hasTracks && !folderContainsStudyDocument(url)
+    }
+
+    /// Shallow check backing the container-pick gate: does the picked folder
+    /// directly hold a study document? Deliberately non-recursive, matching
+    /// `PlaylistManager.loadTracks` and the audio-less document import, so the
+    /// gate and the loaders agree on what a folder pick can open.
+    private static func folderContainsStudyDocument(_ folder: URL) -> Bool {
+        let contents =
+            (try? FileManager.default.contentsOfDirectory(
+                at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+        return contents.contains { PlaylistManager.isDocumentFile($0) }
     }
 
     /// Clears per-book derived state that `prepareToPlay` normally owns. An

@@ -49,10 +49,14 @@ final class LibraryViewModel {
     private func applyFetch() {
         do {
             sections = try service.sections(by: selectedAxis, includeUnavailable: showUnavailable)
-            let bookIDs = sections.flatMap(\.books).map(\.id)
-            statusMap = try service.statusMap(for: bookIDs)
-            siblingEditionsByBookID = try service.siblingEditionsMap(
-                for: sections.flatMap(\.books))
+            let visibleBooks = sections.flatMap(\.books)
+            let bookIDs = visibleBooks.map(\.id)
+            siblingEditionsByBookID = try service.siblingEditionsMap(for: visibleBooks)
+            let siblingIDs = siblingEditionsByBookID.values.flatMap { $0.map(\.id) }
+            statusMap = LibraryService.foldingSiblingStatuses(
+                into: try service.statusMap(for: bookIDs + siblingIDs),
+                visibleIDs: bookIDs,
+                siblings: siblingEditionsByBookID)
             booksWithText = mergeService.audiobookIDsWithText().intersection(bookIDs)
             errorMessage = nil
         } catch {

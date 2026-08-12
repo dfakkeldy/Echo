@@ -601,17 +601,36 @@ struct LibraryService {
 
     // MARK: - Shelf-load regroup
 
-    /// Best-effort metadata enrichment + edition-group refresh, run when the
-    /// shelf loads so direct-open/document imports (which never rescan) still
-    /// collapse into one card. Returns true when any row changed and the caller
-    /// should re-fetch. Never throws: a failed background regroup must leave the
-    /// shelf exactly as the sync fetch rendered it.
-    func regroupForShelfLoad() async -> Bool {
+    /// Best-effort shelf hygiene, run when the shelf loads so direct-open and
+    /// document imports (which never rescan) still render as one presentable
+    /// card each: prune verified-empty junk rows, fill missing metadata and
+    /// covers, then refresh edition groups. Returns true when any row changed
+    /// and the caller should re-fetch. Never throws: a failed background
+    /// regroup must leave the shelf exactly as the sync fetch rendered it.
+    func regroupForShelfLoad(
+        coversDir: URL = FileLocations.libraryCoversDirectory,
+        coverData: @escaping @Sendable (URL) async -> Data? = {
+            await LibraryScanner.coverJPEGData(forBookURL: $0)
+        },
+        now: () -> Date = { Date() }
+    ) async -> Bool {
         var changed = false
         do {
-            changed = try await enrichTextOnlyBooks()
+            if try await pruneEmptyContainerRows(now: now()) > 0 { changed = true }
+        } catch {
+            logger.error("Empty-row prune failed: \(error.localizedDescription)")
+        }
+        do {
+            if try await enrichTextOnlyBooks() { changed = true }
         } catch {
             logger.error("Text-only metadata enrichment failed: \(error.localizedDescription)")
+        }
+        do {
+            if try await enrichCoverlessAudioBooks(coverData: coverData, coversDir: coversDir) {
+                changed = true
+            }
+        } catch {
+            logger.error("Cover enrichment failed: \(error.localizedDescription)")
         }
         do {
             if try await refreshEditionGroupsAsync() > 0 { changed = true }
@@ -669,7 +688,10 @@ struct LibraryService {
         let identities =
             all
             .filter { !$0.editionGroupOptOut }
-            .map { EditionMatcher.Identity(id: $0.id, title: $0.title, author: $0.author) }
+            .map {
+                EditionMatcher.Identity(
+                    id: $0.id, title: $0.title, author: $0.author, fileCount: $0.fileCount)
+            }
         let groupIDs = EditionMatcher.groups(for: identities)
         return all.compactMap { book in
             let desiredID = book.editionGroupOptOut ? nil : groupIDs[book.id]
@@ -735,6 +757,125 @@ struct LibraryService {
         guard !updates.isEmpty else { return false }
         // One transaction off the main actor, matching refreshEditionGroupsAsync.
         // Immutable snapshot: the Sendable write closure cannot capture a `var`.
+        let pendingWrites = updates
+        try await db.writer.write { db in
+            for record in pendingWrites {
+                var mutable = record
+                try mutable.save(db)
+            }
+        }
+        return true
+    }
+
+    /// Tables probed before deleting a suspected junk row. Every table here
+    /// references `audiobook.id` (most with ON DELETE CASCADE): a single hit
+    /// means the row carries ingested content or user data and must never be
+    /// pruned — deleting it would cascade that data away.
+    private static let junkRowContentProbes = [
+        "track", "chapter", "epub_block", "epub_toc_entry",
+        "transcription_segment", "standalone_transcript", "word_timing",
+        "alignment_anchor", "playback_state", "playback_event",
+        "note", "bookmark", "flashcard", "study_plan",
+        "marked_passage", "voice_memo", "planned_session", "timeline_item",
+    ]
+
+    /// Deletes rows left behind by picking a container folder (one whose audio
+    /// lives in subfolders): `loadFolder` persists the row before the shallow
+    /// track scan comes back empty, so the shelf shows a dead, coverless card.
+    /// Deletion is gated three ways — the row must look empty on its own
+    /// columns (no audio, no text origin, purely local), must be at least an
+    /// hour old (an in-flight import may not have written its content yet),
+    /// and must have zero rows in every content/user-data table above.
+    /// Returns the number of rows deleted.
+    private func pruneEmptyContainerRows(now: Date) async throws -> Int {
+        let all = try await db.writer.read { db in
+            try AudiobookRecord.fetchAll(db)
+        }
+        let candidateIDs = all.filter { book in
+            book.sourceType != "audiobookshelf"
+                && book.sourceRootID == nil
+                && book.serverID == nil
+                && (book.fileCount ?? 0) == 0
+                && book.duration <= 0
+                && book.textOrigin == nil
+                && isOlderThanOneHour(book.addedAt, now: now)
+        }.map(\.id)
+        guard !candidateIDs.isEmpty else { return 0 }
+
+        let probes = Self.junkRowContentProbes
+        return try await db.writer.write { db in
+            var deleted = 0
+            for id in candidateIDs {
+                // Probe table names are compile-time constants; only the id is
+                // interpolated, and it goes through a bound argument.
+                let hasContent = try probes.contains { table in
+                    try Bool.fetchOne(
+                        db,
+                        sql: "SELECT EXISTS(SELECT 1 FROM \(table) WHERE audiobook_id = ?)",
+                        arguments: [id]) ?? false
+                }
+                guard !hasContent else { continue }
+                try db.execute(sql: "DELETE FROM audiobook WHERE id = ?", arguments: [id])
+                deleted += 1
+            }
+            return deleted
+        }
+    }
+
+    private func isOlderThanOneHour(_ addedAt: String, now: Date) -> Bool {
+        guard let added = try? Date(addedAt, strategy: .iso8601) else {
+            // Unparseable timestamps stay untouched: age is a safety gate, and
+            // a row we can't date is a row we can't safely call abandoned.
+            return false
+        }
+        return now.timeIntervalSince(added) > 3600
+    }
+
+    /// Audio rows already attempted this session, mirroring
+    /// `enrichmentAttemptedIDs`: a book with no extractable artwork must not
+    /// re-run AVAsset + image decoding on every shelf load.
+    private static var coverEnrichmentAttemptedIDs: Set<String> = []
+
+    /// Fills `coverArtPath` for local audio rows the scanner never enriched —
+    /// direct folder/m4b opens, whose `persistAudiobook` path only consults
+    /// EPUB covers. Artwork comes from the audio itself (embedded tag, then a
+    /// sidecar image in the folder) via `coverData`, injected for tests;
+    /// production passes `LibraryScanner.coverJPEGData(forBookURL:)`, which is
+    /// `@concurrent` and keeps the extraction off the main actor.
+    private func enrichCoverlessAudioBooks(
+        coverData: @escaping @Sendable (URL) async -> Data?,
+        coversDir: URL
+    ) async throws -> Bool {
+        let all = try await db.writer.read { db in
+            try AudiobookRecord
+                .filter(Column("is_available") == true)
+                .fetchAll(db)
+        }
+        let attempted = Self.coverEnrichmentAttemptedIDs
+        // Rooted rows are excluded: the Library rescan owns their covers and
+        // re-reads artwork on every scan pass.
+        let candidates = all.filter { book in
+            book.sourceType != "audiobookshelf"
+                && book.sourceRootID == nil
+                && book.coverArtPath == nil
+                && ((book.fileCount ?? 0) > 0 || book.duration > 0)
+                && !attempted.contains(book.id)
+        }
+        guard !candidates.isEmpty else { return false }
+
+        var updates: [AudiobookRecord] = []
+        for book in candidates {
+            Self.coverEnrichmentAttemptedIDs.insert(book.id)
+            guard let bookURL = URL(string: book.id), bookURL.isFileURL else { continue }
+            guard let data = await coverData(bookURL) else { continue }
+            guard
+                let path = LibraryCoverStore.writeCover(data, id: book.id, coversDir: coversDir)
+            else { continue }
+            var updated = book
+            updated.coverArtPath = path
+            updates.append(updated)
+        }
+        guard !updates.isEmpty else { return false }
         let pendingWrites = updates
         try await db.writer.write { db in
             for record in pendingWrites {
@@ -831,6 +972,56 @@ struct LibraryService {
         }
     }
 
+    /// A collapsed card shows one representative row, but playback may have
+    /// been recorded against a sibling edition's id — the same book opened
+    /// through a different URL form. Fold each sibling's status into the
+    /// visible book's: the furthest study state wins and processing flags
+    /// union, so a book finished via direct open never shows Not Started on
+    /// its Library card.
+    static func foldingSiblingStatuses(
+        into statuses: [String: LibraryBookStatus],
+        visibleIDs: [String],
+        siblings: [String: [AudiobookRecord]]
+    ) -> [String: LibraryBookStatus] {
+        var result = statuses
+        for id in visibleIDs {
+            guard var folded = result[id] else { continue }
+            for sibling in siblings[id] ?? [] {
+                guard let siblingStatus = statuses[sibling.id] else { continue }
+                folded.study = furthestStudyStatus(folded.study, siblingStatus.study)
+                folded.processing.formUnion(siblingStatus.processing)
+            }
+            result[id] = folded
+        }
+        return result
+    }
+
+    private static func furthestStudyStatus(_ a: StudyStatus, _ b: StudyStatus) -> StudyStatus {
+        func rank(_ status: StudyStatus) -> Int {
+            switch status {
+            case .notStarted: 0
+            case .inProgress: 1
+            case .finished: 2
+            }
+        }
+        return rank(a) >= rank(b) ? a : b
+    }
+
+    /// Folded status for the displayed (collapsed) books: hidden sibling
+    /// editions' statuses merge onto each representative, so the status
+    /// section a card lands in agrees with the badge it wears.
+    private func foldedStatusMap(
+        for books: [AudiobookRecord]
+    ) throws -> [String: LibraryBookStatus] {
+        let siblings = try siblingEditionsMap(for: books)
+        let ids = books.map(\.id)
+        let siblingIDs = siblings.values.flatMap { $0.map(\.id) }
+        return Self.foldingSiblingStatuses(
+            into: try statusMap(for: ids + siblingIDs),
+            visibleIDs: ids,
+            siblings: siblings)
+    }
+
     /// Resolves the folder URL to open this book, together with the library root
     /// whose security scope the caller must enter. This method is SIDE-EFFECT-FREE:
     /// it does NOT call `startAccessingSecurityScopedResource()` — the player layer
@@ -905,6 +1096,12 @@ struct LibraryService {
 
     private func editionSort(_ lhs: AudiobookRecord, _ rhs: AudiobookRecord) -> Bool {
         if lhs.isAvailable != rhs.isAvailable { return lhs.isAvailable && !rhs.isAvailable }
+        // A root-backed row is scanner-managed: tag-derived title, extracted
+        // cover, availability tracking, and a security scope for opening. It
+        // should front the card over a raw direct-open duplicate.
+        let lhsRooted = lhs.sourceRootID != nil
+        let rhsRooted = rhs.sourceRootID != nil
+        if lhsRooted != rhsRooted { return lhsRooted && !rhsRooted }
         let lhsHasAudio = (lhs.fileCount ?? 0) > 0 || lhs.duration > 0
         let rhsHasAudio = (rhs.fileCount ?? 0) > 0 || rhs.duration > 0
         if lhsHasAudio != rhsHasAudio { return lhsHasAudio && !rhsHasAudio }
@@ -949,7 +1146,7 @@ struct LibraryService {
     }
 
     private func studyStatusSections(_ books: [AudiobookRecord]) throws -> [LibrarySection] {
-        let statuses = try statusMap(for: books.map(\.id))
+        let statuses = try foldedStatusMap(for: books)
         var inProgress: [AudiobookRecord] = []
         var finished: [AudiobookRecord] = []
         var notStarted: [AudiobookRecord] = []
@@ -971,7 +1168,7 @@ struct LibraryService {
     }
 
     private func processingStatusSections(_ books: [AudiobookRecord]) throws -> [LibrarySection] {
-        let statuses = try statusMap(for: books.map(\.id))
+        let statuses = try foldedStatusMap(for: books)
         var aligned: [AudiobookRecord] = []
         var narrated: [AudiobookRecord] = []
         var transcribed: [AudiobookRecord] = []

@@ -16,11 +16,16 @@ struct DiscoveredBook: Equatable {
 /// folder. One folder containing audio == one book (a lone `.m4b`'s folder is its
 /// book). Mirrors `FolderAudioScanner`'s enumerator options.
 enum LibraryScanner {
-    private static let audioExtensions: Set<String> = ["m4b", "mp3", "m4a", "aax", "wav", "flac"]
-    private static let imageExtensions = [
-        "jpg", "jpeg", "png", "heic", "heif", "webp", "gif", "bmp", "tiff"
+    /// Shared with `EditionMatcher`, whose path-identity grouping must agree
+    /// with the scanner on what counts as an audio file. `nonisolated`: read
+    /// from nonisolated grouping code and the `@concurrent` cover extractor.
+    nonisolated static let audioExtensions: Set<String> = [
+        "m4b", "mp3", "m4a", "aax", "wav", "flac",
     ]
-    private static let imageExtensionSet = Set(imageExtensions)
+    private nonisolated static let imageExtensions = [
+        "jpg", "jpeg", "png", "heic", "heif", "webp", "gif", "bmp", "tiff",
+    ]
+    private nonisolated static let imageExtensionSet = Set(imageExtensions)
 
     static func discoverBooks(in root: URL) -> [DiscoveredBook] {
         let enumerator = FileManager.default.enumerator(
@@ -112,20 +117,52 @@ extension LibraryScanner {
         return try? await item.load(.stringValue)
     }
 
-    private static func coverArtworkJPEGData(for audioURL: URL) async -> Data? {
+    /// Cover for an already-persisted shelf row. `bookURL` is the row id's
+    /// URL — the book's folder, or the audio file itself for a directly
+    /// opened book. Same source priority as `readMetadata`: embedded artwork
+    /// of the (first) audio file, then a sidecar image beside it.
+    /// `@concurrent` so the shelf-load enrichment's AVAsset metadata read and
+    /// thumbnail decode run on the global executor, not the main actor.
+    @concurrent
+    static func coverJPEGData(forBookURL bookURL: URL) async -> Data? {
+        let audioURL: URL?
+        if audioExtensions.contains(bookURL.pathExtension.lowercased()) {
+            audioURL = bookURL
+        } else {
+            audioURL = firstAudioFile(in: bookURL)
+        }
+        guard let audioURL else { return nil }
+        return await coverArtworkJPEGData(for: audioURL)
+    }
+
+    private nonisolated static func firstAudioFile(in folder: URL) -> URL? {
+        let files =
+            (try? FileManager.default.contentsOfDirectory(
+                at: folder,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            )) ?? []
+        return
+            files
+            .filter { audioExtensions.contains($0.pathExtension.lowercased()) }
+            .sorted { $0.path < $1.path }
+            .first
+    }
+
+    private nonisolated static func coverArtworkJPEGData(for audioURL: URL) async -> Data? {
         if let embedded = await embeddedArtworkJPEGData(for: audioURL) {
             return embedded
         }
         return await folderArtworkJPEGData(near: audioURL)
     }
 
-    private static func embeddedArtworkJPEGData(for url: URL) async -> Data? {
+    private nonisolated static func embeddedArtworkJPEGData(for url: URL) async -> Data? {
         let asset = AVURLAsset(url: url)
         let metadata = (try? await asset.load(.commonMetadata)) ?? []
 
         for item in metadata where item.commonKey == .commonKeyArtwork {
             guard let data = try? await item.load(.dataValue),
-                  let jpegData = jpegData(fromImageData: data)
+                let jpegData = jpegData(fromImageData: data)
             else { continue }
             return jpegData
         }
@@ -133,7 +170,7 @@ extension LibraryScanner {
         return nil
     }
 
-    private static func folderArtworkJPEGData(near url: URL) async -> Data? {
+    private nonisolated static func folderArtworkJPEGData(near url: URL) async -> Data? {
         let folderURL = url.deletingLastPathComponent()
         let didStart = folderURL.startAccessingSecurityScopedResource()
         defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
@@ -153,12 +190,16 @@ extension LibraryScanner {
             let preferred = images.first { fileURL in
                 fileURL.deletingPathExtension().lastPathComponent.lowercased() == "cover"
             }
-            let selected = preferred ?? images.sorted {
-                $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
-            }.first
+            let selected =
+                preferred
+                ?? images.sorted {
+                    $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
+                        == .orderedAscending
+                }.first
 
             if let selected,
-               let data = await jpegData(fromImageFile: selected) {
+                let data = await jpegData(fromImageFile: selected)
+            {
                 return data
             }
         }
@@ -173,7 +214,7 @@ extension LibraryScanner {
         return nil
     }
 
-    private static func jpegData(fromImageFile imageURL: URL) async -> Data? {
+    private nonisolated static func jpegData(fromImageFile imageURL: URL) async -> Data? {
         await ensureItemIsAvailable(url: imageURL)
 
         let didStart = imageURL.startAccessingSecurityScopedResource()
@@ -183,11 +224,12 @@ extension LibraryScanner {
         return jpegData(from: source)
     }
 
-    private static func ensureItemIsAvailable(url: URL) async {
-        guard let values = try? url.resourceValues(forKeys: [
-            .isUbiquitousItemKey,
-            .ubiquitousItemDownloadingStatusKey
-        ]),
+    private nonisolated static func ensureItemIsAvailable(url: URL) async {
+        guard
+            let values = try? url.resourceValues(forKeys: [
+                .isUbiquitousItemKey,
+                .ubiquitousItemDownloadingStatusKey,
+            ]),
             values.isUbiquitousItem == true
         else { return }
 
@@ -197,30 +239,33 @@ extension LibraryScanner {
         }
     }
 
-    private static func jpegData(fromImageData data: Data) -> Data? {
+    private nonisolated static func jpegData(fromImageData data: Data) -> Data? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         return jpegData(from: source)
     }
 
-    private static func jpegData(from source: CGImageSource) -> Data? {
+    private nonisolated static func jpegData(from source: CGImageSource) -> Data? {
         let maxPixelSize = 600
         let thumbnailOptions: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceShouldCacheImmediately: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
         ]
-        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(
-            source, 0, thumbnailOptions as CFDictionary)
+        guard
+            let cgImage = CGImageSourceCreateThumbnailAtIndex(
+                source, 0, thumbnailOptions as CFDictionary)
         else { return nil }
 
         let output = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(
-            output,
-            UTType.jpeg.identifier as CFString,
-            1,
-            nil
-        ) else { return nil }
+        guard
+            let destination = CGImageDestinationCreateWithData(
+                output,
+                UTType.jpeg.identifier as CFString,
+                1,
+                nil
+            )
+        else { return nil }
 
         let destinationOptions: [CFString: Any] = [
             kCGImageDestinationLossyCompressionQuality: 0.8

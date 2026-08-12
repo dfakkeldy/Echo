@@ -417,14 +417,18 @@ struct LibraryServiceTests {
                 id: "file:///Lib/ShelfDuneText/", title: "Dune", author: nil,
                 duration: 0, fileCount: 0, addedAt: "2026-07-10T00:00:01Z", isAvailable: true))
 
+        // A fresh clock: the text row is minutes old, as it is in the real
+        // scenario (regroup right after import) — an aged block-less text row
+        // would be prunable junk instead.
+        let now = try Date("2026-07-10T00:30:00Z", strategy: .iso8601)
         let service = LibraryService(db: db)
-        let changed = await service.regroupForShelfLoad()
+        let changed = await service.regroupForShelfLoad(now: { now })
 
         #expect(changed)
         let books = try service.books(includeUnavailable: false)
         #expect(books.map(\.id) == ["file:///Lib/ShelfDuneAudio/"])
         // Second pass with nothing new to do reports no changes.
-        #expect(await service.regroupForShelfLoad() == false)
+        #expect(await service.regroupForShelfLoad(now: { now }) == false)
     }
 
     @Test func regroupForShelfLoadRespectsSeparatedEditionOptOut() async throws {
@@ -440,8 +444,9 @@ struct LibraryServiceTests {
                 duration: 0, fileCount: 0, addedAt: "2026-07-10T00:00:01Z", isAvailable: true,
                 editionGroupOptOut: true))
 
+        let now = try Date("2026-07-10T00:30:00Z", strategy: .iso8601)
         let service = LibraryService(db: db)
-        _ = await service.regroupForShelfLoad()
+        _ = await service.regroupForShelfLoad(now: { now })
 
         let books = try service.books(includeUnavailable: false)
         #expect(
@@ -488,8 +493,9 @@ struct LibraryServiceTests {
                 id: customID, title: "My Curated Title", author: nil,
                 duration: 0, fileCount: 0, addedAt: "2026-07-10T00:00:01Z", isAvailable: true))
 
+        let now = try Date("2026-07-10T00:30:00Z", strategy: .iso8601)
         let service = LibraryService(db: db)
-        let changed = await service.regroupForShelfLoad()
+        let changed = await service.regroupForShelfLoad(now: { now })
 
         #expect(changed)
         let placeholder = try #require(try dao.get(placeholderID))
@@ -498,6 +504,130 @@ struct LibraryServiceTests {
         let custom = try #require(try dao.get(customID))
         #expect(custom.author == "Tester")
         #expect(custom.title == "My Curated Title")
+    }
+
+    @Test func regroupForShelfLoadPrunesAbandonedContainerRows() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let dao = AudiobookDAO(db: db.writer)
+        let now = try Date("2026-07-11T00:00:00Z", strategy: .iso8601)
+
+        // Abandoned container pick: no audio, no text, purely local, a day old.
+        try dao.save(
+            AudiobookRecord(
+                id: "file:///Lib/AudioBookBay/", title: "AudioBookBay", author: nil,
+                duration: 0, fileCount: 0, addedAt: "2026-07-10T00:00:00Z", isAvailable: true))
+        // Same shape, 30 minutes old: an import may still be writing content.
+        try dao.save(
+            AudiobookRecord(
+                id: "file:///Lib/FreshPick/", title: "FreshPick", author: nil,
+                duration: 0, fileCount: 0, addedAt: "2026-07-10T23:30:00Z", isAvailable: true))
+        // Same shape but with saved progress: pruning would cascade it away.
+        try dao.save(
+            AudiobookRecord(
+                id: "file:///Lib/HasProgress/", title: "HasProgress", author: nil,
+                duration: 0, fileCount: 0, addedAt: "2026-07-10T00:00:00Z", isAvailable: true))
+        try db.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO playback_state (audiobook_id, last_position, speed)
+                    VALUES (?, 42, 1.0)
+                    """,
+                arguments: ["file:///Lib/HasProgress/"])
+        }
+        // Server-sourced rows are never local junk, whatever their columns say.
+        try dao.save(
+            AudiobookRecord(
+                id: "abs-empty", title: "ABS Placeholder", author: nil,
+                duration: 0, fileCount: 0, addedAt: "2026-07-10T00:00:00Z",
+                sourceType: "audiobookshelf", isAvailable: true))
+
+        let service = LibraryService(db: db)
+        let changed = await service.regroupForShelfLoad(now: { now })
+
+        #expect(changed)
+        #expect(try dao.get("file:///Lib/AudioBookBay/") == nil)
+        #expect(try dao.get("file:///Lib/FreshPick/") != nil)
+        #expect(try dao.get("file:///Lib/HasProgress/") != nil)
+        #expect(try dao.get("abs-empty") != nil)
+    }
+
+    @Test func regroupForShelfLoadCollapsesDirectOpenDuplicateOntoScannedRow() async throws {
+        // The screenshot duplicate: the scanner keyed the book by its
+        // standardized folder URL while a direct open persisted the picker's
+        // "/private"-prefixed form. After the regroup both must share a group,
+        // with the scanner-managed (rooted) row fronting the card and the
+        // cover borrowed from the direct-open twin. Foundation only strips
+        // "/private" for paths that exist, so this needs a real directory.
+        let fm = FileManager.default
+        let base = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("lib-dup-\(UUID().uuidString)", isDirectory: true)
+        let folder = base.appendingPathComponent("Book", isDirectory: true)
+        try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: base) }
+
+        let scannedID = folder.standardizedFileURL.absoluteString
+        let pickedID = "file:///private\(folder.path)/"
+
+        let db = try DatabaseService(inMemory: ())
+        let dao = AudiobookDAO(db: db.writer)
+        try dao.save(
+            AudiobookRecord(
+                id: scannedID, title: "AI", author: "Roman", duration: 50,
+                fileCount: 1, addedAt: "2026-07-10T00:00:00Z", isAvailable: true,
+                sourceRootID: "root-1"))
+        // Newer and longer than the rooted row — without the rooted preference
+        // the collapse would front this raw duplicate instead.
+        try dao.save(
+            AudiobookRecord(
+                id: pickedID, title: "Book", author: nil, duration: 100,
+                fileCount: 1, addedAt: "2026-07-10T00:00:01Z", coverArtPath: "direct.jpg",
+                isAvailable: true))
+
+        let service = LibraryService(db: db)
+        #expect(await service.regroupForShelfLoad())
+
+        let books = try service.books(includeUnavailable: false)
+        #expect(books.map(\.id) == [scannedID])
+        #expect(books.first?.coverArtPath == "direct.jpg")
+    }
+
+    @Test func regroupForShelfLoadFillsCoverFromAudioArtworkExtractor() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let dao = AudiobookDAO(db: db.writer)
+        let audioID = "file:///Lib/CoverAudio-\(UUID().uuidString)/"
+        let coveredID = "file:///Lib/AlreadyCovered-\(UUID().uuidString)/"
+        try dao.save(
+            AudiobookRecord(
+                id: audioID, title: "Needs A Cover", author: "Someone", duration: 100,
+                fileCount: 1, addedAt: "2026-07-10T00:00:00Z", isAvailable: true))
+        try dao.save(
+            AudiobookRecord(
+                id: coveredID, title: "Already Covered", author: "Someone Else", duration: 100,
+                fileCount: 1, addedAt: "2026-07-10T00:00:00Z", coverArtPath: "kept.jpg",
+                isAvailable: true))
+
+        let coversDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("covers-enrich-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: coversDir) }
+
+        let service = LibraryService(db: db)
+        let changed = await service.regroupForShelfLoad(
+            coversDir: coversDir,
+            coverData: { _ in Data([0xFF, 0xD8, 0xFF]) })
+
+        #expect(changed)
+        let enriched = try #require(try dao.get(audioID))
+        let coverPath = try #require(enriched.coverArtPath)
+        #expect(
+            FileManager.default.fileExists(
+                atPath: coversDir.appendingPathComponent(coverPath).path))
+        #expect(try dao.get(coveredID)?.coverArtPath == "kept.jpg")
+
+        // A book with no extractable artwork is remembered for the session and
+        // not re-attempted on the next shelf load.
+        #expect(
+            await service.regroupForShelfLoad(
+                coversDir: coversDir, coverData: { _ in nil }) == false)
     }
 
     // MARK: - Task 10: derived study + processing status
@@ -613,6 +743,48 @@ struct LibraryServiceTests {
                 sql: "UPDATE playback_state SET last_position = 99 WHERE audiobook_id = 'bk'")
         }
         #expect(try service.studyStatus(for: book) == .finished)
+    }
+
+    @Test func statusSectionsFoldSiblingEditionStatuses() throws {
+        // Playback and narration recorded against a hidden duplicate row must
+        // move the visible card into the matching status sections — not leave
+        // it under Not Started / Not Processed while its badge says otherwise.
+        let db = try DatabaseService(inMemory: ())
+        let dao = AudiobookDAO(db: db.writer)
+        try dao.save(
+            AudiobookRecord(
+                id: "file:///Lib/SectVisible/", title: "Sectioned", author: "An Author",
+                duration: 100, fileCount: 1, addedAt: "2026-07-10T00:00:00Z",
+                isAvailable: true, sourceRootID: "root-1", editionGroupID: "sect-g"))
+        try dao.save(
+            AudiobookRecord(
+                id: "file:///Lib/SectDirect/", title: "Sectioned", author: "An Author",
+                duration: 100, fileCount: 1, addedAt: "2026-07-10T00:00:01Z",
+                isAvailable: true, editionGroupID: "sect-g"))
+        try db.writer.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO playback_state (audiobook_id, last_position, speed)
+                    VALUES ('file:///Lib/SectDirect/', 99, 1.0)
+                    """)
+            try db.execute(
+                sql: """
+                    INSERT INTO track
+                        (id, audiobook_id, title, duration, file_path, sort_order,
+                         narration_voice)
+                    VALUES ('t-sect', 'file:///Lib/SectDirect/', 'T', 10, 'file:///t.mp3', 0,
+                            'af_heart')
+                    """)
+        }
+        let service = LibraryService(db: db)
+
+        let study = try service.sections(by: .studyStatus, includeUnavailable: false)
+        #expect(study.map(\.title) == ["Finished"])
+        #expect(study.first?.books.map(\.id) == ["file:///Lib/SectVisible/"])
+
+        let processing = try service.sections(by: .processingStatus, includeUnavailable: false)
+        #expect(processing.map(\.title) == ["Narrated"])
+        #expect(processing.first?.books.map(\.id) == ["file:///Lib/SectVisible/"])
     }
 
     @Test func urlForOpeningResolvesViaRoot() throws {
