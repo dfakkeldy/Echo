@@ -15,6 +15,7 @@ final class ABSImportService {
     private let afterExtractedEntry: @Sendable () async -> Void
     private let afterPersistence: @Sendable () async -> Void
     private let beforeRestoreExistingFolder: @Sendable () throws -> Void
+    private let beforeRemoveNewFolder: @Sendable () throws -> Void
 
     init(
         service: AudiobookshelfService,
@@ -22,7 +23,8 @@ final class ABSImportService {
         serverID: String,
         afterExtractedEntry: @escaping @Sendable () async -> Void = {},
         afterPersistence: @escaping @Sendable () async -> Void = {},
-        beforeRestoreExistingFolder: @escaping @Sendable () throws -> Void = {}
+        beforeRestoreExistingFolder: @escaping @Sendable () throws -> Void = {},
+        beforeRemoveNewFolder: @escaping @Sendable () throws -> Void = {}
     ) {
         self.service = service
         self.databaseWriter = db.writer
@@ -30,6 +32,7 @@ final class ABSImportService {
         self.afterExtractedEntry = afterExtractedEntry
         self.afterPersistence = afterPersistence
         self.beforeRestoreExistingFolder = beforeRestoreExistingFolder
+        self.beforeRemoveNewFolder = beforeRemoveNewFolder
     }
 
     @discardableResult
@@ -108,7 +111,8 @@ final class ABSImportService {
                 databaseWriter: databaseWriter,
                 identifier: identifier,
                 afterPersistence: afterPersistence,
-                beforeRestoreExistingFolder: beforeRestoreExistingFolder)
+                beforeRestoreExistingFolder: beforeRestoreExistingFolder,
+                beforeRemoveNewFolder: beforeRemoveNewFolder)
 
             currentStage = .added
             report(
@@ -298,7 +302,8 @@ final class ABSImportService {
         databaseWriter: DatabaseWriter,
         identifier: String,
         afterPersistence: @escaping @Sendable () async -> Void,
-        beforeRestoreExistingFolder: @escaping @Sendable () throws -> Void
+        beforeRestoreExistingFolder: @escaping @Sendable () throws -> Void,
+        beforeRemoveNewFolder: @escaping @Sendable () throws -> Void
     ) async throws -> ABSImportedBook {
         try Task.checkCancellation()
         let fileManager = FileManager.default
@@ -315,7 +320,6 @@ final class ABSImportService {
         let coverPublication = record.coverArtPath.map {
             LibraryCoverPublication(
                 filename: $0,
-                stagingFolder: stagingFolder,
                 finalFolder: finalFolder)
         }
         var coverWasPublished = false
@@ -417,7 +421,16 @@ final class ABSImportService {
                     logRollbackFailure(identifier: identifier, category: "folder")
                 }
             } else if publishedNewFolder {
-                try? fileManager.removeItem(at: finalFolder)
+                do {
+                    try beforeRemoveNewFolder()
+                    try fileManager.removeItem(at: finalFolder)
+                    guard !fileManager.fileExists(atPath: finalFolder.path) else {
+                        throw ABSImportRollbackError.recoveryIncomplete
+                    }
+                } catch {
+                    rollbackFailed = true
+                    logRollbackFailure(identifier: identifier, category: "folder")
+                }
             }
             if rollbackFailed { throw ABSImportRollbackError.recoveryIncomplete }
             throw error
@@ -516,6 +529,15 @@ final class ABSImportService {
     )
         -> ABSImportFailure
     {
+        if error is ABSImportRollbackError {
+            return ABSImportFailure(
+                stage: .addingToEcho,
+                message: String(
+                    localized:
+                        "Echo could not complete automatic recovery. A recoverable import copy was retained."
+                ),
+                isRetryable: false)
+        }
         if let failure = error as? ABSImportFailure { return failure }
         switch stage {
         case .downloading:
@@ -587,9 +609,9 @@ private nonisolated struct LibraryCoverPublication: Sendable {
     let temporary: URL
     let backup: URL
 
-    init(filename: String, stagingFolder: URL, finalFolder: URL) {
+    init(filename: String, finalFolder: URL) {
         final = FileLocations.libraryCoversDirectory.appending(path: filename)
-        stagedSource = stagingFolder.appending(path: "cover.jpg")
+        stagedSource = finalFolder.appending(path: "cover.jpg")
         temporary = FileLocations.libraryCoversDirectory.appending(
             path: ".\(filename)-import-\(UUID().uuidString)")
         backup = FileLocations.libraryCoversDirectory.appending(

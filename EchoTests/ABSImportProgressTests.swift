@@ -88,7 +88,9 @@ struct ABSImportProgressTests {
         }
 
         await extractionGate.waitUntilSuspended()
-        #expect(FileManager.default.fileExists(atPath: fixture.stagingFolder.path))
+        let stagedResidue = try #require(
+            fixture.importResidues.first { $0.lastPathComponent.contains("importing") })
+        #expect(FileManager.default.fileExists(atPath: stagedResidue.path))
         #expect(!FileManager.default.fileExists(atPath: fixture.finalFolder.path))
         importTask.cancel()
         await extractionGate.release()
@@ -102,7 +104,7 @@ struct ABSImportProgressTests {
             Issue.record("Wrong error: \(error)")
         }
         #expect(!FileManager.default.fileExists(atPath: fixture.finalFolder.path))
-        #expect(!FileManager.default.fileExists(atPath: fixture.stagingFolder.path))
+        #expect(!FileManager.default.fileExists(atPath: stagedResidue.path))
         #expect(fixture.importResidues.isEmpty)
     }
 
@@ -187,6 +189,40 @@ struct ABSImportProgressTests {
         #expect(!FileManager.default.fileExists(atPath: fixture.finalFolder.path))
         #expect(!FileManager.default.fileExists(atPath: fixture.libraryCoverURL.path))
         #expect(fixture.coverResidues.isEmpty)
+    }
+
+    @Test func successfulCoverPublicationMatchesRecordAndFinalFolderCover() async throws {
+        let cover = Data([4, 3, 2, 1])
+        let fixture = try ABSImportProgressFixture(
+            entries: [("book.m4b", "audio")], coverData: cover)
+
+        let book = try await fixture.importer.prepareLocalFolder(for: fixture.item) { _ in }
+
+        let record = try #require(
+            AudiobookDAO(db: fixture.db.writer).get(book.folderURL.absoluteString))
+        let coverArtPath = try #require(record.coverArtPath)
+        let publishedCover = FileLocations.libraryCoversDirectory.appending(path: coverArtPath)
+        #expect((try? Data(contentsOf: book.folderURL.appending(path: "cover.jpg"))) == cover)
+        #expect((try? Data(contentsOf: publishedCover)) == cover)
+    }
+
+    @Test func failedFirstImportDeletionKeepsRecoveryTruthAndUsesRollbackMessage() async throws {
+        struct RemovalFailure: Error {}
+        let fixture = try ABSImportProgressFixture(
+            entries: [("book.m4b", "audio")],
+            beforeRemoveNewFolder: { throw RemovalFailure() })
+        try fixture.db.write { db in
+            try db.execute(
+                sql:
+                    "CREATE TRIGGER fail_abs_import BEFORE INSERT ON audiobook BEGIN SELECT RAISE(FAIL, 'test'); END"
+            )
+        }
+
+        let failure = await fixture.captureFailure()
+
+        #expect(failure?.stage == .addingToEcho)
+        #expect(failure?.message.localizedCaseInsensitiveContains("recovery") == true)
+        #expect(FileManager.default.fileExists(atPath: fixture.finalFolder.path))
     }
 
     @Test func failedReimportRestoresOldLibraryCoverAndUsesPreservedCopyMessage() async throws {
@@ -284,14 +320,16 @@ private final class ABSImportProgressFixture {
         coverData: Data? = nil,
         afterExtractedEntry: @escaping @Sendable () async -> Void = {},
         afterPersistence: @escaping @Sendable () async -> Void = {},
-        beforeRestoreExistingFolder: @escaping @Sendable () throws -> Void = {}
+        beforeRestoreExistingFolder: @escaping @Sendable () throws -> Void = {},
+        beforeRemoveNewFolder: @escaping @Sendable () throws -> Void = {}
     ) throws {
         try self.init(
             downloadData: Self.makeZip(entries: entries),
             coverData: coverData,
             afterExtractedEntry: afterExtractedEntry,
             afterPersistence: afterPersistence,
-            beforeRestoreExistingFolder: beforeRestoreExistingFolder)
+            beforeRestoreExistingFolder: beforeRestoreExistingFolder,
+            beforeRemoveNewFolder: beforeRemoveNewFolder)
     }
 
     init(
@@ -299,7 +337,8 @@ private final class ABSImportProgressFixture {
         coverData: Data? = nil,
         afterExtractedEntry: @escaping @Sendable () async -> Void = {},
         afterPersistence: @escaping @Sendable () async -> Void = {},
-        beforeRestoreExistingFolder: @escaping @Sendable () throws -> Void = {}
+        beforeRestoreExistingFolder: @escaping @Sendable () throws -> Void = {},
+        beforeRemoveNewFolder: @escaping @Sendable () throws -> Void = {}
     ) throws {
         let remoteItemID = "progress-item-\(UUID().uuidString)"
         serverID = "progress-server-\(UUID().uuidString)"
@@ -334,7 +373,8 @@ private final class ABSImportProgressFixture {
             serverID: serverID,
             afterExtractedEntry: afterExtractedEntry,
             afterPersistence: afterPersistence,
-            beforeRestoreExistingFolder: beforeRestoreExistingFolder)
+            beforeRestoreExistingFolder: beforeRestoreExistingFolder,
+            beforeRemoveNewFolder: beforeRemoveNewFolder)
 
         try? FileManager.default.removeItem(at: finalFolder)
         try? FileManager.default.removeItem(at: stagingFolder)
