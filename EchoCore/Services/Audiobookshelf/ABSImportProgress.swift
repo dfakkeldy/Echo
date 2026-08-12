@@ -11,6 +11,28 @@ struct ABSDownloadProgress: Equatable, Sendable {
     }
 }
 
+enum ABSImportStage: String, Equatable, Sendable {
+    case downloading
+    case extracting
+    case validating
+    case addingToEcho
+    case added
+}
+
+struct ABSImportProgress: Equatable, Sendable {
+    let stage: ABSImportStage
+    let completedUnits: Int64
+    let totalUnits: Int64?
+}
+
+struct ABSImportFailure: LocalizedError, Equatable, Sendable {
+    let stage: ABSImportStage
+    let message: String
+    let isRetryable: Bool
+
+    var errorDescription: String? { message }
+}
+
 struct ABSImportedBook: Identifiable, Equatable, Sendable {
     let remoteItemID: String
     let folderURL: URL

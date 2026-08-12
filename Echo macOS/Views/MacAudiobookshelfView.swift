@@ -284,8 +284,8 @@ final class MacAudiobookshelfViewModel {
         defer { importingItemID = nil }
         do {
             let importer = ABSImportService(service: service, db: db, serverID: sid)
-            let folderURL = try await importer.prepareLocalFolder(for: item)
-            onPlay(folderURL)
+            let book = try await importer.prepareLocalFolder(for: item)
+            onPlay(book.folderURL)
             return true
         } catch {
             errorMessage = error.localizedDescription

@@ -292,7 +292,7 @@ extension PlayerModel {
         // resume; this covers the common "switch apps while it downloads" case.
         let bgTask = UIApplication.shared.beginBackgroundTask(withName: "abs-import")
         defer { if bgTask != .invalid { UIApplication.shared.endBackgroundTask(bgTask) } }
-        let folder = try await importer.prepareLocalFolder(for: item)
-        loadFolder(folder, autoplay: false)
+        let book = try await importer.prepareLocalFolder(for: item)
+        loadFolder(book.folderURL, autoplay: false)
     }
 }
