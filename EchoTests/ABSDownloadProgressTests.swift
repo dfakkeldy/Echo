@@ -105,7 +105,7 @@ private final class ABSDownloadFixture {
         stubDownload(status: status, headers: headers, suspended: suspended)
     }
 
-    deinit {
+    isolated deinit {
         try? FileManager.default.removeItem(at: destination)
         tokenStore.clear()
         URLProtocolStub.finish(scope: scope)

@@ -81,7 +81,7 @@ private final class AudiobookshelfServiceDownloadFixture {
             session: URLProtocolStub.makeSession(scope: scope))
     }
 
-    deinit {
+    isolated deinit {
         tokenStore.clear()
         URLProtocolStub.finish(scope: scope)
     }
