@@ -76,9 +76,9 @@ enum ABSBrowseResultResolver {
     nonisolated static func sorted(
         _ items: [ABSLibraryItem], by sort: ABSBrowseSort
     ) -> [ABSLibraryItem] {
-        let ordered = items.sorted { isOrderedBefore($0, $1, by: sort) }
         var seenIDs = Set<String>()
-        return ordered.filter { seenIDs.insert($0.id).inserted }
+        let deduplicated = items.filter { seenIDs.insert($0.id).inserted }
+        return deduplicated.sorted { isOrderedBefore($0, $1, by: sort) }
     }
 
     private nonisolated static func isOrderedBefore(
