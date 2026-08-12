@@ -57,6 +57,130 @@ import ZIPFoundation
         #expect(fixture.requestedItemPages == ["0", "0", "1", "2"])
     }
 
+    @Test func notAddedDuringInitialLoadWaitsForCurrentResults() async throws {
+        let fixture = try ABSBrowseModelFixture(importedRemoteID: "i1")
+        fixture.stubLibraryItems(ids: ["i1", "i2"])
+        fixture.stub(
+            pathSuffix: "/api/libraries", queryItems: [:],
+            json: #"{"libraries":[{"id":"l1","name":"Library"}]}"#,
+            suspended: true)
+
+        let load = Task { await fixture.model.load() }
+        try await waitUntilRequest(in: fixture, pathSuffix: "/api/libraries")
+        let projection = fixture.model.setNotAddedOnly(true)
+        #expect(fixture.model.resultCompleteness == .empty)
+
+        fixture.resume(pathSuffix: "/api/libraries", queryItems: [:])
+        await load.value
+        await projection.value
+
+        #expect(fixture.model.displayedItems.map(\.id) == ["i2"])
+        #expect(fixture.model.totalCount == 1)
+        #expect(fixture.model.resultCompleteness == .complete)
+    }
+
+    @Test func notAddedDuringSuspendedSearchProjectsSearchResults() async throws {
+        let fixture = try ABSBrowseModelFixture(importedRemoteID: "added")
+        fixture.stubLibraryItems(ids: ["initial"])
+        fixture.stubSearch(query: "needle", ids: ["added", "kept"], suspended: true)
+        await fixture.model.load()
+
+        let search = fixture.model.setSearchQuery("needle")
+        try await waitUntilRequest(in: fixture, search: "needle")
+        let projection = fixture.model.setNotAddedOnly(true)
+
+        fixture.resume(pathSuffix: "/search", queryItems: ["q": "needle"])
+        await search.value
+        await projection.value
+
+        #expect(fixture.model.displayedItems.map(\.id) == ["kept"])
+        #expect(fixture.model.resultCompleteness == .complete)
+    }
+
+    @Test func disablingNotAddedDuringSuspendedSeriesLoadInvalidatesProjection() async throws {
+        let fixture = try ABSBrowseModelFixture(importedRemoteID: "added")
+        fixture.stubLibraryItems(ids: ["initial"])
+        await fixture.model.load()
+        fixture.stub(
+            pathSuffix: "/items", queryItems: [:],
+            json: fixture.itemsJSON(ids: ["added", "kept"]), suspended: true)
+
+        let priorRequestCount = fixture.requests.count
+        let series = fixture.model.setSort(.series)
+        try await waitUntilRequest(
+            in: fixture, pathSuffix: "/items", page: "0",
+            afterRequestCount: priorRequestCount)
+        let enabled = fixture.model.setNotAddedOnly(true)
+        let disabled = fixture.model.setNotAddedOnly(false)
+
+        fixture.resume(pathSuffix: "/items", queryItems: ["page": "0"])
+        await series.value
+        await enabled.value
+        await disabled.value
+
+        #expect(!fixture.model.selection.notAddedOnly)
+        #expect(Set(fixture.model.displayedItems.map(\.id)) == ["added", "kept"])
+        #expect(fixture.model.totalCount == 2)
+    }
+
+    @Test func disablingNotAddedInvalidatesSuspendedCompleteProjection() async throws {
+        let fixture = try ABSBrowseModelFixture(importedRemoteID: "added")
+        fixture.stubLibraryItems(ids: ["added", "kept"])
+        let gate = FirstProjectionGate()
+        let model = fixture.makeModel { items, addedIDs in
+            await gate.suspendFirstProjection()
+            return try ABSBrowseResultResolver.excludingAddedCancellable(
+                items, addedIDs: addedIDs)
+        }
+        await model.load()
+
+        let enabled = model.setNotAddedOnly(true)
+        for _ in 0..<50_000 {
+            if await gate.hasSuspendedProjection { break }
+            await Task.yield()
+        }
+        let projectionDidSuspend = await gate.hasSuspendedProjection
+        #expect(projectionDidSuspend)
+        let disabled = model.setNotAddedOnly(false)
+        await disabled.value
+        await gate.resumeProjection()
+        await enabled.value
+
+        #expect(!model.selection.notAddedOnly)
+        #expect(Set(model.displayedItems.map(\.id)) == ["added", "kept"])
+        #expect(model.totalCount == 2)
+    }
+
+    @Test func notAddedTransitionDoesNotCancelSuspendedMultiFilterLoad() async throws {
+        let fixture = try ABSBrowseModelFixture(importedRemoteID: "added")
+        fixture.stubLibraryItems(ids: ["initial"])
+        fixture.stubFilterData()
+        fixture.stubFilteredItems(option: ABSBrowseModelFixture.authorTwo, ids: ["added", "kept"])
+        fixture.stub(
+            pathSuffix: "/items",
+            queryItems: ["filter": ABSBrowseModelFixture.authorOne.encodedFilter],
+            json: fixture.itemsJSON(ids: ["added", "kept"]), suspended: true)
+        await fixture.model.load()
+
+        let priorRequestCount = fixture.requests.count
+        fixture.model.toggleFilter(ABSBrowseModelFixture.authorOne)
+        let multiFilter = fixture.model.toggleFilter(ABSBrowseModelFixture.authorTwo)
+        try await waitUntilRequest(
+            in: fixture, pathSuffix: "/items",
+            filter: ABSBrowseModelFixture.authorOne.encodedFilter,
+            afterRequestCount: priorRequestCount)
+        let projection = fixture.model.setNotAddedOnly(true)
+
+        fixture.resume(
+            pathSuffix: "/items",
+            queryItems: ["filter": ABSBrowseModelFixture.authorOne.encodedFilter])
+        await multiFilter.value
+        await projection.value
+
+        #expect(fixture.model.displayedItems.map(\.id) == ["kept"])
+        #expect(fixture.model.resultCompleteness == .complete)
+    }
+
     @Test func multipleFiltersFanOutCompleteQueriesAndCombineIDs() async throws {
         let fixture = try ABSBrowseModelFixture()
         fixture.stubLibraryItems(ids: ["i1", "i2", "i3", "i4"])
@@ -185,6 +309,35 @@ import ZIPFoundation
         #expect(fixture.pendingResponseCount == 0)
     }
 
+    @Test func canceledOlderCallerCannotCancelNewerBrowseTask() async throws {
+        let fixture = try ABSBrowseModelFixture()
+        fixture.stubLibraryItems(ids: ["initial"])
+        await fixture.model.load()
+        fixture.stub(
+            pathSuffix: "/api/libraries", queryItems: [:],
+            json: #"{"libraries":[{"id":"l1","name":"Library"}]}"#,
+            suspended: true)
+        fixture.stub(
+            pathSuffix: "/items", queryItems: ["sort": "media.metadata.title"],
+            json: fixture.itemsJSON(ids: ["current"]), suspended: true)
+
+        let priorRequestCount = fixture.requests.count
+        let oldCaller = Task { await fixture.model.refresh() }
+        try await waitUntilRequest(
+            in: fixture, pathSuffix: "/api/libraries",
+            afterRequestCount: priorRequestCount)
+        oldCaller.cancel()
+        let current = fixture.model.setSort(.title)
+        try await waitUntilRequest(in: fixture, sort: "media.metadata.title")
+        await oldCaller.value
+
+        fixture.resume(pathSuffix: "/items", queryItems: ["sort": "media.metadata.title"])
+        await current.value
+
+        #expect(fixture.model.displayedItems.map(\.id) == ["current"])
+        #expect(fixture.model.loadState == .loaded)
+    }
+
     @Test func lifecycleCancelStopsOwnedRequestAndReturnsToIdle() async throws {
         let fixture = try ABSBrowseModelFixture()
         fixture.stubLibraryItems(ids: ["initial"])
@@ -309,6 +462,7 @@ import ZIPFoundation
         in fixture: ABSBrowseModelFixture,
         pathSuffix: String? = nil,
         page: String? = nil, sort: String? = nil, search: String? = nil,
+        filter: String? = nil,
         afterRequestCount: Int = 0
     ) async throws {
         for _ in 0..<50_000 {
@@ -321,6 +475,9 @@ import ZIPFoundation
                 if let page, !query.contains(.init(name: "page", value: page)) { return false }
                 if let sort, !query.contains(.init(name: "sort", value: sort)) { return false }
                 if let search, !query.contains(.init(name: "q", value: search)) { return false }
+                if let filter, !query.contains(.init(name: "filter", value: filter)) {
+                    return false
+                }
                 return true
             }) {
                 return
@@ -359,6 +516,38 @@ import ZIPFoundation
 
         URLProtocolStub.finish(scope: scope)
         #expect(URLProtocolStub.requests(scope: scope).isEmpty)
+    }
+
+    @Test func cancellationAfterResumeRemovalPreventsLateDelivery() async throws {
+        let scope = "url-stub-resume-cancel-\(UUID().uuidString)"
+        defer { URLProtocolStub.finish(scope: scope) }
+        URLProtocolStub.reset(scope: scope)
+        URLProtocolStub.stub(
+            scope: scope, pathSuffix: "/suspended", json: #"{"value":1}"#,
+            suspended: true)
+        let session = URLProtocolStub.makeSession(scope: scope)
+        let request = Task {
+            try await session.data(from: URL(string: "http://stub.test/suspended")!)
+        }
+        for _ in 0..<50_000 {
+            if URLProtocolStub.pendingResponseCount(scope: scope) == 1 { break }
+            await Task.yield()
+        }
+        #expect(URLProtocolStub.pendingResponseCount(scope: scope) == 1)
+
+        let resume = Task {
+            URLProtocolStub.resume(scope: scope, pathSuffix: "/suspended") { stub in
+                request.cancel()
+                stub.stopLoading()
+            }
+        }
+        await resume.value
+        await #expect {
+            try await request.value
+        } throws: { error in
+            error is CancellationError || (error as? URLError)?.code == .cancelled
+        }
+        #expect(URLProtocolStub.pendingResponseCount(scope: scope) == 0)
     }
 }
 
@@ -549,6 +738,14 @@ private final class ABSBrowseModelFixture {
             preferences: preferences)
     }
 
+    func makeModel(
+        notAddedProjection: @escaping ABSBrowseModel.NotAddedProjection
+    ) -> ABSBrowseModel {
+        ABSBrowseModel(
+            service: service, db: db, serverID: serverID, debounce: .zero,
+            preferences: preferences, notAddedProjection: notAddedProjection)
+    }
+
     private func itemJSON(id: String, libraryID: String) -> String {
         let suffix = id.unicodeScalars.reduce(0) { $0 + Int($1.value) }
         return """
@@ -576,5 +773,23 @@ private final class ABSBrowseModelFixture {
             return data.subdata(in: start..<min(start + size, data.count))
         }
         return try Data(contentsOf: url)
+    }
+}
+
+private actor FirstProjectionGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private(set) var hasSuspendedProjection = false
+    private var didSuspend = false
+
+    func suspendFirstProjection() async {
+        guard !didSuspend else { return }
+        didSuspend = true
+        hasSuspendedProjection = true
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func resumeProjection() {
+        continuation?.resume()
+        continuation = nil
     }
 }

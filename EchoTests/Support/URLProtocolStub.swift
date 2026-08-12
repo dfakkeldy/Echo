@@ -19,6 +19,7 @@ nonisolated final class URLProtocolStub: URLProtocol {
     private static let defaultScope = "default"
     private static let scopeHeader = "X-Echo-URLProtocolStub-Scope"
     private static let lock = NSLock()
+    private let deliveryState = DeliveryState()
     nonisolated(unsafe) private static var responses: [String: [String: Response]] = [:]
     nonisolated(unsafe) private static var queryResponses: [QueryResponse] = []
     nonisolated(unsafe) private static var scopedRequests: [(String, URLRequest)] = []
@@ -49,6 +50,28 @@ nonisolated final class URLProtocolStub: URLProtocol {
         let path: String
         let queryValues: [String: String]
         let response: Response
+    }
+
+    private final class DeliveryState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stopped = false
+        private var deliveryClaimed = false
+
+        func canRegisterPendingResponse() -> Bool {
+            lock.withLock { !stopped && !deliveryClaimed }
+        }
+
+        func claimDelivery() -> Bool {
+            lock.withLock {
+                guard !stopped, !deliveryClaimed else { return false }
+                deliveryClaimed = true
+                return true
+            }
+        }
+
+        func stop() {
+            lock.withLock { stopped = true }
+        }
     }
 
     static func reset(scope: String = defaultScope) {
@@ -129,7 +152,8 @@ nonisolated final class URLProtocolStub: URLProtocol {
     }
 
     static func resume(
-        scope: String, pathSuffix: String, queryItems: [String: String] = [:]
+        scope: String, pathSuffix: String, queryItems: [String: String] = [:],
+        afterRemoval: ((URLProtocolStub) -> Void)? = nil
     ) {
         let matches = lock.withLock { () -> [PendingResponse] in
             let matches = pending.filter { pendingResponse in
@@ -143,7 +167,10 @@ nonisolated final class URLProtocolStub: URLProtocol {
             }
             return matches
         }
-        for match in matches { match.stub.deliver(match.response) }
+        for match in matches {
+            afterRemoval?(match.stub)
+            match.stub.deliverIfActive(match.response)
+        }
     }
 
     static func makeSession(scope: String = defaultScope) -> URLSession {
@@ -175,7 +202,7 @@ nonisolated final class URLProtocolStub: URLProtocol {
                 ?? Self.responses[scope]?.first { url.path.hasSuffix($0.key) }?.value
                 ?? Response(
                     status: 404, body: Data("{}".utf8), headers: [:], suspended: false)
-            if match.suspended {
+            if match.suspended, deliveryState.canRegisterPendingResponse() {
                 Self.pending.append(
                     PendingResponse(
                         stub: self, scope: scope, path: url.path,
@@ -187,10 +214,11 @@ nonisolated final class URLProtocolStub: URLProtocol {
         if match.suspended {
             return
         }
-        deliver(match)
+        deliverIfActive(match)
     }
 
-    private func deliver(_ match: Response) {
+    private func deliverIfActive(_ match: Response) {
+        guard deliveryState.claimDelivery() else { return }
         let response = HTTPURLResponse(
             url: request.url!, statusCode: match.status,
             httpVersion: "HTTP/1.1", headerFields: match.headers)!
@@ -200,6 +228,7 @@ nonisolated final class URLProtocolStub: URLProtocol {
     }
 
     override func stopLoading() {
+        deliveryState.stop()
         Self.lock.withLock {
             Self.pending.removeAll { $0.stub === self }
         }

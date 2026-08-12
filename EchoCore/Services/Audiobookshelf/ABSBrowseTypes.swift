@@ -143,15 +143,9 @@ enum ABSBrowseResultResolver {
             if seenIDs.insert(item.id).inserted { deduplicated.append(item) }
         }
 
-        var canceled = false
         let result = deduplicated.sorted { lhs, rhs in
-            if Task.isCancelled {
-                canceled = true
-                return lhs.id < rhs.id
-            }
-            return isOrderedBefore(lhs, rhs, by: sort)
+            isOrderedBefore(lhs, rhs, by: sort)
         }
-        if canceled { throw CancellationError() }
         try Task.checkCancellation()
         return result
     }

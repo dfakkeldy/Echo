@@ -365,7 +365,8 @@ struct ABSLibraryItem: Decodable, Identifiable {
             text = Self.replacingPattern(#"<[^>]+>"#, in: text, with: "")
             text = Self.unescapeHTMLEntities(in: text)
 
-            let lines = text
+            let lines =
+                text
                 .components(separatedBy: .newlines)
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             return normalized(lines.filter { !$0.isEmpty }.joined(separator: "\n\n"))
@@ -503,7 +504,7 @@ struct ABSLibraryItem: Decodable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, ino, libraryId, folderId, path, relPath, isFile, mimeType, size, media
+        case id, ino, libraryId, folderId, path, relPath, isFile, mimeType, size, addedAt, media
     }
 }
 
@@ -515,7 +516,8 @@ struct ABSSearchResponse: Decodable {
     let authors: [ABSSearchAuthorResult]
 
     var libraryItems: [ABSLibraryItem] {
-        deduped(book.map(\.libraryItem) + podcast.map(\.libraryItem) + authors.flatMap(\.libraryItems))
+        deduped(
+            book.map(\.libraryItem) + podcast.map(\.libraryItem) + authors.flatMap(\.libraryItems))
     }
 
     var authorNames: [String] {
