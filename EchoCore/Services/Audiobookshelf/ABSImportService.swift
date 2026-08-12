@@ -314,9 +314,6 @@ final class ABSImportService {
             directoryHint: .isDirectory)
         let replacedExistingFolder = fileManager.fileExists(atPath: finalFolder.path)
         var publishedNewFolder = false
-        let previousRecord = try await databaseWriter.read { db in
-            try AudiobookRecord.fetchOne(db, key: record.id)
-        }
         let coverPublication = record.coverArtPath.map {
             LibraryCoverPublication(
                 filename: $0,
@@ -377,15 +374,6 @@ final class ABSImportService {
             return importedBook
         } catch {
             var rollbackFailed = false
-            do {
-                try await restoreRecord(
-                    previousRecord,
-                    recordID: record.id,
-                    databaseWriter: databaseWriter)
-            } catch {
-                rollbackFailed = true
-                logRollbackFailure(identifier: identifier, category: "database")
-            }
 
             if let coverPublication, coverWasPublished {
                 do {
@@ -491,20 +479,6 @@ final class ABSImportService {
         importLogger.error(
             "ABS import rollback incomplete id=\(identifier, privacy: .private) category=\(category, privacy: .public); recoverable backup retained when available"
         )
-    }
-
-    nonisolated private static func restoreRecord(
-        _ previousRecord: AudiobookRecord?,
-        recordID: String,
-        databaseWriter: DatabaseWriter
-    ) async throws {
-        try await databaseWriter.write { db in
-            if var previousRecord {
-                try previousRecord.save(db)
-            } else {
-                _ = try AudiobookRecord.deleteOne(db, key: recordID)
-            }
-        }
     }
 
     nonisolated private static func hashedIdentifier(serverID: String, remoteItemID: String)

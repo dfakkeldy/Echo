@@ -89,7 +89,7 @@ struct ABSImportProgressTests {
 
         await extractionGate.waitUntilSuspended()
         let stagedResidue = try #require(
-            fixture.importResidues.first { $0.lastPathComponent.contains("importing") })
+            fixture.importResidues.first { $0.lastPathComponent.contains("staging") })
         #expect(FileManager.default.fileExists(atPath: stagedResidue.path))
         #expect(!FileManager.default.fileExists(atPath: fixture.finalFolder.path))
         importTask.cancel()
@@ -169,6 +169,7 @@ struct ABSImportProgressTests {
         #expect((try? Data(contentsOf: existingFile)) == existingBytes)
         let restored = try AudiobookDAO(db: fixture.db.writer).get(previous.id)
         #expect(restored?.title == "Existing")
+        #expect(restored?.remoteItemID == fixture.item.id)
         #expect(!FileManager.default.fileExists(atPath: fixture.stagingFolder.path))
     }
 
