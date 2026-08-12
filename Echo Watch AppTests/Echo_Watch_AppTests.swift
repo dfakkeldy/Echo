@@ -185,6 +185,36 @@ struct Echo_Watch_AppTests {
         #expect(!acceptedStaleThumbnail)
     }
 
+    @Test func forgettingAppliedThumbnailAllowsSameSequenceResend() {
+        var policy = WatchStateRecencyPolicy()
+
+        let thumbnail: [String: Any] = [
+            "artworkSeq": 19.0,
+            "artworkKey": "track#base",
+            "thumbnailData": Data([0x01]),
+        ]
+        let acceptedFirst = policy.shouldApply(thumbnail, source: .queuedUserInfo)
+        let acceptedDuplicate = policy.shouldApply(thumbnail, source: .queuedUserInfo)
+        // The cached image is gone (cleared cover / fresh install): dropping
+        // the applied marker lets the phone's re-sent transfer with the SAME
+        // artwork sequence apply instead of being rejected as a duplicate.
+        policy.forgetAppliedThumbnail()
+        let acceptedResend = policy.shouldApply(thumbnail, source: .queuedUserInfo)
+
+        // But ordering against newer artwork survives the reset: after a newer
+        // clear, the old thumbnail stays rejected even with the marker gone.
+        _ = policy.shouldApply(
+            ["stateSeq": 22.0, "artworkSeq": 21.0, "hasThumbnail": false],
+            source: .applicationContext)
+        policy.forgetAppliedThumbnail()
+        let acceptedStale = policy.shouldApply(thumbnail, source: .queuedUserInfo)
+
+        #expect(acceptedFirst)
+        #expect(!acceptedDuplicate)
+        #expect(acceptedResend)
+        #expect(!acceptedStale)
+    }
+
     @Test func thumbnailAndCompleteSnapshotsShareOneOrderingBoundary() {
         var policy = WatchStateRecencyPolicy(lastAppliedSequence: 30.0)
 

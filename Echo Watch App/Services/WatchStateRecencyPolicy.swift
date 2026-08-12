@@ -65,6 +65,16 @@ struct WatchStateRecencyPolicy {
         return true
     }
 
+    /// Forgets the applied-thumbnail marker. Called when the cached thumbnail
+    /// image is gone (cleared by an explicit absence, a track change, or a
+    /// fresh install), so a re-sent transfer carrying the SAME artwork
+    /// sequence is applied instead of deduplicated away. `latestArtworkSequence`
+    /// deliberately survives: it orders thumbnails against state and must not
+    /// regress just because the cached image was dropped.
+    mutating func forgetAppliedThumbnail() {
+        lastAppliedThumbnailSequence = nil
+    }
+
     private mutating func shouldApplyThumbnail(_ state: [String: Any]) -> Bool {
         let keys = Set(state.keys)
         guard state["artworkKey"] is String, state["thumbnailData"] is Data else {

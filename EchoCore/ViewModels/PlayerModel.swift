@@ -867,7 +867,10 @@ final class PlayerModel {
         }
         bookmarkStore.onBookmarksChanged = { [weak self] in
             guard let self else { return }
-            artworkCoordinator.invalidateCache()
+            // Deliberately NOT invalidateCache(): that would drop the base
+            // cover's watch payload, which nothing regenerates mid-book, and
+            // the watch would show no cover until the book is reloaded.
+            artworkCoordinator.invalidateBookmarkArtwork()
             artworkCoordinator.updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
             if loopMode == .bookmark && !canBookmarkLoop {
                 setLoopMode(.off)
@@ -1872,9 +1875,10 @@ final class PlayerModel {
         }
         playbackController.stop()
         if narrationPlaybackState.hasSession {
-            let chapterSuffix = currentNarrationChapterDisplayNumber.map {
-                " chapter=\($0)"
-            } ?? ""
+            let chapterSuffix =
+                currentNarrationChapterDisplayNumber.map {
+                    " chapter=\($0)"
+                } ?? ""
             narrationPlaybackState.transitionPlayback(
                 to: .stopped,
                 event: .init(

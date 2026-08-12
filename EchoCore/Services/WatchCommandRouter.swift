@@ -34,6 +34,7 @@ protocol WatchCommandRoutingFacade: AnyObject {
     func markPassageFromWatchCommand()
     func gradeFlashcard(cardID: String, grade: Int)
     func watchStateContext() -> [String: Any]
+    func resendWatchThumbnail(watchHeldArtworkSequence: Double, currentArtworkSequence: Double?)
 }
 
 @MainActor
@@ -146,6 +147,15 @@ final class WatchCommandRouter {
         var reply = facade.watchStateContext()
         if let commandResult {
             reply["commandResult"] = commandResult
+        }
+        // The watch reports which artwork transfer it last applied (0 = none).
+        // Compare against the reply's artworkSeq — not a value captured before
+        // the reply was built — so a sequence stamped during context assembly
+        // can't orphan the re-sent thumbnail behind a newer state.
+        if let watchHeldArtworkSequence = (message["watchArtworkSeq"] as? NSNumber)?.doubleValue {
+            facade.resendWatchThumbnail(
+                watchHeldArtworkSequence: watchHeldArtworkSequence,
+                currentArtworkSequence: (reply["artworkSeq"] as? NSNumber)?.doubleValue)
         }
         replyHandler?(reply)
     }

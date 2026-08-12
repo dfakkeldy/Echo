@@ -199,6 +199,16 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     @ObservationIgnored private var wakeRefreshPolicy = WatchWakeRefreshPolicy()
     @ObservationIgnored private var stateRecencyPolicy: WatchStateRecencyPolicy
 
+    /// Retry budget for a failed `requestState` pull, replenished on each wake.
+    /// The wake-time pull is the only convergence path that doesn't depend on
+    /// the phone noticing reachability, and its sendMessage commonly fails
+    /// with "not reachable" in the first seconds after the watch app wakes —
+    /// a single log-only failure left the UI frozen on persisted state until
+    /// the user pressed a transport button.
+    @ObservationIgnored private var stateRequestRetriesRemaining = 0
+    @ObservationIgnored private var stateRequestRetryTask: Task<Void, Never>?
+    private static let maxStateRequestRetries = 3
+
     /// Debounce widget timeline reloads to at most once per 30 seconds,
     /// instead of firing on every `applyState` call (which can happen
     /// multiple times per second during playback sync).
@@ -476,14 +486,21 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             return
         }
         Task { @MainActor [weak self] in
-            self?.requestCurrentState()
+            guard let self else { return }
+            self.stateRequestRetriesRemaining = Self.maxStateRequestRetries
+            self.requestCurrentState()
         }
     }
 
     nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
         guard session.isReachable else { return }
         Task { @MainActor [weak self] in
-            self?.requestCurrentState()
+            guard let self else { return }
+            // Reachability returning is a fresh sync opportunity, so it gets a
+            // fresh retry budget like wake and activation do — the phone often
+            // reports reachable a beat before it can actually answer.
+            self.stateRequestRetriesRemaining = Self.maxStateRequestRetries
+            self.requestCurrentState()
         }
     }
 
@@ -889,30 +906,72 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         let session = WCSession.default
         applyReceivedApplicationContext(session.receivedApplicationContext)
         guard session.activationState == .activated else { return false }
+
+        var message: [String: Any] = [WatchMessageKey.command: "requestState"]
+        // Report which artwork transfer this watch last applied (0 = none), so
+        // the phone can re-offer the current thumbnail when this watch is
+        // behind — a lost or purged transferUserInfo is otherwise never
+        // retried, because the phone-side dedup remembers having sent it.
+        if defaults.data(forKey: "thumbnailData") != nil,
+            let heldSequence = stateRecencyPolicy.lastAppliedThumbnailSequence
+        {
+            message["watchArtworkSeq"] = heldSequence
+        } else {
+            // No cached image: also drop the applied-thumbnail dedup marker so
+            // the phone's re-sent transfer (same artwork sequence) applies
+            // instead of being rejected as a duplicate.
+            stateRecencyPolicy.forgetAppliedThumbnail()
+            defaults.removeObject(forKey: WatchStateRecencyPolicy.persistedThumbnailSequenceKey)
+            message["watchArtworkSeq"] = 0.0
+        }
+
         // WatchConnectivity invokes these reply/error handlers on a background
         // serial queue, not the main thread. @Sendable keeps the closures from
         // inheriting this type's MainActor isolation before they can hop back.
         // Mirrors the WCSessionDelegate callbacks above.
         session.sendMessage(
-            [WatchMessageKey.command: "requestState"],
+            message,
             replyHandler: { @Sendable reply in
                 let payload = WatchConnectivityDictionary(value: reply)
                 Task { @MainActor [weak self, payload] in
+                    self?.cancelStateRequestRetry()
                     self?.applyState(payload.value, source: .liveMessage)
                 }
             },
             errorHandler: { @Sendable error in
                 let errorDescription = error.localizedDescription
                 Task { @MainActor [weak self, errorDescription] in
-                    self?.logger.error("Error requesting state: \(errorDescription)")
+                    guard let self else { return }
+                    self.logger.error("Error requesting state: \(errorDescription)")
+                    self.scheduleStateRequestRetry()
                 }
             })
         return true
     }
 
+    /// Retries a failed state pull after a short delay, bounded per wake by
+    /// `maxStateRequestRetries`. Redundant retries are cheap: a duplicate
+    /// snapshot is rejected wholesale by the recency policy.
+    private func scheduleStateRequestRetry() {
+        guard stateRequestRetryTask == nil, stateRequestRetriesRemaining > 0 else { return }
+        stateRequestRetriesRemaining -= 1
+        stateRequestRetryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, let self else { return }
+            self.stateRequestRetryTask = nil
+            self.requestCurrentState()
+        }
+    }
+
+    private func cancelStateRequestRetry() {
+        stateRequestRetryTask?.cancel()
+        stateRequestRetryTask = nil
+    }
+
     func refreshAfterWake() {
         appWillEnterForeground()
         applyReceivedApplicationContext()
+        stateRequestRetriesRemaining = Self.maxStateRequestRetries
 
         guard wakeRefreshPolicy.canRefresh() else { return }
         guard requestCurrentState() else { return }
