@@ -11,7 +11,10 @@ import WidgetKit
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.isLuminanceReduced) private var isLuminanceReduced
-    @State private var viewModel = WatchViewModel()
+    // Owned by Echo_WatchApp (not this view) so the view model — and the
+    // WCSession it activates — also exists during background launches, where
+    // no window content is ever built.
+    let viewModel: WatchViewModel
     @State private var crownAccumulator: Double = 0.0
     @State private var previousCrownOffset: Double = 0.0
     @State private var selectedPage: Int = 0
@@ -399,5 +402,5 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView()
+    ContentView(viewModel: WatchViewModel())
 }
