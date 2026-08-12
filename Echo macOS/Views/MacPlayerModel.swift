@@ -445,6 +445,12 @@ final class MacPlayerModel {
                 guard let self = self else { return }
                 self.isPlaying = false
                 self.currentTime = self.duration
+                // Republish Now Playing (rate 0, playbackState .paused): the
+                // player stopped on its own, so without this the system keeps
+                // the last published "playing" rate and shows a silent book
+                // as playing forever — the macOS twin of
+                // PlaybackController.markNaturalEndReached().
+                self.updateNowPlaying()
                 self.persistResumeState()
             }
         }
@@ -475,7 +481,8 @@ final class MacPlayerModel {
             }
             // Re-derive the active chapter for the current playhead.
             self.refreshCurrentChapter()
-            self.importPendingCompanionDocumentsIfNeeded(for: url, loadedChapters: parsed, loadedDuration: loadedDuration)
+            self.importPendingCompanionDocumentsIfNeeded(
+                for: url, loadedChapters: parsed, loadedDuration: loadedDuration)
         }
     }
 

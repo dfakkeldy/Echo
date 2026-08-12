@@ -45,6 +45,14 @@ final class WidgetStatePublisher {
     /// so freshly writing it would create mis-placed widget/Siri bookmarks on
     /// multi-track books. Leaving those keys untouched keeps the bookmark intent
     /// at its existing (separate) baseline rather than feeding it wrong data.
+    ///
+    /// Also deliberately absent: `totalProgressAnchorDate`
+    /// (`WatchWidgetProgressProjection.Key.anchorDate`). The wall-clock
+    /// projection is a watch-container contract — `WatchViewModel.applyState`
+    /// re-anchors every fraction write there. This publisher writes the
+    /// iPhone's own container, which no widget currently projects from; if an
+    /// iOS widget ever adopts the projection, its fraction writes must gain
+    /// the same anchor write or the bar will freeze at the static fraction.
     func publish(context: [String: Any], thumbnailData: Data?) {
         // `isPlaying` is the key the bug is about: always write it (defaulting to
         // paused) so a stale `true` left by the widget's own toggle intent is

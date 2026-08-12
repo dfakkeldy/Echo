@@ -42,6 +42,18 @@ struct MacNowPlayingParityTests {
             "Elapsed ticks must go through NowPlayingController.updateElapsedTime.")
     }
 
+    @Test func naturalEndRepublishesNowPlaying() throws {
+        let src = try MacSource.read("Views/MacPlayerModel.swift")
+        let observerStart = try #require(
+            src.range(of: ".AVPlayerItemDidPlayToEndTime"),
+            "MacPlayerModel must observe the item playing to its end.")
+        let observerWindow = src[observerStart.upperBound...].prefix(700)
+        #expect(
+            observerWindow.contains("self.updateNowPlaying()"),
+            "The end-of-item observer must republish Now Playing: the player stopped itself, so without this the last 'playing' publish (rate = playbackRate, playbackState .playing) persists forever — the macOS twin of PlaybackController.markNaturalEndReached()."
+        )
+    }
+
     // MARK: Settings that previously lied
 
     @Test func backwardSkipUsesItsOwnDuration() throws {
