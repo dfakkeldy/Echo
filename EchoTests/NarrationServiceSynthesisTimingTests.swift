@@ -92,6 +92,43 @@ import Testing
         }
     }
 
+    /// Reproduces the governed short-block failure at the TTSEngine boundary:
+    /// the first complete-plan synthesis is acoustically rejected, while a second
+    /// synthesis of the same immutable plan is acceptable and carries exact timing.
+    private final class AtomicRetryWordTimedEngine: TTSEngine, @unchecked Sendable {
+        private(set) var plannedCalls: [(chunk: PlannedSynthesisChunk, voice: VoiceID)] = []
+
+        func prepare() async throws {}
+
+        func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
+            timedChunk(wordCount: WordTokenizer.words(in: text).count, silent: false)
+        }
+
+        func synthesize(_ chunk: PlannedSynthesisChunk, voice: VoiceID) async throws -> TTSChunk {
+            plannedCalls.append((chunk, voice))
+            return timedChunk(wordCount: chunk.wordCount, silent: plannedCalls.count == 1)
+        }
+
+        private func timedChunk(wordCount: Int, silent: Bool) -> TTSChunk {
+            let duration = Double(wordCount) * 0.3
+            let sampleCount = max(2, Int(duration * 24_000))
+            let samples = (0..<sampleCount).map { index in
+                silent ? Float.zero : (index.isMultiple(of: 2) ? Float(0.05) : Float(-0.05))
+            }
+            let timings = (0..<wordCount).map { index in
+                ChunkWordTiming(
+                    wordIndex: index,
+                    start: Double(index) * 0.3,
+                    end: Double(index + 1) * 0.3)
+            }
+            return TTSChunk(
+                samples: samples,
+                sampleRate: 24_000,
+                duration: duration,
+                wordTimings: timings)
+        }
+    }
+
     private final class FinalDurationWriter: AudioFileWriting, @unchecked Sendable {
         let finalDuration: TimeInterval
 
@@ -412,6 +449,69 @@ import Testing
         #expect(decisions.count == 1)
         #expect(decision.timingPrecision == .exactSynthesisWord)
         #expect(range.end > range.start)
+    }
+
+    @Test func legitimateShortBlockRetriesAtomicallyWithCompleteEvidence() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let displayText = "\"Stop,\" she said."
+        let blockID = "s3-b16"
+        let blocks = [block(blockID, displayText)]
+        try seed(db, blocks)
+        let engine = AtomicRetryWordTimedEngine()
+        let writer = MockAudioWriter()
+        let voice = VoiceID("af_heart")
+        let service = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: engine,
+            audioWriter: writer,
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            fmEnabled: { false })
+
+        let rendered = try await service.renderChapter(
+            chapterIndex: 3,
+            blocks: blocks,
+            voice: voice,
+            blockVoice: { requestedBlockID in
+                #expect(requestedBlockID == blockID)
+                return voice
+            })
+        let timingRows = try WordTimingDAO(db: db.writer).words(
+            forAudiobook: "b1",
+            blockID: blockID)
+        let manifest = PronunciationAuditManifest.make(
+            renderVersion: NarrationFileNaming.renderVersion,
+            voice: voice,
+            blockVoiceProvenance: PronunciationBlockVoiceProvenance(
+                voicePlanSHA256: String(repeating: "a", count: 64),
+                blockVoices: [blockID: voice]),
+            captureCoverage: .complete,
+            legacyChapterIndexes: [],
+            audiobookURL: rendered.fileURL,
+            reelURL: nil,
+            audiobookSHA256: String(repeating: "b", count: 64),
+            listeningReelSHA256: nil,
+            watchWords: [],
+            decisions: rendered.pronunciationDecisions,
+            diagnostics: rendered.pronunciationAuditDiagnostics)
+
+        let anchor = try #require(rendered.anchors.first)
+        #expect(rendered.anchors.count == 1)
+        #expect((anchor.audioEndTime ?? 0) > anchor.audioTime)
+        #expect(writer.chunkCounts == [2])
+        #expect(engine.plannedCalls.count == 2)
+        #expect(engine.plannedCalls.map(\.chunk.displayText) == [displayText, displayText])
+        #expect(engine.plannedCalls.allSatisfy { $0.voice == voice })
+        #expect(timingRows.count == 3)
+        #expect(timingRows.allSatisfy { $0.source == "synthesis" })
+        #expect(rendered.synthesisWordTimingsByBlock[blockID]?.count == 3)
+        #expect(
+            rendered.pronunciationAuditDiagnostics.contains {
+                $0.reason == .qualityRejected
+            } == false)
+        #expect(manifest.schemaVersion == PronunciationAuditManifest.planSchemaVersion)
+        #expect(manifest.coverage == .complete)
     }
 
     @Test(arguments: InvalidRetryTiming.allCases)

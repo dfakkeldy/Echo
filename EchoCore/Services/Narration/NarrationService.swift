@@ -1554,6 +1554,7 @@ final class NarrationService {
 
         return try await recoverRejectedSynthesis(
             first,
+            fallback: first,
             reason: reason,
             voice: voice,
             retryDepth: 0)
@@ -1571,6 +1572,7 @@ final class NarrationService {
 
     private func recoverRejectedSynthesis(
         _ rejected: PlannedSynthesisOutput,
+        fallback: PlannedSynthesisOutput,
         reason: NarrationChunkQuality.RejectionReason,
         voice: VoiceID,
         retryDepth: Int
@@ -1580,18 +1582,42 @@ final class NarrationService {
                 debugRetryDepthCapHits += 1
             #endif
             logger.error(
-                "Low-quality narration retry reached the bounded retry depth; keeping the original chunk: \(String(describing: reason), privacy: .public)"
+                "Low-quality narration retry reached the bounded retry depth; publishing the original chunk with incomplete evidence: \(String(describing: reason), privacy: .public)"
             )
-            return QualityRetryResult(chunks: [rejected], allAccepted: false)
+            return QualityRetryResult(chunks: [fallback], allAccepted: false)
         }
 
         let retryMaxPhonemes = max(20, min(80, rejected.plan.phonemes.count / 2))
         let retryPlans = rejected.plan.frozenRetrySlices(maxPhonemes: retryMaxPhonemes)
         guard retryPlans.count > 1 else {
-            logger.error(
-                "Low-quality narration chunk could not be split for retry: \(String(describing: reason), privacy: .public)"
+            logger.warning(
+                "Retrying low-quality atomic narration chunk with its frozen plan: \(String(describing: reason), privacy: .public)"
             )
-            return QualityRetryResult(chunks: [rejected], allAccepted: false)
+            let retry: PlannedSynthesisOutput
+            do {
+                retry = try await synthesize(rejected.plan, voice: voice)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                logger.error(
+                    "Low-quality atomic narration retry failed; publishing the original chunk with incomplete evidence: \(error.localizedDescription)"
+                )
+                return QualityRetryResult(chunks: [fallback], allAccepted: false)
+            }
+            switch NarrationChunkQuality.evaluate(
+                retry.audio,
+                text: retry.plan.displayText
+            ) {
+            case .acceptable:
+                return QualityRetryResult(chunks: [retry], allAccepted: true)
+            case .rejected(let retryReason):
+                return try await recoverRejectedSynthesis(
+                    retry,
+                    fallback: fallback,
+                    reason: retryReason,
+                    voice: voice,
+                    retryDepth: retryDepth + 1)
+            }
         }
 
         logger.warning(
@@ -1604,11 +1630,13 @@ final class NarrationService {
             let retry: PlannedSynthesisOutput
             do {
                 retry = try await synthesize(retryPlan, voice: voice)
-            } catch let error where Self.isLengthCapError(error) {
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
                 logger.error(
-                    "Low-quality narration retry piece exceeded the synthesis length cap; keeping original chunk to avoid dropping source text: \(error.localizedDescription)"
+                    "Low-quality narration retry piece failed; publishing the original chunk with incomplete evidence: \(error.localizedDescription)"
                 )
-                return QualityRetryResult(chunks: [rejected], allAccepted: false)
+                return QualityRetryResult(chunks: [fallback], allAccepted: false)
             }
             switch NarrationChunkQuality.evaluate(retry.audio, text: retryPlan.displayText) {
             case .acceptable:
@@ -1616,21 +1644,17 @@ final class NarrationService {
             case .rejected(let retryReason):
                 let recovered = try await recoverRejectedSynthesis(
                     retry,
+                    fallback: fallback,
                     reason: retryReason,
                     voice: voice,
                     retryDepth: retryDepth + 1)
-                guard recovered.allAccepted else {
-                    logger.error(
-                        "Low-quality narration retry piece rejected; keeping original chunk to avoid dropping source text: \(String(describing: retryReason), privacy: .public)"
-                    )
-                    return QualityRetryResult(chunks: [rejected], allAccepted: false)
-                }
+                guard recovered.allAccepted else { return recovered }
                 retryChunks.append(contentsOf: recovered.chunks)
             }
         }
 
         guard !retryChunks.isEmpty else {
-            return QualityRetryResult(chunks: [rejected], allAccepted: false)
+            return QualityRetryResult(chunks: [fallback], allAccepted: false)
         }
         return QualityRetryResult(chunks: retryChunks, allAccepted: true)
     }
