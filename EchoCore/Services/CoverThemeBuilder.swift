@@ -187,6 +187,15 @@ nonisolated enum CoverThemeBuilder {
     private static let promotionChromaFloor: Double = 0.09
     private static let promotionWeightShare: Double = 0.05
 
+    /// Promotion floor for a candidate judged by its vivid CORE (the
+    /// most-chromatic quartile of its bucket). The core's chroma runs higher
+    /// than the bucket mean by construction, so reusing the mean-calibrated
+    /// 0.09 floor would promote marginal colours — pale author-text blue over
+    /// a strong red primary. Calibrated on a 626-cover sweep: 0.11 admits
+    /// thin vivid typography (a red title's core sits ≈0.12+) while rejecting
+    /// buckets that are marginal even at their most saturated.
+    private static let vividCoreChromaFloor: Double = 0.11
+
     /// Identity-drift gate: the promoted accent is seeded from the cover's own
     /// observed colour (its bucket L/C), then contrast-enforced. If enforcement
     /// must move lightness further than this, the colour has lost the identity
@@ -202,8 +211,12 @@ nonisolated enum CoverThemeBuilder {
     // MARK: - Public API
 
     #if canImport(UIKit)
-        static func build(from signature: CoverSignature, scheme: ColorScheme) -> CoverTheme {
-            let r = resolve(signature, scheme: scheme, brand: ColorMetrics.rgb(Color.accentColor))
+        static func build(
+            from signature: CoverSignature, scheme: ColorScheme, vividAccent: Bool = false
+        ) -> CoverTheme {
+            let r = resolve(
+                signature, scheme: scheme, brand: ColorMetrics.rgb(Color.accentColor),
+                vividAccent: vividAccent)
             return CoverTheme(
                 accent: ColorMetrics.color(r.accent),
                 onAccent: ColorMetrics.color(r.onAccent),
@@ -217,10 +230,15 @@ nonisolated enum CoverThemeBuilder {
     #endif
 
     /// Pure core. `brand` is injected so tests don't depend on the asset catalog.
+    /// `vividAccent` selects the accent-promotion style: false (default) judges
+    /// candidates by their bucket means — the shipped behaviour; true judges by
+    /// each bucket's vivid core first, falling back to the means, so thin
+    /// saturated elements (a red title on a teal field) can carry the accent.
     static func resolve(
         _ signature: CoverSignature,
         scheme: ColorScheme,
-        brand: ColorMetrics.RGB
+        brand: ColorMetrics.RGB,
+        vividAccent: Bool = false
     ) -> Resolved {
         let recipe = scheme == .dark ? dark : light
 
@@ -259,7 +277,8 @@ nonisolated enum CoverThemeBuilder {
         let secondary: ColorMetrics.RGB
         if let promoted = promotedAccent(
             for: signature, primary: primary,
-            backgrounds: [backgroundTop, backgroundBottom], chip: chip)
+            backgrounds: [backgroundTop, backgroundBottom], chip: chip,
+            vividAccent: vividAccent)
         {
             accent = promoted
             secondary = primaryAccent
@@ -441,30 +460,57 @@ nonisolated enum CoverThemeBuilder {
     /// result drifts past the identity gate is skipped, not clamped: the next
     /// candidate gets a try, and with none left the caller keeps the
     /// primary-hue accent. Floors hold by construction (`enforcedAccent`).
+    /// With `vividAccent` each candidate is judged twice — vivid core first
+    /// (see `vividCoreChromaFloor`), then the bucket means — so the vivid
+    /// style is strictly additive over the classic one.
     private static func promotedAccent(
         for signature: CoverSignature,
         primary: CoverSignature.HueCandidate,
         backgrounds: [ColorMetrics.RGB],
-        chip: ColorMetrics.RGB
+        chip: ColorMetrics.RGB,
+        vividAccent: Bool = false
     ) -> ColorMetrics.RGB? {
-        for candidate in signature.candidates.dropFirst() {
-            let delta = abs(candidate.hue - primary.hue)
+        // One eligibility-and-enforcement pass for a single (hue, chroma,
+        // lightness) view of a candidate. Nil when any gate fails.
+        func attempt(
+            hue: Double, chroma: Double, lightness: Double, floor: Double, weight: Double
+        ) -> ColorMetrics.RGB? {
+            let delta = abs(hue - primary.hue)
             let separation = min(delta, 360 - delta)
             guard separation >= promotionHueSeparation,
-                candidate.chroma >= promotionChromaFloor,
-                candidate.weight >= primary.weight * promotionWeightShare
-            else { continue }
+                chroma >= floor,
+                weight >= primary.weight * promotionWeightShare
+            else { return nil }
 
-            let seedChroma = OKLCH.clampedChroma(
-                L: candidate.lightness, C: candidate.chroma, H: candidate.hue)
-            let seed = OKLCH.toSRGB(
-                OKLCH.LCH(L: candidate.lightness, C: seedChroma, H: candidate.hue))
-            let enforced = enforcedAccent(
-                seed, hue: candidate.hue, backgrounds: backgrounds, chip: chip)
+            let seedChroma = OKLCH.clampedChroma(L: lightness, C: chroma, H: hue)
+            let seed = OKLCH.toSRGB(OKLCH.LCH(L: lightness, C: seedChroma, H: hue))
+            let enforced = enforcedAccent(seed, hue: hue, backgrounds: backgrounds, chip: chip)
 
             let lch = OKLCH.fromSRGB(enforced)
-            if abs(lch.L - candidate.lightness) <= promotionMaxLightnessDrift,
+            guard abs(lch.L - lightness) <= promotionMaxLightnessDrift,
                 lch.C >= promotionMinChroma
+            else { return nil }
+            return enforced
+        }
+
+        for candidate in signature.candidates.dropFirst() {
+            // Vivid style: judge and seed from the bucket's vivid core first,
+            // so a thin saturated element survives its halo-diluted mean. The
+            // mean view still runs when the core view fails a gate — vivid can
+            // add or refine a promotion but never lose one the means earn.
+            if vividAccent,
+                let coreHue = candidate.coreHue,
+                let coreChroma = candidate.coreChroma,
+                let coreLightness = candidate.coreLightness,
+                let enforced = attempt(
+                    hue: coreHue, chroma: coreChroma, lightness: coreLightness,
+                    floor: vividCoreChromaFloor, weight: candidate.weight)
+            {
+                return enforced
+            }
+            if let enforced = attempt(
+                hue: candidate.hue, chroma: candidate.chroma, lightness: candidate.lightness,
+                floor: promotionChromaFloor, weight: candidate.weight)
             {
                 return enforced
             }
