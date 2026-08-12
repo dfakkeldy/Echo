@@ -140,6 +140,29 @@ import Testing
         #expect(requestedPages == ["0", "1"])
     }
 
+    @Test func fetchAllItemsStopsAfterShortNonzeroStartPageWithoutNumPages() async throws {
+        let service = makeService()
+        URLProtocolStub.stub(
+            pathSuffix: "/items",
+            queryItems: ["page": "1", "limit": "2"],
+            json: """
+                {"total":3,"limit":2,"page":1,"results":[
+                  {"id":"itC","libraryId":"lib1","media":{"metadata":{"title":"C Book"}}}
+                ]}
+                """)
+
+        let items = try await service.allItems(
+            libraryID: "lib1", query: ABSLibraryItemsQuery(page: 1, limit: 2, sort: .title))
+        let requestedPages = URLProtocolStub.requests.compactMap { request -> String? in
+            guard let url = request.url else { return nil }
+            return URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "page" })?.value
+        }
+
+        #expect(items.map(\.id) == ["itC"])
+        #expect(requestedPages == ["1"])
+    }
+
     @Test func pagedItemsEmitsPagesBeforeLaterPageFails() async throws {
         let service = makeService()
         URLProtocolStub.stub(

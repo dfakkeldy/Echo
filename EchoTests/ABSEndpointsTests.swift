@@ -38,6 +38,16 @@ import Testing
         #expect(s.contains("filter=tags.c3R1ZGllZA%3D%3D"))
     }
 
+    @Test func itemsURLEscapesBase64PlusInFilterValue() {
+        let endpoints = ABSEndpoints(baseURL: URL(string: "https://host/abs")!)
+        let query = ABSLibraryItemsQuery(
+            filter: ABSFilterOption(group: .tags, value: "?€", label: "Unicode"))
+
+        let url = endpoints.items(libraryID: "lib1", query: query).absoluteString
+
+        #expect(url.contains("filter=tags.P%2BKCrA%3D%3D"))
+    }
+
     @Test func rejectsUnparseableInput() {
         #expect(ABSEndpoints.normalizedBaseURL(from: "   ") == nil)
     }

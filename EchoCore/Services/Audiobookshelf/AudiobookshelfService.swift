@@ -141,11 +141,9 @@ final class AudiobookshelfService {
 
             results.append(contentsOf: response.results)
             try await onPage(response.results)
+            if response.results.count < query.limit { return results }
             if let total = response.total, results.count >= total { return results }
             if let numPages = response.numPages, query.page + 1 >= numPages { return results }
-            if response.total == nil, response.numPages == nil, response.results.count < query.limit {
-                return results
-            }
 
             query.page += 1
         }

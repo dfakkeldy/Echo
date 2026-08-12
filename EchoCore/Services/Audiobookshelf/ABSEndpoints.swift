@@ -41,10 +41,11 @@ struct ABSEndpoints {
         }
         q.append(URLQueryItem(name: "desc", value: query.descending ? "1" : "0"))
         if let filter = query.filter?.encodedFilter, !filter.isEmpty {
-            q.append(URLQueryItem(name: "filter", value: filter))
+            q.append(URLQueryItem(name: "filter", value: Self.percentEncodedFilterValue(filter)))
         }
-        url.append(queryItems: q)
-        return url
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.percentEncodedQueryItems = q
+        return components?.url ?? url
     }
 
     func libraryFilterData(_ libraryID: String) -> URL {
@@ -86,4 +87,10 @@ struct ABSEndpoints {
 
     func progress(_ itemID: String) -> URL { baseURL.appending(path: "api/me/progress/\(itemID)") }
     func localSessionsSync() -> URL { baseURL.appending(path: "api/session/local-all") }
+
+    private static func percentEncodedFilterValue(_ value: String) -> String {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: ".")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+    }
 }
