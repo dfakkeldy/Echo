@@ -348,4 +348,62 @@ import Testing
 
         #expect(target == 80)
     }
+
+    /// A book that plays to its very end stops the engine without any user
+    /// action. The published truth must follow: `state.isPlaying` flips false
+    /// and a paused republish (`persistAndSync(true)`) fires BEFORE
+    /// `.reachedNaturalEnd`, so the lock screen shows the play glyph instead
+    /// of a silent "playing" book whose progress extrapolates forever — and
+    /// so downstream republishes (narration status) read the paused flag.
+    @Test func naturalEndAtQueueEndPublishesPaused() {
+        let controller = PlaybackController()
+        controller.state.tracks = [
+            Track(url: URL(fileURLWithPath: "/tmp/ch0.m4a"), title: "Chapter 1")
+        ]
+        controller.state.currentIndex = 0
+        controller.state.isPlaying = true
+        var persistCalls: [Bool] = []
+        var isPlayingWhenNaturalEndFired: Bool?
+        var persistCallsWhenNaturalEndFired: [Bool]?
+        controller.coordinator_persistAndSync = { persistCalls.append($0) }
+        controller.coordinator_playStateChanged = { change in
+            if change == .reachedNaturalEnd {
+                isPlayingWhenNaturalEndFired = controller.state.isPlaying
+                persistCallsWhenNaturalEndFired = persistCalls
+            }
+        }
+
+        controller.nextTrack(naturalEnd: true)
+
+        #expect(controller.state.isPlaying == false)
+        #expect(persistCalls == [true])
+        #expect(isPlayingWhenNaturalEndFired == false)
+        #expect(persistCallsWhenNaturalEndFired == [true])
+    }
+
+    /// Same invariant for the embedded-chapters shape: the last enabled
+    /// chapter of the last track reaching its natural end must publish paused.
+    @Test func naturalEndAtLastChapterPublishesPaused() {
+        let controller = PlaybackController()
+        controller.state.tracks = [
+            Track(url: URL(fileURLWithPath: "/tmp/book.m4b"), title: "Book")
+        ]
+        controller.state.currentIndex = 0
+        controller.state.chapters = [
+            Chapter(index: 0, title: "One", startSeconds: 0, endSeconds: 10),
+            Chapter(index: 1, title: "Two", startSeconds: 10, endSeconds: 20),
+        ]
+        controller.state.currentChapterIndex = 1
+        controller.state.isPlaying = true
+        var persistCalls: [Bool] = []
+        controller.coordinator_persistAndSync = { persistCalls.append($0) }
+        var changes: [PlaybackActivityChange] = []
+        controller.coordinator_playStateChanged = { changes.append($0) }
+
+        controller.nextTrack(naturalEnd: true)
+
+        #expect(changes.last == .reachedNaturalEnd)
+        #expect(controller.state.isPlaying == false)
+        #expect(persistCalls == [true])
+    }
 }

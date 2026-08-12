@@ -409,13 +409,14 @@ final class PlaybackController {
     func nextTrack(naturalEnd: Bool = false) {
         if state.chapters.count >= 2 {
             let hasNextEnabledLogicalChapter = hasNextEnabledLogicalChapter()
-            let hasNextEnabledTrack = findNextEnabledTrackIndex(
-                in: state.tracks, currentIndex: state.currentIndex) != nil
+            let hasNextEnabledTrack =
+                findNextEnabledTrackIndex(
+                    in: state.tracks, currentIndex: state.currentIndex) != nil
             nextChapter()
             if naturalEnd, !hasNextEnabledLogicalChapter, !hasNextEnabledTrack,
                 !state.narrationRenderInFlight
             {
-                coordinator_playStateChanged?(.reachedNaturalEnd)
+                markNaturalEndReached()
             }
             return
         }
@@ -437,10 +438,23 @@ final class PlaybackController {
             pause(reason: .narrationQueueWait)
             state.awaitingNarrationChapter = true
         } else if naturalEnd {
-            coordinator_playStateChanged?(.reachedNaturalEnd)
+            markNaturalEndReached()
         }
         // End of book: stay put (§5.2). Do NOT wrap to the first enabled track —
         // that would auto-restart a finished book with loopMode == .off.
+    }
+
+    /// The engine played the book to its end and stopped on its own. Fold
+    /// that engine-side stop back into the published truth: without this,
+    /// `state.isPlaying` stays true and the last Now Playing publish keeps
+    /// rate = speed, so the lock screen shows a silent book as "playing" and
+    /// extrapolates its progress forever — and the watch mirrors both.
+    /// Publish before firing `.reachedNaturalEnd` so downstream republishes
+    /// (narration status) already read the paused flag.
+    private func markNaturalEndReached() {
+        state.isPlaying = false
+        coordinator_persistAndSync?(true)
+        coordinator_playStateChanged?(.reachedNaturalEnd)
     }
 
     private func hasNextEnabledLogicalChapter() -> Bool {
@@ -1018,6 +1032,10 @@ final class PlaybackController {
                             self.coordinator_persistAndSync?(true)
                         }
                         self.coordinator_refreshProgress?()
+                        // Republish Now Playing elapsed: the loop restarted a
+                        // chapter's worth of audio behind the last published
+                        // position (mirrors resumeAfterSeek's ordering).
+                        self.coordinator_seekCompleted?(false)
                     }
                     return
                 }
@@ -1038,6 +1056,10 @@ final class PlaybackController {
                     self.coordinator_persistAndSync?(true)
                 }
                 self.coordinator_refreshProgress?()
+                // Republish Now Playing elapsed: the loop restarted a track's
+                // worth of audio behind the last published position (mirrors
+                // resumeAfterSeek's ordering).
+                self.coordinator_seekCompleted?(false)
             }
         } else {
             nextTrack(naturalEnd: true)
