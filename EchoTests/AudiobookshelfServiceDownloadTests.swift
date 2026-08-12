@@ -6,29 +6,20 @@ import Testing
 
 @MainActor
 @Suite struct AudiobookshelfServiceDownloadTests {
-    private func makeService() -> AudiobookshelfService {
-        URLProtocolStub.reset()
-        let tokens = ABSTokenStore(serverID: "dl-\(UUID().uuidString)")
-        tokens.accessToken = "acc"
-        return AudiobookshelfService(
-            baseURL: URL(string: "http://homelab.local:13378")!,
-            tokens: tokens, session: URLProtocolStub.makeSession())
-    }
-
     @Test func downloadsZipBytesToDestination() async throws {
-        let service = makeService()
+        let fixture = AudiobookshelfServiceDownloadFixture()
         let payload = Data([0x50, 0x4B, 0x03, 0x04, 0x01, 0x02, 0x03])  // "PK.." zip magic + bytes
         URLProtocolStub.stub(
-            pathSuffix: "/download", status: 200, data: payload,
+            scope: fixture.scope, pathSuffix: "/download", status: 200, data: payload,
             headers: ["Content-Type": "application/zip"])
         let dest = FileManager.default.temporaryDirectory
             .appendingPathComponent("abs-dl-\(UUID().uuidString).zip")
         defer { try? FileManager.default.removeItem(at: dest) }
 
-        try await service.downloadItemZip(itemID: "it1", to: dest)
+        try await fixture.service.downloadItemZip(itemID: "it1", to: dest)
 
         let written = try Data(contentsOf: dest)
-        let request = try #require(URLProtocolStub.requests.last)
+        let request = try #require(fixture.requests.last)
         let queryItems = URLComponents(
             url: try #require(request.url), resolvingAgainstBaseURL: false
         )?.queryItems ?? []
@@ -40,12 +31,12 @@ import Testing
     }
 
     @Test func httpErrorThrows() async {
-        let service = makeService()
-        URLProtocolStub.stub(pathSuffix: "/download", status: 500, json: "{}")
+        let fixture = AudiobookshelfServiceDownloadFixture()
+        URLProtocolStub.stub(scope: fixture.scope, pathSuffix: "/download", status: 500, json: "{}")
         let dest = FileManager.default.temporaryDirectory
             .appendingPathComponent("abs-dl-\(UUID().uuidString).zip")
         await #expect {
-            try await service.downloadItemZip(itemID: "it1", to: dest)
+            try await fixture.service.downloadItemZip(itemID: "it1", to: dest)
         } throws: { error in
             if case ABSError.http(500, _) = error { return true }
             return false
@@ -53,21 +44,45 @@ import Testing
     }
 
     @Test func progressDownloadRetainsHeaderAuthentication() async throws {
-        let service = makeService()
+        let fixture = AudiobookshelfServiceDownloadFixture()
         let payload = Data(repeating: 0xA5, count: 1_024)
         URLProtocolStub.stub(
-            pathSuffix: "/download", status: 200, data: payload,
+            scope: fixture.scope, pathSuffix: "/download", status: 200, data: payload,
             headers: ["Content-Type": "application/zip", "Content-Length": "1024"])
         let destination = FileManager.default.temporaryDirectory
             .appendingPathComponent("abs-progress-auth-\(UUID().uuidString).zip")
         defer { try? FileManager.default.removeItem(at: destination) }
 
-        try await service.downloadItemZip(itemID: "it1", to: destination) { _ in }
+        try await fixture.service.downloadItemZip(itemID: "it1", to: destination) { _ in }
 
-        let request = try #require(URLProtocolStub.requests.last)
+        let request = try #require(fixture.requests.last)
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer acc")
         #expect(
             URLComponents(url: try #require(request.url), resolvingAgainstBaseURL: false)?
                 .queryItems?.contains(where: { $0.name == "token" }) == false)
+    }
+}
+
+@MainActor
+private final class AudiobookshelfServiceDownloadFixture {
+    let scope: String
+    let service: AudiobookshelfService
+    private let tokenStore: ABSTokenStore
+
+    var requests: [URLRequest] { URLProtocolStub.requests(scope: scope) }
+
+    init() {
+        scope = "abs-download-service-\(UUID().uuidString)"
+        URLProtocolStub.reset(scope: scope)
+        tokenStore = ABSTokenStore(serverID: "dl-\(UUID().uuidString)")
+        tokenStore.accessToken = "acc"
+        service = AudiobookshelfService(
+            baseURL: URL(string: "http://homelab.local:13378")!, tokens: tokenStore,
+            session: URLProtocolStub.makeSession(scope: scope))
+    }
+
+    deinit {
+        tokenStore.clear()
+        URLProtocolStub.finish(scope: scope)
     }
 }

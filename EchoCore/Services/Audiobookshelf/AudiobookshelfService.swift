@@ -516,6 +516,16 @@ nonisolated private final class ABSDownloadDelegate: NSObject, URLSessionDownloa
     func urlSession(
         _ session: URLSession,
         downloadTask: URLSessionDownloadTask,
+        didFinishDownloadingTo location: URL
+    ) {
+        // `URLSession.download(for:delegate:)` owns this temporary location until it returns
+        // it to the caller. Keep the progress stream open for `didCompleteWithError`, which
+        // is the single completion point for both success and failure.
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
         didWriteData bytesWritten: Int64,
         totalBytesWritten: Int64,
         totalBytesExpectedToWrite: Int64

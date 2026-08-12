@@ -107,6 +107,7 @@ private final class ABSDownloadFixture {
 
     deinit {
         try? FileManager.default.removeItem(at: destination)
+        tokenStore.clear()
         URLProtocolStub.finish(scope: scope)
     }
 
