@@ -21,6 +21,18 @@ import Testing
         #expect(sorted.map(\.id) == ["saga-2", "saga-10", "saga-missing", "standalone"])
     }
 
+    @Test func seriesUsesNumericSequenceForSingleObjectMetadataShape() throws {
+        let items = try ABSBrowseOrderingFixture.items(
+            """
+            [
+              {"id":"ten","libraryId":"l1","media":{"metadata":{"title":"Ten","series":{"name":"Saga","sequence":"10"}}}},
+              {"id":"two","libraryId":"l1","media":{"metadata":{"title":"Two","series":{"name":"Saga","sequence":"2"}}}}
+            ]
+            """)
+
+        #expect(ABSBrowseResultResolver.sorted(items, by: .series).map(\.id) == ["two", "ten"])
+    }
+
     @Test func retainsFirstDuplicateBeforeSorting() throws {
         let items = try ABSBrowseOrderingFixture.items(
             """

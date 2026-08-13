@@ -41,6 +41,24 @@ struct MacAudiobookshelfParityTests {
         #expect(identity.pendingServerID == nil)
     }
 
+    @MainActor
+    @Test func failedPendingConnectionCleanupClearsTokensPinAndIdentityWithoutChangingActive() {
+        var identity = ABSServerConnectionIdentity(activeServerID: "active") { "pending" }
+        let pendingID = identity.prepareNewConnection()
+        let tokens = ABSTokenStore(serverID: pendingID)
+        tokens.accessToken = "access"
+        tokens.refreshToken = "refresh"
+        tokens.pinnedCertificateSHA256 = "deadbeef"
+
+        ABSPendingConnectionCleanup.discard(identity: &identity, tokens: tokens)
+
+        #expect(tokens.accessToken == nil)
+        #expect(tokens.refreshToken == nil)
+        #expect(tokens.pinnedCertificateSHA256 == nil)
+        #expect(identity.pendingServerID == nil)
+        #expect(identity.activeServerID == "active")
+    }
+
     @Test func connectsViaSharedService() throws {
         let src = try MacSource.read("Views/MacAudiobookshelfView.swift")
         #expect(
@@ -306,5 +324,23 @@ struct MacAudiobookshelfParityTests {
                 options: .regularExpression) != nil,
             "attemptConnect() must install and load a fresh ABSBrowseModel for the newly-connected server, so prior server query state cannot leak across the switch."
         )
+    }
+
+    @Test func failedPostLoginPersistenceDiscardsPendingStateButTrustRetryPreservesIt() throws {
+        let src = try MacSource.read("Views/MacAudiobookshelfView.swift")
+
+        #expect(src.contains("try dao.upsertAndSetActive(record)"))
+        #expect(
+            src.range(
+                of: #"case \.untrustedCertificate[\s\S]*?pendingCert = PendingCert"#,
+                options: .regularExpression) != nil)
+        #expect(
+            src.range(
+                of: #"catch \{[\s\S]*?discardFailedConnection\(svc: svc, tokens: tokens\)"#,
+                options: .regularExpression) != nil)
+        #expect(
+            src.range(
+                of: #"func discardFailedConnection[\s\S]*?svc\.invalidate\(\)[\s\S]*?ABSPendingConnectionCleanup\.discard"#,
+                options: .regularExpression) != nil)
     }
 }

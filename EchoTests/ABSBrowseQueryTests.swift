@@ -33,4 +33,15 @@ import Testing
         #expect(item.seriesName == "Saga")
         #expect(item.seriesSequence == "2")
     }
+
+    @Test func decodesSingleObjectSeriesNameAndSequence() throws {
+        let data = Data(
+            #"{"id":"i1","libraryId":"l1","media":{"metadata":{"title":"Book","series":{"id":"s1","name":"Saga","sequence":"10"}}}}"#
+                .utf8)
+
+        let item = try JSONDecoder().decode(ABSLibraryItem.self, from: data)
+
+        #expect(item.seriesName == "Saga")
+        #expect(item.seriesSequence == "10")
+    }
 }

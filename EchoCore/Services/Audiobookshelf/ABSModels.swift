@@ -306,9 +306,13 @@ struct ABSLibraryItem: Decodable, Identifiable {
         private static func firstSeriesSequence(
             in container: KeyedDecodingContainer<CodingKeys>
         ) -> String? {
-            guard let values = try? container.decodeIfPresent([SeriesValue].self, forKey: .series)
-            else { return nil }
-            return normalized(values.first?.sequence)
+            if let values = try? container.decodeIfPresent([SeriesValue].self, forKey: .series) {
+                return normalized(values.first?.sequence)
+            }
+            if let value = try? container.decodeIfPresent(SeriesValue.self, forKey: .series) {
+                return normalized(value.sequence)
+            }
+            return nil
         }
 
         private static func string(
@@ -514,10 +518,12 @@ struct ABSSearchResponse: Decodable {
     let book: [ABSSearchBookResult]
     let podcast: [ABSSearchBookResult]
     let authors: [ABSSearchAuthorResult]
+    let series: [ABSSearchSeriesResult]
 
     var libraryItems: [ABSLibraryItem] {
         deduped(
-            book.map(\.libraryItem) + podcast.map(\.libraryItem) + authors.flatMap(\.libraryItems))
+            book.map(\.libraryItem) + podcast.map(\.libraryItem)
+                + series.flatMap(\.books) + authors.flatMap(\.libraryItems))
     }
 
     var authorNames: [String] {
@@ -525,7 +531,7 @@ struct ABSSearchResponse: Decodable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case book, podcast, authors
+        case book, podcast, authors, series
     }
 
     init(from decoder: Decoder) throws {
@@ -534,6 +540,14 @@ struct ABSSearchResponse: Decodable {
         podcast = try container.decodeIfPresent([ABSSearchBookResult].self, forKey: .podcast) ?? []
         authors =
             try container.decodeIfPresent([ABSSearchAuthorResult].self, forKey: .authors) ?? []
+        series =
+            try container.decodeIfPresent([ABSSearchSeriesResult].self, forKey: .series) ?? []
+    }
+
+    func isPotentiallyLimited(to limit: Int) -> Bool {
+        let limit = max(1, limit)
+        return book.count >= limit || podcast.count >= limit || authors.count >= limit
+            || series.count >= limit
     }
 
     private func deduped(_ items: [ABSLibraryItem]) -> [ABSLibraryItem] {
@@ -542,8 +556,18 @@ struct ABSSearchResponse: Decodable {
     }
 }
 
+struct ABSSearchResults {
+    let items: [ABSLibraryItem]
+    let isLimited: Bool
+}
+
 struct ABSSearchBookResult: Decodable {
     let libraryItem: ABSLibraryItem
+}
+
+/// Current ABS search payload: each matched series contains its books as raw library items.
+struct ABSSearchSeriesResult: Decodable {
+    let books: [ABSLibraryItem]
 }
 
 struct ABSSearchAuthorResult: Decodable {

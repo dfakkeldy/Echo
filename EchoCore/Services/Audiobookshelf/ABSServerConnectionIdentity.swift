@@ -43,3 +43,17 @@ struct ABSServerConnectionIdentity {
         activeServerID = nil
     }
 }
+
+/// Performs the credential half of abandoning a failed pending connection while preserving the
+/// already-active server identity. The caller remains responsible for invalidating its URL session.
+@MainActor
+enum ABSPendingConnectionCleanup {
+    static func discard(
+        identity: inout ABSServerConnectionIdentity,
+        tokens: ABSTokenStore
+    ) {
+        guard identity.pendingServerID == tokens.serverID else { return }
+        tokens.clear()
+        identity.discardPendingConnection()
+    }
+}

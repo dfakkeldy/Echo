@@ -128,8 +128,7 @@ final class MacAudiobookshelfViewModel {
                 defaultLibraryId: defaultLib,
                 addedAt: Date().ISO8601Format())
             let dao = ABSServerDAO(db: db.writer)
-            try dao.upsert(record)
-            try dao.setActive(newServerID)
+            try dao.upsertAndSetActive(record)
             clearBrowseModel()
             service?.invalidate()
             service = svc
@@ -141,18 +140,28 @@ final class MacAudiobookshelfViewModel {
             installBrowseModel(service: svc, serverID: newServerID)
             await browseModel?.load()
         } catch let absError as ABSError {
-            svc.invalidate()
             phase = server != nil ? .connected : .disconnected
             if case .untrustedCertificate(let h, let sha) = absError {
+                // Preserve this pending namespace only for the explicit trust retry.
+                svc.invalidate()
                 pendingCert = PendingCert(host: h, sha256: sha)
             } else {
+                discardFailedConnection(svc: svc, tokens: tokens)
                 errorMessage = absError.errorDescription ?? "Could not connect to the server."
             }
         } catch {
-            svc.invalidate()
+            discardFailedConnection(svc: svc, tokens: tokens)
             phase = server != nil ? .connected : .disconnected
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func discardFailedConnection(
+        svc: AudiobookshelfService,
+        tokens: ABSTokenStore
+    ) {
+        svc.invalidate()
+        ABSPendingConnectionCleanup.discard(identity: &connectionIdentity, tokens: tokens)
     }
 
     func disconnect() async {
@@ -244,10 +253,10 @@ final class MacAudiobookshelfViewModel {
     }
 
     private func discardPendingConnection() {
-        if let pendingServerID = connectionIdentity.pendingServerID {
-            ABSTokenStore(serverID: pendingServerID).clear()
-        }
-        connectionIdentity.discardPendingConnection()
+        guard let pendingServerID = connectionIdentity.pendingServerID else { return }
+        ABSPendingConnectionCleanup.discard(
+            identity: &connectionIdentity,
+            tokens: ABSTokenStore(serverID: pendingServerID))
     }
 }
 

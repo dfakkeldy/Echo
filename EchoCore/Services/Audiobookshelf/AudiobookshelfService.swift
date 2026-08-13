@@ -161,16 +161,22 @@ final class AudiobookshelfService {
     }
 
     /// Server-side search across the library (title/author/series/narrator/...).
-    /// Returns the matched library items (the `book` results).
-    func search(libraryID: String, query: String, limit: Int = 25) async throws -> [ABSLibraryItem]
+    /// Returns item-bearing book, podcast, series, and author matches with stable ID deduplication.
+    func search(libraryID: String, query: String, limit: Int = 25) async throws -> ABSSearchResults
     {
         let request = URLRequest(
             url: endpoints.search(libraryID: libraryID, query: query, limit: limit))
         let response = try await authorized(request, decode: ABSSearchResponse.self)
-        let directResults = response.libraryItems
-        guard directResults.isEmpty, !response.authorNames.isEmpty else { return directResults }
-        return try await authorSearchFallbackItems(
-            libraryID: libraryID, authorNames: response.authorNames, limit: limit)
+        let authorResults: [ABSLibraryItem]
+        if response.authorNames.isEmpty {
+            authorResults = []
+        } else {
+            authorResults = try await authorSearchFallbackItems(
+                libraryID: libraryID, authorNames: response.authorNames, limit: limit)
+        }
+        return ABSSearchResults(
+            items: deduplicated(response.libraryItems + authorResults),
+            isLimited: response.isPotentiallyLimited(to: limit))
     }
 
     private func authorSearchFallbackItems(
@@ -188,7 +194,12 @@ final class AudiobookshelfService {
                 author.localizedStandardContains(name) || name.localizedStandardContains(author)
             } && seen.insert(item.id).inserted
         }
-        return Array(matches.prefix(max(limit, 1)))
+        return matches
+    }
+
+    private func deduplicated(_ items: [ABSLibraryItem]) -> [ABSLibraryItem] {
+        var seen = Set<String>()
+        return items.filter { seen.insert($0.id).inserted }
     }
 
     /// Loads cover bytes using header auth. The request deliberately bypasses URL caches because

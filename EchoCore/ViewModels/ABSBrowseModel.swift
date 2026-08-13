@@ -554,15 +554,15 @@ final class ABSBrowseModel {
         }
         let sortedItems = try await Self.offMain {
             try ABSBrowseResultResolver.searchResultsCancellable(
-                fetchedSearchResults, allowedIDs: allowedIDs, sort: selectedSort)
+                fetchedSearchResults.items, allowedIDs: allowedIDs, sort: selectedSort)
         }
         try Task.checkCancellation()
         guard self.generation == generation else { return }
         items = sortedItems
         serverTotal = items.count
         nextPage = nil
-        resultCompleteness = .complete
-        searchResultsAreLimited = fetchedSearchResults.count == Self.searchLimit
+        searchResultsAreLimited = fetchedSearchResults.isLimited
+        resultCompleteness = searchResultsAreLimited ? .partial : .complete
         try await publishCompleteResults(generation: generation)
         loadState = .loaded
     }

@@ -442,6 +442,20 @@ import ZIPFoundation
         #expect(query?.contains(.init(name: "limit", value: "10000")) == true)
     }
 
+    @Test func seriesCategoryAtServerCapIsLimitedAfterStableDeduplication() async throws {
+        let fixture = try ABSBrowseModelFixture()
+        fixture.stubLibrariesAndEmptyItems()
+        fixture.stubSeriesSearch(query: "Saga", seriesCount: 10_000, repeatedItemID: "same")
+        await fixture.model.load()
+
+        await fixture.model.setSearchQuery("Saga").value
+
+        #expect(fixture.model.displayedItems.map(\.id) == ["same"])
+        #expect(fixture.model.totalCount == 1)
+        #expect(fixture.model.searchResultsAreLimited)
+        #expect(fixture.model.resultCompleteness == .partial)
+    }
+
     @Test func emptyLibraryRefreshClearsLimitedSearchState() async throws {
         let fixture = try ABSBrowseModelFixture()
         fixture.stubLibrariesAndEmptyItems()
@@ -1077,6 +1091,16 @@ private final class ABSBrowseModelFixture {
         URLProtocolStub.stub(
             scope: scope, pathSuffix: "/search", queryItems: ["q": query],
             json: "{\"book\":[\(books)],\"authors\":[]}", suspended: suspended)
+    }
+
+    func stubSeriesSearch(query: String, seriesCount: Int, repeatedItemID: String) {
+        let item = itemJSON(id: repeatedItemID, libraryID: "l1")
+        let series = (0..<seriesCount).map { index in
+            "{\"series\":{\"id\":\"s\(index)\",\"name\":\"Saga \(index)\"},\"books\":[\(item)]}"
+        }.joined(separator: ",")
+        URLProtocolStub.stub(
+            scope: scope, pathSuffix: "/search", queryItems: ["q": query],
+            json: "{\"book\":[],\"podcast\":[],\"authors\":[],\"series\":[\(series)]}")
     }
 
     func itemsJSON(
