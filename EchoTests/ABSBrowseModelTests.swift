@@ -690,6 +690,41 @@ import ZIPFoundation
         #expect(fixture.model.totalCount == 1)
     }
 
+    @Test func staleSnapshotRetainsOnlyImportThatCompletedAfterItStarted() async throws {
+        let gate = NextAsyncGate()
+        let fixture = try ABSBrowseModelFixture(
+            importZipEntry: "book.m4b",
+            afterAddedBooksLoad: { await gate.suspendIfArmed() })
+        let newerItem = try fixture.makeItem(id: "newer-\(UUID().uuidString)")
+        fixture.stubLibraryItems(ids: [fixture.item.id, newerItem.id])
+        await fixture.model.load()
+        await fixture.model.setNotAddedOnly(true).value
+        await fixture.model.add(fixture.item)
+        guard case .added(let olderBook) = fixture.model.importState(for: fixture.item.id)
+        else {
+            Issue.record("Expected first import to reach Added")
+            return
+        }
+        try fixture.removeImportedBook(olderBook, artifact: .usableFolder)
+        await gate.arm()
+
+        let refresh = Task { await fixture.model.refresh() }
+        await gate.waitUntilSuspended()
+        await fixture.model.add(newerItem)
+        await gate.release()
+        await refresh.value
+
+        #expect(fixture.model.importState(for: fixture.item.id) == .ready)
+        #expect(fixture.model.openTarget(for: fixture.item.id) == nil)
+        #expect(fixture.model.displayedItems.map(\.id) == [fixture.item.id])
+        guard case .added(let newerBook) = fixture.model.importState(for: newerItem.id) else {
+            Issue.record("Expected concurrent import to remain Added")
+            return
+        }
+        #expect(fixture.model.openTarget(for: newerItem.id) == newerBook)
+        #expect(fixture.model.addedBooksByRemoteID[newerItem.id] == newerBook)
+    }
+
     @Test func importSuccessDoesNotCancelSuspendedNotAddedDisableProjection() async throws {
         let gate = NextAsyncGate()
         let fixture = try ABSBrowseModelFixture(
@@ -879,6 +914,7 @@ private final class ABSBrowseModelFixture {
     private let preferences: UserDefaults
     private let preferencesSuiteName: String
     private var managedFolder: URL?
+    private var managedRemoteItemIDs: Set<String> = []
 
     var requests: [URLRequest] { URLProtocolStub.requests(scope: scope) }
     var pendingResponseCount: Int { URLProtocolStub.pendingResponseCount(scope: scope) }
@@ -925,6 +961,7 @@ private final class ABSBrowseModelFixture {
             baseURL: URL(string: "http://browse.test:13378")!, tokens: tokens,
             session: URLProtocolStub.makeSession(scope: scope))
         item = try Self.decodeItem(id: "browse-item-\(UUID().uuidString)", libraryID: "l1")
+        managedRemoteItemIDs.insert(item.id)
         if let importZipEntry {
             URLProtocolStub.stub(
                 scope: scope, pathSuffix: "/download",
@@ -964,15 +1001,17 @@ private final class ABSBrowseModelFixture {
 
     isolated deinit {
         if let managedFolder { try? FileManager.default.removeItem(at: managedFolder) }
-        let finalFolder = FileLocations.absLibraryDirectory(remoteItemID: item.id)
-        let residues =
-            (try? FileManager.default.contentsOfDirectory(
-                at: finalFolder.deletingLastPathComponent(),
-                includingPropertiesForKeys: nil))?.filter {
-                $0.lastPathComponent.contains(item.id)
-            } ?? []
-        try? FileManager.default.removeItem(at: finalFolder)
-        for residue in residues { try? FileManager.default.removeItem(at: residue) }
+        for itemID in managedRemoteItemIDs {
+            let finalFolder = FileLocations.absLibraryDirectory(remoteItemID: itemID)
+            let residues =
+                (try? FileManager.default.contentsOfDirectory(
+                    at: finalFolder.deletingLastPathComponent(),
+                    includingPropertiesForKeys: nil))?.filter {
+                    $0.lastPathComponent.contains(itemID)
+                } ?? []
+            try? FileManager.default.removeItem(at: finalFolder)
+            for residue in residues { try? FileManager.default.removeItem(at: residue) }
+        }
         preferences.removePersistentDomain(forName: preferencesSuiteName)
         URLProtocolStub.finish(scope: scope)
     }
@@ -1071,7 +1110,8 @@ private final class ABSBrowseModelFixture {
     }
 
     func makeItem(id: String) throws -> ABSLibraryItem {
-        try Self.decodeItem(id: id, libraryID: "l1")
+        managedRemoteItemIDs.insert(id)
+        return try Self.decodeItem(id: id, libraryID: "l1")
     }
 
     func removeImportedBook(

@@ -49,6 +49,7 @@ final class ABSBrowseModel {
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var projectionGeneration = 0
     @ObservationIgnored private var importSuccessRevision = 0
+    @ObservationIgnored private var importSuccessRevisionsByItemID: [String: Int] = [:]
     @ObservationIgnored private var nextPage: Int?
     @ObservationIgnored private var serverTotal: Int?
 
@@ -260,6 +261,7 @@ final class ABSBrowseModel {
             }
             guard activeImportItemID == item.id else { return }
             importSuccessRevision += 1
+            importSuccessRevisionsByItemID[item.id] = importSuccessRevision
             addedBooksByRemoteID[item.id] = book
             importStates[item.id] = .added(book)
             if selection.notAddedOnly {
@@ -699,29 +701,22 @@ final class ABSBrowseModel {
         _ loadedBooks: [String: ABSImportedBook],
         snapshotRevision: Int
     ) {
-        if snapshotRevision < importSuccessRevision {
-            var mergedBooks = loadedBooks
-            for (itemID, state) in importStates {
-                if case .added(let book) = state {
-                    mergedBooks[itemID] = book
-                }
-            }
-            addedBooksByRemoteID = mergedBooks
-            return
+        var reconciledBooks = loadedBooks
+        let addedStates = importStates.compactMap { itemID, state -> (String, ABSImportedBook)? in
+            guard case .added(let book) = state else { return nil }
+            return (itemID, book)
         }
-
-        addedBooksByRemoteID = loadedBooks
-        let addedItemIDs = importStates.compactMap { itemID, state in
-            if case .added = state { return itemID }
-            return nil
-        }
-        for itemID in addedItemIDs {
-            if let loadedBook = loadedBooks[itemID] {
+        for (itemID, retainedBook) in addedStates {
+            if importSuccessRevisionsByItemID[itemID, default: 0] > snapshotRevision {
+                reconciledBooks[itemID] = retainedBook
+            } else if let loadedBook = loadedBooks[itemID] {
                 importStates[itemID] = .added(loadedBook)
             } else {
                 importStates.removeValue(forKey: itemID)
+                importSuccessRevisionsByItemID.removeValue(forKey: itemID)
             }
         }
+        addedBooksByRemoteID = reconciledBooks
     }
 
     private func publishDisplayedItems(completeResult: Bool? = nil) {
