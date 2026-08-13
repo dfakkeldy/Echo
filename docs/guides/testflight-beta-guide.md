@@ -108,7 +108,7 @@ Echo's flagship new surface. Works on every device Echo supports — no special 
 2. Try a plain **.md / .markdown / .txt** file too: does it import and narrate, with chapter breaks in sensible places?
 3. Read along as it narrates — do the words light up in time? Scrub, then tap a paragraph: does the voice follow?
 4. Switch the narrator voice and re-narrate a chapter.
-5. Free narration covers **one chapter per book**; the rest is Echo Pro (Plan K). Does that limit explain itself clearly when you hit it?
+5. Narrate as many chapters as you like — narration is unlocked for the whole beta (Plan K). Report anything that stops you.
 
 ### Plan I — The PDF Companion
 1. Import a **PDF** — as a book's companion (slides, a scanned textbook, sheet music) or on its own. The import button takes EPUB and PDF and routes automatically.
@@ -118,13 +118,15 @@ Echo's flagship new surface. Works on every device Echo supports — no special 
 ### Plan J — Export & Take It With You
 1. Export an audiobook as **.m4b** (the "Export Audiobook (.m4b)…" action). Open it in another player: do chapters, cover, and metadata survive?
 2. Export your study notes as **Markdown** — formatting and passages intact?
-3. Export a deck as **Anki .apkg** and import it into Anki: card counts and fronts/backs right? *(Study export is an Echo Pro feature — see Plan K.)*
+3. Anki **.apkg** deck export lives in the Mac app only — skip this one if you are testing on iPhone.
 
-### Plan K — Echo Pro *(in-app purchase — TestFlight sandbox)*
-1. Trip a Pro gate: narrate past chapter 1, or tap **Study Export**. Does the paywall make the value obvious and state the free limits honestly?
-2. In the TestFlight sandbox, buy each tier — **monthly**, **yearly**, the **lifetime** unlock, and the **founders** offer. Any price, copy, or flow that feels off?
-3. Force-quit, relaunch, and tap **Restore Purchases** — does Pro come back without re-paying?
-4. Report anything that locks a feature it shouldn't, or unlocks one it shouldn't.
+### Plan K — Echo Pro *(nothing to buy during the beta)*
+Echo Pro is **fully unlocked for every beta tester**. There is no paywall in this build, no in-app purchase, and nothing to buy in the TestFlight sandbox — so there is no purchase flow to test yet.
+
+When Echo Pro does ship it will be a **one-time unlock, never a subscription**.
+
+1. Use every feature freely and tell us which ones you would actually have paid for — that is the feedback worth having right now.
+2. Report anything that locks a feature it shouldn't. Nothing in this build should be gated.
 
 ### Plan L — The Mac *(if you test on macOS)*
 1. Import a book — or a whole folder of EPUBs.
