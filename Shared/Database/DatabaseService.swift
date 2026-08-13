@@ -120,6 +120,13 @@ final class DatabaseService {
     // MARK: - Migrations
 
     private nonisolated func runMigrations(writer: DatabaseWriter) throws {
+        try Self.makeMigrator().migrate(writer)
+    }
+
+    /// The app's migrator. Exposed so tests can run the real registration list
+    /// against a hand-built database shape (e.g. one stranded mid-upgrade)
+    /// without going through an initializer, which always migrates on open.
+    nonisolated static func makeMigrator() -> DatabaseMigrator {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("v1_create_schema") { db in try Schema_V1.migrate(db) }
         migrator.registerMigration("v25_study_plans") { db in
@@ -173,7 +180,10 @@ final class DatabaseService {
         migrator.registerMigration("v40_narration_quality_issue_origin") { db in
             try Schema_V40.migrate(db)
         }
-        try migrator.migrate(writer)
+        migrator.registerMigration("v41_repair_squashed_baseline_gap") { db in
+            try Schema_V41.migrate(db)
+        }
+        return migrator
     }
 }
 
