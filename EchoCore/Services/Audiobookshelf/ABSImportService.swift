@@ -51,7 +51,8 @@ final class ABSImportService {
             try await Self.prepareStagingFolder(stagingFolder)
             try Task.checkCancellation()
             report(
-                ABSImportProgress(stage: .downloading, completedUnits: 0, totalUnits: nil),
+                ABSImportProgress(
+                    stage: .downloading, completedUnits: 0, totalUnits: nil, unit: .bytes),
                 identifier: identifier,
                 onProgress: onProgress)
             try await service.downloadItemZip(itemID: item.id, to: zipURL) { [weak self] update in
@@ -59,7 +60,8 @@ final class ABSImportService {
                     ABSImportProgress(
                         stage: .downloading,
                         completedUnits: update.bytesReceived,
-                        totalUnits: update.totalBytes),
+                        totalUnits: update.totalBytes,
+                        unit: .bytes),
                     identifier: identifier,
                     onProgress: onProgress)
             }
@@ -75,7 +77,8 @@ final class ABSImportService {
 
             currentStage = .validating
             report(
-                ABSImportProgress(stage: .validating, completedUnits: 0, totalUnits: nil),
+                ABSImportProgress(
+                    stage: .validating, completedUnits: 0, totalUnits: nil, unit: .units),
                 identifier: identifier,
                 onProgress: onProgress)
             try await Self.validatePreparedFolder(stagingFolder)
@@ -99,7 +102,8 @@ final class ABSImportService {
 
             currentStage = .addingToEcho
             report(
-                ABSImportProgress(stage: .addingToEcho, completedUnits: 0, totalUnits: nil),
+                ABSImportProgress(
+                    stage: .addingToEcho, completedUnits: 0, totalUnits: nil, unit: .units),
                 identifier: identifier,
                 onProgress: onProgress)
             let importedBook = try await Self.commitAndVerifyPreparedFolder(
@@ -116,7 +120,8 @@ final class ABSImportService {
 
             currentStage = .added
             report(
-                ABSImportProgress(stage: .added, completedUnits: 1, totalUnits: 1),
+                ABSImportProgress(
+                    stage: .added, completedUnits: 1, totalUnits: 1, unit: .units),
                 identifier: identifier,
                 onProgress: onProgress)
             return importedBook
@@ -233,7 +238,10 @@ final class ABSImportService {
         let usesBytes = totalBytes > 0
         let totalUnits = usesBytes ? Int64(clamping: totalBytes) : Int64(fileCount)
         let startingProgress = ABSImportProgress(
-            stage: .extracting, completedUnits: 0, totalUnits: totalUnits)
+            stage: .extracting,
+            completedUnits: 0,
+            totalUnits: totalUnits,
+            unit: usesBytes ? .bytes : .files)
         await onProgress(startingProgress)
         logExtraction(startingProgress, identifier: identifier)
 
@@ -254,7 +262,8 @@ final class ABSImportService {
                 stage: .extracting,
                 completedUnits: usesBytes
                     ? Int64(clamping: completedBytes) : Int64(completedFiles),
-                totalUnits: totalUnits)
+                totalUnits: totalUnits,
+                unit: usesBytes ? .bytes : .files)
             await onProgress(progress)
             logExtraction(progress, identifier: identifier)
             await Task.yield()

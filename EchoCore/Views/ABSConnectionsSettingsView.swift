@@ -12,6 +12,7 @@ struct ABSConnectionsSettingsView: View {
     @State private var errorMessage: String?
     @State private var warningMessage: String?
     @State private var browseDestination: BrowseDestination?
+    @State private var activeBrowseModel: ABSBrowseModel?
     @State private var pendingTrust: PendingTrust?
     @State private var pendingPlaintextConnection: PlaintextConnectionWarning?
 
@@ -73,9 +74,10 @@ struct ABSConnectionsSettingsView: View {
         }
         .navigationTitle("Connections")
         .task { connected = (try? model.absServerDAO?.current()) ?? nil }
-        .sheet(item: $browseDestination) { destination in
+        .sheet(item: $browseDestination, onDismiss: cancelBrowse) { destination in
             ABSBrowseView(browseModel: destination.model) { book in
                 model.openAudiobookshelfBook(book)
+                cancelBrowse()
                 browseDestination = nil
             }
         }
@@ -170,7 +172,14 @@ struct ABSConnectionsSettingsView: View {
             return
         }
         errorMessage = nil
+        activeBrowseModel = browseModel
         browseDestination = BrowseDestination(model: browseModel)
+    }
+
+    private func cancelBrowse() {
+        activeBrowseModel?.cancelImport()
+        activeBrowseModel?.cancel()
+        activeBrowseModel = nil
     }
 
     private func signOut(_ server: ABSServerRecord) async {

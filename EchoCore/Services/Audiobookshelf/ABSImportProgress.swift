@@ -19,10 +19,17 @@ enum ABSImportStage: String, Equatable, Sendable {
     case added
 }
 
+enum ABSImportProgressUnit: String, Equatable, Sendable {
+    case bytes
+    case files
+    case units
+}
+
 struct ABSImportProgress: Equatable, Sendable {
     let stage: ABSImportStage
     let completedUnits: Int64
     let totalUnits: Int64?
+    let unit: ABSImportProgressUnit
 }
 
 struct ABSImportFailure: LocalizedError, Equatable, Sendable {

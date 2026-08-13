@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Testing
+import UIKit
 
 @testable import Echo
 
@@ -24,6 +25,9 @@ import Testing
         #expect(connections.contains("model.makeABSBrowseModel()"))
         #expect(connections.contains("model.openAudiobookshelfBook(book)"))
         #expect(connections.contains("browseDestination = nil"))
+        #expect(connections.contains("onDismiss: cancelBrowse"))
+        #expect(connections.contains("activeBrowseModel?.cancelImport()"))
+        #expect(connections.contains("activeBrowseModel?.cancel()"))
     }
 
     @Test func browseExposesOrganizationPagingAndRefreshControls() throws {
@@ -39,8 +43,12 @@ import Testing
     }
 
     @Test func progressCopyDistinguishesKnownAndUnknownTotals() {
-        let known = ABSImportPresentation.progressLabel(completed: 512, total: 1024)
-        let unknown = ABSImportPresentation.progressLabel(completed: 512, total: nil)
+        let known = ABSImportPresentation.progressLabel(
+            ABSImportProgress(
+                stage: .downloading, completedUnits: 512, totalUnits: 1024, unit: .bytes))
+        let unknown = ABSImportPresentation.progressLabel(
+            ABSImportProgress(
+                stage: .downloading, completedUnits: 512, totalUnits: nil, unit: .bytes))
 
         #expect(known.contains("50%"))
         #expect(known.contains(" of "))
@@ -49,10 +57,69 @@ import Testing
     }
 
     @Test func progressCopyClampsPercentageForOverreportedBytes() {
-        let progress = ABSImportPresentation.progressLabel(completed: 1536, total: 1024)
+        let progress = ABSImportPresentation.progressLabel(
+            ABSImportProgress(
+                stage: .downloading, completedUnits: 1536, totalUnits: 1024, unit: .bytes))
 
         #expect(progress.contains("100%"))
         #expect(!progress.contains("150%"))
+    }
+
+    @Test func extractionCopyDistinguishesBytesFromFiles() {
+        let bytes = ABSImportPresentation.progressLabel(
+            ABSImportProgress(
+                stage: .extracting, completedUnits: 512, totalUnits: 1024, unit: .bytes))
+        let files = ABSImportPresentation.progressLabel(
+            ABSImportProgress(
+                stage: .extracting, completedUnits: 1, totalUnits: 2, unit: .files))
+
+        #expect(bytes.contains("50%"))
+        #expect(bytes.contains("KB") || bytes.contains("bytes"))
+        #expect(files.contains("50%"))
+        #expect(files.contains("1 of 2 files"))
+    }
+
+    @Test func browseLifecycleOwnsSelectionAndCancelsImportWork() throws {
+        let source = try EchoSource.read("Views/ABSBrowseView.swift")
+
+        #expect(source.contains("@State private var selectedItem: ABSLibraryItem?"))
+        #expect(source.contains("@State private var importWrapperTask: Task<Void, Never>?"))
+        #expect(source.contains(".navigationDestination(isPresented:"))
+        #expect(source.contains(".onDisappear { cancelActiveImport() }"))
+        #expect(source.contains("UIApplication.shared.beginBackgroundTask("))
+        #expect(source.contains("withName: \"abs-import\""))
+        #expect(source.contains("Task { @MainActor [weak self] in self?.handleExpiration() }"))
+        #expect(source.contains("browseModel.cancelImport()"))
+    }
+
+    @Test func progressAccessibilityLeavesCancelSeparateAndCountHasValue() throws {
+        let source = try EchoSource.read("Views/ABSBrowseView.swift")
+
+        #expect(source.contains(".accessibilityValue(resultCountAccessibilityValue)"))
+        #expect(source.contains("private var progressContent: some View"))
+        #expect(
+            source.contains(
+                "progressContent\n                .accessibilityElement(children: .combine)"))
+        #expect(source.contains("Button(role: .destructive, action: cancel)"))
+        #expect(source.contains(".disabled(browseModel.isImporting)"))
+    }
+
+    @MainActor
+    @Test func backgroundExpirationCancelsAndEndsExactlyOnce() {
+        var cancellationCount = 0
+        var endedIdentifiers: [UIBackgroundTaskIdentifier] = []
+        let identifier = UIBackgroundTaskIdentifier(rawValue: 42)
+        let backgroundTask = ABSImportBackgroundTask(
+            testIdentifier: identifier,
+            endHandler: { endedIdentifiers.append($0) },
+            expirationHandler: { cancellationCount += 1 })
+
+        backgroundTask.handleExpiration()
+        backgroundTask.handleExpiration()
+        backgroundTask.end()
+
+        #expect(cancellationCount == 1)
+        #expect(endedIdentifiers == [identifier])
     }
 }
 

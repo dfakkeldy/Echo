@@ -24,7 +24,8 @@ import Testing
         let src = try source("EchoCore/Views/ABSBrowseView.swift")
 
         #expect(src.contains("browseModel.importState(for:"))
-        #expect(src.contains("cancel: browseModel.cancelImport"))
+        #expect(src.contains("onCancel: cancelActiveImport"))
+        #expect(src.contains("cancel: onCancel"))
         #expect(src.contains("Button(role: .destructive"))
         #expect(src.contains("Cancel Import"))
     }
@@ -34,7 +35,7 @@ import Testing
 
         #expect(src.contains("TimelineView(.periodic"))
         #expect(src.contains("Elapsed"))
-        #expect(src.contains("browseModel.retryImport(item)"))
+        #expect(src.contains("onRetry: { startImport($0, retry: true) }"))
         #expect(src.contains("Open in Echo"))
         #expect(src.contains("ABSImportPresentation.stageLabel(failure.stage)"))
     }

@@ -236,7 +236,7 @@ final class ABSBrowseModel {
 
         let startedAt = Date()
         let initialProgress = ABSImportProgress(
-            stage: .downloading, completedUnits: 0, totalUnits: nil)
+            stage: .downloading, completedUnits: 0, totalUnits: nil, unit: .bytes)
         activeImportItemID = item.id
         importStates[item.id] = .running(initialProgress, startedAt: startedAt)
 

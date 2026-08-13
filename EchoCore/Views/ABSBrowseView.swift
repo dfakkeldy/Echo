@@ -14,6 +14,11 @@ struct ABSBrowseView: View {
     @Environment(PlayerModel.self) private var playerModel
     @Environment(\.dismiss) private var dismiss
     @State private var presentedSheet: SheetDestination?
+    @State private var selectedItem: ABSLibraryItem?
+    @State private var isShowingSelectedItem = false
+    @State private var importWrapperTask: Task<Void, Never>?
+    @State private var importBackgroundTask: ABSImportBackgroundTask?
+    @State private var activeImportOperationID: UUID?
 
     private enum SheetDestination: String, Identifiable {
         case filters
@@ -32,6 +37,21 @@ struct ABSBrowseView: View {
                 )
                 .toolbar { toolbarContent }
                 .task { await browseModel.load() }
+                .navigationDestination(isPresented: $isShowingSelectedItem) {
+                    if let selectedItem {
+                        ABSItemDetailView(
+                            item: selectedItem,
+                            browseModel: browseModel,
+                            service: playerModel.makeAudiobookshelfService(),
+                            onAdd: { startImport($0, retry: false) },
+                            onRetry: { startImport($0, retry: true) },
+                            onCancel: cancelActiveImport,
+                            onOpen: onOpen)
+                    }
+                }
+                .onChange(of: isShowingSelectedItem) { _, isPresented in
+                    if !isPresented { selectedItem = nil }
+                }
         }
         .sheet(item: $presentedSheet) { destination in
             switch destination {
@@ -39,6 +59,7 @@ struct ABSBrowseView: View {
                 ABSFiltersView(browseModel: browseModel)
             }
         }
+        .onDisappear { cancelActiveImport() }
     }
 
     @ViewBuilder
@@ -88,18 +109,22 @@ struct ABSBrowseView: View {
                     }
                 } else {
                     ForEach(browseModel.displayedItems) { item in
-                        NavigationLink {
-                            ABSItemDetailView(
-                                item: item,
-                                browseModel: browseModel,
-                                service: playerModel.makeAudiobookshelfService(),
-                                onOpen: onOpen)
+                        Button {
+                            selectedItem = item
+                            isShowingSelectedItem = true
                         } label: {
-                            ABSItemRow(
-                                item: item,
-                                isAdded: browseModel.openTarget(for: item.id) != nil,
-                                service: playerModel.makeAudiobookshelfService())
+                            HStack {
+                                ABSItemRow(
+                                    item: item,
+                                    isAdded: browseModel.openTarget(for: item.id) != nil,
+                                    service: playerModel.makeAudiobookshelfService())
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Shows audiobook details")
                         .onAppear {
                             guard item.id == browseModel.displayedItems.last?.id else { return }
                             Task { await browseModel.loadNextPageIfNeeded() }
@@ -141,6 +166,7 @@ struct ABSBrowseView: View {
         .foregroundStyle(.secondary)
         .listRowSeparator(.hidden)
         .accessibilityLabel("Result count")
+        .accessibilityValue(resultCountAccessibilityValue)
     }
 
     @ViewBuilder
@@ -167,7 +193,7 @@ struct ABSBrowseView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
-            Button("Done") { dismiss() }
+            Button("Done", action: close)
         }
         ToolbarItemGroup(placement: .primaryAction) {
             Menu {
@@ -224,6 +250,64 @@ struct ABSBrowseView: View {
 
     private var trimmedSearchQuery: String {
         browseModel.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var resultCountAccessibilityValue: String {
+        guard let count = browseModel.totalCount else {
+            return String(localized: "Updating results")
+        }
+        if browseModel.searchResultsAreLimited {
+            return String(localized: "At least \(count) results")
+        }
+        return String(localized: "\(count) results")
+    }
+
+    private func startImport(_ item: ABSLibraryItem, retry: Bool) {
+        guard importWrapperTask == nil, !browseModel.isImporting else { return }
+        let operationID = UUID()
+        activeImportOperationID = operationID
+        importWrapperTask = Task { @MainActor in
+            await Task.yield()
+            guard activeImportOperationID == operationID else { return }
+            if retry {
+                await browseModel.retryImport(item)
+            } else {
+                await browseModel.add(item)
+            }
+            finishImport(operationID)
+        }
+        importBackgroundTask = ABSImportBackgroundTask { [browseModel] in
+            cancelImportWrapper(operationID)
+        }
+    }
+
+    private func finishImport(_ operationID: UUID) {
+        guard activeImportOperationID == operationID else { return }
+        activeImportOperationID = nil
+        importWrapperTask = nil
+        importBackgroundTask?.end()
+        importBackgroundTask = nil
+    }
+
+    private func cancelImportWrapper(_ operationID: UUID) {
+        guard activeImportOperationID == operationID else { return }
+        cancelActiveImport()
+    }
+
+    private func cancelActiveImport() {
+        let wrapperTask = importWrapperTask
+        activeImportOperationID = nil
+        importWrapperTask = nil
+        importBackgroundTask?.end()
+        importBackgroundTask = nil
+        wrapperTask?.cancel()
+        browseModel.cancelImport()
+    }
+
+    private func close() {
+        cancelActiveImport()
+        browseModel.cancel()
+        dismiss()
     }
 }
 
@@ -344,6 +428,9 @@ private struct ABSItemDetailView: View {
     let item: ABSLibraryItem
     let browseModel: ABSBrowseModel
     let service: AudiobookshelfService?
+    let onAdd: (ABSLibraryItem) -> Void
+    let onRetry: (ABSLibraryItem) -> Void
+    let onCancel: () -> Void
     let onOpen: (ABSImportedBook) -> Void
 
     var body: some View {
@@ -393,9 +480,7 @@ private struct ABSItemDetailView: View {
         switch browseModel.importState(for: item.id) {
         case .ready:
             Section {
-                Button {
-                    Task { await addWithBackgroundGrace() }
-                } label: {
+                Button(action: { onAdd(item) }) {
                     Label("Add to Echo", systemImage: "arrow.down.circle")
                 }
                 .disabled(browseModel.isImporting)
@@ -411,7 +496,7 @@ private struct ABSItemDetailView: View {
                 ABSRunningImportView(
                     progress: progress,
                     startedAt: startedAt,
-                    cancel: browseModel.cancelImport)
+                    cancel: onCancel)
             }
         case .failed(let failure):
             Section {
@@ -425,7 +510,8 @@ private struct ABSItemDetailView: View {
                 Text(failure.message)
 
                 if failure.isRetryable {
-                    Button("Retry") { Task { await retryWithBackgroundGrace() } }
+                    Button("Retry") { onRetry(item) }
+                        .disabled(browseModel.isImporting)
                 }
             } header: {
                 Text("Couldn't add to Echo")
@@ -443,26 +529,6 @@ private struct ABSItemDetailView: View {
             }
         }
     }
-
-    private func addWithBackgroundGrace() async {
-        let backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "abs-import")
-        defer {
-            if backgroundTask != .invalid {
-                UIApplication.shared.endBackgroundTask(backgroundTask)
-            }
-        }
-        await browseModel.add(item)
-    }
-
-    private func retryWithBackgroundGrace() async {
-        let backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "abs-import")
-        defer {
-            if backgroundTask != .invalid {
-                UIApplication.shared.endBackgroundTask(backgroundTask)
-            }
-        }
-        await browseModel.retryImport(item)
-    }
 }
 
 private struct ABSRunningImportView: View {
@@ -471,6 +537,21 @@ private struct ABSRunningImportView: View {
     let cancel: () -> Void
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            progressContent
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Import progress")
+                .accessibilityValue(accessibilityValue)
+
+            if progress.stage == .downloading || progress.stage == .extracting {
+                Button(role: .destructive, action: cancel) {
+                    Label("Cancel Import", systemImage: "xmark.circle")
+                }
+            }
+        }
+    }
+
+    private var progressContent: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(ABSImportPresentation.stageLabel(progress.stage))
                 .font(.headline)
@@ -484,21 +565,13 @@ private struct ABSRunningImportView: View {
             }
 
             if progress.stage == .downloading {
-                Text(
-                    ABSImportPresentation.progressLabel(
-                        completed: progress.completedUnits,
-                        total: progress.totalUnits)
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                Text(ABSImportPresentation.progressLabel(progress))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             } else if progress.stage == .extracting {
-                Text(
-                    ABSImportPresentation.extractionProgressLabel(
-                        completed: progress.completedUnits,
-                        total: progress.totalUnits)
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                Text(ABSImportPresentation.progressLabel(progress))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             TimelineView(.periodic(from: startedAt, by: 1)) { context in
@@ -507,15 +580,7 @@ private struct ABSRunningImportView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if progress.stage == .downloading || progress.stage == .extracting {
-                Button(role: .destructive, action: cancel) {
-                    Label("Cancel Import", systemImage: "xmark.circle")
-                }
-            }
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Import progress")
-        .accessibilityValue(accessibilityValue)
     }
 
     private var accessibilityValue: String {
@@ -523,18 +588,34 @@ private struct ABSRunningImportView: View {
         guard progress.stage == .downloading || progress.stage == .extracting else {
             return stage
         }
-        let progressText =
-            progress.stage == .downloading
-            ? ABSImportPresentation.progressLabel(
-                completed: progress.completedUnits, total: progress.totalUnits)
-            : ABSImportPresentation.extractionProgressLabel(
-                completed: progress.completedUnits, total: progress.totalUnits)
+        let progressText = ABSImportPresentation.progressLabel(progress)
         return "\(stage), \(progressText)"
     }
 }
 
 enum ABSImportPresentation {
-    static func progressLabel(completed: Int64, total: Int64?) -> String {
+    static func progressLabel(_ progress: ABSImportProgress) -> String {
+        switch progress.unit {
+        case .bytes:
+            byteProgressLabel(
+                completed: progress.completedUnits,
+                total: progress.totalUnits)
+        case .files:
+            countProgressLabel(
+                completed: progress.completedUnits,
+                total: progress.totalUnits,
+                singular: String(localized: "file"),
+                plural: String(localized: "files"))
+        case .units:
+            countProgressLabel(
+                completed: progress.completedUnits,
+                total: progress.totalUnits,
+                singular: String(localized: "unit"),
+                plural: String(localized: "units"))
+        }
+    }
+
+    private static func byteProgressLabel(completed: Int64, total: Int64?) -> String {
         let safeCompleted = max(0, completed)
         let completedText = ByteCountFormatter.string(
             fromByteCount: safeCompleted, countStyle: .file)
@@ -554,11 +635,19 @@ enum ABSImportPresentation {
         }
     }
 
-    static func extractionProgressLabel(completed: Int64, total: Int64?) -> String {
+    private static func countProgressLabel(
+        completed: Int64,
+        total: Int64?,
+        singular: String,
+        plural: String
+    ) -> String {
         let safeCompleted = max(0, completed)
-        guard let total, total > 0 else { return "\(safeCompleted)" }
+        guard let total, total > 0 else {
+            let unit = safeCompleted == 1 ? singular : plural
+            return String(localized: "\(safeCompleted) \(unit)")
+        }
         let percent = min(100, max(0, Int((Double(safeCompleted) / Double(total) * 100).rounded())))
-        return String(localized: "\(percent)% · \(safeCompleted) of \(total) units")
+        return String(localized: "\(percent)% · \(safeCompleted) of \(total) \(plural)")
     }
 
     static func duration(_ seconds: Double) -> String {
@@ -580,6 +669,48 @@ enum ABSImportPresentation {
 
     private static func twoDigits(_ value: Int) -> String {
         value < 10 ? "0\(value)" : "\(value)"
+    }
+}
+
+@MainActor
+final class ABSImportBackgroundTask {
+    private var identifier = UIBackgroundTaskIdentifier.invalid
+    private var expirationHandler: (() -> Void)?
+    private let endHandler: (UIBackgroundTaskIdentifier) -> Void
+
+    init(expirationHandler: @escaping () -> Void) {
+        self.expirationHandler = expirationHandler
+        self.endHandler = { UIApplication.shared.endBackgroundTask($0) }
+        identifier = UIApplication.shared.beginBackgroundTask(
+            withName: "abs-import",
+            expirationHandler: { [weak self] in
+                Task { @MainActor [weak self] in self?.handleExpiration() }
+            })
+    }
+
+    init(
+        testIdentifier: UIBackgroundTaskIdentifier,
+        endHandler: @escaping (UIBackgroundTaskIdentifier) -> Void,
+        expirationHandler: @escaping () -> Void
+    ) {
+        self.identifier = testIdentifier
+        self.endHandler = endHandler
+        self.expirationHandler = expirationHandler
+    }
+
+    func end() {
+        expirationHandler = nil
+        guard identifier != .invalid else { return }
+        let identifierToEnd = identifier
+        identifier = .invalid
+        endHandler(identifierToEnd)
+    }
+
+    func handleExpiration() {
+        let handler = expirationHandler
+        expirationHandler = nil
+        handler?()
+        end()
     }
 }
 

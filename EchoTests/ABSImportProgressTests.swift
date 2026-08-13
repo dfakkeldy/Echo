@@ -42,6 +42,21 @@ struct ABSImportProgressTests {
         let extraction = updates.filter { $0.stage == .extracting && $0.completedUnits > 0 }
         #expect(extraction.map(\.completedUnits) == [3, 10])
         #expect(extraction.map(\.totalUnits) == [10, 10])
+        #expect(extraction.allSatisfy { $0.unit == .bytes })
+    }
+
+    @Test func zeroByteExtractionProgressFallsBackToFiles() async throws {
+        let fixture = try ABSImportProgressFixture(entries: [("empty.m4b", "")])
+        var updates: [ABSImportProgress] = []
+
+        _ = try await fixture.importer.prepareLocalFolder(for: fixture.item) {
+            updates.append($0)
+        }
+
+        let extraction = updates.filter { $0.stage == .extracting }
+        #expect(extraction.map(\.completedUnits) == [0, 1])
+        #expect(extraction.map(\.totalUnits) == [1, 1])
+        #expect(extraction.allSatisfy { $0.unit == .files })
     }
 
     @Test func nestedOnlyAudioFailsAtValidation() async throws {
