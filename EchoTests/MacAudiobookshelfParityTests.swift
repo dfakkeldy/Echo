@@ -11,6 +11,36 @@ import Testing
 /// views aren't part of the macOS target).
 struct MacAudiobookshelfParityTests {
 
+    @Test func pendingConnectionKeepsFreshNamespaceAcrossTrustRetry() {
+        var generatedIDs = ["pending-1", "pending-2"].makeIterator()
+        var identity = ABSServerConnectionIdentity(activeServerID: "active") {
+            generatedIDs.next()!
+        }
+
+        let firstAttempt = identity.prepareNewConnection()
+        let trustRetry = identity.prepareNewConnection()
+
+        #expect(firstAttempt == "pending-1")
+        #expect(trustRetry == "pending-1")
+        #expect(identity.activeServerID == "active")
+        #expect(identity.pendingServerID == "pending-1")
+
+        identity.discardPendingConnection()
+        #expect(identity.prepareNewConnection() == "pending-2")
+        #expect(identity.activeServerID == "active")
+    }
+
+    @Test func activatingPendingConnectionChangesNamespaceOnlyAfterSuccess() {
+        var identity = ABSServerConnectionIdentity(activeServerID: "active") { "pending" }
+
+        _ = identity.prepareNewConnection()
+        #expect(identity.activeServerID == "active")
+
+        #expect(identity.activatePendingConnection() == "pending")
+        #expect(identity.activeServerID == "pending")
+        #expect(identity.pendingServerID == nil)
+    }
+
     @Test func connectsViaSharedService() throws {
         let src = try MacSource.read("Views/MacAudiobookshelfView.swift")
         #expect(
@@ -96,6 +126,49 @@ struct MacAudiobookshelfParityTests {
             host.range(
                 of: #"func removeSavedServer\([\s\S]*?browseModel = nil"#,
                 options: .regularExpression) != nil)
+    }
+
+    @Test func addServerUsesPendingIdentityInsteadOfActiveTokenNamespace() throws {
+        let host = try MacSource.read("Views/MacAudiobookshelfView.swift")
+
+        #expect(host.contains("let newServerID = connectionIdentity.prepareNewConnection()"))
+        #expect(host.contains("connectionIdentity.activatePendingConnection()"))
+        #expect(!host.contains("let newServerID = serverID ?? UUID().uuidString"))
+    }
+
+    @Test func libraryChangeClearsSelectionButResultFilteringDoesNot() throws {
+        let browse = try MacSource.read("Views/MacAudiobookshelfBrowseView.swift")
+
+        #expect(
+            browse.contains(
+                ".onChange(of: browseModel.selectedLibraryID) { _, _ in clearSelection() }"))
+        #expect(
+            browse.contains(
+                "private func clearSelection() { selectedItemID = nil selectedItem = nil }"))
+        #expect(!browse.contains(".onChange(of: browseModel.displayedItems)"))
+    }
+
+    @Test func addControlLetsSharedImporterDecideSupportedContent() throws {
+        let browse = try MacSource.read("Views/MacAudiobookshelfBrowseView.swift")
+
+        #expect(browse.contains(".disabled(browseModel.isImporting)"))
+        #expect(!browse.contains("item.hasAudioContent == false"))
+        #expect(!browse.contains("does not contain supported audio"))
+    }
+
+    @Test func shutdownReleasesBrowseAndServiceOwnership() throws {
+        let host = try MacSource.read("Views/MacAudiobookshelfView.swift")
+
+        #expect(
+            host.contains(
+                "func shutdown() { clearBrowseModel() discardPendingConnection() service?.invalidate() service = nil }"
+            ))
+        #expect(host.contains(".onDisappear { model.shutdown() }"))
+        #expect(host.contains("private func close() { model.shutdown() dismiss() }"))
+        #expect(
+            host.contains(
+                "catch { newService.invalidate() errorMessage = error.localizedDescription return }"
+            ))
     }
 
     @Test func menuOpensAudiobookshelf() throws {

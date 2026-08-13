@@ -25,6 +25,7 @@ struct MacAudiobookshelfBrowseView: View {
                 await browseModel.load()
             }
         }
+        .onChange(of: browseModel.selectedLibraryID) { _, _ in clearSelection() }
         .onDisappear { cancelOwnedWork() }
         .popover(isPresented: $isShowingFilters, arrowEdge: .bottom) {
             MacAudiobookshelfFiltersView(browseModel: browseModel)
@@ -297,6 +298,11 @@ struct MacAudiobookshelfBrowseView: View {
         cancelImport()
         browseModel.cancel()
     }
+
+    private func clearSelection() {
+        selectedItemID = nil
+        selectedItem = nil
+    }
 }
 
 private struct MacAudiobookshelfFiltersView: View {
@@ -470,13 +476,9 @@ private struct MacAudiobookshelfDetailView: View {
                         Label("Add to Echo", systemImage: "arrow.down.circle")
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(browseModel.isImporting || item.hasAudioContent == false)
+                    .disabled(browseModel.isImporting)
 
-                    if item.hasAudioContent == false {
-                        Text("This item does not contain supported audio.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else if browseModel.isImporting {
+                    if browseModel.isImporting {
                         Text("Another Audiobookshelf import is in progress.")
                             .font(.caption)
                             .foregroundStyle(.secondary)

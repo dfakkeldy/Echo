@@ -41,7 +41,7 @@ final class MacAudiobookshelfViewModel {
 
     @ObservationIgnored private let db: DatabaseService
     @ObservationIgnored private var service: AudiobookshelfService?
-    @ObservationIgnored private var serverID: String?
+    @ObservationIgnored private var connectionIdentity = ABSServerConnectionIdentity()
 
     init(db: DatabaseService) {
         self.db = db
@@ -56,7 +56,7 @@ final class MacAudiobookshelfViewModel {
             return
         }
         server = record
-        serverID = record.id
+        connectionIdentity.activate(record.id)
         service = makeService(for: record)
         phase = .connected
         if let service {
@@ -111,7 +111,7 @@ final class MacAudiobookshelfViewModel {
     private func attemptConnect(baseURL: URL, trustingCertificate: String?) async {
         phase = .connecting
         errorMessage = nil
-        let newServerID = serverID ?? UUID().uuidString
+        let newServerID = connectionIdentity.prepareNewConnection()
         let tokens = ABSTokenStore(serverID: newServerID)
         if let cert = trustingCertificate { tokens.pinnedCertificateSHA256 = cert }
         let host = baseURL.host?.lowercased() ?? ""
@@ -133,7 +133,7 @@ final class MacAudiobookshelfViewModel {
             clearBrowseModel()
             service?.invalidate()
             service = svc
-            serverID = newServerID
+            connectionIdentity.activatePendingConnection()
             server = record
             password = ""
             phase = .connected
@@ -162,6 +162,7 @@ final class MacAudiobookshelfViewModel {
 
     func beginAddingServer() {
         errorMessage = nil
+        discardPendingConnection()
         serverURLText = ""
         username = ""
         password = ""
@@ -170,6 +171,7 @@ final class MacAudiobookshelfViewModel {
 
     func cancelAddingServer() {
         errorMessage = nil
+        discardPendingConnection()
         phase = server != nil ? .connected : .disconnected
     }
 
@@ -185,13 +187,14 @@ final class MacAudiobookshelfViewModel {
         do {
             try ABSServerDAO(db: db.writer).setActive(saved.id)
         } catch {
+            newService.invalidate()
             errorMessage = error.localizedDescription
             return
         }
         clearBrowseModel()
         service?.invalidate()
         service = newService
-        serverID = saved.id
+        connectionIdentity.activate(saved.id)
         server = saved
         phase = .connected
         loadSavedServers()
@@ -203,7 +206,7 @@ final class MacAudiobookshelfViewModel {
     /// active one, clears its Keychain tokens, deletes its DB row. Mirrors
     /// the old `disconnect()` but targets a specific server.
     func removeSavedServer(_ saved: ABSServerRecord) async {
-        let wasActive = saved.id == serverID
+        let wasActive = saved.id == connectionIdentity.activeServerID
         if wasActive { clearBrowseModel() }
         if wasActive, let svc = service {
             _ = await svc.signOut()
@@ -214,7 +217,7 @@ final class MacAudiobookshelfViewModel {
         loadSavedServers()
         guard wasActive else { return }
         service = nil
-        serverID = nil
+        connectionIdentity.clearActiveConnection()
         server = nil
         phase = .disconnected
     }
@@ -228,9 +231,23 @@ final class MacAudiobookshelfViewModel {
         browseModel?.cancel()
     }
 
+    func shutdown() {
+        clearBrowseModel()
+        discardPendingConnection()
+        service?.invalidate()
+        service = nil
+    }
+
     private func clearBrowseModel() {
         cancelBrowseWork()
         browseModel = nil
+    }
+
+    private func discardPendingConnection() {
+        if let pendingServerID = connectionIdentity.pendingServerID {
+            ABSTokenStore(serverID: pendingServerID).clear()
+        }
+        connectionIdentity.discardPendingConnection()
     }
 }
 
@@ -266,7 +283,7 @@ struct MacAudiobookshelfView: View {
         .frame(width: 820, height: 620)
         .padding()
         .task { await model.load() }
-        .onDisappear { model.cancelBrowseWork() }
+        .onDisappear { model.shutdown() }
         .alert(
             "Use an unencrypted connection?",
             isPresented: Binding(
@@ -373,7 +390,7 @@ struct MacAudiobookshelfView: View {
     }
 
     private func close() {
-        model.cancelBrowseWork()
+        model.shutdown()
         dismiss()
     }
 }
