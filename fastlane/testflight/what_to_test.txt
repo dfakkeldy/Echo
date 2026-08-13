@@ -1,43 +1,35 @@
-This build brings Echo's second half online: on-device NARRATION (no audiobook required), a PDF read-along companion, study EXPORT (.m4b audiobook, Markdown notes, Anki decks), and ECHO PRO — alongside everything from the alignment era. Each section says where to aim.
+Welcome to the Echo beta! Echo is an audiobook STUDY player: it lines audio up with the book text word by word, narrates text-only books entirely on-device, and turns what you hear into notes and flashcards. No account, no cloud, no tracking — everything runs on your device.
 
-PLEASE FOCUS ON
+FIRST FIVE MINUTES
+• Add a DRM-free EPUB and tap Narrate. Echo synthesizes the voice on-device — the first run downloads the voice model once, so note how long the first spoken words take on your device.
+• Or add an audiobook (m4b, or a folder of mp3s) with its matching EPUB and run Auto-Align Chapters, then watch the text follow the narrator as it plays.
 
-1) NARRATION (biggest new ask)
-• Import a text-only EPUB (one with no matching audiobook) and tap Narrate. Echo voices it on-device — no cloud, no account. Note your device + how long the first words took (the model warms up once).
-• Try a plain .md / .markdown / .txt file too — does it import and narrate, with chapter breaks in sensible places?
-• Read along while it narrates: do the words light up in time? Scrub, then tap a paragraph — does the voice follow?
+WHAT TO FOCUS ON
+
+1) NARRATION (on-device text-to-speech)
+• Do numbers, prices, and abbreviations read out naturally? Report the exact sentence for anything mispronounced — those reports drive real fixes.
+• Read along while it narrates: words should light up in sync. Tap a paragraph — the voice should jump there.
 • Switch narrator voice and re-narrate a chapter.
-• Free covers one chapter per book while narration remains beta; Echo Pro adds expanded beta access after that limit (see #4).
 
-2) PDF COMPANION
-• Add a PDF next to (or instead of) an audiobook. Reader tab: continuous scroll + pinch-zoom smooth? If it has matching audio, does tap-to-seek / read-along behave?
+2) LOOK & FEEL — cover theming (new)
+• In Settings, try the Cover appearance mode: the whole app takes its tone from the playing book's cover. Try the Vivid Cover Accent toggle too.
+• If any book's cover makes the app ugly or hard to read, screenshot it — real covers are the test.
 
-3) EXPORT
-• Export an audiobook as .m4b — do chapters and cover survive in another player?
-• Export study notes (Markdown) and a flashcard deck (Anki .apkg) — counts and formatting right? (Export is an Echo Pro feature.)
+3) LIBRARY
+• Import several books, including the same book as both EPUB and audiobook: you should get ONE card per book, with the right cover.
 
-4) ECHO PRO (in-app purchase — TestFlight sandbox)
-• Trip a Pro gate (narrate past chapter 1, or Study Export). Does the paywall explain the value clearly and state the free limits honestly?
-• Buy monthly, yearly, and the lifetime / founders unlock in the sandbox. Then force-quit and Restore Purchases — does Pro come back without re-paying?
+4) PDF COMPANION
+• Add a PDF (textbook, paper): continuous scroll and pinch-zoom should stay smooth; with matching audio, tap-to-seek and read-along should track.
 
-5) AUTO-ALIGNMENT (still core)
-• Add an ePub next to an audiobook, tap Auto-Align Chapters, watch the tiers run. Misaligned paragraph → long-press → Align to Now.
-• Report book title + narrator + ePub source for any book that aligns badly — bad books are gold.
+5) STUDY & EXPORT
+• Create flashcards from what you're hearing, then export study notes (Markdown) or a flashcard deck (Anki .apkg) — do counts and formatting hold up?
+• Export an audiobook as .m4b — do chapters and cover art survive in another player?
 
 6) APPLE WATCH
-• Rearrange the button layout from the phone — appears on the wrist immediately? Pomodoro alarm unmissable? Resume correct after the watch sits overnight?
+• Play from the wrist. The crown adjusts volume, and progress and cover should stay in sync when the watch app reopens mid-playback.
 
-7) MAC (if you test on macOS)
-• Import a book, use "Narrate EPUB(s)…" from the menu, run the batch queue, read along, export. Anything Mac-only broken?
+FREE TIER & ECHO PRO
+The free tier covers 1 narrated chapter per book and 20 flashcards. If you hit an Echo Pro gate, tell us whether the pitch and the limits feel honest — that is a design goal, not a trick.
 
-8) AUDIOBOOKSHELF (if you self-host)
-• Settings → Add Audiobookshelf Server → connect, browse, download/stream a book, and check two-way progress sync.
-
-9) EVERYDAY PLAYBACK
-• Pull headphones mid-sentence — pause, not blast. Smart Rewind after short / long pauses. Loop one chapter across the boundary.
-
-KNOWN THIS BUILD
-• First narration and first auto-align each warm an on-device model — plug in for the first run.
-• iCloud sync currently covers alignment anchors; full bookmark / flashcard / position sync is 1.0 work.
-
-Send feedback via TestFlight (screenshot → Share → Send Beta Feedback) or github.com/dfakkeldy/Echo/issues. Thank you!
+REPORTING
+Use TestFlight's Send Beta Feedback (a screenshot attaches automatically). For narration or alignment bugs, include the book title, narrator, and where the EPUB came from. Books that behave badly are gold — we want them.
