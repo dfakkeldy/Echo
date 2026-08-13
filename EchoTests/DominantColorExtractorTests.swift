@@ -59,6 +59,43 @@ nonisolated final class DominantColorExtractorTests: XCTestCase {
         XCTAssertTrue(DominantColorExtractor.signature(from: image).isNeutral)
     }
 
+    func testVividCoreSurvivesAntialiasingHalo() throws {
+        // A teal field with thin red stripes, each flanked by the pale pink an
+        // antialiased edge produces. Red and pink share the hue-0 bucket with
+        // equal HSL saturation (equal weight), so the bucket MEAN washes out —
+        // but the vivid core (most-chromatic quartile) must stay saturated red.
+        // Drawn at scale 1 and exactly the extractor's 100×100 sample size so
+        // no resampling blurs the stripes.
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let size = CGSize(width: 100, height: 100)
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { ctx in
+            UIColor.systemTeal.setFill()
+            ctx.fill(CGRect(origin: .zero, size: size))
+            for x in stride(from: 60, to: 100, by: 4) {
+                UIColor(red: 1.0, green: 0.23, blue: 0.19, alpha: 1).setFill()
+                ctx.fill(CGRect(x: x, y: 0, width: 2, height: 100))
+                UIColor(red: 1.0, green: 0.75, blue: 0.75, alpha: 1).setFill()
+                ctx.fill(CGRect(x: x + 2, y: 0, width: 2, height: 100))
+            }
+        }
+
+        let sig = DominantColorExtractor.signature(from: image)
+        let red = try XCTUnwrap(
+            sig.candidates.first { abs($0.hue) < 40 || abs($0.hue - 360) < 40 },
+            "the red/pink family must produce a candidate")
+        let coreChroma = try XCTUnwrap(red.coreChroma)
+        let coreLightness = try XCTUnwrap(red.coreLightness)
+        let coreHue = try XCTUnwrap(red.coreHue)
+        XCTAssertGreaterThanOrEqual(
+            coreChroma, red.chroma + 0.04,
+            "the core must be clearly more chromatic than the halo-diluted mean")
+        XCTAssertLessThanOrEqual(
+            coreLightness, red.lightness - 0.04,
+            "the pale halo lifts the mean lightness; the core stays darker")
+        XCTAssertEqual(coreHue, 25, accuracy: 20, "the core stays in the red family")
+    }
+
     func testTwoToneCoverRanksLargerRegionFirst() {
         // 75% blue / 25% red → the blue family must rank first.
         let sig = DominantColorExtractor.signature(

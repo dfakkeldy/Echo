@@ -37,7 +37,7 @@ struct SettingsAppearanceView: View {
                     }
                 }
             #endif
-            Section("Theme") {
+            Section {
                 NavigationLink {
                     ThemeSelectionView()
                 } label: {
@@ -54,6 +54,21 @@ struct SettingsAppearanceView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                Toggle(
+                    "Vivid Cover Accent",
+                    isOn: Binding(
+                        get: { settings.vividCoverAccent },
+                        set: {
+                            settings.vividCoverAccent = $0
+                            model.syncToWatch()
+                        }
+                    ))
+            } header: {
+                Text("Theme")
+            } footer: {
+                Text(
+                    "Prefers the cover's most saturated color for the accent — like colored title text — even when it covers only a small area. Off blends each color family evenly."
+                )
             }
             Section("Typography") {
                 NavigationLink {

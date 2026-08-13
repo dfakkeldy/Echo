@@ -351,11 +351,13 @@ final class PlayerModel {
     @ObservationIgnored private var cachedTheme: CoverTheme?
     @ObservationIgnored private var cachedThemeVersion: Int = -1
     @ObservationIgnored private var cachedThemeScheme: ColorScheme = .light
+    @ObservationIgnored private var cachedThemeVivid = false
 
     // The Watch's roles need no scheme in the cache key: they are always
     // resolved dark, so unlike `cachedTheme` they survive a light/dark switch.
     @ObservationIgnored private var cachedWatchRoles: CoverThemeBuilder.Resolved?
     @ObservationIgnored private var cachedWatchRolesVersion: Int = -1
+    @ObservationIgnored private var cachedWatchRolesVivid = false
 
     /// One cached signature for the current cover. Base artwork prefers the
     /// signature extracted from the SOURCE cover at load time
@@ -381,23 +383,34 @@ final class PlayerModel {
         return cachedSignature
     }
 
+    /// Accent-promotion style from Settings. Read inside the theme getters so
+    /// Observation tracks the SettingsManager property and themed views
+    /// refresh when the toggle flips.
+    private var vividAccentEnabled: Bool {
+        settingsManager?.vividCoverAccent ?? SettingsManager.Defaults.vividCoverAccent
+    }
+
     /// The role-based theme for the current cover and colour scheme.
     /// Never nil: missing artwork gets the designed neutral theme.
     var coverTheme: CoverTheme {
+        let vivid = vividAccentEnabled
         guard let signature = currentSignature else {
             return CoverThemeBuilder.build(from: .neutral, scheme: uiColorScheme)
         }
         let version = currentDisplayArtworkVersion
         if version == cachedThemeVersion,
             uiColorScheme == cachedThemeScheme,
+            vivid == cachedThemeVivid,
             let theme = cachedTheme
         {
             return theme
         }
-        let theme = CoverThemeBuilder.build(from: signature, scheme: uiColorScheme)
+        let theme = CoverThemeBuilder.build(
+            from: signature, scheme: uiColorScheme, vividAccent: vivid)
         cachedTheme = theme
         cachedThemeVersion = version
         cachedThemeScheme = uiColorScheme
+        cachedThemeVivid = vivid
         return theme
     }
 
@@ -450,20 +463,25 @@ final class PlayerModel {
     /// main actor for a cover that has not changed.
     private var watchCoverRoles: CoverThemeBuilder.Resolved? {
         let version = currentDisplayArtworkVersion
-        if version == cachedWatchRolesVersion { return cachedWatchRoles }
+        let vivid = vividAccentEnabled
+        if version == cachedWatchRolesVersion, vivid == cachedWatchRolesVivid {
+            return cachedWatchRoles
+        }
 
         let roles: CoverThemeBuilder.Resolved? =
             if let signature = currentSignature, !signature.isNeutral {
                 CoverThemeBuilder.resolve(
                     signature,
                     scheme: .dark,
-                    brand: ColorMetrics.rgb(Color.accentColor)
+                    brand: ColorMetrics.rgb(Color.accentColor),
+                    vividAccent: vivid
                 )
             } else {
                 nil
             }
         cachedWatchRoles = roles
         cachedWatchRolesVersion = version
+        cachedWatchRolesVivid = vivid
         return roles
     }
 

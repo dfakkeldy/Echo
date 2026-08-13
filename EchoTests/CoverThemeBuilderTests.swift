@@ -612,4 +612,95 @@ nonisolated final class CoverThemeBuilderTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - Vivid accent style (core-first promotion)
+
+    /// A teal cover whose red title text antialiases into a pale halo: the red
+    /// bucket's MEAN chroma (0.05) sits under the promotion floor, but its
+    /// vivid core is unmistakably red. Classic misses it; vivid captures it.
+    private let haloDilutedRedTitle = CoverSignature(
+        candidates: [
+            .init(hue: 190, chroma: 0.11, weight: 100, lightness: 0.73),
+            .init(
+                hue: 25, chroma: 0.05, weight: 15, lightness: 0.86,
+                coreHue: 25, coreChroma: 0.16, coreLightness: 0.62),
+        ],
+        isNeutral: false
+    )
+
+    func testVividAccentPromotesHaloDilutedCore() {
+        for scheme in [ColorScheme.light, ColorScheme.dark] {
+            let classic = CoverThemeBuilder.resolve(
+                haloDilutedRedTitle, scheme: scheme, brand: brand)
+            XCTAssertEqual(
+                OKLCH.fromSRGB(classic.accent).H, 190, accuracy: 25,
+                "classic keeps the primary-hue accent — the diluted mean fails the floor")
+
+            let vivid = CoverThemeBuilder.resolve(
+                haloDilutedRedTitle, scheme: scheme, brand: brand, vividAccent: true)
+            XCTAssertEqual(
+                OKLCH.fromSRGB(vivid.accent).H, 25, accuracy: 25,
+                "vivid promotes the red core in \(scheme)")
+            XCTAssertEqual(
+                OKLCH.fromSRGB(vivid.secondaryAccent).H, 190, accuracy: 25,
+                "primary-hue accent moves to the secondary role in \(scheme)")
+        }
+    }
+
+    func testVividAccentIgnoresMarginalCore() {
+        // Core chroma 0.10 clears the mean-calibrated floor (0.09) but not the
+        // core floor (0.11): the quartile view inflates chroma by construction,
+        // so a bucket marginal even at its most saturated must stay unpromoted.
+        let marginal = CoverSignature(
+            candidates: [
+                .init(hue: 190, chroma: 0.11, weight: 100, lightness: 0.73),
+                .init(
+                    hue: 25, chroma: 0.05, weight: 15, lightness: 0.86,
+                    coreHue: 25, coreChroma: 0.10, coreLightness: 0.62),
+            ],
+            isNeutral: false
+        )
+        let vivid = CoverThemeBuilder.resolve(
+            marginal, scheme: .light, brand: brand, vividAccent: true)
+        XCTAssertEqual(
+            OKLCH.fromSRGB(vivid.accent).H, 190, accuracy: 25,
+            "marginal core must not promote")
+    }
+
+    func testVividAccentFallsBackToMeanSeedWhenCoreDrifts() {
+        // The mean view promotes cleanly, but the core sits so light (0.95)
+        // that light-scheme enforcement would drift it past the identity gate.
+        // Vivid must fall back to the mean seed and match classic exactly —
+        // the switch can refine or add a promotion, never lose one.
+        let driftingCore = CoverSignature(
+            candidates: [
+                .init(hue: 190, chroma: 0.11, weight: 100, lightness: 0.73),
+                .init(
+                    hue: 25, chroma: 0.15, weight: 15, lightness: 0.60,
+                    coreHue: 25, coreChroma: 0.30, coreLightness: 0.95),
+            ],
+            isNeutral: false
+        )
+        let classic = CoverThemeBuilder.resolve(driftingCore, scheme: .light, brand: brand)
+        let vivid = CoverThemeBuilder.resolve(
+            driftingCore, scheme: .light, brand: brand, vividAccent: true)
+        XCTAssertEqual(
+            OKLCH.fromSRGB(classic.accent).H, 25, accuracy: 25,
+            "the mean view promotes the red")
+        XCTAssertEqual(vivid.accent, classic.accent, "core drift falls back to the mean seed")
+        XCTAssertEqual(vivid.secondaryAccent, classic.secondaryAccent)
+    }
+
+    func testVividAccentWithoutCoreDataMatchesClassic() {
+        // Signatures built without pixel data (stored fixtures, tests) carry
+        // no core stats; the vivid style must degrade to classic byte-for-byte.
+        for scheme in [ColorScheme.light, ColorScheme.dark] {
+            let classic = CoverThemeBuilder.resolve(duotoneLeverage, scheme: scheme, brand: brand)
+            let vivid = CoverThemeBuilder.resolve(
+                duotoneLeverage, scheme: scheme, brand: brand, vividAccent: true)
+            XCTAssertEqual(vivid.accent, classic.accent, "\(scheme)")
+            XCTAssertEqual(vivid.secondaryAccent, classic.secondaryAccent, "\(scheme)")
+            XCTAssertEqual(vivid.backgroundTop, classic.backgroundTop, "\(scheme)")
+        }
+    }
 }

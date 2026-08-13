@@ -12,6 +12,7 @@ final class SettingsManager {
         static let appAppearance = "System"
         static let appFont = "Lexend"
         static let themeColor = "Artwork"
+        static let vividCoverAccent = false
         static let isRewindEnabled = false
         static let rewindPauseSecondsThreshold = 30
         static let rewindAmountAfterSeconds = 10
@@ -94,6 +95,7 @@ final class SettingsManager {
 
     private enum Keys {
         static let appAppearance = "appAppearance"
+        static let vividCoverAccent = "vividCoverAccent"
         static let appFont = "appFont"
         static let themeColor = "themeColor"
         static let isRewindEnabled = "isRewindEnabled"
@@ -182,14 +184,24 @@ final class SettingsManager {
     var appAppearance: String { didSet { defaults.set(appAppearance, forKey: Keys.appAppearance) } }
     var appFont: String { didSet { defaults.set(appFont, forKey: Keys.appFont) } }
     var themeColor: String { didSet { defaults.set(themeColor, forKey: Keys.themeColor) } }
+    /// Accent-promotion style for cover-derived themes: false judges hue
+    /// buckets by their means (classic), true prefers each bucket's vivid core
+    /// so small saturated elements like coloured title text can win the accent.
+    var vividCoverAccent: Bool {
+        didSet { defaults.set(vividCoverAccent, forKey: Keys.vividCoverAccent) }
+    }
     var playerLayoutStyle: String {
         didSet { defaults.set(playerLayoutStyle, forKey: Keys.playerLayoutStyle) }
     }
     var experimentalNowPlayingLayout: Bool {
-        didSet { defaults.set(experimentalNowPlayingLayout, forKey: Keys.experimentalNowPlayingLayout) }
+        didSet {
+            defaults.set(experimentalNowPlayingLayout, forKey: Keys.experimentalNowPlayingLayout)
+        }
     }
     var experimentalPlayerLayoutData: Data {
-        didSet { defaults.set(experimentalPlayerLayoutData, forKey: Keys.experimentalPlayerLayoutData) }
+        didSet {
+            defaults.set(experimentalPlayerLayoutData, forKey: Keys.experimentalPlayerLayoutData)
+        }
     }
     var narrationVoiceID: String {
         didSet { defaults.set(narrationVoiceID, forKey: Keys.narrationVoiceID) }
@@ -619,10 +631,12 @@ final class SettingsManager {
             defaults.set(normalizedAppFont, forKey: Keys.appFont)
         }
         themeColor = defaults.string(forKey: Keys.themeColor) ?? Defaults.themeColor
+        vividCoverAccent = defaults.bool(forKey: Keys.vividCoverAccent)
         playerLayoutStyle =
             defaults.string(forKey: Keys.playerLayoutStyle) ?? Defaults.playerLayoutStyle
         experimentalNowPlayingLayout = defaults.bool(forKey: Keys.experimentalNowPlayingLayout)
-        experimentalPlayerLayoutData = defaults.data(forKey: Keys.experimentalPlayerLayoutData) ?? Data()
+        experimentalPlayerLayoutData =
+            defaults.data(forKey: Keys.experimentalPlayerLayoutData) ?? Data()
         narrationVoiceID =
             defaults.string(forKey: Keys.narrationVoiceID) ?? ""
         isRewindEnabled = defaults.bool(forKey: Keys.isRewindEnabled)
@@ -821,6 +835,7 @@ final class SettingsManager {
             Keys.appAppearance: Defaults.appAppearance,
             Keys.appFont: Defaults.appFont,
             Keys.themeColor: Defaults.themeColor,
+            Keys.vividCoverAccent: Defaults.vividCoverAccent,
             Keys.isRewindEnabled: Defaults.isRewindEnabled,
             Keys.rewindPauseSecondsThreshold: Defaults.rewindPauseSecondsThreshold,
             Keys.rewindAmountAfterSeconds: Defaults.rewindAmountAfterSeconds,

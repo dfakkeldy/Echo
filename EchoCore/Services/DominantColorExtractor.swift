@@ -21,12 +21,28 @@ nonisolated struct CoverSignature: Equatable {
         /// against it. Defaulted mid-tone so existing constructions that never
         /// exercise promotion need no change.
         let lightness: Double
+        /// The bucket's vivid core — the weighted mean of its most-chromatic
+        /// quartile. Thin colourful elements (title text, fine linework)
+        /// antialias into pale halo pixels that share the hue bucket and
+        /// dilute the mean stats above; the core preserves the colour the eye
+        /// actually reads. Nil on candidates constructed without pixel data
+        /// (tests, `.neutral`), which vivid accent promotion treats as
+        /// "no core view — judge by the means".
+        let coreHue: Double?
+        let coreChroma: Double?
+        let coreLightness: Double?
 
-        init(hue: Double, chroma: Double, weight: Double, lightness: Double = 0.55) {
+        init(
+            hue: Double, chroma: Double, weight: Double, lightness: Double = 0.55,
+            coreHue: Double? = nil, coreChroma: Double? = nil, coreLightness: Double? = nil
+        ) {
             self.hue = hue
             self.chroma = chroma
             self.weight = weight
             self.lightness = lightness
+            self.coreHue = coreHue
+            self.coreChroma = coreChroma
+            self.coreLightness = coreLightness
         }
     }
     /// Ranked by weight, descending. Empty for neutral covers.
@@ -138,6 +154,11 @@ nonisolated enum DominantColorExtractor {
         var rSums = [Float](repeating: 0, count: hueBuckets)
         var gSums = [Float](repeating: 0, count: hueBuckets)
         var bSums = [Float](repeating: 0, count: hueBuckets)
+        // Every vivid pixel, retained per bucket so each candidate can also
+        // report its vivid core (most-chromatic quartile). At most 10k entries
+        // for the 100×100 sample; transient for this call only.
+        var bucketPixels = [[(r: Float, g: Float, b: Float, weight: Float, chroma: Double)]](
+            repeating: [], count: hueBuckets)
         var vividCount = 0
         var colorableCount = 0
         var nearBlackCount = 0
@@ -176,6 +197,10 @@ nonisolated enum DominantColorExtractor {
             rSums[bucket] += r * weight
             gSums[bucket] += g * weight
             bSums[bucket] += b * weight
+            let chroma = OKLCH.fromSRGB(
+                ColorMetrics.RGB(r: Double(r), g: Double(g), b: Double(b))
+            ).C
+            bucketPixels[bucket].append((r: r, g: g, b: b, weight: weight, chroma: chroma))
         }
 
         // Two gates: enough vivid pixels in absolute terms (stray-speck guard),
@@ -198,8 +223,35 @@ nonisolated enum DominantColorExtractor {
                     b: Double(bSums[bucket] / w)
                 )
                 let lch = OKLCH.fromSRGB(mean)
+
+                // Vivid core: weighted mean of the most-chromatic quartile
+                // (at least 8 pixels, or the whole bucket when smaller), so a
+                // thin saturated element survives its own antialiasing halo.
+                let sorted = bucketPixels[bucket].sorted { $0.chroma > $1.chroma }
+                let coreCount = max(min(sorted.count, 8), (sorted.count + 3) / 4)
+                let core = sorted.prefix(coreCount)
+                var coreW: Float = 0
+                var coreR: Float = 0
+                var coreG: Float = 0
+                var coreB: Float = 0
+                for p in core {
+                    coreW += p.weight
+                    coreR += p.r * p.weight
+                    coreG += p.g * p.weight
+                    coreB += p.b * p.weight
+                }
+                let coreLCH =
+                    coreW > 0
+                    ? OKLCH.fromSRGB(
+                        ColorMetrics.RGB(
+                            r: Double(coreR / coreW),
+                            g: Double(coreG / coreW),
+                            b: Double(coreB / coreW)))
+                    : lch
+
                 return CoverSignature.HueCandidate(
-                    hue: lch.H, chroma: lch.C, weight: Double(w), lightness: lch.L)
+                    hue: lch.H, chroma: lch.C, weight: Double(w), lightness: lch.L,
+                    coreHue: coreLCH.H, coreChroma: coreLCH.C, coreLightness: coreLCH.L)
             }
 
         guard !candidates.isEmpty else { return .neutral }

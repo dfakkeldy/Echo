@@ -73,11 +73,13 @@ private struct MacAppearanceSettingsPane: View {
                         themeRow(theme).tag(theme.rawValue)
                     }
                 }
+
+                Toggle("Vivid Cover Accent", isOn: $settings.vividCoverAccent)
             } header: {
                 Text("Appearance")
             } footer: {
                 Text(
-                    "Color scheme and font apply across the macOS app window. Theme color tints accents throughout the app."
+                    "Color scheme and font apply across the macOS app window. Theme color tints accents throughout the app. Vivid Cover Accent prefers the cover's most saturated color, even when it covers only a small area."
                 )
                 .font(.footnote)
                 .foregroundStyle(.secondary)
