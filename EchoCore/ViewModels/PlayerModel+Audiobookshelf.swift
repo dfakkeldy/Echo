@@ -180,6 +180,22 @@ extension PlayerModel {
         return service
     }
 
+    func makeABSBrowseModel() -> ABSBrowseModel? {
+        guard let service = makeAudiobookshelfService(),
+            let db = databaseService,
+            let serverID = absServiceServerID ?? (try? absServerDAO?.current())?.id,
+            !serverID.isEmpty
+        else {
+            return nil
+        }
+        return ABSBrowseModel(service: service, db: db, serverID: serverID)
+    }
+
+    func openAudiobookshelfBook(_ book: ABSImportedBook) {
+        loadFolder(book.folderURL, autoplay: false)
+        selectedTab = .nowPlaying
+    }
+
     // MARK: - Progress sync
 
     /// Cache whether the currently-loaded book is ABS-sourced (so the hot save path is a

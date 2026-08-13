@@ -6,11 +6,12 @@ import Testing
     private func source(_ relativePath: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         while directory.path != "/" {
-            let candidate = directory
+            let candidate =
+                directory
                 .deletingLastPathComponent()
                 .appending(path: relativePath)
             if FileManager.default.fileExists(atPath: candidate.path),
-               let content = try? String(contentsOf: candidate, encoding: .utf8)
+                let content = try? String(contentsOf: candidate, encoding: .utf8)
             {
                 return content
             }
@@ -19,21 +20,22 @@ import Testing
         throw CocoaError(.fileNoSuchFile)
     }
 
-    @Test func itemDetailImportTracksCancelableTask() throws {
+    @Test func itemDetailImportUsesSharedCancelableState() throws {
         let src = try source("EchoCore/Views/ABSBrowseView.swift")
 
-        #expect(src.contains("@State private var importTask: Task<Void, Never>?"))
-        #expect(src.contains("importTask?.cancel()"))
-        #expect(src.contains("Button(role: .destructive)"))
+        #expect(src.contains("browseModel.importState(for:"))
+        #expect(src.contains("cancel: browseModel.cancelImport"))
+        #expect(src.contains("Button(role: .destructive"))
         #expect(src.contains("Cancel Import"))
     }
 
-    @Test func itemDetailImportShowsRecoveryStateForCanceledLargeDownloads() throws {
+    @Test func itemDetailImportShowsRetainedProgressAndRecoveryActions() throws {
         let src = try source("EchoCore/Views/ABSBrowseView.swift")
 
         #expect(src.contains("TimelineView(.periodic"))
         #expect(src.contains("Elapsed"))
-        #expect(src.contains("catch is CancellationError"))
-        #expect(src.contains("Import canceled. Partial download data was removed; you can retry."))
+        #expect(src.contains("browseModel.retryImport(item)"))
+        #expect(src.contains("Open in Echo"))
+        #expect(src.contains("ABSImportPresentation.stageLabel(failure.stage)"))
     }
 }
