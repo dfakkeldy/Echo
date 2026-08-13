@@ -25,25 +25,18 @@ struct PaywallView: View {
                     benefits
 
                     // Plan options — ALWAYS render product.displayPrice (sale-safe), never hardcode.
-                    if let yearly = product(ProductIDs.yearly) {
-                        planButton(yearly, badge: badge(for: yearly), priceSuffix: "/ year")
-                    }
-                    if let monthly = product(ProductIDs.monthly) {
-                        planButton(monthly, badge: badge(for: monthly), priceSuffix: "/ month")
-                    }
+                    // Echo Pro is a one-time unlock — no subscription.
                     if let lifetime = product(ProductIDs.lifetime) {
-                        planButton(lifetime, badge: "Lifetime", priceSuffix: "once")
+                        planButton(lifetime, oneTime: true, badge: "One-time — no subscription")
                     }
                     if FoundersWindow.isOpen, let founders = product(ProductIDs.founders) {
-                        planButton(founders, badge: "Founders — limited time", priceSuffix: "once")
+                        planButton(founders, oneTime: true, badge: "Founders — limited time")
                     }
 
-                    Text(
-                        "The yearly plan can include a 7-day App Store trial. Monthly, lifetime, and founders unlocks start immediately."
-                    )
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+                    Text("Pay once, unlock forever. No subscription, no account.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
 
                     Button("Restore Purchases") {
                         Task {
@@ -108,7 +101,7 @@ struct PaywallView: View {
 
     @ViewBuilder
     private func planButton(
-        _ product: Product, badge: String? = nil, priceSuffix: String? = nil
+        _ product: Product, oneTime: Bool = false, badge: String? = nil
     ) -> some View {
         Button {
             Task {
@@ -125,25 +118,12 @@ struct PaywallView: View {
                     }
                 }
                 Spacer()
-                Text(priceText(for: product, suffix: priceSuffix))
+                Text(oneTime ? "\(product.displayPrice) once" : product.displayPrice)
                     .bold()
             }
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
         .disabled(purchasing)
-    }
-
-    private func badge(for product: Product) -> String {
-        guard product.subscription?.introductoryOffer?.paymentMode == .freeTrial else {
-            return product.id == ProductIDs.yearly ? "Yearly" : "Monthly"
-        }
-
-        return product.id == ProductIDs.yearly ? "Yearly trial" : "Monthly trial"
-    }
-
-    private func priceText(for product: Product, suffix: String?) -> String {
-        guard let suffix else { return product.displayPrice }
-        return "\(product.displayPrice) \(suffix)"
     }
 }

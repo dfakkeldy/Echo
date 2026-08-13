@@ -4,52 +4,24 @@ import Testing
 @testable import Echo
 
 struct StoreEntitlementTests {
-    // Echo Pro is granted by an active subscription, lifetime unlock, or Founders unlock.
-
-    @Test func activeSubscriptionIsPro() {
-        #expect(
-            ProEntitlement.isPro(
-                subscriptionActive: true,
-                lifetimeOwned: false,
-                foundersOwned: false
-            )
-        )
-    }
+    // Echo Pro is a one-time, non-consumable unlock — there is no subscription path.
+    // Pro is granted iff the user owns the lifetime unlock OR the Founders unlock.
 
     @Test func lifetimeOwnerIsPro() {
-        #expect(
-            ProEntitlement.isPro(
-                subscriptionActive: false,
-                lifetimeOwned: true,
-                foundersOwned: false
-            )
-        )
+        #expect(ProEntitlement.isPro(lifetimeOwned: true, foundersOwned: false))
     }
 
     @Test func foundersOwnerIsPro() {
-        #expect(
-            ProEntitlement.isPro(
-                subscriptionActive: false,
-                lifetimeOwned: false,
-                foundersOwned: true
-            )
-        )
+        #expect(ProEntitlement.isPro(lifetimeOwned: false, foundersOwned: true))
     }
 
-    @Test func allEntitlementsOwnedIsPro() {
-        #expect(
-            ProEntitlement.isPro(
-                subscriptionActive: true,
-                lifetimeOwned: true,
-                foundersOwned: true
-            )
-        )
+    @Test func bothOwnedIsPro() {
+        #expect(ProEntitlement.isPro(lifetimeOwned: true, foundersOwned: true))
     }
 
     @Test func temporaryPaywallBypassIsPro() {
         #expect(
             ProEntitlement.isPro(
-                subscriptionActive: false,
                 lifetimeOwned: false,
                 foundersOwned: false,
                 paywallDisabled: true
@@ -58,12 +30,6 @@ struct StoreEntitlementTests {
     }
 
     @Test func nothingOwnedIsNotPro() {
-        #expect(
-            !ProEntitlement.isPro(
-                subscriptionActive: false,
-                lifetimeOwned: false,
-                foundersOwned: false
-            )
-        )
+        #expect(!ProEntitlement.isPro(lifetimeOwned: false, foundersOwned: false))
     }
 }
