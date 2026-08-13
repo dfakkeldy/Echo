@@ -12,11 +12,22 @@ struct TogglePlaybackIntent: AppIntent {
     // An `async` requirement may be witnessed by a `@MainActor` method.
     @MainActor
     func perform() async throws -> some IntentResult {
-        // Widget extensions cannot import WatchConnectivity. The main app
-        // handles watch communication when openAppWhenRun opens it.
+        // Widget extensions cannot import WatchConnectivity, so this intent
+        // cannot toggle real playback itself. It records the desired state
+        // for the watch app (which `openAppWhenRun` opens) to consume in
+        // `refreshAfterWake` and forward to the phone as an absolute
+        // play/pause command. The flag flip below is only the optimistic
+        // card update; the app-group value is reconciled with the phone's
+        // authoritative state as soon as the app pulls it.
         let defaults = AppGroupDefaults.shared
-        let currentIsPlaying = defaults.bool(forKey: "isPlaying")
-        defaults.set(!currentIsPlaying, forKey: "isPlaying")
+        let now = Date()
+        let desiredIsPlaying = !defaults.bool(forKey: "isPlaying")
+        WidgetPlaybackToggleRequest.write(
+            desiredIsPlaying: desiredIsPlaying, at: now, to: defaults)
+        defaults.set(desiredIsPlaying, forKey: "isPlaying")
+        // Re-anchor the progress projection: when the flip starts playback,
+        // projecting from a stale anchor would jump the bar forward.
+        WatchWidgetProgressProjection.writeAnchor(now, to: defaults)
         WidgetCenter.shared.reloadTimelines(ofKind: "Echo_Widget")
 
         return .result()

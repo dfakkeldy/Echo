@@ -925,8 +925,22 @@ final class PlayerLoadingCoordinator {
                             state.m4bBooks.indices.contains(pending.bookIndex)
                             ? state.m4bBooks[pending.bookIndex].cumulativeStartOffset : 0
                         let intraBookTime = max(0, pending.startSeconds - bookOffset) + 0.05
+                        // Cross-book chapter navigation while playing:
+                        // reportTrackLoading() zeroed state.isPlaying for this
+                        // load, but AudioEngine.replaceCurrentItem auto-resumed
+                        // the engine from its own (still-true) flag. Capture
+                        // the engine's truth before the seek stops the node,
+                        // and restore it so resumeAfterSeek republishes the
+                        // state the user actually hears instead of "paused"
+                        // over audible playback. A genuinely paused user
+                        // (engine never auto-resumed) stays paused, as today.
+                        let wasAudiblyPlaying = audioEngine.isPlaying
                         audioEngine.seek(to: intraBookTime) { [weak self] _ in
-                            self?.playbackController?.resumeAfterSeek()
+                            guard let self else { return }
+                            if wasAudiblyPlaying {
+                                state.isPlaying = true
+                            }
+                            self.playbackController?.resumeAfterSeek()
                         }
                     } else if let autoplayRequest,
                         self.isAutoplayRequestCurrent(autoplayRequest)

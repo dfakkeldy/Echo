@@ -632,6 +632,10 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 }
                 self.totalProgressFraction = totalProgressFraction
                 self.defaults.set(totalProgressFraction, forKey: "totalProgressFraction")
+                // Anchor the widget's wall-clock projection to this
+                // authoritative fraction so timeline entries can keep the
+                // Smart Stack bar moving between deliveries.
+                WatchWidgetProgressProjection.writeAnchor(Date(), to: self.defaults)
                 if delta > 0.02 {
                     Task { @MainActor in
                         try? await Task.sleep(for: .seconds(0.5))
@@ -971,11 +975,45 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     func refreshAfterWake() {
         appWillEnterForeground()
         applyReceivedApplicationContext()
+        consumePendingWidgetToggle()
         stateRequestRetriesRemaining = Self.maxStateRequestRetries
 
         guard wakeRefreshPolicy.canRefresh() else { return }
         guard requestCurrentState() else { return }
         wakeRefreshPolicy.recordRefresh()
+    }
+
+    /// Completes the widget play/pause intent's handshake. The widget
+    /// extension has no `WCSession`, so `TogglePlaybackIntent` can only
+    /// record the desired state and open this app; the app performs the real
+    /// transport command once it wakes. The command is absolute
+    /// ("play"/"pause", already idempotent on the phone router) so an
+    /// authoritative state push landing between tap and consumption can't
+    /// cause a double toggle.
+    private func consumePendingWidgetToggle() {
+        guard let desired = WidgetPlaybackToggleRequest.consume(from: defaults, at: Date())
+        else { return }
+        isPlaying = desired
+        updatePlaybackTimer()
+        sendCommand(desired ? "play" : "pause")
+    }
+
+    /// Handles a `.backgroundTask(.watchConnectivity)` wake: the system
+    /// launched or resumed this app in the background because the phone
+    /// pushed WatchConnectivity content. Waits briefly for the session to
+    /// finish activating and delivering (the delegate callbacks apply state
+    /// as it lands), then applies the latest coalesced application context so
+    /// the app-group snapshot — and through it the Smart Stack widget —
+    /// reflects the push even though the UI never came to the foreground.
+    func drainBackgroundConnectivity() async {
+        guard WCSession.isSupported() else { return }
+        let session = WCSession.default
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            if session.activationState == .activated, !session.hasContentPending { break }
+            try? await Task.sleep(for: .milliseconds(150))
+        }
+        applyReceivedApplicationContext()
     }
 
     private static func isDirectionalCommand(_ command: String) -> Bool {
