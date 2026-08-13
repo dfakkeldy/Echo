@@ -666,6 +666,30 @@ import ZIPFoundation
         #expect(fixture.model.totalCount == 0)
     }
 
+    @Test(arguments: RemovedImportArtifact.allCases)
+    func freshProvenanceReloadClearsRemovedSuccessfulImport(
+        _ removedArtifact: RemovedImportArtifact
+    ) async throws {
+        let fixture = try ABSBrowseModelFixture(importZipEntry: "book.m4b")
+        fixture.stubLibraryItems(ids: [fixture.item.id])
+        await fixture.model.load()
+        await fixture.model.setNotAddedOnly(true).value
+        await fixture.model.add(fixture.item)
+        guard case .added(let book) = fixture.model.importState(for: fixture.item.id) else {
+            Issue.record("Expected Added state before removing local provenance")
+            return
+        }
+        try fixture.removeImportedBook(book, artifact: removedArtifact)
+
+        await fixture.model.refresh()
+
+        #expect(fixture.model.importState(for: fixture.item.id) == .ready)
+        #expect(fixture.model.openTarget(for: fixture.item.id) == nil)
+        #expect(fixture.model.addedBooksByRemoteID[fixture.item.id] == nil)
+        #expect(fixture.model.displayedItems.map(\.id) == [fixture.item.id])
+        #expect(fixture.model.totalCount == 1)
+    }
+
     @Test func importSuccessDoesNotCancelSuspendedNotAddedDisableProjection() async throws {
         let gate = NextAsyncGate()
         let fixture = try ABSBrowseModelFixture(
@@ -1050,6 +1074,18 @@ private final class ABSBrowseModelFixture {
         try Self.decodeItem(id: id, libraryID: "l1")
     }
 
+    func removeImportedBook(
+        _ book: ABSImportedBook,
+        artifact: RemovedImportArtifact
+    ) throws {
+        switch artifact {
+        case .provenance:
+            try AudiobookDAO(db: db.writer).delete(book.folderURL.absoluteString)
+        case .usableFolder:
+            try FileManager.default.removeItem(at: book.folderURL)
+        }
+    }
+
     @discardableResult
     func insertUsableProvenance(remoteID: String, folderName: String) throws -> URL {
         let root = FileManager.default.temporaryDirectory.appending(
@@ -1134,6 +1170,11 @@ private actor ABSBrowseImportGate {
         releaseWaiters.forEach { $0.resume() }
         releaseWaiters.removeAll()
     }
+}
+
+enum RemovedImportArtifact: CaseIterable, Sendable {
+    case provenance
+    case usableFolder
 }
 
 private actor NextAsyncGate {

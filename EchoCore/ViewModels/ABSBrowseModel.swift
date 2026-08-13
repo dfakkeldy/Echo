@@ -48,6 +48,7 @@ final class ABSBrowseModel {
     @ObservationIgnored private var importTask: Task<ABSImportedBook, Error>?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var projectionGeneration = 0
+    @ObservationIgnored private var importSuccessRevision = 0
     @ObservationIgnored private var nextPage: Int?
     @ObservationIgnored private var serverTotal: Int?
 
@@ -258,6 +259,7 @@ final class ABSBrowseModel {
                 task.cancel()
             }
             guard activeImportItemID == item.id else { return }
+            importSuccessRevision += 1
             addedBooksByRemoteID[item.id] = book
             importStates[item.id] = .added(book)
             if selection.notAddedOnly {
@@ -303,11 +305,12 @@ final class ABSBrowseModel {
             selectedLibraryID = fetchedLibraries.first?.id
             selection.options.removeAll()
         }
+        let provenanceRevision = importSuccessRevision
         let addedBooks = try await loadAddedBooks()
         await afterAddedBooksLoad()
         try Task.checkCancellation()
         guard self.generation == generation else { return }
-        publishAddedBooks(addedBooks)
+        publishAddedBooks(addedBooks, snapshotRevision: provenanceRevision)
 
         guard selectedLibraryID != nil else {
             filterData = .empty
@@ -334,11 +337,12 @@ final class ABSBrowseModel {
             selectedLibraryID = fetchedLibraries.first?.id
             selection.options.removeAll()
         }
+        let provenanceRevision = importSuccessRevision
         let addedBooks = try await loadAddedBooks()
         await afterAddedBooksLoad()
         try Task.checkCancellation()
         guard self.generation == generation else { return }
-        publishAddedBooks(addedBooks)
+        publishAddedBooks(addedBooks, snapshotRevision: provenanceRevision)
         guard selectedLibraryID != nil else {
             filterData = .empty
             items = []
@@ -691,14 +695,33 @@ final class ABSBrowseModel {
         }
     }
 
-    private func publishAddedBooks(_ loadedBooks: [String: ABSImportedBook]) {
-        var mergedBooks = loadedBooks
-        for (itemID, state) in importStates {
-            if case .added(let book) = state {
-                mergedBooks[itemID] = book
+    private func publishAddedBooks(
+        _ loadedBooks: [String: ABSImportedBook],
+        snapshotRevision: Int
+    ) {
+        if snapshotRevision < importSuccessRevision {
+            var mergedBooks = loadedBooks
+            for (itemID, state) in importStates {
+                if case .added(let book) = state {
+                    mergedBooks[itemID] = book
+                }
+            }
+            addedBooksByRemoteID = mergedBooks
+            return
+        }
+
+        addedBooksByRemoteID = loadedBooks
+        let addedItemIDs = importStates.compactMap { itemID, state in
+            if case .added = state { return itemID }
+            return nil
+        }
+        for itemID in addedItemIDs {
+            if let loadedBook = loadedBooks[itemID] {
+                importStates[itemID] = .added(loadedBook)
+            } else {
+                importStates.removeValue(forKey: itemID)
             }
         }
-        addedBooksByRemoteID = mergedBooks
     }
 
     private func publishDisplayedItems(completeResult: Bool? = nil) {
