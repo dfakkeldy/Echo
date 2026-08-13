@@ -38,10 +38,41 @@ import Testing
                    "metadata":{"title":"Thinking Fast","author":"Kahneman"}}}
                 ]}
                 """)
-        let page = try await service.items(libraryID: "lib1")
+        let page = try await service.items(
+            libraryID: "lib1", query: ABSLibraryItemsQuery(sort: .title))
         #expect(page.results.first?.title == "Thinking Fast")
         #expect(page.results.first?.author == "Kahneman")
         #expect(page.results.first?.duration == 3600)
+    }
+
+    @Test func fetchLibraryFilterDataDecodesAllBrowseGroups() async throws {
+        let service = makeService()
+        URLProtocolStub.stub(
+            pathSuffix: "/api/libraries/lib1",
+            queryItems: ["include": "filterdata"],
+            json: """
+                {"filterdata":{
+                  "authors":[{"id":"aut_1","name":"Author One"}],
+                  "series":[{"id":"ser_1","name":"Series One"}],
+                  "genres":["History"],
+                  "tags":["Studied"]
+                }}
+                """)
+
+        let filterData = try await service.libraryFilterData(libraryID: "lib1")
+
+        #expect(filterData.authors == [
+            ABSFilterOption(group: .authors, value: "aut_1", label: "Author One")
+        ])
+        #expect(filterData.series == [
+            ABSFilterOption(group: .series, value: "ser_1", label: "Series One")
+        ])
+        #expect(filterData.genres == [
+            ABSFilterOption(group: .genres, value: "History", label: "History")
+        ])
+        #expect(filterData.tags == [
+            ABSFilterOption(group: .tags, value: "Studied", label: "Studied")
+        ])
     }
 
     @Test func fetchItemsDecodesCurrentABSFilePayloadShapesAndMissingCoverPath() async throws {
@@ -60,7 +91,10 @@ import Testing
                 ]}
                 """)
 
-        let item = try #require(try await service.items(libraryID: "lib1").results.first)
+        let item = try #require(
+            try await service.items(
+                libraryID: "lib1", query: ABSLibraryItemsQuery(sort: .title)
+            ).results.first)
 
         #expect(item.title == "Mixed Media")
         #expect(item.coverPath == nil)
@@ -91,7 +125,8 @@ import Testing
                 ]}
                 """)
 
-        let items = try await service.allItems(libraryID: "lib1", pageSize: 2)
+        let items = try await service.allItems(
+            libraryID: "lib1", query: ABSLibraryItemsQuery(limit: 2, sort: .title))
         let requestedPages = URLProtocolStub.requests.compactMap { request -> String? in
             guard request.url?.path.hasSuffix("/items") == true,
                 let url = request.url,
@@ -100,6 +135,77 @@ import Testing
             else { return nil }
             return page
         }
+
+        #expect(items.map(\.id) == ["itA", "itB", "itC"])
+        #expect(requestedPages == ["0", "1"])
+    }
+
+    @Test func fetchAllItemsStopsAfterShortNonzeroStartPageWithoutNumPages() async throws {
+        let service = makeService()
+        URLProtocolStub.stub(
+            pathSuffix: "/items",
+            queryItems: ["page": "1", "limit": "2"],
+            json: """
+                {"total":3,"limit":2,"page":1,"results":[
+                  {"id":"itC","libraryId":"lib1","media":{"metadata":{"title":"C Book"}}}
+                ]}
+                """)
+
+        let items = try await service.allItems(
+            libraryID: "lib1", query: ABSLibraryItemsQuery(page: 1, limit: 2, sort: .title))
+        let requestedPages = URLProtocolStub.requests.compactMap { request -> String? in
+            guard let url = request.url else { return nil }
+            return URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "page" })?.value
+        }
+
+        #expect(items.map(\.id) == ["itC"])
+        #expect(requestedPages == ["1"])
+    }
+
+    @Test func fetchAllItemsStopsAfterFullNonzeroFinalPageUsingTotalOffset() async throws {
+        let service = makeService()
+        URLProtocolStub.stub(
+            pathSuffix: "/items",
+            queryItems: ["page": "1", "limit": "2"],
+            json: """
+                {"total":4,"limit":2,"page":1,"results":[
+                  {"id":"itC","libraryId":"lib1","media":{"metadata":{"title":"C Book"}}},
+                  {"id":"itD","libraryId":"lib1","media":{"metadata":{"title":"D Book"}}}
+                ]}
+                """)
+
+        let items = try await service.allItems(
+            libraryID: "lib1", query: ABSLibraryItemsQuery(page: 1, limit: 2, sort: .title))
+        let requestedPages = requestedItemPages()
+
+        #expect(items.map(\.id) == ["itC", "itD"])
+        #expect(requestedPages == ["1"])
+    }
+
+    @Test func fetchAllItemsContinuesWhenServerCapsPageSize() async throws {
+        let service = makeService()
+        URLProtocolStub.stub(
+            pathSuffix: "/items",
+            queryItems: ["page": "0", "limit": "100"],
+            json: """
+                {"total":3,"limit":2,"page":0,"results":[
+                  {"id":"itA","libraryId":"lib1","media":{"metadata":{"title":"A Book"}}},
+                  {"id":"itB","libraryId":"lib1","media":{"metadata":{"title":"B Book"}}}
+                ]}
+                """)
+        URLProtocolStub.stub(
+            pathSuffix: "/items",
+            queryItems: ["page": "1", "limit": "100"],
+            json: """
+                {"total":3,"limit":2,"page":1,"results":[
+                  {"id":"itC","libraryId":"lib1","media":{"metadata":{"title":"C Book"}}}
+                ]}
+                """)
+
+        let items = try await service.allItems(
+            libraryID: "lib1", query: ABSLibraryItemsQuery(limit: 100, sort: .title))
+        let requestedPages = requestedItemPages()
 
         #expect(items.map(\.id) == ["itA", "itB", "itC"])
         #expect(requestedPages == ["0", "1"])
@@ -125,7 +231,9 @@ import Testing
         var emittedIDs: [String] = []
 
         do {
-            _ = try await service.pagedItems(libraryID: "lib1", pageSize: 2) { pageItems in
+            _ = try await service.pagedItems(
+                libraryID: "lib1", query: ABSLibraryItemsQuery(limit: 2, sort: .title)
+            ) { pageItems in
                 emittedIDs.append(contentsOf: pageItems.map(\.id))
             }
             Issue.record("Expected the second page to fail")
@@ -167,5 +275,15 @@ import Testing
         #expect(request.url?.path == "/api/items/it1/cover")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer acc")
         #expect(!queryItems.contains { $0.name == "token" })
+    }
+
+    private func requestedItemPages() -> [String] {
+        URLProtocolStub.requests.compactMap { request -> String? in
+            guard request.url?.path.hasSuffix("/items") == true,
+                let url = request.url
+            else { return nil }
+            return URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "page" })?.value
+        }
     }
 }

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Observation
 import SwiftUI
-import os.log
 
 /// macOS Audiobookshelf orchestration over the shared, macOS-clean ABS services
 /// (AudiobookshelfService / ABSTokenStore / ABSImportService / ABSServerDAO).
 /// The iOS `PlayerModel+Audiobookshelf` and ABS views are not part of the macOS
-/// target, so macOS drives the services directly. macOS can save multiple ABS
+/// target, so macOS drives connection ownership directly. Browsing and imports
+/// are delegated to the shared `ABSBrowseModel`. macOS can save multiple ABS
 /// servers, switch the active one, and leaves long-lived progress sync to
 /// `MacPlayerModel+Audiobookshelf`.
 @MainActor
@@ -37,24 +37,14 @@ final class MacAudiobookshelfViewModel {
         let sha256: String
     }
 
-    // Browse
-    var libraries: [ABSLibrary] = []
-    var selectedLibraryID: String?
-    var items: [ABSLibraryItem] = []
-    var searchQuery: String = ""
-    var isLoading: Bool = false
-    var importingItemID: String?
+    var browseModel: ABSBrowseModel?
 
     @ObservationIgnored private let db: DatabaseService
     @ObservationIgnored private var service: AudiobookshelfService?
-    @ObservationIgnored private var serverID: String?
-    @ObservationIgnored private let onPlay: (URL) -> Void
-    @ObservationIgnored private let logger = Logger(
-        subsystem: "com.echo.audiobooks", category: "MacABS")
+    @ObservationIgnored private var connectionIdentity = ABSServerConnectionIdentity()
 
-    init(db: DatabaseService, onPlay: @escaping (URL) -> Void) {
+    init(db: DatabaseService) {
         self.db = db
-        self.onPlay = onPlay
     }
 
     // MARK: Lifecycle
@@ -66,10 +56,13 @@ final class MacAudiobookshelfViewModel {
             return
         }
         server = record
-        serverID = record.id
+        connectionIdentity.activate(record.id)
         service = makeService(for: record)
         phase = .connected
-        await loadLibraries()
+        if let service {
+            installBrowseModel(service: service, serverID: record.id)
+            await browseModel?.load()
+        }
     }
 
     private func loadSavedServers() {
@@ -118,7 +111,7 @@ final class MacAudiobookshelfViewModel {
     private func attemptConnect(baseURL: URL, trustingCertificate: String?) async {
         phase = .connecting
         errorMessage = nil
-        let newServerID = serverID ?? UUID().uuidString
+        let newServerID = connectionIdentity.prepareNewConnection()
         let tokens = ABSTokenStore(serverID: newServerID)
         if let cert = trustingCertificate { tokens.pinnedCertificateSHA256 = cert }
         let host = baseURL.host?.lowercased() ?? ""
@@ -135,35 +128,40 @@ final class MacAudiobookshelfViewModel {
                 defaultLibraryId: defaultLib,
                 addedAt: Date().ISO8601Format())
             let dao = ABSServerDAO(db: db.writer)
-            try dao.upsert(record)
-            try dao.setActive(newServerID)
+            try dao.upsertAndSetActive(record)
+            clearBrowseModel()
             service?.invalidate()
             service = svc
-            serverID = newServerID
+            connectionIdentity.activatePendingConnection()
             server = record
             password = ""
             phase = .connected
-            // Must reset before loadLibraries() — otherwise a library ID left over
-            // from a previously-connected server survives the `selectedLibraryID ==
-            // nil` guard there and gets queried against this new server, 404ing.
-            // switchTo(_:) already resets this; attemptConnect() (first connect AND
-            // "Add Server" while already connected) did not, until this fix.
-            selectedLibraryID = nil
             loadSavedServers()
-            await loadLibraries()
+            installBrowseModel(service: svc, serverID: newServerID)
+            await browseModel?.load()
         } catch let absError as ABSError {
-            svc.invalidate()
             phase = server != nil ? .connected : .disconnected
             if case .untrustedCertificate(let h, let sha) = absError {
+                // Preserve this pending namespace only for the explicit trust retry.
+                svc.invalidate()
                 pendingCert = PendingCert(host: h, sha256: sha)
             } else {
+                discardFailedConnection(svc: svc, tokens: tokens)
                 errorMessage = absError.errorDescription ?? "Could not connect to the server."
             }
         } catch {
-            svc.invalidate()
+            discardFailedConnection(svc: svc, tokens: tokens)
             phase = server != nil ? .connected : .disconnected
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func discardFailedConnection(
+        svc: AudiobookshelfService,
+        tokens: ABSTokenStore
+    ) {
+        svc.invalidate()
+        ABSPendingConnectionCleanup.discard(identity: &connectionIdentity, tokens: tokens)
     }
 
     func disconnect() async {
@@ -173,6 +171,7 @@ final class MacAudiobookshelfViewModel {
 
     func beginAddingServer() {
         errorMessage = nil
+        discardPendingConnection()
         serverURLText = ""
         username = ""
         password = ""
@@ -181,6 +180,7 @@ final class MacAudiobookshelfViewModel {
 
     func cancelAddingServer() {
         errorMessage = nil
+        discardPendingConnection()
         phase = server != nil ? .connected : .disconnected
     }
 
@@ -189,7 +189,6 @@ final class MacAudiobookshelfViewModel {
     /// is needed.
     func switchTo(_ saved: ABSServerRecord) async {
         errorMessage = nil
-        service?.invalidate()
         guard let newService = makeService(for: saved) else {
             errorMessage = "Could not reconnect to this server."
             return
@@ -197,23 +196,27 @@ final class MacAudiobookshelfViewModel {
         do {
             try ABSServerDAO(db: db.writer).setActive(saved.id)
         } catch {
+            newService.invalidate()
             errorMessage = error.localizedDescription
             return
         }
+        clearBrowseModel()
+        service?.invalidate()
         service = newService
-        serverID = saved.id
+        connectionIdentity.activate(saved.id)
         server = saved
-        selectedLibraryID = nil
         phase = .connected
         loadSavedServers()
-        await loadLibraries()
+        installBrowseModel(service: newService, serverID: saved.id)
+        await browseModel?.load()
     }
 
     /// Removes a saved server: best-effort remote sign-out if it was the
     /// active one, clears its Keychain tokens, deletes its DB row. Mirrors
     /// the old `disconnect()` but targets a specific server.
     func removeSavedServer(_ saved: ABSServerRecord) async {
-        let wasActive = saved.id == serverID
+        let wasActive = saved.id == connectionIdentity.activeServerID
+        if wasActive { clearBrowseModel() }
         if wasActive, let svc = service {
             _ = await svc.signOut()
             svc.invalidate()
@@ -223,73 +226,37 @@ final class MacAudiobookshelfViewModel {
         loadSavedServers()
         guard wasActive else { return }
         service = nil
-        serverID = nil
+        connectionIdentity.clearActiveConnection()
         server = nil
-        libraries = []
-        items = []
-        selectedLibraryID = nil
         phase = .disconnected
     }
 
-    // MARK: Browse
-
-    func loadLibraries() async {
-        guard let service else { return }
-        isLoading = true
-        defer { isLoading = false }
-        do {
-            libraries = try await service.libraries()
-            if selectedLibraryID == nil {
-                selectedLibraryID = server?.defaultLibraryId ?? libraries.first?.id
-            }
-            await loadItems()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+    private func installBrowseModel(service: AudiobookshelfService, serverID: String) {
+        browseModel = ABSBrowseModel(service: service, db: db, serverID: serverID)
     }
 
-    func loadItems() async {
-        guard let service, let libraryID = selectedLibraryID else { return }
-        isLoading = true
-        defer { isLoading = false }
-        do {
-            items = try await service.allItems(libraryID: libraryID)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+    func cancelBrowseWork() {
+        browseModel?.cancelImport()
+        browseModel?.cancel()
     }
 
-    func runSearch() async {
-        guard let service, let libraryID = selectedLibraryID else { return }
-        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else {
-            await loadItems()
-            return
-        }
-        isLoading = true
-        defer { isLoading = false }
-        do {
-            items = try await service.search(libraryID: libraryID, query: query)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+    func shutdown() {
+        clearBrowseModel()
+        discardPendingConnection()
+        service?.invalidate()
+        service = nil
     }
 
-    /// Downloads + imports the item into the local library and hands the folder to
-    /// the player for playback. Returns true on success (caller dismisses).
-    func addToLibrary(_ item: ABSLibraryItem) async -> Bool {
-        guard let service, let sid = serverID else { return false }
-        importingItemID = item.id
-        defer { importingItemID = nil }
-        do {
-            let importer = ABSImportService(service: service, db: db, serverID: sid)
-            let folderURL = try await importer.prepareLocalFolder(for: item)
-            onPlay(folderURL)
-            return true
-        } catch {
-            errorMessage = error.localizedDescription
-            return false
-        }
+    private func clearBrowseModel() {
+        cancelBrowseWork()
+        browseModel = nil
+    }
+
+    private func discardPendingConnection() {
+        guard let pendingServerID = connectionIdentity.pendingServerID else { return }
+        ABSPendingConnectionCleanup.discard(
+            identity: &connectionIdentity,
+            tokens: ABSTokenStore(serverID: pendingServerID))
     }
 }
 
@@ -297,10 +264,12 @@ final class MacAudiobookshelfViewModel {
 /// File ▸ Connect to Audiobookshelf….
 struct MacAudiobookshelfView: View {
     @State private var model: MacAudiobookshelfViewModel
+    private let onPlay: (URL) -> Void
     @Environment(\.dismiss) private var dismiss
 
     init(db: DatabaseService, onPlay: @escaping (URL) -> Void) {
-        _model = State(initialValue: MacAudiobookshelfViewModel(db: db, onPlay: onPlay))
+        self.onPlay = onPlay
+        _model = State(initialValue: MacAudiobookshelfViewModel(db: db))
     }
 
     var body: some View {
@@ -311,12 +280,19 @@ struct MacAudiobookshelfView: View {
             case .disconnected, .addingServer: connectForm
             case .connecting:
                 ProgressView("Connecting…").frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .connected: browse
+            case .connected:
+                if let browseModel = model.browseModel {
+                    MacAudiobookshelfBrowseView(browseModel: browseModel, onPlay: onPlay)
+                } else {
+                    ProgressView("Loading Audiobookshelf…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
         }
-        .frame(width: 580, height: 500)
+        .frame(width: 820, height: 620)
         .padding()
         .task { await model.load() }
+        .onDisappear { model.shutdown() }
         .alert(
             "Use an unencrypted connection?",
             isPresented: Binding(
@@ -361,7 +337,7 @@ struct MacAudiobookshelfView: View {
                 Button("Cancel") { model.cancelAddingServer() }
                     .buttonStyle(.borderedProminent)
             }
-            Button("Done") { dismiss() }
+            Button("Done", action: close)
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.cancelAction)
         }
@@ -422,63 +398,8 @@ struct MacAudiobookshelfView: View {
         .padding(.vertical, 2)
     }
 
-    private var browse: some View {
-        VStack(spacing: 8) {
-            HStack {
-                Picker("Library", selection: $model.selectedLibraryID) {
-                    ForEach(model.libraries) { library in
-                        Text(library.name).tag(Optional(library.id))
-                    }
-                }
-                .labelsHidden()
-                .onChange(of: model.selectedLibraryID) { _, _ in Task { await model.loadItems() } }
-
-                TextField("Search", text: $model.searchQuery)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit { Task { await model.runSearch() } }
-            }
-
-            if let error = model.errorMessage {
-                Text(error).foregroundStyle(.red).font(.caption)
-            }
-
-            if model.isLoading {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if model.items.isEmpty {
-                ContentUnavailableView(
-                    "No items", systemImage: "books.vertical",
-                    description: Text(
-                        "This library has no audiobooks, or the search found nothing."))
-            } else {
-                List(model.items) { item in
-                    itemRow(item)
-                }
-            }
-        }
-    }
-
-    private func itemRow(_ item: ABSLibraryItem) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.title ?? "Untitled").fontWeight(.medium)
-                if let author = item.author {
-                    Text(author).font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            Spacer()
-            if model.importingItemID == item.id {
-                ProgressView().controlSize(.small)
-            } else {
-                Button("Add") {
-                    Task {
-                        if await model.addToLibrary(item) { dismiss() }
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .disabled(model.importingItemID != nil || item.hasAudioContent == false)
-            }
-        }
-        .padding(.vertical, 2)
+    private func close() {
+        model.shutdown()
+        dismiss()
     }
 }

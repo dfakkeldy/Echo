@@ -138,6 +138,43 @@ struct ABSLibraryItemsResponse: Decodable {
     let numPages: Int?
 }
 
+struct ABSLibraryFilterDataResponse: Decodable {
+    let filterdata: FilterData?
+
+    struct FilterData: Decodable {
+        let authors: [NamedValue]?
+        let series: [NamedValue]?
+        let genres: [String]?
+        let tags: [String]?
+    }
+
+    struct NamedValue: Decodable {
+        let id: String
+        let name: String
+    }
+
+    var browseFilterData: ABSLibraryFilterData {
+        guard let filterdata else { return .empty }
+        return ABSLibraryFilterData(
+            authors: Self.options(filterdata.authors, group: .authors),
+            series: Self.options(filterdata.series, group: .series),
+            genres: Self.options(filterdata.genres, group: .genres),
+            tags: Self.options(filterdata.tags, group: .tags))
+    }
+
+    private static func options(
+        _ values: [NamedValue]?, group: ABSFilterGroup
+    ) -> [ABSFilterOption] {
+        (values ?? []).map { ABSFilterOption(group: group, value: $0.id, label: $0.name) }
+    }
+
+    private static func options(
+        _ values: [String]?, group: ABSFilterGroup
+    ) -> [ABSFilterOption] {
+        (values ?? []).map { ABSFilterOption(group: group, value: $0, label: $0) }
+    }
+}
+
 // MARK: - Library Item
 
 struct ABSLibraryItem: Decodable, Identifiable {
@@ -150,16 +187,19 @@ struct ABSLibraryItem: Decodable, Identifiable {
     let isFile: Bool?
     let mimeType: String?
     let size: Int64?
+    let addedAt: Int64?
     let media: ABSMedia?
 
     // If media.metadata is present, these convenience accessors surface the
     // relevant metadata fields.
-    var title: String? { media?.metadata?.title }
-    var author: String? { media?.metadata?.authorName }
-    var publishedYear: String? { media?.metadata?.publishedYear }
+    nonisolated var title: String? { media?.metadata?.title }
+    nonisolated var author: String? { media?.metadata?.author }
+    nonisolated var publishedYear: String? { media?.metadata?.publishedYear }
     var numTracks: Int? { media?.numTracks }
     var duration: Double? { media?.duration }
     var coverPath: String? { media?.coverPath }
+    nonisolated var seriesName: String? { media?.metadata?.series }
+    nonisolated var seriesSequence: String? { media?.metadata?.seriesSequence }
     var hasAudioContent: Bool { media?.hasAudioContent == true }
 
     /// Genre + tag + series, deduped — the "topics" Echo persists on import.
@@ -211,6 +251,7 @@ struct ABSLibraryItem: Decodable, Identifiable {
         let asin: String?
         let language: String?
         let explicit: Bool?
+        let seriesSequence: String?
 
         var authorName: String? { author }
         var userReadableDescription: String? {
@@ -243,6 +284,7 @@ struct ABSLibraryItem: Decodable, Identifiable {
                 Self.string(in: container, forKey: .series)
                 ?? Self.string(in: container, forKey: .seriesName)
                 ?? Self.joined(Self.namedValues(in: container, forKey: .series))
+            seriesSequence = Self.firstSeriesSequence(in: container)
             description = Self.string(in: container, forKey: .description)
             genres = Self.stringArray(in: container, forKey: .genres)
             publishedYear = Self.string(in: container, forKey: .publishedYear)
@@ -255,6 +297,22 @@ struct ABSLibraryItem: Decodable, Identifiable {
 
         private struct NamedValue: Decodable {
             let name: String?
+        }
+
+        private struct SeriesValue: Decodable {
+            let sequence: String?
+        }
+
+        private static func firstSeriesSequence(
+            in container: KeyedDecodingContainer<CodingKeys>
+        ) -> String? {
+            if let values = try? container.decodeIfPresent([SeriesValue].self, forKey: .series) {
+                return normalized(values.first?.sequence)
+            }
+            if let value = try? container.decodeIfPresent(SeriesValue.self, forKey: .series) {
+                return normalized(value.sequence)
+            }
+            return nil
         }
 
         private static func string(
@@ -311,7 +369,8 @@ struct ABSLibraryItem: Decodable, Identifiable {
             text = Self.replacingPattern(#"<[^>]+>"#, in: text, with: "")
             text = Self.unescapeHTMLEntities(in: text)
 
-            let lines = text
+            let lines =
+                text
                 .components(separatedBy: .newlines)
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             return normalized(lines.filter { !$0.isEmpty }.joined(separator: "\n\n"))
@@ -449,7 +508,7 @@ struct ABSLibraryItem: Decodable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, ino, libraryId, folderId, path, relPath, isFile, mimeType, size, media
+        case id, ino, libraryId, folderId, path, relPath, isFile, mimeType, size, addedAt, media
     }
 }
 
@@ -459,9 +518,12 @@ struct ABSSearchResponse: Decodable {
     let book: [ABSSearchBookResult]
     let podcast: [ABSSearchBookResult]
     let authors: [ABSSearchAuthorResult]
+    let series: [ABSSearchSeriesResult]
 
     var libraryItems: [ABSLibraryItem] {
-        deduped(book.map(\.libraryItem) + podcast.map(\.libraryItem) + authors.flatMap(\.libraryItems))
+        deduped(
+            book.map(\.libraryItem) + podcast.map(\.libraryItem)
+                + series.flatMap(\.books) + authors.flatMap(\.libraryItems))
     }
 
     var authorNames: [String] {
@@ -469,7 +531,7 @@ struct ABSSearchResponse: Decodable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case book, podcast, authors
+        case book, podcast, authors, series
     }
 
     init(from decoder: Decoder) throws {
@@ -478,6 +540,14 @@ struct ABSSearchResponse: Decodable {
         podcast = try container.decodeIfPresent([ABSSearchBookResult].self, forKey: .podcast) ?? []
         authors =
             try container.decodeIfPresent([ABSSearchAuthorResult].self, forKey: .authors) ?? []
+        series =
+            try container.decodeIfPresent([ABSSearchSeriesResult].self, forKey: .series) ?? []
+    }
+
+    func isPotentiallyLimited(to limit: Int) -> Bool {
+        let limit = max(1, limit)
+        return book.count >= limit || podcast.count >= limit || authors.count >= limit
+            || series.count >= limit
     }
 
     private func deduped(_ items: [ABSLibraryItem]) -> [ABSLibraryItem] {
@@ -486,8 +556,18 @@ struct ABSSearchResponse: Decodable {
     }
 }
 
+struct ABSSearchResults {
+    let items: [ABSLibraryItem]
+    let isLimited: Bool
+}
+
 struct ABSSearchBookResult: Decodable {
     let libraryItem: ABSLibraryItem
+}
+
+/// Current ABS search payload: each matched series contains its books as raw library items.
+struct ABSSearchSeriesResult: Decodable {
+    let books: [ABSLibraryItem]
 }
 
 struct ABSSearchAuthorResult: Decodable {

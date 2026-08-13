@@ -11,7 +11,8 @@ struct ABSConnectionsSettingsView: View {
     @State private var isConnecting = false
     @State private var errorMessage: String?
     @State private var warningMessage: String?
-    @State private var showingBrowse = false
+    @State private var browseDestination: BrowseDestination?
+    @State private var activeBrowseModel: ABSBrowseModel?
     @State private var pendingTrust: PendingTrust?
     @State private var pendingPlaintextConnection: PlaintextConnectionWarning?
 
@@ -34,12 +35,17 @@ struct ABSConnectionsSettingsView: View {
         }
     }
 
+    private struct BrowseDestination: Identifiable {
+        let id = UUID()
+        let model: ABSBrowseModel
+    }
+
     var body: some View {
         Form {
             if let server = connected {
                 ABSConnectedServerSection(
                     server: server,
-                    showingBrowse: $showingBrowse,
+                    browse: presentBrowse,
                     signOut: signOut)
             } else {
                 ABSAddServerSection(
@@ -68,7 +74,13 @@ struct ABSConnectionsSettingsView: View {
         }
         .navigationTitle("Connections")
         .task { connected = (try? model.absServerDAO?.current()) ?? nil }
-        .sheet(isPresented: $showingBrowse) { ABSBrowseView() }
+        .sheet(item: $browseDestination, onDismiss: cancelBrowse) { destination in
+            ABSBrowseView(browseModel: destination.model) { book in
+                model.openAudiobookshelfBook(book)
+                cancelBrowse()
+                browseDestination = nil
+            }
+        }
         .alert(
             "Self-Signed Certificate",
             isPresented: Binding(
@@ -103,7 +115,8 @@ struct ABSConnectionsSettingsView: View {
             Button("Cancel", role: .cancel) { pendingPlaintextConnection = nil }
         } message: { warning in
             Text(
-                "Echo will send your Audiobookshelf username and password to \(warning.displayHost) without transport encryption. Use HTTPS or self-signed HTTPS when possible.")
+                "Echo will send your Audiobookshelf username and password to \(warning.displayHost) without transport encryption. Use HTTPS or self-signed HTTPS when possible."
+            )
         }
     }
 
@@ -150,6 +163,25 @@ struct ABSConnectionsSettingsView: View {
         await connect(to: url, trustingCertificate: trust.sha256)
     }
 
+    private func presentBrowse() {
+        guard let browseModel = model.makeABSBrowseModel() else {
+            errorMessage = String(
+                localized:
+                    "Audiobookshelf browsing is unavailable because Echo could not access the active connection or local library database."
+            )
+            return
+        }
+        errorMessage = nil
+        activeBrowseModel = browseModel
+        browseDestination = BrowseDestination(model: browseModel)
+    }
+
+    private func cancelBrowse() {
+        activeBrowseModel?.cancelImport()
+        activeBrowseModel?.cancel()
+        activeBrowseModel = nil
+    }
+
     private func signOut(_ server: ABSServerRecord) async {
         do {
             let result = try await model.disconnectAudiobookshelf(server)
@@ -160,7 +192,8 @@ struct ABSConnectionsSettingsView: View {
                     model.absRemoteSignOutWarning
                     ?? String(
                         localized:
-                            "Echo signed out locally, but Audiobookshelf did not confirm remote sign-out. The server session may remain active until it expires.")
+                            "Echo signed out locally, but Audiobookshelf did not confirm remote sign-out. The server session may remain active until it expires."
+                    )
             } else {
                 warningMessage = nil
             }
@@ -168,7 +201,8 @@ struct ABSConnectionsSettingsView: View {
             errorMessage =
                 String(
                     localized:
-                        "Could not remove the Audiobookshelf server from this device. Try signing out again.")
+                        "Could not remove the Audiobookshelf server from this device. Try signing out again."
+                )
             warningMessage = model.absRemoteSignOutWarning
         }
     }
@@ -176,7 +210,7 @@ struct ABSConnectionsSettingsView: View {
 
 private struct ABSConnectedServerSection: View {
     let server: ABSServerRecord
-    @Binding var showingBrowse: Bool
+    let browse: () -> Void
     let signOut: (ABSServerRecord) async -> Void
 
     var body: some View {
@@ -190,7 +224,7 @@ private struct ABSConnectedServerSection: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
-            Button("Browse Library") { showingBrowse = true }
+            Button("Browse Library", action: browse)
             Button("Sign Out", role: .destructive) {
                 Task { await signOut(server) }
             }

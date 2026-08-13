@@ -29,17 +29,28 @@ struct ABSEndpoints {
     func logout() -> URL { baseURL.appending(path: "logout") }
     func libraries() -> URL { baseURL.appending(path: "api/libraries") }
 
-    func items(libraryID: String, page: Int, limit: Int, filter: String?) -> URL {
+    func items(libraryID: String, query: ABSLibraryItemsQuery) -> URL {
         var url = baseURL.appending(path: "api/libraries/\(libraryID)/items")
         var q = [
-            URLQueryItem(name: "page", value: String(page)),
-            URLQueryItem(name: "limit", value: String(limit)),
-            URLQueryItem(name: "sort", value: "media.metadata.title"),
+            URLQueryItem(name: "page", value: String(query.page)),
+            URLQueryItem(name: "limit", value: String(query.limit)),
             URLQueryItem(name: "minified", value: "0"),
         ]
-        if let filter, !filter.isEmpty { q.append(URLQueryItem(name: "filter", value: filter)) }
-        url.append(queryItems: q)
-        return url
+        if let sortField = query.sortField {
+            q.append(URLQueryItem(name: "sort", value: sortField))
+        }
+        q.append(URLQueryItem(name: "desc", value: query.descending ? "1" : "0"))
+        if let filter = query.filter?.encodedFilter, !filter.isEmpty {
+            q.append(URLQueryItem(name: "filter", value: Self.percentEncodedFilterValue(filter)))
+        }
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.percentEncodedQueryItems = q
+        return components?.url ?? url
+    }
+
+    func libraryFilterData(_ libraryID: String) -> URL {
+        baseURL.appending(path: "api/libraries/\(libraryID)")
+            .appending(queryItems: [.init(name: "include", value: "filterdata")])
     }
 
     func item(_ id: String) -> URL {
@@ -76,4 +87,10 @@ struct ABSEndpoints {
 
     func progress(_ itemID: String) -> URL { baseURL.appending(path: "api/me/progress/\(itemID)") }
     func localSessionsSync() -> URL { baseURL.appending(path: "api/session/local-all") }
+
+    private static func percentEncodedFilterValue(_ value: String) -> String {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: ".")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+    }
 }

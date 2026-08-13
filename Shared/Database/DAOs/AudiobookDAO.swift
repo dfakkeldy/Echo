@@ -27,6 +27,26 @@ struct AudiobookDAO {
         }
     }
 
+    func audiobookshelfRecords(serverID: String) throws -> [AudiobookRecord] {
+        try db.read { db in
+            try AudiobookRecord
+                .filter(Column("source_type") == "audiobookshelf")
+                .filter(Column("server_id") == serverID)
+                .filter(Column("remote_item_id") != nil)
+                .fetchAll(db)
+        }
+    }
+
+    func audiobookshelfRecordsAsync(serverID: String) async throws -> [AudiobookRecord] {
+        try await db.read { db in
+            try AudiobookRecord
+                .filter(Column("source_type") == "audiobookshelf")
+                .filter(Column("server_id") == serverID)
+                .filter(Column("remote_item_id") != nil)
+                .fetchAll(db)
+        }
+    }
+
     /// Async variant for callers on the main actor (e.g. CarPlay connect) so the
     /// query runs on GRDB's pool rather than blocking the UI thread (audit §7.3).
     /// Named distinctly from `all()` so it doesn't shadow the sync overload at
@@ -46,7 +66,7 @@ struct AudiobookDAO {
     }
 }
 
-struct AudiobookRecord: Codable, FetchableRecord, MutablePersistableRecord {
+struct AudiobookRecord: Codable, FetchableRecord, MutablePersistableRecord, Sendable {
     var id: String
     var title: String
     var author: String?

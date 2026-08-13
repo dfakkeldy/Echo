@@ -180,6 +180,22 @@ extension PlayerModel {
         return service
     }
 
+    func makeABSBrowseModel() -> ABSBrowseModel? {
+        guard let service = makeAudiobookshelfService(),
+            let db = databaseService,
+            let serverID = absServiceServerID ?? (try? absServerDAO?.current())?.id,
+            !serverID.isEmpty
+        else {
+            return nil
+        }
+        return ABSBrowseModel(service: service, db: db, serverID: serverID)
+    }
+
+    func openAudiobookshelfBook(_ book: ABSImportedBook) {
+        loadFolder(book.folderURL, autoplay: false)
+        selectedTab = .nowPlaying
+    }
+
     // MARK: - Progress sync
 
     /// Cache whether the currently-loaded book is ABS-sourced (so the hot save path is a
@@ -292,7 +308,7 @@ extension PlayerModel {
         // resume; this covers the common "switch apps while it downloads" case.
         let bgTask = UIApplication.shared.beginBackgroundTask(withName: "abs-import")
         defer { if bgTask != .invalid { UIApplication.shared.endBackgroundTask(bgTask) } }
-        let folder = try await importer.prepareLocalFolder(for: item)
-        loadFolder(folder, autoplay: false)
+        let book = try await importer.prepareLocalFolder(for: item)
+        loadFolder(book.folderURL, autoplay: false)
     }
 }

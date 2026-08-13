@@ -11,6 +11,54 @@ import Testing
 /// views aren't part of the macOS target).
 struct MacAudiobookshelfParityTests {
 
+    @Test func pendingConnectionKeepsFreshNamespaceAcrossTrustRetry() {
+        var generatedIDs = ["pending-1", "pending-2"].makeIterator()
+        var identity = ABSServerConnectionIdentity(activeServerID: "active") {
+            generatedIDs.next()!
+        }
+
+        let firstAttempt = identity.prepareNewConnection()
+        let trustRetry = identity.prepareNewConnection()
+
+        #expect(firstAttempt == "pending-1")
+        #expect(trustRetry == "pending-1")
+        #expect(identity.activeServerID == "active")
+        #expect(identity.pendingServerID == "pending-1")
+
+        identity.discardPendingConnection()
+        #expect(identity.prepareNewConnection() == "pending-2")
+        #expect(identity.activeServerID == "active")
+    }
+
+    @Test func activatingPendingConnectionChangesNamespaceOnlyAfterSuccess() {
+        var identity = ABSServerConnectionIdentity(activeServerID: "active") { "pending" }
+
+        _ = identity.prepareNewConnection()
+        #expect(identity.activeServerID == "active")
+
+        #expect(identity.activatePendingConnection() == "pending")
+        #expect(identity.activeServerID == "pending")
+        #expect(identity.pendingServerID == nil)
+    }
+
+    @MainActor
+    @Test func failedPendingConnectionCleanupClearsTokensPinAndIdentityWithoutChangingActive() {
+        var identity = ABSServerConnectionIdentity(activeServerID: "active") { "pending" }
+        let pendingID = identity.prepareNewConnection()
+        let tokens = ABSTokenStore(serverID: pendingID)
+        tokens.accessToken = "access"
+        tokens.refreshToken = "refresh"
+        tokens.pinnedCertificateSHA256 = "deadbeef"
+
+        ABSPendingConnectionCleanup.discard(identity: &identity, tokens: tokens)
+
+        #expect(tokens.accessToken == nil)
+        #expect(tokens.refreshToken == nil)
+        #expect(tokens.pinnedCertificateSHA256 == nil)
+        #expect(identity.pendingServerID == nil)
+        #expect(identity.activeServerID == "active")
+    }
+
     @Test func connectsViaSharedService() throws {
         let src = try MacSource.read("Views/MacAudiobookshelfView.swift")
         #expect(
@@ -25,14 +73,120 @@ struct MacAudiobookshelfParityTests {
             "Connect must handle the self-signed certificate trust flow.")
     }
 
-    @Test func browsesAndImports() throws {
-        let src = try MacSource.read("Views/MacAudiobookshelfView.swift")
+    @Test func browseUsesSharedStateAndRetainsSuccess() throws {
+        let host = try MacSource.read("Views/MacAudiobookshelfView.swift")
+        let browse = try MacSource.read("Views/MacAudiobookshelfBrowseView.swift")
         #expect(
-            src.contains(".libraries()") && src.contains(".allItems(") && src.contains(".search("),
-            "The browser must list libraries/items and search via the shared service.")
+            host.contains("ABSBrowseModel(")
+                && host.contains("var browseModel: ABSBrowseModel?"),
+            "macOS must construct and retain the shared browse model after connecting.")
         #expect(
-            src.contains("ABSImportService(") && src.contains("prepareLocalFolder("),
-            "Adding an item must download + import it via the shared ABSImportService.")
+            browse.contains("Open in Echo")
+                && browse.contains("Clear Filters")
+                && browse.contains("Not Added to Echo"),
+            "The native Mac browser must expose retained success and matching filters.")
+        #expect(
+            browse.contains("onPlay(book.folderURL)"),
+            "Only the explicit Open in Echo action should hand the imported folder to playback.")
+        #expect(
+            !browse.contains("if await model.addToLibrary(item) { dismiss() }"),
+            "A successful import must not dismiss the Audiobookshelf browser.")
+    }
+
+    @Test func browseExposesMatchingOrganizationAndPagingControls() throws {
+        let browse = try MacSource.read("Views/MacAudiobookshelfBrowseView.swift")
+
+        #expect(browse.contains("Library"))
+        #expect(browse.contains("Sort"))
+        #expect(browse.contains("Filters"))
+        #expect(browse.contains("Search Audiobookshelf"))
+        #expect(browse.contains("loadNextPageIfNeeded"))
+        #expect(browse.contains("refresh()"))
+        #expect(browse.contains("Result count"))
+    }
+
+    @Test func browseRetainsIndependentSelectionAndImportOutcomes() throws {
+        let browse = try MacSource.read("Views/MacAudiobookshelfBrowseView.swift")
+
+        #expect(browse.contains("@State private var selectedItem: ABSLibraryItem?"))
+        #expect(browse.contains("browseModel.importState(for:"))
+        #expect(browse.contains("MacABSImportPresentation.progressLabel(progress)"))
+        #expect(browse.contains("Elapsed"))
+        #expect(browse.contains("Cancel Import"))
+        #expect(browse.contains("Retry"))
+        #expect(browse.contains("Added to Echo"))
+        #expect(browse.contains(".disabled(browseModel.isImporting)"))
+    }
+
+    @Test func browseLifecycleCancelsOwnedWork() throws {
+        let host = try MacSource.read("Views/MacAudiobookshelfView.swift")
+        let browse = try MacSource.read("Views/MacAudiobookshelfBrowseView.swift")
+
+        #expect(host.contains("browseModel?.cancelImport()"))
+        #expect(host.contains("browseModel?.cancel()"))
+        #expect(browse.contains(".onDisappear { cancelOwnedWork() }"))
+        #expect(browse.contains("browseModel.cancelImport()"))
+        #expect(browse.contains("browseModel.cancel()"))
+    }
+
+    @Test func switchingConnectionsReplacesBrowseOwnership() throws {
+        let host = try MacSource.read("Views/MacAudiobookshelfView.swift")
+
+        #expect(
+            host.range(
+                of: #"func installBrowseModel\([\s\S]*?browseModel = ABSBrowseModel\("#,
+                options: .regularExpression) != nil)
+        #expect(
+            host.range(
+                of: #"func switchTo\([\s\S]*?installBrowseModel\("#,
+                options: .regularExpression) != nil)
+        #expect(
+            host.range(
+                of: #"func removeSavedServer\([\s\S]*?browseModel = nil"#,
+                options: .regularExpression) != nil)
+    }
+
+    @Test func addServerUsesPendingIdentityInsteadOfActiveTokenNamespace() throws {
+        let host = try MacSource.read("Views/MacAudiobookshelfView.swift")
+
+        #expect(host.contains("let newServerID = connectionIdentity.prepareNewConnection()"))
+        #expect(host.contains("connectionIdentity.activatePendingConnection()"))
+        #expect(!host.contains("let newServerID = serverID ?? UUID().uuidString"))
+    }
+
+    @Test func libraryChangeClearsSelectionButResultFilteringDoesNot() throws {
+        let browse = try MacSource.read("Views/MacAudiobookshelfBrowseView.swift")
+
+        #expect(
+            browse.contains(
+                ".onChange(of: browseModel.selectedLibraryID) { _, _ in clearSelection() }"))
+        #expect(
+            browse.contains(
+                "private func clearSelection() { selectedItemID = nil selectedItem = nil }"))
+        #expect(!browse.contains(".onChange(of: browseModel.displayedItems)"))
+    }
+
+    @Test func addControlLetsSharedImporterDecideSupportedContent() throws {
+        let browse = try MacSource.read("Views/MacAudiobookshelfBrowseView.swift")
+
+        #expect(browse.contains(".disabled(browseModel.isImporting)"))
+        #expect(!browse.contains("item.hasAudioContent == false"))
+        #expect(!browse.contains("does not contain supported audio"))
+    }
+
+    @Test func shutdownReleasesBrowseAndServiceOwnership() throws {
+        let host = try MacSource.read("Views/MacAudiobookshelfView.swift")
+
+        #expect(
+            host.contains(
+                "func shutdown() { clearBrowseModel() discardPendingConnection() service?.invalidate() service = nil }"
+            ))
+        #expect(host.contains(".onDisappear { model.shutdown() }"))
+        #expect(host.contains("private func close() { model.shutdown() dismiss() }"))
+        #expect(
+            host.contains(
+                "catch { newService.invalidate() errorMessage = error.localizedDescription return }"
+            ))
     }
 
     @Test func menuOpensAudiobookshelf() throws {
@@ -158,22 +312,35 @@ struct MacAudiobookshelfParityTests {
         )
     }
 
-    /// Found via live device testing: connecting to a brand-new server via the manual
-    /// form (attemptConnect, used for both first connect and "Add Server" while already
-    /// connected) left `selectedLibraryID` set to whatever it was for the PREVIOUSLY
-    /// active server. `loadLibraries()` only assigns a fresh ID when `selectedLibraryID
-    /// == nil`, so the stale ID survived and got queried against the new server —
-    /// observed live as "Server returned HTTP 404" after switching from audiobooks.dev
-    /// to a self-hosted server. `switchTo(_:)` already reset this; attemptConnect() did
-    /// not.
-    @Test func attemptConnectResetsSelectedLibraryBeforeLoadingNewServer() throws {
+    /// Connecting manually must replace the server-scoped shared browser before loading.
+    /// Reusing the prior model would retain that server's library/filter IDs and can query
+    /// them against the new server, reproducing the observed cross-server HTTP 404.
+    @Test func attemptConnectInstallsFreshBrowseModelBeforeLoadingNewServer() throws {
         let src = try MacSource.read("Views/MacAudiobookshelfView.swift")
         #expect(
             src.range(
                 of:
-                    #"func attemptConnect\([\s\S]*?selectedLibraryID = nil[\s\S]*?await loadLibraries\(\)"#,
+                    #"func attemptConnect\([\s\S]*?installBrowseModel\([\s\S]*?await browseModel\?\.load\(\)"#,
                 options: .regularExpression) != nil,
-            "attemptConnect() must reset selectedLibraryID to nil before loadLibraries() runs, so a library ID left over from a previously-connected server can't be queried against the newly-connected one."
+            "attemptConnect() must install and load a fresh ABSBrowseModel for the newly-connected server, so prior server query state cannot leak across the switch."
         )
+    }
+
+    @Test func failedPostLoginPersistenceDiscardsPendingStateButTrustRetryPreservesIt() throws {
+        let src = try MacSource.read("Views/MacAudiobookshelfView.swift")
+
+        #expect(src.contains("try dao.upsertAndSetActive(record)"))
+        #expect(
+            src.range(
+                of: #"case \.untrustedCertificate[\s\S]*?pendingCert = PendingCert"#,
+                options: .regularExpression) != nil)
+        #expect(
+            src.range(
+                of: #"catch \{[\s\S]*?discardFailedConnection\(svc: svc, tokens: tokens\)"#,
+                options: .regularExpression) != nil)
+        #expect(
+            src.range(
+                of: #"func discardFailedConnection[\s\S]*?svc\.invalidate\(\)[\s\S]*?ABSPendingConnectionCleanup\.discard"#,
+                options: .regularExpression) != nil)
     }
 }

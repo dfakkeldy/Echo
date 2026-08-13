@@ -26,10 +26,26 @@ import Testing
 
     @Test func itemsURLCarriesPagingQuery() {
         let e = ABSEndpoints(baseURL: URL(string: "https://host/abs")!)
-        let s = e.items(libraryID: "lib1", page: 2, limit: 25, filter: nil).absoluteString
+        let query = ABSLibraryItemsQuery(
+            page: 2, limit: 25, sort: .newestAdded,
+            filter: ABSFilterOption(group: .tags, value: "studied", label: "Studied"))
+        let s = e.items(libraryID: "lib1", query: query).absoluteString
         #expect(s.contains("/abs/api/libraries/lib1/items"))
         #expect(s.contains("page=2"))
         #expect(s.contains("limit=25"))
+        #expect(s.contains("sort=addedAt"))
+        #expect(s.contains("desc=1"))
+        #expect(s.contains("filter=tags.c3R1ZGllZA%3D%3D"))
+    }
+
+    @Test func itemsURLEscapesBase64PlusInFilterValue() {
+        let endpoints = ABSEndpoints(baseURL: URL(string: "https://host/abs")!)
+        let query = ABSLibraryItemsQuery(
+            filter: ABSFilterOption(group: .tags, value: "?€", label: "Unicode"))
+
+        let url = endpoints.items(libraryID: "lib1", query: query).absoluteString
+
+        #expect(url.contains("filter=tags.P%2BKCrA%3D%3D"))
     }
 
     @Test func rejectsUnparseableInput() {

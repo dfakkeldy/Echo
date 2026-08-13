@@ -121,11 +121,14 @@ Services/ArtworkCache.swift
 Services/AudioEngine.swift
 Services/AudioSegmentReader.swift
 Services/Audiobookshelf/ABSCertificateFingerprint.swift
+Services/Audiobookshelf/ABSBrowseTypes.swift
 Services/Audiobookshelf/ABSEndpoints.swift
+Services/Audiobookshelf/ABSImportProgress.swift
 Services/Audiobookshelf/ABSImportService.swift
 Services/Audiobookshelf/ABSModels.swift
 Services/Audiobookshelf/ABSProgressReconciler.swift
 Services/Audiobookshelf/ABSProgressSync.swift
+Services/Audiobookshelf/ABSServerConnectionIdentity.swift
 Services/Audiobookshelf/ABSServerTrust.swift
 Services/Audiobookshelf/ABSServerTrustEvaluator.swift
 Services/Audiobookshelf/ABSTokenStore.swift
@@ -302,6 +305,7 @@ Utilities/FolderPicker.swift
 Utilities/OKLCH.swift
 Utilities/ViewModifiers.swift
 Utilities/WordFrequencyComputer.swift
+ViewModels/ABSBrowseModel.swift
 ViewModels/DailyReviewViewModel.swift
 ViewModels/KaraokeHighlightTransition.swift
 ViewModels/LibraryRootsViewModel.swift
@@ -471,6 +475,7 @@ Services/MacBatchProcessingService.swift
 Services/MacTranscribeCoordinator.swift
 Views/MacAnkiExportView.swift
 Views/MacAudioExportView.swift
+Views/MacAudiobookshelfBrowseView.swift
 Views/MacAudiobookshelfView.swift
 Views/MacBatchQueueView.swift
 Views/MacBookmarkReviewView.swift
@@ -1216,21 +1221,25 @@ Echo remains single-book-at-a-time: `PlayerModel` holds one `folderURL` and open
 
 Design specs: `docs/superpowers/specs/2026-06-26-local-library-design.md` and `docs/superpowers/specs/2026-07-10-library-edition-unification-design.md`; implementation plans: `docs/superpowers/plans/2026-06-27-local-library-implementation.md`, `docs/superpowers/plans/2026-06-27-local-library-ui-m3.md`, and `docs/superpowers/plans/2026-06-27-local-library-ui-m4.md`.
 
-### Audiobookshelf Library + Progress Sync (June 2026)
+### Audiobookshelf Library, Browse, Import + Progress Sync (updated August 2026)
 
 Audiobookshelf (ABS) is a self-hosted library source, not a streaming engine. Echo downloads an ABS item into `Application Support/ABSLibrary/<remoteItemID>/`, stamps provenance on the `audiobook` row, and then hands that local folder to the normal import/playback/alignment pipeline so EPUB sync, phrase search, flashcards, narration QA, and exports keep using the same code paths as local books.
 
 **Current units:**
 
-- **`AudiobookshelfService`** handles JWT login, refresh-token rotation, library/item browse, server-side search, item zip download, progress GET/PATCH, and remote sign-out. `ABSURLSession` / `ABSServerTrustEvaluator` support CA-trusted HTTPS, plaintext HTTP, and explicit self-signed certificate pinning.
+- **`AudiobookshelfService`** handles JWT login, refresh-token rotation, library/item browse, server-side search, item zip download, progress GET/PATCH, and remote sign-out. `ABSLibraryItemsQuery` keeps paging, sort direction, and one encoded metadata filter explicit; filter metadata supplies Author, Series, Genre, and Tag options. Download delegates report received bytes and an optional expected total while retaining the service's configured session, Bearer-header authorization, one-refresh retry, and certificate-pinning behavior. `ABSURLSession` / `ABSServerTrustEvaluator` support CA-trusted HTTPS, plaintext HTTP, and explicit self-signed certificate pinning.
 - **`ABSServerDAO` / `ABSServerRecord`** store non-secret server metadata in GRDB while `ABSTokenStore` keeps refresh/access tokens and pinned certificate hashes in Keychain. Schema V31 adds `is_active`; iOS still presents a single active server flow, while macOS can list saved servers, switch the active one, and remove a saved server without disturbing unrelated rows.
-- **iOS ABS UI** (`ABSConnectionsSettingsView`, `ABSBrowseView`, `PlayerModel+Audiobookshelf`) owns connect, browse, import, disconnect, active-server service caching, and throttled progress push/pull for ABS-backed books.
-- **macOS ABS UI** (`MacAudiobookshelfView`, `MacPlayerModel+Audiobookshelf`) mirrors browse/import with a native sheet, supports multiple saved servers, and gives the long-lived `MacPlayerModel` its own cached service so progress sync continues after the sheet closes. Mac progress sync currently uses the active track's `currentTime`/`duration` because macOS does not yet have the iOS multi-m4b book-time axis.
+- **`ABSBrowseModel`** is the shared `@MainActor @Observable` browse/import state used by iOS and macOS. It owns library selection, persisted sort, debounced search, filter metadata and selection, retained paging, exact/limited counts, active-server provenance, cancellation generations, and per-item import state. Newest Added is the default. Title, Author, Newest, and Publication Year use server ordering. Series loads the complete result and applies Echo's stable series-name, numeric-sequence, title, and ID ordering locally.
+- **Complete filter resolution** never presents a filtered visible page as a whole-library result. One metadata choice uses one paged server query; multiple choices use a bounded fan-out of at most four complete queries at once. `ABSBrowseResultResolver` unions choices within Author/Series/Genre/Tag and intersects across those groups before stable ordering. Search intersects its high-cap server result with the same complete filter IDs and labels a cap-sized result as limited.
+- **`ABSImportService` / `ABSImportProgress`** implement the local-first import boundary. Download and extraction publish byte/file progress and named Downloading, Extracting, Validating, Adding to Echo, and Added stages. The service extracts into staging with the existing archive limits and path protections, checks cancellation between entries, requires supported root-level audio or study-document content, atomically publishes the managed folder and cover, persists provenance, and re-resolves the committed record before reporting Added. A failed re-import restores or retains the previous completed copy; a failure remains named and retryable in the browser instead of dismissing it.
+- **Added / Not Added provenance** comes from an `audiobook` row matching both the active `server_id` and `remote_item_id` whose managed folder still contains usable root-level content. Orphaned rows, missing folders, and cover-only or nested-only folders are not Added. Successful imports update the shared projection immediately; under **Not Added to Echo**, the new book disappears from the exact result without a server reload.
+- **iOS ABS UI** (`ABSConnectionsSettingsView`, `ABSBrowseView`, `PlayerModel+Audiobookshelf`) owns connect/disconnect and active-service caching, then renders the shared model's library, Sort, searchable Filters, Not Added, result-count, paging, and retained progress/failure/Added detail. Success stays visible until the user explicitly chooses **Open in Echo**.
+- **macOS ABS UI** (`MacAudiobookshelfView`, `MacAudiobookshelfBrowseView`, `MacPlayerModel+Audiobookshelf`) uses the same shared model and terminology in a native split browser while retaining saved-server switching and trust ownership in the connection view model. Explicit **Open in Echo** hands the verified local folder to `onPlay`; the long-lived `MacPlayerModel` keeps its own cached service so progress sync continues after the sheet closes. Mac progress sync currently uses the active track's `currentTime`/`duration` because macOS does not yet have the iOS multi-m4b book-time axis.
 - **Progress policy** (`ABSProgressSync`, `ABSProgressReconciler`) is ABS-authoritative last-write-wins: pushes are throttled while playing, load-time reconcile either seeks local playback to remote time or pushes newer local progress, and local sidecars remain an offline cache.
 
 **Schema:** V23 adds `audiobook.source_type`, `server_id`, `remote_item_id`, and `topics_json` to preserve ABS provenance. V31 adds `abs_server.is_active` for multi-saved-server selection. Streaming and fully resumable background downloads remain deferred; the current design intentionally keeps ABS books local-first.
 
-Design spec: `docs/superpowers/specs/2026-06-30-abs-macos-progress-sync-multi-server-design.md`; implementation plan: `docs/superpowers/plans/2026-06-30-abs-macos-progress-sync-multi-server.md`.
+Design specs: `docs/superpowers/specs/2026-06-30-abs-macos-progress-sync-multi-server-design.md` and `docs/superpowers/specs/2026-08-12-audiobookshelf-browse-import-reliability-design.md`; implementation plans: `docs/superpowers/plans/2026-06-30-abs-macos-progress-sync-multi-server.md` and `docs/superpowers/plans/2026-08-12-audiobookshelf-browse-import-reliability.md`.
 
 ### Chaptered M4B Export (June 2026)
 

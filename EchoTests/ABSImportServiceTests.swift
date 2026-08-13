@@ -92,7 +92,8 @@ import ZIPFoundation
         return try JSONDecoder().decode(ABSLibraryItem.self, from: Data(json.utf8))
     }
 
-    private func makeService(serverID: String = "imp-\(UUID().uuidString)") -> AudiobookshelfService {
+    private func makeService(serverID: String = "imp-\(UUID().uuidString)") -> AudiobookshelfService
+    {
         URLProtocolStub.reset()
         let tokens = ABSTokenStore(serverID: serverID)
         tokens.accessToken = "acc"
@@ -119,7 +120,8 @@ import ZIPFoundation
     private func source(_ relativePath: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         while directory.path != "/" {
-            let candidate = directory
+            let candidate =
+                directory
                 .deletingLastPathComponent()
                 .appending(path: relativePath)
             if FileManager.default.fileExists(atPath: candidate.path),
@@ -148,7 +150,8 @@ import ZIPFoundation
             try? FileManager.default.removeItem(at: backupFolder)
         }
 
-        try FileManager.default.createDirectory(at: stagingFolder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: stagingFolder, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: backupFolder, withIntermediateDirectories: true)
 
         let residues = itemSpecificImportResidues(remoteItemID: remoteItemID)
@@ -176,7 +179,7 @@ import ZIPFoundation
 
         let item = try makeItem(id: "item-\(UUID().uuidString)")
         let importer = ABSImportService(service: svc, db: dbService, serverID: "srvX")
-        let folder = try await importer.prepareLocalFolder(for: item)
+        let folder = try await importer.prepareLocalFolder(for: item) { _ in }.folderURL
         defer { try? FileManager.default.removeItem(at: folder) }
 
         // 1) the zip was extracted into the folder
@@ -212,10 +215,9 @@ import ZIPFoundation
 
         let importer = ABSImportService(service: svc, db: dbService, serverID: "srvX")
         await #expect {
-            try await importer.prepareLocalFolder(for: item)
+            try await importer.prepareLocalFolder(for: item) { _ in }
         } throws: { error in
-            if case ABSError.http(500, _) = error { return true }
-            return false
+            (error as? ABSImportFailure)?.stage == .downloading
         }
 
         #expect((try? Data(contentsOf: existingFile)) == existingData)
@@ -239,15 +241,18 @@ import ZIPFoundation
         defer { try? FileManager.default.removeItem(at: folder) }
 
         let importer = ABSImportService(service: svc, db: dbService, serverID: "srvX")
-        let importedFolder = try await importer.prepareLocalFolder(for: item)
+        let importedFolder = try await importer.prepareLocalFolder(for: item) { _ in }.folderURL
 
         #expect(importedFolder.standardizedFileURL == folder.standardizedFileURL)
         #expect(!FileManager.default.fileExists(atPath: existingFile.path))
-        #expect((try? String(contentsOf: folder.appending(path: "new.m4b"), encoding: .utf8)) == "new-import")
+        #expect(
+            (try? String(contentsOf: folder.appending(path: "new.m4b"), encoding: .utf8))
+                == "new-import")
         #expect(itemSpecificImportResidues(remoteItemID: item.id).isEmpty)
     }
 
-    @Test func failedReimportAfterFolderPublishRestoresExistingFolderAndCleansBackup() async throws {
+    @Test func failedReimportAfterFolderPublishRestoresExistingFolderAndCleansBackup() async throws
+    {
         let dbService = try DatabaseService(inMemory: ())
         try dbService.write { db in try db.execute(sql: "DROP TABLE audiobook") }
         let svc = makeService()
@@ -267,7 +272,7 @@ import ZIPFoundation
 
         let importer = ABSImportService(service: svc, db: dbService, serverID: "srvX")
         await #expect {
-            try await importer.prepareLocalFolder(for: item)
+            try await importer.prepareLocalFolder(for: item) { _ in }
         } throws: { _ in
             true
         }
@@ -277,7 +282,9 @@ import ZIPFoundation
         #expect(itemSpecificImportResidues(remoteItemID: item.id).isEmpty)
     }
 
-    @Test func failedImportAfterExtractionCleansPartialStagingWithoutCreatingFinalFolder() async throws {
+    @Test func failedImportAfterExtractionCleansPartialStagingWithoutCreatingFinalFolder()
+        async throws
+    {
         let dbService = try DatabaseService(inMemory: ())
         try dbService.write { db in try db.execute(sql: "DROP TABLE audiobook") }
         let svc = makeService()
@@ -293,7 +300,7 @@ import ZIPFoundation
 
         let importer = ABSImportService(service: svc, db: dbService, serverID: "srvX")
         await #expect {
-            try await importer.prepareLocalFolder(for: item)
+            try await importer.prepareLocalFolder(for: item) { _ in }
         } throws: { _ in
             true
         }
@@ -307,7 +314,8 @@ import ZIPFoundation
         let svc = makeService()
         let oversizedEntrySize = UInt32(
             ArchiveExtractionLimits.Budget.absWholeAudiobook.maxEntryBytes + 1)
-        let zipBytes = makeZipWithDeclaredUncompressedSize(entry: "giant.m4b", size: oversizedEntrySize)
+        let zipBytes = makeZipWithDeclaredUncompressedSize(
+            entry: "giant.m4b", size: oversizedEntrySize)
         URLProtocolStub.stub(
             pathSuffix: "/download", status: 200, data: zipBytes,
             headers: ["Content-Type": "application/zip"])
@@ -318,9 +326,9 @@ import ZIPFoundation
 
         let importer = ABSImportService(service: svc, db: dbService, serverID: "srvX")
         await #expect {
-            try await importer.prepareLocalFolder(for: item)
+            try await importer.prepareLocalFolder(for: item) { _ in }
         } throws: { error in
-            error is ArchiveExtractionLimits.LimitError
+            (error as? ABSImportFailure)?.stage == .extracting
         }
     }
 
@@ -336,9 +344,10 @@ import ZIPFoundation
             pathSuffix: "/cover", status: 200, data: coverBytes,
             headers: ["Content-Type": "image/jpeg"])
 
-        let item = try makeItem(id: "item-\(UUID().uuidString)", coverPath: "/metadata/items/cover.jpg")
+        let item = try makeItem(
+            id: "item-\(UUID().uuidString)", coverPath: "/metadata/items/cover.jpg")
         let importer = ABSImportService(service: svc, db: dbService, serverID: "srvX")
-        let folder = try await importer.prepareLocalFolder(for: item)
+        let folder = try await importer.prepareLocalFolder(for: item) { _ in }.folderURL
         defer { try? FileManager.default.removeItem(at: folder) }
 
         let managedCover = folder.appending(path: "cover.jpg")

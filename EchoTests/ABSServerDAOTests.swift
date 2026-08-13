@@ -60,4 +60,30 @@ import Testing
 
         #expect(try dao.all().map(\.id) == ["server-two"])
     }
+
+    @Test func savingNewActiveServerRollsBackInsertAndPreservesPriorActiveOnActivationFailure()
+        throws
+    {
+        let database = try DatabaseService(inMemory: ())
+        let dao = ABSServerDAO(db: database.writer)
+        try dao.upsert(makeRecord(id: "server-old", addedAt: "2026-06-28T00:00:00Z"))
+        try dao.setActive("server-old")
+        try database.write { db in
+            try db.execute(
+                sql: """
+                    CREATE TRIGGER reject_new_active
+                    BEFORE UPDATE OF is_active ON abs_server
+                    WHEN NEW.id = 'server-new' AND NEW.is_active = 1
+                    BEGIN SELECT RAISE(ABORT, 'activation failed'); END
+                    """)
+        }
+
+        #expect(throws: (any Error).self) {
+            try dao.upsertAndSetActive(
+                makeRecord(id: "server-new", addedAt: "2026-06-28T01:00:00Z"))
+        }
+
+        #expect(try dao.all().map(\.id) == ["server-old"])
+        #expect(try dao.current()?.id == "server-old")
+    }
 }
