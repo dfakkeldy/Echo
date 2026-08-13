@@ -199,8 +199,9 @@ struct ABSImportProgressTests {
 
         let book = try await fixture.importer.prepareLocalFolder(for: fixture.item) { _ in }
 
-        let record = try #require(
-            AudiobookDAO(db: fixture.db.writer).get(book.folderURL.absoluteString))
+        let persistedRecord = try AudiobookDAO(db: fixture.db.writer).get(
+            book.folderURL.absoluteString)
+        let record = try #require(persistedRecord)
         let coverArtPath = try #require(record.coverArtPath)
         let publishedCover = FileLocations.libraryCoversDirectory.appending(path: coverArtPath)
         #expect((try? Data(contentsOf: book.folderURL.appending(path: "cover.jpg"))) == cover)
@@ -458,7 +459,7 @@ private final class ABSImportProgressFixture {
             .joined() + ".jpg"
     }
 
-    private nonisolated static func makeItem(id: String, hasCover: Bool) throws -> ABSLibraryItem {
+    private static func makeItem(id: String, hasCover: Bool) throws -> ABSLibraryItem {
         let coverJSON = hasCover ? #", "coverPath":"/metadata/items/cover.jpg""# : ""
         let json = """
             {"id":"\(id)","libraryId":"library","media":{"duration":60,

@@ -24,6 +24,13 @@ final class ABSBrowseModel {
         case complete
     }
 
+    enum ImportState: Equatable {
+        case ready
+        case running(ABSImportProgress, startedAt: Date)
+        case failed(ABSImportFailure)
+        case added(ABSImportedBook)
+    }
+
     private static let sortPreferenceKey = "absBrowseSort"
     private static let pageSize = 100
     private static let searchLimit = 10_000
@@ -34,8 +41,11 @@ final class ABSBrowseModel {
     @ObservationIgnored private let debounce: Duration
     @ObservationIgnored private let preferences: UserDefaults
     @ObservationIgnored private let notAddedProjection: NotAddedProjection
+    @ObservationIgnored private let importService: ABSImportService
+    @ObservationIgnored private let afterAddedBooksLoad: @MainActor @Sendable () async -> Void
     @ObservationIgnored private var browseTask: Task<Void, Never>?
     @ObservationIgnored private var projectionTask: Task<Void, Never>?
+    @ObservationIgnored private var importTask: Task<ABSImportedBook, Error>?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var projectionGeneration = 0
     @ObservationIgnored private var nextPage: Int?
@@ -56,6 +66,10 @@ final class ABSBrowseModel {
     private(set) var resultCompleteness: ResultCompleteness = .empty
     var isLoadingNextPage = false
     private(set) var addedBooksByRemoteID: [String: ABSImportedBook] = [:]
+    private(set) var importStates: [String: ImportState] = [:]
+    private(set) var activeImportItemID: String?
+
+    var isImporting: Bool { activeImportItemID != nil }
 
     init(
         service: AudiobookshelfService,
@@ -63,13 +77,18 @@ final class ABSBrowseModel {
         serverID: String,
         debounce: Duration = .milliseconds(300),
         preferences: UserDefaults = .standard,
-        notAddedProjection: NotAddedProjection? = nil
+        notAddedProjection: NotAddedProjection? = nil,
+        importService: ABSImportService? = nil,
+        afterAddedBooksLoad: @escaping @MainActor @Sendable () async -> Void = {}
     ) {
         self.service = service
         self.db = db
         self.serverID = serverID
         self.debounce = debounce
         self.preferences = preferences
+        self.importService =
+            importService ?? ABSImportService(service: service, db: db, serverID: serverID)
+        self.afterAddedBooksLoad = afterAddedBooksLoad
         self.notAddedProjection =
             notAddedProjection
             ?? { allItems, addedIDs in
@@ -204,6 +223,76 @@ final class ABSBrowseModel {
         loadState = .idle
     }
 
+    func importState(for itemID: String) -> ImportState {
+        if let state = importStates[itemID] { return state }
+        if let book = addedBooksByRemoteID[itemID] { return .added(book) }
+        return .ready
+    }
+
+    func add(_ item: ABSLibraryItem) async {
+        guard activeImportItemID == nil, addedBooksByRemoteID[item.id] == nil else { return }
+
+        let startedAt = Date()
+        let initialProgress = ABSImportProgress(
+            stage: .downloading, completedUnits: 0, totalUnits: nil)
+        activeImportItemID = item.id
+        importStates[item.id] = .running(initialProgress, startedAt: startedAt)
+
+        let task = Task<ABSImportedBook, Error> { [importService, weak self] in
+            try await importService.prepareLocalFolder(for: item) { [weak self] progress in
+                self?.applyImportProgress(progress, for: item.id, startedAt: startedAt)
+            }
+        }
+        importTask = task
+        defer {
+            if activeImportItemID == item.id {
+                importTask = nil
+                activeImportItemID = nil
+            }
+        }
+
+        do {
+            let book = try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
+            guard activeImportItemID == item.id else { return }
+            addedBooksByRemoteID[item.id] = book
+            importStates[item.id] = .added(book)
+            if selection.notAddedOnly {
+                invalidateProjection()
+                displayedItems.removeAll { $0.id == item.id }
+                totalCount = displayedItems.count
+            }
+        } catch is CancellationError {
+            guard activeImportItemID == item.id else { return }
+            importStates[item.id] = .failed(cancellationFailure(for: item.id))
+        } catch let failure as ABSImportFailure {
+            guard activeImportItemID == item.id else { return }
+            importStates[item.id] = .failed(failure)
+        } catch {
+            guard activeImportItemID == item.id else { return }
+            importStates[item.id] = .failed(unexpectedImportFailure(for: item.id))
+        }
+    }
+
+    func cancelImport() {
+        importTask?.cancel()
+    }
+
+    func retryImport(_ item: ABSLibraryItem) async {
+        guard case .failed(let failure) = importState(for: item.id), failure.isRetryable else {
+            return
+        }
+        await add(item)
+    }
+
+    func openTarget(for itemID: String) -> ABSImportedBook? {
+        if case .added(let book) = importState(for: itemID) { return book }
+        return nil
+    }
+
     private func loadRoot(generation: Int) async throws {
         let fetchedLibraries = try await service.libraries()
         try Task.checkCancellation()
@@ -215,9 +304,10 @@ final class ABSBrowseModel {
             selection.options.removeAll()
         }
         let addedBooks = try await loadAddedBooks()
+        await afterAddedBooksLoad()
         try Task.checkCancellation()
         guard self.generation == generation else { return }
-        addedBooksByRemoteID = addedBooks
+        publishAddedBooks(addedBooks)
 
         guard selectedLibraryID != nil else {
             filterData = .empty
@@ -245,9 +335,10 @@ final class ABSBrowseModel {
             selection.options.removeAll()
         }
         let addedBooks = try await loadAddedBooks()
+        await afterAddedBooksLoad()
         try Task.checkCancellation()
         guard self.generation == generation else { return }
-        addedBooksByRemoteID = addedBooks
+        publishAddedBooks(addedBooks)
         guard selectedLibraryID != nil else {
             filterData = .empty
             items = []
@@ -475,6 +566,7 @@ final class ABSBrowseModel {
         options: [ABSFilterOption]
     ) async throws -> [ABSFilterOption: [ABSLibraryItem]] {
         let selectedSort = sort
+        let pageSize = Self.pageSize
         var iterator = options.makeIterator()
         return try await withThrowingTaskGroup(
             of: (ABSFilterOption, [ABSLibraryItem]).self,
@@ -482,9 +574,9 @@ final class ABSBrowseModel {
         ) { group in
             func addNext() {
                 guard let option = iterator.next() else { return }
-                group.addTask { @MainActor [service, selectedSort] in
+                group.addTask { [service, selectedSort] in
                     var query = ABSLibraryItemsQuery(
-                        limit: Self.pageSize, sort: selectedSort)
+                        limit: pageSize, sort: selectedSort)
                     query.filter = option
                     return (
                         option,
@@ -599,6 +691,16 @@ final class ABSBrowseModel {
         }
     }
 
+    private func publishAddedBooks(_ loadedBooks: [String: ABSImportedBook]) {
+        var mergedBooks = loadedBooks
+        for (itemID, state) in importStates {
+            if case .added(let book) = state {
+                mergedBooks[itemID] = book
+            }
+        }
+        addedBooksByRemoteID = mergedBooks
+    }
+
     private func publishDisplayedItems(completeResult: Bool? = nil) {
         let filtered =
             selection.notAddedOnly
@@ -692,8 +794,44 @@ final class ABSBrowseModel {
         Task {}
     }
 
+    private func applyImportProgress(
+        _ progress: ABSImportProgress,
+        for itemID: String,
+        startedAt: Date
+    ) {
+        guard activeImportItemID == itemID else { return }
+        importStates[itemID] = .running(progress, startedAt: startedAt)
+    }
+
+    private func cancellationFailure(for itemID: String) -> ABSImportFailure {
+        let stage: ABSImportStage
+        if case .running(let progress, _) = importStates[itemID] {
+            stage = progress.stage
+        } else {
+            stage = .downloading
+        }
+        return ABSImportFailure(
+            stage: stage,
+            message: String(localized: "The import was cancelled. You can retry when ready."),
+            isRetryable: true)
+    }
+
+    private func unexpectedImportFailure(for itemID: String) -> ABSImportFailure {
+        let stage: ABSImportStage
+        if case .running(let progress, _) = importStates[itemID] {
+            stage = progress.stage
+        } else {
+            stage = .downloading
+        }
+        return ABSImportFailure(
+            stage: stage,
+            message: String(localized: "Echo could not add this audiobook. Try again."),
+            isRetryable: true)
+    }
+
     deinit {
         browseTask?.cancel()
         projectionTask?.cancel()
+        importTask?.cancel()
     }
 }

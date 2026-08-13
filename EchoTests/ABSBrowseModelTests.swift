@@ -163,12 +163,19 @@ import ZIPFoundation
         await fixture.model.load()
 
         let priorRequestCount = fixture.requests.count
-        fixture.model.toggleFilter(ABSBrowseModelFixture.authorOne)
-        let multiFilter = fixture.model.toggleFilter(ABSBrowseModelFixture.authorTwo)
+        let firstFilter = fixture.model.toggleFilter(ABSBrowseModelFixture.authorOne)
         try await waitUntilRequest(
             in: fixture, pathSuffix: "/items",
             filter: ABSBrowseModelFixture.authorOne.encodedFilter,
             afterRequestCount: priorRequestCount)
+        try await waitUntilPendingResponseCount(1, in: fixture)
+        let multiFilter = fixture.model.toggleFilter(ABSBrowseModelFixture.authorTwo)
+        await firstFilter.value
+        try await waitUntilRequest(
+            in: fixture, pathSuffix: "/items",
+            filter: ABSBrowseModelFixture.authorOne.encodedFilter,
+            afterRequestCount: priorRequestCount + 1)
+        try await waitUntilPendingResponseCount(1, in: fixture)
         let projection = fixture.model.setNotAddedOnly(true)
 
         fixture.resume(
@@ -450,6 +457,267 @@ import ZIPFoundation
         #expect(fixture.model.totalCount == 0)
     }
 
+    @Test func importProgressMapsToOrderedRunningStagesBeforeAdded() async throws {
+        let extractionGate = ABSBrowseImportGate()
+        let persistenceGate = ABSBrowseImportGate()
+        let fixture = try ABSBrowseModelFixture(
+            importZipEntry: "book.m4b",
+            importDownloadSuspended: true,
+            afterExtractedEntry: { await extractionGate.suspend() },
+            afterPersistence: { await persistenceGate.suspend() })
+
+        let importTask = Task { await fixture.model.add(fixture.item) }
+        try await waitUntilPendingResponseCount(1, in: fixture)
+        guard case .running(let download, _) = fixture.model.importState(for: fixture.item.id)
+        else {
+            Issue.record("Expected downloading state")
+            fixture.model.cancelImport()
+            await importTask.value
+            return
+        }
+        #expect(download.stage == .downloading)
+
+        fixture.resume(pathSuffix: "/download", queryItems: [:])
+        await extractionGate.waitUntilSuspended()
+        guard case .running(let extraction, _) = fixture.model.importState(for: fixture.item.id)
+        else {
+            Issue.record("Expected extracting state")
+            await extractionGate.release()
+            fixture.model.cancelImport()
+            await importTask.value
+            return
+        }
+        #expect(extraction.stage == .extracting)
+
+        await extractionGate.release()
+        await persistenceGate.waitUntilSuspended()
+        guard case .running(let adding, _) = fixture.model.importState(for: fixture.item.id)
+        else {
+            Issue.record("Expected adding-to-Echo state")
+            await persistenceGate.release()
+            fixture.model.cancelImport()
+            await importTask.value
+            return
+        }
+        #expect(adding.stage == .addingToEcho)
+
+        await persistenceGate.release()
+        await importTask.value
+        guard case .added = fixture.model.importState(for: fixture.item.id) else {
+            Issue.record("Expected Added state")
+            return
+        }
+    }
+
+    @Test func onlyOneImportRunsAtATime() async throws {
+        let fixture = try ABSBrowseModelFixture(
+            importZipEntry: "book.m4b", importDownloadSuspended: true)
+        let secondItem = try fixture.makeItem(id: "second-\(UUID().uuidString)")
+
+        let firstImport = Task { await fixture.model.add(fixture.item) }
+        try await waitUntilPendingResponseCount(1, in: fixture)
+        await fixture.model.add(secondItem)
+
+        #expect(fixture.model.activeImportItemID == fixture.item.id)
+        #expect(fixture.model.importState(for: secondItem.id) == .ready)
+        #expect(fixture.requests.count { $0.url?.path.hasSuffix("/download") == true } == 1)
+
+        fixture.model.cancelImport()
+        await firstImport.value
+    }
+
+    @Test func cancelRetainsRetryableFailureAtCurrentStage() async throws {
+        let fixture = try ABSBrowseModelFixture(
+            importZipEntry: "book.m4b", importDownloadSuspended: true)
+        let importTask = Task { await fixture.model.add(fixture.item) }
+        try await waitUntilPendingResponseCount(1, in: fixture)
+
+        fixture.model.cancelImport()
+        await importTask.value
+
+        guard case .failed(let failure) = fixture.model.importState(for: fixture.item.id) else {
+            Issue.record("Expected visible cancellation failure")
+            return
+        }
+        #expect(failure.stage == .downloading)
+        #expect(failure.isRetryable)
+        #expect(!failure.message.isEmpty)
+        #expect(fixture.model.activeImportItemID == nil)
+    }
+
+    @Test func importFailureRemainsVisibleWithNamedStage() async throws {
+        let fixture = try ABSBrowseModelFixture(importDownloadData: Data("not-a-zip".utf8))
+
+        await fixture.model.add(fixture.item)
+
+        guard case .failed(let failure) = fixture.model.importState(for: fixture.item.id) else {
+            Issue.record("Expected visible import failure")
+            return
+        }
+        #expect(failure.stage == .extracting)
+        #expect(!failure.message.isEmpty)
+    }
+
+    @Test func retryReplacesFailureWithFreshRunningState() async throws {
+        let fixture = try ABSBrowseModelFixture(importDownloadData: Data("not-a-zip".utf8))
+        await fixture.model.add(fixture.item)
+        guard case .failed = fixture.model.importState(for: fixture.item.id) else {
+            Issue.record("Expected initial failure")
+            return
+        }
+        try fixture.stubImport(zipEntry: "book.m4b", suspended: true)
+
+        let retry = Task { await fixture.model.retryImport(fixture.item) }
+        try await waitUntilPendingResponseCount(1, in: fixture)
+
+        guard case .running(let progress, _) = fixture.model.importState(for: fixture.item.id)
+        else {
+            Issue.record("Expected retry to reset running state")
+            fixture.model.cancelImport()
+            await retry.value
+            return
+        }
+        #expect(progress.stage == .downloading)
+        fixture.model.cancelImport()
+        await retry.value
+    }
+
+    @Test func successRetainsAddedStateAndOpenTarget() async throws {
+        let fixture = try ABSBrowseModelFixture(importZipEntry: "book.m4b")
+
+        await fixture.model.add(fixture.item)
+
+        guard case .added(let book) = fixture.model.importState(for: fixture.item.id) else {
+            Issue.record("Expected Added state")
+            return
+        }
+        #expect(fixture.model.openTarget(for: fixture.item.id) == book)
+        #expect(fixture.model.addedBooksByRemoteID[fixture.item.id] == book)
+        #expect(ABSLocalImportStatus.hasSupportedRootContent(at: book.folderURL))
+    }
+
+    @Test func successfulImportImmediatelyLeavesNotAddedResults() async throws {
+        let fixture = try ABSBrowseModelFixture(importZipEntry: "book.m4b")
+        fixture.stubLibraryItems(ids: [fixture.item.id])
+        await fixture.model.load()
+        await fixture.model.setNotAddedOnly(true).value
+        #expect(fixture.model.displayedItems.map(\.id) == [fixture.item.id])
+        let itemRequestCount =
+            fixture.requests.count { $0.url?.path.hasSuffix("/items") == true }
+
+        await fixture.model.add(fixture.item)
+
+        #expect(fixture.model.displayedItems.isEmpty)
+        #expect(fixture.model.totalCount == 0)
+        #expect(
+            fixture.requests.count { $0.url?.path.hasSuffix("/items") == true }
+                == itemRequestCount)
+    }
+
+    @Test func importSuccessInvalidatesSuspendedNotAddedProjection() async throws {
+        let gate = FirstProjectionGate()
+        let fixture = try ABSBrowseModelFixture(
+            importZipEntry: "book.m4b",
+            notAddedProjection: { items, addedIDs in
+                await gate.suspendFirstProjection()
+                return try ABSBrowseResultResolver.excludingAddedCancellable(
+                    items, addedIDs: addedIDs)
+            })
+        fixture.stubLibraryItems(ids: [fixture.item.id])
+        await fixture.model.load()
+
+        let projection = fixture.model.setNotAddedOnly(true)
+        for _ in 0..<50_000 {
+            if await gate.hasSuspendedProjection { break }
+            await Task.yield()
+        }
+        #expect(await gate.hasSuspendedProjection)
+
+        await fixture.model.add(fixture.item)
+        await gate.resumeProjection()
+        await projection.value
+
+        #expect(fixture.model.displayedItems.isEmpty)
+        #expect(fixture.model.totalCount == 0)
+    }
+
+    @Test func staleProvenanceReloadCannotEraseSuccessfulImport() async throws {
+        let gate = NextAsyncGate()
+        let fixture = try ABSBrowseModelFixture(
+            importZipEntry: "book.m4b",
+            afterAddedBooksLoad: { await gate.suspendIfArmed() })
+        fixture.stubLibraryItems(ids: [fixture.item.id])
+        await fixture.model.load()
+        await fixture.model.setNotAddedOnly(true).value
+        await gate.arm()
+
+        let refresh = Task { await fixture.model.refresh() }
+        await gate.waitUntilSuspended()
+        await fixture.model.add(fixture.item)
+        await gate.release()
+        await refresh.value
+
+        guard case .added(let book) = fixture.model.importState(for: fixture.item.id) else {
+            Issue.record("Expected Added state after stale provenance reload")
+            return
+        }
+        #expect(fixture.model.addedBooksByRemoteID[fixture.item.id] == book)
+        #expect(fixture.model.displayedItems.isEmpty)
+        #expect(fixture.model.totalCount == 0)
+    }
+
+    @Test func importSuccessDoesNotCancelSuspendedNotAddedDisableProjection() async throws {
+        let gate = NextAsyncGate()
+        let fixture = try ABSBrowseModelFixture(
+            importZipEntry: "book.m4b",
+            notAddedProjection: { items, addedIDs in
+                await gate.suspendIfArmed()
+                return try ABSBrowseResultResolver.excludingAddedCancellable(
+                    items, addedIDs: addedIDs)
+            })
+        fixture.stubLibraryItems(ids: [fixture.item.id])
+        await fixture.model.load()
+        await fixture.model.setNotAddedOnly(true).value
+        await gate.arm()
+
+        let showAll = fixture.model.setNotAddedOnly(false)
+        await gate.waitUntilSuspended()
+        await fixture.model.add(fixture.item)
+        await gate.release()
+        await showAll.value
+
+        #expect(!fixture.model.selection.notAddedOnly)
+        #expect(fixture.model.displayedItems.map(\.id) == [fixture.item.id])
+        #expect(fixture.model.totalCount == 1)
+    }
+
+    @Test func multiFilterFanOutNeverExceedsFourConcurrentQueries() async throws {
+        let fixture = try ABSBrowseModelFixture()
+        fixture.stubLibraryItems(ids: [])
+        await fixture.model.load()
+        let options = (0..<5).map {
+            ABSFilterOption(group: .tags, value: "tag-\($0)", label: "Tag \($0)")
+        }
+        for option in options {
+            fixture.stubFilteredItems(option: option, ids: [], suspended: true)
+        }
+        fixture.model.selection.options = Set(options)
+
+        let refresh = Task { await fixture.model.refresh() }
+        try await waitUntilPendingResponseCount(4, in: fixture)
+        #expect(fixture.pendingResponseCount == 4)
+        #expect(fixture.requestedFilters.count == 4)
+
+        let admittedFilter = try #require(fixture.requestedFilters.first)
+        fixture.resume(
+            pathSuffix: "/items", queryItems: ["filter": admittedFilter])
+        try await waitUntilFilterRequestCount(5, in: fixture)
+        #expect(fixture.pendingResponseCount == 4)
+
+        fixture.model.cancel()
+        await refresh.value
+    }
+
     private func waitUntilLoaded(_ model: ABSBrowseModel) async throws {
         for _ in 0..<50_000 {
             if model.loadState == .loaded { return }
@@ -482,6 +750,26 @@ import ZIPFoundation
             }) {
                 return
             }
+            await Task.yield()
+        }
+        throw TimeoutError()
+    }
+
+    private func waitUntilPendingResponseCount(
+        _ count: Int, in fixture: ABSBrowseModelFixture
+    ) async throws {
+        for _ in 0..<50_000 {
+            if fixture.pendingResponseCount == count { return }
+            await Task.yield()
+        }
+        throw TimeoutError()
+    }
+
+    private func waitUntilFilterRequestCount(
+        _ count: Int, in fixture: ABSBrowseModelFixture
+    ) async throws {
+        for _ in 0..<50_000 {
+            if fixture.requestedFilters.count == count { return }
             await Task.yield()
         }
         throw TimeoutError()
@@ -579,11 +867,26 @@ private final class ABSBrowseModelFixture {
                 .first(where: { $0.name == "page" })?.value
         }
     }
+    var requestedFilters: [String] {
+        requests.compactMap { request in
+            guard request.url?.path.hasSuffix("/items") == true, let url = request.url else {
+                return nil
+            }
+            return URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                .first(where: { $0.name == "filter" })?.value
+        }
+    }
     var persistedSortRawValue: String? { preferences.string(forKey: "absBrowseSort") }
 
     init(
         importedRemoteID: String? = nil,
-        importZipEntry: String? = nil
+        importZipEntry: String? = nil,
+        importDownloadData: Data? = nil,
+        importDownloadSuspended: Bool = false,
+        afterExtractedEntry: @escaping @Sendable () async -> Void = {},
+        afterPersistence: @escaping @Sendable () async -> Void = {},
+        notAddedProjection: ABSBrowseModel.NotAddedProjection? = nil,
+        afterAddedBooksLoad: @escaping @MainActor @Sendable () async -> Void = {}
     ) throws {
         scope = "browse-http-\(UUID().uuidString)"
         URLProtocolStub.reset(scope: scope)
@@ -597,12 +900,27 @@ private final class ABSBrowseModelFixture {
         service = AudiobookshelfService(
             baseURL: URL(string: "http://browse.test:13378")!, tokens: tokens,
             session: URLProtocolStub.makeSession(scope: scope))
-
+        item = try Self.decodeItem(id: "browse-item-\(UUID().uuidString)", libraryID: "l1")
+        if let importZipEntry {
+            URLProtocolStub.stub(
+                scope: scope, pathSuffix: "/download",
+                data: try Self.makeZip(entry: importZipEntry),
+                headers: ["Content-Type": "application/zip"],
+                suspended: importDownloadSuspended)
+        } else if let importDownloadData {
+            URLProtocolStub.stub(
+                scope: scope, pathSuffix: "/download", data: importDownloadData,
+                headers: ["Content-Type": "application/zip"],
+                suspended: importDownloadSuspended)
+        }
+        let importer = ABSImportService(
+            service: service, db: db, serverID: serverID,
+            afterExtractedEntry: afterExtractedEntry,
+            afterPersistence: afterPersistence)
         model = ABSBrowseModel(
             service: service, db: db, serverID: serverID, debounce: .zero,
-            preferences: preferences)
-
-        item = try Self.decodeItem(id: "i1", libraryID: "l1")
+            preferences: preferences, notAddedProjection: notAddedProjection,
+            importService: importer, afterAddedBooksLoad: afterAddedBooksLoad)
 
         if let importedRemoteID {
             let folder = FileManager.default.temporaryDirectory.appending(
@@ -618,15 +936,19 @@ private final class ABSBrowseModelFixture {
                     remoteItemID: importedRemoteID))
         }
 
-        if let importZipEntry {
-            URLProtocolStub.stub(
-                scope: scope, pathSuffix: "/download",
-                data: try Self.makeZip(entry: importZipEntry))
-        }
     }
 
-    deinit {
+    isolated deinit {
         if let managedFolder { try? FileManager.default.removeItem(at: managedFolder) }
+        let finalFolder = FileLocations.absLibraryDirectory(remoteItemID: item.id)
+        let residues =
+            (try? FileManager.default.contentsOfDirectory(
+                at: finalFolder.deletingLastPathComponent(),
+                includingPropertiesForKeys: nil))?.filter {
+                $0.lastPathComponent.contains(item.id)
+            } ?? []
+        try? FileManager.default.removeItem(at: finalFolder)
+        for residue in residues { try? FileManager.default.removeItem(at: residue) }
         preferences.removePersistentDomain(forName: preferencesSuiteName)
         URLProtocolStub.finish(scope: scope)
     }
@@ -666,12 +988,13 @@ private final class ABSBrowseModelFixture {
     }
 
     func stubFilteredItems(
-        option: ABSFilterOption, ids: [String], libraryID: String = "l1"
+        option: ABSFilterOption, ids: [String], libraryID: String = "l1",
+        suspended: Bool = false
     ) {
         URLProtocolStub.stub(
             scope: scope, pathSuffix: "/api/libraries/\(libraryID)/items",
             queryItems: ["filter": option.encodedFilter],
-            json: itemsJSON(ids: ids, libraryID: libraryID))
+            json: itemsJSON(ids: ids, libraryID: libraryID), suspended: suspended)
     }
 
     func stubPagedItems(
@@ -714,6 +1037,17 @@ private final class ABSBrowseModelFixture {
 
     func resume(pathSuffix: String, queryItems: [String: String]) {
         URLProtocolStub.resume(scope: scope, pathSuffix: pathSuffix, queryItems: queryItems)
+    }
+
+    func stubImport(zipEntry: String, suspended: Bool = false) throws {
+        URLProtocolStub.stub(
+            scope: scope, pathSuffix: "/download",
+            data: try Self.makeZip(entry: zipEntry),
+            headers: ["Content-Type": "application/zip"], suspended: suspended)
+    }
+
+    func makeItem(id: String) throws -> ABSLibraryItem {
+        try Self.decodeItem(id: id, libraryID: "l1")
     }
 
     @discardableResult
@@ -773,6 +1107,62 @@ private final class ABSBrowseModelFixture {
             return data.subdata(in: start..<min(start + size, data.count))
         }
         return try Data(contentsOf: url)
+    }
+}
+
+private actor ABSBrowseImportGate {
+    private var suspended = false
+    private var released = false
+    private var suspendedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func suspend() async {
+        suspended = true
+        suspendedWaiters.forEach { $0.resume() }
+        suspendedWaiters.removeAll()
+        guard !released else { return }
+        await withCheckedContinuation { releaseWaiters.append($0) }
+    }
+
+    func waitUntilSuspended() async {
+        guard !suspended else { return }
+        await withCheckedContinuation { suspendedWaiters.append($0) }
+    }
+
+    func release() {
+        released = true
+        releaseWaiters.forEach { $0.resume() }
+        releaseWaiters.removeAll()
+    }
+}
+
+private actor NextAsyncGate {
+    private var armed = false
+    private var suspended = false
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+    private var suspendedContinuations: [CheckedContinuation<Void, Never>] = []
+
+    func arm() {
+        armed = true
+    }
+
+    func suspendIfArmed() async {
+        guard armed else { return }
+        armed = false
+        suspended = true
+        suspendedContinuations.forEach { $0.resume() }
+        suspendedContinuations.removeAll()
+        await withCheckedContinuation { releaseContinuation = $0 }
+    }
+
+    func waitUntilSuspended() async {
+        guard !suspended else { return }
+        await withCheckedContinuation { suspendedContinuations.append($0) }
+    }
+
+    func release() {
+        releaseContinuation?.resume()
+        releaseContinuation = nil
     }
 }
 
