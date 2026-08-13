@@ -40,9 +40,20 @@ Done:
   sources, local `makeMigrator()` seam). Reproduces this exact error class in
   ~12s instead of an 8-minute CI round-trip. 3/3 pass.
 
+## 2026-08-13 — Local Apple gate PASSED
+
+Done:
+
+- The build slot freed at 14:41 (after the fix commit, so it built corrected
+  source). `make build-tests && make test-only FILTER=EchoTests/SchemaV41Tests`
+  ran on the iOS simulator: **4/4 SchemaV41Tests passed**,
+  `** TEST EXECUTE SUCCEEDED **`.
+
 Next:
 
-- Confirm the re-run of CI "Build gate + tests" passes.
+- Confirm the re-run of CI "Build gate + tests" passes (full EchoTests suite —
+  the local run was filtered to SchemaV41Tests only).
+- Device-verify on a genuinely stranded install.
 
 Resume:
 
