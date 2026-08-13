@@ -22,14 +22,14 @@ WHAT TO FOCUS ON
 • Add a PDF (textbook, paper): continuous scroll and pinch-zoom should stay smooth; with matching audio, tap-to-seek and read-along should track.
 
 5) STUDY & EXPORT
-• Create flashcards from what you're hearing, then export study notes (Markdown) or a flashcard deck (Anki .apkg) — do counts and formatting hold up?
+• Create flashcards from what you're hearing, then export your study notes as Markdown — do counts and formatting hold up?
 • Export an audiobook as .m4b — do chapters and cover art survive in another player?
 
 6) APPLE WATCH
 • Play from the wrist. The crown adjusts volume, and progress and cover should stay in sync when the watch app reopens mid-playback.
 
-FREE TIER & ECHO PRO
-The free tier covers 1 narrated chapter per book and 20 flashcards. If you hit an Echo Pro gate, tell us whether the pitch and the limits feel honest — that is a design goal, not a trick.
+ECHO PRO IN THIS BETA
+Every Echo Pro feature is unlocked for beta testers: there is no paywall in this build and nothing to buy. When Echo Pro does arrive it will be a one-time unlock — never a subscription. Judge the features themselves; pricing feedback comes later.
 
 REPORTING
 Use TestFlight's Send Beta Feedback (a screenshot attaches automatically). For narration or alignment bugs, include the book title, narrator, and where the EPUB came from. Books that behave badly are gold — we want them.
