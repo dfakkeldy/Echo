@@ -25,6 +25,25 @@ Next:
 - Device-verify on Dan's stranded install: record a feed voice memo, confirm the
   row persists and the memo list populates.
 
+## 2026-08-13 — CI compile failure fixed
+
+Done:
+
+- First CI run failed with 2 errors, both "errors thrown from here are not
+  handled" in `#expect` macro expansions (SchemaV41Tests lines 86–87). Cause:
+  swift-testing decomposes binary expressions to report both operands, so a
+  `try` inside an optional chain across `==` lands in a non-throwing closure.
+  `#expect(try db.tableExists(…))` is fine; `#expect(try X.fetchOne(…)?.y == z)`
+  is not. Fixed by hoisting the fetches into local `let`s.
+- Extended the scratch harness with a **swift-testing test target** mirroring the
+  real test file (real `Schema_V1`/`Schema_V41`/`VoiceMemoRecord`/`NoteRecord`
+  sources, local `makeMigrator()` seam). Reproduces this exact error class in
+  ~12s instead of an 8-minute CI round-trip. 3/3 pass.
+
+Next:
+
+- Confirm the re-run of CI "Build gate + tests" passes.
+
 Resume:
 
 ```

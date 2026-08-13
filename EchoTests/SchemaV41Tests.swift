@@ -83,8 +83,13 @@ import Testing
         }
 
         try writer.read { db in
-            #expect(try VoiceMemoRecord.fetchOne(db, key: "memo")?.epubBlockID == "block-7")
-            #expect(try NoteRecord.fetchOne(db, key: "note")?.epubBlockID == "block-7")
+            // Hoisted rather than inlined into `#expect`: the macro decomposes
+            // binary expressions to report both operands, and a `try` inside an
+            // optional chain across `==` lands in a non-throwing closure.
+            let memo = try VoiceMemoRecord.fetchOne(db, key: "memo")
+            let note = try NoteRecord.fetchOne(db, key: "note")
+            #expect(memo?.epubBlockID == "block-7")
+            #expect(note?.epubBlockID == "block-7")
         }
     }
 
