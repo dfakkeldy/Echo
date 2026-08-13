@@ -666,7 +666,7 @@ import ZIPFoundation
         await gate.arm()
 
         let refresh = Task { await fixture.model.refresh() }
-        await gate.waitUntilSuspended()
+        try await gate.waitUntilSuspended()
         await fixture.model.add(fixture.item)
         await gate.release()
         await refresh.value
@@ -723,7 +723,7 @@ import ZIPFoundation
         await gate.arm()
 
         let refresh = Task { await fixture.model.refresh() }
-        await gate.waitUntilSuspended()
+        try await gate.waitUntilSuspended()
         await fixture.model.add(newerItem)
         await gate.release()
         await refresh.value
@@ -750,13 +750,14 @@ import ZIPFoundation
             })
         fixture.stubLibraryItems(ids: [fixture.item.id])
         await fixture.model.load()
-        await fixture.model.setNotAddedOnly(true).value
         await gate.arm()
 
+        let hideAdded = fixture.model.setNotAddedOnly(true)
+        try await gate.waitUntilSuspended()
         let showAll = fixture.model.setNotAddedOnly(false)
-        await gate.waitUntilSuspended()
         await fixture.model.add(fixture.item)
         await gate.release()
+        await hideAdded.value
         await showAll.value
 
         #expect(!fixture.model.selection.notAddedOnly)
@@ -1245,7 +1246,6 @@ private actor NextAsyncGate {
     private var armed = false
     private var suspended = false
     private var releaseContinuation: CheckedContinuation<Void, Never>?
-    private var suspendedContinuations: [CheckedContinuation<Void, Never>] = []
 
     func arm() {
         armed = true
@@ -1255,14 +1255,15 @@ private actor NextAsyncGate {
         guard armed else { return }
         armed = false
         suspended = true
-        suspendedContinuations.forEach { $0.resume() }
-        suspendedContinuations.removeAll()
         await withCheckedContinuation { releaseContinuation = $0 }
     }
 
-    func waitUntilSuspended() async {
-        guard !suspended else { return }
-        await withCheckedContinuation { suspendedContinuations.append($0) }
+    func waitUntilSuspended() async throws {
+        for _ in 0..<50_000 {
+            if suspended { return }
+            await Task.yield()
+        }
+        throw NextAsyncGateTimeoutError()
     }
 
     func release() {
@@ -1270,6 +1271,8 @@ private actor NextAsyncGate {
         releaseContinuation = nil
     }
 }
+
+private struct NextAsyncGateTimeoutError: Error {}
 
 private actor FirstProjectionGate {
     private var continuation: CheckedContinuation<Void, Never>?
