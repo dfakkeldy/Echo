@@ -162,6 +162,21 @@ jobs:
           echo "destination=platform=iOS Simulator,id=$IOS_SIM_UDID" >> "$GITHUB_OUTPUT"
           echo "Selected iOS test destination: platform=iOS Simulator,id=$IOS_SIM_UDID ($IOS_SIM_NAME)"
 
+          # Record the exact runtime and toolchain. The selector above takes the
+          # NEWEST iOS 26.x runtime the runner happens to expose, so a runner
+          # image refresh can move the test suite onto a different runtime with
+          # no commit in this repo. Without these two lines a failure cannot be
+          # attributed to a runtime change after the fact.
+          echo "Selected simulator runtime:"
+          xcrun simctl list devices available -j |
+            jq -r --arg udid "$IOS_SIM_UDID" '
+              .devices
+              | to_entries[]
+              | select(any(.value[]?; .udid == $udid))
+              | .key
+            '
+          xcodebuild -version
+
       - name: Resolve package dependencies
         run: |
           xcodebuild -resolvePackageDependencies \
@@ -188,17 +203,33 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             -quiet
 
+      # Deliberately NOT `-quiet`: this step only runs already-built tests, so it
+      # emits test results rather than compiler output, and `-quiet` reduces a
+      # failure to a bare test name with no assertion text and no crash trace.
+      # That is how the PlayerModelAccentTests failure on b0f8a500 became
+      # undiagnosable — a crashed test process and a failed assertion print
+      # identically under `-quiet`. The result bundle preserves the crash logs.
       - name: Test — EchoTests
         run: |
           set -o pipefail
+          rm -rf TestResults.xcresult
           xcodebuild test-without-building \
             -project Echo.xcodeproj \
             -scheme Echo \
             -destination "${{ steps.ios-sim.outputs.destination }}" \
             -only-testing:EchoTests \
             -parallel-testing-enabled NO \
-            CODE_SIGNING_ALLOWED=NO \
-            -quiet
+            -resultBundlePath TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Upload test result bundle
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TestResults-${{ github.run_id }}-${{ github.run_attempt }}
+          path: TestResults.xcresult
+          retention-days: 14
+          if-no-files-found: warn
 
       - name: Build — Echo macOS
         run: |
