@@ -7,6 +7,7 @@ enum TextParseError: Error { case unreadable(URL) }
 private enum TextUnit {
     case heading(level: Int, text: String)
     case paragraph(String)
+    case code(text: String, language: String?)
 }
 
 /// Decides the chapter break level for a document's heading depths.
@@ -55,10 +56,17 @@ func parseMarkdown(audiobookID: String, content: String, sourceURL: URL) -> EPUB
 
 // MARK: - Markdown tokenizer
 
+private struct MarkdownFence {
+    let delimiter: Character
+    let length: Int
+}
+
 private func tokenizeMarkdown(_ content: String) -> [TextUnit] {
     var units: [TextUnit] = []
     var paragraphLines: [String] = []
-    var inFence = false
+    var fence: MarkdownFence?
+    var fenceLines: [String] = []
+    var fenceLanguage: String?
 
     func flushParagraph() {
         let joined = paragraphLines.joined(separator: " ")
@@ -67,20 +75,49 @@ private func tokenizeMarkdown(_ content: String) -> [TextUnit] {
         paragraphLines.removeAll()
     }
 
-    for rawLine in content.components(separatedBy: .newlines) {
+    func flushFence() {
+        let isBlank: (String) -> Bool = {
+            $0.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        let trimmed = Array(
+            fenceLines.drop(while: isBlank).reversed().drop(while: isBlank).reversed())
+        let code = trimmed.joined(separator: "\n")
+        if !code.isEmpty {
+            units.append(.code(text: code, language: fenceLanguage))
+        }
+        fenceLines.removeAll()
+        fenceLanguage = nil
+    }
+
+    let logicalContent = content
+        .replacing("\r\n", with: "\n")
+        .replacing("\r", with: "\n")
+    for rawLine in logicalContent.components(separatedBy: .newlines) {
         let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
 
-        if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
-            if inFence {
-                inFence = false
-            } else {
-                flushParagraph()
-                inFence = true
+        if let activeFence = fence {
+            if isMarkdownFenceClosing(rawLine, opener: activeFence) {
+                fence = nil
+                flushFence()
+                continue
             }
+            fenceLines.append(rawLine)
             continue
         }
-        if inFence { continue }
+
+        if let opening = markdownFenceOpening(rawLine) {
+            flushParagraph()
+            fence = opening.fence
+            fenceLanguage = opening.language
+            continue
+        }
         if trimmed.isEmpty {
+            flushParagraph()
+            continue
+        }
+        // CommonMark thematic break (`---`, `***`, `___`): a block separator,
+        // not content. Drop it so narration/the reader don't get a junk card.
+        if isMarkdownThematicBreak(trimmed) {
             flushParagraph()
             continue
         }
@@ -106,7 +143,57 @@ private func tokenizeMarkdown(_ content: String) -> [TextUnit] {
         paragraphLines.append(trimmed)
     }
     flushParagraph()
+    if fence != nil { flushFence() }
     return units
+}
+
+private func markdownFenceOpening(_ line: String) -> (
+    fence: MarkdownFence, language: String?
+)? {
+    guard let run = markdownFenceRun(in: line), run.length >= 3 else { return nil }
+    let info = run.remainder.trimmingCharacters(in: .whitespaces).lowercased()
+    let language = info.split(separator: " ").first.map(String.init)
+    return (MarkdownFence(delimiter: run.delimiter, length: run.length), language)
+}
+
+private func isMarkdownFenceClosing(_ line: String, opener: MarkdownFence) -> Bool {
+    guard let run = markdownFenceRun(in: line),
+        run.delimiter == opener.delimiter,
+        run.length >= opener.length
+    else { return false }
+    return run.remainder.trimmingCharacters(in: .whitespaces).isEmpty
+}
+
+private func markdownFenceRun(in line: String) -> (
+    delimiter: Character, length: Int, remainder: String
+)? {
+    guard let candidate = markdownFenceCandidate(in: line) else { return nil }
+    let characters = Array(candidate)
+    guard let delimiter = characters.first, delimiter == "`" || delimiter == "~" else {
+        return nil
+    }
+    let length = characters.prefix { $0 == delimiter }.count
+    return (delimiter, length, String(characters.dropFirst(length)))
+}
+
+/// CommonMark permits up to three leading spaces before a fence. Four or more
+/// spaces make the line indented code content, even when it looks like a closer.
+private func markdownFenceCandidate(in line: String) -> Substring? {
+    var index = line.startIndex
+    var leadingSpaces = 0
+    while index < line.endIndex, line[index] == " " {
+        leadingSpaces += 1
+        guard leadingSpaces <= 3 else { return nil }
+        index = line.index(after: index)
+    }
+    return line[index...]
+}
+
+private func isMarkdownThematicBreak(_ line: String) -> Bool {
+    let marks = line.filter { !$0.isWhitespace }
+    guard marks.count >= 3, let first = marks.first else { return false }
+    guard first == "-" || first == "*" || first == "_" else { return false }
+    return marks.allSatisfy { $0 == first }
 }
 
 /// `^(#{1,6})\s+(.*)$` → (level, trimmed title), else nil.
@@ -166,7 +253,8 @@ private func buildParse(
     @discardableResult
     func emit(
         kind: EPubBlockRecord.Kind, plain: String, formats: [TextFormat],
-        isFrontMatter: Bool, headingLevel: Int?
+        isFrontMatter: Bool, headingLevel: Int?,
+        narrationText: String? = nil, codeLanguage: String? = nil
     ) -> String? {
         if spineIndexesUsed.last != spineIndex { spineIndexesUsed.append(spineIndex) }
         let anchorID = (kind == .heading) ? "b\(spineIndex)-\(blockIndex)" : nil
@@ -197,6 +285,8 @@ private func buildParse(
                 wordCount: wordCount,
                 markers: EPubBlockRecord.encodeMarkers(markers),
                 textFormats: EPubBlockRecord.encodeFormats(formats),
+                narrationText: narrationText,
+                codeLanguage: codeLanguage,
                 createdAt: createdAt,
                 modifiedAt: nil))
 
@@ -204,7 +294,9 @@ private func buildParse(
             TextBlockDescriptor(
                 kind: kind, text: plain, imagePath: nil, htmlContent: nil,
                 markers: markers, textFormats: formats,
-                anchorIDs: anchorID.map { [$0] } ?? []))
+                anchorIDs: anchorID.map { [$0] } ?? [],
+                narrationCue: narrationText,
+                codeLanguage: codeLanguage))
 
         blockIndex += 1
         sequenceIndex += 1
@@ -259,6 +351,13 @@ private func buildParse(
             emit(
                 kind: .paragraph, plain: plain, formats: formats,
                 isFrontMatter: front, headingLevel: nil)
+        case .code(let text, let language):
+            let front = (chapterLevel != nil) && !seenChapterHeading
+            if front { emittedFrontMatter = true }
+            emit(
+                kind: .code, plain: text, formats: [],
+                isFrontMatter: front, headingLevel: nil,
+                narrationText: "Code listing.", codeLanguage: language)
         }
     }
 
@@ -293,9 +392,31 @@ func parsePlainText(audiobookID: String, content: String, sourceURL: URL) -> EPU
         units: units, audiobookID: audiobookID, sourceURL: sourceURL, hrefExt: "txt")
 }
 
+/// Parses extracted PDF page text into one synthetic chapter per page. This is
+/// used only when the plain-text pass cannot find useful chapter markers, so
+/// large PDFs do not become one enormous narration batch.
+func parsePDFPagesAsPlainTextChapters(
+    audiobookID: String,
+    pages: [String],
+    sourceURL: URL
+) -> EPUBBlockParse {
+    var units: [TextUnit] = []
+    for (index, page) in pages.enumerated() {
+        let trimmed = page.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { continue }
+        units.append(.heading(level: 1, text: "Page \(index + 1)"))
+        units.append(contentsOf: tokenizePlainText(trimmed, recognizesChapterMarkers: false))
+    }
+    return buildParse(
+        units: units, audiobookID: audiobookID, sourceURL: sourceURL, hrefExt: "txt")
+}
+
 /// Plain text has no markup: split paragraphs on blank lines, and promote
 /// chapter-like lines to level-1 headings (one heading level → flat chapters).
-private func tokenizePlainText(_ content: String) -> [TextUnit] {
+private func tokenizePlainText(
+    _ content: String,
+    recognizesChapterMarkers: Bool = true
+) -> [TextUnit] {
     var units: [TextUnit] = []
     var paragraphLines: [String] = []
 
@@ -312,7 +433,7 @@ private func tokenizePlainText(_ content: String) -> [TextUnit] {
             flush()
             continue
         }
-        if isChapterMarker(trimmed) {
+        if recognizesChapterMarkers, isChapterMarker(trimmed) {
             flush()
             units.append(.heading(level: 1, text: trimmed))
             continue

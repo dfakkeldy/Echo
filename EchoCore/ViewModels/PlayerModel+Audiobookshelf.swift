@@ -1,43 +1,158 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import OSLog
 import UIKit
 
 extension PlayerModel {
+    private static var absLogger: Logger { Logger(category: "AudiobookshelfAuth") }
+
     /// DAO for the single connected ABS server. nil if the DB isn't ready yet.
     var absServerDAO: ABSServerDAO? {
         guard let writer = databaseService?.writer else { return nil }
         return ABSServerDAO(db: writer)
     }
 
-    /// Connect + persist the server (non-secret) and tokens (Keychain). Caches the warm,
-    /// logged-in service instance.
+    /// Connect + persist the server (non-secret) and tokens (Keychain). Always uses a delegate-backed
+    /// session so self-signed certs can be pinned. On first connect to a self-signed host (no pin
+    /// yet) `login()` throws `ABSError.untrustedCertificate` — the connect UI shows the fingerprint
+    /// and, on approval, calls this again with `trustingCertificate:` set. CA-trusted and `http://`
+    /// servers succeed on the first call with `pinnedSHA256 == nil` (the delegate just defers to
+    /// default handling).
     @discardableResult
-    func connectAudiobookshelf(baseURL: URL, username: String, password: String) async throws
-        -> ABSServerRecord
-    {
+    func connectAudiobookshelf(
+        baseURL: URL, username: String, password: String,
+        trustingCertificate pinnedSHA256: String? = nil
+    ) async throws -> ABSServerRecord {
         guard let dao = absServerDAO else { throw ABSError.notConnected }
         let serverID = UUID().uuidString
+        let host = baseURL.host?.lowercased() ?? ""
         let tokens = ABSTokenStore(serverID: serverID)
-        let service = AudiobookshelfService(baseURL: baseURL, tokens: tokens, session: .shared)
-        let defaultLib = try await service.login(username: username, password: password)
+        if let pinnedSHA256 { tokens.pinnedCertificateSHA256 = pinnedSHA256 }
+        let (session, delegate) = ABSURLSession.make(expectedHost: host, pinnedSHA256: pinnedSHA256)
+        let service = AudiobookshelfService(
+            baseURL: baseURL, tokens: tokens, session: session, trustDelegate: delegate)
+
+        let defaultLib: String?
+        do {
+            defaultLib = try await service.login(username: username, password: password)
+            Self.absLogger.info("ABS login succeeded; attempting to persist server record.")
+        } catch {
+            service.invalidate()
+            // Roll back every token-store value for this unsaved server, including non-pin
+            // refresh tokens from partial auth responses and optimistic trust pins.
+            tokens.clear()
+            Self.absLogger.warning(
+                "ABS login failed; cleared local credentials for unsaved server.")
+            throw error
+        }
+
         let record = ABSServerRecord(
-            id: serverID,
-            baseURL: baseURL.absoluteString,
-            username: username,
+            id: serverID, baseURL: baseURL.absoluteString, username: username,
             defaultLibraryId: defaultLib,
             addedAt: ISO8601DateFormatter().string(from: Date()))
-        try dao.save(record)
-        absService = service  // cache the warm instance (keeps access token + refresh serialization)
+        do {
+            try dao.upsert(record)
+            try dao.setActive(serverID)
+        } catch {
+            // Symmetric with the login-failure rollback above: don't leave access/refresh tokens,
+            // Keychain trust pins, or a live delegate session behind when the DB record is absent.
+            service.invalidate()
+            tokens.clear()
+            Self.absLogger.error(
+                "ABS server record save failed after login; cleared local credentials.")
+            throw error
+        }
+        absService?.invalidate()  // release any previously-cached delegate session
+        absService = service  // cache the warm instance (access token + refresh serialization)
         absServiceServerID = serverID
         return record
     }
 
-    func disconnectAudiobookshelf(_ server: ABSServerRecord) async {
-        let service = makeAudiobookshelfService()  // reuse cached instance if present
-        await service?.signOut()
-        try? absServerDAO?.delete(server.id)
+    @discardableResult
+    func disconnectAudiobookshelf(_ server: ABSServerRecord) async throws -> ABSSignOutResult {
+        absRemoteSignOutWarning = nil
+
+        let service = makeAudiobookshelfService(for: server)
+        let signOutResult: ABSSignOutResult
+        if let service {
+            signOutResult = await service.signOut()  // clears access/refresh + the pinned cert
+            service.invalidate()  // release the delegate-backed session
+        } else {
+            signOutResult = clearAudiobookshelfTokensWithUnknownRemoteStatus(for: server)
+        }
+
+        if case .remoteRevokeFailed(let error) = signOutResult {
+            setRemoteSignOutWarning()
+            Self.absLogger.warning(
+                "ABS remote sign-out failed during disconnect; local disconnect continuing: \(error.privacySafeLogDescription, privacy: .public)"
+            )
+        } else if case .remoteRevokeUnknown = signOutResult {
+            setRemoteSignOutWarning()
+            Self.absLogger.warning(
+                "ABS remote sign-out status is unknown during disconnect; local disconnect continuing."
+            )
+        }
+
         absService = nil
         absServiceServerID = nil
+
+        guard let dao = absServerDAO else {
+            Self.absLogger.error(
+                "ABS local server delete failed because the database is unavailable.")
+            throw ABSError.notConnected
+        }
+        do {
+            try dao.delete(server.id)
+        } catch {
+            Self.absLogger.error("ABS local server delete failed after credentials were cleared.")
+            throw error
+        }
+
+        return signOutResult
+    }
+
+    private func setRemoteSignOutWarning() {
+        absRemoteSignOutWarning =
+            String(
+                localized:
+                    "Echo signed out locally, but Audiobookshelf did not confirm remote sign-out. The server session may remain active until it expires."
+            )
+    }
+
+    private func clearAudiobookshelfTokensWithUnknownRemoteStatus(
+        for server: ABSServerRecord
+    ) -> ABSSignOutResult {
+        let tokens = ABSTokenStore(serverID: server.id)
+        let hadRefreshToken = tokens.refreshToken != nil
+        tokens.clear()
+
+        if hadRefreshToken {
+            Self.absLogger.warning(
+                "ABS disconnect could not build a service; cleared local credentials with unknown remote sign-out status."
+            )
+            return .remoteRevokeUnknown
+        }
+
+        Self.absLogger.info(
+            "ABS disconnect could not build a service; cleared local credentials with no remote refresh token present."
+        )
+        return .noRemoteToken
+    }
+
+    private func makeAudiobookshelfService(for server: ABSServerRecord) -> AudiobookshelfService? {
+        if let cached = absService, absServiceServerID == server.id { return cached }
+        guard let url = URL(string: server.baseURL) else { return nil }
+
+        let tokens = ABSTokenStore(serverID: server.id)
+        let host = url.host?.lowercased() ?? ""
+        let (session, delegate) = ABSURLSession.make(
+            expectedHost: host, pinnedSHA256: tokens.pinnedCertificateSHA256)
+        let service = AudiobookshelfService(
+            baseURL: url, tokens: tokens, session: session, trustDelegate: delegate)
+        absService?.invalidate()
+        absService = service
+        absServiceServerID = server.id
+        return service
     }
 
     /// The SINGLE, cached service for the connected server. ONE instance is required for
@@ -54,11 +169,31 @@ extension PlayerModel {
             let server = try? dao.current(),
             let url = URL(string: server.baseURL)
         else { return nil }
+        let tokens = ABSTokenStore(serverID: server.id)
+        let host = url.host?.lowercased() ?? ""
+        let (session, delegate) = ABSURLSession.make(
+            expectedHost: host, pinnedSHA256: tokens.pinnedCertificateSHA256)
         let service = AudiobookshelfService(
-            baseURL: url, tokens: ABSTokenStore(serverID: server.id), session: .shared)
+            baseURL: url, tokens: tokens, session: session, trustDelegate: delegate)
         absService = service
         absServiceServerID = server.id
         return service
+    }
+
+    func makeABSBrowseModel() -> ABSBrowseModel? {
+        guard let service = makeAudiobookshelfService(),
+            let db = databaseService,
+            let serverID = absServiceServerID ?? (try? absServerDAO?.current())?.id,
+            !serverID.isEmpty
+        else {
+            return nil
+        }
+        return ABSBrowseModel(service: service, db: db, serverID: serverID)
+    }
+
+    func openAudiobookshelfBook(_ book: ABSImportedBook) {
+        loadFolder(book.folderURL, autoplay: false)
+        selectedTab = .nowPlaying
     }
 
     // MARK: - Progress sync
@@ -68,7 +203,7 @@ extension PlayerModel {
     func refreshABSSyncIdentity() {
         absLastPushAt = nil
         guard let db = databaseService,
-            let id = folderURL?.absoluteString,
+            let id = bookIdentityURL?.absoluteString,
             let record = try? AudiobookDAO(db: db.writer).get(id)
         else {
             absSyncRemoteItemID = nil
@@ -119,17 +254,39 @@ extension PlayerModel {
                 remoteUpdatedAt: remote.lastUpdate.map(Double.init))
             switch decision {
             case .seekLocalTo(let target):
-                // v1: only override-seek single-track books (book time == track time → safe).
-                if self.tracks.count == 1, target >= 0,
-                    target <= (self.durationSeconds ?? .greatestFiniteMagnitude)
-                {
-                    await MainActor.run { self.seek(toSeconds: target) }
+                await MainActor.run {
+                    self.seekToBookTimeFromABS(target)
                 }
             case .pushLocal:
                 self.maybePushABSProgress(force: true)
             case .noop:
                 break
             }
+        }
+    }
+
+    private func seekToBookTimeFromABS(_ target: Double) {
+        guard target >= 0 else { return }
+        if let resolved = state.bookTimeIndex.resolve(bookTime: target) {
+            if resolved.trackIndex == currentIndex {
+                seek(toSeconds: resolved.offset)
+            } else if tracks.indices.contains(resolved.trackIndex) {
+                state.pendingBookTimeSeek = target
+                state.pendingBookTimeSeekSuppressesProgressPush = true
+                playerLoadingCoordinator.prepareToPlay(
+                    index: resolved.trackIndex, autoplay: isPlaying)
+            }
+            return
+        }
+
+        if state.shouldDeferBookTimeSeek(target) {
+            state.pendingBookTimeSeek = target
+            state.pendingBookTimeSeekSuppressesProgressPush = true
+            return
+        }
+
+        if tracks.count == 1, target <= (durationSeconds ?? .greatestFiniteMagnitude) {
+            seek(toSeconds: target)
         }
     }
 
@@ -151,7 +308,7 @@ extension PlayerModel {
         // resume; this covers the common "switch apps while it downloads" case.
         let bgTask = UIApplication.shared.beginBackgroundTask(withName: "abs-import")
         defer { if bgTask != .invalid { UIApplication.shared.endBackgroundTask(bgTask) } }
-        let folder = try await importer.prepareLocalFolder(for: item)
-        loadFolder(folder, autoplay: false)
+        let book = try await importer.prepareLocalFolder(for: item)
+        loadFolder(book.folderURL, autoplay: false)
     }
 }

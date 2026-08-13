@@ -3,6 +3,10 @@
 import Observation
 import os.log
 
+nonisolated struct AudioItemLoadFailure: Error, Equatable, Sendable {
+    let privateDetail: String
+}
+
 // MARK: - AudioEngineDelegate
 
 protocol AudioEngineDelegate: AnyObject {
@@ -79,7 +83,11 @@ final class AudioEngine {
 
     // MARK: - Time Tracking
 
-    private var fadeTimer: Timer?
+    // A structured `Task` rather than a `Timer`: under Swift 6 a `Timer`'s
+    // `@Sendable` callback cannot capture/mutate the fade's step counter or hop to
+    // the main actor without tripping sending diagnostics. An `await Task.sleep`
+    // loop keeps every fade step on the main actor with no isolation crossing.
+    private var fadeTask: Task<Void, Never>?
 
     /// The seek position at the start of the currently playing segment.
     /// `currentTime = seekOffset + Double(sampleTime) / sampleRate`
@@ -297,8 +305,8 @@ final class AudioEngine {
     /// Smoothly fade gain to a target value over the specified duration.
     /// Uses a repeating Timer at ~20 steps per second. Cancels any in-progress fade.
     func fadeGain(to targetGain: Float, duration: TimeInterval) {
-        fadeTimer?.invalidate()
-        fadeTimer = nil
+        fadeTask?.cancel()
+        fadeTask = nil
         guard let eqNode else { return }
         let startGain = eqNode.globalGain
         let steps = Int(duration / 0.05)
@@ -307,28 +315,22 @@ final class AudioEngine {
             return
         }
         let gainDelta = (targetGain - startGain) / Float(steps)
-        var currentStep = 0
-        let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) {
-            [weak self] timer in
-            guard let self else {
-                timer.invalidate()
-                return
-            }
-            Task { @MainActor in
-                currentStep += 1
-                if currentStep >= steps {
-                    self.eqNode?.globalGain = targetGain
-                    // Invalidate via the stored reference, not the captured
-                    // `timer` param: capturing a non-Sendable Timer into this
-                    // @Sendable Task is a Swift-6 error (CODE_AUDIT.md §3.1).
-                    self.fadeTimer?.invalidate()
-                    self.fadeTimer = nil
+        // Ramp on the main actor (the class is @MainActor), one step every 50 ms.
+        // `[weak self]` mirrors the old Timer's weak capture so an in-flight fade
+        // never keeps the engine alive.
+        fadeTask = Task { @MainActor [weak self] in
+            for step in 1...steps {
+                try? await Task.sleep(for: .milliseconds(50))
+                if Task.isCancelled { return }
+                guard let self, let eqNode = self.eqNode else { return }
+                if step >= steps {
+                    eqNode.globalGain = targetGain
+                    self.fadeTask = nil
                 } else {
-                    self.eqNode?.globalGain = startGain + gainDelta * Float(currentStep)
+                    eqNode.globalGain = startGain + gainDelta * Float(step)
                 }
             }
         }
-        fadeTimer = timer
     }
 
     // MARK: - Volume Boost
@@ -343,7 +345,10 @@ final class AudioEngine {
 
     /// Loads an audio file and schedules it from the given startTime.
     /// Maintains the play/pause state across item replacement.
-    func replaceCurrentItem(with url: URL, startTime: TimeInterval? = nil) {
+    @discardableResult
+    func replaceCurrentItem(
+        with url: URL, startTime: TimeInterval? = nil
+    ) -> Result<Void, AudioItemLoadFailure> {
         let wasPlaying = isPlaying
         isPlaying = false
         stopTimeTimer()
@@ -355,7 +360,10 @@ final class AudioEngine {
         currentTime = initialOffset
         duration = nil
 
-        guard let playerNode, engine != nil else { return }
+        guard let playerNode, engine != nil else {
+            return .failure(
+                AudioItemLoadFailure(privateDetail: "Audio engine is not configured"))
+        }
 
         do {
             // Use prebuffered file if it matches the target URL (saves disk I/O).
@@ -376,7 +384,12 @@ final class AudioEngine {
             let startFrame = AVAudioFramePosition(clampedOffset * sampleRate)
             let framesToPlay = AVAudioFrameCount(file.length - startFrame)
 
-            guard framesToPlay > 0 else { return }
+            guard framesToPlay > 0 else {
+                audioFile = nil
+                duration = nil
+                return .failure(
+                    AudioItemLoadFailure(privateDetail: "Audio file contains no playable frames"))
+            }
 
             seekOffset = clampedOffset
             currentTime = clampedOffset
@@ -390,12 +403,17 @@ final class AudioEngine {
                 isPlaying = true
                 startTimeTimer()
             }
+            return .success(())
         } catch {
             os_log(
                 .error, "AudioEngine: replaceCurrentItem error: %{private}@",
                 error.localizedDescription)
             audioFile = nil
             duration = nil
+            return .failure(
+                AudioItemLoadFailure(
+                    privateDetail:
+                        "\(String(reflecting: type(of: error))): \(error.localizedDescription)"))
         }
     }
 
@@ -414,8 +432,8 @@ final class AudioEngine {
         soundscapeMixer?.stop()
         chimePlayer?.cancel()
 
-        fadeTimer?.invalidate()
-        fadeTimer = nil
+        fadeTask?.cancel()
+        fadeTask = nil
         stopTimeTimer()
         #if os(iOS)
             removeInterruptionObserver()

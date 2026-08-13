@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Testing
+
 @testable import Echo
 
 @MainActor
@@ -28,6 +29,39 @@ struct WatchStateContextBuilderTests {
         #expect(ctx["bookmarkStorageKey"] as? String == "/books/dune")
     }
 
+    @Test("context carries the recency stamp the watch uses to drop stale snapshots")
+    func contextCarriesStateSeq() {
+        var older = WatchStateSnapshot()
+        older.contextSeq = 12_345.678
+        older.artworkSeq = 12_345.0
+        let olderCtx = WatchStateContextBuilder.build(from: older)
+        #expect(olderCtx["stateSeq"] as? Double == 12_345.678)
+        #expect(olderCtx["artworkSeq"] as? Double == 12_345.0)
+
+        var newer = WatchStateSnapshot()
+        newer.contextSeq = 12_346.0
+        let newerCtx = WatchStateContextBuilder.build(from: newer)
+        #expect((newerCtx["stateSeq"] as? Double ?? 0) > (olderCtx["stateSeq"] as? Double ?? 0))
+    }
+
+    @Test("recency sequence survives relaunch and a backward clock adjustment")
+    func stateSequenceIsPersistentlyMonotonic() throws {
+        let suiteName = "WatchStateSequenceGeneratorTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var generator = WatchStateSequenceGenerator(defaults: defaults)
+        let first = generator.next(now: Date(timeIntervalSinceReferenceDate: 500))
+        let afterClockRollback = generator.next(now: Date(timeIntervalSinceReferenceDate: 100))
+
+        var relaunchedGenerator = WatchStateSequenceGenerator(defaults: defaults)
+        let afterRelaunch = relaunchedGenerator.next(
+            now: Date(timeIntervalSinceReferenceDate: 99))
+
+        #expect(afterClockRollback > first)
+        #expect(afterRelaunch > afterClockRollback)
+    }
+
     @Test("missing track ID is omitted from context")
     func missingTrackIdOmitted() {
         var snap = WatchStateSnapshot()
@@ -36,6 +70,40 @@ struct WatchStateContextBuilderTests {
         let ctx = WatchStateContextBuilder.build(from: snap)
 
         #expect(ctx["trackId"] == nil)
+    }
+
+    // MARK: - Whole-book boundaries + crown volume
+
+    @Test("whole-book boundaries and crown volume state reach the context")
+    func boundariesAndCrownVolume() {
+        var snap = WatchStateSnapshot()
+        snap.bookBoundaryFractions = [0.25, 0.5, 0.75]
+        snap.outputGainDB = -3.5
+        snap.crownVolumeSensitivity = 0.2
+
+        let ctx = WatchStateContextBuilder.build(from: snap)
+
+        #expect(ctx["bookBoundaryFractions"] as? [Double] == [0.25, 0.5, 0.75])
+        #expect(ctx["outputGainDB"] as? Double == -3.5)
+        #expect(ctx["crownVolumeSensitivity"] as? Double == 0.2)
+    }
+
+    @Test("empty boundaries stay present so the watch clears stale segments")
+    func emptyBoundariesExplicit() {
+        let ctx = WatchStateContextBuilder.build(from: WatchStateSnapshot())
+        #expect((ctx["bookBoundaryFractions"] as? [Double])?.isEmpty == true)
+    }
+
+    @Test("boundary payload is capped at the transport limit")
+    func boundariesCapped() {
+        var snap = WatchStateSnapshot()
+        snap.bookBoundaryFractions = (1...100).map { Double($0) / 101.0 }
+
+        let ctx = WatchStateContextBuilder.build(from: snap)
+
+        #expect(
+            (ctx["bookBoundaryFractions"] as? [Double])?.count
+                == BookProgressSegmentMetrics.maxTransportBoundaries)
     }
 
     // MARK: - Title
@@ -88,6 +156,21 @@ struct WatchStateContextBuilderTests {
 
         #expect(ctx["totalProgressFraction"] as? Double == 0.5)
         #expect(ctx["totalBookDuration"] as? Double == 3600)
+    }
+
+    @Test("total progress uses supplied book-absolute time before track fallback")
+    func totalProgressUsesBookAbsoluteTime() {
+        var snap = WatchStateSnapshot()
+        snap.currentIndex = 1
+        snap.trackCount = 3
+        snap.progressFraction = 0.25
+        snap.currentPlaybackTime = 150
+        snap.durationSeconds = 300
+
+        let ctx = WatchStateContextBuilder.build(from: snap)
+
+        #expect(ctx["totalProgressFraction"] as? Double == 0.5)
+        #expect(ctx["totalBookDuration"] as? Double == 300)
     }
 
     @Test("total progress clamps to [0, 1]")
@@ -161,6 +244,19 @@ struct WatchStateContextBuilderTests {
 
         snap.hasThumbnail = true
         #expect(WatchStateContextBuilder.build(from: snap)["hasThumbnail"] as? Bool == true)
+    }
+
+    @Test("artwork accent is always present so neutral artwork clears stale color")
+    func artworkAccentIncludesExplicitClearValue() {
+        var snap = WatchStateSnapshot()
+        snap.artworkAccentColorHex = "#A1B2C3"
+        #expect(
+            WatchStateContextBuilder.build(from: snap)["artworkAccentColorHex"] as? String
+                == "#A1B2C3")
+
+        snap.artworkAccentColorHex = nil
+        #expect(
+            WatchStateContextBuilder.build(from: snap)["artworkAccentColorHex"] as? String == "")
     }
 
     // MARK: - Sleep timer
@@ -248,7 +344,8 @@ struct WatchStateContextBuilderTests {
         // Items beyond the first 10 should be excluded.
         #expect(!json!.contains("word11"))
         if let data = json!.data(using: .utf8),
-           let decoded = try? JSONDecoder().decode([WordFrequency].self, from: data) {
+            let decoded = try? JSONDecoder().decode([WordFrequency].self, from: data)
+        {
             #expect(decoded.count == 10)
         }
     }
@@ -260,7 +357,8 @@ struct WatchStateContextBuilderTests {
         var snap = WatchStateSnapshot()
         snap.dueFlashcards = [
             WatchFlashcard(id: "card-1", frontText: "What is the spice?", backText: "Melange"),
-            WatchFlashcard(id: "card-2", frontText: "Who are the Fremen?", backText: "Desert people"),
+            WatchFlashcard(
+                id: "card-2", frontText: "Who are the Fremen?", backText: "Desert people"),
         ]
 
         let ctx = WatchStateContextBuilder.build(from: snap)
@@ -272,13 +370,56 @@ struct WatchStateContextBuilderTests {
         #expect(json!.contains("Fremen"))
     }
 
-    @Test("due flashcards are omitted when array is empty")
-    func dueFlashcardsEmpty() {
+    @Test("empty due flashcards are JSON-encoded to clear stale watch queues")
+    func dueFlashcardsEmpty() throws {
         var snap = WatchStateSnapshot()
         snap.dueFlashcards = []
 
         let ctx = WatchStateContextBuilder.build(from: snap)
+        let json = try #require(ctx["dueCardsJSON"] as? String)
+        let data = try #require(json.data(using: .utf8))
+        let cards = try JSONDecoder().decode([WatchFlashcard].self, from: data)
 
-        #expect(ctx["dueCardsJSON"] == nil)
+        #expect(cards.isEmpty)
+    }
+
+    // MARK: - Cover ramp
+
+    @Test("the cover ramp rides the state reply as two short strings")
+    func contextCarriesCoverRamp() {
+        var snap = WatchStateSnapshot()
+        snap.artworkAccentColorHex = "#B98A2E"
+        snap.coverRampTopHex = "#3A2A12"
+        snap.coverRampBottomHex = "#2C1F0D"
+
+        let ctx = WatchStateContextBuilder.build(from: snap)
+
+        #expect(ctx["coverRampTopHex"] as? String == "#3A2A12")
+        #expect(ctx["coverRampBottomHex"] as? String == "#2C1F0D")
+    }
+
+    @Test("a neutral cover clears the ramp explicitly rather than omitting it")
+    func neutralCoverClearsRamp() {
+        // Same contract as the accent: omitting the keys would leave the
+        // previous book's room cached on the watch behind a neutral cover.
+        let ctx = WatchStateContextBuilder.build(from: WatchStateSnapshot())
+
+        #expect(ctx["coverRampTopHex"] as? String == "")
+        #expect(ctx["coverRampBottomHex"] as? String == "")
+    }
+
+    @Test("the ramp keeps watch payloads bounded")
+    func rampIsCheapOnTheWire() {
+        var snap = WatchStateSnapshot()
+        snap.coverRampTopHex = "#3A2A12"
+        snap.coverRampBottomHex = "#2C1F0D"
+
+        let ctx = WatchStateContextBuilder.build(from: snap)
+        let ramp = [ctx["coverRampTopHex"], ctx["coverRampBottomHex"]].compactMap { $0 as? String }
+
+        // PR #521 bounded these replies; the ramp must stay hex strings and
+        // never grow into image data.
+        #expect(ramp.count == 2)
+        #expect(ramp.allSatisfy { $0.count <= 7 })
     }
 }

@@ -25,9 +25,11 @@ struct EPUBAssetStorage {
 
     /// The root directory for EPUB assets, or nil if Application Support is unavailable.
     var rootDirectory: URL? {
-        guard let appSupport = fileManager.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first else {
+        guard
+            let appSupport = fileManager.urls(
+                for: .applicationSupportDirectory, in: .userDomainMask
+            ).first
+        else {
             logger.error("Application Support directory not available")
             return nil
         }
@@ -79,6 +81,28 @@ struct EPUBAssetStorage {
             return destinationURL.path
         } catch {
             logger.error("Failed to copy image \(safeFilename): \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Writes raw image bytes into per-book asset storage and returns the
+    /// absolute local path (usable by `UIImage(contentsOfFile:)`). Used for PDF
+    /// figures, which have no source file on disk. Nil on failure.
+    func writeImageData(_ data: Data, audiobookID: String, filename: String) -> String? {
+        do {
+            try prepare(for: audiobookID)
+        } catch {
+            logger.error("Cannot write image data: \(error.localizedDescription)")
+            return nil
+        }
+        guard let dir = directory(for: audiobookID) else { return nil }
+        let safeFilename = filename.replacingOccurrences(of: "/", with: "_")
+        let destinationURL = dir.appendingPathComponent(safeFilename)
+        do {
+            try data.write(to: destinationURL, options: .atomic)
+            return destinationURL.path
+        } catch {
+            logger.error("Failed to write image \(safeFilename): \(error.localizedDescription)")
             return nil
         }
     }

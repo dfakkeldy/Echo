@@ -30,11 +30,39 @@ import Testing
     /// requires (mirrors `RealTimeEventIntegrityTests`).
     private func seedAudiobook(in service: DatabaseService) throws {
         try service.write { db in
-            try db.execute(sql: """
-                INSERT INTO audiobook (id, title, duration, added_at)
-                VALUES ('book', 'Test Audiobook', 3600, '2026-06-01T00:00:00Z')
-                """)
+            try db.execute(
+                sql: """
+                    INSERT INTO audiobook (id, title, duration, added_at)
+                    VALUES ('book', 'Test Audiobook', 3600, '2026-06-01T00:00:00Z')
+                    """)
         }
+    }
+
+    @Test
+    func syncToTimelineCopiesSourceBlockID() throws {
+        let service = try DatabaseService(inMemory: ())
+        let dao = FlashcardDAO(db: service.writer)
+        try seedAudiobook(in: service)
+        try service.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO epub_block
+                      (id, audiobook_id, spine_href, spine_index, block_index,
+                       sequence_index, block_kind, chapter_index, is_hidden)
+                    VALUES ('epub-book-s0-b0', 'book', 'Text/chapter.xhtml', 0, 0,
+                            0, 'paragraph', 0, 0)
+                    """)
+        }
+
+        var card = makeCard(id: "anchored-card", repetitions: 0, intervalDays: 0)
+        card.sourceBlockID = "epub-book-s0-b0"
+        try dao.insert(card)
+
+        let timelineItem = try service.read { db in
+            try TimelineItem.fetchOne(db, key: "ankiCard-anchored-card")
+        }
+
+        #expect(timelineItem?.epubBlockID == "epub-book-s0-b0")
     }
 
     private func makeCard(id: String, repetitions: Int, intervalDays: Int) -> Flashcard {

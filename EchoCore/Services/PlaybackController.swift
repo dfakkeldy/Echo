@@ -13,6 +13,20 @@ protocol PlaybackControllerDelegate: AnyObject {
     func playbackControllerInterruptionEnded(_ controller: PlaybackController, shouldResume: Bool)
 }
 
+nonisolated enum PlaybackActivityChange: Equatable, Sendable {
+    case loading
+    case playing
+    case paused
+    case waitingForNarration
+    case reachedNaturalEnd
+    case failed(privateDetail: String)
+}
+
+nonisolated enum PlaybackPauseReason: Equatable, Sendable {
+    case userOrSystem
+    case narrationQueueWait
+}
+
 // MARK: - PlaybackController
 
 @MainActor @Observable
@@ -40,7 +54,7 @@ final class PlaybackController {
     @ObservationIgnored var coordinator_seekCompleted: ((_ isManual: Bool) -> Void)?
     @ObservationIgnored var coordinator_persistSpeed: ((_ key: String, _ speed: Float) -> Void)?
     @ObservationIgnored var coordinator_persistLoopMode: ((_ key: String, _ mode: String) -> Void)?
-    @ObservationIgnored var coordinator_hasBookmarks: (() -> Bool)?
+    @ObservationIgnored var coordinator_canBookmarkLoop: (() -> Bool)?
     @ObservationIgnored var coordinator_refreshProgress: (() -> Void)?
     @ObservationIgnored var coordinator_enabledBookmarks: (() -> [Bookmark])?
     @ObservationIgnored var coordinator_jumpToBookmark: ((Bookmark) -> Void)?
@@ -50,11 +64,13 @@ final class PlaybackController {
         ((_ folder: String, _ trackId: String, _ time: TimeInterval) -> Void)?
     @ObservationIgnored var coordinator_stopSecurityScope: (() -> Void)?
     @ObservationIgnored var coordinator_handleChapterEndSleepTimer: (() -> Bool)?
+    @ObservationIgnored var coordinator_handleChapterEndCheckpoint: ((_ chapterIndex: Int) -> Bool)?
     @ObservationIgnored var coordinator_currentTrackBookmarks: (() -> [Bookmark])?
     @ObservationIgnored var coordinator_isRewindEnabled: (() -> Bool)?
     @ObservationIgnored var coordinator_configureAudioSession: (() -> Void)?
     @ObservationIgnored var coordinator_startSecurityScope: (() -> Void)?
-    @ObservationIgnored var coordinator_playStateChanged: ((_ isPlaying: Bool) -> Void)?
+    @ObservationIgnored var coordinator_playStateChanged: ((PlaybackActivityChange) -> Void)?
+    @ObservationIgnored var coordinator_pauseRequested: (() -> Void)?
     @ObservationIgnored var coordinator_seekBackwardDuration: (() -> Double)?
     @ObservationIgnored var coordinator_seekForwardDuration: (() -> Double)?
 
@@ -64,8 +80,26 @@ final class PlaybackController {
 
     // MARK: - Pure Helpers
 
+    /// Target time for a forward skip. When the track duration is unknown/0
+    /// (briefly true right after a track load, before metadata resolves) the old
+    /// `min(duration ?? 0, …)` collapsed to 0 and seeked to the start. Return the
+    /// raw target instead and let `AudioEngine.seek` clamp to the file length.
+    static func forwardSkipTarget(
+        current: TimeInterval, amount: TimeInterval, duration: TimeInterval?
+    ) -> TimeInterval {
+        let target = current + amount
+        guard let duration, duration.isFinite, duration > 0 else { return target }
+        return min(duration, target)
+    }
+
     func findNextEnabledTrackIndex(in tracks: [Track], currentIndex: Int) -> Int? {
-        guard !tracks.isEmpty else { return nil }
+        // `currentIndex` can be stale/past-end (track lists are reorderable and
+        // shrinkable). Guard the lower bound or `(currentIndex+1)..<count` traps
+        // when currentIndex >= count — matching the crash-safe `stride`-based
+        // `findPrevEnabledTrackIndex`.
+        guard !tracks.isEmpty, currentIndex >= -1, currentIndex < tracks.count - 1 else {
+            return nil
+        }
         for i in (currentIndex + 1)..<tracks.count {
             if tracks[i].isEnabled { return i }
         }
@@ -90,6 +124,30 @@ final class PlaybackController {
         }
         // No containing chapter: before the first → first; at/after the last → nil.
         return globalTime < chapters[0].startSeconds ? 0 : nil
+    }
+
+    static func remoteCommandSeekTarget(
+        positionTime: TimeInterval,
+        chapters: [Chapter],
+        currentChapterIndex: Int?,
+        durationSeconds: TimeInterval?
+    ) -> TimeInterval {
+        let safePosition = max(0, positionTime)
+        // Now Playing publishes chapter-relative duration/elapsed when chapter metadata is active.
+        if chapters.count >= 2,
+            let currentChapterIndex,
+            chapters.indices.contains(currentChapterIndex)
+        {
+            let chapter = chapters[currentChapterIndex]
+            let chapterDuration = max(0, chapter.endSeconds - chapter.startSeconds)
+            let chapterRelativePosition = min(safePosition, chapterDuration)
+            return chapter.startSeconds + chapterRelativePosition
+        }
+
+        guard let durationSeconds, durationSeconds.isFinite, durationSeconds > 0 else {
+            return safePosition
+        }
+        return min(safePosition, durationSeconds)
     }
 
     /// Jumps to the next enabled chapter or track when the current one is disabled.
@@ -155,6 +213,7 @@ final class PlaybackController {
                 "coordinator_loadTrack must be wired — track loading required for playback")
             coordinator_loadTrack?(state.currentIndex, false)
         }
+        guard audioEngine.isItemLoaded else { return }
         coordinator_startSecurityScope?()
 
         applySpeedToCurrentItem()
@@ -163,11 +222,11 @@ final class PlaybackController {
         // The engine starts a repeating Timer on playImmediately; if the first
         // tick fires before MPNowPlayingInfoCenter has playbackRate set, the
         // Lock Screen may show the wrong transport button.
+        audioEngine.playImmediately(atRate: speed)
+        guard audioEngine.isPlaying else { return }
         state.isPlaying = true
         coordinator_persistAndSync?(false)
-        coordinator_playStateChanged?(true)
-
-        audioEngine.playImmediately(atRate: speed)
+        coordinator_playStateChanged?(.playing)
         if audioEngine.currentTime.isFinite {
             coordinator_checkVoiceMemo?(audioEngine.currentTime, nil)
         }
@@ -239,7 +298,10 @@ final class PlaybackController {
         return target
     }
 
-    func pause() {
+    func pause(reason: PlaybackPauseReason = .userOrSystem) {
+        if reason == .userOrSystem {
+            coordinator_pauseRequested?()
+        }
         audioEngine.pause()
         state.isPlaying = false
 
@@ -252,10 +314,11 @@ final class PlaybackController {
 
         coordinator_endBackgroundTask?()
         coordinator_persistAndSync?(true)
-        coordinator_playStateChanged?(false)
+        coordinator_playStateChanged?(
+            reason == .narrationQueueWait ? .waitingForNarration : .paused)
 
         if audioEngine.isItemLoaded,
-            let folder = state.folderURL?.absoluteString,
+            let folder = state.activeBookURL?.absoluteString,
             state.tracks.indices.contains(state.currentIndex)
         {
             coordinator_saveProgress?(
@@ -278,7 +341,7 @@ final class PlaybackController {
     func setSpeed(_ newSpeed: Float) {
         speed = newSpeed
         applySpeedToCurrentItem()
-        if let key = state.folderURL?.absoluteString {
+        if let key = state.activeBookURL?.absoluteString {
             coordinator_persistSpeed?(key, speed)
         }
         coordinator_persistAndSync?(!audioEngine.isPlaying)
@@ -291,19 +354,19 @@ final class PlaybackController {
 
     func setLoopMode(_ mode: LoopMode) {
         loopMode = mode
-        if let key = state.folderURL?.absoluteString {
+        if let key = state.activeBookURL?.absoluteString {
             coordinator_persistLoopMode?(key, mode.rawValue)
         }
         coordinator_persistAndSync?(!audioEngine.isPlaying)
     }
 
     func cycleLoopMode() {
-        let hasBookmarks = coordinator_hasBookmarks?() ?? false
+        let canBookmarkLoop = coordinator_canBookmarkLoop?() ?? false
         switch loopMode {
         case .off:
             setLoopMode(.chapter)
         case .chapter:
-            setLoopMode(hasBookmarks ? .bookmark : .off)
+            setLoopMode(canBookmarkLoop ? .bookmark : .off)
         case .bookmark:
             setLoopMode(.off)
         }
@@ -324,15 +387,37 @@ final class PlaybackController {
         coordinator_stopSecurityScope?()
     }
 
-    func replaceCurrentItem(with url: URL, startTime: TimeInterval? = nil) {
+    @discardableResult
+    func replaceCurrentItem(
+        with url: URL, startTime: TimeInterval? = nil
+    ) -> Result<Void, AudioItemLoadFailure> {
         audioEngine.replaceCurrentItem(with: url, startTime: startTime)
+    }
+
+    func reportTrackLoading() {
+        state.isPlaying = false
+        coordinator_playStateChanged?(.loading)
+    }
+
+    func reportTrackLoadFailure(_ failure: AudioItemLoadFailure) {
+        state.isPlaying = false
+        coordinator_playStateChanged?(.failed(privateDetail: failure.privateDetail))
     }
 
     // MARK: - Navigation
 
-    func nextTrack() {
+    func nextTrack(naturalEnd: Bool = false) {
         if state.chapters.count >= 2 {
+            let hasNextEnabledLogicalChapter = hasNextEnabledLogicalChapter()
+            let hasNextEnabledTrack =
+                findNextEnabledTrackIndex(
+                    in: state.tracks, currentIndex: state.currentIndex) != nil
             nextChapter()
+            if naturalEnd, !hasNextEnabledLogicalChapter, !hasNextEnabledTrack,
+                !state.narrationRenderInFlight
+            {
+                markNaturalEndReached()
+            }
             return
         }
         if let newIndex = findNextEnabledTrackIndex(
@@ -350,14 +435,36 @@ final class PlaybackController {
             // MUST stay pause()-then-set: pause() clears awaitingNarrationChapter, so
             // setting it BEFORE pause() would be wiped and playback would stall forever
             // waiting for an auto-advance that never fires.
-            pause()
+            pause(reason: .narrationQueueWait)
             state.awaitingNarrationChapter = true
-        } else if let firstEnabled = state.tracks.firstIndex(where: { $0.isEnabled }) {
-            assert(
-                coordinator_loadTrack != nil,
-                "coordinator_loadTrack must be wired — track navigation required")
-            coordinator_loadTrack?(firstEnabled, true)
+        } else if naturalEnd {
+            markNaturalEndReached()
         }
+        // End of book: stay put (§5.2). Do NOT wrap to the first enabled track —
+        // that would auto-restart a finished book with loopMode == .off.
+    }
+
+    /// The engine played the book to its end and stopped on its own. Fold
+    /// that engine-side stop back into the published truth: without this,
+    /// `state.isPlaying` stays true and the last Now Playing publish keeps
+    /// rate = speed, so the lock screen shows a silent book as "playing" and
+    /// extrapolates its progress forever — and the watch mirrors both.
+    /// Publish before firing `.reachedNaturalEnd` so downstream republishes
+    /// (narration status) already read the paused flag.
+    private func markNaturalEndReached() {
+        state.isPlaying = false
+        coordinator_persistAndSync?(true)
+        coordinator_playStateChanged?(.reachedNaturalEnd)
+    }
+
+    private func hasNextEnabledLogicalChapter() -> Bool {
+        if state.isMultiM4B, !state.aggregatedChapters.isEmpty {
+            let globalTime = state.currentBookStartOffset + audioEngine.currentTime
+            return Self.nextAggregatedIndex(
+                chapters: state.aggregatedChapters, globalTime: globalTime) != nil
+        }
+        let currentIndex = state.currentChapterIndex ?? -1
+        return ChapterService.nextEnabledIndex(after: currentIndex, in: state.chapters) != nil
     }
 
     func previousTrackOrRestart() {
@@ -412,12 +519,9 @@ final class PlaybackController {
                 coordinator_loadTrack != nil,
                 "coordinator_loadTrack must be wired — chapter navigation fallback")
             coordinator_loadTrack?(newIndex, true)
-        } else if let firstEnabled = state.tracks.firstIndex(where: { $0.isEnabled }) {
-            assert(
-                coordinator_loadTrack != nil,
-                "coordinator_loadTrack must be wired — chapter navigation fallback")
-            coordinator_loadTrack?(firstEnabled, true)
         }
+        // End of book: stay put (§5.2). Do NOT wrap to the first enabled track —
+        // that would auto-restart a finished book with loopMode == .off.
     }
 
     private func nextAggregatedChapter() {
@@ -739,8 +843,8 @@ final class PlaybackController {
         }
 
         let durationAmount = coordinator_seekForwardDuration?() ?? 30.0
-        let duration = state.durationSeconds ?? 0
-        let target = min(duration, current + durationAmount)
+        let target = Self.forwardSkipTarget(
+            current: current, amount: durationAmount, duration: state.durationSeconds)
         state.isManualSeeking = true
         audioEngine.seek(to: target) { [weak self] _ in
             self?.state.isManualSeeking = false
@@ -785,6 +889,16 @@ final class PlaybackController {
         }
     }
 
+    func seekFromRemoteCommand(positionTime: TimeInterval) {
+        let targetSeconds = Self.remoteCommandSeekTarget(
+            positionTime: positionTime,
+            chapters: state.chapters,
+            currentChapterIndex: state.currentChapterIndex,
+            durationSeconds: state.durationSeconds
+        )
+        seek(toSeconds: targetSeconds)
+    }
+
     // MARK: - Bookmark Jump
 
     private func jumpToNextBookmark(from currentTime: Double) -> Bool {
@@ -825,6 +939,9 @@ final class PlaybackController {
 
         let c = state.chapters[idx]
         if t >= (c.endSeconds - 0.5) {
+            if claimChapterEndCheckpointIfNeeded(chapterIndex: idx) {
+                return
+            }
             if coordinator_handleChapterEndSleepTimer?() == true {
                 return
             }
@@ -894,45 +1011,69 @@ final class PlaybackController {
     func handleTrackEnded() {
         guard audioEngine.isItemLoaded else { return }
 
+        if claimChapterEndCheckpointIfNeeded(chapterIndex: state.currentChapterIndex) {
+            return
+        }
+
         if coordinator_handleChapterEndSleepTimer?() == true { return }
 
         if state.chapters.count >= 2 {
             if loopMode == .chapter {
                 if let idx = state.currentChapterIndex {
                     let targetSeconds = state.chapters[idx].startSeconds + 0.05
+                    let shouldResumeAfterLoopSeek = state.isPlaying
                     state.progressFraction = 0
                     audioEngine.seek(to: targetSeconds) { [weak self] _ in
                         guard let self else { return }
-                        if self.isPlaying {
+                        if shouldResumeAfterLoopSeek {
                             self.audioEngine.playImmediately(atRate: self.speed)
                             self.applySpeedToCurrentItem()
                         } else {
                             self.coordinator_persistAndSync?(true)
                         }
                         self.coordinator_refreshProgress?()
+                        // Republish Now Playing elapsed: the loop restarted a
+                        // chapter's worth of audio behind the last published
+                        // position (mirrors resumeAfterSeek's ordering).
+                        self.coordinator_seekCompleted?(false)
                     }
                     return
                 }
             }
-            nextTrack()
+            nextTrack(naturalEnd: true)
             return
         }
 
         if loopMode == .chapter {
+            let shouldResumeAfterLoopSeek = state.isPlaying
             state.progressFraction = 0
             audioEngine.seek(to: 0) { [weak self] _ in
                 guard let self else { return }
-                if self.isPlaying {
+                if shouldResumeAfterLoopSeek {
                     self.audioEngine.playImmediately(atRate: self.speed)
                     self.applySpeedToCurrentItem()
                 } else {
                     self.coordinator_persistAndSync?(true)
                 }
                 self.coordinator_refreshProgress?()
+                // Republish Now Playing elapsed: the loop restarted a track's
+                // worth of audio behind the last published position (mirrors
+                // resumeAfterSeek's ordering).
+                self.coordinator_seekCompleted?(false)
             }
         } else {
-            nextTrack()
+            nextTrack(naturalEnd: true)
         }
+    }
+
+    private func claimChapterEndCheckpointIfNeeded(chapterIndex: Int?) -> Bool {
+        guard loopMode == .off,
+            let chapterIndex,
+            state.chapters.count >= 2,
+            state.chapters.indices.contains(chapterIndex)
+        else { return false }
+
+        return coordinator_handleChapterEndCheckpoint?(chapterIndex) == true
     }
 }
 

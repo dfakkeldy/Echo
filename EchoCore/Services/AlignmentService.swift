@@ -8,8 +8,12 @@ import os.log
 ///
 /// Public operations produce alignment anchors and recalculate affected
 /// `timeline_item` rows in a single DB transaction.
-struct AlignmentService {
-    static let isoFormatter = ISO8601DateFormatter()
+nonisolated struct AlignmentService {
+    // Computed rather than a cached `static let`: `ISO8601DateFormatter` is not
+    // Sendable, and this type is `nonisolated` so a shared static instance would be
+    // unsynchronized global mutable state. Construction is cheap; this keeps every
+    // call read-only-safe without an unsafe concurrency escape hatch.
+    static var isoFormatter: ISO8601DateFormatter { ISO8601DateFormatter() }
 
     private let logger = Logger(category: "Alignment")
     private let anchorDAO: AlignmentAnchorDAO
@@ -28,8 +32,15 @@ struct AlignmentService {
 
     // MARK: - Anchor Operations
 
-    /// Moves a block to the current playback time, creating or updating a locked anchor.
-    func moveBlockToCurrentTime(blockID: String, time: TimeInterval) throws {
+    /// Moves a block to the given playback time, creating or updating a locked anchor.
+    ///
+    /// `source` is persisted provenance, not decoration: `CloudKitSyncService.sourceRank`
+    /// and `DocumentImportFinalizer.humanAnchorSources` enumerate the manual cases, so
+    /// callers whose time came from the chapter picker must pass `.chapterBoundary`.
+    func moveBlockToCurrentTime(
+        blockID: String, time: TimeInterval,
+        source: AlignmentAnchorRecord.Source = .moveToNow
+    ) throws {
         let anchor = AlignmentAnchorRecord(
             id: "anchor-\(UUID().uuidString)",
             audiobookID: audiobookID,
@@ -37,7 +48,7 @@ struct AlignmentService {
             audioTime: time,
             audioEndTime: nil,
             anchorKind: AlignmentAnchorRecord.AnchorKind.point.rawValue,
-            source: AlignmentAnchorRecord.Source.moveToNow.rawValue,
+            source: source.rawValue,
             note: nil,
             createdAt: Self.isoFormatter.string(from: Date()),
             modifiedAt: nil
@@ -86,48 +97,6 @@ struct AlignmentService {
                 sql: "DELETE FROM alignment_anchor WHERE audiobook_id = ?", arguments: [audiobookID]
             )
         }
-        try recalculateTimeline()
-    }
-
-    /// Sets a chapter start anchor.
-    func anchorChapterStart(blockID: String, chapterIndex: Int, time: TimeInterval) throws {
-        let anchor = AlignmentAnchorRecord(
-            id: "anchor-\(UUID().uuidString)",
-            audiobookID: audiobookID,
-            epubBlockID: blockID,
-            audioTime: time,
-            audioEndTime: nil,
-            anchorKind: AlignmentAnchorRecord.AnchorKind.chapterStart.rawValue,
-            source: AlignmentAnchorRecord.Source.chapterBoundary.rawValue,
-            note: "Chapter \(chapterIndex) start",
-            createdAt: Self.isoFormatter.string(from: Date()),
-            modifiedAt: nil
-        )
-        if let existing = try anchorDAO.anchor(for: audiobookID, epubBlockID: blockID) {
-            try anchorDAO.delete(id: existing.id)
-        }
-        try anchorDAO.upsert(anchor)
-        try recalculateTimeline()
-    }
-
-    /// Sets a chapter end anchor.
-    func anchorChapterEnd(blockID: String, chapterIndex: Int, time: TimeInterval) throws {
-        let anchor = AlignmentAnchorRecord(
-            id: "anchor-\(UUID().uuidString)",
-            audiobookID: audiobookID,
-            epubBlockID: blockID,
-            audioTime: time,
-            audioEndTime: nil,
-            anchorKind: AlignmentAnchorRecord.AnchorKind.chapterEnd.rawValue,
-            source: AlignmentAnchorRecord.Source.chapterBoundary.rawValue,
-            note: "Chapter \(chapterIndex) end",
-            createdAt: Self.isoFormatter.string(from: Date()),
-            modifiedAt: nil
-        )
-        if let existing = try anchorDAO.anchor(for: audiobookID, epubBlockID: blockID) {
-            try anchorDAO.delete(id: existing.id)
-        }
-        try anchorDAO.upsert(anchor)
         try recalculateTimeline()
     }
 
@@ -229,8 +198,9 @@ struct AlignmentService {
         var wordPositionByBlockID: [String: Double] = [:]
         var cumulativeWordCount: Double = 0
         for block in sortedAllBlocks {
+            let kind = EPubBlockRecord.Kind(rawValue: block.blockKind)
             let weight: Double
-            if block.isHidden || EPubBlockRecord.Kind(rawValue: block.blockKind) == .image {
+            if block.isHidden || kind == .image || kind == .code {
                 weight = 0.0
             } else {
                 weight = Double(max(1, block.text?.count ?? 1))
@@ -489,7 +459,7 @@ struct AlignmentService {
 
 // MARK: - TimelineDAO Alignment Extension
 
-extension TimelineDAO {
+nonisolated extension TimelineDAO {
     /// Updates alignment metadata for a timeline item linked to an EPUB block.
     /// Opens its own transaction — suitable for single-call use.
     func updateAlignment(
@@ -501,7 +471,7 @@ extension TimelineDAO {
         alignmentStatus: String,
         isEnabled: Bool
     ) throws {
-        try db.write { db in
+        _ = try db.write { db in
             try Self.writeAlignment(
                 db: db,
                 epubBlockID: epubBlockID,

@@ -5,7 +5,7 @@ import Testing
 @testable import Echo
 
 @MainActor
-@Suite struct AudiobookshelfServiceAuthTests {
+@Suite(.serialized) struct AudiobookshelfServiceAuthTests {
     private func makeService() -> (AudiobookshelfService, ABSTokenStore) {
         URLProtocolStub.reset()
         let tokens = ABSTokenStore(serverID: "auth-\(UUID().uuidString)")
@@ -84,5 +84,68 @@ import Testing
             guard case ABSError.unauthorized = error else { return false }
             return true
         }
+    }
+
+    @Test func signOutRevokesRemoteTokenAndClearsLocalTokens() async {
+        let (service, tokens) = makeService()
+        tokens.accessToken = "acc-old"
+        tokens.refreshToken = "ref-old"
+        tokens.pinnedCertificateSHA256 = "deadbeef"
+        URLProtocolStub.stub(pathSuffix: "/logout", json: "{}")
+
+        let result = await service.signOut()
+
+        guard case .remoteRevoked = result else {
+            Issue.record("Expected remoteRevoked sign-out result")
+            return
+        }
+        #expect(!result.didRemoteRevokeFail)
+        #expect(tokens.accessToken == nil)
+        #expect(tokens.refreshToken == nil)
+        #expect(tokens.pinnedCertificateSHA256 == nil)
+        #expect(URLProtocolStub.requests.count == 1)
+        #expect(URLProtocolStub.requests.first?.url?.path.hasSuffix("/logout") == true)
+        #expect(URLProtocolStub.requests.first?.value(forHTTPHeaderField: "x-refresh-token") == "ref-old")
+    }
+
+    @Test func signOutClearsLocalTokensWhenRemoteRevokeFails() async {
+        let (service, tokens) = makeService()
+        tokens.accessToken = "acc-old"
+        tokens.refreshToken = "ref-old"
+        tokens.pinnedCertificateSHA256 = "deadbeef"
+        URLProtocolStub.stub(pathSuffix: "/logout", status: 500, json: "{}")
+
+        let result = await service.signOut()
+
+        guard case .remoteRevokeFailed(let error) = result else {
+            Issue.record("Expected remoteRevokeFailed sign-out result")
+            return
+        }
+        guard case .http(500, _) = error else {
+            Issue.record("Expected HTTP 500 revoke failure")
+            return
+        }
+        #expect(result.didRemoteRevokeFail)
+        #expect(tokens.accessToken == nil)
+        #expect(tokens.refreshToken == nil)
+        #expect(tokens.pinnedCertificateSHA256 == nil)
+    }
+
+    @Test func signOutWithoutRefreshTokenStillClearsLocalState() async {
+        let (service, tokens) = makeService()
+        tokens.accessToken = "acc-old"
+        tokens.pinnedCertificateSHA256 = "deadbeef"
+
+        let result = await service.signOut()
+
+        guard case .noRemoteToken = result else {
+            Issue.record("Expected noRemoteToken sign-out result")
+            return
+        }
+        #expect(!result.didRemoteRevokeFail)
+        #expect(tokens.accessToken == nil)
+        #expect(tokens.refreshToken == nil)
+        #expect(tokens.pinnedCertificateSHA256 == nil)
+        #expect(URLProtocolStub.requests.isEmpty)
     }
 }

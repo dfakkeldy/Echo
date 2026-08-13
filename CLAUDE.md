@@ -1,48 +1,34 @@
-# Claude Code Guidelines for Echo: Audiobook Study Player
+# Claude Code Guidelines for Echo
 
-## Role & Tone
-You are an expert, patient Senior Apple Ecosystem Developer mentoring a solo developer. I am learning as I go, so whenever you propose an architectural decision or provide code, briefly explain *why* you chose that approach. 
+@AGENTS.md
 
-## Project Context
-* **App:** Open-source media player app (GPL-3.0 License).
-* **Targets:** iOS, watchOS, macOS, and Widget targets, sharing core logic via `Shared/`.
-* **Companion:** Transcript-generation pipeline (Python using OpenAI Whisper in `Tools/`). Alignment is now entirely in-app via WhisperKit (on-device CoreML).
-* **Stack:** Swift, SwiftUI, Python.
-* **Current Phase:** Adding on-device auto-alignment (WhisperKit) and polishing EPUB reader UX.
-* **Auto-Alignment:** A progressive alignment pipeline (`AutoAlignmentService`) that inserts alignment anchors automatically. Tier 0 (`ChapterTitleMatcher`) fuzzy-matches M4B chapter titles against EPUB headings (Levenshtein + word-level Jaccard) before any transcription — generic numeric track labels ("Chapter 7", "12") are skipped because m4b metadata numbers tracks, not book chapters, and contradicting numbers veto a match. Remaining chapters are content-aligned: audio is chunked at silences (VAD), transcribed with WhisperKit (on-device CoreML), and matched to EPUB tokens via dynamic time warping (`TokenDTW`). Each run clears its previous auto anchors so re-alignment converges. Progress + debug log shown in `AutoAlignmentProgressView`.
+## Project context
 
-## Architecture & Coding Guidelines
-* **Separation of Concerns:** Keep Views clean and focused only on the UI. Use standard SwiftUI patterns (MVVM) and proper State management (`@State`, `@Binding`, `@StateObject`, etc.) to prevent memory leaks and unnecessary redraws.
-* **Dependency Injection — follow `DatabaseService`:** the working pattern is **concrete-type + closure/constructor injection**, unit-tested with `DatabaseService(inMemory:)` (no `.shared`). Inject seams that way.
-    * **History (2026-06-14, `CODE_AUDIT.md` §10.1 — RESOLVED):** an earlier "protocol-oriented" abstraction (`MediaPlayable` + `PlaybackControllerProtocol`/`BookmarkStoreProtocol`/`SleepTimerManagerProtocol`/`StoreManagerProtocol`/`SettingsManagerProtocol` and the orphaned `EchoTests/Mocks`) was **deleted** — it was never used as an injection seam (`PlayerModel` hard-constructs its services; `@Environment` binds the concrete `@Observable` type, so those protocols couldn't be env keys anyway). **Add a protocol back only when a real second implementation (e.g. future video) or a genuinely wired-in test double exists — do not reintroduce unused protocols/mocks.**
-* **Database Safety:** Prioritize parameterized queries, safe wrappers, and thread-safe background execution so the UI never freezes during data operations.
-* **Testability:** When refactoring logic or creating new services, utilize the existing mock files to ensure the new architecture remains highly testable. 
+- Echo is an open-source audiobook study player (GPL-3.0) for iOS, watchOS, and
+  macOS, with widget targets and shared logic under `Shared/`.
+- The Python tools generate transcripts; in-app alignment uses WhisperKit.
+- `AutoAlignmentService` combines chapter-title matching with content alignment.
+  Preserve its convergence rule: each run replaces its previous automatic
+  anchors.
+- Audio-only transcription, source-backed alignment, generated narration QA,
+  pronunciation repair, and macOS parity are distinct acceptance surfaces.
 
-## Documentation & Workflow Sync (CRITICAL)
-* Before starting a major refactor, autonomously read `ARCHITECTURE.md` to understand the current blueprint.
-* Whenever we add a feature, change the architecture, or modify the Python pipeline, **you must explicitly remind me** that the documentation needs updating, and proactively offer to update `README.md` or `ARCHITECTURE.md`.
-* Automatically provide the markdown snippets to add to my documentation, or confidently use your file-editing tools to make the updates if I approve.
+## Architecture notes
 
-## Branching & Release Workflow (CRITICAL)
-Echo ships on a **promotion-ladder** release model. Code flows one direction only:
+- Follow the concrete injection pattern used by `DatabaseService(inMemory:)`.
+  The former unused playback/store protocols and orphaned mocks were removed;
+  do not recreate them without a real injected consumer.
+- Exercise new logic through concrete in-memory services or another established
+  seam. Do not refer to deleted mock files.
+- Keep parameterized database access and heavy media work off the UI actor.
+- Update `README.md` or `ARCHITECTURE.md` only when a change makes their current
+  description inaccurate.
 
-```
-feature/* ──▶ nightly ──▶ weekly ──▶ main (stable)
-            (integrate)  (promote)  (promote + tag → App Store)
-```
+## Release and build notes
 
-* **Feature work is based on `nightly`, NOT `main`.** Before starting work in a fresh worktree, check the base: `git merge-base --is-ancestor origin/nightly HEAD || (git fetch origin nightly && git reset --hard origin/nightly)`. The worktree tooling may cut a branch from `main` (the repo's default branch) — if so, rebase/reset it onto `origin/nightly` first, so the work builds on the integration line (which carries the latest engine/migrations) instead of the stale stable line. Do this *before* any edits, while the branch has no commits of its own.
-* **Default PR target is `nightly`, NOT `main`.** When you finish a feature or fix, open the PR against **`nightly`** — that is the integration branch where day-to-day work lands (`gh pr create --base nightly …`; gh/GitHub default to `main`). Do **not** open PRs against `main` (or push to it directly); `main` is the stable App Store line and is only ever reached by promotion from `weekly`. Targeting `main` bypasses the entire ladder.
-* **Promotions are their own PRs:** `nightly → weekly` (weekly), then `weekly → main` (release). These are normally done by the maintainer; only open one if explicitly asked.
-* **Never push directly** to `main`, `weekly`, or `nightly` — all three are protected and changed only through PRs (the one exception is the maintainer's release tagging on `main`).
-* **Hotfixes** are the lone upstream exception: branch from `main`, fix, PR back into `main`, then merge `main` *down* into `weekly` and `nightly` so the fix survives the next promotion.
-* CI (`Build gate + tests`) gates all three branches; scheduled `release-trains.yml` builds `nightly` daily and `weekly` Mondays to TestFlight. Full detail lives in **ARCHITECTURE.md ▸ Release Engineering — Promotion Ladder**; read it before doing anything release- or branch-related.
-
-## Building & testing
-- Run unit tests with `make test`; for edit→test loops use `make build-tests` once, then `make test-only FILTER=EchoTests/<Suite>`.
-- This is a 16 GB machine: never run xcodebuild with parallel testing enabled or uncapped -jobs, and never run two xcodebuild invocations concurrently.
-- UI tests are intentionally excluded from the Echo scheme's test action.
-
-## Response Rules
-* When outputting code in the chat, do not output entire files unless explicitly requested. Only show the modified functions, structs, or protocols, using clear comments to indicate exactly where the new code belongs.
-* If drafting git commits, strictly follow the Conventional Commits specification.
+- The promotion ladder and publication rules are canonical in `AGENTS.md`.
+- CI's `Build gate + tests` protects all three promotion branches; scheduled
+  release trains build `nightly` daily and `weekly` on Mondays.
+- Use `make test` for unit tests and `make echo-cli` for the command-line tool.
+  Do not substitute a bare `xcodebuild -scheme echo-cli`; the Make target pins
+  the required release and incremental compilation settings.

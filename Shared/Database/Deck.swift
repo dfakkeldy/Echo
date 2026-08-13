@@ -2,8 +2,8 @@
 import Foundation
 import GRDB
 
-/// GRDB record for the `deck` table (V15 schema with V16 anki_deck_id column).
-struct Deck: Codable, FetchableRecord, PersistableRecord {
+/// GRDB record for the `deck` table.
+struct Deck: Codable, FetchableRecord, PersistableRecord, Sendable {
     var id: String
     var name: String
     var source: String

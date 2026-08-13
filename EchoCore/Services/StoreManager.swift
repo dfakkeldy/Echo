@@ -10,7 +10,7 @@ final class StoreManager: ProEntitlementProviding {
 
     private(set) var products: [Product] = []
     private(set) var proUnlockProduct: Product?
-    private(set) var isPro = false
+    private(set) var isPro = StoreAccessPolicy.paywallDisabled
     private(set) var lastStoreError: String?
 
     @ObservationIgnored private var lifetimeOwned = false
@@ -131,7 +131,9 @@ final class StoreManager: ProEntitlementProviding {
 
     private func recomputeIsPro() {
         isPro = ProEntitlement.isPro(
-            lifetimeOwned: lifetimeOwned, foundersOwned: foundersOwned)
+            lifetimeOwned: lifetimeOwned,
+            foundersOwned: foundersOwned,
+            paywallDisabled: StoreAccessPolicy.paywallDisabled)
     }
 
     private func updateProUnlockState(from transaction: Transaction) async {

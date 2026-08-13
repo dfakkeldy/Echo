@@ -160,7 +160,7 @@ final class MacBatchProcessingService {
         guard runner == nil else { return }
         let runner = BatchQueueRunner(dao: dao, stages: makeStages())
         self.runner = runner
-        Task { [weak self] in
+        Task(priority: .utility) { [weak self] in
             guard let self else { return }
             self.isProcessing = true
             await runner.drain()
@@ -253,8 +253,8 @@ final class MacBatchProcessingService {
 
                 let blocks =
                     (try? EPubBlockDAO(db: dbService.writer).blocks(for: audiobookID)) ?? []
-                let chapters = NarrationChapterPlanner.plan(from: blocks)
-                guard !chapters.isEmpty else {
+                let plannedChapters = NarrationChapterPlanner.plan(from: blocks)
+                guard !plannedChapters.isEmpty else {
                     throw BatchProcessingError.emptyImport(epubURL.lastPathComponent)
                 }
 
@@ -269,18 +269,40 @@ final class MacBatchProcessingService {
                 let voice =
                     VoiceCatalog.voice(for: VoiceID(settings.narrationVoiceID))?.id
                     ?? VoiceCatalog.default.id
+                let manifest = try AnthologyNarrationManifestResolver(db: dbService.writer).resolve(
+                    audiobookID: audiobookID,
+                    epubURL: epubURL.standardizedFileURL)
+                let chapters = try NarrationChapterRenderPlanner.plan(
+                    chapters: plannedChapters,
+                    preferredVoice: voice,
+                    manifest: manifest)
+                let pronunciationPack = await EnglishPronunciationPack.bundledOrEmpty()
+                let pronunciationAuditPack = await EnglishPronunciationAuditPack.bundledOrEmpty()
                 // Built via a closure so a failed chapter can retry with a FRESH
                 // engine — re-initialising KokoroAne resets the ANE state that an
                 // inference failure (e.g. the Kokoro vocoder tripping on the Neural
                 // Engine) can leave wedged. The closure also injects the user's
                 // pronunciation overrides so each (re-)created service honors them.
                 @MainActor func makeService() -> NarrationService {
-                    NarrationService(
+                    // Wire BOTH the global/book dictionary and the per-occurrence
+                    // corrections via the shared factory, so this macOS batch path
+                    // injects exactly what the iOS player does. Guarded by
+                    // PronunciationOverrideStoreTests
+                    // .narrationOverrideClosuresWireBothDictionaryAndOccurrencesFromStore.
+                    let overrideClosures = PronunciationOverrideStore.shared
+                        .narrationOverrideClosures(forBookID: audiobookID)
+                    return NarrationService(
                         db: dbService.writer, audiobookID: audiobookID,
                         tts: NarrationEngineFactory.make(),
                         audioWriter: AVFoundationAudioWriter(),
                         cacheDirectory: NarrationCache.directory(), state: NarrationState(),
-                        pronunciationOverrides: { PronunciationOverrideStore.shared.overrides() })
+                        pronunciationOverrides: overrideClosures.overrides,
+                        pronunciationOccurrenceOverrides: overrideClosures.occurrenceOverrides,
+                        pronunciationPack: pronunciationPack,
+                        pronunciationAuditPack: pronunciationAuditPack,
+                        neuralEvaluator: { word in
+                            try await MiniBARTG2PEngine.shared.evaluate(word: word)
+                        })
                 }
                 var service = makeService()
                 // One-time engine prepare (download + compile the CoreML model set) BEFORE the
@@ -303,10 +325,15 @@ final class MacBatchProcessingService {
                 do {
                     let (prepareStream, prepareContinuation) =
                         AsyncStream<NarrationPrepareProgress>.makeStream()
+                    // Capture only the `Sendable` engine, not the whole @MainActor
+                    // `service`, so the @Sendable child-task closure stays data-race
+                    // free under Swift 6 (TTSEngine: Sendable; NarrationService is
+                    // main-actor-isolated and not Sendable).
+                    let prepareEngine: TTSEngine = service.tts
                     try await withThrowingTaskGroup(of: Void.self) { group in
                         group.addTask {
                             defer { prepareContinuation.finish() }
-                            try await service.tts.prepare { p in prepareContinuation.yield(p) }
+                            try await prepareEngine.prepare { p in prepareContinuation.yield(p) }
                         }
                         for await p in prepareStream {
                             let s = NarrationPrepareStatus.batch(for: p)
@@ -326,10 +353,21 @@ final class MacBatchProcessingService {
                     // Resume: a chapter already rendered by a prior (partial) run is
                     // cached on disk with its TrackRecord, so skip it instead of
                     // re-burning the ANE — mirrors the iOS render loop.
-                    let cachedFile = NarrationCache.directory().appendingPathComponent(
-                        NarrationFileNaming.chapterFileName(
-                            audiobookID: audiobookID, chapterIndex: chapter.index, voice: voice))
-                    if FileManager.default.fileExists(atPath: cachedFile.path) { continue }
+                    let cachedFile = await service.chapterCacheURL(
+                        chapterIndex: chapter.chapterIndex,
+                        sourceChapterKey: chapter.sourceChapterKey,
+                        blocks: chapter.blocks,
+                        voice: chapter.voice)
+                    if FileManager.default.fileExists(atPath: cachedFile.path) {
+                        let reusedCachedNarration = try await service.updateCachedNarrationTitle(
+                            chapterIndex: chapter.chapterIndex,
+                            sourceChapterKey: chapter.sourceChapterKey,
+                            chapterDisplayNumber: chapter.displayNumber,
+                            blocks: chapter.blocks,
+                            voice: chapter.voice,
+                            chapterTitle: chapter.title)
+                        if reusedCachedNarration { continue }
+                    }
 
                     progress(
                         .transcribing,
@@ -337,8 +375,12 @@ final class MacBatchProcessingService {
                         "Narrating chapter \(n + 1) of \(chapters.count)…")
                     do {
                         try await service.renderChapter(
-                            chapterIndex: chapter.index, chapterNumber: chapter.displayNumber,
-                            blocks: chapter.blocks, voice: voice)
+                            chapterIndex: chapter.chapterIndex,
+                            sourceChapterKey: chapter.sourceChapterKey,
+                            chapterNumber: chapter.displayNumber,
+                            blocks: chapter.blocks, voice: chapter.voice,
+                            blockVoice: { _ in chapter.voice },
+                            chapterTitle: chapter.title)
                     } catch is CancellationError {
                         throw CancellationError()
                     } catch {
@@ -349,11 +391,16 @@ final class MacBatchProcessingService {
                         logger.error(
                             "Narration chapter \(n + 1) failed (\(error.localizedDescription, privacy: .public)); retrying with a fresh engine."
                         )
+                        let failedChapter = chapter
                         service = makeService()
                         do {
                             try await service.renderChapter(
-                                chapterIndex: chapter.index, chapterNumber: chapter.displayNumber,
-                                blocks: chapter.blocks, voice: voice)
+                                chapterIndex: failedChapter.chapterIndex,
+                                sourceChapterKey: failedChapter.sourceChapterKey,
+                                chapterNumber: failedChapter.displayNumber,
+                                blocks: failedChapter.blocks, voice: failedChapter.voice,
+                                blockVoice: { _ in failedChapter.voice },
+                                chapterTitle: failedChapter.title)
                         } catch is CancellationError {
                             throw CancellationError()
                         } catch {
@@ -370,35 +417,62 @@ final class MacBatchProcessingService {
                         "Narrated — \(skipped) chapter(s) skipped (synthesis failed).")
                 }
 
+                // Release both ONNX sessions and the grown arena now that every chapter
+                // of this book is rendered (§7.1). The next book re-prepares lazily.
+                await service.tts.unload()
+
                 // Write the read-along sidecar next to the EPUB so a book narrated
                 // on the Mac gets read-along on the device on import. Narration's
                 // synthesized anchor times are per-chapter-relative; convert to
-                // ABSOLUTE using the summed track durations in sort-order (== chapter
-                // index, the same order the m4b exporter concatenates), and store the
-                // portable `s<i>-b<j>` suffix. Best-effort: never fail the book on it.
+                // ABSOLUTE using exact current-plan track IDs and durations in plan
+                // order (the same order the m4b exporter concatenates), and store
+                // the portable `s<i>-b<j>` suffix. Best-effort: never fail the book
+                // when the exact current inventory cannot be proven.
                 do {
                     let chapterOfBlock: [String: Int] = chapters.reduce(into: [:]) { acc, ch in
-                        for b in ch.blocks { acc[b.id] = ch.index }
+                        for b in ch.blocks { acc[b.id] = ch.chapterIndex }
                     }
+                    let blockByID = Dictionary(
+                        uniqueKeysWithValues: chapters.flatMap(\.blocks).map { ($0.id, $0) }
+                    )
                     let tracks =
-                        ((try? TrackDAO(db: dbService.writer).tracks(for: audiobookID)) ?? [])
-                        .sorted { $0.sortOrder < $1.sortOrder }
-                    var offset: [Int: TimeInterval] = [:]
-                    var running: TimeInterval = 0
-                    for t in tracks {
-                        offset[t.sortOrder] = running
-                        running += t.duration
+                        (try? TrackDAO(db: dbService.writer).tracks(for: audiobookID)) ?? []
+                    var expectedFilePathsByTrackID: [String: String] = [:]
+                    for chapter in chapters {
+                        let trackID = NarrationFileNaming.trackID(
+                            audiobookID: audiobookID,
+                            chapterIndex: chapter.chapterIndex,
+                            sourceChapterKey: chapter.sourceChapterKey,
+                            segmentIndex: nil)
+                        expectedFilePathsByTrackID[trackID] = await service.chapterCacheURL(
+                            chapterIndex: chapter.chapterIndex,
+                            sourceChapterKey: chapter.sourceChapterKey,
+                            blocks: chapter.blocks,
+                            voice: chapter.voice).path
                     }
+                    guard
+                        let offset = NarrationPlanTrackOffsets.chapterOffsets(
+                            audiobookID: audiobookID,
+                            chapters: chapters,
+                            tracks: tracks,
+                            expectedFilePathsByTrackID: expectedFilePathsByTrackID)
+                    else { throw CocoaError(.fileReadCorruptFile) }
                     let sidecar: [AlignmentSidecar.Anchor] =
                         ((try? AlignmentAnchorDAO(db: dbService.writer).anchors(for: audiobookID))
                         ?? [])
                         .filter { $0.source == AlignmentAnchorRecord.Source.synthesized.rawValue }
                         .compactMap { a in
-                            guard let ci = chapterOfBlock[a.epubBlockID], let off = offset[ci]
+                            guard
+                                let ci = chapterOfBlock[a.epubBlockID],
+                                let off = offset[ci],
+                                let block = blockByID[a.epubBlockID]
                             else { return nil }
                             return AlignmentSidecar.Anchor(
                                 blockId: AlignmentSidecar.portableSuffix(of: a.epubBlockID),
-                                timestamp: a.audioTime + off, confidence: 1.0)
+                                timestamp: a.audioTime + off,
+                                confidence: 1.0,
+                                sourceBlockIdentity: AlignmentSidecar.sourceIdentity(for: block)
+                            )
                         }
                     if !sidecar.isEmpty {
                         let scURL = AlignmentSidecar.url(forEPUB: epubURL)
@@ -519,12 +593,10 @@ final class MacBatchProcessingService {
     /// from the audio file, then persists the companion EPUB's blocks into the
     /// shared database under the directory-derived audiobook ID.
     ///
-    /// `EPUBImportCoordinator.importEPUB` is non-throwing `Void`: it logs and
-    /// returns on a copy/block-clear/extract failure rather than propagating it.
-    /// A fire-and-forget import that failed would leave zero EPUB blocks, yet the
-    /// runner would still mark the book `.completed`. So after awaiting the
-    /// import we verify blocks were actually persisted and throw when none were,
-    /// letting `BatchQueueRunner.drain` record the item as `.failed`.
+    /// `EPUBImportCoordinator.importEPUB` propagates file/copy/parse failures.
+    /// After awaiting the import we still verify blocks were actually persisted
+    /// and throw when none were, letting `BatchQueueRunner.drain` record the item
+    /// as `.failed`.
     private func importBook(
         audioURL: URL, epubURL: URL, audiobookID: String, dbService: DatabaseService
     ) async throws {
@@ -533,7 +605,7 @@ final class MacBatchProcessingService {
         let chapters = await ChapterService.parseChapters(from: asset)
         let duration = try? await asset.load(.duration).seconds
 
-        await EPUBImportCoordinator.importEPUB(
+        _ = try await EPUBImportCoordinator.importEPUB(
             from: epubURL,
             to: folderURL,
             databaseService: dbService,
@@ -551,9 +623,9 @@ final class MacBatchProcessingService {
     /// Imports a standalone EPUB's blocks (no audio) under `audiobookID`, reusing
     /// the same `EPUBImportCoordinator.importEPUB` path as the align flow but with
     /// no audio chapters/duration. The EPUB is imported in place (source == dest),
-    /// so the same-folder copy is skipped. Throws if zero blocks were persisted (a
-    /// swallowed extract/parse failure), so the runner marks the item `.failed`
-    /// rather than completing an empty book.
+    /// so the same-folder copy is skipped. Throws on import failure or if zero
+    /// blocks were persisted, so the runner marks the item `.failed` rather than
+    /// completing an empty book.
     private func importEPUBOnly(
         epubURL: URL, audiobookID: String, dbService: DatabaseService
     ) async throws {
@@ -582,7 +654,7 @@ final class MacBatchProcessingService {
             _ = await TextAutoImportScanner.importTextFile(
                 textURL: epubURL, audiobookID: audiobookID, databaseService: dbService, force: true)
         } else {
-            await EPUBImportCoordinator.importEPUB(
+            _ = try await EPUBImportCoordinator.importEPUB(
                 from: epubURL,
                 to: epubURL,
                 databaseService: dbService,

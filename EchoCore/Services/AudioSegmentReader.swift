@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import AVFoundation
 import Foundation
+import Synchronization
 
 /// Reads a window of an audio file and converts it to 16 kHz mono Float32 —
 /// WhisperKit's expected input format.
@@ -8,7 +9,11 @@ import Foundation
 /// Reads directly from the file on a background queue, so it never touches
 /// the playback graph: no taps, no time-pitch distortion at non-1× playback
 /// speeds, and no real-time-thread constraints.
-enum AudioSegmentReader {
+// `nonisolated`: pure off-main file I/O (it runs on a global dispatch queue). Under
+// the iOS target's Swift 6 MainActor default isolation it would otherwise be
+// inferred `@MainActor`, which would make the local `AVAudioPCMBuffer` main-actor-
+// isolated and unable to cross into the converter feed `Mutex`. Callers `await`.
+nonisolated enum AudioSegmentReader {
     static let sampleRate: Double = 16_000
 
     /// - Returns: 16 kHz mono samples for `[time, time + duration]`, clipped
@@ -63,8 +68,11 @@ enum AudioSegmentReader {
     }
 
     /// Converts an audio buffer to 16 kHz mono Float32 samples.
+    ///
+    /// `sending buffer`: the caller hands the freshly-read buffer over exclusively,
+    /// which lets it flow into the converter-feed `Mutex` below without a data race.
     private static func convertTo16kHzMono(
-        buffer: AVAudioPCMBuffer,
+        buffer: sending AVAudioPCMBuffer,
         sourceFormat: AVAudioFormat
     ) -> [Float]? {
         guard
@@ -100,18 +108,25 @@ enum AudioSegmentReader {
             )
         else { return nil }
 
-        var didSupplyInput = false
+        // `AVAudioConverterInputBlock` is a `@Sendable` typealias, so under Swift 6
+        // it cannot capture a mutable `var` or a non-Sendable `AVAudioPCMBuffer`
+        // directly. The block is in fact invoked synchronously by `convert(...)` on
+        // this thread, but we satisfy the type system honestly (no `@unchecked`/
+        // `nonisolated(unsafe)`) by holding the one-shot feed state behind a `Mutex`,
+        // which is `Sendable`. The block supplies the source buffer exactly once:
+        // AVAudioConverter pulls input repeatedly for sample-rate conversion, and
+        // re-returning the already-consumed buffer would re-feed stale samples (§5.5).
+        let feedState = Mutex<AVAudioPCMBuffer?>(buffer)
         let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
-            // Supply the source buffer exactly once: AVAudioConverter pulls input
-            // repeatedly for sample-rate conversion, and re-returning the same
-            // (already-consumed) buffer would re-feed stale samples (§5.5).
-            if didSupplyInput {
-                outStatus.pointee = .endOfStream
-                return nil
+            feedState.withLock { pending in
+                guard let next = pending else {
+                    outStatus.pointee = .endOfStream
+                    return nil
+                }
+                pending = nil
+                outStatus.pointee = .haveData
+                return next
             }
-            didSupplyInput = true
-            outStatus.pointee = .haveData
-            return buffer
         }
 
         var conversionError: NSError?

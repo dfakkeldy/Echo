@@ -1,8 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import MediaPlayer
-#if os(iOS)
-import UIKit
+
+#if canImport(UIKit)
+    import UIKit
+
+    /// The platform image type `MPMediaItemArtwork` expects — `UIImage` on UIKit
+    /// platforms, `NSImage` on macOS — so the Now Playing artwork path is written
+    /// once for both. (macOS showed no artwork at all while this was `#if os(iOS)`.)
+    typealias PlatformImage = UIImage
+#elseif canImport(AppKit)
+    import AppKit
+
+    typealias PlatformImage = NSImage
 #endif
 
 /// Manages MPNowPlayingInfoCenter metadata updates and MPRemoteCommandCenter
@@ -13,7 +23,11 @@ final class NowPlayingController {
     private var didConfigureRemoteCommands = false
     private var remoteCommandTokens: [Any] = []
 
-    deinit {
+    // `isolated deinit` (SE-0371): the class is `@MainActor`, and
+    // `remoteCommandTokens` is a non-Sendable `[Any]` of MPRemoteCommandCenter
+    // targets. A plain nonisolated deinit cannot touch that MainActor state, so
+    // run the deinit on the main actor to release the handlers safely.
+    isolated deinit {
         remoteCommandTokens.removeAll()
     }
 
@@ -101,9 +115,7 @@ final class NowPlayingController {
         var chapterIndex: Int?
         var chapterElapsed: TimeInterval?
         var chapterDuration: TimeInterval?
-#if os(iOS)
-        var artworkImage: UIImage?
-#endif
+        var artworkImage: PlatformImage?
         var isPaused: Bool = false
         var playbackRate: Float = 1.0
     }
@@ -136,22 +148,26 @@ final class NowPlayingController {
             }
         }
 
-#if os(iOS)
         if let image = params.artworkImage {
-            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in
-                image
-            }
+            info[MPMediaItemPropertyArtwork] = Self.artwork(from: image)
         }
-#endif
 
-        info[MPNowPlayingInfoPropertyPlaybackRate] = params.isPaused ? 0.0 : params.playbackRate
-        // The system uses DefaultPlaybackRate to know what "1×" means for this item.
-        // Without it, Lock Screen / Control Center may show the wrong transport button
-        // after a playback-rate change (e.g. speed 2× → pause → Lock Screen still shows ⏸).
-        info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
+        let selectedPlaybackRate = Double(params.playbackRate)
+        info[MPNowPlayingInfoPropertyPlaybackRate] =
+            params.isPaused ? 0.0 : selectedPlaybackRate
+        // For spoken audio, the listener's selected speed is the item's normal rate.
+        // Advertising 1× here while playback was configured for 2× made iOS treat
+        // the rate transition as transport rather than pause, leaving the Lock Screen
+        // button stale after 2× → pause.
+        info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = selectedPlaybackRate
 
         if let chapterIdx = params.chapterIndex {
             info[MPNowPlayingInfoPropertyChapterNumber] = chapterIdx + 1
+        } else {
+            // `info` is seeded from the previously-published dict, so a stale
+            // chapter number would otherwise persist when switching from a
+            // chaptered book to a non-chaptered one.
+            info.removeValue(forKey: MPNowPlayingInfoPropertyChapterNumber)
         }
         if params.duration.isFinite, params.duration > 0 {
             info[MPNowPlayingInfoPropertyPlaybackProgress] =
@@ -159,11 +175,27 @@ final class NowPlayingController {
                 ? min(1, max(0, params.elapsed / params.duration)) : 0
         }
 
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        let center = MPNowPlayingInfoCenter.default()
+        center.nowPlayingInfo = info
+
+        #if os(macOS)
+            // Apple documents this explicit state property as macOS-only. iOS
+            // derives transport state from the playback-rate metadata above.
+            center.playbackState = params.isPaused ? .paused : .playing
+        #endif
+    }
+
+    /// MediaPlayer invokes the artwork request handler on its own queue. Build the
+    /// handler from a nonisolated context so it does not inherit `@MainActor`
+    /// isolation from `updateNowPlayingInfo(_:)`.
+    nonisolated private static func artwork(from image: PlatformImage) -> MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
 
     /// Updates only the elapsed time in the current Now Playing info, preserving
-    /// all other metadata. Call this at the audio engine's tick rate.
+    /// all other metadata. Use this for discrete position jumps such as restored
+    /// seeks; ordinary playback should let the system infer progress from the
+    /// last elapsed time plus playback rate.
     /// Does NOT create a new info dictionary from scratch — that would lack
     /// the playback rate and cause the Lock Screen to show the wrong button.
     func updateElapsedTime(_ elapsed: TimeInterval, chapterStartOffset: TimeInterval?) {

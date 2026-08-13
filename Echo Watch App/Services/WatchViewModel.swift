@@ -1,11 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Observation
+import SwiftUI
 import WatchConnectivity
 import WatchKit
 import WidgetKit
 import os.log
-import SwiftUI
+
+nonisolated private struct WatchConnectivityDictionary: @unchecked Sendable {
+    let value: [String: Any]
+}
+
+nonisolated private struct WatchConnectivityReplyHandler: @unchecked Sendable {
+    let value: ([String: Any]) -> Void
+
+    func callAsFunction(_ response: [String: Any]) {
+        value(response)
+    }
+}
 
 /// Mutable playback state captured before an optimistic local update.
 /// If the iPhone doesn't confirm within 3 seconds or reports an error,
@@ -34,10 +46,25 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     var pomodoroRemaining: TimeInterval = 25 * 60
     @ObservationIgnored private var pomodoroTimer: Timer?
     @ObservationIgnored private var lastPomodoroTick: Date?
+    @ObservationIgnored private var alarmHapticsTask: Task<Void, Never>?
     var artworkAccentColorHex: String? = nil
     var artworkAccentColor: Color? {
         guard let hex = artworkAccentColorHex else { return nil }
         return Color(hex: hex)
+    }
+
+    var coverRampTopHex: String? = nil
+    var coverRampBottomHex: String? = nil
+
+    /// The cover's room, for surfaces that would otherwise be flat black. Nil
+    /// for a neutral cover or before the first state reply lands, so callers
+    /// keep the black they already had — on an OLED watch that costs no power
+    /// and is the right answer, not a placeholder.
+    var coverRampGradient: LinearGradient? {
+        guard let top = coverRampTopHex.flatMap({ Color(hex: $0) }),
+            let bottom = coverRampBottomHex.flatMap({ Color(hex: $0) })
+        else { return nil }
+        return LinearGradient(colors: [top, bottom], startPoint: .top, endPoint: .bottom)
     }
 
     var isPlaying: Bool = false
@@ -47,7 +74,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     var totalProgressFraction: Double = 0.0
     var totalBookDuration: Double = 0
     var chapterDuration: Double = 0
-    
+
     @ObservationIgnored private var playbackTimer: Timer?
     @ObservationIgnored private var lastTimerTick: Date?
     /// When `true`, the linear progress bar should snap to the current value
@@ -61,6 +88,65 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     var trackId: String? = nil
     var currentTime: Double = 0
     var crownAction: String = AppGroupDefaults.shared.string(forKey: "crownAction") ?? "volume"
+
+    /// Interior chapter/track boundaries as fractions of the whole book,
+    /// synced from the iPhone for the segmented progress indicators.
+    var bookBoundaryFractions: [Double] = []
+
+    // MARK: Crown volume mirror
+    /// Local mirror of the iPhone's app-level output gain in dB. Updated
+    /// optimistically while the crown turns, reconciled from state replies.
+    var outputGainDB: Double = 0
+    var crownVolumeSensitivity: Double = WatchCrownVolume.defaultSensitivity
+    /// While the user is actively turning the crown, incoming state snapshots
+    /// carry a gain that lags the optimistic local value; skip applying them
+    /// until this deadline passes so the indicator doesn't stutter backwards.
+    @ObservationIgnored private var volumeAdjustmentActiveUntil: Date = .distantPast
+    /// Freshest authoritative gain skipped during the gesture window. Applied
+    /// once the window expires, so a rare local/phone divergence (batched
+    /// clamping near the rails, or a dropped send) heals in ~1 s instead of
+    /// waiting for the next full state sync.
+    @ObservationIgnored private var pendingRemoteGainDB: Double?
+    @ObservationIgnored private var gainReconcileTask: Task<Void, Never>?
+
+    var volumeFraction: Double { WatchCrownVolume.fraction(forGainDB: outputGainDB) }
+
+    /// Applies a crown rotation delta to the local gain mirror using the same
+    /// formula the iPhone applies authoritatively. Returns `true` when the
+    /// change crossed a haptic step threshold (the caller plays the haptic).
+    func applyLocalVolumeDelta(_ delta: Double) -> Bool {
+        let newGain = WatchCrownVolume.applying(
+            delta: delta, sensitivity: crownVolumeSensitivity, to: outputGainDB)
+        let crossedStep = WatchCrownVolume.crossesHapticStep(from: outputGainDB, to: newGain)
+        outputGainDB = newGain
+        volumeAdjustmentActiveUntil = Date().addingTimeInterval(1.0)
+        return crossedStep
+    }
+
+    func playCrownStepHaptic() { playHaptic(.click) }
+    func playScrubEngageHaptic() { playHaptic(.start) }
+
+    /// Applies the stashed authoritative gain once the gesture window expires.
+    /// The window deadline keeps moving while the crown turns, so the task
+    /// re-sleeps until it truly lapses (a MainActor Task, not a Timer, per the
+    /// Swift 6 strict-concurrency convention used elsewhere in this type).
+    private func scheduleGainReconciliation() {
+        gainReconcileTask?.cancel()
+        gainReconcileTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                let remaining = self.volumeAdjustmentActiveUntil.timeIntervalSinceNow
+                if remaining <= 0 { break }
+                try? await Task.sleep(for: .seconds(remaining + 0.05))
+            }
+            guard !Task.isCancelled, let self else { return }
+            if let pending = self.pendingRemoteGainDB {
+                self.outputGainDB = pending
+                self.pendingRemoteGainDB = nil
+            }
+            self.gainReconcileTask = nil
+        }
+    }
 
     // Sleep timer mirror state (driven by iPhone via WCSession context).
     /// "off" | "minutes" | "endOfChapter"
@@ -91,11 +177,11 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     var page5Slots: [WatchAction] = [.empty, .empty, .empty, .empty, .empty]
 
     // Progress indicator configuration (synced from iPhone)
-    var linearBarMode: String = "total"
+    var linearBarMode: String = "chapter"
     var linearBarHidden: Bool = false
-    var circularRingMode: String = "chapter"
+    var circularRingMode: String = "total"
     var circularRingHidden: Bool = false
-    var watchArtworkLayout: String = "immersive"
+    var watchArtworkLayout: String = "classic"
     var watchBackgroundStyle: String = "artwork"
     var watchTitleScrollEnabled: Bool = false
     var watchTitleScrollSpeed: Double = 30.0
@@ -109,7 +195,19 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     var currentSpeedIndex: Int = 0
     var playbackSpeed: Double { availableSpeeds[currentSpeedIndex] }
 
-    @ObservationIgnored private let defaults = AppGroupDefaults.shared
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private var wakeRefreshPolicy = WatchWakeRefreshPolicy()
+    @ObservationIgnored private var stateRecencyPolicy: WatchStateRecencyPolicy
+
+    /// Retry budget for a failed `requestState` pull, replenished on each wake.
+    /// The wake-time pull is the only convergence path that doesn't depend on
+    /// the phone noticing reachability, and its sendMessage commonly fails
+    /// with "not reachable" in the first seconds after the watch app wakes —
+    /// a single log-only failure left the UI frozen on persisted state until
+    /// the user pressed a transport button.
+    @ObservationIgnored private var stateRequestRetriesRemaining = 0
+    @ObservationIgnored private var stateRequestRetryTask: Task<Void, Never>?
+    private static let maxStateRequestRetries = 3
 
     /// Debounce widget timeline reloads to at most once per 30 seconds,
     /// instead of firing on every `applyState` call (which can happen
@@ -121,6 +219,21 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     private func playHaptic(_ type: WKHapticType) {
         guard defaults.bool(forKey: "isHapticFeedbackEnabled") else { return }
         WKInterfaceDevice.current().play(type)
+    }
+
+    func playReviewRevealHaptic() {
+        playHaptic(Self.hapticType(for: .reveal))
+    }
+
+    private static func hapticType(for feedback: WatchReviewFeedback) -> WKHapticType {
+        switch feedback {
+        case .reveal:
+            return .click
+        case .again:
+            return .retry
+        case .remembered:
+            return .success
+        }
     }
 
     // MARK: Optimistic update rollback
@@ -173,11 +286,17 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         if isPlaying {
             if playbackTimer == nil {
                 lastTimerTick = Date()
-                playbackTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+                playbackTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) {
+                    [weak self] _ in
                     guard let self else { return }
                     MainActor.assumeIsolated {
                         self.tickPlayback()
                     }
+                }
+                // Keep the elapsed-time tick firing while the user scrolls / turns the
+                // Digital Crown — the default run-loop mode is paused during UI tracking.
+                if let playbackTimer {
+                    RunLoop.main.add(playbackTimer, forMode: .common)
                 }
             }
         } else {
@@ -185,7 +304,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             playbackTimer = nil
         }
     }
-    
+
     private func tickPlayback() {
         guard let lastTick = lastTimerTick else { return }
         let now = Date()
@@ -201,7 +320,8 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         // from the phone, which has the authoritative position.
         let maxExpectedDelta: TimeInterval = 2.0
         guard elapsed <= maxExpectedDelta else {
-            logger.debug("Skipping stale timer tick after \(elapsed)s suspension; requesting fresh state")
+            logger.debug(
+                "Skipping stale timer tick after \(elapsed)s suspension; requesting fresh state")
             requestCurrentState()
             return
         }
@@ -222,11 +342,35 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         }
     }
 
-    override init() {
+    override convenience init() {
+        self.init(defaults: AppGroupDefaults.shared, migrateStandardDefaults: true)
+    }
+
+    init(defaults: UserDefaults, migrateStandardDefaults: Bool = false) {
+        self.defaults = defaults
+        let persistedSequence =
+            (defaults.object(forKey: WatchStateRecencyPolicy.persistedSequenceKey) as? NSNumber)?
+            .doubleValue
+        let persistedArtworkSequence =
+            (defaults.object(forKey: WatchStateRecencyPolicy.persistedArtworkSequenceKey)
+            as? NSNumber)?
+            .doubleValue
+        let persistedThumbnailSequence =
+            (defaults.object(forKey: WatchStateRecencyPolicy.persistedThumbnailSequenceKey)
+            as? NSNumber)?
+            .doubleValue
+        stateRecencyPolicy = WatchStateRecencyPolicy(
+            lastAppliedSequence: persistedSequence,
+            latestArtworkSequence: persistedArtworkSequence,
+            lastAppliedThumbnailSequence: persistedThumbnailSequence)
         super.init()
-        AppGroupDefaults.migrateStandardDefaultsIfNeeded()
+        if migrateStandardDefaults {
+            AppGroupDefaults.migrateStandardDefaultsIfNeeded()
+        }
         loadPersistedState()
-        if WCSession.isSupported() {
+        if WCSession.isSupported(),
+            ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
+        {
             let session = WCSession.default
             session.delegate = self
             session.activate()
@@ -242,60 +386,76 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         currentTime = defaults.double(forKey: "currentTime")
         chapterDuration = defaults.double(forKey: "chapterDuration")
         if let storedSpeed = defaults.object(forKey: "playbackSpeed") as? Double,
-           let idx = availableSpeeds.firstIndex(where: { abs($0 - storedSpeed) < 0.001 }) {
+            let idx = availableSpeeds.firstIndex(where: { abs($0 - storedSpeed) < 0.001 })
+        {
             currentSpeedIndex = idx
         }
         bookmarkStorageKey = defaults.string(forKey: "bookmarkStorageKey")
         folderKey = defaults.string(forKey: "folderKey")
         trackId = defaults.string(forKey: "trackId")
+        dueCards = WatchReviewQueueStore.load(from: defaults)
         crownAction = defaults.string(forKey: "crownAction") ?? "volume"
+        bookBoundaryFractions = (defaults.array(forKey: "bookBoundaryFractions") as? [Double]) ?? []
+        outputGainDB = (defaults.object(forKey: "outputGainDB") as? Double) ?? 0
+        let storedCrownVolumeSensitivity = defaults.double(forKey: "crownVolumeSensitivity")
+        if storedCrownVolumeSensitivity > 0 {
+            crownVolumeSensitivity = storedCrownVolumeSensitivity
+        }
         seekBackwardDuration = defaults.integer(forKey: "seekBackwardDuration")
         if seekBackwardDuration == 0 { seekBackwardDuration = 30 }
         seekForwardDuration = defaults.integer(forKey: "seekForwardDuration")
         if seekForwardDuration == 0 { seekForwardDuration = 30 }
 
         if let thumbnailData = defaults.data(forKey: "thumbnailData"),
-           let image = UIImage(data: thumbnailData) {
+            let image = UIImage(data: thumbnailData)
+        {
             thumbnailImage = image
         }
 
         artworkAccentColorHex = defaults.string(forKey: "artworkAccentColorHex")
+        coverRampTopHex = defaults.string(forKey: "coverRampTopHex")
+        coverRampBottomHex = defaults.string(forKey: "coverRampBottomHex")
         let storedPomDuration = defaults.double(forKey: "pomodoroDuration")
         pomodoroDuration = storedPomDuration > 0 ? storedPomDuration : (25 * 60)
         pomodoroRemaining = pomodoroDuration
 
         if let data = defaults.data(forKey: "watchPage1"),
-           let decoded = try? JSONDecoder().decode([WatchAction].self, from: data) {
+            let decoded = try? JSONDecoder().decode([WatchAction].self, from: data)
+        {
             page1Slots = padded(decoded)
         } else if let raw = defaults.string(forKey: "watchPage1") {
             // Migration from old comma-separated format
             page1Slots = padded(parseSlots(raw))
         }
         if let data = defaults.data(forKey: "watchPage2"),
-           let decoded = try? JSONDecoder().decode([WatchAction].self, from: data) {
+            let decoded = try? JSONDecoder().decode([WatchAction].self, from: data)
+        {
             page2Slots = padded(decoded)
         } else if let raw = defaults.string(forKey: "watchPage2") {
             // Migration from old comma-separated format
             page2Slots = padded(parseSlots(raw))
         }
         if let data = defaults.data(forKey: "watchPage3"),
-           let decoded = try? JSONDecoder().decode([WatchAction].self, from: data) {
+            let decoded = try? JSONDecoder().decode([WatchAction].self, from: data)
+        {
             page3Slots = padded(decoded)
         }
         if let data = defaults.data(forKey: "watchPage4"),
-           let decoded = try? JSONDecoder().decode([WatchAction].self, from: data) {
+            let decoded = try? JSONDecoder().decode([WatchAction].self, from: data)
+        {
             page4Slots = padded(decoded)
         }
         if let data = defaults.data(forKey: "watchPage5"),
-           let decoded = try? JSONDecoder().decode([WatchAction].self, from: data) {
+            let decoded = try? JSONDecoder().decode([WatchAction].self, from: data)
+        {
             page5Slots = padded(decoded)
         }
 
-        linearBarMode = defaults.string(forKey: "linearBarMode") ?? "total"
+        linearBarMode = defaults.string(forKey: "linearBarMode") ?? "chapter"
         linearBarHidden = defaults.bool(forKey: "linearBarHidden")
-        circularRingMode = defaults.string(forKey: "circularRingMode") ?? "chapter"
+        circularRingMode = defaults.string(forKey: "circularRingMode") ?? "total"
         circularRingHidden = defaults.bool(forKey: "circularRingHidden")
-        watchArtworkLayout = defaults.string(forKey: "watchArtworkLayout") ?? "immersive"
+        watchArtworkLayout = defaults.string(forKey: "watchArtworkLayout") ?? "classic"
         watchBackgroundStyle = defaults.string(forKey: "watchBackgroundStyle") ?? "artwork"
         watchTitleScrollEnabled = defaults.bool(forKey: "watchTitleScrollEnabled")
         let storedSpeed = defaults.double(forKey: "watchTitleScrollSpeed")
@@ -314,52 +474,108 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         return out
     }
 
-    func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
+    nonisolated func session(
+        _ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState,
+        error: Error?
+    ) {
         guard activationState == .activated else {
             if let error {
-                logger.error("WatchConnectivity activation failed: \(error)")
+                Logger(category: "WatchViewModel").error(
+                    "WatchConnectivity activation failed: \(error)")
             }
             return
         }
-        requestCurrentState()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.stateRequestRetriesRemaining = Self.maxStateRequestRetries
+            self.requestCurrentState()
+        }
     }
 
-    func sessionReachabilityDidChange(_ session: WCSession) {
+    nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
         guard session.isReachable else { return }
-        requestCurrentState()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            // Reachability returning is a fresh sync opportunity, so it gets a
+            // fresh retry budget like wake and activation do — the phone often
+            // reports reachable a beat before it can actually answer.
+            self.stateRequestRetriesRemaining = Self.maxStateRequestRetries
+            self.requestCurrentState()
+        }
     }
 
-    func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String : Any]) {
+    nonisolated func session(
+        _ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]
+    ) {
         guard session.activationState == .activated else { return }
-        applyState(applicationContext)
+        let payload = WatchConnectivityDictionary(value: applicationContext)
+        Task { @MainActor [weak self, payload] in
+            self?.applyReceivedApplicationContext(payload.value)
+        }
     }
 
-    func session(_ session: WCSession, didReceiveMessage message: [String : Any]) {
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
         guard session.activationState == .activated else { return }
-        applyState(message)
+        let payload = WatchConnectivityDictionary(value: message)
+        Task { @MainActor [weak self, payload] in
+            self?.applyState(payload.value, source: .liveMessage)
+        }
     }
 
-    func session(_ session: WCSession, didReceiveMessage message: [String : Any], replyHandler: @escaping ([String : Any]) -> Void) {
+    nonisolated func session(
+        _ session: WCSession, didReceiveMessage message: [String: Any],
+        replyHandler: @escaping ([String: Any]) -> Void
+    ) {
         guard session.activationState == .activated else {
             replyHandler([:])
             return
         }
-        applyState(message)
-        replyHandler(["handled": true])
+        let payload = WatchConnectivityDictionary(value: message)
+        let reply = WatchConnectivityReplyHandler(value: replyHandler)
+        Task { @MainActor [weak self, payload, reply] in
+            self?.applyState(payload.value, source: .liveMessage)
+            reply(["handled": true])
+        }
     }
 
-    func session(_ session: WCSession, didReceiveUserInfo userInfo: [String : Any] = [:]) {
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
         guard session.activationState == .activated else { return }
-        applyState(userInfo)
-        // userInfo deliveries can be minutes stale (queued while unreachable).
-        // Request the phone's current state so the watch converges to the
-        // authoritative position instead of displaying an outdated snapshot.
-        requestCurrentState()
+        let payload = WatchConnectivityDictionary(value: userInfo)
+        Task { @MainActor [weak self, payload] in
+            self?.applyReceivedUserInfo(payload.value)
+            // userInfo deliveries can be minutes stale (queued while unreachable).
+            // Request the phone's current state so the watch converges to the
+            // authoritative position instead of displaying an outdated snapshot.
+            self?.requestCurrentState()
+        }
     }
 
-    private func applyState(_ state: [String: Any]) {
-        guard !state.isEmpty else { return }
-        Task { @MainActor in
+    @discardableResult
+    private func applyState(
+        _ state: [String: Any], source: WatchStateDeliverySource
+    ) -> Bool {
+        guard !state.isEmpty else { return false }
+        guard stateRecencyPolicy.shouldApply(state, source: source) else { return false }
+        if let sequence = stateRecencyPolicy.lastAppliedSequence {
+            defaults.set(sequence, forKey: WatchStateRecencyPolicy.persistedSequenceKey)
+        }
+        if let sequence = stateRecencyPolicy.latestArtworkSequence {
+            defaults.set(sequence, forKey: WatchStateRecencyPolicy.persistedArtworkSequenceKey)
+        }
+        if let sequence = stateRecencyPolicy.lastAppliedThumbnailSequence {
+            defaults.set(sequence, forKey: WatchStateRecencyPolicy.persistedThumbnailSequenceKey)
+        }
+
+        let shouldReloadWidgetImmediately = WatchWidgetReloadPolicy.shouldReload(
+            state: state,
+            currentIsPlaying: isPlaying,
+            currentTrackId: trackId,
+            currentAccentHex: artworkAccentColorHex,
+            currentRampTopHex: coverRampTopHex,
+            hasCachedThumbnail: thumbnailImage != nil
+                || defaults.data(forKey: "thumbnailData") != nil)
+
+        do {
             let previousTrackId = self.trackId
 
             if let crownAction = state["crownAction"] as? String {
@@ -416,6 +632,10 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 }
                 self.totalProgressFraction = totalProgressFraction
                 self.defaults.set(totalProgressFraction, forKey: "totalProgressFraction")
+                // Anchor the widget's wall-clock projection to this
+                // authoritative fraction so timeline entries can keep the
+                // Smart Stack bar moving between deliveries.
+                WatchWidgetProgressProjection.writeAnchor(Date(), to: self.defaults)
                 if delta > 0.02 {
                     Task { @MainActor in
                         try? await Task.sleep(for: .seconds(0.5))
@@ -453,6 +673,30 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 self.loopMode = loopMode
                 self.defaults.set(loopMode, forKey: "loopMode")
             }
+            if let boundaries = state["bookBoundaryFractions"] as? [Double] {
+                self.bookBoundaryFractions = boundaries
+                self.defaults.set(boundaries, forKey: "bookBoundaryFractions")
+            }
+            if let sensitivity = state["crownVolumeSensitivity"] as? Double, sensitivity > 0 {
+                self.crownVolumeSensitivity = sensitivity
+                self.defaults.set(sensitivity, forKey: "crownVolumeSensitivity")
+            }
+            if let gainDB = state["outputGainDB"] as? Double {
+                // Persist always, but only move the visible mirror when the
+                // user isn't mid-gesture — replies lag the optimistic value.
+                // Mid-gesture values are stashed and applied when the window
+                // expires so the phone's authoritative gain always wins.
+                self.defaults.set(gainDB, forKey: "outputGainDB")
+                if Date() >= self.volumeAdjustmentActiveUntil {
+                    self.outputGainDB = gainDB
+                    self.pendingRemoteGainDB = nil
+                    self.gainReconcileTask?.cancel()
+                    self.gainReconcileTask = nil
+                } else {
+                    self.pendingRemoteGainDB = gainDB
+                    self.scheduleGainReconciliation()
+                }
+            }
             if let stm = state["sleepTimerMode"] as? String {
                 self.sleepTimerMode = stm
             }
@@ -463,32 +707,39 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 self.sleepTimerRemainingSeconds = rem
             }
             if let playbackSpeed = state["playbackSpeed"] as? Double,
-               let idx = self.availableSpeeds.firstIndex(where: { abs($0 - playbackSpeed) < 0.001 }) {
+                let idx = self.availableSpeeds.firstIndex(where: { abs($0 - playbackSpeed) < 0.001 }
+                )
+            {
                 self.currentSpeedIndex = idx
                 self.defaults.set(playbackSpeed, forKey: "playbackSpeed")
             }
             if let watchPage1Data = state["watchPage1"] as? Data,
-               let decoded = try? JSONDecoder().decode([WatchAction].self, from: watchPage1Data) {
+                let decoded = try? JSONDecoder().decode([WatchAction].self, from: watchPage1Data)
+            {
                 self.page1Slots = self.padded(decoded)
                 self.defaults.set(watchPage1Data, forKey: "watchPage1")
             }
             if let watchPage2Data = state["watchPage2"] as? Data,
-               let decoded = try? JSONDecoder().decode([WatchAction].self, from: watchPage2Data) {
+                let decoded = try? JSONDecoder().decode([WatchAction].self, from: watchPage2Data)
+            {
                 self.page2Slots = self.padded(decoded)
                 self.defaults.set(watchPage2Data, forKey: "watchPage2")
             }
             if let watchPage3Data = state["watchPage3"] as? Data,
-               let decoded = try? JSONDecoder().decode([WatchAction].self, from: watchPage3Data) {
+                let decoded = try? JSONDecoder().decode([WatchAction].self, from: watchPage3Data)
+            {
                 self.page3Slots = self.padded(decoded)
                 self.defaults.set(watchPage3Data, forKey: "watchPage3")
             }
             if let watchPage4Data = state["watchPage4"] as? Data,
-               let decoded = try? JSONDecoder().decode([WatchAction].self, from: watchPage4Data) {
+                let decoded = try? JSONDecoder().decode([WatchAction].self, from: watchPage4Data)
+            {
                 self.page4Slots = self.padded(decoded)
                 self.defaults.set(watchPage4Data, forKey: "watchPage4")
             }
             if let watchPage5Data = state["watchPage5"] as? Data,
-               let decoded = try? JSONDecoder().decode([WatchAction].self, from: watchPage5Data) {
+                let decoded = try? JSONDecoder().decode([WatchAction].self, from: watchPage5Data)
+            {
                 self.page5Slots = self.padded(decoded)
                 self.defaults.set(watchPage5Data, forKey: "watchPage5")
             }
@@ -537,68 +788,245 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 if let image = UIImage(data: thumbnailData) {
                     self.thumbnailImage = image
                 }
-            } else if state["trackId"] != nil, self.trackId != previousTrackId {
-                // Track changed — the old thumbnail is stale. Clear it so the
-                // placeholder shows until the iPhone sends a fresh thumbnail
-                // payload for the new track.
+            } else if state["hasThumbnail"] as? Bool == false
+                || (state["trackId"] != nil && self.trackId != previousTrackId)
+            {
+                // An explicit absence or track change makes the cached image
+                // stale. Show the placeholder until a fresh transfer arrives.
                 self.defaults.removeObject(forKey: "thumbnailData")
                 self.thumbnailImage = nil
             }
             if let accentHex = state["artworkAccentColorHex"] as? String {
-                self.artworkAccentColorHex = accentHex
-                self.defaults.set(accentHex, forKey: "artworkAccentColorHex")
+                if accentHex.isEmpty {
+                    self.artworkAccentColorHex = nil
+                    self.defaults.removeObject(forKey: "artworkAccentColorHex")
+                } else {
+                    self.artworkAccentColorHex = accentHex
+                    self.defaults.set(accentHex, forKey: "artworkAccentColorHex")
+                }
             } else if state["trackId"] != nil, self.trackId != previousTrackId {
                 self.artworkAccentColorHex = nil
                 self.defaults.removeObject(forKey: "artworkAccentColorHex")
             }
+            // The ramp ends follow the accent's contract exactly: an empty
+            // string is an explicit clear, and a track change without the key
+            // drops the previous book's room rather than leaving it behind the
+            // new one.
+            if let topHex = state["coverRampTopHex"] as? String {
+                if topHex.isEmpty {
+                    self.coverRampTopHex = nil
+                    self.defaults.removeObject(forKey: "coverRampTopHex")
+                } else {
+                    self.coverRampTopHex = topHex
+                    self.defaults.set(topHex, forKey: "coverRampTopHex")
+                }
+            } else if state["trackId"] != nil, self.trackId != previousTrackId {
+                self.coverRampTopHex = nil
+                self.defaults.removeObject(forKey: "coverRampTopHex")
+            }
+            if let bottomHex = state["coverRampBottomHex"] as? String {
+                if bottomHex.isEmpty {
+                    self.coverRampBottomHex = nil
+                    self.defaults.removeObject(forKey: "coverRampBottomHex")
+                } else {
+                    self.coverRampBottomHex = bottomHex
+                    self.defaults.set(bottomHex, forKey: "coverRampBottomHex")
+                }
+            } else if state["trackId"] != nil, self.trackId != previousTrackId {
+                self.coverRampBottomHex = nil
+                self.defaults.removeObject(forKey: "coverRampBottomHex")
+            }
             if let wordCloudJSON = state["wordCloudJSON"] as? String,
-               let jsonData = wordCloudJSON.data(using: .utf8),
-               let words = try? JSONDecoder().decode([WordFrequency].self, from: jsonData) {
+                let jsonData = wordCloudJSON.data(using: .utf8),
+                let words = try? JSONDecoder().decode([WordFrequency].self, from: jsonData)
+            {
                 self.currentWordCloud = words
             }
 
             if let dueCardsJSON = state["dueCardsJSON"] as? String,
-               let jsonData = dueCardsJSON.data(using: .utf8),
-               let cards = try? JSONDecoder().decode([WatchFlashcard].self, from: jsonData) {
+                let cards = WatchReviewQueueStore.decode(dueCardsJSON)
+            {
                 self.dueCards = cards
+                WatchReviewQueueStore.save(cards, to: self.defaults)
             }
 
             if state["commandResult"] as? String == "bookmarkJump" {
                 self.playHaptic(.success)
             }
             let now = Date()
-            if now.timeIntervalSince(self.lastWidgetReload) >= 30 {
+            if shouldReloadWidgetImmediately
+                || now.timeIntervalSince(self.lastWidgetReload) >= 30
+            {
                 self.lastWidgetReload = now
                 WidgetCenter.shared.reloadTimelines(ofKind: "Echo_Widget")
             }
             self.updatePlaybackTimer()
+            return true
         }
     }
 
     /// Sends a flashcard grade back to iPhone for FSRS processing and persistence.
     func gradeFlashcard(cardID: String, grade: Int) {
-        dueCards.removeAll { $0.id == cardID }
-        _ = sendCommand("gradeFlashcard", params: ["cardID": cardID, "grade": grade])
-    }
-
-    func requestCurrentState() {
         guard WCSession.isSupported() else { return }
 
         let session = WCSession.default
-        guard session.activationState == .activated else { return }
-        session.sendMessage([WatchMessageKey.command: "requestState"], replyHandler: { [weak self] reply in
-            self?.applyState(reply)
-        }, errorHandler: { [weak self] error in
-            self?.logger.error("Error requesting state: \(error)")
-        })
+        guard session.activationState == .activated else {
+            requestCurrentState()
+            return
+        }
+
+        session.transferUserInfo([
+            WatchMessageKey.command: "gradeFlashcard",
+            "cardID": cardID,
+            "grade": grade,
+        ])
+        dueCards.removeAll { $0.id == cardID }
+        WatchReviewQueueStore.save(dueCards, to: defaults)
+        playHaptic(Self.hapticType(for: WatchReviewFeedbackPolicy.feedback(forGrade: grade)))
+    }
+
+    @discardableResult
+    func applyReceivedApplicationContext(_ applicationContext: [String: Any]) -> Bool {
+        guard !applicationContext.isEmpty else { return false }
+        return applyState(applicationContext, source: .applicationContext)
+    }
+
+    @discardableResult
+    func applyReceivedUserInfo(_ userInfo: [String: Any]) -> Bool {
+        guard !userInfo.isEmpty else { return false }
+        return applyState(userInfo, source: .queuedUserInfo)
+    }
+
+    @discardableResult
+    func applyReceivedApplicationContext() -> Bool {
+        guard WCSession.isSupported() else { return false }
+        return applyReceivedApplicationContext(WCSession.default.receivedApplicationContext)
+    }
+
+    @discardableResult
+    func requestCurrentState() -> Bool {
+        guard WCSession.isSupported() else { return false }
+
+        let session = WCSession.default
+        applyReceivedApplicationContext(session.receivedApplicationContext)
+        guard session.activationState == .activated else { return false }
+
+        var message: [String: Any] = [WatchMessageKey.command: "requestState"]
+        // Report which artwork transfer this watch last applied (0 = none), so
+        // the phone can re-offer the current thumbnail when this watch is
+        // behind — a lost or purged transferUserInfo is otherwise never
+        // retried, because the phone-side dedup remembers having sent it.
+        if defaults.data(forKey: "thumbnailData") != nil,
+            let heldSequence = stateRecencyPolicy.lastAppliedThumbnailSequence
+        {
+            message["watchArtworkSeq"] = heldSequence
+        } else {
+            // No cached image: also drop the applied-thumbnail dedup marker so
+            // the phone's re-sent transfer (same artwork sequence) applies
+            // instead of being rejected as a duplicate.
+            stateRecencyPolicy.forgetAppliedThumbnail()
+            defaults.removeObject(forKey: WatchStateRecencyPolicy.persistedThumbnailSequenceKey)
+            message["watchArtworkSeq"] = 0.0
+        }
+
+        // WatchConnectivity invokes these reply/error handlers on a background
+        // serial queue, not the main thread. @Sendable keeps the closures from
+        // inheriting this type's MainActor isolation before they can hop back.
+        // Mirrors the WCSessionDelegate callbacks above.
+        session.sendMessage(
+            message,
+            replyHandler: { @Sendable reply in
+                let payload = WatchConnectivityDictionary(value: reply)
+                Task { @MainActor [weak self, payload] in
+                    self?.cancelStateRequestRetry()
+                    self?.applyState(payload.value, source: .liveMessage)
+                }
+            },
+            errorHandler: { @Sendable error in
+                let errorDescription = error.localizedDescription
+                Task { @MainActor [weak self, errorDescription] in
+                    guard let self else { return }
+                    self.logger.error("Error requesting state: \(errorDescription)")
+                    self.scheduleStateRequestRetry()
+                }
+            })
+        return true
+    }
+
+    /// Retries a failed state pull after a short delay, bounded per wake by
+    /// `maxStateRequestRetries`. Redundant retries are cheap: a duplicate
+    /// snapshot is rejected wholesale by the recency policy.
+    private func scheduleStateRequestRetry() {
+        guard stateRequestRetryTask == nil, stateRequestRetriesRemaining > 0 else { return }
+        stateRequestRetriesRemaining -= 1
+        stateRequestRetryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, let self else { return }
+            self.stateRequestRetryTask = nil
+            self.requestCurrentState()
+        }
+    }
+
+    private func cancelStateRequestRetry() {
+        stateRequestRetryTask?.cancel()
+        stateRequestRetryTask = nil
+    }
+
+    func refreshAfterWake() {
+        appWillEnterForeground()
+        applyReceivedApplicationContext()
+        consumePendingWidgetToggle()
+        stateRequestRetriesRemaining = Self.maxStateRequestRetries
+
+        guard wakeRefreshPolicy.canRefresh() else { return }
+        guard requestCurrentState() else { return }
+        wakeRefreshPolicy.recordRefresh()
+    }
+
+    /// Completes the widget play/pause intent's handshake. The widget
+    /// extension has no `WCSession`, so `TogglePlaybackIntent` can only
+    /// record the desired state and open this app; the app performs the real
+    /// transport command once it wakes. The command is absolute
+    /// ("play"/"pause", already idempotent on the phone router) so an
+    /// authoritative state push landing between tap and consumption can't
+    /// cause a double toggle.
+    private func consumePendingWidgetToggle() {
+        guard let desired = WidgetPlaybackToggleRequest.consume(from: defaults, at: Date())
+        else { return }
+        isPlaying = desired
+        updatePlaybackTimer()
+        sendCommand(desired ? "play" : "pause")
+    }
+
+    /// Handles a `.backgroundTask(.watchConnectivity)` wake: the system
+    /// launched or resumed this app in the background because the phone
+    /// pushed WatchConnectivity content. Waits briefly for the session to
+    /// finish activating and delivering (the delegate callbacks apply state
+    /// as it lands), then applies the latest coalesced application context so
+    /// the app-group snapshot — and through it the Smart Stack widget —
+    /// reflects the push even though the UI never came to the foreground.
+    func drainBackgroundConnectivity() async {
+        guard WCSession.isSupported() else { return }
+        let session = WCSession.default
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            if session.activationState == .activated, !session.hasContentPending { break }
+            try? await Task.sleep(for: .milliseconds(150))
+        }
+        applyReceivedApplicationContext()
     }
 
     private static func isDirectionalCommand(_ command: String) -> Bool {
-        command == "next" || command == "previous" || command == "skipForward" || command == "skipBackward"
+        command == "next" || command == "previous" || command == "skipForward"
+            || command == "skipBackward"
     }
 
     private static func isForwardCommand(_ command: String) -> Bool {
         command == "next" || command == "skipForward"
+    }
+
+    private static func isContinuousCommand(_ command: String) -> Bool {
+        command == "volumeDelta" || command == "scrubDelta"
     }
 
     @discardableResult
@@ -619,31 +1047,54 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             }
         }
 
-        session.sendMessage(message, replyHandler: { [weak self] reply in
-            self?.clearPendingRollback()
-            self?.applyState(reply)
-            if Self.isDirectionalCommand(command),
-               self?.loopMode == "bookmark",
-               reply["commandResult"] as? String != "bookmarkJump" {
-                self?.playHaptic(Self.isForwardCommand(command) ? .directionUp : .directionDown)
-            }
-        }, errorHandler: { [weak self] error in
-            // Deliberately do NOT fall back to transferUserInfo here. Transport,
-            // navigation and seek commands are only meaningful live. transferUserInfo
-            // persists them in a FIFO queue that drains (even across launches) the next
-            // time the phone is reachable, replaying stale play/pause/seek intent and
-            // fighting the user. sendMessage already wakes a suspended companion app; if
-            // it still fails the correct recovery is to revert the optimistic UI and
-            // re-pull the phone's authoritative state — not to queue a stale command.
-            self?.logger.error("Error sending command \(command): \(error). Reverting optimistic state.")
-            self?.rollback()
-            self?.requestCurrentState()
-        })
+        // WatchConnectivity invokes these reply/error handlers on a background
+        // serial queue. @Sendable keeps the closures from inheriting this type's
+        // MainActor isolation before they can hop back. Mirrors the
+        // WCSessionDelegate callbacks above.
+        session.sendMessage(
+            message,
+            replyHandler: { @Sendable reply in
+                let payload = WatchConnectivityDictionary(value: reply)
+                Task { @MainActor [weak self, payload] in
+                    self?.clearPendingRollback()
+                    self?.applyState(payload.value, source: .liveMessage)
+                    if Self.isDirectionalCommand(command),
+                        self?.loopMode == "bookmark",
+                        payload.value["commandResult"] as? String != "bookmarkJump"
+                    {
+                        self?.playHaptic(
+                            Self.isForwardCommand(command) ? .directionUp : .directionDown)
+                    }
+                }
+            },
+            errorHandler: { @Sendable error in
+                // Deliberately do NOT fall back to transferUserInfo here. Transport,
+                // navigation and seek commands are only meaningful live. transferUserInfo
+                // persists them in a FIFO queue that drains (even across launches) the next
+                // time the phone is reachable, replaying stale play/pause/seek intent and
+                // fighting the user. sendMessage already wakes a suspended companion app; if
+                // it still fails the correct recovery is to revert the optimistic UI and
+                // re-pull the phone's authoritative state — not to queue a stale command.
+                let errorDescription = error.localizedDescription
+                Task { @MainActor [weak self, errorDescription] in
+                    self?.logger.error(
+                        "Error sending command \(command): \(errorDescription). Reverting optimistic state."
+                    )
+                    self?.rollback()
+                    self?.requestCurrentState()
+                }
+            })
         if pendingSnapshot != nil {
             scheduleRollback()
         }
 
         if loopMode == "bookmark" && Self.isDirectionalCommand(command) {
+            return true
+        }
+
+        // Continuous crown streams get threshold-based haptics at the call
+        // site; a per-message haptic here would buzz on every batched tick.
+        if Self.isContinuousCommand(command) {
             return true
         }
 
@@ -697,10 +1148,12 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         sleepTimerMode = "minutes"
         sleepTimerMinutes = minutes
         sleepTimerRemainingSeconds = minutes * 60
-        sendCommand("setSleepTimer", params: [
-            "sleepTimerMode": "minutes",
-            "sleepTimerMinutes": minutes
-        ])
+        sendCommand(
+            "setSleepTimer",
+            params: [
+                "sleepTimerMode": "minutes",
+                "sleepTimerMinutes": minutes,
+            ])
     }
 
     func setSleepTimerEndOfChapter() {
@@ -708,9 +1161,11 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         sleepTimerMode = "endOfChapter"
         sleepTimerMinutes = 0
         sleepTimerRemainingSeconds = 0
-        sendCommand("setSleepTimer", params: [
-            "sleepTimerMode": "endOfChapter"
-        ])
+        sendCommand(
+            "setSleepTimer",
+            params: [
+                "sleepTimerMode": "endOfChapter"
+            ])
     }
 
     func cancelSleepTimer() {
@@ -794,7 +1249,6 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         }
     }
 
-
     private func bookmarkPayload(command: String) throws -> [String: Any] {
         guard WCSession.isSupported() else {
             throw WatchBookmarkError.watchConnectivityUnavailable
@@ -814,7 +1268,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             "bookmarkID": UUID().uuidString,
             "bookmarkStorageKey": bookmarkStorageKey,
             "timestamp": max(0, currentTime),
-            "createdAt": Date().timeIntervalSince1970
+            "createdAt": Date().timeIntervalSince1970,
         ]
 
         if let folderKey {
@@ -845,12 +1299,18 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         pomodoroActive = true
         lastPomodoroTick = Date()
         playHaptic(.start)
-        
-        pomodoroTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+
+        pomodoroTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) {
+            [weak self] _ in
             guard let self else { return }
             MainActor.assumeIsolated {
                 self.tickPomodoro()
             }
+        }
+        // Keep the countdown ticking while the user scrolls / turns the Digital Crown —
+        // the default run-loop mode is paused during UI tracking. Matches SleepTimerManager.
+        if let pomodoroTimer {
+            RunLoop.main.add(pomodoroTimer, forMode: .common)
         }
     }
 
@@ -860,6 +1320,9 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         pomodoroTimer?.invalidate()
         pomodoroTimer = nil
         lastPomodoroTick = nil
+        // Silence a ringing alarm if the user stops the Pomodoro mid-alarm.
+        alarmHapticsTask?.cancel()
+        alarmHapticsTask = nil
         playHaptic(.stop)
     }
 
@@ -876,7 +1339,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         let now = Date()
         let elapsed = now.timeIntervalSince(lastTick)
         self.lastPomodoroTick = now
-        
+
         if pomodoroRemaining > elapsed {
             pomodoroRemaining -= elapsed
         } else {
@@ -885,42 +1348,52 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             pomodoroTimer?.invalidate()
             pomodoroTimer = nil
             self.lastPomodoroTick = nil
-            
+
             playPersistentAlarmHaptics()
         }
     }
 
     private func playPersistentAlarmHaptics() {
-        let startTime = Date()
-        WKInterfaceDevice.current().play(.notification)
-        
-        Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { timer in
-            MainActor.assumeIsolated {
-                guard Date().timeIntervalSince(startTime) < 3.0 else {
-                    timer.invalidate()
-                    return
-                }
+        // A self-terminating ~3s repeating haptic. Modeled as a cancellable
+        // MainActor Task loop (not `Timer.scheduledTimer`) so the non-Sendable
+        // `Timer` never has to cross an isolation boundary under Swift 6, and so
+        // `stopPomodoro()` can silence a ringing alarm by cancelling the task.
+        alarmHapticsTask?.cancel()
+        alarmHapticsTask = Task { @MainActor [weak self] in
+            let startTime = Date()
+            WKInterfaceDevice.current().play(.notification)
+            while !Task.isCancelled, Date().timeIntervalSince(startTime) < 3.0 {
+                try? await Task.sleep(for: .milliseconds(600))
+                guard !Task.isCancelled else { return }
                 WKInterfaceDevice.current().play(.notification)
             }
+            self?.alarmHapticsTask = nil
         }
     }
 
     func appWillEnterForeground() {
+        updatePlaybackTimer()
         guard pomodoroActive else { return }
-        
+
         if let lastTick = lastPomodoroTick {
             let elapsed = Date().timeIntervalSince(lastTick)
             self.lastPomodoroTick = Date()
-            
+
             if pomodoroRemaining > elapsed {
                 pomodoroRemaining -= elapsed
-                
+
                 if pomodoroTimer == nil {
-                    pomodoroTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                    pomodoroTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) {
+                        [weak self] _ in
                         guard let self else { return }
                         MainActor.assumeIsolated {
                             self.tickPomodoro()
                         }
+                    }
+                    // Recreated after returning to the foreground, so it needs the same
+                    // common-mode registration as startPomodoro() or it re-freezes.
+                    if let pomodoroTimer {
+                        RunLoop.main.add(pomodoroTimer, forMode: .common)
                     }
                 }
             } else {
@@ -929,7 +1402,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 pomodoroTimer?.invalidate()
                 pomodoroTimer = nil
                 lastPomodoroTick = nil
-                
+
                 playPersistentAlarmHaptics()
             }
         } else {
@@ -957,18 +1430,7 @@ enum WatchBookmarkError: LocalizedError {
 
 extension Color {
     init?(hex: String) {
-        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        guard Scanner(string: hex).scanHexInt64(&int) else { return nil }
-        let r, g, b: Double
-        switch hex.count {
-        case 6:
-            r = Double((int >> 16) & 0xFF) / 255
-            g = Double((int >> 8) & 0xFF) / 255
-            b = Double(int & 0xFF) / 255
-        default:
-            return nil
-        }
-        self.init(red: r, green: g, blue: b)
+        guard let rgb = HexRGB(hex: hex) else { return nil }
+        self.init(red: rgb.red, green: rgb.green, blue: rgb.blue)
     }
 }

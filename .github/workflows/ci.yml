@@ -14,33 +14,74 @@ concurrency:
 jobs:
   ci:
     name: Build gate + tests
-    runs-on: macos-15
-
-    env:
-      # The shared "Echo" scheme builds the iOS app + embedded watch app + widget.
-      # IOS_DESTINATION is used by build-for-testing below; both destinations are
-      # also where tests will run once CI test execution is re-enabled (see the
-      # BUILD GATE note about the iOS 26.x simulator runtime bug).
-      IOS_DESTINATION: "platform=iOS Simulator,name=iPhone 16"
-      WATCH_DESTINATION: "platform=watchOS Simulator,name=Apple Watch Series 10 (46mm)"
+    runs-on: macos-26
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Fast, no-Xcode signal: a pure-stdlib Python unittest suite over
+      # Scripts/echo_renderer/ (versioned renderer install/verify/promote/repair).
+      # Runs in seconds without a simulator or SDK, so failures here are caught
+      # before the expensive Xcode build/test steps below even start.
+      - name: Renderer installer tests (fast, no Xcode)
+        run: make renderer-install-test
+
+      # The audio-judge suite measures real media with ffprobe and transcodes
+      # a real MP3 with ffmpeg. Those are hard requirements in the suite's
+      # setUp, not skip conditions: a silently skipped safety suite reports a
+      # false pass, which is precisely what these gates exist to prevent. CI
+      # therefore installs the toolchain rather than letting the suite opt out.
+      # Cache the Homebrew download so a green run does not depend on
+      # Homebrew's servers, and pin the formula so the media toolchain cannot
+      # float to a new major between runs.
+      - name: Cache Homebrew downloads (ffmpeg)
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew/downloads
+          key: ${{ runner.os }}-brew-ffmpeg@7
+          restore-keys: |
+            ${{ runner.os }}-brew-ffmpeg
+
+      - name: Install ffmpeg/ffprobe for the audio-judge gate
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_UPGRADE: "1"
+          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+            brew install ffmpeg@7
+            brew link --overwrite --force ffmpeg@7
+          fi
+          # Record the exact toolchain in the run log; the suites measure real
+          # media, so the version is part of the evidence.
+          ffmpeg -version | head -n 1
+          ffprobe -version | head -n 1
+
+      # Pronunciation corpus contracts: fixture schema, named-regression
+      # outcomes, human-label qualification state, and repository-scope
+      # refusal. Pure stdlib Python, seconds to run.
+      - name: Pronunciation corpus contract tests (fast, no Xcode)
+        run: make pronunciation-corpus-test
+
+      # Privacy projection, prospective cap arithmetic, hardlink and symlink
+      # refusal, request/audio binding, and attempt-ledger tamper evidence.
+      # Previously enforced only when a human typed the target locally.
+      - name: Pronunciation audio-judge tests (fast, no Xcode)
+        run: make pronunciation-audio-judge-test
+
       # Pin the toolchain to Xcode 26.x so CI compiles against the same SDK the
-      # project is developed and shipped with (the maintainer's machine runs
-      # Xcode 26 / iOS 26 SDK). The macos-15 runner installs several Xcodes but
-      # DEFAULTS to 16.4 (iOS 18 / watchOS 11.5 SDK), whose AVFoundation lacks
-      # 26-era symbols such as `AVAudioSession.CategoryOptions.allowBluetoothHFP`
-      # — so a tree that builds locally fails the gate here. Building with the
-      # newest SDK and deploying down to the iOS 18 / watchOS 11 floor is the
-      # standard arrangement. '26' resolves to the newest installed 26.x
-      # (resilient to runner-image updates) without ever jumping to a future major.
+      # project is developed and shipped with. The macos-26 runner defaults to
+      # Xcode 26.x today, and this explicit selection keeps future image updates
+      # from silently jumping to a new major.
       - name: Select Xcode 26
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: '26'
+
+      - name: Install Metal toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
 
       - name: Cache Swift Package Manager
         uses: actions/cache@v4
@@ -63,8 +104,85 @@ jobs:
           echo "=== available devices ==="
           xcrun simctl list devices available | grep -E "iPhone|Watch" || true
 
+      - name: Select iOS 26 test simulator
+        id: ios-sim
+        run: |
+          set -euo pipefail
+          IOS_SIM_SELECTION="$(
+            xcrun simctl list devices available --json |
+              jq -r '
+                .devices
+                | to_entries
+                | map(
+                    select(.key | test("SimRuntime\\.iOS-26-"))
+                    | . + {
+                        version: (
+                          .key
+                          | capture("iOS-(?<major>[0-9]+)-(?<minor>[0-9]+)")
+                          | [.major, .minor]
+                          | map(tonumber)
+                        )
+                      }
+                  )
+                | sort_by(.version[0], .version[1])
+                | reverse
+                | [
+                    .[]
+                    | .value
+                    | map(
+                        select(.isAvailable == true and (.name | test("^iPhone")))
+                        | . + {
+                            preference: (
+                              if .name == "iPhone 17 Pro Max" then 0
+                              elif .name == "iPhone 17 Pro" then 1
+                              elif .name == "iPhone 17" then 2
+                              elif .name == "iPhone Air" then 3
+                              else 4
+                              end
+                            )
+                          }
+                      )
+                    | sort_by(.preference)[]
+                  ]
+                | first
+                | if . then [.udid, .name] | @tsv else empty end
+              ' |
+              head -n 1
+          )"
+          IOS_SIM_UDID="${IOS_SIM_SELECTION%%$'\t'*}"
+          IOS_SIM_NAME="${IOS_SIM_SELECTION#*$'\t'}"
+
+          if [ -z "$IOS_SIM_UDID" ] || [ "$IOS_SIM_UDID" = "$IOS_SIM_NAME" ]; then
+            echo "::error title=iOS 26 iPhone simulator missing::The CI runner does not expose a compatible iOS 26 iPhone simulator."
+            xcrun simctl list runtimes
+            xcrun simctl list devices available
+            exit 1
+          fi
+
+          echo "destination=platform=iOS Simulator,id=$IOS_SIM_UDID" >> "$GITHUB_OUTPUT"
+          echo "Selected iOS test destination: platform=iOS Simulator,id=$IOS_SIM_UDID ($IOS_SIM_NAME)"
+
+          # Record the exact runtime and toolchain. The selector above takes the
+          # NEWEST iOS 26.x runtime the runner happens to expose, so a runner
+          # image refresh can move the test suite onto a different runtime with
+          # no commit in this repo. Without these two lines a failure cannot be
+          # attributed to a runtime change after the fact.
+          echo "Selected simulator runtime:"
+          xcrun simctl list devices available -j |
+            jq -r --arg udid "$IOS_SIM_UDID" '
+              .devices
+              | to_entries[]
+              | select(any(.value[]?; .udid == $udid))
+              | .key
+            '
+          xcodebuild -version
+
       - name: Resolve package dependencies
-        run: xcodebuild -resolvePackageDependencies -project Echo.xcodeproj -scheme Echo
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project Echo.xcodeproj \
+            -scheme Echo \
+            -onlyUsePackageVersionsFromResolvedFile
 
       # ── BUILD GATE ──────────────────────────────────────────────────────────
       # Compile every shipping target AND the test target. This is the gate for
@@ -73,28 +191,45 @@ jobs:
       # uncaught (CODE_AUDIT.md §10 rec. 5; §5.1). `build-for-testing` compiles
       # app + widget + embedded watch app + EchoTests without booting a simulator,
       # so it fails fast and clearly on compile errors.
-      #
-      # NOTE: test EXECUTION is intentionally not run on CI right now. Every iOS
-      # simulator runtime the macos-15 runner ships (26.0/26.1/26.2) has a bad-free
-      # in libswift_Concurrency's isolated-deinit back-deploy shim
-      # (swift_task_deinitOnExecutorMainActorBackDeploy) that crashes the test
-      # process whenever a @MainActor object such as PlayerModel is deallocated —
-      # an Apple runtime bug fixed in iOS 26.3+ (not yet on the runner), confirmed
-      # via an on-CI AddressSanitizer run. It does not affect the shipping app (one
-      # long-lived PlayerModel) and does not reproduce on iOS 26.4/26.5. The full
-      # suite runs locally via `make test`; re-add the test-execution steps (in this
-      # file's git history) once the runner offers an iOS 26.3+ runtime. The job
-      # name stays "Build gate + tests" — branch protection requires that exact
-      # check, so renaming it would silently un-gate main.
       - name: Build for testing — Echo (iOS app + widget + watch + tests)
         run: |
           set -o pipefail
           xcodebuild build-for-testing \
             -project Echo.xcodeproj \
             -scheme Echo \
-            -destination "$IOS_DESTINATION" \
+            -destination "${{ steps.ios-sim.outputs.destination }}" \
+            -parallel-testing-enabled NO \
+            -jobs 5 \
             CODE_SIGNING_ALLOWED=NO \
             -quiet
+
+      # Deliberately NOT `-quiet`: this step only runs already-built tests, so it
+      # emits test results rather than compiler output, and `-quiet` reduces a
+      # failure to a bare test name with no assertion text and no crash trace.
+      # That is how the PlayerModelAccentTests failure on b0f8a500 became
+      # undiagnosable — a crashed test process and a failed assertion print
+      # identically under `-quiet`. The result bundle preserves the crash logs.
+      - name: Test — EchoTests
+        run: |
+          set -o pipefail
+          rm -rf TestResults.xcresult
+          xcodebuild test-without-building \
+            -project Echo.xcodeproj \
+            -scheme Echo \
+            -destination "${{ steps.ios-sim.outputs.destination }}" \
+            -only-testing:EchoTests \
+            -parallel-testing-enabled NO \
+            -resultBundlePath TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Upload test result bundle
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TestResults-${{ github.run_id }}-${{ github.run_attempt }}
+          path: TestResults.xcresult
+          retention-days: 14
+          if-no-files-found: warn
 
       - name: Build — Echo macOS
         run: |
@@ -104,4 +239,16 @@ jobs:
             -scheme "Echo macOS" \
             -destination "platform=macOS" \
             CODE_SIGNING_ALLOWED=NO \
+            -jobs 5 \
+            -quiet
+
+      - name: Build — echo-cli
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project Echo.xcodeproj \
+            -scheme echo-cli \
+            -destination "platform=macOS" \
+            CODE_SIGNING_ALLOWED=NO \
+            -jobs 5 \
             -quiet

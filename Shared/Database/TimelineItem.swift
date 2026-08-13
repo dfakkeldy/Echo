@@ -2,15 +2,17 @@
 import Foundation
 import GRDB
 
-enum TimelineItemType: String, Codable {
+enum TimelineItemType: String, Codable, Sendable {
     case textSegment
     case chapterMarker
     case imageAsset
     case bookmark
     case ankiCard
+    case voiceMemo
+    case note
 }
 
-enum GranularityLevel: Int, Codable {
+enum GranularityLevel: Int, Codable, Sendable {
     case chapter = 0
     case paragraph = 1
     case sentence = 2
@@ -18,7 +20,9 @@ enum GranularityLevel: Int, Codable {
 }
 
 /// Materialized timeline item for the dual-path feed.
-struct TimelineItem: Identifiable, Equatable, Codable, FetchableRecord, MutablePersistableRecord {
+struct TimelineItem: Identifiable, Equatable, Codable, FetchableRecord,
+    MutablePersistableRecord, Sendable
+{
     var id: String
     var audiobookID: String
     var itemType: TimelineItemType
@@ -36,10 +40,12 @@ struct TimelineItem: Identifiable, Equatable, Codable, FetchableRecord, MutableP
     var sourceRowid: String?
     var metadataJSON: String?
     var pdfViewStateJSON: String?
-    // MARK: - V5 EPUB Alignment Fields
+    // MARK: - EPUB Alignment Fields
 
     /// FK to `epub_block.id` when this timeline item was materialized from an EPUB block.
     var epubBlockID: String?
+    /// Segment narration scope (`"<chapter>-<segment>"`) when timestamps are segment-local.
+    var segmentKey: String?
     /// Source of the timestamp: none, estimated, interpolated, lockedAnchor, transcript.
     var timestampSource: String?
     /// Current alignment state: unaligned, estimated, interpolated, lockedAnchor, omitted.
@@ -69,6 +75,7 @@ struct TimelineItem: Identifiable, Equatable, Codable, FetchableRecord, MutableP
         case metadataJSON = "metadata_json"
         case pdfViewStateJSON = "pdf_view_state_json"
         case epubBlockID = "epub_block_id"
+        case segmentKey = "segment_key"
         case timestampSource = "timestamp_source"
         case alignmentStatus = "alignment_status"
         case alignmentConfidence = "alignment_confidence"
@@ -102,7 +109,10 @@ extension TimelineItem {
     /// Single source of truth shared by bulk ingestion
     /// (`EPUBBlockIngestionStrategy`) and the alignment self-heal path
     /// (`AlignmentService.recalculateTimeline`), so both produce identical rows.
-    static func fromEPubBlock(_ block: EPubBlockRecord, audiobookID: String) -> TimelineItem {
+    nonisolated static func fromEPubBlock(
+        _ block: EPubBlockRecord,
+        audiobookID: String
+    ) -> TimelineItem {
         TimelineItem(
             id: "epub-\(block.id)",
             audiobookID: audiobookID,
@@ -162,7 +172,7 @@ extension TimelineItemType {
         case "bookmark": self = .bookmark
         case "flashcard": self = .ankiCard
         case "transcription": self = .textSegment
-        case "note": self = .bookmark
+        case "note": self = .note
         default: return nil
         }
     }

@@ -38,6 +38,41 @@ struct PlaybackOptionsSheetTests {
         )
     }
 
+    @Test func bookmarkLoopShowsUnavailableStateUntilTwoBookmarksExist() throws {
+        let source = try Self.source(named: "PlaybackOptionsSheet.swift")
+        #expect(
+            source.contains("bookmarkLoopUnavailable"),
+            "The sheet must model bookmark-loop availability explicitly."
+        )
+        #expect(
+            source.contains("!model.canBookmarkLoop"),
+            "Bookmark loop availability must use the shared PlayerModel rule."
+        )
+        #expect(
+            source.contains(".disabled(bookmarkLoopUnavailable)"),
+            "The Bookmark segment must be disabled while bookmark looping is unavailable."
+        )
+        #expect(
+            source.contains(
+                "Add at least two enabled bookmarks on this track to use bookmark looping."),
+            "The sheet must explain why Bookmark loop is unavailable."
+        )
+    }
+
+    @Test func sheetLinksToDurableControlsSettings() throws {
+        let source = try Self.source(named: "PlaybackOptionsSheet.swift")
+        #expect(source.contains("PhonePlayerSettingsView()"))
+        #expect(
+            source.contains("Label(\"More Controls\", systemImage: \"slider.horizontal.3\")"),
+            "The More Controls affordance must keep its accessible title even when rendered icon-only."
+        )
+        #expect(
+            source.contains(".labelStyle(.iconOnly)"),
+            "More Controls renders icon-only so the inline navigation title never truncates."
+        )
+        #expect(!source.contains("Text(\"More\")"))
+    }
+
     private static func source(named fileName: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

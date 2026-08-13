@@ -108,7 +108,7 @@ Echo's flagship new surface. Works on every device Echo supports — no special 
 2. Try a plain **.md / .markdown / .txt** file too: does it import and narrate, with chapter breaks in sensible places?
 3. Read along as it narrates — do the words light up in time? Scrub, then tap a paragraph: does the voice follow?
 4. Switch the narrator voice and re-narrate a chapter.
-5. Free narration covers **one chapter per book**; the rest is Echo Pro (Plan K). Does that limit explain itself clearly when you hit it?
+5. Narrate as many chapters as you like — narration is unlocked for the whole beta (Plan K). Report anything that stops you.
 
 ### Plan I — The PDF Companion
 1. Import a **PDF** — as a book's companion (slides, a scanned textbook, sheet music) or on its own. The import button takes EPUB and PDF and routes automatically.
@@ -118,13 +118,15 @@ Echo's flagship new surface. Works on every device Echo supports — no special 
 ### Plan J — Export & Take It With You
 1. Export an audiobook as **.m4b** (the "Export Audiobook (.m4b)…" action). Open it in another player: do chapters, cover, and metadata survive?
 2. Export your study notes as **Markdown** — formatting and passages intact?
-3. Export a deck as **Anki .apkg** and import it into Anki: card counts and fronts/backs right? *(Study export is an Echo Pro feature — see Plan K.)*
+3. Anki **.apkg** deck export lives in the Mac app only — skip this one if you are testing on iPhone.
 
-### Plan K — Echo Pro *(in-app purchase — TestFlight sandbox)*
-1. Trip a Pro gate: narrate past chapter 1, or tap **Study Export**. Does the paywall make the value obvious and state the free limits honestly?
-2. In the TestFlight sandbox, buy each tier — **monthly**, **yearly**, the **lifetime** unlock, and the **founders** offer. Any price, copy, or flow that feels off?
-3. Force-quit, relaunch, and tap **Restore Purchases** — does Pro come back without re-paying?
-4. Report anything that locks a feature it shouldn't, or unlocks one it shouldn't.
+### Plan K — Echo Pro *(nothing to buy during the beta)*
+Echo Pro is **fully unlocked for every beta tester**. There is no paywall in this build, no in-app purchase, and nothing to buy in the TestFlight sandbox — so there is no purchase flow to test yet.
+
+When Echo Pro does ship it will be a **one-time unlock, never a subscription**.
+
+1. Use every feature freely and tell us which ones you would actually have paid for — that is the feedback worth having right now.
+2. Report anything that locks a feature it shouldn't. Nothing in this build should be gated.
 
 ### Plan L — The Mac *(if you test on macOS)*
 1. Import a book — or a whole folder of EPUBs.
@@ -136,6 +138,17 @@ Echo's flagship new surface. Works on every device Echo supports — no special 
 2. Browse and search your ABS library; download or stream a book and play it.
 3. Listen on one device, then confirm progress synced back to the server (and to Echo on another device). Report anything that double-counts or resets position.
 
+### Auto Study Plan Beta Pass
+
+1. Import or open an EPUB-backed book.
+2. Open Book Settings and tap Study Plan.
+3. Confirm front matter is not selected.
+4. Create a plan with 1 chapter per day and image cards enabled.
+5. Open the Reviews/Study dashboard card.
+6. Confirm due cards appear before new chapter assignments.
+7. Play a chapter assignment, reveal the retention prompt, and grade it.
+8. Reopen the queue and confirm the graded assignment is no longer shown as new.
+
 ---
 
 ## 4. Known limitations (current beta)
@@ -143,7 +156,6 @@ Echo's flagship new surface. Works on every device Echo supports — no special 
 Honest list — these are known, so you don't need to report them (though opinions on them are welcome):
 
 - **First auto-align is heavy.** Model download (~40 MB) + Neural Engine work; phones run warm on long books. Plug in.
-- **CarPlay is minimal** — browse + transport only, richer templates on the roadmap.
 - **iCloud sync covers alignment anchors only** so far; bookmarks/flashcards/position sync across devices is roadmap work.
 - **Edition drift is real.** Auto-align gets you close; some books need two or three manual anchors. That's expected, not a bug — but tell us about books that need *lots*.
 - **Watch review sessions** can briefly show stale state if the phone app was killed mid-review; relaunching the phone app reconverges.

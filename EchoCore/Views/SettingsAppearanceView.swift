@@ -16,7 +16,12 @@ struct SettingsAppearanceView: View {
                     Text("System").tag("System")
                     Text("Light").tag("Light")
                     Text("Dark").tag("Dark")
+                    Text("Cover").tag("Cover")
                 }
+            } footer: {
+                Text(
+                    "Cover follows the book you're listening to: light for pale covers, dark for deep ones. Books with no preference follow the system."
+                )
             }
             #if os(iOS)
                 Section("App Icon") {
@@ -32,22 +37,38 @@ struct SettingsAppearanceView: View {
                     }
                 }
             #endif
-            Section("Theme") {
+            Section {
                 NavigationLink {
                     ThemeSelectionView()
                 } label: {
+                    let selectedTheme =
+                        ThemeColor(rawValue: settings.themeColor) ?? .artwork
                     HStack {
                         Text("Accent Color")
                         Spacer()
-                        if let color = ThemeColor(rawValue: settings.themeColor)?.color {
+                        if let color = summarySwatchColor(for: selectedTheme) {
                             Image(systemName: "circle.fill")
                                 .foregroundStyle(color)
-                        } else {
-                            Text("System")
-                                .foregroundStyle(.secondary)
                         }
+                        Text(selectedTheme.settingsSummaryTitle)
+                            .foregroundStyle(.secondary)
                     }
                 }
+                Toggle(
+                    "Vivid Cover Accent",
+                    isOn: Binding(
+                        get: { settings.vividCoverAccent },
+                        set: {
+                            settings.vividCoverAccent = $0
+                            model.syncToWatch()
+                        }
+                    ))
+            } header: {
+                Text("Theme")
+            } footer: {
+                Text(
+                    "Prefers the cover's most saturated color for the accent — like colored title text — even when it covers only a small area. Off blends each color family evenly."
+                )
             }
             Section("Typography") {
                 NavigationLink {
@@ -61,6 +82,16 @@ struct SettingsAppearanceView: View {
                                 ? "System" : settings.appFont
                         )
                         .foregroundStyle(.secondary)
+                    }
+                }
+                NavigationLink {
+                    ReaderDefaultsSettingsView()
+                } label: {
+                    HStack {
+                        Text("Reader Defaults")
+                        Spacer()
+                        Text("\(Int(settings.readerFontSize)) pt")
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -85,12 +116,24 @@ struct SettingsAppearanceView: View {
         .navigationTitle("Appearance")
     }
 
+    private func summarySwatchColor(for theme: ThemeColor) -> Color? {
+        switch theme {
+        case .artwork:
+            return model.resolvedTint(for: .artwork)
+        case .system:
+            return nil
+        default:
+            return theme.color
+        }
+    }
+
     #if os(iOS)
         private var currentAppIconName: String {
             guard let name = UIApplication.shared.alternateIconName else {
                 return "Default"
             }
             switch name {
+            case "AppIcon-CircuitBrain": return "Circuit Brain"
             case "AppIcon-ComplexWaves": return "Complex Waves"
             case "AppIcon-GoldSilver": return "Gold & Silver"
             case "AppIcon-SilverGold": return "Silver & Gold"

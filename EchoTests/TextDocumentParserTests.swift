@@ -54,18 +54,32 @@ import Testing
         #expect(paras == ["first", "second", "third"])
     }
 
-    @Test func fencedCodeAndTablesAreDropped() {
-        let p = parse("## C\n\nReal text.\n\n```\nlet x = 1\n```\n\n| a | b |\n| - | - |\n")
+    @Test func thematicBreaksAreDropped() {
+        let p = parse("## C\n\nAbove\n\n---\n\nBelow\n\n* * *\n\nAfter")
+        let paras = p.blocks.filter { $0.blockKind == "paragraph" }.map(\.text)
+        #expect(paras == ["Above", "Below", "After"])
+        #expect(!paras.contains("---"))
+        #expect(!paras.contains("* * *"))
+    }
+
+    @Test func tablesAreDropped() {
+        let p = parse("## C\n\nReal text.\n\n| a | b |\n| - | - |\n")
         #expect(p.blocks.contains { $0.text == "Real text." })
-        #expect(!p.blocks.contains { ($0.text ?? "").contains("let x") })
         #expect(!p.blocks.contains { ($0.text ?? "").contains("|") })
+    }
+
+    @Test func thematicBreaksAreDroppedNotNarrated() {
+        let p = parse("## C\n\nAbove\n\n---\n\nBelow")
+        let paragraphs = p.blocks.filter { $0.blockKind == "paragraph" }.compactMap { $0.text }
+        #expect(paragraphs == ["Above", "Below"])
+        #expect(!p.blocks.contains { $0.text == "---" })
     }
 
     @Test func boldSpanSurvivesIntoBlockTextFormats() throws {
         let p = parse("## C\n\nThis is **strong** prose.")
         let para = try #require(p.blocks.first { ($0.text ?? "").contains("strong") })
         #expect(para.text == "This is strong prose.")
-        #expect(para.decodedFormats.contains { $0.type == .bold })
+        #expect(try para.decodeFormats().contains { $0.type == .bold })
     }
 
     @Test func blockIDsFollowSchemeAndAreReproducible() {

@@ -45,6 +45,20 @@ printf '%s' "$MESSY" > "$S1/c.swift"
 payload "$S1/c.swift" | ECHO_DISABLE_SWIFT_FORMAT=1 CLAUDE_PROJECT_DIR="$S1" bash "$HOOK" >/dev/null 2>&1
 check "off-switch ECHO_DISABLE_SWIFT_FORMAT=1 -> untouched" unchanged "$S1/c.swift" "$MESSY"
 
+# Vendored sources keep upstream formatting: reindenting them buries a small
+# real change in thousands of whitespace lines and collides across branches.
+mkdir -p "$S1/ThirdParty/MisakiSwift/Sources/MisakiSwift"
+printf '%s' "$MESSY" > "$S1/ThirdParty/MisakiSwift/Sources/MisakiSwift/e.swift"
+payload "$S1/ThirdParty/MisakiSwift/Sources/MisakiSwift/e.swift" | CLAUDE_PROJECT_DIR="$S1" bash "$HOOK" >/dev/null 2>&1
+check "ThirdParty/**/*.swift -> byte-identical" unchanged "$S1/ThirdParty/MisakiSwift/Sources/MisakiSwift/e.swift" "$MESSY"
+
+# The exclusion matches a ThirdParty path COMPONENT, not a substring: a loose
+# *ThirdParty* glob would wrongly stop formatting first-party code like this.
+mkdir -p "$S1/MyThirdPartyHelpers"
+printf '%s' "$MESSY" > "$S1/MyThirdPartyHelpers/f.swift"
+payload "$S1/MyThirdPartyHelpers/f.swift" | CLAUDE_PROJECT_DIR="$S1" bash "$HOOK" >/dev/null 2>&1
+check "dir merely NAMED *ThirdParty* -> still formatted" changed "$S1/MyThirdPartyHelpers/f.swift" "$MESSY"
+
 # --- Sandbox WITHOUT a .swift-format config (config-gated opt-out) ---
 S2="$(mktemp -d)"
 printf '%s' "$MESSY" > "$S2/d.swift"

@@ -1,7 +1,8 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-import Testing
 import Foundation
 import GRDB
+// SPDX-License-Identifier: GPL-3.0-or-later
+import Testing
+
 @testable import Echo
 
 /// Import-level tests for hierarchical TOC persistence.
@@ -30,7 +31,8 @@ struct EPUBTOCImportTests {
             <rootfile full-path="content.opf" media-type="application/oebps-package+xml"/>
           </rootfiles>
         </container>
-        """.write(to: metaInf.appendingPathComponent("container.xml"), atomically: true, encoding: .utf8)
+        """.write(
+            to: metaInf.appendingPathComponent("container.xml"), atomically: true, encoding: .utf8)
 
         try """
         <?xml version="1.0"?>
@@ -81,7 +83,8 @@ struct EPUBTOCImportTests {
           <p>I remember when Dave and Andy first tweeted about this book.</p>
         </body>
         </html>
-        """.write(to: tmp.appendingPathComponent("foreword.xhtml"), atomically: true, encoding: .utf8)
+        """.write(
+            to: tmp.appendingPathComponent("foreword.xhtml"), atomically: true, encoding: .utf8)
 
         try """
         <html xmlns="http://www.w3.org/1999/xhtml">
@@ -104,7 +107,8 @@ struct EPUBTOCImportTests {
         <p>How do you react when someone comes to you with a lame excuse?</p>
         </body>
         </html>
-        """.write(to: tmp.appendingPathComponent("topic03.xhtml"), atomically: true, encoding: .utf8)
+        """.write(
+            to: tmp.appendingPathComponent("topic03.xhtml"), atomically: true, encoding: .utf8)
 
         return tmp
     }
@@ -115,7 +119,8 @@ struct EPUBTOCImportTests {
         defer { try? FileManager.default.removeItem(at: epubDir) }
 
         try db.write { db in
-            try db.execute(sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
         }
         let service = EPUBImportService(assetStorage: EPUBAssetStorage(databaseService: db))
         let blocks = try await service.import(
@@ -155,6 +160,31 @@ struct EPUBTOCImportTests {
         #expect(topicBlock.spineIndex == 2)
     }
 
+    @Test func chapterlessAudiobookChaptersFromTOCNotOneFrontMatterBlob() async throws {
+        // An audiobook whose audio carries NO chapter markers (`chapters == []`
+        // but a real `bookDuration`) must still chapter the reader from the
+        // book's own TOC. Otherwise every block stays `chapterIndex == nil`,
+        // which `blocksByChapter` coalesces to -1 → the reader collapses into a
+        // single "Front Matter" chapter (the m4b-without-chapters bug).
+        let db = try DatabaseService(inMemory: ())
+        let epubDir = try makeHierarchicalEPUB()
+        defer { try? FileManager.default.removeItem(at: epubDir) }
+        try db.write { db in
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
+        }
+        let service = EPUBImportService(assetStorage: EPUBAssetStorage(databaseService: db))
+        let blocks = try await service.import(
+            audiobookID: "book-1", epubURL: epubDir, chapters: [], bookDuration: 3600)
+
+        // Body chapters get real indices instead of staying front matter.
+        let chapterBlock = try #require(
+            blocks.first { $0.text == "Chapter 1 A Pragmatic Philosophy" })
+        let topicBlock = try #require(blocks.first { $0.text == "Topic 3 Software Entropy" })
+        #expect(chapterBlock.chapterIndex != nil)
+        #expect(topicBlock.chapterIndex != nil)
+    }
+
     @Test func fragmentResolvedTopicTitleIsPromotedToHeading() async throws {
         let (_, blocks) = try await runImport()
 
@@ -173,11 +203,14 @@ struct EPUBTOCImportTests {
         let epubDir = try makeHierarchicalEPUB()
         defer { try? FileManager.default.removeItem(at: epubDir) }
         try db.write { db in
-            try db.execute(sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
         }
         let service = EPUBImportService(assetStorage: EPUBAssetStorage(databaseService: db))
-        _ = try await service.import(audiobookID: "book-1", epubURL: epubDir, chapters: [], bookDuration: nil)
-        _ = try await service.import(audiobookID: "book-1", epubURL: epubDir, chapters: [], bookDuration: nil)
+        _ = try await service.import(
+            audiobookID: "book-1", epubURL: epubDir, chapters: [], bookDuration: nil)
+        _ = try await service.import(
+            audiobookID: "book-1", epubURL: epubDir, chapters: [], bookDuration: nil)
 
         let entries = try EPubTOCEntryDAO(db: db.writer).entries(for: "book-1")
         #expect(entries.count == 3)
@@ -186,7 +219,8 @@ struct EPUBTOCImportTests {
     @Test func tocEntryRecordRoundTripsThroughDatabase() throws {
         let db = try DatabaseService(inMemory: ())
         try db.write { db in
-            try db.execute(sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
         }
         let dao = EPubTOCEntryDAO(db: db.writer)
         try dao.insertAll([

@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
-/// App-level advanced preferences that have no per-listen player surface:
-/// continuous auto-alignment and bookmark-inline playback. Both keep their
-/// custom Binding setters so the model side-effects still fire.
+/// App-level advanced preferences that have no per-listen player surface.
+/// Continuous auto-alignment keeps its custom Binding setter so the model
+/// side-effect still fires.
 struct SettingsAdvancedView: View {
     @Environment(SettingsManager.self) private var settings
     @Environment(PlayerModel.self) private var model
+    @State private var contextMemoryStatus: String?
 
     var body: some View {
         @Bindable var settings = settings
@@ -30,13 +31,90 @@ struct SettingsAdvancedView: View {
             }
 
             Section {
-                Toggle("Play Bookmarks Inline", isOn: $settings.playBookmarksInline)
+                Toggle(
+                    "Context Memory",
+                    isOn: Binding(
+                        get: { settings.locationCaptureEnabled },
+                        set: { isEnabled in setLocationCaptureEnabled(isEnabled) }
+                    ))
+
+                Button(role: .destructive, action: deleteContextMemory) {
+                    Label("Delete Context Memory", systemImage: "trash")
+                }
+                .disabled(model.databaseService == nil)
+            } header: {
+                Text("Context Memory")
             } footer: {
                 Text(
-                    "When enabled, voice memos attached to bookmarks are played automatically when the audiobook reaches that timestamp."
+                    contextMemoryStatus
+                        ?? "Off by default. When enabled, Echo stores approximate place names for new bookmarks. Delete removes saved bookmark places and session location history from this device."
+                )
+            }
+
+            Section {
+                Toggle("Verbose Diagnostic Logging", isOn: $settings.debugLoggingEnabled)
+            } header: {
+                Text("Diagnostics")
+            } footer: {
+                Text(
+                    "Turns on Echo-owned verbose diagnostics for troubleshooting. This does not include book content."
                 )
             }
         }
         .navigationTitle("Advanced")
+    }
+
+    private func deleteContextMemory() {
+        guard let writer = model.databaseService?.writer else {
+            contextMemoryStatus = "Open the app database before deleting Context Memory."
+            return
+        }
+
+        do {
+            let summary = try ContextMemoryDAO(db: writer).deleteAll()
+            let visibleBookmarkCount = model.bookmarkStore.clearLocationContext()
+            let locationCapture = model.locationCapture
+            Task { await locationCapture.flushCache() }
+            let totalBookmarks = max(summary.bookmarkCount, visibleBookmarkCount)
+            contextMemoryStatus =
+                "Deleted place data from \(totalBookmarks) bookmark(s) and \(summary.sessionLocationCount) session location(s)."
+        } catch {
+            contextMemoryStatus = "Could not delete Context Memory: \(error.localizedDescription)"
+        }
+    }
+
+    private func setLocationCaptureEnabled(_ isEnabled: Bool) {
+        guard isEnabled else {
+            settings.locationCaptureEnabled = false
+            contextMemoryStatus = "Location capture is off."
+            return
+        }
+
+        #if os(iOS)
+            switch LocationCaptureAuthorizationService.status() {
+            case .authorized:
+                settings.locationCaptureEnabled = true
+                contextMemoryStatus = "New bookmarks can receive approximate place names."
+            case .notDetermined:
+                Task { @MainActor in
+                    let status = await LocationCaptureAuthorizationService.requestAuthorization()
+                    settings.locationCaptureEnabled = status.canCaptureLocation
+                    contextMemoryStatus =
+                        status.canCaptureLocation
+                        ? "New bookmarks can receive approximate place names."
+                        : "Location access is required for Context Memory."
+                }
+            case .denied, .restricted:
+                settings.locationCaptureEnabled = false
+                contextMemoryStatus =
+                    "Location access is denied. Enable location access for Echo in Settings."
+            case .unknown:
+                settings.locationCaptureEnabled = false
+                contextMemoryStatus = "Location access is unavailable."
+            }
+        #else
+            settings.locationCaptureEnabled = false
+            contextMemoryStatus = "Location capture is unavailable on this platform."
+        #endif
     }
 }

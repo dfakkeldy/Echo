@@ -3,13 +3,22 @@ import SwiftUI
 
 struct UnifiedBottomDock: View {
     @Environment(PlayerModel.self) private var model
+    static let bottomEdgePadding: CGFloat = 4
+
     var onCreateBookmark: (BookmarkDraft) -> Void
+    var onMarkPassageResult: (MarkPassageResult) -> Void
     var onShowPlaybackOptions: () -> Void
     /// Player-More menu closures (WS-C), forwarded to BottomToolbarView.
     var onShowChapters: () -> Void
     var onShowBookmarks: () -> Void
-    var onShowSettings: () -> Void
-    // onShowFidget removed — Fidget now lives in the More menu (UnifiedTopHeader).
+    var onStats: () -> Void
+    var onFidget: () -> Void
+    var onSettings: () -> Void
+    var onHelp: () -> Void
+    var onAddDocument: (() -> Void)?
+    var onExport: (() -> Void)?
+    var onVideoExport: (() -> Void)?
+    var onStudyNotesExport: (() -> Void)?
 
     /// Platform-agnostic separator color.
     @MainActor private var separatorColor: Color {
@@ -23,7 +32,8 @@ struct UnifiedBottomDock: View {
     }
 
     private var showsControls: Bool {
-        model.selectedTab == .nowPlaying || (model.folderURL != nil && !model.tracks.isEmpty)
+        model.hasPlaybackContent
+            && (model.selectedTab == .nowPlaying || model.folderURL != nil)
     }
 
     /// The stacked rows (controls/mini-player → divider → utility toolbar),
@@ -37,7 +47,7 @@ struct UnifiedBottomDock: View {
         // takes its natural, uncompressed height.
         VStack(spacing: 0) {
             // Upper layer: Large Controls (Now Playing) or Mini-player (other tabs)
-            if model.selectedTab == .nowPlaying {
+            if model.selectedTab == .nowPlaying && model.hasPlaybackContent {
                 TransportControlsView()
                     .padding(.horizontal, 16)
                     .transition(
@@ -45,7 +55,7 @@ struct UnifiedBottomDock: View {
                             insertion: .scale(scale: 0.95).combined(with: .opacity),
                             removal: .scale(scale: 0.95).combined(with: .opacity)
                         ))
-            } else if model.folderURL != nil && !model.tracks.isEmpty {
+            } else if model.folderURL != nil && model.hasPlaybackContent {
                 PlayerControlBar()
                     .padding(.horizontal, 16)
                     .transition(
@@ -66,10 +76,22 @@ struct UnifiedBottomDock: View {
             // Lower layer: Static 5-Button Utility Bar
             BottomToolbarView(
                 onCreateBookmark: onCreateBookmark,
+                onMarkPassageResult: onMarkPassageResult,
                 onShowChapters: onShowChapters,
                 onShowBookmarks: onShowBookmarks,
-                onShowSettings: onShowSettings,
-                onShowPlaybackOptions: onShowPlaybackOptions
+                onStats: onStats,
+                onFidget: onFidget,
+                onSettings: onSettings,
+                onHelp: onHelp,
+                onAddDocument: onAddDocument,
+                onExport: onExport,
+                onVideoExport: onVideoExport,
+                onStudyNotesExport: onStudyNotesExport,
+                onShowPlaybackOptions: onShowPlaybackOptions,
+                canCreateReaderCapture: model.readerCaptureAnchorBlockID != nil,
+                isReaderVoiceMemoRecording: model.isReaderVoiceMemoRecording,
+                onAddReaderNote: model.readerAddNoteAction,
+                onToggleReaderMemo: model.readerToggleVoiceMemoAction
             )
             .padding(.horizontal, 16)
         }
@@ -86,7 +108,7 @@ struct UnifiedBottomDock: View {
             // are greedy (Spacers, `maxWidth: .infinity`) and overflow a
             // padding-reduced proposal back to full bleed, which pushed the
             // capsule's rounded side edges off-screen. A fixed width can't overflow.
-            .containerRelativeFrame(.horizontal) { width, _ in width - 32 }
+            .containerRelativeFrame(.horizontal) { width, _ in max(0, width - 32) }
             .background(.ultraThinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay(
@@ -96,10 +118,10 @@ struct UnifiedBottomDock: View {
             // Tint the system material backdrop with dynamic artwork theme
             .background(
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(model.artworkAccentColor ?? .accentColor)
+                    .fill(model.resolvedThemeTint ?? .accentColor)
                     .opacity(0.08)
             )
             .shadow(color: Color.black.opacity(0.25), radius: 15, x: 0, y: 5)
-            .padding(.bottom, 12)
+            .padding(.bottom, Self.bottomEdgePadding)
     }
 }

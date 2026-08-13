@@ -32,7 +32,9 @@ enum MacAudioBoostTap {
     /// no audio track or the tap cannot be created.
     static func makeAudioMix(for item: AVPlayerItem, gainBox: MacVolumeBoostGainBox) -> AVAudioMix?
     {
-        guard let track = item.asset.tracks(withMediaType: .audio).first else { return nil }
+        guard let track = item.tracks.compactMap(\.assetTrack).first(where: {
+            $0.mediaType == .audio
+        }) else { return nil }
 
         // Hand a +1 retained reference to the C clientInfo. `tapFinalize` balances
         // it when the tap is deallocated — but only for a tap that was actually

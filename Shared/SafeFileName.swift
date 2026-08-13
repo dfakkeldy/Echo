@@ -7,9 +7,13 @@ import Foundation
 /// and replaces path separators so the result is safe for use in filenames
 /// and directory names across chapter artwork caches, EPUB asset folders,
 /// and any future derived asset paths.
-enum SafeFileName {
+// `nonisolated`: a pure string utility. Under the iOS target's Swift 6 MainActor
+// default isolation it would be inferred `@MainActor`, blocking nonisolated callers
+// (including its unit tests) from the static helpers.
+nonisolated enum SafeFileName {
     static func fromAudiobookID(_ id: String) -> String {
-        let cleaned = id
+        let cleaned =
+            id
             .replacingOccurrences(of: "file://", with: "")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: ":", with: "_")

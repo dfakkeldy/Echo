@@ -67,19 +67,20 @@ struct SoundscapePickerView: View {
 
     @ViewBuilder
     private func presetRow(_ preset: SoundscapePreset) -> some View {
-        HStack {
-            Image(systemName: preset.sfSymbol)
-            Text(preset.name)
-            Spacer()
-            if selectedPreset?.id == preset.id {
-                Image(systemName: "checkmark").foregroundStyle(.tint)
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
+        Button {
             selectedPreset = preset
             engine?.volume = settings.soundscapeVolume
             Task { await engine?.play(preset: preset) }
+        } label: {
+            HStack {
+                Image(systemName: preset.sfSymbol)
+                Text(preset.name)
+                Spacer()
+                if selectedPreset?.id == preset.id {
+                    Image(systemName: "checkmark").foregroundStyle(.tint)
+                }
+            }
         }
+        .buttonStyle(.plain)
     }
 }

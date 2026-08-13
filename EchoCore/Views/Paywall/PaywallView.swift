@@ -55,8 +55,8 @@ struct PaywallView: View {
                             )!)
                         Link(
                             "Privacy",
-                            destination: URL(
-                                string: "https://kinnokilabs.com/apps/echo/privacy")!)
+                            destination: FeedbackSupport.privacyPolicyURL
+                        )
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -83,11 +83,12 @@ struct PaywallView: View {
 
     private var benefits: some View {
         VStack(alignment: .leading, spacing: 8) {
-            benefitLabel("♾️", "Unlimited flashcards with FSRS spaced repetition")
-            benefitLabel("🗣️", "Unlimited on-device AI narration (coming in 1.0)")
-            benefitLabel("📊", "Insights — listening & study streaks")
-            benefitLabel("📤", "Export any book as a chaptered .m4b audiobook")
-            benefitLabel("🔒", "No account, no servers, no tracking")
+            benefitLabel("♾️", "Unlimited flashcards with FSRS scheduling")
+            benefitLabel("⌚", "Apple Watch review sessions")
+            benefitLabel("📊", "Insights for listening and study streaks")
+            benefitLabel("📤", "Study export: Markdown, Anki decks, and chaptered .m4b")
+            benefitLabel("⬇️", "Audiobookshelf offline downloads and background sync")
+            benefitLabel("🔒", "No Echo account or servers, no tracking")
         }
     }
 

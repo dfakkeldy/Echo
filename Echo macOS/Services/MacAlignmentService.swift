@@ -43,8 +43,9 @@ final class MacAlignmentService {
         defer { if let cleanupDir { try? FileManager.default.removeItem(at: cleanupDir) } }
 
         let parsed = try parseEPUBBlocks(audiobookID: audiobookID, epubURL: epubDir)
-        let epubTokens: [TokenDTW.EPubToken] = parsed.blocks.compactMap { block in
-            guard let text = block.text, !text.isEmpty else { return nil }
+        let alignmentBlocks = CommercialAudioAlignmentSource.blocks(from: parsed.blocks)
+        let epubTokens: [TokenDTW.EPubToken] = alignmentBlocks.compactMap { block in
+            guard let text = block.text else { return nil }
             return TokenDTW.EPubToken(text: text, blockID: block.id)
         }
         guard !epubTokens.isEmpty else { throw AlignmentError.noTextBlocks }
@@ -70,7 +71,7 @@ final class MacAlignmentService {
                     TokenDTW.AudioToken(
                         text: token.word, time: chunkStartTime + token.start))
             }
-            try await Task.sleep(nanoseconds: 10_000_000)
+            try await Task.sleep(for: .milliseconds(10))
         }
 
         guard !audioTokens.isEmpty else { throw AlignmentError.noAudioTokens }
@@ -79,8 +80,10 @@ final class MacAlignmentService {
             "Aligning \(epubTokens.count) blocks with \(audioTokens.count) tokens…"
         alignmentProgress = 0.75
 
-        let candidates = TokenDTW.alignWithBisection(epub: epubTokens, audio: audioTokens)
-        let selected = AnchorSelector.select(candidates: candidates)
+        let selected = await Task.detached(priority: .utility) {
+            AnchorSelector.select(
+                candidates: TokenDTW.alignWithBisection(epub: epubTokens, audio: audioTokens))
+        }.value
         guard !selected.isEmpty else { throw AlignmentError.noAnchorsProduced }
 
         alignmentStatus = "Saving \(selected.count) anchors…"
@@ -117,7 +120,9 @@ final class MacAlignmentService {
         // Do it once here.
         alignmentStatus = "Recalculating timeline…"
         alignmentProgress = 0.95
-        try alignmentService.insertAnchors(records)
+        try await Task.detached(priority: .utility) {
+            try alignmentService.insertAnchors(records)
+        }.value
 
         // Emit the portable `alignment.json` sidecar next to the EPUB so this
         // Mac-produced alignment travels to the user's device (via their synced
@@ -125,7 +130,11 @@ final class MacAlignmentService {
         // content-stable `s<i>-b<j>` suffix and re-prefixed on the importing
         // device. Best-effort: a sidecar write must not fail the alignment.
         do {
-            let sidecarURL = try AlignmentSidecar.write(records, forEPUB: epubURL)
+            let sidecarURL = try AlignmentSidecar.write(
+                records,
+                sourceBlocks: parsed.blocks,
+                forEPUB: epubURL
+            )
             logger.info("Wrote alignment sidecar: \(sidecarURL.lastPathComponent)")
         } catch {
             logger.error("Failed to write alignment sidecar: \(error.localizedDescription)")

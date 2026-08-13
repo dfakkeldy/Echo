@@ -6,6 +6,17 @@ import os.log
 enum EPUBAutoImportScanner {
     private static let logger = Logger(category: "EPUBAutoImport")
 
+    enum ImportOutcome {
+        case imported
+        case alreadyImported
+        case failed(URL, underlying: Error)
+
+        var didImportBlocks: Bool {
+            if case .imported = self { return true }
+            return false
+        }
+    }
+
     /// Scans the given audiobook folder for `.epub` files. When one is found
     /// and no prior EPUB blocks exist in the database, the archive is extracted
     /// and imported via `EPUBImportService`.
@@ -32,6 +43,7 @@ enum EPUBAutoImportScanner {
 
         // 1. Scan for .epub files in the folder.
         let epubFiles: [URL]
+        let contents: [URL]
         var isDir: ObjCBool = false
         let folderIsDirectory =
             FileManager.default.fileExists(atPath: folderURL.path, isDirectory: &isDir)
@@ -51,7 +63,7 @@ enum EPUBAutoImportScanner {
         }
 
         do {
-            let contents = try FileManager.default.contentsOfDirectory(
+            contents = try FileManager.default.contentsOfDirectory(
                 at: targetURL,
                 includingPropertiesForKeys: [.isRegularFileKey],
                 options: .skipsHiddenFiles
@@ -64,8 +76,15 @@ enum EPUBAutoImportScanner {
             return false
         }
 
-        guard let epubURL = epubFiles.first else {
-            logger.debug("No .epub file found in folder: \(sanitizedPath(folderURL.path))")
+        guard
+            let epubURL = CompanionDocumentSelector.select(
+                documents: epubFiles,
+                for: folderURL,
+                folderIsDirectory: folderIsDirectory,
+                siblingFiles: contents)
+        else {
+            logger.debug(
+                "No unambiguous .epub companion found for: \(sanitizedPath(folderURL.path))")
             return false
         }
 
@@ -90,8 +109,38 @@ enum EPUBAutoImportScanner {
         databaseService: DatabaseService,
         chapters: [Chapter],
         duration: TimeInterval?,
-        force: Bool = false
+        force: Bool = false,
+        finalizerFileURL: URL? = nil,
+        networkPolicy: DocumentImportNetworkPolicy = .standard,
+        networkRequestObserver:
+            (@Sendable (DocumentImportNetworkRequest) -> Void)? = nil
     ) async -> Bool {
+        let outcome = await importEPUBFileOutcome(
+            epubURL: epubURL,
+            audiobookID: audiobookID,
+            databaseService: databaseService,
+            chapters: chapters,
+            duration: duration,
+            force: force,
+            finalizerFileURL: finalizerFileURL,
+            networkPolicy: networkPolicy,
+            networkRequestObserver: networkRequestObserver
+        )
+        return outcome.didImportBlocks
+    }
+
+    static func importEPUBFileOutcome(
+        epubURL: URL,
+        audiobookID: String,
+        databaseService: DatabaseService,
+        chapters: [Chapter],
+        duration: TimeInterval?,
+        force: Bool = false,
+        finalizerFileURL: URL? = nil,
+        networkPolicy: DocumentImportNetworkPolicy = .standard,
+        networkRequestObserver:
+            (@Sendable (DocumentImportNetworkRequest) -> Void)? = nil
+    ) async -> ImportOutcome {
         // Security-scoped access is managed by SecurityScopeManager in loadFolder.
         // Don't start/stop here — duplicate cycles break file-provider access.
 
@@ -104,7 +153,15 @@ enum EPUBAutoImportScanner {
                 logger.debug(
                     "EPUB blocks already exist for \(sanitizedPath(audiobookID)); skipping auto-import."
                 )
-                return false
+                _ = await DocumentImportFinalizer.finalizeExistingImportIfAlignmentSidecarPresent(
+                    audiobookID: audiobookID,
+                    fileURL: finalizerFileURL ?? epubURL,
+                    duration: duration,
+                    databaseService: databaseService,
+                    networkPolicy: networkPolicy,
+                    networkRequestObserver: networkRequestObserver
+                )
+                return .alreadyImported
             }
         }
 
@@ -118,7 +175,7 @@ enum EPUBAutoImportScanner {
             cacheDir = try prepareCacheDirectory(safeID: safeID)
         } catch {
             logger.error("Failed to prepare EPUB cache directory: \(error.localizedDescription)")
-            return false
+            return .failed(epubURL, underlying: error)
         }
 
         let extractedDir: URL
@@ -128,7 +185,7 @@ enum EPUBAutoImportScanner {
             logger.error(
                 "Failed to extract EPUB \(sanitizedPath(epubURL.lastPathComponent)): \(error.localizedDescription)"
             )
-            return false
+            return .failed(epubURL, underlying: error)
         }
 
         // Import extracted EPUB blocks.
@@ -145,12 +202,18 @@ enum EPUBAutoImportScanner {
                 "Auto-imported \(blocks.count) EPUB blocks for \(sanitizedPath(epubURL.lastPathComponent))"
             )
 
-            return await DocumentImportFinalizer.finalize(
-                audiobookID: audiobookID, blocks: blocks, fileURL: epubURL,
-                duration: duration, databaseService: databaseService)
+            let finalized = await DocumentImportFinalizer.finalize(
+                audiobookID: audiobookID, blocks: blocks, fileURL: finalizerFileURL ?? epubURL,
+                duration: duration, databaseService: databaseService,
+                networkPolicy: networkPolicy,
+                networkRequestObserver: networkRequestObserver)
+            if finalized {
+                return .imported
+            }
+            return .failed(epubURL, underlying: ScannerError.finalizationFailed(url: epubURL))
         } catch {
             logger.error("EPUB auto-import failed: \(error.localizedDescription)")
-            return false
+            return .failed(epubURL, underlying: error)
         }
     }
 
@@ -196,10 +259,6 @@ enum EPUBAutoImportScanner {
             "\(safeID)_\(UUID().uuidString)_content", isDirectory: true)
 
         try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
-
-        // Apply data protection so extracted book text is encrypted at rest.
-        try (destDir as NSURL).setResourceValue(
-            URLFileProtection.complete, forKey: .fileProtectionKey)
 
         // Copy the EPUB into the cache directory so Archive opens a local file
         // rather than a file-provider-managed one. This avoids permission issues
@@ -280,8 +339,34 @@ enum EPUBAutoImportScanner {
             _ = try archive.extract(entry, to: destination)
         }
 
+        // Apply data protection after extraction. Setting it on the directory
+        // first can make simulator writes fail with EPERM, while device files
+        // still need explicit protection once ZIPFoundation has created them.
+        #if os(iOS) && !targetEnvironment(simulator)
+            try applyDataProtectionRecursively(to: destDir)
+        #endif
+
         logger.debug("Extracted EPUB to \(sanitizedPath(destDir.path))")
         return destDir
+    }
+
+    private static func applyDataProtectionRecursively(to root: URL) throws {
+        guard
+            let enumerator = FileManager.default.enumerator(
+                at: root,
+                includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey]
+            )
+        else { return }
+
+        let descendants = enumerator.compactMap { $0 as? URL }
+            .sorted { $0.path.count > $1.path.count }
+
+        for url in descendants {
+            try (url as NSURL).setResourceValue(
+                URLFileProtection.complete, forKey: .fileProtectionKey)
+        }
+        try (root as NSURL).setResourceValue(
+            URLFileProtection.complete, forKey: .fileProtectionKey)
     }
 
     /// Resolves a ZIP entry path to its on-disk destination, guaranteeing the
@@ -321,6 +406,33 @@ enum EPUBAutoImportScanner {
     }
 }
 
+nonisolated enum CompanionDocumentSelector {
+    static func select(
+        documents: [URL],
+        for bookURL: URL,
+        folderIsDirectory: Bool,
+        siblingFiles: [URL]
+    ) -> URL? {
+        let orderedDocuments = documents.sorted {
+            $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+        }
+        if folderIsDirectory { return orderedDocuments.first }
+
+        let bookStem = bookURL.deletingPathExtension().lastPathComponent
+        if let exactMatch = orderedDocuments.first(where: {
+            $0.deletingPathExtension().lastPathComponent.compare(
+                bookStem, options: [.caseInsensitive, .diacriticInsensitive]
+            ) == .orderedSame
+        }) {
+            return exactMatch
+        }
+
+        let audioSiblings = siblingFiles.filter(PlaylistManager.isAudioFile)
+        guard audioSiblings.count == 1, orderedDocuments.count == 1 else { return nil }
+        return orderedDocuments[0]
+    }
+}
+
 // MARK: - Errors
 
 private enum ScannerError: LocalizedError {
@@ -328,6 +440,7 @@ private enum ScannerError: LocalizedError {
     case invalidArchive(url: URL)
     case invalidEPUB(path: String)
     case unsafeEntryPath(String)
+    case finalizationFailed(url: URL)
 
     var errorDescription: String? {
         switch self {
@@ -339,6 +452,8 @@ private enum ScannerError: LocalizedError {
             return "File is not a valid EPUB: \(path)"
         case .unsafeEntryPath(let path):
             return "EPUB contains an unsafe entry path: \(path)"
+        case .finalizationFailed(let url):
+            return "Could not save EPUB import: \(url.lastPathComponent)"
         }
     }
 }

@@ -30,7 +30,7 @@ Whisper/enhanced transcript remains optional input, not the foundation.
 
 ## Architecture And Data Model
 
-### Add `Schema_V5`
+### Add Reader Schema Tables
 
 Register a new migration in `DatabaseService.runMigrations()` after V4.
 
@@ -217,7 +217,7 @@ In `Orbit_AudioBooksApp.init()`:
 ```text
 create DatabaseService
 assign to model
-call MigrationService.migrateIfNeeded(database:)
+call the legacy SQL import service
 ```
 
 ### 3. Fix timeline load errors
@@ -392,7 +392,7 @@ For `TimelineFeedViewModel`:
 Cover the known issues:
 
 - `loadFolder()` persists SQL after tracks load.
-- `MigrationService.migrateIfNeeded` is called on startup.
+- The legacy SQL import service is called on startup.
 - Enhanced transcript sidecar is discoverable.
 - Follow playback callback scrolls collection view.
 - Chapter artwork filename sanitizes `file://` IDs.
@@ -418,7 +418,7 @@ be run in that environment.
 ## Implementation Order
 
 1. Repair current timeline plumbing and regressions.
-2. Add `Schema_V5`, records, and DAOs.
+2. Add reader schema records and DAOs.
 3. Add EPUB import and offline asset copying.
 4. Add timeline materialization from EPUB blocks.
 5. Add manual anchors and interpolation.

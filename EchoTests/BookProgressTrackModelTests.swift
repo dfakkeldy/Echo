@@ -32,4 +32,9 @@ struct BookProgressTrackModelTests {
         let caption = BookProgressTrackModel.caption(bookFraction: 0.5, chapterTitle: nil, chapterCount: 1)
         #expect(caption == "50% of book")
     }
+
+    @Test func captionUsesPlaylistDetailWhenNoChapterTitleExists() {
+        let caption = BookProgressTrackModel.caption(bookFraction: 0.42, detail: "Track 2 of 5")
+        #expect(caption == "42% of book · Track 2 of 5")
+    }
 }

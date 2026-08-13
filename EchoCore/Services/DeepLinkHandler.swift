@@ -73,7 +73,7 @@ struct DeepLinkHandler {
             return .navigate(.read)
 
         case .study:
-            return .navigate(.timeline)
+            return .navigate(.read)
 
         case .navigateToSettings:
             return .navigateToSettings

@@ -26,4 +26,37 @@ import Testing
         let url = NarrationResources.url(forResource: "_kokoro_vocab", withExtension: "json")
         #expect(url != nil)
     }
+
+    @Test func echoCLICopiesCatalogVoiceResources() throws {
+        let root = try Self.root()
+        let project = try String(
+            contentsOf: root.appending(path: "Echo.xcodeproj/project.pbxproj"),
+            encoding: .utf8)
+
+        #expect(project.contains("Copy all Kokoro voice resources"))
+        #expect(project.contains("EchoCore/Resources"))
+        #expect(project.contains("EchoNarrationResources"))
+
+        for voice in VoiceCatalog.all {
+            for ext in ["f32", "rows"] {
+                let url = root.appending(path: "EchoCore/Resources/\(voice.id.rawValue).\(ext)")
+                #expect(
+                    FileManager.default.fileExists(atPath: url.path),
+                    "\(voice.id.rawValue).\(ext) must exist for echo-cli resource packaging.")
+            }
+        }
+    }
+
+    private static func root() throws -> URL {
+        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+
+        while directory.path != "/" {
+            let candidate = directory.deletingLastPathComponent()
+            if FileManager.default.fileExists(atPath: candidate.appending(path: "Echo.xcodeproj").path) {
+                return candidate
+            }
+            directory.deleteLastPathComponent()
+        }
+        throw CocoaError(.fileNoSuchFile)
+    }
 }

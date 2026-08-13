@@ -45,7 +45,7 @@ enum HelpContent {
             • Skip Forward 30s — Jump ahead 30 seconds.
             • Next — Jump to the next chapter or track.
 
-            Each button can be configured with a Tap Action (primary) and a Long Press Action (secondary). Customize both in Settings > Phone Controls. Long-press a button for 0.5 seconds to trigger its secondary action with haptic feedback.
+            Each button can be configured with a Tap Action (primary) and a Long Press Action (secondary). Customize both in Settings > Controls > Phone Player Settings. Long-press a button for 0.5 seconds to trigger its secondary action with haptic feedback.
 
             Playback also works from the Lock Screen and Control Center. Use the system Now Playing controls to pause, play, or skip without opening the app.
             """
@@ -58,7 +58,7 @@ enum HelpContent {
 
             Your chosen speed is saved per book. When you come back to a book, it resumes at the speed you last used for it.
 
-            The default speed for new books is 1.25×, but you can change this in Settings > Playback > Default Speed. This setting is overridden if you manually select a different speed for a specific book.
+            The default speed for new books is 1.25×, but you can change this in Settings > Now Playing > Playback Defaults. This setting is overridden if you manually select a different speed for a specific book.
             """
         ),
         HelpSection(
@@ -108,7 +108,7 @@ enum HelpContent {
             body: """
             Echo includes a built-in spaced repetition system (SRS) — Anki-style flashcards scheduled with the FSRS algorithm, so each card comes back right before you'd forget it.
 
-            Creating cards: Long-press a paragraph in the Reader and choose "Create Flashcard" (the text seeds the card), promote any bookmark to a card, or create one from scratch in the Timeline tab. Every card has a front (write it as a question) and a back (the answer), and can carry an audio snippet from the book.
+            Creating cards: Long-press a paragraph in the Reader and choose "Create Flashcard" (the text seeds the card), promote any bookmark to a card, or create one from scratch from the Decks screen. Every card has a front (write it as a question) and a back (the answer), and can carry an audio snippet from the book.
 
             Trigger timing: Each card can surface at the beginning or end of its audio moment during playback — a quick quiz in context — or be set to manual-only so it never interrupts listening.
 
@@ -116,7 +116,7 @@ enum HelpContent {
 
             Review on Apple Watch: Full hands-free review sessions run on the watch — hear the card, think your answer, tap a grade.
 
-            Stats & reminders: The Timeline tab shows due count, reviewed-today, and total cards. Enable the daily review notification in Settings to get a local reminder when cards are due.
+            Stats & reminders: The Stats screen shows due count, reviewed-today, and total cards. Enable the daily review notification in Settings to get a local reminder when cards are due.
 
             Deck import: Anki-style JSON decks can be imported with validation, so existing decks come along.
             """
@@ -148,7 +148,7 @@ enum HelpContent {
             • Medium pauses (minutes) — A larger rewind when you've been away longer.
             • Long pauses (hours) — The largest rewind, or optionally jump to the start of the current chapter.
 
-            Configure Smart Rewind in Settings > Smart Rewind. The feature is off by default. All automatic rewind amounts and the manual skip backward button respect chapter boundaries — you will never rewind past the start of the current chapter.
+            Configure Smart Rewind in Settings > Now Playing > Playback Defaults > Smart Rewind. The feature is off by default. All automatic rewind amounts and the manual skip backward button respect chapter boundaries — you will never rewind past the start of the current chapter.
             """
         ),
         HelpSection(
@@ -177,7 +177,7 @@ enum HelpContent {
 
             **Auto-scroll:** The reader can follow playback automatically. When auto-scroll is on, the current paragraph highlights with a blue bar and the view scrolls to keep it centered. Scroll manually to pause auto-follow; tap the scroll-to-active button (↓) in the header to re-enable it.
 
-            **Reader toolbar:** When the Reader tab is active, the bottom toolbar switches to reader-optimized controls: skip back, play/pause, skip forward (with your configured seek durations), timeline, and bookmark. This keeps essential playback controls at your fingertips while reading.
+            **Reader toolbar:** When the Reader tab is active, the bottom dock keeps playback and study controls nearby: mini-player controls, inline speed presets, Mark Passage, the Read/Now Playing toggle, and bookmark, note, or memo capture.
 
             **Card colors:** Long-press any card and choose "Change Color" to highlight it. Use this to color-code important passages, mark sections to revisit, or organize your study notes.
 
@@ -218,7 +218,7 @@ enum HelpContent {
             body: """
             The Apple Watch app works as a remote control for the iPhone player. Key features:
 
-            • Up to five customizable Player Pages — Each page holds up to 5 action slots that you can configure from the iPhone Settings > Watch App screen. Swipe between pages to configure them. Empty pages are hidden on the watch.
+            • Up to five customizable Player Pages — Each page holds up to 5 action slots that you can configure from the iPhone Settings > Controls > Watch App Settings screen. Swipe between pages to configure them. Empty pages are hidden on the watch.
             • Digital Crown — Configurable to control volume or scrub through the current track.
             • Quick Bookmarks — Hold the bookmark button to auto-create a bookmark after a configurable countdown (1–15 seconds). Great for hands-free bookmarking.
             • Progress Display — Choose between a circular progress ring and a linear progress bar. Each can show either chapter progress or total book progress.
@@ -229,16 +229,7 @@ enum HelpContent {
             • Fullscreen Artwork — Tap the album art on the player screen to view the cover fullscreen. An optional date overlay can show the day and date on the player.
             • Haptic feedback on button taps can be toggled in Settings.
 
-            Configure all watch options from the iPhone app under Settings > Watch App.
-            """
-        ),
-        HelpSection(
-            id: "carplay",
-            title: "CarPlay",
-            body: """
-            Echo appears in CarPlay with a browse list and transport controls — play, pause, and skip from the car's screen. Playback also responds to your car's steering-wheel and head-unit controls via the system Now Playing integration.
-
-            CarPlay support is intentionally minimal for now; richer browsing is planned. No CarPlay in your car? Echo is designed so the Apple Watch remote covers the same job — the phone can stay in your pocket or on the aux cable.
+            Configure all watch options from the iPhone app under Settings > Controls > Watch App Settings.
             """
         ),
         HelpSection(

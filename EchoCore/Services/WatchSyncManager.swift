@@ -3,6 +3,105 @@ import Foundation
 import WatchConnectivity
 import os.log
 
+nonisolated private struct WatchConnectivityDictionary: @unchecked Sendable {
+    let value: [String: Any]
+}
+
+nonisolated private struct WatchConnectivityReplyHandler: @unchecked Sendable {
+    let value: ([String: Any]) -> Void
+
+    func callAsFunction(_ response: [String: Any]) {
+        value(response)
+    }
+}
+
+nonisolated private struct WatchConnectivityFile: @unchecked Sendable {
+    let value: WCSessionFile
+}
+
+struct WatchDurableContextPolicy {
+    var minimumProgressInterval: TimeInterval
+    private var lastDurableContextRefresh: Date?
+
+    init(minimumProgressInterval: TimeInterval = 30) {
+        self.minimumProgressInterval = minimumProgressInterval
+    }
+
+    mutating func shouldRefreshDurableContext(
+        reason: WatchSyncManager.SyncReason,
+        context: [String: Any],
+        now: Date = .now
+    ) -> Bool {
+        switch reason {
+        case .significant:
+            lastDurableContextRefresh = now
+            return true
+        case .progress:
+            guard context["isPlaying"] as? Bool == true else { return false }
+            guard let lastDurableContextRefresh else {
+                self.lastDurableContextRefresh = now
+                return true
+            }
+            guard now.timeIntervalSince(lastDurableContextRefresh) >= minimumProgressInterval else {
+                return false
+            }
+            self.lastDurableContextRefresh = now
+            return true
+        }
+    }
+}
+
+/// Deduplicates the large thumbnail transfer independently from complete state.
+/// Comparing the stable artwork sequence, data, and logical key lets regenerated
+/// base art replace an older image without requiring a track change. Explicit
+/// absence resets the remembered transfer so the same image can be sent again.
+struct WatchThumbnailTransferPolicy {
+    private var lastTransfer: (artworkKey: String, data: Data, artworkSequence: Double)?
+
+    mutating func payload(
+        artworkKey: String?, data: Data?, artworkSequence: Double?
+    ) -> [String: Any]? {
+        guard let artworkKey, let data, let artworkSequence,
+            artworkSequence.isFinite, artworkSequence > 0
+        else {
+            lastTransfer = nil
+            return nil
+        }
+
+        if let lastTransfer,
+            lastTransfer.artworkKey == artworkKey,
+            lastTransfer.data == data,
+            lastTransfer.artworkSequence == artworkSequence
+        {
+            return nil
+        }
+
+        lastTransfer = (artworkKey, data, artworkSequence)
+        return [
+            "artworkSeq": artworkSequence,
+            "artworkKey": artworkKey,
+            "thumbnailData": data,
+        ]
+    }
+
+    /// Answers a watch that reported which artwork transfer it last applied
+    /// (`0` = none). When the watch is behind the current artwork, the dedup
+    /// memory is cleared so the same image can be sent again — a lost or purged
+    /// `transferUserInfo` would otherwise never be retried within a phone-app
+    /// session. Self-limiting: a watch that holds the current artwork reports
+    /// its sequence and no payload is produced.
+    mutating func resendPayload(
+        artworkKey: String?, data: Data?, artworkSequence: Double?,
+        watchHeldArtworkSequence: Double
+    ) -> [String: Any]? {
+        guard let artworkSequence, artworkSequence.isFinite, artworkSequence > 0,
+            watchHeldArtworkSequence < artworkSequence
+        else { return nil }
+        lastTransfer = nil
+        return payload(artworkKey: artworkKey, data: data, artworkSequence: artworkSequence)
+    }
+}
+
 /// Manages bidirectional WatchConnectivity communication with the Apple Watch companion.
 ///
 /// Uses closure-based callbacks rather than a delegate protocol so PlayerModel can wire
@@ -39,7 +138,8 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
 
     // MARK: - Private State
 
-    private var lastSyncedArtworkKey: String?
+    private var thumbnailTransferPolicy = WatchThumbnailTransferPolicy()
+    private var durableContextPolicy = WatchDurableContextPolicy()
 
     // MARK: - Init
 
@@ -70,8 +170,9 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
     /// timer, settings) are written to `updateApplicationContext` — the durable,
     /// latest-wins channel the system guarantees to deliver on the watch's next
     /// activation (and immediately if it is already active). `.progress` ticks
-    /// are ephemeral: the watch interpolates position with its own timer, so
-    /// they are sent live-only and never churn the application context.
+    /// remain live-first, while active playback periodically refreshes the
+    /// application context so a locked or disconnected watch wakes with a recent
+    /// "now" instead of the last significant transport change.
     enum SyncReason {
         case significant
         case progress
@@ -91,7 +192,7 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
         // watch app state. The system coalesces to the most recent context.
         // Deliberately NOT transferUserInfo — that FIFO queue replays stale
         // snapshots (the same hazard the watch warns about for commands).
-        if reason == .significant {
+        if durableContextPolicy.shouldRefreshDurableContext(reason: reason, context: context) {
             #if DEBUG
                 assertExpectedKeys(in: context)
             #endif
@@ -106,30 +207,49 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
 
         // Live channel: low-latency push while the watch app is reachable. If it
         // is dropped, the application context above still carries the change.
+        // WCSession invokes these handlers on a background queue; @Sendable keeps
+        // them from inheriting WatchSyncManager's MainActor isolation.
         if session.isReachable {
-            session.sendMessage(context, replyHandler: { _ in }) { error in
-                os_log(
-                    .error, "Live watch sync dropped (context still carries it): %{private}@",
-                    error.localizedDescription)
-            }
+            session.sendMessage(
+                context,
+                replyHandler: { @Sendable _ in },
+                errorHandler: { @Sendable error in
+                    os_log(
+                        .error, "Live watch sync dropped (context still carries it): %{private}@",
+                        error.localizedDescription)
+                })
         }
 
-        sendThumbnailIfNeeded()
+        let artworkSequence = (context["artworkSeq"] as? NSNumber)?.doubleValue
+        sendThumbnailIfNeeded(artworkSequence: artworkSequence)
     }
 
-    private func sendThumbnailIfNeeded() {
+    /// Re-offers the current thumbnail when the watch reports it holds an older
+    /// artwork transfer (or none, after a clear or fresh install). Sent via
+    /// `transferUserInfo` like the normal path, so it queues if the watch
+    /// backgrounds before it lands.
+    func resendThumbnailIfWatchBehind(
+        watchHeldArtworkSequence: Double, currentArtworkSequence: Double?
+    ) {
         let session = WCSession.default
         guard session.activationState == .activated,
             let (artworkKey, data) = thumbnailProvider?(),
-            let artworkKey, let data,
-            artworkKey != lastSyncedArtworkKey
+            let payload = thumbnailTransferPolicy.resendPayload(
+                artworkKey: artworkKey, data: data,
+                artworkSequence: currentArtworkSequence,
+                watchHeldArtworkSequence: watchHeldArtworkSequence)
+        else { return }
+        session.transferUserInfo(payload)
+    }
+
+    private func sendThumbnailIfNeeded(artworkSequence: Double?) {
+        let session = WCSession.default
+        guard session.activationState == .activated,
+            let (artworkKey, data) = thumbnailProvider?(),
+            let payload = thumbnailTransferPolicy.payload(
+                artworkKey: artworkKey, data: data, artworkSequence: artworkSequence)
         else { return }
 
-        lastSyncedArtworkKey = artworkKey
-        let payload: [String: Any] = [
-            "artworkKey": artworkKey,
-            "thumbnailData": data,
-        ]
         // Since thumbnail is large, transferUserInfo is still appropriate here
         // as updateApplicationContext overwrites and we don't want to lose the
         // main state payload. But we can merge it into a single context if we want.
@@ -156,6 +276,17 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
         }
     }
 
+    nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
+        // The watch app just came to the foreground (or the link was
+        // re-established). Push fresh state so the watch converges even when
+        // its own wake-time pull failed — the first seconds after watch-wake
+        // are exactly when its sendMessage errors with "not reachable".
+        guard session.isReachable else { return }
+        Task { @MainActor [weak self] in
+            self?.syncToWatch()
+        }
+    }
+
     nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
 
     nonisolated func sessionDidDeactivate(_ session: WCSession) {
@@ -163,8 +294,9 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
     }
 
     nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
-        Task { @MainActor [weak self] in
-            self?.onMessage?(message, nil)
+        let payload = WatchConnectivityDictionary(value: message)
+        Task { @MainActor [weak self, payload] in
+            self?.onMessage?(payload.value, nil)
         }
     }
 
@@ -172,29 +304,33 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
         _ session: WCSession, didReceiveMessage message: [String: Any],
         replyHandler: @escaping ([String: Any]) -> Void
     ) {
-        Task { @MainActor [weak self] in
-            self?.onMessage?(message, replyHandler)
+        let payload = WatchConnectivityDictionary(value: message)
+        let reply = WatchConnectivityReplyHandler(value: replyHandler)
+        Task { @MainActor [weak self, payload, reply] in
+            self?.onMessage?(payload.value, reply.value)
         }
     }
 
-    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:])
-    {
-        Task { @MainActor [weak self] in
-            self?.onQueuedMessage?(userInfo)
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
+        let payload = WatchConnectivityDictionary(value: userInfo)
+        Task { @MainActor [weak self, payload] in
+            self?.onQueuedMessage?(payload.value)
         }
     }
 
     nonisolated func session(_ session: WCSession, didReceive file: WCSessionFile) {
-        Task { @MainActor [weak self] in
-            self?.onReceiveFile?(file)
+        let payload = WatchConnectivityFile(value: file)
+        Task { @MainActor [weak self, payload] in
+            self?.onReceiveFile?(payload.value)
         }
     }
 
     nonisolated func session(
         _ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]
     ) {
-        Task { @MainActor [weak self] in
-            self?.onReceiveApplicationContext?(applicationContext)
+        let payload = WatchConnectivityDictionary(value: applicationContext)
+        Task { @MainActor [weak self, payload] in
+            self?.onReceiveApplicationContext?(payload.value)
         }
     }
 
@@ -203,14 +339,17 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
         /// the watch. If a key is missing, the assertion fires so developers catch
         /// context drift at the source instead of debugging stale watch UIs.
         private let expectedContextKeys: Set<String> = [
-            "isPlaying", "progressFraction", "currentTime", "bookmarkStorageKey",
+            "isPlaying", "stateSeq", "artworkSeq", "progressFraction", "currentTime",
+            "bookmarkStorageKey",
             "folderKey", "title", "crownAction", "isHapticFeedbackEnabled",
             "watchQuickBookmarkTimeoutSeconds", "loopMode", "playbackSpeed",
             "seekBackwardDuration", "seekForwardDuration",
             "watchPage1", "watchPage2", "watchPage3", "watchPage4", "watchPage5",
             "linearBarMode", "linearBarHidden", "circularRingMode",
             "circularRingHidden", "watchArtworkLayout", "watchBackgroundStyle",
-            "watchTitleScrollEnabled",
+            "watchTitleScrollEnabled", "artworkAccentColorHex",
+            "coverRampTopHex", "coverRampBottomHex",
+            "bookBoundaryFractions", "outputGainDB", "crownVolumeSensitivity",
         ]
 
         private func assertExpectedKeys(in context: [String: Any]) {

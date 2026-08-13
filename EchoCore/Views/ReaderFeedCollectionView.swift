@@ -2,6 +2,20 @@
 import SwiftUI
 import UIKit
 
+private struct ReaderSettingsSnapshot: Equatable {
+    var fontSize: Double
+    var lineSpacing: Double
+    var cardTintHex: String
+    var appFont: String
+
+    init(_ settings: ReaderSettings) {
+        fontSize = settings.fontSize
+        lineSpacing = settings.lineSpacing
+        cardTintHex = settings.cardTintHex
+        appFont = settings.appFont
+    }
+}
+
 /// UIViewRepresentable wrapping a UICollectionView that renders the EPUB reader feed.
 struct ReaderFeedCollectionView: UIViewRepresentable {
     var sections: [ReaderCardSection]
@@ -12,7 +26,12 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
     /// view model's `private(set)` for nothing.
     var activeWord: (blockID: String, index: Int)? = nil
     @Binding var isHeaderVisible: Bool
-    @Binding var autoScrollEnabled: Bool
+    @Binding var followState: ReaderFollowState
+    var viewportAnchor: ReaderViewportAnchor?
+    var viewportPublicationContext: ReaderViewportPublicationContext
+    var onViewportAnchorCaptured: ((ReaderViewportPublication) -> Void)?
+    var reduceMotion = false
+    var onReturnTargetResolved: ((Bool) -> Void)?
     @Binding var topPartTitle: String?
     @Binding var topChapterTitle: String?
     @Binding var topSectionTitle: String?
@@ -20,24 +39,64 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
     let settings: ReaderSettings
     var alignmentStatusByBlockID: [String: String] = [:]
     var audioStartTimeByBlockID: [String: TimeInterval] = [:]
+    var chapterHasAudio: [Int: Bool] = [:]
+    var chapterThemeColorByKey: [Int: String] = [:]
+    var openChapterKey: Int? = nil
+    var onToggleChapter: ((Int) -> Void)?
     var searchQuery: String? = nil
     var pulseBlockID: String? = nil
     var forceScrollBlockID: String? = nil
     var forceScrollTrigger: Int = 0
+    var forceScrollIntent: ReaderScrollIntent? = nil
     var onTapBlock: ((String) -> Void)?
-    var onContextMenu: ((EPubBlockRecord) -> UIContextMenuConfiguration?)?
+    /// Called when the user taps a block cell, carrying the tapped word index when a
+    /// word was hit, or `nil` for a tap that didn't land on identifiable text. The
+    /// receiver should seek to the word when an index is supplied, or fall back to
+    /// block-start otherwise. This callback replaces `onTapBlock` for `.block` items;
+    /// `onTapBlock` is kept for non-block items' continuity.
+    var onTapWord: ((String, Int?) -> Void)?
+    var onContextMenu: ((EPubBlockRecord, ReaderWordHit?) -> UIContextMenuConfiguration?)?
+    var onAccessibilityActions: ((EPubBlockRecord) -> [UIAccessibilityCustomAction])?
+    var onChapterHeaderContextMenu: ((Int) -> UIContextMenuConfiguration?)?
+    var offState: ((Int) -> ChapterOffState)?
+    var onPlayMemo: ((VoiceMemoRecord) -> Void)?
+
+    /// A resolved word under a long-press: its block, index within the block, and display text.
+    struct ReaderWordHit {
+        let blockID: String
+        let wordIndex: Int
+        let word: String
+    }
+
+    /// Alignment debugging aid: gates the per-card red timestamp labels
+    /// (`anchorLabel` on Paragraph/HeadingCardCell). OFF by default so the labels
+    /// never overlap reader text in normal use; the toggle lives in
+    /// Settings ▸ Debug Menu. Read once per launch so cell dequeue/scrolling
+    /// never re-hits UserDefaults.
+    fileprivate static let showsAlignmentTimestamps = UserDefaults.standard.bool(
+        forKey: "reader.showAlignmentTimestamps"
+    )
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(
+        let coordinator = Coordinator(
             onTapBlock: onTapBlock,
+            onTapWord: onTapWord,
             onContextMenu: onContextMenu,
+            onAccessibilityActions: onAccessibilityActions,
             isHeaderVisible: $isHeaderVisible,
-            autoScrollEnabled: $autoScrollEnabled,
+            followState: $followState,
+            viewportAnchor: viewportAnchor,
+            viewportPublicationContext: viewportPublicationContext,
+            onViewportAnchorCaptured: onViewportAnchorCaptured,
+            openChapterKey: openChapterKey,
             topPartTitle: $topPartTitle,
             topChapterTitle: $topChapterTitle,
             topSectionTitle: $topSectionTitle,
             topChapterThemeColor: $topChapterThemeColor
         )
+        coordinator.reduceMotion = reduceMotion
+        coordinator.onReturnTargetResolved = onReturnTargetResolved
+        return coordinator
     }
 
     func makeUIView(context: Context) -> UICollectionView {
@@ -69,16 +128,64 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         collectionView.register(
             ImageCardCell.self, forCellWithReuseIdentifier: ImageCardCell.reuseIdentifier)
         collectionView.register(
+            CodeCardCell.self, forCellWithReuseIdentifier: CodeCardCell.reuseIdentifier)
+        collectionView.register(
             ChapterDividerCell.self, forCellWithReuseIdentifier: ChapterDividerCell.reuseIdentifier)
+        collectionView.register(
+            BookmarkFeedCell.self, forCellWithReuseIdentifier: BookmarkFeedCell.reuseIdentifier)
+        collectionView.register(
+            AnkiCardFeedCell.self, forCellWithReuseIdentifier: AnkiCardFeedCell.reuseIdentifier)
+        collectionView.register(
+            NoteFeedCell.self, forCellWithReuseIdentifier: NoteFeedCell.reuseIdentifier)
+        collectionView.register(
+            VoiceMemoFeedCell.self,
+            forCellWithReuseIdentifier: VoiceMemoFeedCell.reuseIdentifier)
 
         context.coordinator.dataSource = makeDataSource(for: collectionView)
+
+        // Word-location recorder: a tap recogniser whose sole job is to capture the
+        // tap point before `didSelectItemAt` fires. It does NOT seek itself — that
+        // would double-fire alongside collection-view selection. `cancelsTouchesInView
+        // = false` ensures touches still reach the collection view so cell selection
+        // proceeds normally. Simultaneous recognition is enabled so it never blocks
+        // pan/scroll gestures.
+        let wordTapGR = UITapGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.recordTapPoint(_:))
+        )
+        wordTapGR.cancelsTouchesInView = false
+        wordTapGR.delegate = context.coordinator
+        collectionView.addGestureRecognizer(wordTapGR)
+
         return collectionView
+    }
+
+    static func dismantleUIView(_ collectionView: UICollectionView, coordinator: Coordinator) {
+        coordinator.captureAndPublishViewportAnchor(in: collectionView)
     }
 
     func updateUIView(_ collectionView: UICollectionView, context: Context) {
         context.coordinator.onTapBlock = onTapBlock
+        context.coordinator.onTapWord = onTapWord
         context.coordinator.onContextMenu = onContextMenu
+        context.coordinator.onAccessibilityActions = onAccessibilityActions
+        context.coordinator.followState = $followState
+        context.coordinator.viewportAnchor = viewportAnchor
+        context.coordinator.viewportPublicationContext = viewportPublicationContext
+        context.coordinator.onViewportAnchorCaptured = onViewportAnchorCaptured
+        context.coordinator.reduceMotion = reduceMotion
+        context.coordinator.onReturnTargetResolved = onReturnTargetResolved
+        context.coordinator.onChapterHeaderContextMenu = onChapterHeaderContextMenu
+        context.coordinator.onPlayMemo = onPlayMemo
+        context.coordinator.offState = offState
+        let settingsSnapshot = ReaderSettingsSnapshot(settings)
+        let settingsChanged =
+            context.coordinator.settingsSnapshot.map { $0 != settingsSnapshot } ?? false
+        context.coordinator.settingsSnapshot = settingsSnapshot
         context.coordinator.settings = settings
+        context.coordinator.onToggleChapter = onToggleChapter
+        context.coordinator.chapterHasAudio = chapterHasAudio
+        context.coordinator.chapterThemeColorByKey = chapterThemeColorByKey
         let statusChanged = alignmentStatusByBlockID != context.coordinator.alignmentStatusByBlockID
         let startTimesChanged =
             audioStartTimeByBlockID != context.coordinator.audioStartTimeByBlockID
@@ -94,10 +201,11 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                         itemID.hasPrefix("b-")
                     {
                         let blockID = String(itemID.dropFirst(2))
+                        // Debug-only overlay (Settings ▸ Debug Menu); nil keeps the label hidden.
                         let timeString =
-                            audioStartTimeByBlockID[blockID].map {
-                                Duration.seconds($0).formatted(.time(pattern: .minuteSecond))
-                            } ?? "None"
+                            Self.showsAlignmentTimestamps
+                            ? readerAlignmentTimestampString(audioStartTimeByBlockID[blockID])
+                            : nil
                         let isAnchored = alignmentStatusByBlockID[blockID] == "lockedAnchor"
 
                         if let headingCell = cell as? HeadingCardCell {
@@ -110,8 +218,11 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             }
         }
 
+        let activeBlockChanged = activeBlockID != context.coordinator.activeBlockID
         context.coordinator.activeBlockID = activeBlockID
+        let searchChanged = searchQuery != context.coordinator.searchQuery
         context.coordinator.searchQuery = searchQuery
+        let shouldReconfigureReaderItems = settingsChanged || searchChanged
 
         if let pulseID = pulseBlockID, pulseID != context.coordinator.pulseBlockID {
             context.coordinator.pulseBlockID = pulseID
@@ -120,26 +231,37 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             context.coordinator.pulseBlockID = nil
         }
 
+        var scheduledForcedScroll = false
         if let forceID = forceScrollBlockID,
+            let forceIntent = forceScrollIntent,
             forceID != context.coordinator.lastForceScrolledID
                 || forceScrollTrigger != context.coordinator.lastForceScrollTrigger
         {
             context.coordinator.lastForceScrolledID = forceID
             context.coordinator.lastForceScrollTrigger = forceScrollTrigger
-            if let dataSource = context.coordinator.dataSource,
-                let indexPath = dataSource.indexPath(for: "b-\(forceID)")
-            {
-                Task { @MainActor in
-                    collectionView.scrollToItem(
-                        at: indexPath, at: .centeredVertically, animated: true)
-                }
-            }
+            scheduledForcedScroll = true
+            context.coordinator.enqueuePendingScroll(
+                intent: forceIntent,
+                blockID: forceID,
+                wordIndex: nil
+            )
         }
+
+        let previousOpenKey = context.coordinator.openChapterKey
+        let openKeyChanged = openChapterKey != previousOpenKey
+        context.coordinator.openChapterKey = openChapterKey
 
         if sections != context.coordinator.sections {
             let wasEmpty = context.coordinator.sections.isEmpty
             context.coordinator.sections = sections
-            context.coordinator.applySnapshot(animated: !wasEmpty, in: collectionView)
+            var reconfigures =
+                openKeyChanged
+                ? [previousOpenKey, openChapterKey].compactMap { $0.map { "ch-\($0)" } } : []
+            if shouldReconfigureReaderItems {
+                reconfigures.append(contentsOf: context.coordinator.readerItemIDs())
+            }
+            context.coordinator.applySnapshot(
+                animated: !wasEmpty, in: collectionView, reconfiguring: reconfigures)
 
             if wasEmpty, let firstSection = sections.first,
                 let title = firstSection.headingStack.first
@@ -148,6 +270,19 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     self.topChapterTitle = title
                 }
             }
+        } else if openKeyChanged || shouldReconfigureReaderItems {
+            // Same section structure but a header chevron must flip (rare; e.g. a
+            // chapter with no extra sub-sections).
+            var reconfigures =
+                openKeyChanged
+                ? [previousOpenKey, openChapterKey].compactMap { $0.map { "ch-\($0)" } } : []
+            if shouldReconfigureReaderItems {
+                reconfigures.append(contentsOf: context.coordinator.readerItemIDs())
+            }
+            context.coordinator.applySnapshot(
+                animated: openKeyChanged, in: collectionView,
+                reconfiguring: reconfigures
+            )
         }
 
         context.coordinator.updateActiveBlock(activeBlockID, in: collectionView)
@@ -169,6 +304,21 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 context.coordinator.updateActiveWord(activeWord, in: collectionView)
             }
         }
+
+        if (activeBlockChanged || wordChanged) && !scheduledForcedScroll,
+            let activeBlockID
+        {
+            context.coordinator.enqueuePendingScroll(
+                intent: .followPlayback,
+                blockID: activeBlockID,
+                wordIndex: activeWord?.blockID == activeBlockID ? activeWord?.index : nil
+            )
+        }
+
+        // Snapshot completion provides final item frames after an expansion or
+        // animated diff. If it completed synchronously, drain here; otherwise
+        // the coordinator holds the request until its completion closure.
+        context.coordinator.drainPendingScrollIfReady(in: collectionView)
     }
 
     private func makeDataSource(for collectionView: UICollectionView)
@@ -187,19 +337,43 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
 
     // MARK: - Coordinator
 
-    class Coordinator: NSObject, UICollectionViewDelegate {
+    class Coordinator: NSObject, UICollectionViewDelegate, UIGestureRecognizerDelegate {
         var onTapBlock: ((String) -> Void)?
-        var onContextMenu: ((EPubBlockRecord) -> UIContextMenuConfiguration?)?
+        /// Word-refined seek callback. When `onTapWord` is set it is called from
+        /// `didSelectItemAt` for `.block` items instead of `onTapBlock`, carrying the
+        /// resolved word index (nil → block-start fallback).
+        var onTapWord: ((String, Int?) -> Void)?
+        var onContextMenu: ((EPubBlockRecord, ReaderWordHit?) -> UIContextMenuConfiguration?)?
+        var onAccessibilityActions: ((EPubBlockRecord) -> [UIAccessibilityCustomAction])?
+        var onChapterHeaderContextMenu: ((Int) -> UIContextMenuConfiguration?)?
+        var offState: ((Int) -> ChapterOffState)?
+        var onPlayMemo: ((VoiceMemoRecord) -> Void)?
         var isHeaderVisible: Binding<Bool>
-        var autoScrollEnabled: Binding<Bool>
+        var followState: Binding<ReaderFollowState>
+        var viewportAnchor: ReaderViewportAnchor?
+        var viewportPublicationContext: ReaderViewportPublicationContext
+        var onViewportAnchorCaptured: ((ReaderViewportPublication) -> Void)?
+        var reduceMotion = false
+        var onReturnTargetResolved: ((Bool) -> Void)?
+        private(set) var scrollGeneration: UInt = 0
+        private var scrollOperationState = ReaderScrollOperationState()
+        /// The final magnetic target issued by automatic following. Keeping it
+        /// for the generation prevents word ticks on the same rendered line
+        /// from restarting an in-flight UIKit scroll animation.
+        private var followTarget: (generation: UInt, offsetY: Double)?
         var topPartTitle: Binding<String?>
         var topChapterTitle: Binding<String?>
         var topSectionTitle: Binding<String?>
         var topChapterThemeColor: Binding<String?>
         var settings: ReaderSettings = ReaderSettings(
             fontSize: 17, lineSpacing: 1.4, cardTintHex: "#F5F0E8", appFont: "System")
+        fileprivate var settingsSnapshot: ReaderSettingsSnapshot?
         var alignmentStatusByBlockID: [String: String] = [:]
         var audioStartTimeByBlockID: [String: TimeInterval] = [:]
+        var chapterHasAudio: [Int: Bool] = [:]
+        var chapterThemeColorByKey: [Int: String] = [:]
+        var openChapterKey: Int?
+        var onToggleChapter: ((Int) -> Void)?
         var searchQuery: String? = nil
         var pulseBlockID: String? = nil
         var dataSource: UICollectionViewDiffableDataSource<String, String>?
@@ -214,25 +388,155 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         /// thrash the active cell. `updateUIView` fires far more often than the
         /// human eye needs the highlight to move.
         var lastWordTick: TimeInterval = 0
-        var lastScrolledBlockID: String?
         var lastForceScrolledID: String?
         var lastForceScrollTrigger: Int = 0
+        /// The most recent tap location in the collection view's coordinate space,
+        /// recorded by `recordTapPoint(_:)` before `didSelectItemAt` fires. Used to
+        /// resolve which word inside a block cell was tapped.
+        var lastTapPoint: CGPoint? = nil
 
         init(
             onTapBlock: ((String) -> Void)?,
-            onContextMenu: ((EPubBlockRecord) -> UIContextMenuConfiguration?)?,
-            isHeaderVisible: Binding<Bool>, autoScrollEnabled: Binding<Bool>,
+            onTapWord: ((String, Int?) -> Void)?,
+            onContextMenu: ((EPubBlockRecord, ReaderWordHit?) -> UIContextMenuConfiguration?)?,
+            onAccessibilityActions: ((EPubBlockRecord) -> [UIAccessibilityCustomAction])?,
+            isHeaderVisible: Binding<Bool>, followState: Binding<ReaderFollowState>,
+            viewportAnchor: ReaderViewportAnchor?,
+            viewportPublicationContext: ReaderViewportPublicationContext,
+            onViewportAnchorCaptured: ((ReaderViewportPublication) -> Void)?,
+            openChapterKey: Int?,
             topPartTitle: Binding<String?>, topChapterTitle: Binding<String?>,
             topSectionTitle: Binding<String?>, topChapterThemeColor: Binding<String?>
         ) {
             self.onTapBlock = onTapBlock
+            self.onTapWord = onTapWord
             self.onContextMenu = onContextMenu
+            self.onAccessibilityActions = onAccessibilityActions
             self.isHeaderVisible = isHeaderVisible
-            self.autoScrollEnabled = autoScrollEnabled
+            self.followState = followState
+            self.viewportAnchor = viewportAnchor
+            self.viewportPublicationContext = viewportPublicationContext
+            self.onViewportAnchorCaptured = onViewportAnchorCaptured
+            self.openChapterKey = openChapterKey
             self.topPartTitle = topPartTitle
             self.topChapterTitle = topChapterTitle
             self.topSectionTitle = topSectionTitle
             self.topChapterThemeColor = topChapterThemeColor
+        }
+
+        func mayApplyScroll(
+            intent: ReaderScrollIntent,
+            scheduledGeneration: UInt
+        ) -> Bool {
+            ReaderScrollPermission.allows(
+                intent: intent,
+                followState: followState.wrappedValue,
+                scheduledGeneration: scheduledGeneration,
+                currentGeneration: scrollGeneration
+            )
+        }
+
+        /// Reserves a final automatic target immediately before its UIKit write.
+        /// A target within the scroll policy's tolerance is already pending or
+        /// applied for this generation, so another word on the same line cannot
+        /// restart its animation while `contentOffset` is still interpolating.
+        func shouldStartFollowScroll(
+            to targetY: Double,
+            scheduledGeneration: UInt
+        ) -> Bool {
+            guard mayApplyScroll(
+                intent: .followPlayback,
+                scheduledGeneration: scheduledGeneration
+            ) else { return false }
+            if let followTarget,
+                followTarget.generation == scheduledGeneration,
+                abs(followTarget.offsetY - targetY) < 0.5
+            {
+                return false
+            }
+            followTarget = (generation: scheduledGeneration, offsetY: targetY)
+            return true
+        }
+
+        func shouldStartFollowScroll(
+            to targetY: Double,
+            request: ReaderPendingScrollRequest
+        ) -> Bool {
+            guard mayExecuteScroll(request) else { return false }
+            if let followTarget,
+                followTarget.generation == request.scrollGeneration,
+                abs(followTarget.offsetY - targetY) < 0.5
+            {
+                return false
+            }
+            followTarget = (generation: request.scrollGeneration, offsetY: targetY)
+            return true
+        }
+
+        /// Only the root-owned Return request may resolve return state. Other
+        /// user navigation (such as TOC selection) must leave exploration intact.
+        @discardableResult
+        func reportScrollTargetResolution(
+            intent: ReaderScrollIntent,
+            targetRange: ClosedRange<Double>?
+        ) -> Bool {
+            let resolved = targetRange != nil
+            guard intent == .returnToCurrent else { return resolved }
+            onReturnTargetResolved?(resolved)
+            return resolved
+        }
+
+        func enqueuePendingScroll(
+            intent: ReaderScrollIntent,
+            blockID: String,
+            wordIndex: Int?
+        ) {
+            _ = scrollOperationState.enqueue(
+                intent: intent,
+                blockID: blockID,
+                wordIndex: wordIndex,
+                scrollGeneration: scrollGeneration
+            )
+        }
+
+        func drainPendingScrollIfReady(in collectionView: UICollectionView) {
+            guard let request = scrollOperationState.takeReadyRequest() else { return }
+            switch request.intent {
+            case .followPlayback:
+                followActiveText(request, in: collectionView)
+            case .returnToCurrent:
+                scheduleReturnToCurrentText(request, in: collectionView)
+            case .tableOfContents:
+                scheduleTableOfContentsNavigation(request, in: collectionView)
+            }
+        }
+
+        func mayExecuteScroll(_ request: ReaderPendingScrollRequest) -> Bool {
+            scrollOperationState.mayExecute(
+                request,
+                currentScrollGeneration: scrollGeneration
+            ) && ReaderScrollPermission.allows(
+                intent: request.intent,
+                followState: followState.wrappedValue,
+                scheduledGeneration: request.scrollGeneration,
+                currentGeneration: scrollGeneration
+            )
+        }
+
+        private func finishScrollOperation(_ request: ReaderPendingScrollRequest) {
+            scrollOperationState.finish(request)
+        }
+
+        private func recordFollowTarget(
+            _ targetY: Double,
+            request: ReaderPendingScrollRequest
+        ) {
+            followTarget = (generation: request.scrollGeneration, offsetY: targetY)
+        }
+
+        private func collectionViewLayerAnimationsToFinish(in scrollView: UIScrollView) {
+            scrollView.layer.removeAllAnimations()
+            scrollView.setContentOffset(scrollView.contentOffset, animated: false)
         }
 
         func card(for id: String) -> ReaderCardItem? {
@@ -244,18 +548,78 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             return nil
         }
 
+        func readerItemIDs() -> [String] {
+            sections.flatMap { section in
+                section.items.map(\.id)
+            }
+        }
+
         func cell(for itemID: String, at indexPath: IndexPath, collectionView: UICollectionView)
             -> UICollectionViewCell
         {
             guard let item = card(for: itemID) else { return UICollectionViewCell() }
             switch item {
-            case .chapterHeader(let title, _):
+            case .chapterHeader(let title, let chapterIndex):
                 guard
                     let cell = collectionView.dequeueReusableCell(
                         withReuseIdentifier: ChapterDividerCell.reuseIdentifier, for: indexPath
                     ) as? ChapterDividerCell
                 else { return UICollectionViewCell() }
-                cell.configure(with: title)
+                cell.configure(
+                    title: title, hasAudio: chapterHasAudio[chapterIndex] ?? false,
+                    isExpanded: openChapterKey == chapterIndex,
+                    offState: offState?(chapterIndex) ?? .allOn)
+                return cell
+
+            case .bookmark(let record):
+                guard
+                    let cell = collectionView.dequeueReusableCell(
+                        withReuseIdentifier: BookmarkFeedCell.reuseIdentifier, for: indexPath
+                    ) as? BookmarkFeedCell
+                else { return UICollectionViewCell() }
+                let tint = UIColor(hex: settings.cardTintHex) ?? UIColor.systemBackground
+                cell.configure(with: record, tint: tint)
+                return cell
+
+            case .ankiCard(let card):
+                guard
+                    let cell = collectionView.dequeueReusableCell(
+                        withReuseIdentifier: AnkiCardFeedCell.reuseIdentifier, for: indexPath
+                    ) as? AnkiCardFeedCell
+                else { return UICollectionViewCell() }
+                let tint = UIColor(hex: settings.cardTintHex) ?? UIColor.systemBackground
+                cell.configure(with: card, tint: tint)
+                return cell
+
+            case .note(let note):
+                guard
+                    let cell = collectionView.dequeueReusableCell(
+                        withReuseIdentifier: NoteFeedCell.reuseIdentifier, for: indexPath
+                    ) as? NoteFeedCell
+                else { return UICollectionViewCell() }
+                let noteTint = UIColor(hex: settings.cardTintHex) ?? UIColor.systemBackground
+                cell.configure(text: note.text, tint: noteTint)
+                return cell
+
+            case .voiceMemo(let memo):
+                guard
+                    let cell = collectionView.dequeueReusableCell(
+                        withReuseIdentifier: VoiceMemoFeedCell.reuseIdentifier, for: indexPath
+                    ) as? VoiceMemoFeedCell
+                else { return UICollectionViewCell() }
+                let durationText: String
+                if let d = memo.duration {
+                    durationText =
+                        "Voice memo · "
+                        + Duration.seconds(d)
+                        .formatted(.time(pattern: .minuteSecond))
+                } else {
+                    durationText = "Voice memo"
+                }
+                let memoTint = UIColor(hex: settings.cardTintHex) ?? UIColor.systemBackground
+                cell.configure(durationText: durationText, tint: memoTint) { [weak self] in
+                    self?.onPlayMemo?(memo)
+                }
                 return cell
 
             case .block(let block):
@@ -266,7 +630,6 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                             withReuseIdentifier: HeadingCardCell.reuseIdentifier, for: indexPath
                         ) as? HeadingCardCell
                     else { return UICollectionViewCell() }
-                    let font = settings.uiFont(forTextStyle: .title3, weight: .semibold)
                     let cardTint =
                         UIColor(
                             hex: block.cardColor ?? block.chapterThemeColor ?? settings.cardTintHex)
@@ -274,17 +637,23 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     let headingWordIdx =
                         (activeWord?.blockID == block.id) ? activeWord?.index : nil
                     headingCell.configure(
-                        with: block, font: font, tint: cardTint,
+                        with: block, settings: settings, tint: cardTint,
                         isExplicitHighlight: block.cardColor != nil
                             || block.chapterThemeColor != nil, searchQuery: searchQuery,
                         highlightedWordIndex: headingWordIdx)
                     headingCell.isActiveBlock = (block.id == activeBlockID)
+                    // Debug-only overlay (Settings ▸ Debug Menu); nil keeps the label hidden.
                     let timeString =
-                        audioStartTimeByBlockID[block.id].map {
-                            Duration.seconds($0).formatted(.time(pattern: .minuteSecond))
-                        } ?? "None"
+                        ReaderFeedCollectionView.showsAlignmentTimestamps
+                        ? readerAlignmentTimestampString(audioStartTimeByBlockID[block.id])
+                        : nil
                     let isAnchored = alignmentStatusByBlockID[block.id] == "lockedAnchor"
                     headingCell.setManuallyAligned(isAnchored, timeString: timeString)
+                    headingCell.configureAccessibility(
+                        label: accessibilityLabel(for: block, kind: .heading),
+                        hint: accessibilityHint(for: block),
+                        actions: onAccessibilityActions?(block) ?? []
+                    )
                     return headingCell
 
                 case EPubBlockRecord.Kind.image.rawValue:
@@ -298,7 +667,32 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                             hex: block.cardColor ?? block.chapterThemeColor ?? settings.cardTintHex)
                         ?? UIColor.systemBackground
                     imageCell.configure(with: block, tint: cardTint)
+                    imageCell.configureAccessibility(
+                        label: accessibilityLabel(for: block, kind: .image),
+                        hint: accessibilityHint(for: block),
+                        actions: onAccessibilityActions?(block) ?? []
+                    )
                     return imageCell
+
+                case EPubBlockRecord.Kind.code.rawValue:
+                    guard
+                        let codeCell = collectionView.dequeueReusableCell(
+                            withReuseIdentifier: CodeCardCell.reuseIdentifier,
+                            for: indexPath
+                        ) as? CodeCardCell
+                    else { return UICollectionViewCell() }
+                    let cardTint =
+                        UIColor(
+                            hex: block.cardColor ?? block.chapterThemeColor ?? settings.cardTintHex)
+                        ?? UIColor.systemBackground
+                    codeCell.configure(with: block, tint: cardTint)
+                    codeCell.isActiveBlock = (block.id == activeBlockID)
+                    codeCell.configureAccessibility(
+                        label: accessibilityLabel(for: block, kind: .code),
+                        hint: accessibilityHint(for: block, kind: .code),
+                        actions: accessibilityActions(forCodeBlock: block)
+                    )
+                    return codeCell
 
                 default:
                     guard
@@ -306,7 +700,6 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                             withReuseIdentifier: ParagraphCardCell.reuseIdentifier, for: indexPath
                         ) as? ParagraphCardCell
                     else { return UICollectionViewCell() }
-                    let font = settings.uiFont(forTextStyle: .body, weight: .regular)
                     let cardTint =
                         UIColor(
                             hex: block.cardColor ?? block.chapterThemeColor ?? settings.cardTintHex)
@@ -314,30 +707,210 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     let paraWordIdx =
                         (activeWord?.blockID == block.id) ? activeWord?.index : nil
                     paraCell.configure(
-                        with: block, font: font, tint: cardTint, lineSpacing: settings.lineSpacing,
+                        with: block, settings: settings, tint: cardTint,
                         isExplicitHighlight: block.cardColor != nil
                             || block.chapterThemeColor != nil, searchQuery: searchQuery,
                         highlightedWordIndex: paraWordIdx)
                     paraCell.isActiveBlock = (block.id == activeBlockID)
+                    // Debug-only overlay (Settings ▸ Debug Menu); nil keeps the label hidden.
                     let timeString =
-                        audioStartTimeByBlockID[block.id].map {
-                            Duration.seconds($0).formatted(.time(pattern: .minuteSecond))
-                        } ?? "None"
+                        ReaderFeedCollectionView.showsAlignmentTimestamps
+                        ? readerAlignmentTimestampString(audioStartTimeByBlockID[block.id])
+                        : nil
                     let isAnchored = alignmentStatusByBlockID[block.id] == "lockedAnchor"
                     paraCell.setManuallyAligned(isAnchored, timeString: timeString)
+                    paraCell.configureAccessibility(
+                        label: accessibilityLabel(for: block, kind: .paragraph),
+                        hint: accessibilityHint(for: block),
+                        actions: onAccessibilityActions?(block) ?? []
+                    )
                     return paraCell
                 }
             }
         }
 
-        func applySnapshot(animated: Bool, in collectionView: UICollectionView) {
+        private func accessibilityLabel(
+            for block: EPubBlockRecord, kind: EPubBlockRecord.Kind
+        ) -> String {
+            let text = (block.text ?? "").collapsedWhitespace()
+            let clippedText =
+                text.count > 240
+                ? String(text.prefix(240)).trimmingCharacters(in: .whitespaces) + "..." : text
+            switch kind {
+            case .heading:
+                return clippedText.isEmpty
+                    ? String(localized: "Heading")
+                    : String(localized: "Heading. \(clippedText)")
+            case .image:
+                return clippedText.isEmpty
+                    ? String(localized: "Image")
+                    : String(localized: "Image. \(clippedText)")
+            case .code:
+                return String(localized: "Code listing")
+            case .paragraph, .sentence:
+                return clippedText.isEmpty ? String(localized: "Text passage") : clippedText
+            }
+        }
+
+        private func accessibilityHint(
+            for block: EPubBlockRecord, kind: EPubBlockRecord.Kind? = nil
+        ) -> String {
+            if kind == .code {
+                return String(
+                    localized:
+                        "Selectable code. Use Actions to seek, align, bookmark, copy, and more."
+                )
+            }
+            if audioStartTimeByBlockID[block.id] != nil {
+                return String(
+                    localized:
+                        "Double-tap to seek to this passage. Use Actions for alignment, bookmarks, and more options."
+                )
+            }
+            return String(
+                localized:
+                    "Double-tap to select this passage. Use Actions for alignment, bookmarks, and more options."
+            )
+        }
+
+        private func accessibilityActions(
+            forCodeBlock block: EPubBlockRecord
+        ) -> [UIAccessibilityCustomAction] {
+            var actions = onAccessibilityActions?(block) ?? []
+            let seekAction = UIAccessibilityCustomAction(
+                name: String(localized: "Seek to Code Listing")
+            ) { [weak self] _ in
+                guard let self else { return false }
+                if let onTapWord {
+                    onTapWord(block.id, nil)
+                } else if let onTapBlock {
+                    onTapBlock(block.id)
+                } else {
+                    return false
+                }
+                return true
+            }
+            actions.insert(seekAction, at: 0)
+            return actions
+        }
+
+        private func visibleViewportAnchor(
+            in collectionView: UICollectionView
+        ) -> ReaderViewportAnchor? {
+            guard
+                followState.wrappedValue == .exploring,
+                let indexPath = collectionView.indexPathsForVisibleItems.sorted().first,
+                let itemID = dataSource?.itemIdentifier(for: indexPath),
+                let attributes = collectionView.layoutAttributesForItem(at: indexPath)
+            else { return nil }
+            return ReaderViewportAnchor(
+                itemID: itemID,
+                distanceFromContentOffset: Double(
+                    attributes.frame.minY - collectionView.contentOffset.y
+                ),
+                openChapterKey: openChapterKey
+            )
+        }
+
+        @discardableResult
+        func captureAndPublishViewportAnchor(
+            in collectionView: UICollectionView
+        ) -> ReaderViewportAnchor? {
+            guard let anchor = visibleViewportAnchor(in: collectionView) else { return nil }
+            publishViewportAnchor(anchor)
+            return anchor
+        }
+
+        private func publishViewportAnchor(_ anchor: ReaderViewportAnchor) {
+            guard anchor != viewportAnchor else { return }
+            let publication = ReaderViewportPublication(
+                context: viewportPublicationContext,
+                anchor: anchor
+            )
+            let publish = onViewportAnchorCaptured
+            // Never mutate root SwiftUI state synchronously from updateUIView or
+            // dismantleUIView. The root validates this captured book generation.
+            Task { @MainActor in
+                publish?(publication)
+            }
+        }
+
+        func restoredContentOffsetY(forItemID itemID: String, itemFrameMinY: Double) -> Double? {
+            guard let anchor = viewportAnchor else { return nil }
+            return restoredContentOffsetY(
+                from: anchor,
+                forItemID: itemID,
+                itemFrameMinY: itemFrameMinY
+            )
+        }
+
+        func restoredContentOffsetY(
+            from anchor: ReaderViewportAnchor,
+            forItemID itemID: String,
+            itemFrameMinY: Double
+        ) -> Double? {
+            guard followState.wrappedValue == .exploring, anchor.itemID == itemID else {
+                return nil
+            }
+            return itemFrameMinY - anchor.distanceFromContentOffset
+        }
+
+        func applySnapshot(
+            animated: Bool, in collectionView: UICollectionView, reconfiguring: [String] = []
+        ) {
             var snapshot = NSDiffableDataSourceSnapshot<String, String>()
             let sectionIDs = sections.map(\.id)
             snapshot.appendSections(sectionIDs)
             for section in sections {
                 snapshot.appendItems(section.items.map(\.id), toSection: section.id)
             }
-            dataSource?.apply(snapshot, animatingDifferences: animated)
+            let present = Set(sections.flatMap { $0.items.map(\.id) })
+            let current = Set(dataSource?.snapshot().itemIdentifiers ?? [])
+            var seen = Set<String>()
+            let toReconfigure = reconfiguring.filter { id in
+                present.contains(id) && current.contains(id) && seen.insert(id).inserted
+            }
+            if !toReconfigure.isEmpty { snapshot.reconfigureItems(toReconfigure) }
+            let capturedAnchor = captureAndPublishViewportAnchor(in: collectionView)
+            let anchor = capturedAnchor ?? viewportAnchor
+            let scheduledGeneration = scrollGeneration
+            let scheduledSnapshotGeneration = scrollOperationState.beginSnapshot()
+            guard let dataSource else {
+                scrollOperationState.completeSnapshot(scheduledSnapshotGeneration)
+                drainPendingScrollIfReady(in: collectionView)
+                return
+            }
+            dataSource.apply(
+                snapshot,
+                animatingDifferences: animated
+            ) { [weak self, weak collectionView] in
+                guard let self, let collectionView else { return }
+                guard scheduledSnapshotGeneration == self.scrollOperationState.snapshotGeneration
+                else { return }
+                collectionView.layoutIfNeeded()
+                if let anchor,
+                    self.followState.wrappedValue == .exploring,
+                    scheduledGeneration == self.scrollGeneration,
+                    let indexPath = self.dataSource?.indexPath(for: anchor.itemID),
+                    let attributes = collectionView.layoutAttributesForItem(at: indexPath),
+                    let restoredOffsetY = self.restoredContentOffsetY(
+                        from: anchor,
+                        forItemID: anchor.itemID,
+                        itemFrameMinY: Double(attributes.frame.minY)
+                    )
+                {
+                    collectionView.setContentOffset(
+                        CGPoint(
+                            x: collectionView.contentOffset.x,
+                            y: CGFloat(restoredOffsetY)
+                        ),
+                        animated: false
+                    )
+                    collectionView.layoutIfNeeded()
+                }
+                self.scrollOperationState.completeSnapshot(scheduledSnapshotGeneration)
+                self.drainPendingScrollIfReady(in: collectionView)
+            }
             Task { @MainActor in
                 self.updateTopChapterTitle(collectionView)
             }
@@ -348,6 +921,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             for cell in collectionView.visibleCells {
                 (cell as? HeadingCardCell)?.isActiveBlock = false
                 (cell as? ParagraphCardCell)?.isActiveBlock = false
+                (cell as? CodeCardCell)?.isActiveBlock = false
             }
 
             guard let blockID else { return }
@@ -367,16 +941,11 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     headingCell.isActiveBlock = true
                 } else if let paraCell = cell as? ParagraphCardCell {
                     paraCell.isActiveBlock = true
+                } else if let codeCell = cell as? CodeCardCell {
+                    codeCell.isActiveBlock = true
                 }
             }
 
-            if autoScrollEnabled.wrappedValue, lastScrolledBlockID != blockID {
-                lastScrolledBlockID = blockID
-                Task { @MainActor in
-                    collectionView.scrollToItem(
-                        at: indexPath, at: .centeredVertically, animated: true)
-                }
-            }
         }
 
         /// Retints the *visible* active cell to the spoken word without a diffable
@@ -387,9 +956,6 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         func updateActiveWord(
             _ word: (blockID: String, index: Int)?, in collectionView: UICollectionView
         ) {
-            let bodyFont = settings.uiFont(forTextStyle: .body, weight: .regular)
-            let headingFont = settings.uiFont(forTextStyle: .title3, weight: .semibold)
-
             // Clear the previously-highlighted cell when the active word leaves its
             // block (or goes to nil) — otherwise that paragraph's last word lingers.
             if let clearID = KaraokeHighlightTransition.blockToClear(
@@ -397,8 +963,8 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 let ip = dataSource?.indexPath(for: "b-\(clearID)"),
                 let prevCell = collectionView.cellForItem(at: ip)
             {
-                (prevCell as? ParagraphCardCell)?.applyWordHighlight(nil, baseFont: bodyFont)
-                (prevCell as? HeadingCardCell)?.applyWordHighlight(nil, baseFont: headingFont)
+                (prevCell as? ParagraphCardCell)?.applyWordHighlight(nil)
+                (prevCell as? HeadingCardCell)?.applyWordHighlight(nil)
             }
             lastHighlightedWordBlockID = word?.blockID
 
@@ -408,13 +974,207 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 let indexPath = dataSource.indexPath(for: "b-\(word.blockID)"),
                 let cell = collectionView.cellForItem(at: indexPath)
             else { return }
-            // Fonts mirror those `cell(for:)` builds for each cell kind so the
-            // highlighted word keeps the same metrics as the surrounding text.
+            // Each cell stores its current text configuration, so this only changes
+            // the highlight index and preserves the existing attributed font runs.
             if let para = cell as? ParagraphCardCell {
-                para.applyWordHighlight(word.index, baseFont: bodyFont)
+                para.applyWordHighlight(word.index)
             } else if let heading = cell as? HeadingCardCell {
-                heading.applyWordHighlight(word.index, baseFont: headingFont)
+                heading.applyWordHighlight(word.index)
             }
+        }
+
+        /// The only automatic viewport operation. It either resolves the active
+        /// spoken line or, when TextKit has no line available, centers the block's
+        /// frame with the same magnetic policy.
+        func followActiveText(
+            _ request: ReaderPendingScrollRequest,
+            in collectionView: UICollectionView
+        ) {
+            Task { @MainActor [weak self, weak collectionView] in
+                guard let self, let collectionView else { return }
+                guard self.mayExecuteScroll(request) else {
+                    self.finishScrollOperation(request)
+                    return
+                }
+                defer { self.finishScrollOperation(request) }
+                guard let indexPath = self.dataSource?.indexPath(for: "b-\(request.blockID)")
+                else { return }
+
+                if request.wordIndex != nil, collectionView.cellForItem(at: indexPath) == nil {
+                    guard self.mayExecuteScroll(request) else { return }
+                    collectionView.scrollToItem(
+                        at: indexPath,
+                        at: .centeredVertically,
+                        animated: false
+                    )
+                    collectionView.layoutIfNeeded()
+                }
+
+                let lineRange = self.wordLineRange(
+                    at: request.wordIndex,
+                    indexPath: indexPath,
+                    in: collectionView
+                )
+                guard let paragraphRange = self.paragraphRange(at: indexPath, in: collectionView)
+                else { return }
+                let targetRange = ReaderWordFollowScroll.preferredRange(
+                    wordLine: lineRange,
+                    paragraph: paragraphRange
+                )
+                guard let targetY = self.targetOffsetY(for: targetRange, in: collectionView)
+                else { return }
+                guard self.shouldStartFollowScroll(to: targetY, request: request) else { return }
+                guard self.mayExecuteScroll(request) else { return }
+                collectionView.setContentOffset(
+                    CGPoint(x: collectionView.contentOffset.x, y: CGFloat(targetY)),
+                    animated: !self.reduceMotion
+                )
+            }
+        }
+
+        /// Resolves a user-requested return after the snapshot that expands its
+        /// chapter has been applied. Unlike playback following, this is allowed
+        /// while exploring, but a user drag invalidates it by changing generation.
+        func scheduleReturnToCurrentText(
+            _ request: ReaderPendingScrollRequest,
+            in collectionView: UICollectionView
+        ) {
+            Task { @MainActor [weak self, weak collectionView] in
+                guard let self, let collectionView else { return }
+                guard self.mayExecuteScroll(request) else {
+                    self.finishScrollOperation(request)
+                    return
+                }
+                defer { self.finishScrollOperation(request) }
+                guard let indexPath = self.dataSource?.indexPath(for: "b-\(request.blockID)") else {
+                    guard self.mayExecuteScroll(request) else { return }
+                    self.onReturnTargetResolved?(false)
+                    return
+                }
+
+                if collectionView.cellForItem(at: indexPath) == nil {
+                    guard self.mayExecuteScroll(request) else { return }
+                    collectionView.scrollToItem(
+                        at: indexPath,
+                        at: .centeredVertically,
+                        animated: false
+                    )
+                    collectionView.layoutIfNeeded()
+                }
+
+                guard self.mayExecuteScroll(request) else { return }
+                let wordIndex = self.activeWord?.blockID == request.blockID
+                    ? self.activeWord?.index : nil
+                let lineRange = self.wordLineRange(
+                    at: wordIndex,
+                    indexPath: indexPath,
+                    in: collectionView
+                )
+                guard let paragraphRange = self.paragraphRange(at: indexPath, in: collectionView)
+                else {
+                    guard self.mayExecuteScroll(request) else { return }
+                    self.reportScrollTargetResolution(
+                        intent: .returnToCurrent,
+                        targetRange: nil
+                    )
+                    return
+                }
+                let targetRange = ReaderWordFollowScroll.preferredRange(
+                    wordLine: lineRange,
+                    paragraph: paragraphRange
+                )
+                if let targetY = self.targetOffsetY(for: targetRange, in: collectionView) {
+                    guard self.mayExecuteScroll(request) else { return }
+                    self.recordFollowTarget(targetY, request: request)
+                    guard self.mayExecuteScroll(request) else { return }
+                    collectionView.setContentOffset(
+                        CGPoint(x: collectionView.contentOffset.x, y: CGFloat(targetY)),
+                        animated: !self.reduceMotion
+                    )
+                }
+                guard self.mayExecuteScroll(request) else { return }
+                self.reportScrollTargetResolution(
+                    intent: .returnToCurrent,
+                    targetRange: paragraphRange
+                )
+            }
+        }
+
+        /// Navigates to an explicit TOC selection. This has the same generation
+        /// cancellation boundary as other user-directed scrolling, but is never
+        /// a Return completion and therefore cannot resume playback following.
+        func scheduleTableOfContentsNavigation(
+            _ request: ReaderPendingScrollRequest,
+            in collectionView: UICollectionView
+        ) {
+            Task { @MainActor [weak self, weak collectionView] in
+                guard let self, let collectionView else { return }
+                guard self.mayExecuteScroll(request) else {
+                    self.finishScrollOperation(request)
+                    return
+                }
+                defer { self.finishScrollOperation(request) }
+                guard let indexPath = self.dataSource?.indexPath(for: "b-\(request.blockID)")
+                else { return }
+                guard self.mayExecuteScroll(request) else { return }
+                collectionView.scrollToItem(
+                    at: indexPath,
+                    at: .centeredVertically,
+                    animated: !self.reduceMotion
+                )
+                collectionView.layoutIfNeeded()
+                guard self.mayExecuteScroll(request) else { return }
+                self.reportScrollTargetResolution(
+                    intent: .tableOfContents,
+                    targetRange: self.paragraphRange(at: indexPath, in: collectionView)
+                )
+            }
+        }
+
+        private func wordLineRange(
+            at wordIndex: Int?,
+            indexPath: IndexPath,
+            in collectionView: UICollectionView
+        ) -> ClosedRange<Double>? {
+            guard
+                let wordIndex,
+                let cell = collectionView.cellForItem(at: indexPath)
+            else { return nil }
+            let lineRect: CGRect?
+            if let paragraph = cell as? ParagraphCardCell {
+                lineRect = paragraph.lineRectForWord(at: wordIndex)
+            } else if let heading = cell as? HeadingCardCell {
+                lineRect = heading.lineRectForWord(at: wordIndex)
+            } else {
+                lineRect = nil
+            }
+            guard let lineRect else { return nil }
+            let rect = cell.contentView.convert(lineRect, to: collectionView)
+            return Double(rect.minY) ... Double(rect.maxY)
+        }
+
+        private func paragraphRange(
+            at indexPath: IndexPath,
+            in collectionView: UICollectionView
+        ) -> ClosedRange<Double>? {
+            guard let frame = collectionView.layoutAttributesForItem(at: indexPath)?.frame else {
+                return nil
+            }
+            return Double(frame.minY) ... Double(frame.maxY)
+        }
+
+        private func targetOffsetY(
+            for targetRange: ClosedRange<Double>,
+            in collectionView: UICollectionView
+        ) -> Double? {
+            ReaderWordFollowScroll.targetOffsetY(
+                currentOffsetY: Double(collectionView.contentOffset.y),
+                viewportHeight: Double(collectionView.bounds.height),
+                contentHeight: Double(collectionView.contentSize.height),
+                targetRange: targetRange,
+                topInset: Double(collectionView.adjustedContentInset.top),
+                bottomInset: Double(collectionView.adjustedContentInset.bottom)
+            )
         }
 
         /// Triggers a brief scale-pulse animation on the cell for the given block ID.
@@ -451,9 +1211,24 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         }
 
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-            if autoScrollEnabled.wrappedValue {
-                autoScrollEnabled.wrappedValue = false
+            followState.wrappedValue.detachForExploration()
+            scrollGeneration &+= 1
+            scrollOperationState.invalidateForUserDrag()
+            collectionViewLayerAnimationsToFinish(in: scrollView)
+            guard let collectionView = scrollView as? UICollectionView else { return }
+            captureAndPublishViewportAnchor(in: collectionView)
+        }
+
+        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+            guard decelerate == false, let collectionView = scrollView as? UICollectionView else {
+                return
             }
+            captureAndPublishViewportAnchor(in: collectionView)
+        }
+
+        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+            guard let collectionView = scrollView as? UICollectionView else { return }
+            captureAndPublishViewportAnchor(in: collectionView)
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -555,36 +1330,88 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     }
                 }
 
+                var resolvedTheme: String? = nil
                 if let itemID = dataSource?.itemIdentifier(for: indexPath),
-                    case .block(let block) = card(for: itemID)
+                    let item = card(for: itemID)
                 {
-                    let themeColor = block.chapterThemeColor
-                    if topChapterThemeColor.wrappedValue != themeColor {
-                        Task { @MainActor in
-                            self.topChapterThemeColor.wrappedValue = themeColor
-                        }
+                    switch item {
+                    case .block(let block):
+                        resolvedTheme = block.chapterThemeColor
+                    case .chapterHeader(_, let chapterIndex):
+                        resolvedTheme = chapterThemeColorByKey[chapterIndex]
+                    case .bookmark, .ankiCard, .note, .voiceMemo:
+                        break  // Tasks 7/8 will wire theme propagation for inline items.
                     }
                 } else if let firstBlock = section.items.compactMap({ item -> EPubBlockRecord? in
                     if case .block(let b) = item { return b }
                     return nil
                 }).first {
-                    let themeColor = firstBlock.chapterThemeColor
-                    if topChapterThemeColor.wrappedValue != themeColor {
-                        Task { @MainActor in
-                            self.topChapterThemeColor.wrappedValue = themeColor
-                        }
+                    resolvedTheme = firstBlock.chapterThemeColor
+                }
+                if topChapterThemeColor.wrappedValue != resolvedTheme {
+                    Task { @MainActor in
+                        self.topChapterThemeColor.wrappedValue = resolvedTheme
                     }
                 }
             }
+        }
+
+        /// Records the tap location in the collection view's coordinate space.
+        /// This recogniser fires before `didSelectItemAt` so the word can be resolved
+        /// in the delegate callback without a second seek. The recogniser never cancels
+        /// touches (`cancelsTouchesInView = false`) and runs simultaneously with all
+        /// other recognisers, so it doesn't interfere with scrolling or selection.
+        @objc func recordTapPoint(_ gr: UITapGestureRecognizer) {
+            guard let collectionView = gr.view as? UICollectionView else { return }
+            lastTapPoint = gr.location(in: collectionView)
+        }
+
+        // MARK: UIGestureRecognizerDelegate
+
+        /// Allow the word-tap recorder to run at the same time as the collection
+        /// view's own built-in gesture recognisers (pan, long press, etc.) so it
+        /// never blocks scrolling or the context menu long-press.
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
         }
 
         func collectionView(
             _ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath
         ) {
             guard let itemID = dataSource?.itemIdentifier(for: indexPath),
-                case .block(let block) = card(for: itemID)
+                let item = card(for: itemID)
             else { return }
-            onTapBlock?(block.id)
+            switch item {
+            case .chapterHeader(_, let chapterIndex):
+                onToggleChapter?(chapterIndex)
+            case .block(let block):
+                // If a word-refined seek handler is registered, resolve the word at the
+                // tap location and pass it. The handler falls back to block-start when
+                // wordIdx is nil. This is the single seek point — onTapBlock is not
+                // called here when onTapWord is set, preventing a double-seek.
+                if let onTapWord {
+                    var wordIdx: Int? = nil
+                    if let pt = lastTapPoint,
+                        let cell = collectionView.cellForItem(at: indexPath)
+                    {
+                        let pointInCell = collectionView.convert(pt, to: cell)
+                        wordIdx =
+                            (cell as? ParagraphCardCell)?.wordIndex(at: pointInCell)
+                            ?? (cell as? HeadingCardCell)?.wordIndex(at: pointInCell)
+                    }
+                    lastTapPoint = nil
+                    onTapWord(block.id, wordIdx)
+                } else {
+                    lastTapPoint = nil
+                    onTapBlock?(block.id)
+                }
+            case .bookmark, .ankiCard, .note, .voiceMemo:
+                lastTapPoint = nil
+                break  // Tasks 7/8 will wire tap handlers for inline items.
+            }
         }
 
         func collectionView(
@@ -593,40 +1420,243 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         ) -> UIContextMenuConfiguration? {
             guard let indexPath = indexPaths.first,
                 let itemID = dataSource?.itemIdentifier(for: indexPath),
-                case .block(let block) = card(for: itemID)
+                let item = card(for: itemID)
             else { return nil }
-            return onContextMenu?(block)
+            switch item {
+            case .chapterHeader(_, let chapterIndex):
+                return onChapterHeaderContextMenu?(chapterIndex)
+            case .block(let block):
+                var wordHit: ReaderWordHit?
+                if let cell = collectionView.cellForItem(at: indexPath) {
+                    let pointInCell = collectionView.convert(point, to: cell)
+                    let idx =
+                        (cell as? ParagraphCardCell)?.wordIndex(at: pointInCell)
+                        ?? (cell as? HeadingCardCell)?.wordIndex(at: pointInCell)
+                    if let idx {
+                        let words = WordTokenizer.words(in: block.text ?? "")
+                        if idx < words.count {
+                            wordHit = ReaderWordHit(
+                                blockID: block.id, wordIndex: idx,
+                                word: String(words[idx]))
+                        }
+                    }
+                }
+                return onContextMenu?(block, wordHit)
+            default:
+                return nil
+            }
         }
     }
 }
 
-// MARK: - Chapter Divider Cell
+// MARK: - Bookmark cell
+
+private final class BookmarkFeedCell: UICollectionViewCell {
+    static let reuseIdentifier = "BookmarkFeedCell"
+
+    private let icon = UIImageView()
+    private let titleLabel = UILabel()
+    private let noteLabel = UILabel()
+    private let container = UIView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.layer.cornerRadius = 10
+        container.layer.cornerCurve = .continuous
+        contentView.addSubview(container)
+
+        icon.image = UIImage(systemName: "bookmark.fill")
+        icon.contentMode = .scaleAspectFit
+        icon.translatesAutoresizingMaskIntoConstraints = false
+
+        titleLabel.font = .preferredFont(forTextStyle: .headline)
+        titleLabel.numberOfLines = 2
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        noteLabel.font = .preferredFont(forTextStyle: .subheadline)
+        noteLabel.textColor = .secondaryLabel
+        noteLabel.numberOfLines = 3
+        noteLabel.adjustsFontForContentSizeCategory = true
+        noteLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let stack = UIStackView(arrangedSubviews: [titleLabel, noteLabel])
+        stack.axis = .vertical
+        stack.spacing = 2
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(icon)
+        container.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            container.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            container.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            container.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
+            container.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
+            icon.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            icon.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
+            icon.widthAnchor.constraint(equalToConstant: 20),
+            icon.heightAnchor.constraint(equalToConstant: 20),
+            stack.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 10),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -10),
+        ])
+        isAccessibilityElement = true
+        accessibilityTraits = .staticText
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(with record: BookmarkRecord, tint: UIColor) {
+        titleLabel.text = record.title
+        noteLabel.text = record.note
+        noteLabel.isHidden = (record.note ?? "").isEmpty
+        icon.tintColor = tint
+        container.backgroundColor = tint.withAlphaComponent(0.08)
+        accessibilityLabel = [record.title, record.note].compactMap { $0 }.joined(separator: ": ")
+    }
+}
+
+// MARK: - Anki card cell
+
+private final class AnkiCardFeedCell: UICollectionViewCell {
+    static let reuseIdentifier = "AnkiCardFeedCell"
+
+    private let icon = UIImageView()
+    private let frontLabel = UILabel()
+    private let backLabel = UILabel()
+    private let container = UIView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.layer.cornerRadius = 10
+        container.layer.cornerCurve = .continuous
+        contentView.addSubview(container)
+
+        icon.image = UIImage(systemName: "rectangle.on.rectangle.angled")
+        icon.contentMode = .scaleAspectFit
+        icon.translatesAutoresizingMaskIntoConstraints = false
+
+        frontLabel.font = .preferredFont(forTextStyle: .headline)
+        frontLabel.numberOfLines = 3
+        frontLabel.adjustsFontForContentSizeCategory = true
+        frontLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        backLabel.font = .preferredFont(forTextStyle: .subheadline)
+        backLabel.textColor = .secondaryLabel
+        backLabel.numberOfLines = 4
+        backLabel.adjustsFontForContentSizeCategory = true
+        backLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let stack = UIStackView(arrangedSubviews: [frontLabel, backLabel])
+        stack.axis = .vertical
+        stack.spacing = 4
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(icon)
+        container.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            container.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            container.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            container.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
+            container.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
+            icon.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            icon.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
+            icon.widthAnchor.constraint(equalToConstant: 20),
+            icon.heightAnchor.constraint(equalToConstant: 20),
+            stack.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 10),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -10),
+        ])
+        isAccessibilityElement = true
+        accessibilityTraits = .staticText
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(with card: Flashcard, tint: UIColor) {
+        frontLabel.text = card.frontText
+        backLabel.text = card.backText
+        backLabel.isHidden = card.backText.isEmpty
+        icon.tintColor = tint
+        container.backgroundColor = tint.withAlphaComponent(0.10)
+        container.layer.borderWidth = 1
+        container.layer.borderColor = tint.withAlphaComponent(0.25).cgColor
+        accessibilityLabel = card.frontText
+    }
+}
+
+// MARK: - Chapter Header Cell (collapsed-TOC row)
 
 private final class ChapterDividerCell: UICollectionViewCell {
     static let reuseIdentifier = "ChapterDividerCell"
 
-    private let label: UILabel = {
-        let label = UILabel()
-        label.font = .preferredFont(forTextStyle: .subheadline)
-        label.textColor = .secondaryLabel
-        label.textAlignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-        return label
-    }()
+    private let chevron = UIImageView()
+    private let titleLabel = UILabel()
+    private let audioIcon = UIImageView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        contentView.addSubview(label)
+
+        chevron.contentMode = .scaleAspectFit
+        chevron.tintColor = .tertiaryLabel
+        chevron.setContentHuggingPriority(.required, for: .horizontal)
+
+        titleLabel.font = .preferredFont(forTextStyle: .headline)
+        titleLabel.textColor = .label
+        titleLabel.numberOfLines = 2
+        titleLabel.adjustsFontForContentSizeCategory = true
+
+        audioIcon.contentMode = .scaleAspectFit
+        audioIcon.setContentHuggingPriority(.required, for: .horizontal)
+
+        let stack = UIStackView(arrangedSubviews: [chevron, titleLabel, audioIcon])
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.spacing = 10
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
         NSLayoutConstraint.activate([
-            label.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            label.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
-            label.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
+            chevron.widthAnchor.constraint(equalToConstant: 14),
+            audioIcon.widthAnchor.constraint(equalToConstant: 18),
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
         ])
+        isAccessibilityElement = true
+        accessibilityTraits = .button
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
-    func configure(with title: String) {
-        label.text = "— \(title) —"
+    func configure(
+        title: String,
+        hasAudio: Bool,
+        isExpanded: Bool,
+        offState: ChapterOffState = .allOn
+    ) {
+        titleLabel.text = title
+        chevron.image = UIImage(systemName: isExpanded ? "chevron.down" : "chevron.right")
+        if hasAudio {
+            audioIcon.image = UIImage(systemName: "headphones")
+            audioIcon.tintColor = .tintColor
+            titleLabel.textColor = .label
+        } else {
+            audioIcon.image = UIImage(systemName: "text.alignleft")
+            audioIcon.tintColor = .tertiaryLabel
+            titleLabel.textColor = .secondaryLabel
+        }
+        // Phase 2: dim the whole row when anything is off.
+        let dimmed = offState.isDimmed
+        contentView.alpha = dimmed ? 0.45 : 1.0
+        titleLabel.textColor = dimmed ? .secondaryLabel : titleLabel.textColor
+        accessibilityLabel = title
+        accessibilityValue =
+            (hasAudio ? "Has audio" : "Text only") + ", " + (isExpanded ? "expanded" : "collapsed")
+            + (dimmed ? ", off" : "")
     }
 }

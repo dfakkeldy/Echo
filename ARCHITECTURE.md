@@ -3,7 +3,7 @@
 <!-- ⚠️  AUTO-GENERATED — do not edit directly. -->
 <!-- Regenerate with: `make architecture`                        -->
 
-**Last generated:** 2026-06-13 22:20:36
+**Last generated:** 2026-07-03 01:38:20
 
 This document maps the source-tree layout of the Xcode targets and Shared/
 module in the Echo: Audiobook Study Player project. Folders are shown in the order
@@ -24,6 +24,7 @@ DailyPlanner/RealTimeProjectionService.swift
 DailyPlanner/SchedulingSheet.swift
 Development Assets/.gitkeep
 Development Assets/aliceinwonderland_1102_librivox/Alice's Adventures in Wonderland.epub
+Development Assets/standardebooks_great_gatsby/f-scott-fitzgerald_the-great-gatsby.epub
 EchoCore.entitlements
 EchoCoreApp.swift
 Info.plist
@@ -31,33 +32,113 @@ Localizable.xcstrings
 Models/AggregatedChapter.swift
 Models/Chapter.swift
 Models/EchoPlaylistManifest.swift
+Models/ExperimentalPlayerLayout.swift
+Models/FeedItemInjector.swift
+Models/FeedbackCategory.swift
+Models/FeedbackEntry.swift
 Models/FlashcardDeckImport.swift
 Models/LoopMode.swift
 Models/M4BBook.swift
+Models/NavigationDestinations.swift
 Models/Note.swift
 Models/PlayerDeepLink.swift
+Models/PlayerZoneResolver.swift
 Models/ReaderCardItem.swift
+Models/ReaderFeedDisplayBuilder+Filter.swift
+Models/ReaderFeedDisplayBuilder.swift
+Models/ReaderSurfaceMode.swift
 Models/RealTimeEventType.swift
 Models/SleepTimerMode.swift
 Models/SpeedSuggestion.swift
 Models/ThemeColor.swift
 Models/Track.swift
 PrivacyInfo.xcprivacy
-Protocols/PlayerModelComponentProtocols.swift
-Protocols/SettingsManagerProtocol.swift
-Protocols/StoreManagerProtocol.swift
+Resources/af_alloy.f32
+Resources/af_alloy.rows
+Resources/af_aoede.f32
+Resources/af_aoede.rows
+Resources/af_bella.f32
+Resources/af_bella.rows
+Resources/af_heart.f32
+Resources/af_heart.rows
+Resources/af_jessica.f32
+Resources/af_jessica.rows
+Resources/af_kore.f32
+Resources/af_kore.rows
+Resources/af_nicole.f32
+Resources/af_nicole.rows
+Resources/af_nova.f32
+Resources/af_nova.rows
+Resources/af_river.f32
+Resources/af_river.rows
+Resources/af_sarah.f32
+Resources/af_sarah.rows
+Resources/af_sky.f32
+Resources/af_sky.rows
+Resources/am_adam.f32
+Resources/am_adam.rows
+Resources/am_echo.f32
+Resources/am_echo.rows
+Resources/am_eric.f32
+Resources/am_eric.rows
+Resources/am_fenrir.f32
+Resources/am_fenrir.rows
+Resources/am_liam.f32
+Resources/am_liam.rows
+Resources/am_michael.f32
+Resources/am_michael.rows
+Resources/am_onyx.f32
+Resources/am_onyx.rows
+Resources/am_puck.f32
+Resources/am_puck.rows
+Resources/am_santa.f32
+Resources/am_santa.rows
+Resources/bf_alice.f32
+Resources/bf_alice.rows
+Resources/bf_emma.f32
+Resources/bf_emma.rows
+Resources/bf_isabella.f32
+Resources/bf_isabella.rows
+Resources/bf_lily.f32
+Resources/bf_lily.rows
+Resources/bm_daniel.f32
+Resources/bm_daniel.rows
+Resources/bm_fable.f32
+Resources/bm_fable.rows
+Resources/bm_george.f32
+Resources/bm_george.rows
+Resources/bm_lewis.f32
+Resources/bm_lewis.rows
 Services/AlignmentChunkPlanner.swift
 Services/AlignmentService.swift
+Services/AlignmentSidecar.swift
 Services/AlignmentTranscript.swift
 Services/AnchorSelector.swift
 Services/ApkgExportService.swift
+Services/ApkgIDAllocator.swift
 Services/ApkgImportService.swift
 Services/ArtworkCache.swift
 Services/AudioEngine.swift
 Services/AudioSegmentReader.swift
+Services/Audiobookshelf/ABSCertificateFingerprint.swift
+Services/Audiobookshelf/ABSBrowseTypes.swift
+Services/Audiobookshelf/ABSEndpoints.swift
+Services/Audiobookshelf/ABSImportProgress.swift
+Services/Audiobookshelf/ABSImportService.swift
+Services/Audiobookshelf/ABSModels.swift
+Services/Audiobookshelf/ABSProgressReconciler.swift
+Services/Audiobookshelf/ABSProgressSync.swift
+Services/Audiobookshelf/ABSServerConnectionIdentity.swift
+Services/Audiobookshelf/ABSServerTrust.swift
+Services/Audiobookshelf/ABSServerTrustEvaluator.swift
+Services/Audiobookshelf/ABSTokenStore.swift
+Services/Audiobookshelf/AudiobookshelfService.swift
 Services/AutoAlignmentService.swift
 Services/AutoAlignmentState.swift
 Services/AutoAlignmentTextMatcher.swift
+Services/AutoAlignmentWorker.swift
+Services/AutoExportMarkdown.swift
+Services/AutoExportService.swift
 Services/BookPreferencesService.swift
 Services/BookSettingsOverrideStore.swift
 Services/BookmarkArtworkCoordinator.swift
@@ -69,30 +150,107 @@ Services/ChapterService.swift
 Services/ChapterTitleMatcher.swift
 Services/CloudKitSyncService.swift
 Services/ContinuousAlignmentService.swift
+Services/Contribution/ContributionConsent.swift
+Services/Contribution/ContributionPayloadFilter.swift
+Services/Contribution/ContributionTransport.swift
+Services/Contribution/PronunciationContributionPayload.swift
 Services/CoverThemeBuilder.swift
+Services/DeckImportResult.swift
 Services/DeckImportService.swift
 Services/DeepLinkHandler.swift
 Services/DefaultChimePlayer.swift
 Services/DefaultSoundscapeMixer.swift
 Services/DefaultVisualizerTap.swift
+Services/DocumentImportFinalizer.swift
 Services/DominantColorExtractor.swift
 Services/EPUBAssetStorage.swift
 Services/EPUBAutoImportScanner.swift
 Services/EPUBImportCoordinator.swift
 Services/EPUBImportService.swift
-Services/InlineFlashcardTriggerController.swift
+Services/EPUBSourceAnchorResolver.swift
+Services/EchoDeckBuilderHandoffService.swift
+Services/Export/AudioExportService.swift
+Services/Export/ExportFileName.swift
+Services/Export/ExportMetadata+Completeness.swift
+Services/Export/ExportMetadata.swift
+Services/Export/ExportMetadataResolver.swift
+Services/Export/ExportSource.swift
+Services/Export/ExportSourceResolver.swift
+Services/Export/ImportedBookSource.swift
+Services/Export/M4BRetagger.swift
+Services/Export/NarrationCacheSource.swift
+Services/FeedbackDiagnostics.swift
+Services/FeedbackMailBuilder.swift
+Services/Library/LibraryAccess.swift
+Services/Library/LibraryScanner.swift
+Services/Library/LibraryService.swift
 Services/LocationCaptureService.swift
 Services/M4BParser.swift
 Services/MacPlaybackLogic.swift
+Services/MetricKitDiagnosticsArchive.swift
+Services/MetricKitDiagnosticsController.swift
 Services/MockMediaProvider.swift
 Services/ModelRetainBox.swift
+Services/Narration/AVFoundationAudioWriter.swift
 Services/Narration/AudioFileWriting.swift
+Services/Narration/AudioMarkerStub.swift
+Services/Narration/EpubCoverResolver.swift
+Services/Narration/FMNormalizer.swift
+Services/Narration/HeadlessNarrationQAManifest.swift
+Services/Narration/HeadlessNarrationRunner.swift
+Services/Narration/HomographPronunciationResolver.swift
+Services/Narration/KokoroFrontEnd.swift
+Services/Narration/KokoroG2P.swift
+Services/Narration/KokoroPhonemeVocab.swift
+Services/Narration/KokoroVoicePack.swift
+Services/Narration/KokoroWordTimer.swift
+Services/Narration/MisakiResources/us_gold.json
+Services/Narration/MisakiResources/us_silver.json
+Services/Narration/NarrationCache.swift
+Services/Narration/NarrationCapability.swift
+Services/Narration/NarrationChapterPlanner.swift
+Services/Narration/NarrationChunkQuality.swift
+Services/Narration/NarrationEngineFactory.swift
+Services/Narration/NarrationEntitlementCounter.swift
+Services/Narration/NarrationFileNaming.swift
+Services/Narration/NarrationOutlineBuilder.swift
+Services/Narration/NarrationProgressText.swift
+Services/Narration/NarrationPronunciationPreflight.swift
+Services/Narration/NarrationRenderPlan.swift
+Services/Narration/NarrationRenderPolicy.swift
+Services/Narration/NarrationResources.swift
+Services/Narration/NarrationSegmentAssembly.swift
+Services/Narration/NarrationSegmentCache.swift
+Services/Narration/NarrationSegmentPlanner.swift
+Services/Narration/NarrationSegmentReadiness.swift
 Services/Narration/NarrationService.swift
+Services/Narration/NarrationSilenceGuard.swift
 Services/Narration/NarrationState.swift
-Services/Narration/TextNormalizer.swift
+Services/Narration/NarrationSynthesisTiming.swift
+Services/Narration/NarrationTextChunker.swift
+Services/Narration/NarrationWordTimingAssembler.swift
+Services/Narration/OnnxKokoroEngine.swift
+Services/Narration/ProgressFanOut.swift
+Services/Narration/PronunciationFallbackDiscovery.swift
+Services/Narration/PronunciationOccurrenceOverrides.swift
+Services/Narration/PronunciationOverrideStore.swift
+Services/Narration/PronunciationOverrides.swift
+Services/Narration/PronunciationRepairService.swift
+Services/Narration/QA/DivergenceClassifier.swift
+Services/Narration/QA/DivergenceClassifierFactory.swift
+Services/Narration/QA/DivergenceTypes.swift
+Services/Narration/QA/FoundationModelsDivergenceClassifier.swift
+Services/Narration/QA/NarrationQADetector.swift
+Services/Narration/QA/NarrationQAService.swift
 Services/Narration/TTSEngine.swift
+Services/Narration/TextNormalizer.swift
 Services/Narration/VoiceCatalog.swift
+Services/Narration/_kokoro_vocab.json
+Services/Narration/kokoro_dur_head.onnx
 Services/NowPlayingController.swift
+Services/OffStateResolver.swift
+Services/PDFAutoImportScanner.swift
+Services/PDFBlockPageMapper.swift
 Services/PDFImportCoordinator.swift
 Services/Persistence.swift
 Services/PlaybackController.swift
@@ -101,44 +259,80 @@ Services/PlaybackProgressPresenter.swift
 Services/PlaybackSessionRecorder.swift
 Services/PlayerLoadingCoordinator.swift
 Services/PlayerTimelinePersistenceService.swift
+Services/PhotoLibrarySaver.swift
 Services/PlaylistManager.swift
 Services/PlaylistManifestService.swift
 Services/ReviewNotificationService.swift
+Services/ReviewPromptManager.swift
 Services/SecurityScopeManager.swift
 Services/SettingsManager.swift
 Services/SilenceDetectionService.swift
 Services/SleepTimerManager.swift
 Services/SmartRewindPolicy.swift
 Services/SnippetPlayer.swift
+Services/SourceBackedAlignmentCoordinator.swift
 Services/StandaloneTranscriptionService.swift
+Services/Store/FoundersWindow.swift
+Services/Store/FreeTierGate.swift
+Services/Store/ProEntitlement.swift
+Services/Store/ProductIDs.swift
 Services/StoreManager.swift
+Services/StudyCheckpointAnnouncer.swift
+Services/StudyCheckpointCoordinator.swift
+Services/StudyCheckpointNotificationService.swift
+Services/StudyDeckFileExporter.swift
+Services/StudyNotesExportDatabaseSource.swift
 Services/StudyNotesExportService.swift
 Services/TOCTreeBuilder.swift
+Services/TextAutoImportScanner.swift
 Services/TimelineIngestionFactory.swift
 Services/TimelineIngestionService.swift
 Services/TokenDTW.swift
+Services/TranscriptMaterializer.swift
 Services/TranscriptService.swift
+Services/VoiceMemoRecorder.swift
 Services/WatchCommandRouter.swift
 Services/WatchConnectivityCoordinator.swift
 Services/WatchStateContextBuilder.swift
 Services/WatchSyncManager.swift
 Services/WhisperSession.swift
+Services/WidgetStatePublisher.swift
+Services/WordTimingMaterializer.swift
+Services/WordTimingRefiner.swift
 State/PlaybackState.swift
 Utilities/ColorMetrics.swift
 Utilities/FolderPicker.swift
 Utilities/OKLCH.swift
 Utilities/ViewModifiers.swift
 Utilities/WordFrequencyComputer.swift
+ViewModels/ABSBrowseModel.swift
 ViewModels/DailyReviewViewModel.swift
+ViewModels/KaraokeHighlightTransition.swift
+ViewModels/LibraryRootsViewModel.swift
+ViewModels/LibraryViewModel.swift
+ViewModels/NarrationQAReviewModel.swift
+ViewModels/PlayerModel+Audiobookshelf.swift
 ViewModels/PlayerModel+Bookmarks.swift
 ViewModels/PlayerModel+MarkedPassages.swift
+ViewModels/PlayerModel+Narration.swift
 ViewModels/PlayerModel+PlaybackControllerDelegate.swift
 ViewModels/PlayerModel+PlaybackLogging.swift
+ViewModels/PlayerModel+StudyCheckpoint.swift
 ViewModels/PlayerModel+WatchState.swift
 ViewModels/PlayerModel.swift
 ViewModels/ReaderFeedViewModel.swift
+ViewModels/SessionRecapViewModel.swift
+ViewModels/StudyDeckGenerationViewModel.swift
+ViewModels/StudyPlanViewModel.swift
+ViewModels/StudySessionViewModel.swift
+ViewModels/TranscribeBookCoordinator.swift
+Views/ABSBrowseView.swift
+Views/ABSConnectionsSettingsView.swift
+Views/AICardGenerationSettingsView.swift
+Views/AllStudyNotesExportView.swift
 Views/AppIconSelectionView.swift
 Views/AutoAlignmentProgressView.swift
+Views/AutoExportSettingsRows.swift
 Views/BookSettingsView.swift
 Views/BookmarkCardView.swift
 Views/Bookmarks.swift
@@ -155,7 +349,7 @@ Views/Components/AlbumArtHeroView.swift
 Views/Components/BookProgressTrack.swift
 Views/Components/CircularProgressPlayButton.swift
 Views/Components/FlashcardCreationSheet.swift
-Views/Components/FlashcardOverlayView.swift
+Views/Components/FullscreenImageViewer.swift
 Views/Components/Haptic.swift
 Views/Components/InlineStepperRow.swift
 Views/Components/MarqueeText.swift
@@ -164,8 +358,15 @@ Views/Components/SleepTimerPill.swift
 Views/Components/UnifiedBottomDock.swift
 Views/Components/UnifiedTopHeader.swift
 Views/Components/WordCloudView.swift
+Views/Components/ZoomableArtwork.swift
 Views/DashboardShelf.swift
+Views/DictionaryLookupPresenter.swift
 Views/EPUBHeadingPickerSheet.swift
+Views/ExportDetailsSheet.swift
+Views/ExportProgressView.swift
+Views/FeedCaptureBar.swift
+Views/FeedbackFormView.swift
+Views/FeedbackSupportView.swift
 Views/Fidget/BubblePopView.swift
 Views/Fidget/DoodlePadView.swift
 Views/Fidget/FidgetOverlayView.swift
@@ -177,20 +378,40 @@ Views/FlashcardReviewSession.swift
 Views/FontSelectionView.swift
 Views/HelpContent.swift
 Views/HelpView.swift
+Views/Library/LibraryBrowseByView.swift
+Views/Library/LibraryCoverCell.swift
+Views/Library/LibraryCoverImage.swift
+Views/Library/LibraryShelfGrid.swift
+Views/Library/LibraryStatusDot.swift
+Views/Library/LibraryView.swift
+Views/Library/ManageRootsView.swift
 Views/ListeningProgressModuleView.swift
 Views/ManualAlignmentSheet.swift
+Views/Narration/NarrationNudgeView.swift
+Views/Narration/NarrationQAReviewView.swift
+Views/Narration/NarrationStatusView.swift
+Views/Narration/VoicePickerView.swift
 Views/NoteEditorView.swift
+Views/NoteFeedCell.swift
 Views/NowPlayingLayout.swift
 Views/NowPlayingTab.swift
-Views/OnboardingView.swift
+Views/Player/ExperimentalControlLayer.swift
+Views/Player/ExperimentalNowPlayingView.swift
+Views/Player/FullBleedCoverBackground.swift
+Views/Player/GlassControlButton.swift
 Views/PDFDocumentView.swift
+Views/PDFReadAlongController.swift
+Views/PDFReadingSurface.swift
+Views/Paywall/PaywallContext.swift
+Views/Paywall/PaywallView.swift
 Views/PhonePlayerSettingsView.swift
 Views/PlaybackOptionsSheet.swift
 Views/PlayerMoreMenu.swift
 Views/PlayerScrubberView.swift
 Views/PlayheadLineView.swift
-Views/PlaylistView.swift
 Views/ProTranscriptsSettingsView.swift
+Views/PronunciationDictionaryView.swift
+Views/ReaderDefaultsSettingsView.swift
 Views/ReaderEmptyState.swift
 Views/ReaderFeedCollectionView.swift
 Views/ReaderHeaderView.swift
@@ -199,8 +420,11 @@ Views/ReaderTab+Alignment.swift
 Views/ReaderTab.swift
 Views/RootTabView.swift
 Views/ScrubberJoystick.swift
+Views/SessionDetailFeedView.swift
+Views/SessionsListView.swift
 Views/SettingsAdvancedView.swift
 Views/SettingsAppearanceView.swift
+Views/SettingsNowPlayingView.swift
 Views/SettingsView.swift
 Views/SleepTimerCardView.swift
 Views/SmartRewindSettingsView.swift
@@ -215,8 +439,14 @@ Views/Stats/StatCardView.swift
 Views/Stats/StatsView.swift
 Views/StatsModuleView.swift
 Views/StreakModuleView.swift
+Views/StudyAssignmentCardView.swift
+Views/StudyCheckpointPanelView.swift
+Views/StudyDeckGenerationSheet.swift
+Views/StudyNotesExportView.swift
+Views/StudyPlanSheet.swift
+Views/StudySessionView.swift
 Views/ThemeSelectionView.swift
-Views/TimelineTab.swift
+Views/TranscribeProgressView.swift
 Views/TransportControlsView+LongPress.swift
 Views/TransportControlsView.swift
 Views/UpcomingReviewsModuleView.swift
@@ -224,6 +454,7 @@ Views/Visualizer/VisualizerPickerView.swift
 Views/Visualizer/VisualizerShaders.metal
 Views/Visualizer/VisualizerStyle.swift
 Views/Visualizer/VisualizerView.swift
+Views/VoiceMemoFeedCell.swift
 Views/VoiceMemoOverlayView.swift
 Views/WatchAppSettingsView.swift
 ```
@@ -241,56 +472,33 @@ Services/MacAlignmentService.swift
 Services/MacApkgExportService.swift
 Services/MacAudioBoostTap.swift
 Services/MacBatchProcessingService.swift
+Services/MacTranscribeCoordinator.swift
 Views/MacAnkiExportView.swift
+Views/MacAudioExportView.swift
+Views/MacAudiobookshelfBrowseView.swift
+Views/MacAudiobookshelfView.swift
 Views/MacBatchQueueView.swift
+Views/MacBookmarkReviewView.swift
+Views/MacCardInboxView.swift
+Views/MacDailyReviewView.swift
+Views/MacExportDetailsView.swift
+Views/MacLibraryView.swift
+Views/MacNarrationQAReviewView.swift
 Views/MacNotesPane.swift
+Views/MacPDFReaderView.swift
 Views/MacPlaybackOptionsSheet.swift
+Views/MacPlayerModel+Audiobookshelf.swift
 Views/MacPlayerModel.swift
 Views/MacPlayerMoreMenu.swift
 Views/MacReaderFeedView.swift
 Views/MacSettingsView.swift
 Views/MacTOCTreeView.swift
+Views/MacTranscribeProgressView.swift
 Views/MacTriPaneView.swift
 Views/TranscriptPane.swift
 Views/TranscriptStore.swift
 Views/TranscriptionManager.swift
 ```
-
-The macOS app is rooted in `MacTriPaneView` (a `NavigationSplitView`/tri-pane layout), with a separate `Settings { MacSettingsView() }` scene (⌘,). `MacPlayerModel` is a self-contained `@Observable` model wrapping a raw `AVPlayer` — it is **independent of the iOS `PlaybackController`** (which is not compiled into the macOS target), so macOS builds no global cross-file chapter timeline. As of the BookPlayer-style redesign (June 2026) `MacPlayerModel` gained a chapter axis, a 3-way loop, a configurable skip interval, above-unity volume boost, and `SettingsManager` consumption:
-
-- **Chapter axis.** On file open it parses M4B chapter markers via the shared `ChapterService.parseChapters(from:)` (token-guarded async) and derives the active chapter from the periodic time observer via `ChapterService.chapterIndex(forTime:in:)`, exposing `chapters` / `currentChapterIndex` (`private(set)`) plus `nextChapter()` / `previousChapter()` / `seekToChapter(_:)`. Axis reconciliation: chapter nav drives *within* a file when it has ≥2 M4B chapters, else falls back to across-file track nav. The ⌘←/⌘→ "Previous/Next Chapter" menu commands now perform real chapter navigation (they previously called track methods despite their labels).
-- **3-way loop + end-of-chapter sleep.** `loopMode: LoopMode`; the time observer calls `handleChapterBoundary()` **before** the active-chapter refresh (so the boundary is detected on the pre-advancement index), delegating to the pure, unit-tested `MacChapterLoopDecision.evaluate(...)` in `EchoCore/Services/MacPlaybackLogic.swift`. The `.bookmark` (A→B) loop is enforced on the same tick by `handleBookmarkLoop()`, delegating to the pure `MacBookmarkLoopDecision.seekBackTarget(...)` (mirrors iOS `PlaybackController.applyBookmarkLoopIfNeeded`: repeat the segment between the two bookmarks bracketing the playhead); the `MacPlaybackOptionsSheet` demotes `.bookmark` → `.off` when the book has no bookmarks.
-- **Configurable skip interval** (`skipInterval`, default 15) threaded through the player bar and Playback menu commands.
-- **Volume boost above unity** (which `AVAudioMix` volume cannot reach) via an `MTAudioProcessingTap` (`Services/MacAudioBoostTap.swift`) that multiplies samples by a linear gain read live from a shared box; an ASBD `prepare`-callback guard degrades to clean passthrough on non-float-PCM routes. The dB→linear math is the pure `MacVolumeBoost.linearGain` (also in `MacPlaybackLogic.swift`).
-- **Settings.** `Echo_macOSApp` injects a shared `SettingsManager` into both the main `WindowGroup` and the `Settings` scene and applies `.preferredColorScheme` from `settings.appAppearance`. `MacPlayerModel.settings` (injected once by `MacTriPaneView.task`, mirroring the `dbService` pattern) adopts the persisted skip interval and default speed. `MacSettingsView` is a native Preferences `TabView` (Appearance + Playback panes binding the shared `SettingsManager`; no Pro/StoreKit pane — macOS has none). Custom `appFont` / `themeColor` are persisted but not yet applied to the macOS UI (documented follow-up).
-- **Player bar.** `MacTriPaneView`'s player bar replaced the track label with a `< Chapter Title >` chevron nav bar, the inline speed `Picker` with a button that opens `MacPlaybackOptionsSheet` (a `.popover` — speed / loop / skip / boost + a Smart Rewind `SettingsLink`), and relocated the inline sleep menu into `MacPlayerMoreMenu` (chapters / bookmarks / add-bookmark / mark-passage / sleep / Settings).
-
-### macOS Batch Processing Queue (June 2026)
-
-The Mac app can process an entire folder of audiobooks unattended. A small `FolderAudioScanner` recursively scans a user-picked folder and **enqueues** each audio file (with its companion EPUB) into a persistent queue; `MacBatchProcessingService` drains it one book at a time through the real **import → transcribe → align** pipeline. (This replaced the earlier inline, in-memory "Bulk Align Folder…" flow — the dead `MacBulkAlignmentService` and its progress sheet `MacBulkAlignmentProgressView` were removed once the queue UI shipped.)
-
-- **Durable queue (`batch_queue`, Schema V20).** `BatchQueueRecord` / `BatchQueueDAO` persist queue position, status, and (nullable) security-scoped bookmarks. `batch_queue.audiobook_id` deliberately has **no** FK — entries legitimately reference not-yet-imported books. The pure, testable `BatchQueueRunner` (`Shared/`) drains the queue FIFO, isolates per-book failures (a throw marks that item `.failed` and processing continues), and on relaunch `recoverInFlight()` resets any `importing`/`transcribing`/`aligning` item back to `queued` so the queue resumes cleanly.
-- **Sandbox-correct file access.** The Mac app is sandboxed (`app-sandbox` + `files.user-selected.read-write` + `files.bookmarks.app-scope`), so each audio file's security-scoped bookmark is captured at enqueue, and a **separate bookmark for the sibling companion EPUB** is captured at the same moment — while the user-picked folder's scope is still live. Both are resolved and `startAccessingSecurityScopedResource()`-balanced (with `defer` stops) during processing. A book whose import produces **no** EPUB blocks is marked `.failed` rather than silently completing empty.
-- **Two item kinds (`batch_queue.kind`, Schema V21).** `kind` (additive `ALTER ADD … DEFAULT 'align'`) discriminates audiobook-alignment items (`.align`, the original import→transcribe→align) from text-only **EPUB narration** items (`.narrate`). `makeStages()` branches on `kind`: a `.narrate` item bookmarks the EPUB itself as its source, imports the EPUB's blocks (no audio), and synthesizes each chapter on-device via `NarrationService` (see *On-Device Narration*), reusing the same `BatchQueueRunner` failure isolation + restart recovery. `BatchItemKind` decodes forward-compatibly (an unknown future kind falls back to `.align` rather than crashing an older build). `FolderAudioScanner.enqueueEPUBsForNarration` and `MacBatchProcessingService.enqueueNarration(epubURL:)` enqueue them.
-- **UI.** `MacBatchQueueView` shows per-item status/progress (and an **Open** button on a completed `.narrate` book that loads it into the player); `Echo_macOSApp` adds a **Batch** command menu (Open Batch Queue / Add Folder to Queue / **Narrate EPUB(s)…** ⌘⌥N) and calls `resumeOnLaunch()` from the main window's `.task`.
-
-### Audiobookshelf Integration — download-to-local (June 2026)
-
-Echo can connect to a self-hosted **Audiobookshelf (ABS)** server and download books directly into the local study pipeline. The design is **download-to-local, not streaming** — streaming remains deferred post-1.0 because Echo's audio engine reads via `AVAudioFile(forReading:)` (local files only) and the study differentiators (alignment, phrase search, karaoke, flashcards) depend on a local folder identity.
-
-**Architecture overview:**
-
-- **`AudiobookshelfService`** (`@MainActor` class, injected `URLSession`, no protocol — matches the concrete-type DI style) speaks the ABS HTTP API: authenticate, browse libraries/items, search, download whole-item zips, and push/pull media progress. Auth uses JWT + serialized refresh-with-rotation (the rotated token is persisted on every response to avoid self-invalidation). Self-signed certs, LAN `http://`, and non-standard ports are all tolerated (homelab reality).
-- **`ABSImportService`** (or the download coordinator) receives the downloaded zip, unzips it into `Application Support/ABSLibrary/<remoteItemID>/` (an app-owned folder, no security-scoped bookmarks needed), stamps provenance columns on the `AudiobookRecord`, and hands the resulting folder to the existing `PlayerLoadingCoordinator.loadFolder` unchanged — so M4B chapter parsing, `EPUBAutoImportScanner` sibling discovery, alignment, flashcards, and phrase search all fire with zero pipeline changes.
-- **`ABSProgressReconciler`** implements a last-write-wins (ABS-authoritative) strategy: progress pushes are throttled (~15–30 s) while playing; on book open the reconciler compares local `updatedAt` against ABS `lastUpdate` and re-seeks if ABS is newer. The pull re-seek is single-track-only in v1. *The pure reconciler logic is unit-tested; live playback wiring is device-unverified as of the initial branch.*
-- **Background-task grace window:** a `beginBackgroundTask` call keeps an in-flight download alive when the user backgrounds the app during a download. This is *not* a full `URLSessionConfiguration.background` session — the ABS zip endpoint lacks `Content-Length`/range headers, so true background-session resumption (progress survives process termination) is a documented future enhancement.
-- **Anchor-reuse:** `CloudKitSyncService.downloadAnchors` keys shared anchors on `title+author+duration` (not `audiobookID`), so a book re-downloaded from ABS inherits prior WhisperKit alignment anchors that another device already computed. The provenance columns carry the real ABS title/author so the lookup key matches.
-
-**Schema V23** adds four nullable columns to `audiobook`: `source_type` (TEXT — `"abs"` for ABS-sourced books, `NULL` for local), `server_id` (TEXT), `remote_item_id` (TEXT), and `topics_json` (TEXT — serialized ABS genres/tags for local topic filtering). All are additive `ALTER TABLE ADD COLUMN` statements; no re-import or re-alignment is needed for existing books.
-
-**Platform split:** iOS UI is fully built (Settings ▸ Library Sources connect/browse sheet, search, "Add from Audiobookshelf" download action). The macOS target compiles the service layer but the macOS ABS UI is a fast-follow (not yet wired).
-
-**Credential storage:** the ABS JWT is stored in `KeychainStore` (never in SQLite). The `abs_server` table (Schema V18; existing) holds `baseURL`, `username`, and `defaultLibraryId`; V23 carries the per-book provenance on `audiobook`.
 
 ## Echo Watch App
 
@@ -298,13 +506,19 @@ Echo can connect to a self-hosted **Audiobookshelf (ABS)** server and download b
 EchoCoreWatchApp.swift
 EchoWatchApp.entitlements
 Info.plist
+Models/PomodoroTimePresentation.swift
 Models/WatchBookmark.swift
 PrivacyInfo.xcprivacy
+Services/WatchStateRecencyPolicy.swift
 Services/WatchViewModel.swift
 Services/WatchVoiceMemoRecorder.swift
+Services/WatchWakeRefreshPolicy.swift
 Views/Bookmarks.swift
 Views/Components/PomodoroButton.swift
+Views/Components/SegmentedLinearProgressBar.swift
+Views/Components/SegmentedProgressRing.swift
 Views/Components/ToggleTraitModifier.swift
+Views/Components/VolumeIndicatorView.swift
 Views/ContentView.swift
 Views/PlayerPage.swift
 Views/PomodoroTimerPickerView.swift
@@ -316,100 +530,165 @@ Views/WatchReviewView.swift
 
 ```
 AnimationDurations.swift
+AppBuildMetadata.swift
 AppGroupDefaults.swift
 ArchiveExtractionLimits.swift
+BatchQueueRunner.swift
+BookProgressSegmentMetrics.swift
+BookmarkReviewItem.swift
+CardTapDecision.swift
 ChimeSound.swift
 Database/AlignmentAnchorRecord.swift
+Database/BatchQueueRecord.swift
 Database/BookmarkRecord.swift
 Database/ChapterRecord.swift
 Database/ClozeParser.swift
+Database/DAOs/ABSServerDAO.swift
 Database/DAOs/AlignmentAnchorDAO.swift
 Database/DAOs/AudiobookDAO.swift
+Database/DAOs/BatchQueueDAO.swift
 Database/DAOs/BookmarkDAO.swift
 Database/DAOs/ChapterDAO.swift
+Database/DAOs/ContextMemoryDAO.swift
+Database/DAOs/DeckDAO.swift
 Database/DAOs/EPubBlockDAO.swift
 Database/DAOs/EPubTOCEntryDAO.swift
 Database/DAOs/FlashcardDAO.swift
+Database/DAOs/LibraryRootDAO.swift
+Database/DAOs/NarrationQualityIssueDAO.swift
 Database/DAOs/NoteDAO.swift
+Database/DAOs/PDFBlockPageDAO.swift
 Database/DAOs/PlannedSessionDAO.swift
 Database/DAOs/PlaybackEventDAO.swift
 Database/DAOs/RealTimeEventDAO.swift
+Database/DAOs/StudyAutoExportDAO.swift
+Database/DAOs/StudyPlanDAO.swift
 Database/DAOs/TimelineDAO.swift
 Database/DAOs/TrackDAO.swift
 Database/DAOs/TranscriptionDAO.swift
+Database/DAOs/VoiceMemoDAO.swift
+Database/DAOs/WordTimingDAO.swift
 Database/DatabaseService.swift
 Database/Deck.swift
 Database/EPubBlockRecord.swift
 Database/EPubTOCEntryRecord.swift
+Database/FSRSMigration.swift
 Database/FSRSScheduler.swift
 Database/Flashcard.swift
 Database/MarkedPassageRecord.swift
-Database/MigrationService.swift
-Database/Migrations/Schema_V11.swift
-Database/Migrations/Schema_V12.swift
-Database/Migrations/Schema_V13.swift
-Database/Migrations/Schema_V14.swift
-Database/Migrations/Schema_V15.swift
-Database/Migrations/Schema_V16.swift
-Database/Migrations/Schema_V17.swift
-Database/Migrations/Schema_V18.swift
-Database/Migrations/Schema_V19.swift
-Database/Migrations/Schema_V20.swift
-Database/Migrations/Schema_V21.swift
-Database/Migrations/Schema_V22.swift
-Database/Migrations/Schema_V23.swift
+Database/Migrations/Schema_V25.swift
+Database/Migrations/Schema_V26.swift
+Database/Migrations/Schema_V27.swift
+Database/Migrations/Schema_V28.swift
+Database/Migrations/Schema_V29.swift
+Database/Migrations/Schema_V30.swift
+Database/Migrations/Schema_V31.swift
+Database/Migrations/Schema_V32.swift
+Database/Migrations/Schema_V33.swift
+Database/Migrations/Schema_V34.swift
+Database/NarrationQualityIssueRecord.swift
 Database/NoteRecord.swift
+Database/PDFBlockPageRecord.swift
 Database/PlannedSessionRecord.swift
 Database/RealTimeEventRecord.swift
+Database/ReviewGrade.swift
 Database/SM2Scheduler.swift
 Database/SchedulingAlgorithm.swift
 Database/Schema_V1.swift
-Database/Schema_V2.swift
-Database/Schema_V3.swift
-Database/Schema_V4.swift
-Database/Schema_V5.swift
-Database/Schema_V6.swift
-Database/Schema_V7.swift
-Database/Schema_V8.swift
-Database/Schema_V9.swift
+Database/StudyPlan.swift
+Database/StudyPlanItem.swift
 Database/TimelineItem.swift
 Database/TrackRecord.swift
 Database/TranscriptionRecord.swift
 Database/TranscriptionWord.swift
+Database/VoiceMemoRecord.swift
+Database/WordTimingRecord.swift
+DictionaryLookupTerm.swift
 EPUBBlockParser.swift
 EPUBHeuristicEngine.swift
+EPUBStructureChaptering.swift
 EPUBXMLParsing.swift
 EnhancedTranscriptionSegment.swift
+FeedAccordion.swift
+FeedbackSupport.swift
 FileLocations.swift
 HeadingClassifier.swift
 ImageEncoding.swift
 KeychainStore.swift
 LayoutPreset.swift
 Logger+Subsystem.swift
-MediaPlayable.swift
+MacPlaybackResumeState.swift
+MarkdownInlineFormatter.swift
+Models/Bookmark.swift
 Models/PDFViewState.swift
+Models/SessionSummary.swift
+NarrationNudgePolicy.swift
+NarrationTrackOrdering.swift
+Networking/AnthropicMessagesClient.swift
+Networking/LooseJSONExtractor.swift
 NotificationNames.swift
+ReaderActiveBlockResolver.swift
 ReaderSettings.swift
 SafeFileName.swift
+Services/AI/AIProviderConfig.swift
+Services/AI/AIProviderConnectionTester.swift
+Services/AI/AIProviderSettingsStore.swift
+Services/AI/AnthropicStudyDeckGenerator.swift
+Services/AI/FoundationModelsStudyDeckGenerator.swift
+Services/AI/StudyDeckBatcher.swift
+Services/AI/StudyDeckFMAvailability.swift
+Services/AI/StudyDeckOutputValidation.swift
+Services/AI/StudyDeckPromptBuilder.swift
+Services/APIKeyStore.swift
+Services/ChapterAudioStatusResolver.swift
 Services/ChapterCardDrafter.swift
+Services/FeedFilterModel.swift
+Services/FeedScopeResolver.swift
+Services/FixtureStudyDeckGenerator.swift
+Services/SessionSummaryService.swift
+Services/StudyChapterRetireService.swift
+Services/StudyDeckAcceptanceService.swift
+Services/StudyDeckDraftDeduplicator.swift
+Services/StudyDeckGenerating.swift
+Services/StudyDeckGenerationTypes.swift
+Services/StudyDeckSourceBuilder.swift
+Services/StudyPlanGenerator.swift
+Services/StudyPlaybackQueueService.swift
+Services/StudyQueueBuilder.swift
+SessionScopeReducer.swift
 SoundscapePreset.swift
+SourceAnchoredCardTriggerResolver.swift
 StandaloneTranscriptRecord.swift
+Stats/FlashcardReviewMetadata.swift
 Stats/PlaybackSegmentBuilder.swift
 Stats/StatsAggregator.swift
 Stats/StatsModels.swift
 Stats/StatsRepository.swift
 String+Levenshtein.swift
+Study/StudyCheckpointTypes.swift
+Study/StudyPlanTypes.swift
+Study/VocabularyCardBuilder.swift
+Study/VocabularyCardContext.swift
 SyncMarker.swift
 TabSelection.swift
 TextAlignmentUtilities.swift
+TextDocumentParser.swift
 TimeFormatting.swift
 TranscriptionSegment.swift
 URL+SHA256.swift
 VisualizerFrame.swift
 WatchAction.swift
+WatchCrownVolume.swift
 WatchFlashcard.swift
 WatchMessageKey.swift
+WatchProgressRingMetrics.swift
+WatchReviewFeedbackPolicy.swift
+WatchReviewQueueStore.swift
+WidgetPlaybackState.swift
 WordFrequency.swift
+WordSentenceContext.swift
+WordTimingInterpolator.swift
+WordTokenizer.swift
 ```
 
 ## Echo Widget
@@ -437,30 +716,36 @@ Alignment is now performed entirely in-app, without any external tools or API ca
 
 1. **EPUB / Text-Document Import:** When the user adds a companion document, the appropriate parser produces an `EPUBBlockParse` value consumed by a shared persist phase:
 
-   - **EPUB** (`EPUBImportService`) parses the file into `epub_block` records (headings, paragraphs, images) stored in the database.
-   - **Markdown / plain text** (`TextDocumentParser`, `Shared/`) — `.md`/`.markdown`/`.txt` files are parsed into the same `EPUBBlockParse` that the EPUB parser emits, producing one synthetic spine entry per chapter. Markdown chapter breaks follow the heading hierarchy (chapter level = shallowest repeating heading level; a lone leading `#` is front matter; deeper headings are in-chapter section headings). Plain text uses heuristic detection ("Chapter N", multi-word or ≥6-letter ALL-CAPS title lines) and falls back to a single chapter. Bold, italic, and strikethrough are preserved as `TextFormat` spans; code blocks, tables, and images are omitted from narration output. A `TextAutoImportScanner` drives the text import path, analogous to `EPUBAutoImportScanner` for EPUBs.
+   - **EPUB** (`EPUBImportService`) parses the file into `epub_block` records (headings, paragraphs, images, and code) stored in the database. XHTML `<pre>` content becomes a `.code` block: its raw whitespace-preserved listing stays in `text`, its listing caption (or `"Code listing."`) is stored in `narration_text`, and an optional class-derived language hint is stored in `code_language` (Schema V36).
+   - **Markdown / plain text** (`TextDocumentParser`, `Shared/`) — `.md`/`.markdown`/`.txt` files are parsed into the same `EPUBBlockParse` that the EPUB parser emits, producing one synthetic spine entry per chapter. Input is normalized once from CRLF or bare CR into logical LF lines before fence scanning, so Windows/classic-Mac line endings cannot add blank code lines or swallow fence boundaries. Markdown chapter breaks follow the heading hierarchy (chapter level = shallowest repeating heading level; a lone leading `#` is front matter; deeper headings are in-chapter section headings). Plain text uses heuristic detection ("Chapter N", multi-word or ≥6-letter ALL-CAPS title lines) and falls back to a single chapter. Bold, italic, and strikethrough are preserved as `TextFormat` spans; Markdown backtick/tilde fences become `.code` blocks with preserved internal whitespace and an optional info-string language hint, while tables and images remain omitted. A `TextAutoImportScanner` drives the text import path, analogous to `EPUBAutoImportScanner` for EPUBs.
+   - **PDF** (`PDFAutoImportScanner`, `EchoCore/Services`) extracts each page's text with **PDFKit** (run off the main actor in a detached task) and feeds the same `EPUBBlockParse` → shared persist phase. Page line breaks are **preserved**, so a standalone "Chapter N" / "Part N" line is still detected as a chapter marker (the same per-line `tokenizePlainText` pass the text path uses); the tokenizer reflows the remaining wrapped lines back into paragraphs. When a marker-less PDF has more than one page, it falls back to **one synthetic narration chapter per page** (`parsePDFPagesAsPlainTextChapters`, `Shared/TextDocumentParser.swift`) so a long PDF doesn't become a single enormous narration batch. **Reachable from** the headless narration runner / `echo-cli narrate` and from iOS folder import (a `.pdf` inside an opened folder); **not yet wired** to the iOS document picker (no PDF `UTType`) or any macOS-app path (the macOS open panel and batch importer don't accept PDFs).
 
-   Both paths share a **`EPUBImportService.import(parse:audiobookID:chapters:bookDuration:assetBaseURL:)`** persist phase (writes `epub_block` rows) and a **`DocumentImportFinalizer.finalize(...)`** tail (writes alignment anchors and the timeline tail). This seam means the narrate, read-along, and chaptered-playback pipeline is reused unchanged. No schema migration is needed — text-document blocks use the existing `epub_block` table (schema head V23).
+   These import paths share a **`EPUBImportService.import(parse:audiobookID:chapters:bookDuration:assetBaseURL:)`** persist phase (writes `epub_block` rows) and a **`DocumentImportFinalizer.finalize(...)`** tail (writes alignment anchors and the timeline tail). This seam means the narrate, read-along, and chaptered-playback pipeline is reused unchanged. Text-document and PDF blocks reuse the existing `epub_block` table; Schema V36 adds only the nullable `code_language` column used by EPUB and Markdown code blocks.
 
-   **Out of scope (future work):** attaching a text file to an existing audio book for read-along; rendering-but-not-speaking code blocks; image resolution; multi-file (folder-of-`.md`) books.
+   **Out of scope (future work):** attaching a text file to an existing audio book for read-along; table support; PDF code detection; syntax highlighting; deck-card code images; image resolution; multi-file (folder-of-`.md`) books.
 
    The spine walk, heuristic block classification, and stable block-ID assignment (`epub-<audiobookID>-s<i>-b<j>`) live in the shared `parseEPUBBlocks` driver (`Shared/EPUBBlockParser.swift`), consumed by **both** this importer and the macOS aligner so the content-stable block-ID **suffix** (`s<i>-b<j>`) is identical across devices (CODE_AUDIT.md §5.1); the device-local `epub-<audiobookID>-` prefix differs per install and is re-applied on import (see **Mac → device alignment handoff** below). Parsing applies three correctness passes:
-   - **Whitespace normalization:** XHTML text accumulates with collapsing whitespace (`collapsedWhitespace()` / entity-split-safe chunk joining in `XHTMLBlockDelegate`), so pretty-printed source line breaks never reach `epub_block.text`, and words split by XML entity references (`it&#8217;s`) stay intact. Structural element boundaries (`<br>`, table cells, divs — anything not an inline formatting tag) inject a collapsible space, so titles split across child elements (`<span>Chapter 1</span><br/><span>A Pragmatic Philosophy</span>`, `<td>Topic 3</td><td>Software Entropy</td>`) read as separate words while mid-word inline markup (`<em>un</em>do`) stays glued. NCX/nav TOC labels and document titles are normalized the same way.
-   - **Front-matter classification:** the importer reads the EPUB's structural metadata — spine `linear="no"`, the EPUB 2 `<guide>` (`type="text"` = body start), and EPUB 3 nav landmarks (`epub:type="bodymatter"`) — to flag blocks before body matter as `is_front_matter` (Schema V12). Heading-less spines whose only available title is non-content per `HeadingClassifier` (cover, praise, printed TOC, …) are also flagged when no content heading has appeared yet. Front-matter spines never receive synthesized fallback headings, so cover/praise pages no longer become junk chapters. `HeadingClassifier` is the single source of truth for junk-heading rules shared by import, the reader feed, and the TOC sheet.
-   - **TOC hierarchy (Schema V13):** `TOCParserDelegate` preserves the publisher's declared TOC tree — NCX `navPoint` nesting (EPUB 2) or nav `<ol>` nesting (EPUB 3) — as `TOCEntryNode` values instead of flattening to per-file labels. At import, `EPUBImportService.resolveTOCEntries` maps each entry to a concrete block (fragment anchor → first heading → first block; `XHTMLBlockDelegate` records element `id`s per block as `anchorIDs` for the fragment step) and persists the tree as `epub_toc_entry` rows. Fragment-resolved targets that aren't `<h1>`–`<h6>` (e.g. The Pragmatic Programmer's table-marked "Topic N" titles) are promoted to heading blocks when their text essentially matches the TOC label (normalized + Levenshtein ≥ 0.85 gate so body prose is never promoted). `TOCTreeBuilder.build(from:tocEntries:)` renders the TOC sheet from these entries (publisher titles + nesting) and falls back to heading inference only when a book declares no TOC; the reader breadcrumb (`ReaderFeedViewModel`) likewise derives ancestry from the entry path at the block's sequence position, appending deeper in-file headings, with the heading-level cascade as fallback.
+   - **Whitespace normalization:** XHTML prose accumulates with collapsing whitespace (`collapsedWhitespace()` / entity-split-safe chunk joining in `XHTMLBlockDelegate`), so pretty-printed source line breaks never reach prose `epub_block.text`, and words split by XML entity references (`it&#8217;s`) stay intact. Structural element boundaries (`<br>`, table cells, divs — anything not an inline formatting tag) inject a collapsible space, including while a `<figcaption>` is being accumulated, so titles and captions split across child elements read as separate words while mid-word inline markup (`<em>un</em>do`) stays glued. NCX/nav TOC labels and document titles are normalized the same way. `<pre>` is the deliberate exception: the parser captures its characters verbatim (including nested `<code>` text and `<br>` line breaks), trims only leading/trailing blank lines, and preserves indentation and internal newlines. Code-language extraction accepts compact or spaced `brush:` forms and strips an optional trailing semicolon.
+   - **Front-matter classification:** the importer reads the EPUB's structural metadata — spine `linear="no"`, the EPUB 2 `<guide>` (`type="text"` = body start), and EPUB 3 nav landmarks (`epub:type="bodymatter"`) — to flag blocks before body matter as `is_front_matter` (Schema V12). Heading-less spines whose only available title is non-content per `HeadingClassifier` (cover, praise, printed TOC, …) are also flagged when no content heading has appeared yet. When no body-start metadata exists, a conservative title-keyword tier also keeps heading-bearing title, copyright, dedication, epigraph, contents, half-title, frontispiece, also-by, about-the-author, and acknowledgement spines in front matter until the first real content heading. Front-matter spines never receive synthesized fallback headings, so cover/praise/title/copyright pages no longer become junk chapters. `HeadingClassifier` is the single source of truth for junk-heading rules shared by import, the reader feed, and the TOC sheet.
+   - **TOC hierarchy (Schema V13):** `TOCParserDelegate` preserves the publisher's declared TOC tree — NCX `navPoint` nesting (EPUB 2) or nav `<ol>` nesting (EPUB 3) — as `TOCEntryNode` values instead of flattening to per-file labels. At import, `EPUBImportService.resolveTOCEntries` maps each entry to a concrete block (fragment anchor → first heading → first block; `XHTMLBlockDelegate` records element `id`s per block as `anchorIDs` for the fragment step) and persists the tree as `epub_toc_entry` rows. Fragment-resolved targets that aren't `<h1>`–`<h6>` (e.g. The Pragmatic Programmer's table-marked "Topic N" titles) are promoted to heading blocks when their text essentially matches the TOC label (normalized + Levenshtein ≥ 0.85 gate so body prose is never promoted). `TOCTreeBuilder.build(from:tocEntries:)` renders the TOC sheet from these entries (publisher titles + nesting) and falls back to heading inference only when a book declares no TOC; the reader breadcrumb (`ReaderFeedViewModel`) likewise derives ancestry from the entry path at the block's sequence position, appending deeper in-file headings, with the heading-level cascade as fallback. `EPUBStructureChaptering` uses the same resolved structure for audio books without chapter markers and ignores front-matter TOC anchors when deriving chapter indices.
 2. **Auto-Alignment (on-device, word-timestamp pipeline):** `AutoAlignmentService` aligns EPUB blocks to audio using on-device speech recognition (WhisperKit + CoreML) and dynamic time warping. Each run first deletes every machine-made anchor (`auto-tier0-`/`auto-dtw-`/`auto-continuous-`) so re-alignment can correct earlier results; human-made anchors survive and their blocks are never re-anchored.
    - **Tier 0 — Metadata Title Matching (bootstrap):** `ChapterTitleMatcher` compares audiobook chapter titles (from M4B metadata) to EPUB heading blocks using composite Levenshtein + Jaccard fuzzy scoring. Matches create *bootstrap* anchors at track starts so the timeline takes rough shape before transcription; content alignment still runs on every chapter and supersedes a Tier 0 anchor when it finds a strong content match for the same block. Generic numeric track labels ("Chapter 7", "Pt. 2", "12") are excluded — M4B metadata numbers *tracks*, not book chapters (track 1 is often opening credits). Titles whose numbers contradict the heading's number are vetoed outright, and each heading block accepts at most one chapter match.
-   - **Content alignment — capture → word timestamps → gated DTW:** For every chapter, `AlignmentChunkPlanner` plans bounded capture windows (15–45 s, cut at `SilenceDetectionService` silence midpoints, hard-capped when no silence is in reach). `AudioSegmentReader` reads each window straight from the audio file (never the playback graph) and WhisperKit transcribes it with `wordTimestamps: true`. `AlignmentTranscript` harvests **every** `TranscriptionResult` (VAD chunking returns one per internal window) into `TranscribedWord`s carrying real per-word times — no token time is ever fabricated from a constant-rate spread. `TokenDTW.alignWithBisection` then warps EPUB tokens (digits expanded to spoken number words, so "Chapter 2" matches "chapter two") against the audio tokens. The chapter's blocks are joined by a 12-block slack margin from each neighbouring chapter, because chapter indices are word-count *estimates* and boundary text routinely lands in the wrong bin.
+   - **Content alignment — capture → word timestamps → gated DTW:** For every chapter, `AlignmentChunkPlanner` plans bounded capture windows (15–45 s, cut at `SilenceDetectionService` silence midpoints, hard-capped when no silence is in reach). `AudioSegmentReader` reads each window straight from the audio file (never the playback graph) and WhisperKit transcribes it with `wordTimestamps: true`. `AlignmentTranscript` harvests **every** `TranscriptionResult` (VAD chunking returns one per internal window) into `TranscribedWord`s carrying real per-word times — no token time is ever fabricated from a constant-rate spread. `TokenDTW.alignWithBisection` then warps EPUB tokens (digits expanded to spoken number words, so "Chapter 2" matches "chapter two") against the audio tokens. `CommercialAudioAlignmentSource` excludes `.code` blocks from full on-device DTW, continuous matching, stored-transcript/source-backed alignment, and macOS DTW because commercial narration skips listings rather than reading raw syntax. The same policy gives code zero word weight in both import-time audio-chapter estimates and AutoAlignment's nil-chapter repair, so a large listing cannot push later prose into the wrong track. The chapter's blocks are joined by a 12-block slack margin from each neighbouring chapter, because chapter indices are word-count *estimates* and boundary text routinely lands in the wrong bin.
    - **Anchor gating:** DTW emits `AnchorCandidate`s (block, time, strong-run length); `AnchorSelector` keeps only candidates inside a strong match run (≥3 consecutive exact/prefix token matches) and enforces time monotonicity along reading order (the weaker run loses a conflict). Substitutions cost more than gaps in the DTW, so never-narrated text (front matter, mis-binned blocks, hallucinations) is skipped rather than force-matched — those blocks get **no** anchor and are bridged by interpolation. Anchors insert per-chapter, so alignment improves progressively during a run and partial results survive cancellation.
    - **Memory guard:** `alignWithBisection` recursively bisects the audio at the largest inter-word gap (≈ a paragraph pause) whenever the DTW matrix would exceed ~48 M cells, with overlapping EPUB seams — so single-chapter or multi-hour tracks can't exhaust memory.
    - **Fine-Tuning:** `fineTuneManualAlignment(blockID:around:)` captures a 10 s window (±5 s) around a user-specified time, matches it against the target block, and back-projects the block's first-word time from real word timestamps (`AlignmentTranscript.projectBlockStart`).
 3. **Global flat interpolation:** `AlignmentService.recalculateTimeline()` uses dynamic CPS (characters-per-second) computed from existing locked anchors to project synthetic boundary positions, rather than hardcoding time 0.0 and total duration. This produces more accurate extrapolation when anchors exist near but not at the book's edges.
-4. **Mac → device alignment handoff (`alignment.json` sidecar):** `audiobookID` — and therefore the full block-ID prefix `epub-<audiobookID>-` — is device-local (`folderURL.absoluteString` differs per install), so a Mac-aligned anchor cannot carry its raw block ID to another device. Instead **both** `MacAlignmentService` (after DTW alignment) and `MacBatchProcessingService` (after on-device narration — where the per-block synthesized anchors are *exact*, converted from per-chapter-relative to absolute m4b times) write an `alignment.json` sidecar next to the EPUB holding each anchor's content-stable **portable suffix** (`s<i>-b<j>`) plus its audio time (`AlignmentSidecar`, the shared contract). When the same EPUB is later imported elsewhere (e.g. pulled from Audiobookshelf), `EPUBAutoImportScanner` → `DocumentImportFinalizer` re-prefixes each suffix with the importing device's local `audiobookID`, drops any that don't resolve to a local block, and ingests the rest — so batch alignment done once on the Mac becomes read-along on the phone. This sidecar is the only cross-device path that resolves; the public-CloudKit community-anchor route cannot, because it matches on device-local block IDs.
-4. **Manual refinement:** The user long-presses any card in the Reader and chooses "Align to Now", "Align to 5s Ago", "Align to Chapter Start", or "Align to Chapter End" to lock that block to a specific timestamp. Each locked anchor improves the accuracy of neighboring blocks through proportional interpolation.
-5. **Timeline recalculation:** `AlignmentService.recalculateTimeline()` runs in a single DB transaction, updating all affected `timeline_item` rows with new interpolated timestamps, including `audioEndTime` computed from the next visible block's start time.
-6. **Block/chapter hiding:** Users can mark individual blocks ("Not in Audio (This Paragraph)") or entire chapters ("Not in Audio (Whole Chapter)") as hidden when the EPUB contains content not present in the audiobook narration. Hidden blocks get `alignment_status = omitted`, `is_enabled = false`. The `hideChapter(chapterIndex:reason:)` method on `AlignmentService` batch-hides all blocks in a chapter.
-7. **Continuous Alignment:** `ContinuousAlignmentService` (opt-in via `continuousAutoAlignmentEnabled` setting) periodically transcribes the 15 s of audio behind the playback position and inserts a correction anchor when the transcript confidently matches a nearby block. It reads the audio *file* at media time via `AudioSegmentReader` — the earlier output-mixer tap sat after the time-pitch node, so at non-1× speeds every captured window was time-compressed and anchors landed early by the speed factor. Anchors require ≥8 transcribed words and a sane projection range; they are cleared by the next full auto-alignment run.
-8. **CloudKit Sync:** `CloudKitSyncService` synchronizes alignment anchors across devices via CloudKit, ensuring manual and auto-alignment work is shared.
+4. **Mac → device alignment handoff (`alignment.json` sidecar):** `audiobookID` — and therefore the full block-ID prefix `epub-<audiobookID>-` — is device-local (`folderURL.absoluteString` differs per install), so a Mac-aligned anchor cannot carry its raw block ID to another device. Instead **both** `MacAlignmentService` (after DTW alignment) and `MacBatchProcessingService` (after on-device narration — where the per-block synthesized anchors are *exact*, converted from per-chapter-relative to absolute m4b times) write an `alignment.json` sidecar next to the EPUB holding each anchor's content-stable **portable suffix** (`s<i>-b<j>`) plus its audio time (`AlignmentSidecar`, the shared contract). Current producers also attach `sourceBlockIdentity`, a SHA-256 digest over canonical cross-path fields: portable suffix, spine href, raw source text, and source-derived code cue/language. Device-local prefixes, import-derived heading/chapter changes, mutable prose narration normalization, and reconstructed presentation HTML are excluded. When the same EPUB is later imported elsewhere (e.g. pulled from Audiobookshelf), `EPUBAutoImportScanner` → `DocumentImportFinalizer` applies the same validation policy as `echo-cli verify-sidecar`: an identity-bearing sidecar is accepted only when every anchor resolves, carries an identity, and matches before any anchor replacement. Missing, mismatched, or foreign identities reject the entire sidecar, so batch alignment done once on the Mac becomes read-along on the phone without silently binding a shifted suffix or deleting good machine anchors for a partial match. Legacy suffix-only sidecars remain permissive for code-free sources, including dropping foreign anchors; a code-bearing re-import marks them `staleSource`, because newly recognized listing blocks can shift every later suffix. Existing human and machine anchors survive stale/unresolved fallback. This sidecar is the only cross-device path that resolves; the public-CloudKit community-anchor route cannot, because it matches on device-local block IDs. Echo-generated narration sidecars (`echo-cli narrate` / `HeadlessNarrationRunner`) additionally carry an optional per-anchor `words` array — the synthesizer's known-true per-word `[start, end)` times, absolute in the anchor's timebase, array order == `word_timing.wordIndex` (whitespace tokenization per `WordTokenizer`) — which the importer applies as `word_timing` rows with source `"sidecar"` (confidence 0.9, same as synthesis-time rows). `NarratedBlockText` is shared by sidecar verification and word materialization, so a `.code` block consistently uses its caption/`"Code listing."` fallback instead of raw syntax. Optional keys are omitted when absent and old decoders ignore them; per-block word-count mismatches fall back to interpolation, and a later in-app machine re-alignment supersedes sidecar words. The Mac DTW paths remain anchors-only.
+
+   **Import hardening — word-level read-along can't silently degrade (J-Space QA, 2026-07-17).** `DocumentImportFinalizer` guarantees that *every* finalize path ends with a materialized timeline (at minimum interpolated `word_timing` rows), so a book never falls back to an empty table and block-level highlighting without a recorded reason. A sidecar that is **found but unresolved** (zero portable `s<i>-b<j>` ids resolve), **stale for the current source**, **malformed**, or an **undownloaded iCloud placeholder** no longer writes nothing: it falls through to the CloudKit/first-last interpolation floor (unless a prior auto-align/manual alignment exists, which is preserved rather than downgraded). Discovery is dataless-iCloud aware — `resolveSidecar` detects hidden `.<name>.alignment.json.icloud` placeholders that `.skipsHiddenFiles` scans miss, calls `startDownloadingUbiquitousItem` with a bounded (~8 s) wait, and records `notDownloaded` if it can't materialize in time. Discovery also runs off the **m4b** on the audio import path (`PlayerLoadingCoordinator.performPostLoadTasks` calls `finalizeExistingImportIfAlignmentSidecarPresent(fileURL: trackURL)`), so a `<m4b-base>.alignment.json` resolves even when the epub-keyed lookup doesn't, and this same reopen path **backfills** a sidecar (word timings included, not just anchors) that appears or finishes downloading after the first import. Each finalize records a per-book `SidecarImportSummary` snapshot (found / applied / blocks matched / words written / status) via `BookPreferencesService` (UserDefaults — no schema migration), which **Book Settings** surfaces as one line ("Read-along: word-level (sidecar, 741/755 blocks)" vs "paragraph-level — alignment file is stale for this source"), the observability the QA flagged as missing.
+
+   **Fallback narration sidecar tooling.** When audio is produced outside Echo's native narration path, `echo-cli sidecar-from-chaptered-audio --epub <source.epub|source.pdf|folder> --audio <book.m4b|chapter-audio-folder> --out <book.alignment.json>` builds a lower-confidence estimated sidecar without re-synthesizing or transcribing the book. `SidecarSourceBlockLoader` imports the EPUB/PDF through the same block parser/import stack as `echo-cli narrate`; `ChapteredAudioTimingReader` reads chapter spans from an M4B/M4A or estimates them from a sorted directory of per-chapter audio files; `EstimatedAlignmentSidecar` then places one portable, source-identified `s<i>-b<j>` anchor per readable text block by word-count interpolation inside the matching chapter. The default confidence is `0.5`, deliberately below native synthesized anchors. `echo-cli verify-sidecar --epub <source> --audio <audio> --sidecar <book.alignment.json>` is the packaging gate: it applies the shared source-identity/legacy-code policy, verifies each portable suffix resolves to a local readable block, checks timestamp monotonicity and audio-duration bounds, requires every audio chapter to have at least one resolved anchor, and — when an anchor carries `words` — verifies the array is non-empty with monotonic starts, valid `[start, end)` ranges, a first word at/after its anchor timestamp, and a word count equal to `NarratedBlockText` (ordinary source text or the resolved code caption/fallback), before a fallback render is called Echo-ready.
+   `echo-cli export-blocks --epub <source.epub|expanded-folder> --out <blocks.json>` exports v2 sidecar-parity JSON for external packaging tools. It accepts only a direct regular `.epub` file or an expanded EPUB directory at the exact supplied path: regular files carry a lowercase SHA-256 over their exact archive bytes, while expanded directories encode `source.epubSHA256: null` and cannot satisfy file-bound consumers. PDFs, generic container directories (including directories that merely contain an EPUB/PDF), nonregular inputs, and symbolic links are rejected before loading so source identity cannot drift from the imported path.
+5. **Manual refinement:** The user long-presses any card in the Reader and chooses "Align to Now", "Align to 5s Ago", or "Align to Chapter Start" (which opens a chapter picker and anchors the block to the chosen chapter's start time, persisted with source `chapterBoundary`) to lock that block to a specific timestamp. Each locked anchor improves the accuracy of neighboring blocks through proportional interpolation.
+6. **Timeline recalculation:** `AlignmentService.recalculateTimeline()` runs in a single DB transaction, updating all affected `timeline_item` rows with new interpolated timestamps, including `audioEndTime` computed from the next visible block's start time.
+7. **Block/chapter hiding:** Users can mark individual blocks ("Not in Audio (This Paragraph)") or entire chapters ("Not in Audio (Whole Chapter)") as hidden when the EPUB contains content not present in the audiobook narration. Hidden blocks get `alignment_status = omitted`, `is_enabled = false`. The `hideChapter(chapterIndex:reason:)` method on `AlignmentService` batch-hides all blocks in a chapter.
+8. **Continuous Alignment:** `ContinuousAlignmentService` (opt-in via `continuousAutoAlignmentEnabled` setting) periodically transcribes the 15 s of audio behind the playback position and inserts a correction anchor when the transcript confidently matches a nearby block. It reads the audio *file* at media time via `AudioSegmentReader` — the earlier output-mixer tap sat after the time-pitch node, so at non-1× speeds every captured window was time-compressed and anchors landed early by the speed factor. Anchors require ≥8 transcribed words and a sane projection range; they are cleared by the next full auto-alignment run.
+9. **CloudKit Sync:** `CloudKitSyncService` synchronizes alignment anchors across devices via CloudKit, ensuring manual and auto-alignment work is shared. It intentionally uses CloudKit's **public** database for shared anchors: the feature is community reuse/discovery keyed by book metadata, not a personal/private device-sync channel. Public records are treated as untrusted input. Echo uploads only non-synthesized anchors, stores suffix-only portable block IDs instead of device-local audiobook or EPUB block IDs, fetches the deterministic SHA-256 record name instead of querying arbitrary public metadata matches, bounds both anchor count and encoded payload bytes, attributes writes with a SHA-256 hash of the uploader's CloudKit user record name (never the raw record name), throttles local per-record uploads to roughly five per hour, rejects malformed/oversized/too-many-anchor payloads before decode/merge, validates remote timestamps against the local audiobook duration, and drops anchors whose EPUB block IDs do not exist locally.
 
 **Dynamic CPS projection (AlignmentService):**
 
@@ -482,7 +767,7 @@ Earlier alignment used sequence-index-based linear interpolation, which assumed 
 
 **Key types:**
 
-- `AlignmentService` — Creates anchors and recalculates timeline via word-count-weighted proportional interpolation between locked and synthetic boundary anchors. Uses dynamic CPS projection for synthetic boundary placement. Supports `eraseAnchor(blockID:)`, `resetAlignment()`, `hideBlock(blockID:reason:)`, `hideChapter(chapterIndex:reason:)`, and `anchorChapterEnd(blockID:chapterIndex:time:)` for anchor and content management.
+- `AlignmentService` — Creates anchors and recalculates timeline via word-count-weighted proportional interpolation between locked and synthetic boundary anchors. Uses dynamic CPS projection for synthetic boundary placement. Supports `eraseAnchor(blockID:)`, `resetAlignment()`, `hideBlock(blockID:reason:)`, and `hideChapter(chapterIndex:reason:)` for anchor and content management.
 - `ChapterTitleMatcher` — Tier 0 metadata-based matcher that compares audiobook chapter titles (from M4B metadata) to EPUB headings using composite Levenshtein + Jaccard fuzzy scoring. Runs before any ML model loading; matches become bootstrap anchors that content alignment later refines or supersedes. Skips generic numeric track labels (`isGenericNumericTitle`), vetoes matches with contradicting numbers, and returns at most one chapter per heading block.
 - `AutoAlignmentService` — WhisperKit-based auto-alignment orchestrator: Tier 0 bootstrap, then per-chapter content alignment (chunk planning → word-timestamp transcription → gated DTW → per-chapter anchor insertion) and manual fine-tuning. Reports progress via `AutoAlignmentState` for UI binding.
 - `AlignmentTranscript` / `TranscribedWord` — Bridge from WhisperKit output to the alignment pipeline: flattens *all* `TranscriptionResult`s (VAD chunking yields one per window) into words with absolute per-word timestamps, falling back to per-segment spreading only when a segment lacks word data. Also hosts `projectBlockStart(words:matchedBlockWindowStart:)`, the word-rate back-projection used by fine-tune and continuous alignment, and `transcribeWords(with:samples:captureStart:)`, the single home of the pipeline's `DecodingOptions`.
@@ -503,6 +788,41 @@ Earlier alignment used sequence-index-based linear interpolation, which assumed 
 - `TimestampSource` — Enum: `.lockedAnchor`, `.interpolated`, `.estimated`, `.none`
 - `AlignmentStatus` — Enum: `.lockedAnchor`, `.interpolated`, `.estimated`, `.unaligned`, `.omitted`
 
+### Audio-Only Book Transcription & Read-Along (M1, Schema V29)
+
+Audio-only books (imported M4B/MP3 without a companion EPUB or text document) can now be **transcribed on-device** and opened in the reader for read-along with word highlight, search-to-seek, tap-to-seek, and study anchoring — the same features EPUB books already have.
+
+1. **Transcription (`StandaloneTranscriptionService`):** When the user taps "Transcribe" on an audio-only book, `StandaloneTranscriptionService` transcribes the audio using WhisperKit (on-device CoreML, the same model the auto-alignment pipeline uses). The service is keyed by the canonical `folderURL` id so it is **resumable**: if interrupted, transcription picks up from the last completed chapter rather than starting over. Each chapter is transcribed independently and results are persisted as `TranscriptionRecord` / `TranscriptionWord` rows in the database.
+2. **Materialization (`TranscriptMaterializer`):** Once transcription finishes, `TranscriptMaterializer` projects the raw transcription rows into the same `epub_block`, `timeline_item`, and `word_timing` tables the reader and alignment pipeline already consume. Materialized blocks carry `transcript-<id>-c<n>-s<n>` block IDs (distinct from `epub-` prefixed EPUB blocks), and `word_timing` rows carry `source = "transcript"` so downstream code can distinguish them from word timings derived from DTW alignment.
+3. **Provenance marker (`audiobook.text_origin = "transcript"`, Schema V29):** The `audiobook.text_origin` column is set to `"transcript"` when a book's text content comes from on-device transcription rather than an imported EPUB or text document. This marker is critical so M2 (the canonical-source detection pass) never treats a transcribed book as having canonical text that should be diffed or overwritten — the transcript is inherently lossy.
+4. **Orchestration (`TranscribeBookCoordinator`):** `TranscribeBookCoordinator` owns the end-to-end flow: it launches the transcription run, waits for completion, triggers `TranscriptMaterializer` to build the reader tables, sets `audiobook.text_origin = "transcript"`, and then signals the UI to open the reader for the newly materialized book.
+
+**Key types:**
+
+- `StandaloneTranscriptionService` — WhisperKit-based transcription for audio-only books; resumable per chapter, persisted to `TranscriptionRecord`/`TranscriptionWord`.
+- `TranscriptMaterializer` — Pure projection from transcription rows to `epub_block`/`timeline_item`/`word_timing`; produces `transcript-` prefixed block ids and `word_timing.source = "transcript"`.
+- `TranscribeBookCoordinator` — End-to-end orchestration: run → materialize → set provenance marker.
+- `StandaloneTranscriptRecord` — Database record for a standalone transcript's chapter-level metadata.
+- `TranscriptionDAO` — DAO for persisting and querying transcription rows.
+- `TranscriptReaderParityTests` — Test suite verifying that a transcribed book produces the same reader surfaces (block ids, timeline positions, word timings) as an equivalent EPUB-backed book.
+
+### Source-Backed Transcript Alignment (M2, Code-Only)
+
+Books that already have canonical source text (EPUB or PDF import) AND on-device transcription (ASR words persisted in `standalone_transcript`) can now be aligned by reusing the same DTW engine the auto-alignment pipeline uses — without running WhisperKit a second time. The source `epub_block.text` is read-only; alignment writes only `alignment_anchor` rows and refines `word_timing`.
+
+1. **Input builders (`SourceBackedAlignmentCoordinator.epubTokens`, `audioTokens`):** Source blocks (visible, text-bearing EPUB/PDF blocks in reading order) are returned as `TokenDTW.EPubToken`s exactly as the auto-alignment pipeline consumes them. Persisted ASR words are read from `standalone_transcript` rows, ordered by chapter/segment, decoded from `words_json`, and expanded through `TokenDTW.normalize` so digit runs and contractions match the source side.
+2. **DTW alignment + anchor writing (`SourceBackedAlignmentCoordinator.align`):** `TokenDTW.alignWithBisection` runs the memory-guarded DP matrix against the token pair. `AnchorSelector.select` gates the candidates (min strong-run length >=3, monotonic time sweep). Prior `.transcriptAlignment` anchors are cleared by source column so a re-run converges. Each selected candidate becomes one `AlignmentAnchorRecord` with `source = "transcriptAlignment"`. `AlignmentService.insertAnchors` recalculates the timeline and materializes the `word_timing` table.
+3. **Word-timing refinement:** `TokenDTW.wordMatchesWithBisection` emits per-token matches grouped by block, and `WordTimingMaterializer.refine` overrides the interpolated word times with real DTW-derived audio times (`source = "dtw"`, confidence 0.85).
+4. **Low-confidence flagging:** `lowConfidenceWordCount` returns the number of `word_timing` rows whose confidence is below a caller-chosen threshold (default 0.75, which separates interpolated 0.5 from DTW-refined 0.85). Debug UI can use this to highlight likely-misaligned regions.
+5. **Source text invariant:** `epub_block.text` is never modified — the alignment is read-only with respect to source content.
+
+**Key types:**
+
+- `SourceBackedAlignmentCoordinator` — Pure enum with static methods: `epubTokens`, `audioTokens`, `align`, `lowConfidenceWordCount`. Reuses `TokenDTW`, `AnchorSelector`, `AlignmentService`, `WordTimingMaterializer`, and `WordTimingDAO` — no new engine code.
+- `AlignmentAnchorRecord.Source.transcriptAlignment` — The queryable identity marking anchors this coordinator writes. CloudKit's `sourceRank` returns 0 (same tier as other machine-made anchors).
+- `AlignmentAnchorDAO.deleteAnchors(for:source:)` — Source-column-based anchor deletion, used to clear only `.transcriptAlignment` anchors on re-run.
+
+
 ### Word-Level Read-Along & Karaoke (June 2026)
 
 Block-level read-along (the active paragraph) is refined to **word level** so the current word highlights as the narration speaks it, on both the iOS and macOS readers.
@@ -515,19 +835,280 @@ Block-level read-along (the active paragraph) is refined to **word level** so th
 
 For study EPUBs that have **no audiobook**, Echo can generate spoken audio on-device and produce the same sentence-synced, study-ready aligned book. This is **additive** — the WhisperKit alignment pipeline above is untouched and still runs whenever a real audiobook exists. The synthesis path is the *inverse* of alignment: because the audio is generated from the EPUB text, every timestamp is known at synthesis time, so the transcribe-and-DTW recovery step is unnecessary — anchors are written directly.
 
+#### Pronunciation pack, contextual shadowing, and qualification
+
+English narration uses a versioned bundled pronunciation pack. Its strict
+manifest freezes the canonical normalized-entry digest, CMUdict/gold/silver
+source snapshots, generator and normalization behavior, ARPAbet conversion,
+source precedence, automatic-selection and candidate-validation policies,
+Kokoro vocabulary identity, dialect, counts, licenses, and acknowledgments.
+`packVersion` is the SHA-256 identity of those semantic inputs; the RFC 3339
+generation timestamp is audit-only and excluded. Gold and silver remain
+authoritative exclusion inputs, so the CMUdict supplement cannot displace an
+existing Echo entry. A supplemental decision freezes the source-derived
+`candidateID` and semantic `candidatePackVersion`. A morphology decision
+instead freezes its derived candidate ID, morphology-policy pack identity,
+base, and rule.
+
+The context-free fallback for `content` is the material/subject-matter noun.
+The satisfied adjective remains a first-class contextual candidate.
+`content`, `read`, `live`/`lives`, and `record` are Phase 2 shadow families:
+bounded context is evaluated locally on eligible devices, but model output is
+independent audit evidence and cannot change production narration. Echo still
+deploys to iOS 18 and macOS 15; Foundation Models execution is availability-
+gated to iOS 26/macOS 26, with deterministic behavior on older or ineligible
+systems.
+
+Pronunciation audit schema v4 carries a categorized contextual envelope for
+each evaluated occurrence and preserves schema-v3 decoding. A missing current
+envelope yields incomplete evidence rather than fabricated proof. The
+production cache identity includes the semantic pronunciation pack and
+morphology-policy identities, but excludes audit timestamps and shadow
+evidence because neither affects rendered audio. Phase 3 model-controlled
+narration requires a separate approval and is not authorized by Phase 2.
+
+The development-only audio judge accepts direct MP3/WAV files only from short
+public-domain or synthetic clips; private or copyrighted book material and
+metadata never leave the machine. It evaluates files directly with speakers
+muted, verifies the actual media container/codec before every attempt, and
+enforces strict structured-result validation plus durable 200-request/USD 10
+caps. Run IDs are atomically single-use; every transport attempt reserves its
+request number and a conservative estimate derived from the exact request,
+actual payload bytes, and probed duration before sending. Caller token
+estimates, model-authored diagnostic prose, and machine accuracy/human-evidence
+claims are excluded. Missing credentials record `WAITING_FOR_USER`. Machine
+verdicts have no production authority and cannot edit pronunciation data.
+Independent human-labelled qualification data and bounded human listening
+remain mandatory and separate.
+
+For the reviewed two-attempt correction workflow, the append-and-fsync ledger
+event is authoritative and precedes its derived state snapshot and morning
+queue. If publication is interrupted after that commit point, an exact replay
+of the complete command rebuilds the snapshot and publishes any required queue
+item without appending another event. A replay with different source, receipt,
+category, render, or outcome evidence fails closed. Terminal repeated-failure
+queue items are derived from the full ledger and deduplicated by the
+authoritative event's sequence and canonical hash. A collision on either
+identity must match the same exact clip, category, and reason or recovery fails
+closed. Schema-valid evaluation queue items without ledger identities are
+preserved.
+
+The shipped `audio_judge.py recover` command exposes that recovery without
+re-entering evaluation. It accepts only the claimed run ID and an external
+output root, strictly validates the existing ledger and complete morning queue,
+then repeats that validation under the ledger lock before changing derived
+artifacts. Only after the reconciliation plan succeeds does it republish state
+and required terminal queue entries and emit a count-only local result. It never
+opens a manifest or audio file, constructs a request, reads a credential,
+reserves an API attempt, or invokes transport. Empty, malformed, conflicting,
+unclaimed, repository-contained, and unsafe-artifact runs fail closed. Queue
+conflicts found by the outside-lock preflight do not change the snapshot,
+queue, ledger, receipt, or lock.
+
+The durable run-claim, JSONL attempt-ledger, and morning-queue decoders
+translate duplicate keys, malformed JSON, non-finite constants, interpreter
+`RecursionError`s from deeply nested input, and parser `ValueError`s such as
+oversized integers into their closed `LedgerError` boundary. The response and
+API-envelope decoders route the same nesting failure to `malformed_output` and
+the morning queue rather than aborting a reserved, already-paid request.
+Recovery reports those errors without a traceback or raw artifact content, and
+preflight rejection cannot create the missing lock or mutate run files. The
+canonical *encoding* of a ledger event is guarded on the same boundary, which
+matters because it runs first: the chain digest re-encodes each event before
+any field validation, so an event that decodes and then fails to re-encode
+would otherwise reach a library caller as a bare interpreter error rather than
+a `LedgerError`.
+
+Every attempt-ledger event carries `previousEventSHA256`, the SHA-256 of the
+canonical serialization of its predecessor, with a zero genesis for the first
+event. Reading the ledger verifies that linkage before any transition rule
+runs, so a rewritten or reordered interior event is refused rather than
+replayed. Chaining alone cannot detect a dropped final line, because the
+shortened chain still verifies, so the atomically written `attempt-state.json`
+records the committed `eventCount` and `lastEventSHA256`.
+
+These checks are a single conjunction over *witnesses*, evaluated in one place
+(`_verify_run_directory_witnesses`) rather than as guards at the call sites.
+A run directory's artifacts each attest something about the history, and a
+proposed state is accepted only if every witness that still exists agrees with
+it. An absent witness proves nothing; a present one that contradicts the
+proposed state refuses it regardless of what else is present. The consequence
+that matters is that **deleting an artifact never widens what is accepted** —
+which is precisely what three successive rounds of per-artifact guards failed
+to guarantee, each fix leaving its own sibling case open.
+
+The witnesses are the ledger itself, the `attempt-state.json` anchor
+(committed `eventCount`, `lastEventSHA256`, and `claimBindingSHA256`), the
+`run-claim.json` nonce the anchor binds to, and the `ledgerEventSequence` /
+`ledgerEventSHA256` rows of `morning-queue.json`, which name an exact ledger
+event. Evaluation rows of the queue name no event and so witness nothing. The
+mutating path therefore loads the queue before any transition runs: previously
+it read only the ledger and the anchor, so erasing both left the queue's
+terminal row unable to refuse anything and the run read as fresh.
+
+An emptied or unlinked ledger is the maximal truncation, not an exemption from
+it — both decode to zero events, and the committed count is compared against
+the surviving events with no emptiness shortcut. A ledger shorter than the
+committed count, one whose committed prefix no longer reproduces the committed
+head, a queue row naming an event the ledger no longer contains, and an anchor
+that is missing, unparseable, or not bound to this run's claim all fail closed.
+The anchor must be schema 3, and each superseded shape is refused for the same
+reason: a schema-1 anchor carried neither count nor head, so accepting one meant
+accepting a present anchor with the prefix rule unevaluated; a schema-2 anchor
+carries no claim binding, so accepting one would leave the substitution rule
+unevaluated. In both cases downgrading the anchor would be a way to shed
+evidence, so neither shape is migrated. On the mutating path a ledger at most one fsynced append ahead of its
+anchor is tolerated, because that is the only state an interrupted commit can
+produce. **Recovery relaxes that lag rule and nothing else**: it accepts any
+lag, since republishing a stale anchor is what the command exists for, while
+applying every other predicate identically, so it is not a laundering path for
+a truncated ledger. Recovery additionally refuses an empty ledger outright, but
+as an operational precondition — with no ledger there is nothing to derive
+artifacts from — rather than as a witness rule.
+
+**The anchor is mandatory, and is created when the run is claimed.**
+`_claim_run` writes a schema-3 `attempt-state.json` committing zero events at
+the genesis head, atomically, beside `run-claim.json`. A claimed run directory
+therefore always has an anchor, so an absent anchor is unambiguously tampering
+and is refused outright in both modes.
+
+This replaced the scheme's last underived rule. Previously an absent anchor was
+tolerated over a ledger of at most one event, as an *assumption* rather than a
+witness: the judge always republishes the anchor after an append, so a
+multi-event ledger with no anchor had to be tampering. The tolerance existed to
+accommodate the real crash window between the first append and the first anchor
+publication — and truncating a ledger to its first line landed exactly in that
+window, laundering a terminal clip's spent attempts once the anchor and the
+queue were removed as well. Writing the anchor at claim time eliminates the
+window rather than narrowing it, which is what allows the rule to be deleted
+instead of amended. The accompanying claim that no surviving witness could
+distinguish tampering from a fresh run was also wrong: `receipt.json` records a
+`fail` verdict for every clip a proposal was emitted for, which contradicts an
+empty ledger.
+
+This remains tamper evidence, not tamper proofing: a same-UID actor who
+consistently forges every artifact is still outside the model.
+
+**The genesis anchor is bound to the run claim, which closes substitution by a
+replayable value.** W0 covers *deleting* the anchor; it says nothing about
+*overwriting* it, and the claim-time anchor used to be a fixed constant —
+`{"clips":{},"eventCount":0,"lastEventSHA256":"0"×64,"schemaVersion":2}`,
+identical for every run and therefore known from the source rather than from the
+directory. Writing it back, truncating the ledger to one line and removing the
+queue reproduced the earlier laundering with a write in place of a delete, taking
+a terminal `morning_review`/2 clip back to `proposal_emitted`/0. `_claim_run` now
+mints an unpredictable per-run nonce, records it in `run-claim.json` (schema 2),
+and every anchor carries `claimBindingSHA256`, the digest binding that nonce to
+the run ID. An anchor whose binding is absent or belongs to another claim is
+refused in both modes, so no constant is a valid anchor and no anchor transfers
+between runs.
+
+The narrower residual is named rather than implied: an actor with **read and
+write** access to the run directory can read the nonce and recompute the binding
+for that run. No in-directory witness can close that, since every input to the
+binding lives in the directory under attack; it would need a monotone counter or
+a key outside the run directory. What changed is that the attack now requires
+reading the target directory instead of only knowing a published constant. Still
+out of model (same-UID write access). See the risk register in
+`docs/reports/pronunciation-phase2-qualification.md`.
+
+Manifest, audio, and judge-owned artifact reads are bounded before allocation,
+and a manifest whose clip count exceeds the 200-request cap is refused before
+any per-row hash or `ffprobe` pass rather than after two full probe sweeps.
+
+Both pronunciation tools derive their protected repository scope from
+`git rev-parse --git-common-dir` and `git worktree list` rather than from the
+loading checkout alone, so a run root or external evidence path inside the
+canonical checkout or any sibling worktree is refused even when the tool runs
+from a linked worktree. Those queries run with `GIT_DIR`, `GIT_COMMON_DIR`,
+`GIT_WORK_TREE`, and `GIT_CEILING_DIRECTORIES` removed from the environment,
+because an ambient override silently redirected the scope at a decoy
+repository, dropping the real sibling worktrees from protection. Without git
+the loading checkout is still protected.
+
+Recovery opens the claimed run directory with `O_DIRECTORY | O_NOFOLLOW` and
+pins the descriptor's device/inode identity. Claim, ledger, and queue preflight;
+the required existing ledger lock; the under-lock replay; temporary files; and
+atomic snapshot/queue replacements are all relative to that one descriptor.
+Recovery never creates a missing lock. The public pathname is revalidated
+before opening the lock and before each publication, so deterministic pathname
+replacement fails without changing either directory or creating a replacement
+artifact. If a malicious same-UID actor swaps the pathname after the final
+check, the descriptor still prevents redirection to the replacement, but this
+is not claimed as protection from mutation of the already-open original.
+
+Run claims, ledger events, queue rows, model response fields, input manifests,
+and provenance-authority bindings require their exact JSON scalar types before
+any equality, set membership, or regular-expression check. A boolean is not an
+integer schema version; closed vocabularies are strings; and bounded numbers
+are exact integers or finite floats. Bounds are checked without converting
+unbounded integers to floats. Structured category, outcome, source-commit,
+verdict, response-category, provenance, label-status, media-type, or
+expectation values produce controlled validation errors rather than
+tracebacks. Invalid admission data cannot claim a run or reach transport, and
+invalid model response values are routed to morning review without being
+persisted as verdicts.
+
+The API response parser likewise requires an object root, a non-empty choices
+array, object choice and message envelopes, string-or-null content and refusal,
+a string model ID, and an object usage envelope. JSON decoder failures,
+including the parser's oversized-integer `ValueError`, become controlled
+boundary errors. Usage counts are exact non-boolean integers from zero through
+10,000,000; totals must agree with prompt plus completion counts when all three
+are present, and recognized detail counts cannot exceed their parent count.
+One invalid recognized usage value rejects the whole usage envelope, so no
+partial token evidence is retained. Run IDs must be strings before regex
+validation. Once a paid transport call returns normally, the absence of a
+response is itself malformed output; it cannot bypass envelope validation or
+produce a passing empty result.
+
+The internal normalized response contract requires the same explicit
+`refusal` key; omission is malformed rather than an implicit null. Before a
+request cost can reserve a paid attempt, the estimator strictly round-trips the
+programmatic request body, rejects duplicate/non-finite/oversized JSON,
+requires the exact pinned model, output bound, message/role order, closed
+prompt, and audio-item shape with the admitted `wav` or `mp3` format, and
+rejects missing, extra, duplicate, or mistyped fields. After strict base64
+decoding, the non-empty request audio must hash to the exact admitted clip
+SHA-256. This check runs during the pre-claim baseline and again after each
+attempt rebuilds from revalidated media, before reservation or transport. The
+estimator then re-serializes the data-redacted body. Serialization, parsing,
+validation, extraction, and re-serialization failures become one redacted
+`ManifestError`; the valid body built by the judge retains its existing exact
+cost inputs.
+
+The judge does not let its input manifest authorize its own provenance. Each
+run requires a separate absolute, single-link regular, non-symlink authority
+file outside the repository that binds the exact opaque clip ID, measured
+audio hash, duration, and `public-domain`/`synthetic` assertion; the receipt
+records that authority's hash. Manifest admission carries one immutable byte
+snapshot, corpus identity, and content hash into the receipt, so a later path
+replacement cannot change the admitted run identity. Judge-owned claims and
+mutable run artifacts must also be single-link files, preventing an append or
+state write through an external hardlink. Likewise, future trusted human-label
+receipts contribute to qualification only when paired with a separate
+out-of-repository authority binding the canonical exact corpus-and-receipt
+bundle digest. The authority is read once through a no-follow, single-link
+regular descriptor and rejected if its metadata changes during the read. The
+program-report API and CLI accept that receipts-and-authority pair explicitly;
+without both, the default report remains `WAITING_FOR_HUMAN_LABELS`. These are
+operator-controlled integrity roots, not cryptographic proof of authorship,
+listening, or historical provenance, so licensing/source verification and
+human adjudication remain independent proof gates.
+
 > **Phased rollout.** This documents **Plan 1 — the engine core**: schema, seams, state, text normalization, and the per-chapter render orchestration, all unit-tested behind a mock engine. The real on-device model (Kokoro CoreML/ANE) + grapheme-to-phoneme (MisakiSwift, Apache-licensed, no GPL espeak-ng), the one-time model download, the read-first "Listen" UI + voice picker, render-ahead scheduling, and `.m4b`/per-chapter export land in later plans. **No audible output ships yet.** Design spec: `docs/superpowers/specs/2026-06-13-epub-ai-narration-design.md`.
 
 > **Update (June 2026 — engine real + upstream chunking).** The real engine has since shipped: Kokoro-82M runs on-device via **FluidAudio (CoreML/ANE)** behind the `TTSEngine` seam, narration plays through the main playback pipeline (iPhone + CarPlay), and the rendered cache is **lossless ALAC** in `.m4a`. **Upstream input chunking (required):** FluidAudio does no internal chunking and caps IPA input at ~510 phonemes ("chunk longer prompts upstream"). A whole 400+ char block drove the palettized vocoder's BNNS fallback into a dynamic tensor shape that **traps** (uncatchable `EXC_BREAKPOINT` in `libBNNS`), so `NarrationService.renderChapter` splits each EPUB block into ~200-char sentence sub-chunks (`NarrationTextChunker`, pure/testable) and synthesizes each separately before concatenation — keeping inference shapes bounded and yielding finer audio, while still writing **one `.synthesized` anchor per original block** (spanning the summed sub-chunk durations) so the data model below is unchanged.
 
 > **Update (2026-06-15 — on-device hardening + A14 gate).** **A14 status (corrected):** stream-to-sink fixed the A14 **jetsam**, but the **BNNS vocoder trap (§3.1) still RECURS** (device-confirmed — crashed 3× in one session; a full re-render triggers it). So on-device narration is now **gated to A15+** (`NarrationCapability`, gate by chip generation via the device model, not OS version) as the interim — the audio-less reader stays functional; the proper A14 fix is the vocoder model swap (1A). **Persistence:** chapters render **once and persist** — the render loops (`PlayerModel+Narration.swift`) skip synthesis when the chapter file already exists, so reopen/export/per-item narration don't re-burn the ANE. Cache validity is keyed by `NarrationFileNaming.renderVersion` in the filename — bump it when the rendered audio changes and stale files regenerate once; `staleVoiceFiles` sweeps stale voices **and** orphaned versions. **Audio quality:** the perceived "whine/reverb" was a **playback artifact**, not the render — `AVAudioUnitTimePitch` ran its phase-vocoder even at 1× (a `pitch=0.01` workaround); `AudioEngine.applyPlaybackRate` now **bypasses the unit at 1×** (clean passthrough) and maxes `overlap` (32) for the 2× stretch. (A render-side low-pass was tried and reverted — wrong layer.) **Voice picker:** `VoicePickerView` reachable from Now Playing (was dead UI); catalog trimmed to **Ava only** because FluidAudio's ANE Kokoro ships only `af_heart` (others 404 until their `[510,256]` fp32 `.bin` packs are bundled).
 
-> **Update (2026-06-17 — m4b chapter markers).** Combined-`.m4b` export now writes real Nero `chpl` + QuickTime `chap` chapter atoms via the `swift-audio-marker` package (iOS target only); `ChapterMarkerWriter` replaces the copy-only `AudioMarker` stub, and `NarrationExportService` labels chapters with their real `TrackRecord` titles. AVFoundation's `loadChapterMetadataGroups` does **not** surface these atoms, so markers are verified in a chapter-aware player (Books.app) — the test suite asserts byte-level atom presence + playability instead.
+> **Update (2026-06-17 — m4b chapter markers).** Combined-`.m4b` export now writes real Nero `chpl` + QuickTime `chap` chapter atoms via the `swift-audio-marker` package (iOS target only); `ChapterMarkerWriter` replaces the copy-only `AudioMarker` stub, and `NarrationExportService` labels chapters with their real `TrackRecord` titles. *(Superseded 2026-06-23: the note here said AVFoundation could not surface these atoms — that was an upstream-package bug, now fixed in Echo's fork; AVFoundation/Apple Books reads the chapters and tags. See the Chaptered M4B Export "Forked `swift-audio-marker`" note.)*
 
 > **Update (2026-06-17 — narration on macOS).** On-device narration now runs on **macOS** too — a target-wiring + de-gating port, not new ML work (FluidAudio is `.macOS(.v14)`-capable and M-series doesn't hit the A14 ANE trap, so no model swap). FluidAudio is linked to the Echo macOS target and `KokoroTTSEngine` is de-gated to `os(iOS) || os(macOS)`. The one iOS-coupled helper, `PlayerModel.narrationCacheDirectory()`, moved into a cross-platform **`NarrationCache.directory()`** (the iOS symbol stays as a forwarder); a new **`NarrationEngineFactory.make()`** (gated to iOS+macOS — the only targets that compile `EchoCore` and link FluidAudio) supplies the real `KokoroTTSEngine` behind the seam. macOS synthesis runs **in the overnight batch queue** (see the batch section): a `kind == .narrate` item imports a standalone EPUB's blocks (no audio), plans chapters with `NarrationChapterPlanner`, and drives `NarrationService.renderChapter` into the same `NarrationCache`, honoring the shared `narrationVoiceID` preference. Playback is **DB-driven**: because rendered files live in Application Support (outside any scanned folder), `MacPlayerModel.loadNarratedBook(audiobookID:)` sources its track list from `TrackRecord` rows (ordered by the pure, shared `NarrationTrackOrdering`) instead of a filesystem scan. The three narration views (`VoicePickerView`, `NarrationStatusView`, `NarrationNudgeView`) are ported to the macOS target, with a voice picker in the macOS Settings *Playback* pane. No SoC gate on Macs — the A15+ branch stays iPhone-only. *(`.m4b` export expanded to cross-platform in a later update — see the Export module section below.)*
 
 > **Update (2026-06-18 — lexicon-only G2P + pronunciation overrides).** MisakiSwift's MLX-backed **BART out-of-vocabulary fallback** (and the transitive `mlx-swift` dependency) was **removed**, making English G2P (`KokoroG2P` → MisakiSwift's `EnglishG2P`) **lexicon-only** (`us_gold`/`us_silver`). This unblocks the iPhone-simulator test suite — `mlx-swift` 0.30.2 references Metal symbols undefined on the simulator ([mlx-swift#341](https://github.com/ml-explore/mlx-swift/issues/341)), which had transitively failed every sim test — and trims ~15 MB of `us_bart` weights from the bundle. `EnglishFallbackNetwork` is now a graceful stub: an OOV word emits the `unk` glyph (dropped by `KokoroPhonemeVocab` → silent) rather than crashing or guessing. To recover pronunciations for OOV words (proper nouns, tech terms), a user **pronunciation dictionary** — `PronunciationOverrideStore` (`@Observable`, JSON-persisted global map; **Settings ▸ Pronunciation**) feeding the pure `PronunciationOverrides` rewriter — wraps chosen words in MisakiSwift's `[word](/ipa/)` link syntax, which `EnglishG2P` injects at **rating 5** (above both the lexicon and the removed fallback). The rewrite runs in `NarrationService.renderChapter` **after `TextNormalizer` and before `NarrationTextChunker`**; the link token has no spaces or sentence terminators, so it survives chunking and reaches both the iOS and macOS render paths.
 
-> **Update (2026-06-19 — engine pivot to ONNX Runtime; CoreML stack removed).** The narration engine is now **`OnnxKokoroEngine`** (ONNX Runtime, CPU EP) on **both iOS and macOS**, replacing the entire CoreML stack. *Why:* the CoreML path AOT-compiled its model graphs on-device on first run — ~20 min on an A14, because the LSTM duration predictor's Espresso compile is O(n²) in token length — and routed the vocoder onto the ANE, which **trapped** (`libBNNS` `EXC_BREAKPOINT`) on A14. ONNX Runtime *interprets* the graph (no AOT compile, ≈0.7 s `ORTSession` load) and its CoreML EP can't run Kokoro's dynamic shapes, so it runs on the **CPU EP by construction — never touching the ANE**, which removes the trap entirely. On-device A14 (iPhone 12 Pro): ≈0.7 s load, RTF ≈ 0.5 (twice real-time), no crash. The engine loads the single `model_fp16.onnx` graph (~163 MB, `onnx-community/Kokoro-82M-v1.0-ONNX`; inputs `input_ids` i64 / `style` f32[1,256] / `speed` f32 → `waveform` f32 @ 24 kHz) and **reuses the existing front end verbatim** — MisakiSwift G2P (`KokoroG2P`), `KokoroPhonemeVocab` (BOS/EOS-wrapped ids, widened to Int64 for ORT), and `KokoroVoicePack` (the `af_heart` refS row); only the runtime changed. `NarrationFileNaming.renderVersion` is **6** (ONNX bytes differ from CoreML's, so cached audio regenerates once). **`NarrationCapability` now reports narration available on every iOS 18 / macOS 15 device** — the former A15+ gate existed only for the ANE trap. **Removed:** `KokoroFixedShapeEngine` (fixed-shape CoreML), `KokoroTTSEngine` (FluidAudio), `NarrationModelStore` (the 731 MB CoreML downloader), and FluidAudio's `KokoroAneError` handling in `NarrationService`. (The supersedes the four CoreML-era update notes above; they remain as history. Pivot decision: `docs/superpowers/research/2026-06-19-kokoro-onnx-pivot-decision.md`.)
+> **Update (2026-06-19 — engine pivot to ONNX Runtime; CoreML stack removed).** The narration engine is now **`OnnxKokoroEngine`** (ONNX Runtime, CPU EP) on **both iOS and macOS**, replacing the entire CoreML stack. *Why:* the CoreML path AOT-compiled its model graphs on-device on first run — ~20 min on an A14, because the LSTM duration predictor's Espresso compile is O(n²) in token length — and routed the vocoder onto the ANE, which **trapped** (`libBNNS` `EXC_BREAKPOINT`) on A14. ONNX Runtime *interprets* the graph (no AOT compile, ≈0.7 s `ORTSession` load) and its CoreML EP can't run Kokoro's dynamic shapes, so it runs on the **CPU EP by construction — never touching the ANE**, which removes the trap entirely. On-device A14 (iPhone 12 Pro): ≈0.7 s load, RTF ≈ 0.5 (twice real-time), no crash. The engine loads the single `model_fp16.onnx` graph (~163 MB, `onnx-community/Kokoro-82M-v1.0-ONNX`; inputs `input_ids` i64 / `style` f32[1,256] / `speed` f32 → `waveform` f32 @ 24 kHz) and **reuses the existing front end verbatim** — MisakiSwift G2P (`KokoroG2P`), `KokoroPhonemeVocab` (BOS/EOS-wrapped ids, widened to Int64 for ORT), and `KokoroVoicePack` (the `af_heart` refS row); only the runtime changed. `NarrationFileNaming.renderVersion` **6** captured the ONNX-byte transition; **7** reserves the segment-render cache layout for hybrid streaming. The `model_fp16.onnx` download is pinned to an **immutable upstream commit** (not the moving `main` ref, so an upstream re-upload can't silently change the model behind the pinned ONNX cache) and **integrity-checked by exact byte size** before the `ORTSession` loads it — a truncated or stale file is discarded and re-fetched — with byte-level download progress. **`NarrationCapability` now reports narration available on every iOS 18 / macOS 15 device** — the former A15+ gate existed only for the ANE trap. **Removed:** `KokoroFixedShapeEngine` (fixed-shape CoreML), `KokoroTTSEngine` (FluidAudio), `NarrationModelStore` (the 731 MB CoreML downloader), and FluidAudio's `KokoroAneError` handling in `NarrationService`. (The supersedes the four CoreML-era update notes above; they remain as history. Pivot decision: `docs/superpowers/research/2026-06-19-kokoro-onnx-pivot-decision.md`.)
 
 > **Update (2026-06-20 — render-loop perf + chapter outline).** A performance pass on the render loop plus a user-facing chapter outline (a multi-agent adversarial review drove the findings; design: `docs/superpowers/specs/2026-06-20-narration-chapter-outline-design.md`). **(a) Engine front-half cached.** `OnnxKokoroEngine.synthesize` previously rebuilt its whole front end — `KokoroG2P` (which parses ~6 MB of `us_gold`/`us_silver` lexicon JSON), `KokoroPhonemeVocab`, and `KokoroVoicePack` — on **every ≤200-char sub-chunk**. They are now loaded once into a cached **`KokoroFrontEnd`** held on the engine actor (voice packs memoized by id); `synthesize` calls `frontEnd.encode(text:voice:)`. Behavior-preserving (same `(ids, refS)`); this per-chunk churn — not a retain-cycle leak (the render `Task` is `[weak self]`, audio streams to disk) — was the "memory grows" symptom. **(b) Chapter-scoped word timings.** `NarrationService.renderChapter` no longer triggers the whole-book `word_timing` rebuild every chapter (O(chapters²) across a render run): it passes `recalculateTimeline(materializeWordTimings: false)` and materializes only the just-rendered chapter's words via the new block-scoped **`WordTimingMaterializer.materializeChapter`** (+ `WordTimingDAO.deleteAll(forAudiobook:blockIDs:)`), so incremental per-word read-along still lights up per chapter. The reader's `.timelineItemsIngested` handler (`ReaderTab`) now coalesces its per-chapter whole-book reloads into one trailing reload. **(c) Chapter outline + tap-to-exclude (iOS).** The playlist surfaces the **full EPUB chapter outline** for a narration book — every narratable chapter, independent of render progress — built by the pure **`NarrationOutlineBuilder`** (→ `NarrationOutlineChapter`) from all blocks + an injected file-exists check. Tapping a chapter excludes it from narration by hiding its blocks (the existing `is_hidden` axis; new `EPubBlockDAO.unhideChapter` / `AlignmentService.unhideChapter`), so it drops from `NarrationChapterPlanner.plan(from: visibleBlocks)` — never synthesized or queued — while its rendered file is kept on disk for instant re-include. `PlayerModel.isNarrationBook` / `narrationOutline` / `toggleNarrationChapterExcluded` drive `PlaylistView`. **No schema change.**
 
@@ -535,7 +1116,46 @@ For study EPUBs that have **no audiobook**, Echo can generate spoken audio on-de
 
 > **Update (2026-06-21 — read-along + player-chrome UX fixes).** **Read-along:** the karaoke retint (`ReaderFeedCollectionView`) now clears the previously-highlighted card when the active word crosses a paragraph boundary (pure `KaraokeHighlightTransition`; block changes bypass the 12 Hz throttle), and the highlight is **color/background only — no font-weight swap** — on iOS (`ParagraphCardCell`/`HeadingCardCell`) and macOS (`MacReaderFeedView`), so glyph metrics stay stable. Tapping a paragraph card seeks to it **and** starts playing via the canonical `PlayerModel.seek(toSeconds:)` + `play()` (pure `CardTapDecision`; iOS + macOS), with a no-time fallback; TOC navigation stays seek-only. **Player chrome:** the sleep-timer icon and every bottom-toolbar chip use the cover-derived accent (`PlayerModel.artworkAccentColor ?? .accentColor`); the active state is carried by the filled-chip shape, not color.
 
-**Data model (reuses existing tables):** A standalone EPUB is an `AudiobookRecord` with `epub_block` rows and **no tracks** (the natural empty state). Generating narration renders **one lossless ALAC `.m4a` file per chapter** (each block split into ~200-char sub-chunks before synthesis, then concatenated — see the upstream-chunking note above), inserted as a `TrackRecord` (`sort_order = chapterIndex`) carrying the voice in the new `narration_voice` column (**Schema V17**; non-null marks a synthesized track). Each text block gets one `AlignmentAnchorRecord` with the new **`source = .synthesized`** written at synthesis time — so read-along highlighting and the study layer work for free, and re-alignment never confuses generated anchors for recovered ones.
+> **Update (2026-07-01 — FM pre-normalization + persisted narration text).** When `narrationQAClassifier == "auto"` and Foundation Models is available, the generated-narration render path now runs `TextNormalizer.normalize()` → `FMNormalizer.refine()` → `PronunciationOverrides.apply()` before chunking. The FM step is intentionally local: it rewrites only TTS-hostile words/phrases, caches identical inputs in `FMNormalizationCache` for the render session, and rejects hallucinated outputs whose word count or overlap no longer resembles the source. If FM changes a block, `NarrationService` persists the spoken form to `epub_block.narration_text` (Schema V32); the original `text` column remains canonical source. `NarrationQAService` compares against `narrationText ?? text`, so the listen-back QA pass judges the exact text the TTS received. `echo-cli narrate --db <path>` lets headless runs persist this refined text and QA rows in a real SQLite database instead of the default in-memory scratch DB.
+
+> **Update (2026-07-02 — render-time narration plan + quality guardrails).** Render-time narration now flows through a pure `NarrationRenderPlan`: text normalization, optional FM refinement, and pronunciation overrides produce speech segments; decorative separators become planned silence; and synthesized block anchors span speech only. `NarrationService` appends planned paragraph/heading/section-break pauses outside the anchor spans, retries a low-quality synthesized speech chunk once as smaller pieces, and leaves section-break silence unanchored. The planner now budgets speech sub-chunks by estimated phoneme count via `NarrationTextChunker.splitResolved(...)` and `KokoroG2P.phonemeCount(for:)`, while preserving pronunciation override links as atomic spans. `WordTimingMaterializer` prefers explicit synthesized block end times before falling back to the next block start, and the synthesis-time timing path refines generated `word_timing` rows without stretching words through inserted pauses. `NarrationPronunciationPreflight` can produce a local-only review report for OOV, proper-noun, acronym, and empty-phoneme candidates before a render. These slices deliberately keep the current ONNX model, voice assets, schema, and platform floors unchanged.
+
+> **Update (2026-07-18 — code-block visual narration).** `NarrationCodeBlockCue` makes `.code` a spoken-cue block: `NarrationService` bypasses prose normalization, FM refinement, pronunciation overrides, and raw-code synthesis, then speaks the block's persisted `narrationText` caption or the exact fallback `"Code listing."`. The raw listing remains canonical in `text` for display/export, while `NarrationQAService` routes `.code` through the same cue helper, so QA evaluates the cue the engine actually received and never expects syntax speech.
+
+**Synthesis-time word timing (Kokoro):** For Echo-narrated books, per-word
+read-along timing is captured at synthesis instead of being interpolated. A
+28 MB ONNX "duration head" — the encoder + duration-predictor subgraph extracted
+offline from `model_fp16.onnx` (see `Tools/extract_kokoro_duration_head.py`) and
+bundled as `kokoro_dur_head.onnx` — runs alongside the waveform model in
+`OnnxKokoroEngine` with identical inputs. `KokoroWordTimer` splits the phoneme
+token stream on the space token (id 16), sums per-token frame durations per word,
+and normalizes to the true sample count. `NarrationService` accumulates these
+across chunks and `WordTimingMaterializer.refineWithSynthesis` overrides the
+interpolated `word_timing` rows (`source:"synthesis"`, confidence 0.9). Any
+failure (head absent, run error, word-count mismatch) leaves the interpolated
+baseline in place. Imported audiobooks are unaffected — they keep the
+WhisperKit + `TokenDTW` path.
+
+> **Update (2026-07-09 — duration-head output cast to fp32; synthesis timing actually lights up).**
+> The extracted duration head shipped with a **FLOAT16 graph output** (the
+> `ReduceSum` tensor is internal to `model_fp16.onnx`, so extraction inherited
+> fp16 — only the full model's own graph I/O is fp32). The ORT Swift package's
+> ObjC binding has no fp16 entry in its element-type table
+> (`objectivec/ort_enums.mm`), so `ORTValue.tensorData()` threw "unsupported
+> tensor element type…" on every read, `tokenDurations` soft-failed, and **every
+> platform silently fell back to interpolated timings** since PR #197 — Debug
+> and Release alike; `source:"synthesis"` rows never materialized. (The heavy
+> env-gated IT never caught it because `xcodebuild test` doesn't propagate shell
+> env into sim test processes.) `Tools/extract_kokoro_duration_head.py` now
+> renames the fp16 tensor and appends a `Cast→FLOAT` node that re-emits it under
+> the original output name, so the regenerated bundled artifact decodes as fp32
+> with **no Swift-side read change** (value differences are fp16-rounding noise,
+> smaller than the old head's own variance across ORT optimization levels).
+> Guarded by `EchoTests/KokoroDurationHeadTests`, which runs the real bundled
+> model with dummy inputs in the default suite via the
+> `OnnxKokoroEngine.probeDurationHead` test seam.
+
+**Data model (reuses existing tables):** A standalone EPUB is an `AudiobookRecord` with `epub_block` rows and **no tracks** (the natural empty state). Generating narration renders **one lossless ALAC `.m4a` file per chapter** (each block planned into bounded, phoneme-aware sub-chunks before synthesis - the compatibility chunker still exposes the older 350-character wrapper, but the render planner stays under Kokoro's ~510-phoneme context - then concatenated; see the upstream-chunking note above), inserted as a `TrackRecord` (`sort_order = chapterIndex`) carrying the voice in the new `narration_voice` column (**Schema V17**; non-null marks a synthesized track). `TrackRecord.title` comes from `NarrationChapterPlanner`: `ch. N: Heading` when the EPUB exposes a useful heading/title, otherwise the existing `Chapter N` fallback; cache-hit paths update old generic title rows without re-rendering audio. Each text block gets one `AlignmentAnchorRecord` with the new **`source = .synthesized`** written at synthesis time — so read-along highlighting and the study layer work for free, and re-alignment never confuses generated anchors for recovered ones.
 
 **Key types (engine core):**
 
@@ -543,8 +1163,83 @@ For study EPUBs that have **no audiobook**, Echo can generate spoken audio on-de
 - `AudioFileWriting` — `Sendable` protocol for writing `TTSChunk`s to one on-disk **lossless ALAC `.m4a`**. Two paths: the batch `write(_:to:)` and an incremental **stream-to-sink** session, `makeStream(to:sampleRate:) -> AudioFileStream`, whose `append`/`finalize` encode each chunk straight to disk. `AVFoundationAudioWriter` (a stateless `struct`) implements it; the session is an `actor` (`ALACFileStream`) that confines the non-`Sendable` `AVAudioFile` and runs the per-chunk encode off the caller's actor. `NarrationService.renderChapter` streams, so a chapter's peak memory is one ~200-char sub-chunk's PCM rather than the whole chapter's — the half of the A14 jetsam mitigation that doesn't need the model swap (audit §7.1).
 - `VoiceCatalog` / `NarrationVoice` — the curated voice set (4 voices keyed by `VoiceID`; default "Ava", US/warm).
 - `TextNormalizer` — pure, deterministic prose→speakable normalization (abbreviations, thousands separators, Roman-numeral chapters, em-dash pauses); the highest naturalness-ROI unit.
+- `FMNormalizer` / `FMNormalizationCache` — optional Foundation Models pre-normalization for tricky TTS inputs. It returns the original text on any availability/error/hallucination failure and is session-cached by stable text hash.
 - `NarrationState` — `@MainActor @Observable` progress object mirroring `AutoAlignmentState` (phases: `idle`, `preparingChapter`, `renderingAhead`, `completed`, `failed`).
-- `NarrationService` — `@MainActor @Observable` orchestrator mirroring `AutoAlignmentService`. `renderChapter(chapterIndex:blocks:voice:)` normalizes + synthesizes each text block, writes one chapter file, and persists one `TrackRecord` + per-block `.synthesized` anchors with monotonic `audioTime`. Cancellable between blocks and before any DB write, so a cancelled render persists nothing. (Re-render idempotency — clearing/upserting prior `syn-…` anchors in one transaction — is owned by the later orchestration plan.)
+- `NarrationService` — `@MainActor @Observable` orchestrator mirroring `AutoAlignmentService`. `renderChapter(chapterIndex:blocks:voice:chapterTitle:)` normalizes/refines/synthesizes each prose block, routes `.code` through `NarrationCodeBlockCue` so only its caption/fallback cue reaches TTS, persists any FM-refined `narration_text`, writes one chapter file, and persists one `TrackRecord` + per-block `.synthesized` anchors with monotonic `audioTime`; `renderSegment` persists the same planner title for segment-backed playback/export. Cancellable between blocks and before any DB write, so a cancelled render persists nothing. (Re-render idempotency — clearing/upserting prior `syn-…` anchors in one transaction — is owned by the later orchestration plan.)
+
+### Generated Narration QA (M3, June 2026)
+
+After narrating an EPUB/PDF, the user can initiate a "listen back" QA pass that re-transcribes the generated audio, compares heard words to the source text using the existing `TokenDTW` alignment engine, and persists reviewable `narration_quality_issue` rows (Schema V30). QA is user-initiated, never auto-run after render. It is reached from **Book Settings ▸ Narration ▸ Narration QA** on iOS and from the **Run QA** button in the macOS review window; both trigger `NarrationQAReviewModel.runFullQA()`, which sweeps every chapter that has rendered narration audio.
+
+**Architecture:**
+
+- **`NarrationQADetector`** — pure, deterministic divergence detector: builds `EPubToken`s from source blocks via `WordTokenizer` + `TokenDTW.normalize`, builds `AudioToken`s from re-transcribed `TranscribedWord`s, runs `TokenDTW.wordMatchesWithBisection`, and emits `DivergenceWindow` value objects for any maximal run of uncovered (unmatched) source words. Same inputs -> same windows, device-independent.
+- **`DivergenceClassifier` protocol** — the single justified DI seam (two real implementations). Given an already-detected `DivergenceWindow`, returns a label (`NarrationQAIssueType`: pronunciation, omission, insertion, substitution, lowConfidence, etc.) + optional suggested spoken-form/IPA fix.
+- **`DeterministicDivergenceClassifier`** — rule-based, always-on, pure + Sendable (no stored state). Rules: empty `heardText` -> omission; confidence < 0.5 -> lowConfidence; single word with all-caps/CamelCase interior -> pronunciation; default -> substitution. No suggested forms (that is FM's role).
+- **`FoundationModelsDivergenceClassifier`** (triple-gated: `#if canImport(FoundationModels) + @available(iOS 26, macOS 26, *) + runtime availability)` — wraps the deterministic classifier as a per-issue fallback. Uses `LanguageModelSession` + `@Generable IssueClassification` for constrained decoding; any error degrades to deterministic label (never crashes).
+- **`DivergenceClassifierFactory`** — `@MainActor make(preference:availabilityIsAvailable:) -> DivergenceClassifier` returns `FoundationModelsDivergenceClassifier` only when preference is `"auto"`, FM is compiled in, OS >= iOS 26, and runtime availability says models are accessible. Otherwise returns `DeterministicDivergenceClassifier()`.
+- **`narrationQAClassifier` setting** — `SettingsManager` property, values `"auto"` (default) or `"deterministic"`.
+- **`NarrationQAService`** (`@MainActor`) — orchestrates one QA pass: clears prior **open** issues for touched blockIDs (via `deleteOpen`, so the user's resolved/ignored verdicts survive a re-run), re-transcribes each chapter's audio (injected `transcribe` closure defaults to `WhisperSession` + `AlignmentTranscript.transcribeWords`, test-stubbed on CI), compares heard words against `NarrationCodeBlockCue.spokenText(for:) ?? narrationText ?? text`, so code uses the same trimmed caption/generic fallback as synthesis while FM-refined prose is judged against its spoken form, runs `NarrationQADetector`, classifies each window, and persists `NarrationQualityIssueRecord`s. The static `chaptersToQA(blocksByChapter:fileURL:fileExists:)` helper builds the chapter list for an initial pass from every chapter that has rendered narration audio on disk.
+- **`NarrationQualityIssueRecord`** / **`NarrationQualityIssueDAO`** — GRDB record + DAO for the `narration_quality_issue` table (FK to `audiobook` with cascade delete). Supports insert, fetch (by book, optionally filtered by status), update status, delete (by book or by block IDs).
+- **`NarrationQAReviewModel`** (`@MainActor @Observable`) — loads open issues for a book, runs the initial pass (`runFullQA()` discovers rendered chapters via `chaptersToQA` and runs the deterministic `NarrationQAService`), and applies ignore/resolve/accept-fix actions. Failures (transcription error, no rendered audio, no usable fix) surface through an observable `lastError` instead of a silently empty queue. No UIKit import (auto-bundles into all targets); the narration-touching `runFullQA()`/`acceptFix` are gated to `os(iOS) || os(macOS)`.
+- **`NarrationQAReviewView`** — iOS SwiftUI list with swipe-to-resolve/ignore, a **Run QA** toolbar button, and a `lastError` banner. Mounted from **Book Settings ▸ Narration**. Excluded from macOS and echo-cli targets via `project.pbxproj` membership exceptions; macOS uses **`MacNarrationQAReviewView`** (same model; Run QA button + error banner in its footer).
+
+**FM device test procedure:** the `auto + available + iOS 26` runtime branch is exercised only via the Xcode scheme's "Simulated Foundation Models Availability" override on a real AI-capable device / TestFlight, since VM CI cannot run Foundation Models.
+
+### Shared Improvement Contribution System — M5 (Deferred, June 2026)
+
+M5 ships the *buildable-now* pieces of the shared improvement channel while deferring the live transport. The core design principle (design doc Section 8 / Decision D7) is that **nothing raw leaves the device**: only content-free, single-term pronunciation payloads can exit, with explicit user consent.
+
+**Architecture:**
+
+- **`PronunciationContributionPayload`** (`EchoCore/Services/Contribution/`) — a pure `Codable`, `Equatable`, `Sendable` value type with exactly five fields: `term`, `ipa`, `language`, `voiceModelVersion`, `confidence`. No field can carry surrounding prose, block text, audio, file paths, or book ids. Encoding produces exactly these five JSON keys.
+- **`ContributionPayloadFilter`** (`EchoCore/Services/Contribution/`) — a static `enum` filter that maps a resolved `NarrationQualityIssueRecord` (from M3) into a `PronunciationContributionPayload`. It admits ONLY issues where: `status == .resolved`, `issueType == .pronunciation`, `suggestedFixJSON` decodes to a valid `SuggestedFix` with a non-empty `ipa`, and `expectedText` is exactly one word (multi-word text is dropped to prevent prose reconstruction).
+- **`ContributionConsent`** / **`ContributionConsentGate`** (`EchoCore/Services/Contribution/`) — a pure opt-in value type. Default is `notDecided` (`isOptedIn: false`). `ContributionConsentGate.allows()` is the single enforcement point all transport must consult.
+- **`DeferredContributionTransport`** / **`ContributionTransportResult`** (`EchoCore/Services/Contribution/`) — an **inert, deliberately-not-implemented** transport stub. With consent, it returns `.deferred(reason:)`; without consent, `.blockedNoConsent`. It imports only `Foundation` — no `CloudKit`, no networking framework. The live channel is explicitly deferred until M3/M4 produce real fix data and the owner approves a transport design. Hard constraints: must NOT reuse `CloudKitSyncService` / the public alignment-anchor DB, must consult `ContributionConsentGate` before doing anything, and must send only `PronunciationContributionPayload`.
+- **Regression corpus harness** (`EchoTests/RegressionCorpusHarnessTests.swift`) — an env-gated Swift Testing suite (`ECHO_REGRESSION_CORPUS_DIR`) that loads PUBLIC-DOMAIN fixture JSON files from an out-of-repo directory (no private content in-repo), replays each through the deterministic `NarrationQADetector.detect`, and asserts stable divergence-window counts. Skipped by default so the suite stays fast and repo-safe.
+
+### On-Device Library — Local Shelf + Roots (June 2026)
+
+Echo remains single-book-at-a-time: `PlayerModel` holds one `folderURL` and opening another book replaces it. The Library feature adds a launcher layer above the existing player: a browsable local shelf, rescannable folder roots, missing-file recovery, and a last-library-book restore pointer. Selecting a book re-acquires file access and calls the existing `loadFolder(url:)`; playback and the single-book model are untouched.
+
+**Current units:**
+
+- **`LibraryService`** (`@MainActor` struct, injected `DatabaseService`, no protocol): `registerRoot`, `rescan`, `relocateRoot`, `removeRoot`, `markUnavailableUnderMissingRoot`, `books(includeUnavailable:)`, and `sections(by:)`. Rescans hide vanished books by flipping `is_available = false`; books are never deleted by a rescan. Removing a root either forgets its books or keeps them as missing by clearing `source_root_id`. `statusMap(for:)` computes study + processing state for a whole shelf in one pass, avoiding N+1 per-book status queries. `urlForOpening(book:)` returns a `LibraryOpenTarget { url, scopedRoot }`, and the player owns the security-scope lifecycle. Edition grouping runs after scans and metadata rescans **and on every shelf load** (`regroupForShelfLoad()`, July 2026): `books(includeUnavailable:)` collapses sibling audio/EPUB/PDF/text editions into one representative card, borrows display cover/author metadata from siblings when needed, and exposes sibling maps plus `separateEdition(_:)` for an opt-out context-menu action. The shelf-load pass also enriches local text-only rows (a separately imported epub persists a folder-name title and nil author) from their EPUB's OPF `dc:title`/`dc:creator` via `EpubMetadataResolver`, and `EditionMatcher` is author-tolerant: an author-less edition joins a same-title group when the title bucket has at most one distinct author, but stays ungrouped when several authors share the title (never guess). `TimelineIngestionService.persistAudiobook` preserves an audio-less book's persisted title on reopen so OPF enrichment isn't undone by the next open.
+- **`ReadAlongMergeService`** (concrete struct, injected `DatabaseService`) backs the grouped-card "Use ‹title› as Read-Along Text" action: it resolves the sibling text edition's `.epub` (tolerating folder/file/expanded-dir ids), starts the library-root security scopes, and runs `EPUBImportCoordinator.importEPUB` against the audio book's folder with its persisted chapters/duration, so read-along lights up under the m4b's id. The standalone epub row is deliberately left in place (deleting it would cascade flashcards/notes/progress); the menu item only appears while the audio book has no `epub_block` rows, because the import's `force: true` would wipe existing text and companion documents.
+- **`LibraryScanner`** discovers one audio-bearing folder as one book, reads cheap `AVAsset` metadata, prefers album/book metadata over track titles for imported title resolution, and writes SHA-256-named cover files under `FileLocations.libraryCoversDirectory`. Full chapter/EPUB/alignment import stays deferred to first open via `index_state`. Companion EPUB cover art can backfill an audio book that lacks embedded/sidecar artwork, and `LibraryCoverStore` centralizes shared cover-file writes.
+- **`LibraryAccess`** creates and resolves per-root security-scoped bookmarks and normalizes author-sort keys. macOS uses `.withSecurityScope` bookmarks for the same root model.
+- **`LibraryViewModel`** owns shelf state for iOS and macOS: browse axis, sections, `statusMap`, unavailable-book filtering, pending missing-book recovery, edition-sibling cache, separate-edition action, and the open-book callback.
+- **`LibraryRootsViewModel`** owns root-management actions for rescan, relocate, and remove flows.
+- **iOS Library UI** (`LibraryView`, `LibraryShelfGrid`, `LibraryCoverCell`, `LibraryCoverImage`, `LibraryBrowseByView`, `LibraryStatusDot`, `ManageRootsView`) implements the third app tab, Browse By menu, processing-status dots, missing-book dialog, edition-sibling context menu, and root manager. `RootTabView` smart-lands to Now Playing when a book is active, otherwise to Library; `FirstRunLandingView` is retired into the empty Library state.
+- **macOS Library parity** (`MacLibraryView`, `MacPlayerModel.openLibraryBook(_:)`) embeds the same service/view-model layer in the `MacTriPaneView` sidebar, with native `NSOpenPanel` folder picking, root security scope preservation while opening a selected book, and the same edition-sibling context menu as `LibraryCoverCell` (open a hidden sibling edition / use it as read-along text / Separate This Edition).
+
+**Schema V27** adds nullable/defaulted library columns on `audiobook` (`cover_art_path`, `narrator`, `index_state`, `is_available`, `last_seen_at`, `author_sort`, `source_root_id`) plus the `library_root` table and indexes. The migration is additive for existing users: no re-import and no re-alignment are required.
+
+**Schema V35** adds nullable/defaulted edition columns on `audiobook` (`edition_group_id`, `edition_group_optout`) plus indexes. Existing rows default into the grouping pass on the next scan/rescan or shelf load; opting out keeps a specific edition visible as its own shelf card. No schema change was needed for the July 2026 edition-unification pass — the V35 columns carry it.
+
+**Test coverage:** `LibraryServiceTests`, `SchemaV27Tests`, `SchemaV35Tests`, `AudiobookRecordLibraryFieldsTests`, `LibraryRootDAOTests`, `LibraryAccessTests`, `LibraryScannerTests`, `LibraryTitleResolutionTests`, `EditionMatcherTests`, `EpubMetadataResolverTests`, `TimelineIngestionTitleOwnershipTests`, `ReadAlongMergeServiceTests`, `AudiolessEPUBCoverImportTests`, `LibraryViewModelTests`, `LibraryRootsViewModelTests`, `LibraryStatusMapTests`, `LibraryAvailabilityTests`, `LibraryLastBookRestoreTests`, and `SecurityScopeManagerLibraryRootTests`.
+
+Design specs: `docs/superpowers/specs/2026-06-26-local-library-design.md` and `docs/superpowers/specs/2026-07-10-library-edition-unification-design.md`; implementation plans: `docs/superpowers/plans/2026-06-27-local-library-implementation.md`, `docs/superpowers/plans/2026-06-27-local-library-ui-m3.md`, and `docs/superpowers/plans/2026-06-27-local-library-ui-m4.md`.
+
+### Audiobookshelf Library, Browse, Import + Progress Sync (updated August 2026)
+
+Audiobookshelf (ABS) is a self-hosted library source, not a streaming engine. Echo downloads an ABS item into `Application Support/ABSLibrary/<remoteItemID>/`, stamps provenance on the `audiobook` row, and then hands that local folder to the normal import/playback/alignment pipeline so EPUB sync, phrase search, flashcards, narration QA, and exports keep using the same code paths as local books.
+
+**Current units:**
+
+- **`AudiobookshelfService`** handles JWT login, refresh-token rotation, library/item browse, server-side search, item zip download, progress GET/PATCH, and remote sign-out. `ABSLibraryItemsQuery` keeps paging, sort direction, and one encoded metadata filter explicit; filter metadata supplies Author, Series, Genre, and Tag options. Download delegates report received bytes and an optional expected total while retaining the service's configured session, Bearer-header authorization, one-refresh retry, and certificate-pinning behavior. `ABSURLSession` / `ABSServerTrustEvaluator` support CA-trusted HTTPS, plaintext HTTP, and explicit self-signed certificate pinning.
+- **`ABSServerDAO` / `ABSServerRecord`** store non-secret server metadata in GRDB while `ABSTokenStore` keeps refresh/access tokens and pinned certificate hashes in Keychain. Schema V31 adds `is_active`; iOS still presents a single active server flow, while macOS can list saved servers, switch the active one, and remove a saved server without disturbing unrelated rows.
+- **`ABSBrowseModel`** is the shared `@MainActor @Observable` browse/import state used by iOS and macOS. It owns library selection, persisted sort, debounced search, filter metadata and selection, retained paging, exact/limited counts, active-server provenance, cancellation generations, and per-item import state. Newest Added is the default. Title, Author, Newest, and Publication Year use server ordering. Series loads the complete result and applies Echo's stable series-name, numeric-sequence, title, and ID ordering locally.
+- **Complete filter resolution** never presents a filtered visible page as a whole-library result. One metadata choice uses one paged server query; multiple choices use a bounded fan-out of at most four complete queries at once. `ABSBrowseResultResolver` unions choices within Author/Series/Genre/Tag and intersects across those groups before stable ordering. Search intersects its high-cap server result with the same complete filter IDs and labels a cap-sized result as limited.
+- **`ABSImportService` / `ABSImportProgress`** implement the local-first import boundary. Download and extraction publish byte/file progress and named Downloading, Extracting, Validating, Adding to Echo, and Added stages. The service extracts into staging with the existing archive limits and path protections, checks cancellation between entries, requires supported root-level audio or study-document content, atomically publishes the managed folder and cover, persists provenance, and re-resolves the committed record before reporting Added. A failed re-import restores or retains the previous completed copy; a failure remains named and retryable in the browser instead of dismissing it.
+- **Added / Not Added provenance** comes from an `audiobook` row matching both the active `server_id` and `remote_item_id` whose managed folder still contains usable root-level content. Orphaned rows, missing folders, and cover-only or nested-only folders are not Added. Successful imports update the shared projection immediately; under **Not Added to Echo**, the new book disappears from the exact result without a server reload.
+- **iOS ABS UI** (`ABSConnectionsSettingsView`, `ABSBrowseView`, `PlayerModel+Audiobookshelf`) owns connect/disconnect and active-service caching, then renders the shared model's library, Sort, searchable Filters, Not Added, result-count, paging, and retained progress/failure/Added detail. Success stays visible until the user explicitly chooses **Open in Echo**.
+- **macOS ABS UI** (`MacAudiobookshelfView`, `MacAudiobookshelfBrowseView`, `MacPlayerModel+Audiobookshelf`) uses the same shared model and terminology in a native split browser while retaining saved-server switching and trust ownership in the connection view model. Explicit **Open in Echo** hands the verified local folder to `onPlay`; the long-lived `MacPlayerModel` keeps its own cached service so progress sync continues after the sheet closes. Mac progress sync currently uses the active track's `currentTime`/`duration` because macOS does not yet have the iOS multi-m4b book-time axis.
+- **Progress policy** (`ABSProgressSync`, `ABSProgressReconciler`) is ABS-authoritative last-write-wins: pushes are throttled while playing, load-time reconcile either seeks local playback to remote time or pushes newer local progress, and local sidecars remain an offline cache.
+
+**Schema:** V23 adds `audiobook.source_type`, `server_id`, `remote_item_id`, and `topics_json` to preserve ABS provenance. V31 adds `abs_server.is_active` for multi-saved-server selection. Streaming and fully resumable background downloads remain deferred; the current design intentionally keeps ABS books local-first.
+
+Design specs: `docs/superpowers/specs/2026-06-30-abs-macos-progress-sync-multi-server-design.md` and `docs/superpowers/specs/2026-08-12-audiobookshelf-browse-import-reliability-design.md`; implementation plans: `docs/superpowers/plans/2026-06-30-abs-macos-progress-sync-multi-server.md` and `docs/superpowers/plans/2026-08-12-audiobookshelf-browse-import-reliability.md`.
 
 ### Chaptered M4B Export (June 2026)
 
@@ -559,7 +1254,58 @@ Both sources expose the same chapter-ordered `[URL]` list consumed by the shared
 
 **Compose + transcode.** `AudioExportService` is the shared spine: it gaplessly composes the chapter URLs into an `AVMutableComposition`, transcodes once via `AVAssetExportSession` (AAC / `.m4b`), and hands the result to the metadata writer.
 
-**Writer seam (chapter markers + metadata).** A single in-place pass via the `swift-audio-marker` package (`AudioMarker` product, now linked on **both iOS and macOS**) writes Nero `chpl` + QuickTime `chap` chapter atoms together with title, author, and cover art in one operation — no container rebuild, so chapters and metadata coexist. `ExportMetadata` + `ExportMetadataResolver` supply title/author/cover.
+**Slideshow video export.** `SlideshowExportPlanner` → `SlideshowFrameRenderer` →
+`VideoExportService` turns the same Visual Listening decisions into an H.264/AAC
+`.mp4` plus `.srt` and `.chapters.txt` sidecars, at one of two first-class
+presets — **Landscape 1920×1080** (the default for every new CLI/UI export) or
+**Portrait 1080×1920** (9:16, for full-screen phone viewing); UI format
+selection is not persisted. The service follows the `AudioExportService` spine
+by resolving the same ordered `ExportSource` audio and composing it gaplessly;
+the planner offsets every track-local visual and subtitle cue by the
+accumulated duration of the preceding tracks, keeping all three artifacts on
+one global timeline. `ChapterMarkerWriter` attempts MP4 chapter atoms and
+verifies them through AVFoundation; when either step fails, Echo keeps the
+video and the always-written `chapters.txt` fallback rather than failing the
+export. `.srt` and `.chapters.txt` are byte-identical for the same plan
+regardless of format, and audio, timing, cancellation, cleanup, publication,
+and filenames (no format suffix is appended) do not depend on format either.
+
+**Portrait format, dimension validation, and layout (July 2026).**
+`echo-cli export-video` accepts `--portrait` and an optional `--size WxH`
+(mutually exclusive). A custom size selects its layout profile by
+**orientation alone**, never by nearest-preset matching: `width >= height` →
+Legacy Landscape, `height > width` → Phone Portrait, and a square size
+resolves to Legacy Landscape deterministically. `SlideshowVideoDimensions`
+(shared, pure) is the validated-dimensions boundary every caller passes
+through before any DB or output work begins — positive, even (required by the
+H.264 path), min side ≥ 180px, max side ≤ 4096px, area ≤ 8,847,360px
+(overflow-safe arithmetic), aspect ≤ 4:1. The two fixed presets are
+compile-time-known-valid constants; custom sizes go through a throwing
+factory, so it is impossible to construct an invalid `SlideshowVideoDimensions`
+value. `VideoExportService` additionally runs a **live H.264 capability
+preflight**: it builds one `H264VideoSettings` value and calls AVFoundation's
+`AVAssetWriter.canApply(outputSettings:forMediaType:)` as the first work after
+entry cancellation — before source resolution, DB reads, audio assembly, or
+output creation — throwing `unsupportedVideoSettings(width:height:)` on
+rejection; the same settings value is later handed to the real writer, so
+preflight and encode can never validate different configurations.
+
+A pure `SlideshowFrameLayout`, calculated from validated dimensions plus a
+`SlideshowFrameLayoutProfile` (`.legacyLandscape` / `.phonePortrait`), owns all
+frame geometry and typography — figure/code, caption, and subtitle rectangles,
+plus font sizes and line limits; the renderer consumes it and no longer
+invents geometry inline. Legacy Landscape's formulas are algebraically
+unchanged from before Portrait shipped, locked by a pixel-parity test.
+`SlideshowFramePlan` now carries `VisualListeningVisualContent?` (image or
+code) instead of only an image path, so a code cue renders a static code card
+in the exported video instead of silently falling back to cover art; planner
+timing, SRT generation, chapter markers, and frame-merging are unaffected.
+
+**Writer seam (chapter markers + metadata).** A single in-place pass via the `swift-audio-marker` package (`AudioMarker` product, linked on **both iOS and macOS**) writes Nero `chpl` + QuickTime `chap` chapter atoms together with the book tags and cover art in one operation — no container rebuild, so chapters and metadata coexist. `ChapterMarkerWriter` maps the book onto the audiobook tags players expect (title/album = book title; artist/albumArtist = author, Audiobookshelf reads `aART`; genre `Audiobook`; `©cmt` = the narration version stamp) landing in the `ilst` atoms; album/albumArtist/genre default only when absent so a re-exported imported m4b keeps its real tags. `ExportMetadata` + `ExportMetadataResolver` supply title/author/cover.
+
+> **Forked `swift-audio-marker` (Echo pins `dfakkeldy/swift-audio-marker` by immutable revision, tag 0.1.3).** Upstream 0.1.1 wrote the `ilst` tags without the iTunes `mdir` handler, so ffmpeg/AVFoundation/iTunes/Audiobookshelf ignored *every* tag and the cover art (`covr` lives inside `ilst`), and wrote a chapter text track AVFoundation couldn't read (missing `gmhd.text` / `edts/elst` / `ftab` `stsd`). The fork fixes all of it at the source (upstream PR [atelier-socle/swift-audio-marker#2](https://github.com/atelier-socle/swift-audio-marker/pull/2)) and additionally fails loudly on >4 GB chapter offsets and clamps over-long chapter titles. Output is verified readable across ffprobe/Audiobookshelf, AVFoundation/Apple Books, exiftool, and AtomicParsley.
+
+**Headless CLI export.** `echo-cli narrate` (`HeadlessNarrationRunner`) titles chapters from the same planner/outline path as the apps (`ch. N: Heading`, falling back to `Chapter N`), resolves the cover from the EPUB OPF (`EpubCoverResolver`), and stamps the version comment. By default it uses an in-memory database; pass `--db <path>` to persist imported blocks, FM-refined `narration_text`, and QA rows across headless runs for inspection or resume workflows. Its `.alignment.json` sidecar carries word-level timing by default — each anchor's optional `words` array holds the synthesizer's per-word `[start, end)` times, offset from per-chapter-relative to absolute book time exactly like the anchor timestamps — and binds each emitted anchor to the imported source through `sourceBlockIdentity`; `--no-word-timings` is the block-anchors-only opt-out, and the `wroteSidecar` progress event reports how many anchors carried words. `echo-cli retag` (`M4BRetagger`) re-stamps an already-rendered m4b's chapter titles/tags/cover/comment **without re-rendering** — it reads the existing chapter *times* via the package reader (stale m4bs aren't AVFoundation-readable), re-titles from the EPUB, and re-writes through `ChapterMarkerWriter` (temp-then-move makes in-place retag safe).
 
 **Cover-art resolution (source-aware).** `ExportMetadataResolver.resolveCoverArt` walks the same cascade the app uses to *display* a book's cover, so the exported file carries whatever artwork the user already sees — "from the EPUB, or the mp3's, whatever the source was":
 
@@ -570,6 +1316,30 @@ Both sources expose the same chapter-ordered `[URL]` list consumed by the shared
 **Entry points.** iOS: player More menu (`UnifiedTopHeader`) → share sheet (one tap; a pre-filled confirm sheet appears only when author or cover art is missing). macOS: File menu command → `NSSavePanel`.
 
 **mp3 is intentionally deferred.** Apple frameworks cannot encode mp3; it needs a vendored LAME encoder. The decided strategy (per-chapter mp3 files) is recorded but not yet implemented.
+
+### Versioned Renderer Installer (July 2026)
+
+`Scripts/echo_renderer/` (Python; `python3 -m echo_renderer.cli`) builds, verifies, promotes, and repairs **content-addressed** `echo-cli` packages so headless narration/export/QA tooling never triggers a build of its own — narration-time work only ever *consumes* an already-installed renderer, there is no narration-time build step anywhere in this design. Packages live under `~/Library/Application Support/Echo/Renderers/<40-hex source SHA>/<64-hex manifest SHA>/{echo-cli,EchoNarrationResources,renderer-manifest.json}`, with an `approved-renderer.json` selector (`{"echoSourceSHA", "manifestSHA256", "schemaVersion": 1}`, canonical JSON) at `<source SHA>/` that only `promote` (or `install --promote`, appropriate only for a source with no selector yet) ever writes.
+
+Two independent, full 40-character-hex, never-a-branch commit SHAs gate every build: `APPROVED_ECHO_INSTALLER_SHA` (the reviewed `Scripts/echo_renderer/` implementation) and `APPROVED_ECHO_PRONUNCIATION_SHA` (the Echo/Swift source that becomes `echo-cli`). Both worktrees are attested clean-and-exact before the build starts and re-attested immediately before publication, so a slow build can't smuggle in an unreviewed intervening commit. The install transaction leases the installer root, source root, and `<source>/.build/cli`, waits on the shared memory-pressure build gate, runs `make echo-cli` (Release, incremental — never a bare `xcodebuild`; see *Headless CLI export* above), stages a copy beside the renderer root, live-probes it (`--version` must read `ONNX rv<int> (Release)`; `narrate --help` must list the governed capability flags; `verify-sidecar --help` must exist), reads the immutable model policy from `OnnxKokoroEngine.swift`'s `modelRevision`/`expectedModelBytes` assignments, writes the canonical manifest, and only then publishes atomically. The model policy is informational (`deliveryMode: "sharedEchoCache"`, `modelBytesAttested: false`) — the manifest never attests the bytes of the shared, separately-managed Kokoro model cache.
+
+`repair` refuses outright (exit 75) if the target package or selector has a live lease; otherwise it renames any existing package aside to `<manifest SHA>.quarantine-<random hex>` (never auto-removed) and reruns the normal install transaction. An exact manifest-hash match restores the original identity; any other hash publishes as its own new package, leaves the selector untouched, and reports the mismatch as non-resumable. There is no automatic update, list, or cleanup subcommand — old packages and quarantine directories are a deliberate, manual housekeeping task.
+
+This installer is local-only (no code signing, no notarization); a future path to distributing prebuilt renderers to other users' machines would need Apple Developer ID signing and notarization, which is explicitly out of scope today. Hashing here guards against accidental corruption and races between cooperating agents on the same machine, not against a malicious process already running as the same user.
+
+Full operating guide, with copyable install/verify/promote/repair examples using separate installer/source worktrees: [`docs/guides/versioned-echo-renderer.md`](docs/guides/versioned-echo-renderer.md).
+
+### Auto-Export Study Captures (July 2026)
+
+When enabled (Settings -> Study & Notes -> Auto-Export), Echo continuously mirrors each book's study captures as one deterministic Markdown file per book inside an Echo-owned `Echo Study Notes/` subfolder of a user-picked destination, typically iCloud Drive so Mac-side tools can ingest the files. iOS cannot watch folders, so Echo pushes: `AutoExportService` (`@MainActor @Observable`) observes the `note`, `bookmark`, and `flashcard` tables via GRDB `DatabaseRegionObservation`, debounces 5 seconds, and rewrites dirty books atomically with `NSFileCoordinator` plus atomic replace. Rendering is the pure `AutoExportMarkdown` enum: YAML frontmatter (`book`, optional `author`, `book_key` = SHA-256-prefix of the book id), HTML-comment capture-ID markers for downstream dedup, chapter attribution by timestamp, text-only output in v1, and no export timestamp in the file.
+
+**Schema V34** adds `study_export_destination` (single-row security-scoped bookmark, following the `library_root` precedent) and `study_export_state` (per-book `dirty` flags as a persisted retry outbox, plus `file_name`, `content_sha256`, and `last_error`). Failures keep books dirty and retry on the next capture, foreground, or session-end flush; an unresolvable destination sets `needs_repick` and pauses passes; a stale-but-resolvable bookmark self-heals. The exporter never reads destination files, never exports bookmark location fields, and SHA-skips unchanged content to avoid iCloud churn. Title changes, deleted books, and books whose captures are removed clean up stale mirror files from the Echo-managed subfolder.
+
+**Settings and entitlement:** `SettingsManager.studyAutoExportEnabled` persists the user preference. `AutoExportSettingsRows` mounts under Study & Notes, presents a folder picker, shows passive status, and currently gates enablement on Echo Pro (`StoreManager.isPro`). Manual per-book/all-books study-note export is unchanged. The macOS Settings pane is a deliberate fast-follow; the engine and database pieces remain shared.
+
+**Test coverage:** `SchemaV34Tests`, `StudyAutoExportDAOTests`, `AutoExportMarkdownTests`, `AutoExportServiceTests`, `StudyNotesExportServiceTests`, `EchoCoreTests`, and settings structural guardrails.
+
+Design spec: `docs/superpowers/specs/2026-07-02-auto-export-to-folder-design.md`; implementation plan: `docs/superpowers/plans/2026-07-02-auto-export-to-folder.md`.
 
 ### EPUB Reader Feed (Current)
 
@@ -597,8 +1367,23 @@ The Reader tab renders EPUB content as a feed of styled cards aligned to the aud
 | V21 | `batch_queue.kind` (TEXT, default `'align'`) — discriminates audiobook-alignment items from text-only EPUB narration items (additive; no re-import) |
 | V22 | FSRS memory-state seed (`v22_fsrs_seed`) — one-time, idempotent data migration seeding `stability`/`difficulty` from each legacy SM-2 card's `(interval_days, ease_factor)` so its first FSRS review evolves existing memory instead of restarting (only rows where `stability IS NULL`; the FSRS columns themselves shipped in V16) |
 | V23 | Audiobookshelf provenance columns on `audiobook` (`source_type` TEXT, `server_id` TEXT, `remote_item_id` TEXT, `topics_json` TEXT) — all nullable, additive `ALTER TABLE`, no re-import or re-alignment needed |
+| V24–V26 | Voice memos/notes in the reader feed (V24), study plans (V25), timeline segment key (V26) — see CHANGELOG.md |
+| V27 | Library columns on `audiobook` (`cover_art_path`, `narrator`, `index_state`, `is_available`, `last_seen_at`, `author_sort`, `source_root_id`) + new `library_root` table — all additive; powers the local Library shelf/root manager with no re-import or re-alignment |
+| V28 | `pdf_block_page` table (`v28_pdf_block_page`) — per-block source **PDF page index** (`audiobook_id`, `epub_block_id`, `page_index`; indexed by book+block and book+page). Captured at import by `PDFBlockPageMapper`, it lets page-mode read-along auto-follow the narration page-by-page. Additive, but **already-imported PDFs must be re-imported** to populate it (until then page mode auto-follows by best-effort text search). Renumbered from V27 after `v27_library` landed on nightly first |
+| V29 | `audiobook.text_origin` (TEXT) — provenance marker for reader text (`epub` / `pdf` / `transcript`); audio-only ASR materialization sets `transcript` so source-backed alignment never treats generated transcript text as canonical source |
+| V30 | `narration_quality_issue` table + `idx_narration_quality_issue_book_status` — reviewable generated-narration QA divergences, cascade-deleted with the book |
+| V31 | `abs_server.is_active` (BOOLEAN, default false) — preserves the active server across the single-server iOS flow while allowing macOS to save multiple servers and switch the active one |
+| V32 | `epub_block.narration_text` (TEXT, nullable) — persisted FM-refined TTS input; narration renders from it when present and QA compares against it while the original `text` remains the source of truth |
+| V33 | `study_plan.new_cards_per_day` and `study_plan.chapter_pacing` — per-plan AI card pacing controls |
+| V34 | `study_export_destination` + `study_export_state` — auto-export destination security bookmark and per-book dirty/retry state for deterministic Markdown study mirrors |
+| V35 | Nullable/defaulted edition-grouping columns on `audiobook` (`edition_group_id`, `edition_group_optout`) plus indexes |
+| V36 | `.code` joins the raw `epub_block.block_kind` values; nullable `epub_block.code_language` stores a best-effort language hint while `text` preserves the raw listing and `narration_text` stores its spoken cue |
 
 Key indexes: `idx_epub_block_sequence` (audiobook_id, sequence_index), `idx_epub_block_chapter` (audiobook_id, chapter_index), `idx_epub_block_hidden` (audiobook_id, is_hidden), `idx_alignment_anchor_time` (audiobook_id, audio_time), `idx_alignment_anchor_block` (audiobook_id, epub_block_id).
+
+### Study Plans (Schema V25)
+
+`study_plan` stores a book-level generated study configuration: cadence, chapter limit, image inclusion, queue mode, catch-up policy, pause state, and the generated deck. `study_plan_item` stores ordered generated assignments and introduction state. Existing `flashcard` rows remain the review unit; generated assignment cards keep `next_review_date` nil until first grade, then `FlashcardDAO.grade` schedules future reviews through FSRS.
 
 **Alignment pipeline:**
 
@@ -620,7 +1405,7 @@ Auto-alignment (4-tier pipeline, on-device)
 
 User anchors (manual)
   └─ AlignmentService
-       ├── moveBlockToCurrentTime / anchorSearchResult / anchorChapterStart/End
+       ├── moveBlockToCurrentTime(blockID:time:source:) / anchorSearchResult
        ├── eraseAnchor(blockID:) / resetAlignment()
        ├── hideBlock(blockID:reason:) / unhideBlock(blockID:)
        ├── hideChapter(chapterIndex:reason:)   ← batch chapter hide
@@ -667,7 +1452,7 @@ ReaderTab (SwiftUI)
        ├── Force-scroll trigger  ← counter-based invalidation for repeated scroll-to-same-block
        ├── Context menu — long-press any card for:
        │    ├── Align to Now / Align to 5s Ago
-       │    ├── Align to Chapter Start / Align to Chapter End (all blocks)
+       │    ├── Align to Chapter Start (opens chapter picker)
        │    ├── Not in Audio (This Paragraph) / Not in Audio (Whole Chapter) ← hide non-narrated content
        │    ├── Erase Anchor (if lockedAnchor) / Reset Alignment (all anchors)
        │    ├── Change Color / Save Bookmark / Copy Text / Save Image
@@ -684,13 +1469,47 @@ ReaderTab (SwiftUI)
 **Key types:**
 
 - `ReaderCardSection` — A group of cards under a heading hierarchy (e.g. ["Chapter 1", "Section 1.1"])
-- `ReaderCardItem` — Enum with 2 cases: `.chapterHeader(title, index)` and `.block(EPubBlockRecord)`
+- `ReaderCardItem` — Enum with cases: `.chapterHeader`, `.block`, `.bookmark`, `.ankiCard`, `.note`, `.voiceMemo`
 - `EPubBlockRecord` — Database row for a parsed EPUB block (heading, paragraph, or image)
 - `ReaderSettings` — Font size, line spacing, and card tint color for the reader
 
+**Unified Feed Initiative (Phases 1–5, June 2026):** The reader feed was progressively unified into a single "Read & Study" surface across five phases:
+
+- **Phase 1 — Collapsible accordion (iOS):** The feed opens collapsed (one row per audio chapter = a built-in table of contents). Tap to expand inline; one chapter open at a time; the playing chapter auto-expands while audio is running. Each row is honestly labelled **has-audio** (any block in the chapter carries a real `timeline_item.audio_start_time >= 0` — anchor-locked, interpolated/estimated, or synthesized) vs **text-only** via `ChapterAudioStatusResolver` (`Shared/Services/`). New pure types: `FeedAccordion` (`Shared/`), `ReaderFeedDisplayBuilder` / `ReaderChapterGroup` (`EchoCore/Models/`). No schema change.
+
+- **Phase 2 — Inline study items + off-switch + nav consolidation (iOS):** Bookmarks and Anki cards thread through the feed at their anchor positions (`ReaderCardItem.bookmark`/`.ankiCard`, collision-safe `bm-`/`fc-` ids; `ReaderFeedDisplayBuilder.spliceExtras`). A long-press chapter menu exposes a single off-switch: `OffStateResolver` (`EchoCore/Services/`) reconciles both off-state axes — `is_hidden` on EPUB blocks (narration, display, auto-cards) and `isEnabled` on audio tracks (playback queue) — through one `ChapterOffState` write so they can no longer drift. The separate chronological **Study** tab is retired; **Read** is relabelled **"Read & Study"**; deep links to the old surface remap to the Read tab. No schema change.
+
+- **Phase 3 — Filters + session scope (iOS):** A filter row above the feed narrows by content type (Everything / Audio / Text / Pics / Bookmarks / Cards). A scope selector switches between *Whole book* and *Last session*; last-session scope shows a recap card (when, minutes, chapter range, counts) derived at query time from `real_time_event` + `playback_event`. New pure types: `FeedFilter`/`FeedContentType`/`FeedScope`/`FeedScopeResolver` (`Shared/`). No schema change.
+
+- **Phase 4 — Voice memos + notes (iOS, Schema V24):** Two new content types thread through the feed — **typed notes** and **recorded voice memos** (`ReaderCardItem.note`/`.voiceMemo`; `FeedItemInjector` for per-section positioning). Schema V24: `note` gains `epub_block_id` for document-order positioning; a net-new `voice_memo` table stores standalone audio file + metadata. New: `VoiceMemoRecord`/`VoiceMemoDAO`, `NoteRecord.epubBlockID`/`NoteDAO`. The recorder (`VoiceMemoRecorder`) is iOS-only (excluded from macOS/CLI build targets).
+
+- **Phase 5 — Sessions history + macOS parity (iOS + macOS):** A browsable **Sessions history** (`SessionsListView`) lists reconstructed listening sessions. There is no `playback_session` table — `SessionSummaryService` (`Shared/Services/`) groups `playback_event` rows by 5-minute wall-clock gaps, then derives GPS route / miles (from `session_location`), chapter range (overlap join on the `chapter` table), minutes, and bookmark/card/note counts into a pure `SessionSummary` (`Shared/`). Tapping a session opens a read-only scoped reader feed via `SessionScope` / `SessionScopeReducer` (pure, `Shared/`) applied in `ReaderFeedViewModel.reload()`. **macOS parity:** `MacReaderFeedView` (`Echo macOS/`) was extended to drive a SwiftUI-native collapsible chapter accordion reusing the UIKit-free pure types (`FeedAccordion`, `ChapterAudioStatusResolver`); it does not import the iOS `ReaderFeedViewModel` / `ReaderFeedCollectionView` (UIKit/EchoCore, iOS-only). No schema change (session data is derived in-query).
+
+### Deck Import Source Anchors (June 2026)
+
+Imported flashcards can be linked to the EPUB text they came from, reusing the portable block-ID **suffix** (`s<i>-b<j>`) the alignment sidecar already standardized (see *Mac → device alignment handoff*). `EPUBSourceAnchorResolver` (`EchoCore/Services/`, GRDB-backed) takes a card's `sourceAnchor` — a bare suffix, or a full legacy `epub-<book>-s<i>-b<j>` id — strips it to the suffix via `AlignmentSidecar.portableSuffix`, re-prefixes it with the importing book's `audiobookID`, and resolves it against `epub_block`; the result is persisted in `flashcard.source_block_id`. Two producers feed it: JSON decks gain an optional `sourceAnchor` per card (`DeckImportService.importDeckVNext`), and `.apkg` archives may carry a root **`echo-import.json`** sidecar — `{ formatVersion, targetMediaID, cards: [{ cardID | noteGUID, sourceAnchor, startTime?, endTime?, triggerTiming? }] }` — keyed by Anki `cardID` then `noteGUID` (`ApkgImportService.importVNext`). For JSON decks, `startTime`/`endTime` are optional when `sourceAnchor` resolves; source-only JSON cards persist with `flashcard.media_timestamp = 0` and `flashcard.end_timestamp = NULL` as current-schema compatibility placeholders. The sidecar annotates a *subset* of cards (an unlisted card is normal, not a warning). Resolution is non-fatal: unresolved / malformed / wrong-book / no-EPUB-block anchors and a malformed or target-less sidecar return structured `ImportDeckWarning`s (`ImportDeckResult`) and fall back to timestamp/manual placement when the card supplies a valid time range. A source-only JSON card whose anchor cannot resolve fails validation rather than importing without a placement anchor. **Concurrency:** the JSON path resolves *before* its write transaction; the APKG path resolves *inside* `writer.write` through a `static EPUBSourceAnchorResolver.resolve(…in:)` so no reader-backed resolver crosses into the `@Sendable` write closure. The legacy `importDeck(from:db:) -> Int` / `import(from:into:) -> Int` entry points remain as thin wrappers. No migration — `flashcard.source_block_id` predates this. The JSON path additionally carries the resolved id into the card's `timeline_item.epub_block_id` (`FlashcardDAO.syncToTimeline`), and `ReaderFeedViewModel` scopes its block→chapter lookup to the active audiobook so a shared block id never resolves to the wrong book. Plan/design: `docs/superpowers/plans/2026-06-25-deck-import-source-anchors.md`; follow-up JSON timing contract: `docs/superpowers/plans/2026-06-26-anchor-first-json-deck-import.md`.
+
+### EchoDeckBuilder Handoff (June 2026)
+
+Echo can hand the current book's EPUB to the companion **EchoDeckBuilder** macOS app (which turns an EPUB into a `.echo-deck.json` flashcard deck). Resolution is a pure, cross-platform `EchoDeckBuilderHandoffService.currentEPUBURL(bookURL:sourceDocumentURL:currentTrackURL:)` (`EchoCore/Services/`) that picks the `.epub` for the loaded book in precedence order: a directly-opened `.epub` (`PlaybackState.sourceDocumentURL`, set by `PlayerLoadingCoordinator` on single-file open); the book URL itself when it is a standalone `.epub`; a sibling `.epub` whose base name matches the current audio track **or** the opened document; otherwise the lone sibling `.epub` in the book folder. It throws `noLoadedBook` / `noEPUBFound` / `multipleEPUBCandidates` rather than guess, and — so it never hands off the wrong book — it **refuses the lone-sibling fallback when the book was reached only by opening an unrelated non-EPUB document** (PDF/Markdown/text), requiring a name match instead.
+
+**iOS** surfaces this as a `ShareLink` in Book Settings ("Make Flashcards in EchoDeckBuilder"), gated on a real resolved `.epub` (not `hasEPUB`, which is also true for parsed PDF/.md/.txt books, so those show the row disabled rather than enabled-but-always-failing). **macOS** surfaces a "More ▸ Open in EchoDeckBuilder" action that resolves the `.epub`, wraps the book + EPUB security scopes around the launch, and opens the app via `NSWorkspace.open(withApplicationAt:)` (bundle id `com.dfakkeldy.EchoDeckBuilder`, with `/Applications` and `~/Applications` fallbacks), showing an install hint when the app isn't present. The single-message `EchoDeckBuilderAlert` value type is shared by both surfaces. No schema change. Tests: `EchoDeckBuilderHandoffServiceTests`.
+
+### AI Card Generation (BYO Anthropic key, June 2026)
+
+Echo can generate study flashcards from a book's text with a large language model, alongside the existing deterministic generator. The model-backed path is **bring-your-own-key**: the user pastes their own Anthropic API key (stored in the Keychain via `APIKeyStore`, never in UserDefaults, never logged) and Echo calls the Anthropic Messages API directly over HTTPS — no first-party backend, no Echo account. Generation is gated on the key only (no Pro requirement, and AI cards do not consume the free-tier flashcard cap); with no key it falls back to the deterministic `FixtureStudyDeckGenerator`. (The Claude *CLI* path the EchoDeckBuilder companion uses is not viable inside Echo macOS — it ships App-Sandboxed via the Mac App Store and cannot spawn a user-installed binary — so HTTPS over the existing `com.apple.security.network.client` entitlement is the in-app path.)
+
+The seam is `protocol StudyDeckGenerating { func generate(sources:settings:) async -> GeneratedStudyDeckDraft }` (`Shared/Services/`), mirroring the narration-QA `DivergenceClassifier` pattern: `FixtureStudyDeckGenerator` (deterministic, always-available), `AnthropicStudyDeckGenerator` (cloud, BYO-key), and `FoundationModelsStudyDeckGenerator` (on-device, iOS 26+/macOS 26+) all conform. `StudyDeckGeneratorFactory.make(preference:hasKey:fmAvailable:anthropic:)` selects among the three: in `.auto` mode, a key wins → on-device FM → fixture; `.cloud` forces the network generator (fixture if no key); `.onDevice` forces the FM generator (fixture if unavailable). `AICardGenerationSettings.providerPreference` (persisted in UserDefaults, default `.auto`) carries the user's choice; `StudyDeckGenerationViewModel` injects the resolved generator and drives the generation sheet. The old `make(hasKey:anthropic:)` two-arg overload is preserved for backward compatibility. `BookSettingsView`/`MacSettingsView` build the generator from `APIKeyStore` + the selected model (`AICardGenerationSettings`, default `claude-opus-4-8`, with a Sonnet/Haiku picker since the user bears token cost). Everything except the SwiftUI settings views is cross-platform (`Shared/`) and `nonisolated`, so the same pipeline serves iOS and macOS.
+
+**On-device provider (`FoundationModelsStudyDeckGenerator`, iOS 26 / macOS 26, no key, fully private):** triple-gated (`#if canImport(FoundationModels) && (os(iOS) || os(macOS))` compile-time + `@available(iOS 26, macOS 26, *)` + `LanguageModelSession.isAvailable` runtime), this provider generates cards entirely on-device using Apple Intelligence without sending text to any server. `StudyDeckFMAvailability.isAvailable` reports runtime availability (mirroring the narration-QA `DivergenceClassifierFactory` approach; no locale pre-check is done — availability mirrors what the FM framework reports). A `StudyDeckFMCardMapper` maps each source block through a `LanguageModelSession` with a `@Generable StudyDeckGeneratedCard` schema (constrained decoding) to produce card drafts; the fixture generator is the fallback on any error or on a zero-card run. The provider preference is exposed via an inline `Picker` inside a `Section("Provider")` in `AICardGenerationSettingsView`; the on-device option is shown only when `fmAvailable` is true at runtime. On macOS the preference is configurable in the AI settings tab, but study-deck generation is currently triggered only from iOS book settings (`BookSettingsView`, excluded from the macOS target) — a pre-existing scope boundary, so on macOS the preference is settable but not yet actionable.
+
+`AnthropicMessagesClient` (`Shared/Networking/`, URLSession — Swift has no official Anthropic SDK) speaks `POST /v1/messages` with `output_config.format` structured output, adaptive thinking (no sampling params), a prompt-cached system prefix, and typed handling of the `refusal` stop reason / 401 / 429. Generation is a two-pass pipeline ported from EchoDeckBuilder's `codex/ai-generation-cli`: a book-brief call (capped, escaped source snippets → summary/themes/key-concepts) then one call per chapter-sized batch (`StudyDeckBatcher`, spine-bounded), each batch constrained to its own blocks. `StudyDeckPromptBuilder` frames all source text as untrusted XML-escaped quoted material (prompt-injection mitigation) and emits the JSON schema. Validation is deterministic and layered: the ported `studyDeckIsLongSourceQuotation` drops cards copying ≥14 words/≥80 chars verbatim, `GeneratedStudyDeckDraft.validated()` drops cards with an unknown source block or oversized text, and cloze cards are dropped unless their `clozeText` carries a valid `{{c1::…}}` marker (`studyDeckHasValidClozeMarkers`). A failing batch is skipped (warning logged) while earlier batches' cards survive (partial recovery); the run is cancellable between batches and reports `(done,total)` progress — both surfaced in the generation sheet, where Cancel/dismiss actually stops generation rather than billing on in the background.
+
+Accepted cards flow through the **unchanged** `StudyDeckAcceptanceService` → `FlashcardDAO` path: basic cards persist as before, and **cloze** cards expand via `ClozeParser` into one `flashcard` row per deletion with `card_type = "cloze"` and `cloze_index` — populating columns that already exist in `Schema_V1`, so there is **no migration**. **Privacy:** the on-device default experience is unchanged; the AI feature is opt-in behind a one-time consent that discloses the book's text is sent to the user's own Anthropic account when used. New types: `StudyDeckGenerating`/`StudyDeckGeneratorFactory`, `AnthropicStudyDeckGenerator`, `AnthropicMessagesClient`/`AnthropicClientError`, `APIKeyStore` (+ `KeychainStore.Key.anthropicAPIKey`), `StudyDeckPromptBuilder`, `StudyDeckBatcher`, `studyDeckHasValidClozeMarkers`/`studyDeckIsLongSourceQuotation`, `StudyDeckCardKind`, `AICardGenerationSettings`/`AICardGenerationSettingsView`, `StudyFlashcardType.cloze`. Design/plan: `docs/superpowers/specs/2026-06-30-ai-card-generation-design.md`, `docs/superpowers/plans/2026-06-30-ai-card-generation.md`.
+
 ### PDF Companion Document Support (June 2026)
 
-When a PDF file is placed alongside an audiobook (alongside or instead of an EPUB), Echo provides a PDF reader with per-page alignment and bookmarking:
+When a PDF file is placed alongside an audiobook (alongside or instead of an EPUB), Echo provides a PDF reader with per-page alignment and bookmarking — and, for PDFs parsed into text, a read-along reading surface with per-word interaction (see *PDF Read-Along, Per-Word Define & Vocabulary* below):
 
 ```
 PDF in audiobook folder
@@ -728,6 +1547,37 @@ Bookmark persistence (Schema V11):
 
 **Reader tab routing:** `RootTabView` checks `model.hasPDF` when `model.hasEPUB` is false, routing to `PDFDocumentView` instead of `ReaderEmptyState`.
 
+### PDF Read-Along, Per-Word Define & Vocabulary (June 2026)
+
+A parsed PDF (one whose text was extracted into `epub_block` rows for narration/alignment) gains a second reading surface and per-word interaction, in four slices:
+
+```
+PDFReadingSurface (SwiftUI container)
+  └── segmented toggle: Page  ⇄  Reflow         ← persisted per book
+       ├── Page view   → PDFDocumentView + PDFReadAlongController
+       └── Reflow view → the EPUB-style card feed (ReaderFeedCollectionView)
+
+ReaderSurfaceMode / ReaderSurfaceResolver
+  └── decides which surfaces a book offers
+        parsed PDF    → page + reflow
+        un-parsed PDF → page only
+```
+
+- **M1 — Reading-surface toggle.** Parsed PDFs expose a Page ⇄ Reflow switch (defaults to Page), persisted per book via `BookPreferencesService` (`loadPDFViewMode`/`savePDFViewMode`). `ReaderSurfaceResolver` decides the available surfaces from the book's state.
+- **M2 — Per-word interaction (reflow, iOS).** `ParagraphCardCell`/`HeadingCardCell` render through a non-selectable, read-only `UITextView` (TextKit hit-testing) instead of a `UILabel`, so `wordIndex(at:)` can resolve the tapped/long-pressed word without selection gestures swallowing the block tap / context menu. Tap-a-word seeks to that word's audio time; long-press offers **Look Up** (`UIReferenceLibraryViewController`) and **Save word**.
+- **M3 — Page read-along (iOS).** `PDFReadAlongController` resolves the active block/word each playback tick; pages **auto-follow** the narration via the per-block `page_index` (Schema V28), and the active word is highlighted on the page by best-effort PDFKit text search (cached). Long-press on the page reads the word from the PDF and offers the same Look Up / Save actions.
+- **M4 — Vocabulary review.** Saved words become `cardType = "vocabulary"` flashcards (`VocabularyCardBuilder`, deduped per book + word via `FlashcardDAO.vocabularyCard(for:word:)`), scored by FSRS and surfaced in the study review feed with the word, its context sentence, a "Play in context" snippet, and on-demand Look Up. A **Narrate** button appears in the PDF reader when the book has parsable text but no audio.
+
+**Key types:**
+- `ReaderSurfaceMode` / `ReaderSurfaceResolver` — the page-vs-reflow surface model and the pure resolver that decides which surfaces a book offers.
+- `PDFReadingSurface` — SwiftUI container hosting the page and reflow views behind the persisted segmented toggle.
+- `PDFReadAlongController` — drives page auto-follow and word highlight from the playback clock plus the timeline/word caches.
+- `PDFBlockPageMapper` — pure import-time mapper assigning each `epub_block` to its source PDF page (whitespace-insensitive, monotonic cursor); persisted by `PDFAutoImportScanner` via `PDFBlockPageDAO`.
+- `PDFBlockPageRecord` / `PDFBlockPageDAO` — GRDB record + DAO over the `pdf_block_page` table (`pageIndex(for:epubBlockID:)`, `rows(for:)`, `insertAll`, `deleteAll(for:)`).
+- `VocabularyCardBuilder` / `WordSentenceContext` / `VocabularyCardContext` — build a vocabulary flashcard from a tapped word and its surrounding sentence, and decode that context back for review rendering.
+
+**Platform note:** M2 and M3 are **iOS-only** (the UIKit cell host and `PDFReadAlongController`); the macOS reader uses a separate SwiftUI text path, so per-word interaction and page read-along on macOS are follow-up parity work. M1 and M4 are cross-platform.
+
 ### Hierarchical Chapter Titles (June 2026)
 
 `PlaylistView.computeHierarchicalTitles(for:)` detects parent-child relationships between consecutive chapter titles using prefix matching, then formats nested chapters with leading dots (e.g., "Part 1", ".Chapter 1", "..Section A"). This makes Libation-style sub-section hierarchies and multi-level EPUB structures visually scannable in the playlist without requiring explicit part/section metadata.
@@ -745,25 +1595,26 @@ The iOS app uses a 3-tab layout managed by `RootTabView`:
 ```
 RootTabView
 ├── Tab 0: NowPlayingTab   ← pure media consumption (album art, scrubber, transport)
-├── Tab 1: ReaderTab        ← EPUB reader with search, alignment, and TOC (when EPUB is loaded)
-│                             falls back to PDFDocumentView (when PDF is loaded, no EPUB)
-│                             falls back to ReaderEmptyState (no companion document)
-└── Tab 2: TimelineTab      ← playlist, track/chapter list, bookmarks
+└── Tab 1: ReaderTab        ← Read & Study: EPUB/PDF reader, search, alignment, TOC,
+                              capture surfaces, review/library entry points, and empty states
 ```
 
-**NowPlayingTab** focuses entirely on active playback: `AlbumArtHeroView`, `PlayerScrubberView`, and `TransportControlsView`, plus a `< Chapter Title >` chevron nav bar in `metadataArea` flanking the title marquee (gated by `PlayerModel.hasPreviousChapter` / `hasNextChapter`, reusing the chapter-aware `skipBackwardNavigation()` / `skipForwardNavigation()` the lock screen and CarPlay use). Per-listen controls live elsewhere (BookPlayer-style redesign, June 2026): **playback speed, the 3-way loop, seek/skip durations, Smart Rewind, and Volume Boost** moved into a presented `PlaybackOptionsSheet` (opened from the Now Playing speed indicator — both the static `BottomToolbarView` speed chip via an injected `onShowPlaybackOptions` closure threaded through `UnifiedBottomDock`, and the configurable `TransportControlsView` `.speed` slot via a `showPlaybackOptions` `EnvironmentKey` installed by `NowPlayingTab`). A player-scoped `PlayerMoreMenu` in the `BottomToolbarView` dock holds Chapters (presents `ChapterPickerSheet` as a jump-to-chapter navigator), Bookmarks (switches to the Study/Timeline tab), an inline Sleep-timer submenu, and Settings — distinct from the app-level `UnifiedTopHeader` ellipsis menu, and wired at both `UnifiedBottomDock` call sites (NowPlayingTab + the RootTabView overlay).
+**NowPlayingTab** focuses entirely on active playback: `AlbumArtHeroView`, `PlayerScrubberView`, and `TransportControlsView`, plus a `< Chapter Title >` chevron nav bar in `metadataArea` flanking the title marquee (gated by `PlayerModel.hasPreviousChapter` / `hasNextChapter`, reusing the chapter-aware `skipBackwardNavigation()` / `skipForwardNavigation()` the lock screen and CarPlay use). Per-listen controls live elsewhere (BookPlayer-style redesign, June 2026): **playback speed, the 3-way loop, seek/skip durations, Smart Rewind, and Volume Boost** moved into a presented `PlaybackOptionsSheet` (opened from the Now Playing speed indicator — both the static `BottomToolbarView` speed chip via an injected `onShowPlaybackOptions` closure threaded through `UnifiedBottomDock`, and the configurable `TransportControlsView` `.speed` slot via a `showPlaybackOptions` `EnvironmentKey` installed by `NowPlayingTab`). A single player-scoped `PlayerMoreMenu` in the `BottomToolbarView` dock holds Chapters, Bookmarks, Add/Replace Document, Export M4B, Export Study Notes, Stats, Fidget, Settings, and Help. The app-level `UnifiedTopHeader` no longer has an ellipsis action menu; it only shows the folder chip on the Library tab and the trailing `SleepTimerPill` as the one visible sleep-timer state.
 
-**ReaderTab** (available when `model.hasEPUB` is true; `model.hasPDF` provides a `PDFDocumentView` fallback) is the EPUB-backed reading surface. It renders the book as a feed of styled cards — headings, paragraphs, and images — aligned to the audio playback position. The header auto-hides on scroll-down and reveals on scroll-up. It includes:
+**Visual listening mode** is an additive Now Playing surface for books with EPUB/PDF image blocks or EPUB/Markdown code listings and aligned narration. `VisualListeningCueResolver` is pure shared logic: its generalized `VisualListeningVisualContent` payload carries either `.image(path:)` or `.code(text:language:)`, while `VisualListeningVisualCue` selects the active visual, required subtitle/cue, word progress, and timing policy (`beginning` or `midpoint`) from `EPubBlockRecord`, `TimelineItem`, and `WordTimingRecord` inputs. Code listings use the same block-level cue window as their narration caption/fallback and never receive word-level syntax highlighting. iPhone keeps the single-column listening flow and replaces album art only when the current snapshot has both visual content and a subtitle/cue. iPad landscape uses a wider Now Playing composition with the visual stage beside compact metadata, the nudge copy, scrubber, and transport controls. macOS mounts `MacVisualStageView` above the persistent reader feed in `MacTriPaneView`, so both platforms show selectable, horizontally scrollable monospaced listings as well as figures. The feature is in-app only and does not churn system Now Playing artwork; Schema V36 belongs to code import, not the visual-cue payload.
+
+**ReaderTab** (available when `model.hasEPUB` is true; `model.hasPDF` provides a `PDFDocumentView` fallback) is the EPUB-backed reading surface. It renders the book as a feed of styled cards — headings, paragraphs, images, and code listings — aligned to the audio playback position. `CodeCardCell` uses selectable Dynamic-Type-aware monospaced text, horizontal scrolling without line wrapping, an optional language label, and block-level active highlighting because narration speaks only the listing cue. The header auto-hides on scroll-down and reveals on scroll-up. It includes:
 - A search bar for full-text search across the EPUB with inline match highlighting
 - A Table of Contents sheet for structural navigation
 - Auto-scroll that follows the audio playhead, highlighting the active paragraph with a blue bar
 - Long-press context menus on every card for fixing alignment, changing card colors, creating bookmarks, and copying text
 - Per-card alignment anchors that lock EPUB blocks to exact audio timestamps
+- Reader-driven chrome hiding: scroll state updates `PlayerModel.readerChromeHidden`, allowing `RootTabView` to hide top chrome while reading; alignment timestamp UI omits placeholder "None" labels when no timestamp exists.
 
-**TimelineTab** currently hosts `PlaylistView` for track/chapter browsing and reordering (with `.onMove` drag handles and per-item toggle controls).
+`PlaylistView` is presented from the player-scoped menu for track/chapter browsing and reordering (with `.onMove` drag handles and per-item toggle controls).
 
 When a book is loaded, a `PlayerControlBar` mini-player appears above the `BottomToolbarView`,
-showing artwork, title/chapter metadata, and play/pause — tapping it opens the full NowPlaying view.
+showing artwork, de-noised title/chapter metadata (numeric track prefixes stripped), and play/pause — tapping it opens the full NowPlaying view.
 ```
 
 ### PlayerModel Decomposition
@@ -783,7 +1634,6 @@ showing artwork, title/chapter metadata, and play/pause — tapping it opens the
 | `PlayerLoadingCoordinator` | Folder/track loading, audio session setup, persistence, seek-on-load |
 | `BookmarkArtworkCoordinator` | Artwork generation, caching, Now Playing artwork updates |
 | `PlayerTimelinePersistenceService` | Timeline item ingestion, EPUB presence checks |
-| `InlineFlashcardTriggerController` | SRS flashcard popover detection and trigger logic |
 | `EPUBImportCoordinator` | EPUB file import and block ingestion |
 | `BookSettingsOverrideStore` | Per-book font, volume boost, and bookmarks-inline overrides |
 | `BookPreferencesService` | Resolution logic for per-book + global preference merging |
@@ -802,7 +1652,7 @@ PlayerModel wires these via coordinator closures in `init()` and exposes thin pa
 
 ### Player Layout Styles
 
-The iOS player supports two layout variants, selected via **Settings > Customization > Phone Player Designer > Player Layout Style** (`PhonePlayerSettingsView`):
+The iOS player supports two layout variants, selected via **Settings > Controls > Phone Player Settings > Layout** (`PhonePlayerSettingsView`):
 
 | Style | Scrubber | Transport Controls | Target |
 |---|---|---|---|
@@ -811,11 +1661,13 @@ The iOS player supports two layout variants, selected via **Settings > Customiza
 
 The layout style is persisted in `SettingsManager.playerLayoutStyle` (UserDefaults key `playerLayoutStyle`) and drives conditional rendering in `PlayerScrubberView` and `TransportControlsView`.
 
+**Experimental Now Playing layout** (iOS, July 2026) is an opt-in alternate player behind `SettingsManager.experimentalNowPlayingLayout` (UserDefaults key `experimentalNowPlayingLayout`, phone-only, default off). When on, `NowPlayingTab` renders `ExperimentalNowPlayingView` (full-bleed cover via `FullBleedCoverBackground` dissolving into the cover-derived `AdaptiveBackground` wash) and `RootTabView` stands the shared `UnifiedBottomDock` down in favour of `ExperimentalControlLayer`, which hosts individual round Liquid Glass buttons (`GlassControlButton` — iOS 26 `.glassEffect(.regular.interactive())` with an `.ultraThinMaterial`+stroke fallback for iOS 18–25). Each button wraps an existing `WatchAction`; placement is one of seven fixed `PlayerSnapZone` anchors plus a bounded fine-tune offset, resolved to screen coordinates by the pure `PlayerZoneResolver`. The arrangement is a small Codable `ExperimentalPlayerLayout` persisted as JSON `Data` in `SettingsManager.experimentalPlayerLayoutData` (UserDefaults key `experimentalPlayerLayoutData`; decode failures fall back to the curated default set). Long-press any button (or `⋯ → Edit Buttons…`) to unlock edit mode: drag buttons between snap zones with intra-zone nudge, add/remove via a sheet and a `-` badge, and Done/lock to return to clean playback. Lock state is transient (always opens locked); a Settings ▸ Now Playing ▸ "Reset Button Layout" restores the default set. Reader and other tabs keep the normal dock. macOS/watchOS players are untouched (the new view files are `#if canImport(UIKit)`; the layout model/resolver are platform-neutral).
+
 Each transport button now supports a **dual-action model**: a tap executes the primary action (configured via `PhonePlayerSettingsView` under "Tap Actions"), while a long-press (>0.5s) executes a secondary action (configured under "Long Press"). The `TransportButton` component uses a custom `PrimitiveButtonStyle` (`TransportPrimitiveButtonStyle`) to layer both gestures onto a single control without the gesture conflicts that arise from stacking `.onTapGesture` + `.onLongPressGesture` on a standard SwiftUI `Button`. Both action sets are persisted in `SettingsManager.phonePage` and `SettingsManager.phoneLongPressPage`, and saved/loaded in `PhonePreset` data models. The `.previousTrack` / `.nextTrack` / `.loopMode` actions were retired from the *selectable* `PhonePlayerSettingsView` palettes (chapter navigation now lives in the metadata chevron bar; loop in `PlaybackOptionsSheet`). This is **passive** — every `WatchAction` enum case and its render/dispatch arm remain, so saved layouts and the watch/CarPlay wire protocol keep decoding — and the fresh-install default `Defaults.phonePage` is now `[.skipBackward, .empty, .playPause, .empty, .skipForward]`.
 
-### Settings Restructure (BookPlayer redesign, June 2026)
+### Settings Restructure (Settings cleanup, June 2026)
 
-`SettingsView` was gutted from a monolith into a **thin app-level shell** holding only app-level rows that link out to subscreens: Display→Appearance, Store→Pro Transcripts, Customization→(Phone Player Designer, Watch App Settings, Advanced), Flashcards, Help, and DEBUG-only sections. No inline per-listen playback controls remain in Settings — those moved to `PlaybackOptionsSheet` (see *UI Architecture*). The former inline sub-views were **extracted** into their own files — `SettingsAppearanceView`, `FontSelectionView`, `ThemeSelectionView`, `ProTranscriptsSettingsView`, `AppIconSelectionView` — plus a new `SettingsAdvancedView` (the relocated Continuous Auto-Alignment + Play-Bookmarks-Inline toggles), routed through `NavigationDestinations`. The `ThemeColor` enum moved to `EchoCore/Models/ThemeColor.swift` so the macOS Settings scene can reuse it.
+`SettingsView` is a thin app-level shell organized by user intent: Now Playing, Appearance, Controls, Library & Accounts, Study & Notes, Advanced & Privacy, and Support & About. Durable playback defaults live in `SettingsNowPlayingView`; app styling and reader defaults live under `SettingsAppearanceView`; phone/watch control designers live under Controls. The quick in-context `PlaybackOptionsSheet` still edits the current listening session and links to `PhonePlayerSettingsView` for durable controls. The former extracted sub-views remain in their own files (`SettingsAppearanceView`, `FontSelectionView`, `ThemeSelectionView`, `ProTranscriptsSettingsView`, `AppIconSelectionView`, `SettingsAdvancedView`) so `SettingsView` stays a routing shell.
 
 ### Chapter Sections & Section Navigation
 
@@ -829,7 +1681,7 @@ Libation-ripped M4B audiobooks encode chapters as fine-grained sub-section atoms
 
 These actions are routed through `PlaybackController` → `WatchCommandRouter` → `WatchConnectivityCoordinator` for watch-initiated commands, and directly for phone transport controls (either as tap or long-press secondary actions).
 
-**Watch page layout:** The watch app supports up to 5 customizable pages of action slots (25 total), synced from the phone via `SettingsManager.watchPage1` through `watchPage5` App Group keys. Pages whose slots are all `.empty` are automatically hidden from the watch `TabView`. Configuration is managed in `WatchAppSettingsView` using a swipeable `TabView` with page indicators. The `watchTitleScrollSpeed` setting (Double, defaults to 30.0) controls the pixels-per-second scrolling rate for long titles in the watch player.
+**Watch page layout:** The watch app supports up to 5 customizable pages of action slots (25 total), synced from the phone via `SettingsManager.watchPage1` through `watchPage5` App Group keys. Pages whose slots are all `.empty` are automatically hidden from the watch `TabView`. Configuration is managed in `WatchAppSettingsView` using a swipeable `TabView` with page indicators, localized `WatchAction.displayName` labels, and inline per-slot pickers; the old Available Actions drag palette is retired. The `watchTitleScrollSpeed` setting (Double, defaults to 30.0) controls the pixels-per-second scrolling rate for long titles in the watch player.
 
 **Playlist disclosure groups:** In `PlaylistView`, logical chapters with section data render as `DisclosureGroup` rows, expanding to reveal tappable section rows that seek to each section boundary. A play icon indicates the currently active section.
 
@@ -841,7 +1693,7 @@ The Reader uses a tap/long-press interaction model on card cells:
 |---|---|---|
 | **Tap** | Paragraph / heading card | Seek playback to the block's audio timestamp |
 | **Tap** | Image card | Open image in system viewer |
-| **Long press** | Any card | Context menu: Align to Now, Align to 5s Ago, Align to Chapter Start, Align to Chapter End, Not in Audio (This Paragraph), Not in Audio (Whole Chapter, if in a chapter), Erase Anchor (locked anchors), Reset Alignment (all anchors), Change Color, Save Bookmark, Copy Text, Save Image (images only) |
+| **Long press** | Any card | Context menu: word actions (Look Up / Save, when pressed on a word), Auto-Align Chapters, Change Color, Set Chapter Theme (headings only), Align to Now, Align to 5s Ago, Align to Chapter Start (opens chapter picker), Not in Audio (Whole Chapter, if in a chapter), Not in Audio (This Paragraph) / Include in Audio, Erase Anchor (locked anchors), Reset Alignment (all anchors), Save Bookmark, Copy Text, Save Image (images only) |
 
 **Active block tracking:** The paragraph currently matching the audio playback position is highlighted with a blue leading bar (`activeBar`) on its card. The ReaderFeedViewModel performs a binary search on a cached `[(start, end, blockID)]` array for O(log N) lookup each time the playback position changes.
 
@@ -849,7 +1701,15 @@ The Reader uses a tap/long-press interaction model on card cells:
 
 **Bookmark lifecycle:** Bookmarks created via `BottomToolbarView.addBookmarkButton` flow through `BookmarkStore.appendBookmark` → `BookmarkDAO.syncToTimeline` → `timeline_item` table. The `.bookmarksDidChange` notification triggers a feed refresh, ensuring bookmarks appear inline immediately.
 
-**Playlist management:** `PlaylistView` (embedded in `TimelineTab`) provides track/chapter reordering via drag handles in edit mode, per-item enable/disable toggles, and bookmark browsing with swipe-to-edit. The backend is handled by `PlaylistManager` (track/chapter ordering and enabled-state persistence) and `PlaylistManifestService` (`.echoplaylist.json` manifest I/O).
+**Playlist management:** `PlaylistView` (opened from the player-scoped menu) provides track/chapter reordering via drag handles in edit mode, per-item enable/disable toggles, and bookmark browsing with swipe-to-edit. The backend is handled by `PlaylistManager` (track/chapter ordering and enabled-state persistence) and `PlaylistManifestService` (`.echoplaylist.json` manifest I/O).
+
+### PDF Figure Extraction & Card Images (July 2026)
+
+PDF import extracts a PDF's embedded figures so they become first-class, addressable content. `PDFFigureExtractor` (`EchoCore/Services/PDFFigureExtractor.swift`) scans each page's content stream with a `CGPDFScanner` (tracking `cm`/`q`/`Q` and recording each `Do` image-XObject's on-page rect via the CTM), filters out tiny/decorative placements, and **rasterizes each figure rect from the rendered page** — codec-proof, so JPEG-2000 + soft-mask figures composite correctly. It is pure/synchronous and runs inside a detached task during `PDFAutoImportScanner` import.
+
+`PDFFigureImporter` writes each figure's bytes via `EPUBAssetStorage.writeImageData` and inserts an `epub_block` row with `block_kind = image`, `text = nil`, `image_path` set, in a trailing synthetic spine (`s<maxSpine+1>-b<ordinal>`), plus a `pdf_block_page` row and the source page's `chapter_index`. Because `text` is nil, the three narration filters (`NarrationRenderPlan`, `NarrationChapterPlanner`, `NarrationService`) and the read-along word stream all skip figures automatically — no new filter needed. Extraction is best-effort (never aborts import) and writes a `figures.json` manifest (portable `s<i>-b<j>` anchor → path) beside the PDF for deck authoring. Re-import is idempotent: `EPUBImportService.import` deletes all prior `epub_block` rows for the book before re-inserting, so figures never accumulate. **No schema migration** — reuses `image_path`/`pdf_block_page`.
+
+**Card images.** A study card carries an image through the existing `flashcard.media_json` (`StudyCardMedia.imagePath`). The `.echo-deck.json` import format (`FlashcardDeckImport.ImportedCard`) gains two optional, mutually-exclusive fields: `imageAnchor` (a portable `s<i>-b<j>` resolved via `EPUBSourceAnchorResolver` to an in-book figure block's `image_path`) and `imageFile` (a path relative to the deck bundle, copied into `Application Support/DeckMedia/<deckID>/`). `DeckImportService` resolves either into `media_json` — non-throwing (I/O/DB failure degrades the card to text-only rather than aborting the import), both-set is rejected in the pre-write validation loop, and bundled paths are traversal-guarded. The general review cards (`FlashcardReviewCard`, macOS `StudyInlineReviewCard`, and the daily-review/checkpoint flows) render the image above the Q&A via the shared `StudyLocalImageView`. This makes a figure-rich study deck portable: the deck references the book's own figures by anchor (zero image bytes in the JSON) and ships only externally-authored images (e.g. generated mnemonics) as bundle files.
 
 ### EPUB/PDF-to-Audio Data Model: Handling Mismatches
 
@@ -879,18 +1739,20 @@ The ingestion layer (`TimelineIngestionFactory`) converts `nil` timestamps from 
 
 ### Reader-Specific Toolbar Controls
 
-When the user is on the Reader tab (`selectedTab == .read`), `BottomToolbarView` switches from the standard transport layout (loop, speed, sleep timer) to a simplified playback control set optimized for reading with audio:
+When the user is on the Reader tab (`selectedTab == .read`), `UnifiedBottomDock` keeps the `PlayerControlBar` visible above `BottomToolbarView` so reading, playback, and study capture stay close together:
 
 ```
-BottomToolbarView (Reader mode)
-├── skipBackwardButton  ← configurable duration (e.g., "gobackward.15")
-├── playPauseButton     ← centered play/pause toggle
-├── skipForwardButton   ← configurable duration (e.g., "goforward.30")
-├── timelineButton      ← quick access to full timeline
-└── addBookmarkButton   ← bookmark at current position
+UnifiedBottomDock (Reader mode)
+├── PlayerControlBar     ← mini-player seek/play controls
+└── BottomToolbarView
+    ├── PlayerMoreMenu
+    ├── speedMenu        ← inline speed presets
+    ├── markPassageButton
+    ├── readToggleButton ← Now Playing / Read toggle
+    └── bookmarkCaptureMenu
 ```
 
-The skip durations are read from `SettingsManager.seekBackwardDuration` / `seekForwardDuration` and displayed with dynamic SF Symbol naming (`gobackward.\(duration)` / `goforward.\(duration)`).
+The speed menu is backed by `SettingsManager.Defaults.speedPresets` and calls `PlayerModel.setSpeed(_:)` directly. Playback Options remains available from the same menu for loop and seek-duration settings.
 
 ### Anchor Status Indicators on Cards
 
@@ -898,9 +1760,7 @@ The skip durations are read from `SettingsManager.seekBackwardDuration` / `seekF
 - `HeadingCardCell` and `ParagraphCardCell` include an `anchorLabel` (top-right corner) that always displays the block's audio timestamp (or "None" if unaligned). Locked-anchor timestamps render in **red** (`.systemRed`); estimated/interpolated timestamps render in **secondary label color**. The `setManuallyAligned(_:timeString:)` method controls both visibility and color.
 - The alignment status and audio start time caches are maintained in `ReaderFeedViewModel` (`alignmentStatusByBlockID`, `audioStartTimeByBlockID`) and passed through `ReaderFeedCollectionView` to the coordinator for cell configuration.
 
-**Timeline feed cells:**
-- `TextSegmentCell`, `ChapterMarkerCell`, and `ImageAssetCell` each include an `anchorIcon` (`UIImageView` with `link.circle` SF Symbol, tinted green) in their header stack. The icon is shown when `item.alignmentStatus == "lockedAnchor"`.
-- Context menus on locked-anchor items include "Erase Anchor" (destructive); all items offer "Reset Alignment" (destructive, clears all anchors).
+**Removed feed prototype:** Timeline-specific feed cells were removed with the old prototype; locked-anchor UI now lives in Reader feed cards and alignment context menus.
 
 ### Debug Development Assets
 
@@ -914,15 +1774,19 @@ EchoCore/Development Assets/macbeth_m4b/
 
 In `#if DEBUG` builds, `SettingsView` exposes a "Load Development Assets" button under a "Debug Menu" section. This invokes `PlayerModel.loadFolder()` with the main bundle URL, loading the Macbeth audiobook and EPUB for immediate testing of the reader, alignment, and search features without requiring external file selection.
 
-### Swift Concurrency & Thread Safety (June 2026)
+### Swift Concurrency & Thread Safety (Swift 6 language mode, June 2026)
 
-All service-layer Timer closures and NotificationCenter observers have been modernized to use `MainActor.assumeIsolated` instead of `Task { @MainActor in }` for callbacks that are guaranteed to execute on the main thread. This pattern avoids spawning unnecessary unstructured tasks when the execution context is already on the main actor.
+All Echo-owned Xcode targets compile in **Swift 6 language mode** with `SWIFT_STRICT_CONCURRENCY = complete` set explicitly per target, alongside `SWIFT_APPROACHABLE_CONCURRENCY = YES` and `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` (so a type with no explicit isolation is inferred `@MainActor`). SwiftPM dependencies keep their own package-declared language modes — the migration never forces them to Swift 6. Deployment floors are unchanged (iOS 18 / macOS 15 / watchOS 11).
 
-Key changes across 9 service files:
-- **`AudioEngine`**: Timer callbacks (fade, time tracking, interruption observers) use `MainActor.assumeIsolated { ... }` with proper `[weak self]` guards. `AVAudioEngine`, `Timer`, and `NSObjectProtocol` observer properties are annotated `nonisolated(unsafe)` to suppress Swift 6 data-race diagnostics — these values are always accessed on the main thread at runtime because `AudioEngine` is `@MainActor`-isolated.
-- **`BookmarkStore`**: Voice memo progress timer and audio file completion handler modernized.
-- **`DatabaseService`**: Migration registration no longer wraps `Schema_V*.migrate(db)` in `MainActor.assumeIsolated { }` — `runMigrations(writer:)` is now `nonisolated` and the schema migrate methods do not require main-actor isolation. Test in-memory databases use the same simplified pattern.
-- **Imports**: `@preconcurrency import AVFoundation` added to all files importing AVFoundation, silencing Swift 6 concurrency warnings until AVFoundation adopts full sendability.
+The posture for resolving isolation across boundaries, in order of preference:
+- **`isolated deinit` (SE-0371)** for `@MainActor` classes whose teardown must call main-actor methods (`DefaultChimePlayer`, `DefaultVisualizerTap`, `SecurityScopeManager`, `NowPlayingController`). A few older deinits (`PlayerModel`, `AudioEngine`, `SleepTimerManager`) still use `MainActor.assumeIsolated { … }` to avoid an iOS-26.x **simulator** `isolated deinit` bad-free bug — swap them once that is fixed.
+- **`nonisolated`** on pure value types and stateless static helpers so they cross actor boundaries freely (`Bookmark`, `Chapter`, `WordFrequency`, `PDFViewState`, `SessionSummary`, `OKLCH`, `CoverTheme`, `SafeFileName`, the deck-import/source-anchor value types, …).
+- **`sending`** on non-`Sendable` payloads handed off exactly once into a `@MainActor` task (WCSession messages/replies, MetricKit payloads, `AVAsset`).
+- **Cancellable `Task` loops** in place of `Timer.scheduledTimer` for main-actor UI tickers (snippet/joystick scrub, audio fade, watch alarm haptics, voice-memo elapsed). `MainActor.assumeIsolated { … }` is still used for timers/observers genuinely guaranteed to fire on the main run loop or `queue: .main`.
+- **`Mutex` (`Synchronization`, iOS 18+)** for state shared across isolation domains without an actor: the one-shot `AVAudioConverterInputBlock` feed in `AudioSegmentReader`, the `ProgressFanOut` terminal-replay box, and the macOS `ReadyToPlayGuard` single-resume continuation.
+- **Actor-scoped resources**: `LocationCaptureService` is an `actor` and builds its `CLGeocoder` as a method-local so the non-`Sendable` value never escapes the actor's isolation region.
+
+No `nonisolated(unsafe)` or `@unchecked Sendable` was introduced by the Swift 6 migration (the one pre-existing lock-backed `@unchecked Sendable`, `ProgressFanOut`, remains). `@preconcurrency import AVFoundation` is still used where AVFoundation's `Sendable` annotations are incomplete.
 
 ### Artwork Accent Color (June 2026)
 
@@ -948,28 +1812,40 @@ construct-don't-rescue:
 `UIImage → DominantColorExtractor.signature(from:) → CoverSignature → CoverThemeBuilder.build(from:scheme:) → CoverTheme`
 
 **`CoverThemeBuilder`** converts the cover's primary hue to OKLCH and builds
-role colors from per-scheme tone recipes — pale ramps in light mode
-(background L≈0.93–0.96), immersive deep tones in dark mode (L≈0.21–0.26),
-accent at L 0.47 (light) / 0.78 (dark) with gamut-clamped chroma. Contrast is
-guaranteed by construction: `CoverThemeBuilderTests` sweeps all 360 hues in
-both schemes asserting accent ≥3:1 vs backgrounds, ≥2.5:1 vs chip, and
-onAccent ≥4.5:1 vs accent. A bounded lightness-stepping safety valve covers
-extreme gamut corners. Roles: `accent`, `onAccent`, `secondaryAccent`
-(first candidate ≥60° away with ≥15% of the primary's weight, else a +30°
-sibling), `backgroundTop`/`backgroundBottom` (the `AdaptiveBackground` ramp),
-and `chip` (pills/control circles). Neutral covers (greyscale or `isNeutral`)
-get a warm-grey ramp with the brand accent.
+role colors from per-scheme tone recipes — tinted paper in light mode
+(background L≈0.86–0.91, C≈0.07–0.095), an immersive coloured room in dark
+mode (L≈0.26–0.33, C≈0.085–0.095), accent at L 0.47 (light) / 0.78 (dark)
+with gamut-clamped chroma (extreme hues soften gracefully via
+`OKLCH.clampedChroma`). Contrast is guaranteed by construction:
+`CoverThemeBuilderTests` sweeps all 360 hues in both schemes asserting
+accent ≥3:1 vs backgrounds, ≥2.5:1 vs chip, and onAccent ≥4.5:1 vs accent,
+and pins a minimum background chroma so the wash never collapses to
+near-neutral. A bounded lightness-stepping safety valve covers extreme gamut
+corners. Roles: `accent`, `onAccent`, `secondaryAccent` (first candidate
+≥60° away with ≥15% of the primary's weight, else a +30° sibling),
+`backgroundTop`/`backgroundBottom` (the `AdaptiveBackground` ramp), and
+`chip` (pills/control circles). Neutral covers (greyscale or `isNeutral`)
+get a warm-grey ramp with the brand accent. Strongly saturated covers
+(primary chroma ≥0.14) get a bold, non-lightened accent; their background
+still follows the cover hue — a neutral graphite/paper strip for
+black/white-dominant covers was tried (PR #330) and reverted (2026-07)
+because it read as "the theme is just dark".
+
+**Placement gotcha:** `AdaptiveBackground` must render *inside* the Now
+Playing tab's `NavigationStack` (it lives in `NowPlayingTab`'s root
+`ZStack`). A stack's `UINavigationController` paints an opaque
+`systemBackground`, so a ramp layered behind the stack in `RootTabView`'s
+outer `ZStack` is invisible — that arrangement shipped between 2026-06-15
+and 2026-07-09 and made the player read as plain black/white.
 
 **Why OKLCH:** HSL lightness is not perceptual — yellow at HSL L 0.55 is
 near-white in real luminance while blue at the same L is dark. OKLab
 lightness is uniform across hues, which is what makes fixed tone recipes
 safe for every cover.
 
-**Integration:** `PlayerModel.coverTheme` (cached per artwork version +
-`uiColorScheme`); `PlayerModel.artworkAccentColor` remains the compatibility
-facade (nil for neutral covers so `?? .accentColor` fallbacks engage);
-`artworkAccentColorHex` sends the **dark-recipe** accent to the Watch, whose
-surface is always dark.
+**Integration:** `PlayerModel.coverTheme` (cached per artwork version + `uiColorScheme`); `PlayerModel.artworkAccentColor` remains the compatibility facade (nil for neutral covers so `?? .accentColor` fallbacks engage). `artworkAccentColorHex` sends the **dark-recipe** accent to the Watch app, which persists the explicit value or clear state in the App Group. The widget provider copies that value into `SimpleEntry`. `WidgetProgressAccentPolicy` permits the rectangular gauge to resolve exact RGB only when `widgetRenderingMode == .fullColor`; missing, cleared, malformed, accented, and vibrant cases use semantic system tint. The `.accessoryCircular` family always joins WidgetKit's system accent group because its shipping appearances do not preserve Echo's exact RGB.
+
+**Pomodoro presentation:** `PomodoroTimePresentation` is a platform-independent Watch value that turns the authoritative remaining interval into exactly two digits plus localized VoiceOver state. It shows upward-rounded hours above 60 minutes, minutes above 60 seconds, seconds through completion, and defensively saturates finite values above 99 hours. The Watch view renders those digits with a rounded semantic `ViewThatFits` hierarchy from `.title2` through `.caption`, preserving a large default presentation while adapting to control size and Dynamic Type without a fixed point size. `WatchProgressRingMetrics` owns the approved 5 pt side/top and 6 pt centre ring widths. Neither type changes Pomodoro timing, persistence, haptics, picker limits, or interaction handling.
 
 **History:** this replaced the `AccentSafetyNet` two-gate rescue ladder. Its
 ΔE76 chroma gate passed high-chroma/equal-luminance accents (bright gold on
@@ -983,6 +1859,8 @@ WatchConnectivity reliability fixes across the phone (`WatchSyncManager`) and wa
 2. **Stale `userInfo` handling**: `WCSessionDelegate` `didReceiveUserInfo` deliveries can be minutes stale when queued while the watch is unreachable. After applying received state, the watch immediately requests the phone's current state to converge to the authoritative position.
 3. **Transport commands never ride the background queue**: Transport / navigation / seek commands are only meaningful *live*. The watch sends them via `sendMessage` only; on failure it reverts its optimistic UI and re-requests phone state rather than falling back to `transferUserInfo`. `transferUserInfo` is a persistent FIFO queue that drains (even across launches) the next time the phone is reachable, so queuing a `play`/`pause`/`seek` there replays stale intent — the cause of ignored first taps, phantom resume-after-pause, and position jumps on relaunch. As defense-in-depth the phone routes queued payloads through `WatchCommandRouter.route(queuedMessage:)`, which honors only deferred-safe commands (bookmarks, flashcard grades) and drops time-sensitive ones; live commands continue through `route(message:)`.
 4. **Durable application context for significant state** (phone side, `WatchSyncManager.syncToWatch(reason:)`): `updateApplicationContext` is now the source of truth for *significant* changes (book/track switch, transport, speed, loop, sleep timer, settings) rather than a fallback used only when the watch is unreachable. Previously, when the watch was reachable the phone pushed via `sendMessage` only; that message is best-effort and foreground-only, so if it was dropped (reachability flap / app-state transition) nothing durable carried the change. A foregrounded watch — whose only pull triggers are activation, `onAppear`, and reachability change — then kept showing the old book until a button press forced a `sendCommand`/`requestState` round-trip. The context is now always refreshed on significant changes (delivered immediately to an active watch via `didReceiveApplicationContext`, and guaranteed on the next activation otherwise), with `sendMessage` retained only as a low-latency optimisation. High-frequency progress and sleep-timer ticks pass `reason: .progress` to stay live-only and avoid churning the coalesced context — the watch interpolates position locally between syncs. State no longer rides `transferUserInfo` (same FIFO replay hazard as #3).
+5. **Cross-channel snapshot ordering**: Every complete phone snapshot carries a persisted, strictly increasing `stateSeq`. The generator uses wall time as a lower bound but advances beyond the last persisted token, so app relaunches and backward clock adjustments cannot regress it. `WatchStateRecencyPolicy` accepts only a strictly newer complete snapshot and persists the newest token across watch launches. FIFO `userInfo` delivery is source-gated: complete state is always rejected there, including before the first stamped snapshot. The exact thumbnail payload remains allowed, but modern transfers carry a separate persisted `artworkSeq` that is stable while artwork is unchanged; the Watch rejects thumbnails older than the current artwork state without invalidating a still-current delayed transfer after an unrelated playback update. Unstamped application context and two-key legacy thumbnail payloads remain compatible only until modern stamped state has been observed.
+6. **Artwork lifecycle**: Complete state always includes `artworkAccentColorHex`; an empty string explicitly clears a neutral cover so same-track bookmark-artwork changes cannot leave stale color. `hasThumbnail == false` likewise clears cached artwork in both App Group publishers, including same-track changes, and forces an immediate complication reload. `BookmarkArtworkCoordinator` advances `currentDisplayArtworkVersion` before Now Playing and Watch callbacks both when artwork changes and when it is cleared, ensuring the accent extraction cache observes the new state. Large thumbnail transfers deduplicate by logical key, bytes, and `artworkSeq`; explicit absence resets sender state, while receiver ordering prevents a pre-clear queued transfer from restoring stale art. The Watch app uses the cover accent. The `.accessoryCircular` complication marks its ring with `widgetAccentable()` and lets WidgetKit apply the watch-face palette because that family does not support full-color rendering.
 
 ### Bug Fixes (June 2026)
 
@@ -1018,11 +1896,19 @@ so the fix is not lost at the next promotion.
 
 ### CI wiring
 
-- **`.github/workflows/ci.yml`** — the existing build gate (`build-for-testing`
-  for the iOS app + widget + watch + tests, plus a macOS build) runs on every
-  push and PR to `main`, `weekly`, and `nightly`. The required status check is
-  named **`Build gate + tests`**; branch protection keys off that exact string,
-  so it must not be renamed.
+- **`.github/workflows/ci.yml`** — the existing gate runs on every push and PR
+  to `main`, `weekly`, and `nightly`: it resolves a pinned iOS 26.4 simulator,
+  runs `build-for-testing` for the iOS app + widget + watch + tests, executes
+  `EchoTests` with `test-without-building`, then smoke-builds the macOS target.
+  The required status check is named **`Build gate + tests`**; branch protection
+  keys off that exact string, so it must not be renamed.
+  Watch app tests are not a CI execution gate yet: CI compile-checks the embedded
+  watch app through the `Echo` scheme, while `Echo Watch AppTests` stay manual
+  until a pinned watchOS simulator destination is reliable on GitHub runners.
+  Manual command:
+  `xcodebuild test -project Echo.xcodeproj -scheme "Echo Watch App" -destination "$WATCH_DEST" -only-testing:"Echo Watch AppTests" -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO`
+  after setting `WATCH_DEST` to a destination from
+  `xcodebuild -showdestinations -project Echo.xcodeproj -scheme "Echo Watch App"`.
 - **`.github/workflows/release-trains.yml`** — scheduled builds that give the
   train branches teeth. `schedule`/`workflow_dispatch` triggers only execute the
   copy of a workflow on the **default branch**, so this file lives on `main` and
@@ -1067,6 +1953,14 @@ review. External testers are the general public; the **first build of a given
 marketing version** must clear Beta App Review (a lighter, faster pass than full
 App Store review — usually hours) before any external tester can install it.
 
+**Beta App Review details.** Weekly external submissions are automated in
+`fastlane beta channel:weekly`: the lane reads contact, notes, and optional demo
+login fields from `fastlane/metadata/review_information/`, passes them to
+Fastlane as `beta_app_review_info`, sets `submit_beta_review`, and distributes
+the build to the external Weekly group. Leave `demo_user.txt` and
+`demo_password.txt` blank while Echo requires no login; fill both together if a
+future build needs reviewer credentials.
+
 **The shareable link.** "Send me a link" = a TestFlight **public link**
 (`https://testflight.apple.com/join/XXXXXXXX`). It is a property of an *external*
 group (Weekly), not internal, and it only goes live once that group has a build
@@ -1079,6 +1973,14 @@ Link ▸ Enable**, then share the URL anywhere. Testers must install Apple's
 `fastlane/testflight/what_to_test.txt` (the changelog) and
 `beta_app_description.txt` (the group's Test Information). Edit those, not the
 dashboard — the lane reads them on every upload.
+
+**App Store screenshots.** Capture and review screenshots with
+`bundle exec fastlane screenshots` or the assisted script described in
+`fastlane/screenshots/en-US/README_SCREENSHOTS.md`. The weekly release-train
+workflow runs `bundle exec fastlane upload_screenshots_if_available` after a
+successful TestFlight upload; it uploads screenshots plus metadata when PNG/JPG
+files are present and logs a skip while the folder contains only documentation,
+so missing screenshots never block external TestFlight iteration.
 
 **Nightly "What to Test" auto-draft.** On the `nightly` channel only, the
 `fastlane beta` lane regenerates `what_to_test.txt` in the working tree (never
@@ -1102,3 +2004,10 @@ workflow manually: **Actions ▸ Release Trains ▸ Run workflow ▸ channel:**,
 unique, monotonic build number from TestFlight's latest + 1, so `MARKETING_VERSION`
 only moves for real releases. A purely local upload is `bundle exec fastlane beta
 channel:weekly` (needs `fastlane/api_key.json` and `MATCH_PASSWORD`).
+
+**Release checklist guardrail.** Before merging any future CarPlay scene
+declaration or marketing copy, verify the App ID/provisioning profile includes
+the matching CarPlay entitlement (`com.apple.developer.carplay-audio`), the
+checked-in entitlements file enables it, `EchoCore/Info.plist` advertises only
+matching scene roles, and TestFlight/App Store metadata names only shipped
+surfaces.

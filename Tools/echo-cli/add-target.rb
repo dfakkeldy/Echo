@@ -15,7 +15,7 @@ t.build_configurations.each do |c|
   bs = c.build_settings
   bs['PRODUCT_NAME'] = 'echo-cli'
   bs['PRODUCT_BUNDLE_IDENTIFIER'] = 'com.echo.audiobooks.cli'
-  bs['SWIFT_VERSION'] = '5.0'
+  bs['SWIFT_VERSION'] = '6.0'
   bs['MACOSX_DEPLOYMENT_TARGET'] = '15.0'
   bs['SDKROOT'] = 'macosx'
   bs['CODE_SIGN_STYLE'] = 'Manual'

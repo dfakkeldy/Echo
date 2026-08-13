@@ -7,16 +7,43 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A12A00000000000000000001 /* encoder_model.onnx in iOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000001 /* encoder_model.onnx */; };
+		A12A00000000000000000002 /* decoder_model.onnx in iOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000002 /* decoder_model.onnx */; };
+		A12A00000000000000000003 /* tokenizer.json in iOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000003 /* tokenizer.json */; };
+		A12A00000000000000000004 /* config.json in iOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000004 /* config.json */; };
+		A12A00000000000000000005 /* generation_config.json in iOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000005 /* generation_config.json */; };
+		A12A00000000000000000006 /* LICENSE in iOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000006 /* LICENSE */; };
+		B12A00000000000000000001 /* encoder_model.onnx in macOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000001 /* encoder_model.onnx */; };
+		B12A00000000000000000002 /* decoder_model.onnx in macOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000002 /* decoder_model.onnx */; };
+		B12A00000000000000000003 /* tokenizer.json in macOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000003 /* tokenizer.json */; };
+		B12A00000000000000000004 /* config.json in macOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000004 /* config.json */; };
+		B12A00000000000000000005 /* generation_config.json in macOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000005 /* generation_config.json */; };
+		B12A00000000000000000006 /* LICENSE in macOS Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000006 /* LICENSE */; };
+		C12A00000000000000000001 /* encoder_model.onnx in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000001 /* encoder_model.onnx */; };
+		C12A00000000000000000002 /* decoder_model.onnx in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000002 /* decoder_model.onnx */; };
+		C12A00000000000000000003 /* tokenizer.json in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000003 /* tokenizer.json */; };
+		C12A00000000000000000004 /* config.json in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000004 /* config.json */; };
+		C12A00000000000000000005 /* generation_config.json in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000005 /* generation_config.json */; };
+		C12A00000000000000000006 /* LICENSE in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = F12A00000000000000000006 /* LICENSE */; };
 		048C9931BF4F80013AF7961E /* af_heart.f32 in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = 841D8CAEB031B6361813E665 /* af_heart.f32 */; };
 		0F35404A791CA6742909DBE8 /* onnxruntime in Frameworks */ = {isa = PBXBuildFile; productRef = 5C260A9D9E299B82E8D4B077 /* onnxruntime */; };
 		245A97E573FB572FF8FBB995 /* EchoCLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0CFF53D74979F5CF21850A4 /* EchoCLI.swift */; };
+		2F0A81F12D5A4FD8A25A5001 /* NarrationQACommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0A81F02D5A4FD8A25A5001 /* NarrationQACommand.swift */; };
+		2F0A81F32D5A4FD8A25A5001 /* GenerateDeckCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0A81F22D5A4FD8A25A5001 /* GenerateDeckCommand.swift */; };
+		3B5C6D7E8F90123456789ABC /* SidecarCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B5C6D7E8F90123456789ABD /* SidecarCommands.swift */; };
+		E70700000000000000000001 /* ExportVideoCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = E70700000000000000000002 /* ExportVideoCommand.swift */; };
+		4B5F48A4E90D4AE5A7F0C231 /* RetagCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C06019800B44A10A3274334 /* RetagCommand.swift */; };
 		29039D80BE70D0549D63283A /* af_heart.rows in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = E3831A65448E14AF9E50D78F /* af_heart.rows */; };
 		52F95E253C26D7F3D649C553 /* us_silver.json in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = A3CB4FF9D3E73BABC2FE8E7B /* us_silver.json */; };
 		61C08841F4A90AEDEE1D5A5B /* NarrateCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6243FBB0511F01F7F480630 /* NarrateCommand.swift */; };
 		63A268C4D6C82D38A8373D2B /* AudioMarker in Frameworks */ = {isa = PBXBuildFile; productRef = 87D2A7D1EE33E445A60EBDA0 /* AudioMarker */; };
 		7D78649F9DA726D16DBDA244 /* _kokoro_vocab.json in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = 739F167A96954DC602A63519 /* _kokoro_vocab.json */; };
-		AA0100000000000000000051 /* WhisperSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000050 /* WhisperSession.swift */; };
-		AA0100000000000000000053 /* ModelRetainBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000052 /* ModelRetainBox.swift */; };
+		E2A200000000000000000001 /* us_pronunciation_pack.json in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = E2A200000000000000000011 /* us_pronunciation_pack.json */; };
+		E2A200000000000000000005 /* us_pronunciation_audit_pack.json in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = E2A200000000000000000013 /* us_pronunciation_audit_pack.json */; };
+		E2A200000000000000000002 /* THIRD_PARTY_NOTICES.md in Resources */ = {isa = PBXBuildFile; fileRef = E2A200000000000000000012 /* THIRD_PARTY_NOTICES.md */; };
+		E2A200000000000000000003 /* THIRD_PARTY_NOTICES.md in Resources */ = {isa = PBXBuildFile; fileRef = E2A200000000000000000012 /* THIRD_PARTY_NOTICES.md */; };
+		E2A200000000000000000004 /* THIRD_PARTY_NOTICES.md in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = E2A200000000000000000012 /* THIRD_PARTY_NOTICES.md */; };
+		B17D0C0FE17AC0DE0F0FE001 /* kokoro_dur_head.onnx in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = B17D0C0FE17AC0DE0F0FE002 /* kokoro_dur_head.onnx */; };
 		B4018CB079F91AD99E8418D2 /* us_gold.json in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = 486ED82EADFDDE51ED2283A1 /* us_gold.json */; };
 		CC00000000009AUMK0000000 /* AudioMarker in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000008AUMK0000000 /* AudioMarker */; };
 		CC0000000000MMSKI0000000 /* MisakiSwift in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000FMSKI0000000 /* MisakiSwift */; };
@@ -41,6 +68,9 @@
 		D200EDB889EAEE8A41B581DA /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 756754EC2DEBE3CB3DA81491 /* Cocoa.framework */; };
 		D65097502BC5B75CCE4010CD /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 193825D5E9C5E9D598559FCA /* GRDB */; };
 		DC21C519E843AA3D2CAA2C7A /* MisakiSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 0FC84089B8B47926290BEA94 /* MisakiSwift */; };
+		E4420000000000000000000A /* MisakiSwift in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000FMSKI0000000 /* MisakiSwift */; };
+		E4420000000000000000000B /* us_gold.json in Resources */ = {isa = PBXBuildFile; fileRef = 486ED82EADFDDE51ED2283A1 /* us_gold.json */; };
+		E4420000000000000000000C /* us_silver.json in Resources */ = {isa = PBXBuildFile; fileRef = A3CB4FF9D3E73BABC2FE8E7B /* us_silver.json */; };
 		F60DA9BFC6CB8E3C7056C54E /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 04B720FB270E911EFF290AEA /* WhisperKit */; };
 		F74C018CF5E291A818C03BAF /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 4F2D20FF9F54B5D9915C604A /* ZIPFoundation */; };
 /* End PBXBuildFile section */
@@ -97,11 +127,21 @@
 			dstPath = EchoNarrationResources;
 			dstSubfolderSpec = 16;
 			files = (
+				C12A00000000000000000001 /* encoder_model.onnx in Copy Narration Resources */,
+				C12A00000000000000000002 /* decoder_model.onnx in Copy Narration Resources */,
+				C12A00000000000000000003 /* tokenizer.json in Copy Narration Resources */,
+				C12A00000000000000000004 /* config.json in Copy Narration Resources */,
+				C12A00000000000000000005 /* generation_config.json in Copy Narration Resources */,
+				C12A00000000000000000006 /* LICENSE in Copy Narration Resources */,
 				7D78649F9DA726D16DBDA244 /* _kokoro_vocab.json in Copy Narration Resources */,
+				B17D0C0FE17AC0DE0F0FE001 /* kokoro_dur_head.onnx in Copy Narration Resources */,
 				B4018CB079F91AD99E8418D2 /* us_gold.json in Copy Narration Resources */,
 				52F95E253C26D7F3D649C553 /* us_silver.json in Copy Narration Resources */,
 				048C9931BF4F80013AF7961E /* af_heart.f32 in Copy Narration Resources */,
 				29039D80BE70D0549D63283A /* af_heart.rows in Copy Narration Resources */,
+				E2A200000000000000000001 /* us_pronunciation_pack.json in Copy Narration Resources */,
+				E2A200000000000000000005 /* us_pronunciation_audit_pack.json in Copy Narration Resources */,
+				E2A200000000000000000004 /* THIRD_PARTY_NOTICES.md in Copy Narration Resources */,
 			);
 			name = "Copy Narration Resources";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -131,14 +171,27 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		F12A00000000000000000001 /* encoder_model.onnx */ = {isa = PBXFileReference; includeInIndex = 1; name = encoder_model.onnx; path = EchoCore/Services/Narration/NeuralG2PResources/encoder_model.onnx; sourceTree = SOURCE_ROOT; };
+		F12A00000000000000000002 /* decoder_model.onnx */ = {isa = PBXFileReference; includeInIndex = 1; name = decoder_model.onnx; path = EchoCore/Services/Narration/NeuralG2PResources/decoder_model.onnx; sourceTree = SOURCE_ROOT; };
+		F12A00000000000000000003 /* tokenizer.json */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.json; name = tokenizer.json; path = EchoCore/Services/Narration/NeuralG2PResources/tokenizer.json; sourceTree = SOURCE_ROOT; };
+		F12A00000000000000000004 /* config.json */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.json; name = config.json; path = EchoCore/Services/Narration/NeuralG2PResources/config.json; sourceTree = SOURCE_ROOT; };
+		F12A00000000000000000005 /* generation_config.json */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.json; name = generation_config.json; path = EchoCore/Services/Narration/NeuralG2PResources/generation_config.json; sourceTree = SOURCE_ROOT; };
+		F12A00000000000000000006 /* LICENSE */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text; name = LICENSE; path = EchoCore/Services/Narration/NeuralG2PResources/LICENSE; sourceTree = SOURCE_ROOT; };
+		1C06019800B44A10A3274334 /* RetagCommand.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RetagCommand.swift; path = "Tools/echo-cli/RetagCommand.swift"; sourceTree = SOURCE_ROOT; };
+		2F0A81F02D5A4FD8A25A5001 /* NarrationQACommand.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = NarrationQACommand.swift; path = "Tools/echo-cli/NarrationQACommand.swift"; sourceTree = SOURCE_ROOT; };
+		2F0A81F22D5A4FD8A25A5001 /* GenerateDeckCommand.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = GenerateDeckCommand.swift; path = "Tools/echo-cli/GenerateDeckCommand.swift"; sourceTree = SOURCE_ROOT; };
+		3B5C6D7E8F90123456789ABD /* SidecarCommands.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SidecarCommands.swift; path = "Tools/echo-cli/SidecarCommands.swift"; sourceTree = SOURCE_ROOT; };
+		E70700000000000000000002 /* ExportVideoCommand.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExportVideoCommand.swift; path = "Tools/echo-cli/ExportVideoCommand.swift"; sourceTree = SOURCE_ROOT; };
 		486ED82EADFDDE51ED2283A1 /* us_gold.json */ = {isa = PBXFileReference; includeInIndex = 1; name = us_gold.json; path = EchoCore/Services/Narration/MisakiResources/us_gold.json; sourceTree = SOURCE_ROOT; };
 		739F167A96954DC602A63519 /* _kokoro_vocab.json */ = {isa = PBXFileReference; includeInIndex = 1; name = _kokoro_vocab.json; path = EchoCore/Services/Narration/_kokoro_vocab.json; sourceTree = SOURCE_ROOT; };
-		756754EC2DEBE3CB3DA81491 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
+		E2A200000000000000000011 /* us_pronunciation_pack.json */ = {isa = PBXFileReference; includeInIndex = 1; name = us_pronunciation_pack.json; path = EchoCore/Services/Narration/PronunciationResources/us_pronunciation_pack.json; sourceTree = SOURCE_ROOT; };
+		E2A200000000000000000013 /* us_pronunciation_audit_pack.json */ = {isa = PBXFileReference; includeInIndex = 1; name = us_pronunciation_audit_pack.json; path = EchoCore/Services/Narration/PronunciationResources/us_pronunciation_audit_pack.json; sourceTree = SOURCE_ROOT; };
+		E2A200000000000000000012 /* THIRD_PARTY_NOTICES.md */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = net.daringfireball.markdown; path = THIRD_PARTY_NOTICES.md; sourceTree = SOURCE_ROOT; };
+		B17D0C0FE17AC0DE0F0FE002 /* kokoro_dur_head.onnx */ = {isa = PBXFileReference; includeInIndex = 1; name = kokoro_dur_head.onnx; path = EchoCore/Services/Narration/kokoro_dur_head.onnx; sourceTree = SOURCE_ROOT; };
+		756754EC2DEBE3CB3DA81491 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
 		841D8CAEB031B6361813E665 /* af_heart.f32 */ = {isa = PBXFileReference; includeInIndex = 1; name = af_heart.f32; path = EchoCore/Resources/af_heart.f32; sourceTree = SOURCE_ROOT; };
 		A3CB4FF9D3E73BABC2FE8E7B /* us_silver.json */ = {isa = PBXFileReference; includeInIndex = 1; name = us_silver.json; path = EchoCore/Services/Narration/MisakiResources/us_silver.json; sourceTree = SOURCE_ROOT; };
 		AA0100000000000000000001 /* Echo macOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Echo macOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		AA0100000000000000000050 /* WhisperSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WhisperSession.swift; path = EchoCore/Services/WhisperSession.swift; sourceTree = SOURCE_ROOT; };
-		AA0100000000000000000052 /* ModelRetainBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ModelRetainBox.swift; path = EchoCore/Services/ModelRetainBox.swift; sourceTree = SOURCE_ROOT; };
 		CC00BC4D2FA6B66400323F38 /* Echo WidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Echo WidgetExtension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC00BC4F2FA6B66400323F38 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		CC00BC512FA6B66400323F38 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
@@ -149,6 +202,7 @@
 		CCC48EA72FA6AB340003458B /* Echo Watch AppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Echo Watch AppTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		CCC48EB12FA6AB340003458B /* Echo Watch AppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Echo Watch AppUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		DCA1F191B4998A1FB7A21E53 /* echo-cli */ = {isa = PBXFileReference; includeInIndex = 0; path = "echo-cli"; sourceTree = BUILT_PRODUCTS_DIR; };
+		E44200000000000000000001 /* MisakiSwiftTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MisakiSwiftTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E3831A65448E14AF9E50D78F /* af_heart.rows */ = {isa = PBXFileReference; includeInIndex = 1; name = af_heart.rows; path = EchoCore/Resources/af_heart.rows; sourceTree = SOURCE_ROOT; };
 		E6243FBB0511F01F7F480630 /* NarrateCommand.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = NarrateCommand.swift; path = "Tools/echo-cli/NarrateCommand.swift"; sourceTree = SOURCE_ROOT; };
 		F0CFF53D74979F5CF21850A4 /* EchoCLI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = EchoCLI.swift; path = "Tools/echo-cli/EchoCLI.swift"; sourceTree = SOURCE_ROOT; };
@@ -170,6 +224,7 @@
 				Services/DominantColorExtractor.swift,
 				Services/PlaybackProgressPresenter.swift,
 				Services/PlayerLoadingCoordinator.swift,
+				Services/VoiceMemoRecorder.swift,
 				Services/WatchCommandRouter.swift,
 				Services/WatchConnectivityCoordinator.swift,
 				Services/WatchStateContextBuilder.swift,
@@ -179,9 +234,11 @@
 				Utilities/OKLCH.swift,
 				ViewModels/PlayerModel.swift,
 				"ViewModels/PlayerModel+Audiobookshelf.swift",
+				"ViewModels/PlayerModel+StudyCheckpoint.swift",
 				ViewModels/ReaderFeedViewModel.swift,
 				Views/ABSBrowseView.swift,
 				Views/ABSConnectionsSettingsView.swift,
+				Views/AICardGenerationSettingsView.swift,
 				Views/AppIconSelectionView.swift,
 				Views/AutoAlignmentProgressView.swift,
 				Views/BookmarkCardView.swift,
@@ -197,8 +254,8 @@
 				Views/Components/AlbumArtHeroView.swift,
 				Views/Components/BookProgressTrack.swift,
 				Views/Components/CircularProgressPlayButton.swift,
+				Views/Components/CoverThemedSheet.swift,
 				Views/Components/FlashcardCreationSheet.swift,
-				Views/Components/FlashcardOverlayView.swift,
 				Views/Components/Haptic.swift,
 				Views/Components/InlineStepperRow.swift,
 				Views/Components/MarqueeText.swift,
@@ -208,8 +265,11 @@
 				Views/Components/UnifiedTopHeader.swift,
 				Views/Components/WordCloudView.swift,
 				Views/DashboardShelf.swift,
+				Views/DictionaryLookupPresenter.swift,
 				Views/EPUBHeadingPickerSheet.swift,
 				Views/ExportProgressView.swift,
+				Views/FeedCaptureBar.swift,
+				Views/FeedbackFormView.swift,
 				Views/Fidget/BubblePopView.swift,
 				Views/Fidget/DoodlePadView.swift,
 				Views/Fidget/FidgetOverlayView.swift,
@@ -223,33 +283,37 @@
 				Views/HelpView.swift,
 				Views/ListeningProgressModuleView.swift,
 				Views/ManualAlignmentSheet.swift,
+				Views/Narration/NarrationQAReviewView.swift,
 				Views/NoteEditorView.swift,
+				Views/NoteFeedCell.swift,
 				Views/NowPlayingLayout.swift,
 				Views/NowPlayingTab.swift,
-				Views/OnboardingView.swift,
 				Views/PDFDocumentView.swift,
+				Views/PDFReadingSurface.swift,
 				Views/PhonePlayerSettingsView.swift,
 				Views/PlaybackOptionsSheet.swift,
 				Views/PlayerMoreMenu.swift,
 				Views/PlayerScrubberView.swift,
 				Views/PlayheadLineView.swift,
-				Views/PlaylistView.swift,
 				Views/PronunciationDictionaryView.swift,
 				Views/ProTranscriptsSettingsView.swift,
 				Views/ReaderEmptyState.swift,
 				Views/ReaderFeedCollectionView.swift,
-				Views/ReaderHeaderView.swift,
 				Views/ReaderTab.swift,
 				Views/RootTabView.swift,
+				Views/SessionDetailFeedView.swift,
+				Views/SessionsListView.swift,
 				Views/SettingsAdvancedView.swift,
 				Views/SettingsAppearanceView.swift,
 				Views/SettingsView.swift,
 				Views/SleepTimerCardView.swift,
+				Views/SlideshowVideoFormatPicker.swift,
 				Views/SmartRewindSettingsView.swift,
 				Views/SoundscapePickerView.swift,
 				Views/SpeedCardView.swift,
 				Views/SpeedSuggestionBanner.swift,
 				Views/StandaloneTranscriptView.swift,
+				Views/StudyCheckpointPanelView.swift,
 				Views/Stats/BookStatsView.swift,
 				Views/Stats/DeckDetailView.swift,
 				Views/Stats/DeckListView.swift,
@@ -258,12 +322,12 @@
 				Views/StatsModuleView.swift,
 				Views/StreakModuleView.swift,
 				Views/ThemeSelectionView.swift,
-				Views/TimelineTab.swift,
 				Views/TransportControlsView.swift,
 				Views/UpcomingReviewsModuleView.swift,
 				Views/Visualizer/VisualizerPickerView.swift,
 				Views/Visualizer/VisualizerStyle.swift,
 				Views/Visualizer/VisualizerView.swift,
+				Views/VoiceMemoFeedCell.swift,
 				Views/VoiceMemoOverlayView.swift,
 				Views/WatchAppSettingsView.swift,
 			);
@@ -277,6 +341,13 @@
 				CarPlay/CarPlaySceneDelegate.swift,
 				DailyPlanner/SchedulingSheet.swift,
 				EchoCoreApp.swift,
+				Services/Narration/NeuralG2PResources/LICENSE,
+				Services/Narration/NeuralG2PResources/config.json,
+				Services/Narration/NeuralG2PResources/decoder_model.onnx,
+				Services/Narration/NeuralG2PResources/encoder_model.onnx,
+				Services/Narration/NeuralG2PResources/generation_config.json,
+				Services/Narration/NeuralG2PResources/tokenizer.json,
+				PrivacyInfo.xcprivacy,
 				Models/NavigationDestinations.swift,
 				Services/ArtworkCache.swift,
 				Services/BookmarkArtworkCoordinator.swift,
@@ -284,6 +355,7 @@
 				Services/DominantColorExtractor.swift,
 				Services/PlaybackProgressPresenter.swift,
 				Services/PlayerLoadingCoordinator.swift,
+				Services/VoiceMemoRecorder.swift,
 				Services/WatchCommandRouter.swift,
 				Services/WatchConnectivityCoordinator.swift,
 				Services/WatchStateContextBuilder.swift,
@@ -293,6 +365,7 @@
 				Utilities/OKLCH.swift,
 				ViewModels/PlayerModel.swift,
 				"ViewModels/PlayerModel+Audiobookshelf.swift",
+				"ViewModels/PlayerModel+StudyCheckpoint.swift",
 				ViewModels/ReaderFeedViewModel.swift,
 				Views/ABSBrowseView.swift,
 				Views/ABSConnectionsSettingsView.swift,
@@ -311,8 +384,8 @@
 				Views/Components/AlbumArtHeroView.swift,
 				Views/Components/BookProgressTrack.swift,
 				Views/Components/CircularProgressPlayButton.swift,
+				Views/Components/CoverThemedSheet.swift,
 				Views/Components/FlashcardCreationSheet.swift,
-				Views/Components/FlashcardOverlayView.swift,
 				Views/Components/Haptic.swift,
 				Views/Components/InlineStepperRow.swift,
 				Views/Components/MarqueeText.swift,
@@ -322,8 +395,11 @@
 				Views/Components/UnifiedTopHeader.swift,
 				Views/Components/WordCloudView.swift,
 				Views/DashboardShelf.swift,
+				Views/DictionaryLookupPresenter.swift,
 				Views/EPUBHeadingPickerSheet.swift,
 				Views/ExportProgressView.swift,
+				Views/FeedCaptureBar.swift,
+				Views/FeedbackFormView.swift,
 				Views/Fidget/BubblePopView.swift,
 				Views/Fidget/DoodlePadView.swift,
 				Views/Fidget/FidgetOverlayView.swift,
@@ -337,24 +413,26 @@
 				Views/HelpView.swift,
 				Views/ListeningProgressModuleView.swift,
 				Views/ManualAlignmentSheet.swift,
+				Views/Narration/NarrationQAReviewView.swift,
 				Views/NoteEditorView.swift,
+				Views/NoteFeedCell.swift,
 				Views/NowPlayingLayout.swift,
 				Views/NowPlayingTab.swift,
-				Views/OnboardingView.swift,
 				Views/PDFDocumentView.swift,
+				Views/PDFReadingSurface.swift,
 				Views/PhonePlayerSettingsView.swift,
 				Views/PlaybackOptionsSheet.swift,
 				Views/PlayerMoreMenu.swift,
 				Views/PlayerScrubberView.swift,
 				Views/PlayheadLineView.swift,
-				Views/PlaylistView.swift,
 				Views/PronunciationDictionaryView.swift,
 				Views/ProTranscriptsSettingsView.swift,
 				Views/ReaderEmptyState.swift,
 				Views/ReaderFeedCollectionView.swift,
-				Views/ReaderHeaderView.swift,
 				Views/ReaderTab.swift,
 				Views/RootTabView.swift,
+				Views/SessionDetailFeedView.swift,
+				Views/SessionsListView.swift,
 				Views/SettingsAdvancedView.swift,
 				Views/SettingsAppearanceView.swift,
 				Views/SettingsView.swift,
@@ -372,12 +450,12 @@
 				Views/StatsModuleView.swift,
 				Views/StreakModuleView.swift,
 				Views/ThemeSelectionView.swift,
-				Views/TimelineTab.swift,
 				Views/TransportControlsView.swift,
 				Views/UpcomingReviewsModuleView.swift,
 				Views/Visualizer/VisualizerPickerView.swift,
 				Views/Visualizer/VisualizerStyle.swift,
 				Views/Visualizer/VisualizerView.swift,
+				Views/VoiceMemoFeedCell.swift,
 				Views/VoiceMemoOverlayView.swift,
 				Views/WatchAppSettingsView.swift,
 			);
@@ -401,6 +479,12 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				Services/Narration/NeuralG2PResources/LICENSE,
+				Services/Narration/NeuralG2PResources/config.json,
+				Services/Narration/NeuralG2PResources/decoder_model.onnx,
+				Services/Narration/NeuralG2PResources/encoder_model.onnx,
+				Services/Narration/NeuralG2PResources/generation_config.json,
+				Services/Narration/NeuralG2PResources/tokenizer.json,
 			);
 			target = CC08EC582F9522F600206D2F /* Echo */;
 		};
@@ -490,6 +574,14 @@
 			);
 			path = Shared;
 			sourceTree = "<group>";
+		};
+		E44200000000000000000002 /* MisakiSwiftTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
+			name = MisakiSwiftTests;
+			path = ThirdParty/MisakiSwift/Tests/MisakiSwiftTests;
+			sourceTree = SOURCE_ROOT;
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
@@ -582,6 +674,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E44200000000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E4420000000000000000000A /* MisakiSwift in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -609,6 +709,7 @@
 				CC08EC5B2F9522F600206D2F /* EchoCore */,
 				CC08EC692F9522F800206D2F /* EchoTests */,
 				CC08EC732F9522F800206D2F /* EchoUITests */,
+				E44200000000000000000002 /* MisakiSwiftTests */,
 				CCC48E9C2FA6AB330003458B /* Echo Watch App */,
 				CCC48EAA2FA6AB340003458B /* Echo Watch AppTests */,
 				CCC48EB42FA6AB340003458B /* Echo Watch AppUITests */,
@@ -617,14 +718,28 @@
 				DD0100000000000000000001 /* Shared */,
 				CC00BC4E2FA6B66400323F38 /* Frameworks */,
 				CC08EC5A2F9522F600206D2F /* Products */,
-				CCA5FE092FDB54160072C2EB /* Recovered References */,
 				F0CFF53D74979F5CF21850A4 /* EchoCLI.swift */,
+				F12A00000000000000000001 /* encoder_model.onnx */,
+				F12A00000000000000000002 /* decoder_model.onnx */,
+				F12A00000000000000000003 /* tokenizer.json */,
+				F12A00000000000000000004 /* config.json */,
+				F12A00000000000000000005 /* generation_config.json */,
+				F12A00000000000000000006 /* LICENSE */,
 				739F167A96954DC602A63519 /* _kokoro_vocab.json */,
+				B17D0C0FE17AC0DE0F0FE002 /* kokoro_dur_head.onnx */,
 				486ED82EADFDDE51ED2283A1 /* us_gold.json */,
 				A3CB4FF9D3E73BABC2FE8E7B /* us_silver.json */,
+				E2A200000000000000000011 /* us_pronunciation_pack.json */,
+				E2A200000000000000000013 /* us_pronunciation_audit_pack.json */,
+				E2A200000000000000000012 /* THIRD_PARTY_NOTICES.md */,
 				841D8CAEB031B6361813E665 /* af_heart.f32 */,
 				E3831A65448E14AF9E50D78F /* af_heart.rows */,
 				E6243FBB0511F01F7F480630 /* NarrateCommand.swift */,
+				1C06019800B44A10A3274334 /* RetagCommand.swift */,
+				2F0A81F02D5A4FD8A25A5001 /* NarrationQACommand.swift */,
+				2F0A81F22D5A4FD8A25A5001 /* GenerateDeckCommand.swift */,
+				3B5C6D7E8F90123456789ABD /* SidecarCommands.swift */,
+				E70700000000000000000002 /* ExportVideoCommand.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -640,17 +755,9 @@
 				CC00BC4D2FA6B66400323F38 /* Echo WidgetExtension.appex */,
 				AA0100000000000000000001 /* Echo macOS.app */,
 				DCA1F191B4998A1FB7A21E53 /* echo-cli */,
+				E44200000000000000000001 /* MisakiSwiftTests.xctest */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		CCA5FE092FDB54160072C2EB /* Recovered References */ = {
-			isa = PBXGroup;
-			children = (
-				AA0100000000000000000050 /* WhisperSession.swift */,
-				AA0100000000000000000052 /* ModelRetainBox.swift */,
-			);
-			name = "Recovered References";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -663,6 +770,7 @@
 				2B1676B37843CC4B6A7A86DF /* Sources */,
 				AAE51A78DC033637B1DE35C1 /* Frameworks */,
 				95300DF22F2694306AD5F79C /* Copy Narration Resources */,
+				3F7E5D9A8B2C4D6E90A1B2C3 /* Copy all Kokoro voice resources */,
 			);
 			buildRules = (
 			);
@@ -693,6 +801,7 @@
 				AA0100000000000000000032 /* Sources */,
 				AA0100000000000000000030 /* Frameworks */,
 				AA0100000000000000000031 /* Resources */,
+				E5A6C9D01A2B3C4D5E6F7081 /* Stamp build metadata */,
 				CDA03CF93AED9EFAEE46964E /* Strip statically-linked onnxruntime frameworks (ITMS-90208) */,
 			);
 			buildRules = (
@@ -746,6 +855,7 @@
 				CC08EC562F9522F600206D2F /* Frameworks */,
 				CC08EC572F9522F600206D2F /* Resources */,
 				CCC48E8D2FA6AAC30003458B /* Embed Watch Content */,
+				E5A6C9D01A2B3C4D5E6F7082 /* Stamp build metadata */,
 				3DC862EA53BF2F601B0D1733 /* Strip statically-linked onnxruntime frameworks (ITMS-90208) */,
 			);
 			buildRules = (
@@ -869,6 +979,29 @@
 			productReference = CCC48EB12FA6AB340003458B /* Echo Watch AppUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		E44200000000000000000006 /* MisakiSwiftTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E44200000000000000000007 /* Build configuration list for PBXNativeTarget "MisakiSwiftTests" */;
+			buildPhases = (
+				E44200000000000000000004 /* Sources */,
+				E44200000000000000000003 /* Frameworks */,
+				E44200000000000000000005 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				E44200000000000000000002 /* MisakiSwiftTests */,
+			);
+			name = MisakiSwiftTests;
+			packageProductDependencies = (
+				CC0000000000FMSKI0000000 /* MisakiSwift */,
+			);
+			productName = MisakiSwiftTests;
+			productReference = E44200000000000000000001 /* MisakiSwiftTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -904,6 +1037,9 @@
 						CreatedOnToolsVersion = 26.4.1;
 						TestTargetID = CCC48E9A2FA6AB330003458B;
 					};
+					E44200000000000000000006 = {
+						CreatedOnToolsVersion = 26.4.1;
+					};
 				};
 			};
 			buildConfigurationList = CC08EC542F9522F600206D2F /* Build configuration list for PBXProject "Echo" */;
@@ -932,6 +1068,7 @@
 				CC08EC582F9522F600206D2F /* Echo */,
 				CC08EC652F9522F800206D2F /* EchoTests */,
 				CC08EC6F2F9522F800206D2F /* EchoUITests */,
+				E44200000000000000000006 /* MisakiSwiftTests */,
 				CCC48E9A2FA6AB330003458B /* Echo Watch App */,
 				CCC48EA62FA6AB340003458B /* Echo Watch AppTests */,
 				CCC48EB02FA6AB340003458B /* Echo Watch AppUITests */,
@@ -947,6 +1084,13 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B12A00000000000000000001 /* encoder_model.onnx in macOS Resources */,
+				B12A00000000000000000002 /* decoder_model.onnx in macOS Resources */,
+				B12A00000000000000000003 /* tokenizer.json in macOS Resources */,
+				B12A00000000000000000004 /* config.json in macOS Resources */,
+				B12A00000000000000000005 /* generation_config.json in macOS Resources */,
+				B12A00000000000000000006 /* LICENSE in macOS Resources */,
+				E2A200000000000000000003 /* THIRD_PARTY_NOTICES.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -961,6 +1105,13 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A12A00000000000000000001 /* encoder_model.onnx in iOS Resources */,
+				A12A00000000000000000002 /* decoder_model.onnx in iOS Resources */,
+				A12A00000000000000000003 /* tokenizer.json in iOS Resources */,
+				A12A00000000000000000004 /* config.json in iOS Resources */,
+				A12A00000000000000000005 /* generation_config.json in iOS Resources */,
+				A12A00000000000000000006 /* LICENSE in iOS Resources */,
+				E2A200000000000000000002 /* THIRD_PARTY_NOTICES.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -999,11 +1150,59 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E44200000000000000000005 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E4420000000000000000000B /* us_gold.json in Resources */,
+				E4420000000000000000000C /* us_silver.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		E5A6C9D01A2B3C4D5E6F7081 /* Stamp build metadata */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Stamp build metadata";
+				outputFileListPaths = (
+				);
+				outputPaths = (
+					"$(DERIVED_FILE_DIR)/build-metadata.stamp",
+				);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "sh \"${SRCROOT}/Scripts/stamp_build_metadata.sh\"";
+		};
+		E5A6C9D01A2B3C4D5E6F7082 /* Stamp build metadata */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Stamp build metadata";
+				outputFileListPaths = (
+				);
+				outputPaths = (
+					"$(DERIVED_FILE_DIR)/build-metadata.stamp",
+				);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "sh \"${SRCROOT}/Scripts/stamp_build_metadata.sh\"";
+		};
 		3DC862EA53BF2F601B0D1733 /* Strip statically-linked onnxruntime frameworks (ITMS-90208) */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
@@ -1018,10 +1217,11 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# onnxruntime + onnxruntime_extensions are STATIC libs wrapped as .frameworks.\n# SPM embeds the wrappers into Frameworks/, which App Store validation rejects\n# (ITMS-90208 Invalid Bundle). The static code is already linked into the app\n# binary, so the embedded copies are redundant — remove them so upload validates.\n# Requires ENABLE_USER_SCRIPT_SANDBOXING=NO (set on this target).\nif [ -n \"${FRAMEWORKS_FOLDER_PATH}\" ]; then\n  DIR=\"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}\"\n  for fw in onnxruntime onnxruntime_extensions; do\n    if [ -d \"${DIR}/${fw}.framework\" ]; then\n      echo \"note: ITMS-90208 fix — removing statically-linked ${fw}.framework\"\n      rm -rf \"${DIR}/${fw}.framework\"\n    fi\n  done\nfi\n";
+			shellScript = "# onnxruntime + onnxruntime_extensions are STATIC libs wrapped as .frameworks.\n# SPM embeds the wrappers into Frameworks/, which App Store validation rejects\n# (ITMS-90208 Invalid Bundle). The static code is already linked into the app\n# binary, so the embedded copies are redundant for archive/export products.\n# Keep normal builds intact so Xcode can sign and install to physical devices.\n# Requires ENABLE_USER_SCRIPT_SANDBOXING=NO (set on this target).\nif [ \"${ACTION}\" != \"install\" ]; then\n  echo \"note: ITMS-90208 fix — keeping statically-linked onnxruntime frameworks for ${ACTION}\"\n  exit 0\nfi\n\nif [ -n \"${FRAMEWORKS_FOLDER_PATH}\" ]; then\n  DIR=\"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}\"\n  for fw in onnxruntime onnxruntime_extensions; do\n    if [ -d \"${DIR}/${fw}.framework\" ]; then\n      echo \"note: ITMS-90208 fix — removing statically-linked ${fw}.framework\"\n      rm -rf \"${DIR}/${fw}.framework\"\n    fi\n  done\nfi\n";
 		};
 		CDA03CF93AED9EFAEE46964E /* Strip statically-linked onnxruntime frameworks (ITMS-90208) */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
@@ -1036,7 +1236,30 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# onnxruntime + onnxruntime_extensions are STATIC libs wrapped as .frameworks.\n# SPM embeds the wrappers into Frameworks/, which App Store validation rejects\n# (ITMS-90208 Invalid Bundle). The static code is already linked into the app\n# binary, so the embedded copies are redundant — remove them so upload validates.\n# Requires ENABLE_USER_SCRIPT_SANDBOXING=NO (set on this target).\nif [ -n \"${FRAMEWORKS_FOLDER_PATH}\" ]; then\n  DIR=\"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}\"\n  for fw in onnxruntime onnxruntime_extensions; do\n    if [ -d \"${DIR}/${fw}.framework\" ]; then\n      echo \"note: ITMS-90208 fix — removing statically-linked ${fw}.framework\"\n      rm -rf \"${DIR}/${fw}.framework\"\n    fi\n  done\nfi\n";
+			shellScript = "# onnxruntime + onnxruntime_extensions are STATIC libs wrapped as .frameworks.\n# SPM embeds the wrappers into Frameworks/, which App Store validation rejects\n# (ITMS-90208 Invalid Bundle). The static code is already linked into the app\n# binary, so the embedded copies are redundant for archive/export products.\n# Keep normal builds intact so Xcode can sign and install to physical devices.\n# Requires ENABLE_USER_SCRIPT_SANDBOXING=NO (set on this target).\nif [ \"${ACTION}\" != \"install\" ]; then\n  echo \"note: ITMS-90208 fix — keeping statically-linked onnxruntime frameworks for ${ACTION}\"\n  exit 0\nfi\n\nif [ -n \"${FRAMEWORKS_FOLDER_PATH}\" ]; then\n  DIR=\"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}\"\n  for fw in onnxruntime onnxruntime_extensions; do\n    if [ -d \"${DIR}/${fw}.framework\" ]; then\n      echo \"note: ITMS-90208 fix — removing statically-linked ${fw}.framework\"\n      rm -rf \"${DIR}/${fw}.framework\"\n    fi\n  done\nfi\n";
+		};
+		3F7E5D9A8B2C4D6E90A1B2C3 /* Copy all Kokoro voice resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/EchoCore/Resources",
+			);
+			name = "Copy all Kokoro voice resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/EchoNarrationResources/am_michael.f32",
+				"$(TARGET_BUILD_DIR)/EchoNarrationResources/am_michael.rows",
+				"$(TARGET_BUILD_DIR)/EchoNarrationResources/am_puck.f32",
+				"$(TARGET_BUILD_DIR)/EchoNarrationResources/am_puck.rows",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nSRC=\"${SRCROOT}/EchoCore/Resources\"\nDST=\"${TARGET_BUILD_DIR}/EchoNarrationResources\"\n/bin/mkdir -p \"${DST}\"\n/usr/bin/ditto \"${SRC}\" \"${DST}\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -1047,6 +1270,11 @@
 			files = (
 				245A97E573FB572FF8FBB995 /* EchoCLI.swift in Sources */,
 				61C08841F4A90AEDEE1D5A5B /* NarrateCommand.swift in Sources */,
+				4B5F48A4E90D4AE5A7F0C231 /* RetagCommand.swift in Sources */,
+				2F0A81F12D5A4FD8A25A5001 /* NarrationQACommand.swift in Sources */,
+				2F0A81F32D5A4FD8A25A5001 /* GenerateDeckCommand.swift in Sources */,
+				3B5C6D7E8F90123456789ABC /* SidecarCommands.swift in Sources */,
+				E70700000000000000000001 /* ExportVideoCommand.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1054,8 +1282,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AA0100000000000000000051 /* WhisperSession.swift in Sources */,
-				AA0100000000000000000053 /* ModelRetainBox.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1102,6 +1328,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CCC48EAD2FA6AB340003458B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E44200000000000000000004 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -1158,7 +1391,8 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_OBJC_INTEROP_MODE = objcxx;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
 			};
 			name = Debug;
 		};
@@ -1201,7 +1435,8 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Debug;
@@ -1245,7 +1480,8 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				VALIDATE_PRODUCT = YES;
 				VERSIONING_SYSTEM = "apple-generic";
 			};
@@ -1264,7 +1500,8 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_OBJC_INTEROP_MODE = objcxx;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
 			};
 			name = Release;
 		};
@@ -1298,7 +1535,8 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				TARGETED_DEVICE_FAMILY = 4;
 				VERSIONING_SYSTEM = "apple-generic";
 				WATCHOS_DEPLOYMENT_TARGET = 11.0;
@@ -1335,7 +1573,8 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				TARGETED_DEVICE_FAMILY = 4;
 				VALIDATE_PRODUCT = YES;
 				VERSIONING_SYSTEM = "apple-generic";
@@ -1501,7 +1740,8 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VERSIONING_SYSTEM = "apple-generic";
 			};
@@ -1545,7 +1785,8 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VERSIONING_SYSTEM = "apple-generic";
 			};
@@ -1571,7 +1812,8 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				TARGETED_DEVICE_FAMILY = 1;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Echo.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Echo";
 				VERSIONING_SYSTEM = "apple-generic";
@@ -1597,7 +1839,8 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				TARGETED_DEVICE_FAMILY = 1;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Echo.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Echo";
 				VERSIONING_SYSTEM = "apple-generic";
@@ -1623,7 +1866,8 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				TARGETED_DEVICE_FAMILY = 1;
 				TEST_TARGET_NAME = Echo;
 				VERSIONING_SYSTEM = "apple-generic";
@@ -1648,7 +1892,8 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				TARGETED_DEVICE_FAMILY = 1;
 				TEST_TARGET_NAME = Echo;
 				VERSIONING_SYSTEM = "apple-generic";
@@ -1672,6 +1917,7 @@
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need access to the microphone to record voice memos for bookmarks.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "We need speech recognition to dictate text for bookmarks.";
 				INFOPLIST_KEY_UIBackgroundModes = audio;
+				INFOPLIST_FILE = "Echo Watch App/Info.plist";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.echo.audiobooks;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1688,7 +1934,8 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				TARGETED_DEVICE_FAMILY = 4;
 				VERSIONING_SYSTEM = "apple-generic";
 				WATCHOS_DEPLOYMENT_TARGET = 11.0;
@@ -1712,6 +1959,7 @@
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need access to the microphone to record voice memos for bookmarks.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "We need speech recognition to dictate text for bookmarks.";
 				INFOPLIST_KEY_UIBackgroundModes = audio;
+				INFOPLIST_FILE = "Echo Watch App/Info.plist";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.echo.audiobooks;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1728,7 +1976,8 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				TARGETED_DEVICE_FAMILY = 4;
 				VALIDATE_PRODUCT = YES;
 				VERSIONING_SYSTEM = "apple-generic";
@@ -1753,7 +2002,8 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				TARGETED_DEVICE_FAMILY = 4;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Echo Watch App.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Echo Watch App";
 				VERSIONING_SYSTEM = "apple-generic";
@@ -1778,7 +2028,8 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				TARGETED_DEVICE_FAMILY = 4;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Echo Watch App.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Echo Watch App";
 				VALIDATE_PRODUCT = YES;
@@ -1803,7 +2054,8 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				TARGETED_DEVICE_FAMILY = 4;
 				TEST_TARGET_NAME = "Echo Watch App";
 				VERSIONING_SYSTEM = "apple-generic";
@@ -1827,12 +2079,58 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				TARGETED_DEVICE_FAMILY = 4;
 				TEST_TARGET_NAME = "Echo Watch App";
 				VALIDATE_PRODUCT = YES;
 				VERSIONING_SYSTEM = "apple-generic";
 				WATCHOS_DEPLOYMENT_TARGET = 11.0;
+			};
+			name = Release;
+		};
+		E44200000000000000000008 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 8AXNA5B37R;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.echo.audiobooks.misakiswifttests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Debug;
+		};
+		E44200000000000000000009 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 8AXNA5B37R;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.echo.audiobooks.misakiswifttests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				VALIDATE_PRODUCT = YES;
+				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Release;
 		};
@@ -1920,6 +2218,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		E44200000000000000000007 /* Build configuration list for PBXNativeTarget "MisakiSwiftTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E44200000000000000000008 /* Debug */,
+				E44200000000000000000009 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		F7795FFF97200DDB8A6C4A18 /* Build configuration list for PBXNativeTarget "echo-cli" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -1949,10 +2256,10 @@
 		};
 		CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/atelier-socle/swift-audio-marker.git";
+			repositoryURL = "https://github.com/dfakkeldy/swift-audio-marker.git";
 			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.1.0;
+				kind = revision;
+				revision = ac1d747b0e34684b12d7e0bc9fd6aa4db91cca26;
 			};
 		};
 		CC0000000001GRDB00000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {

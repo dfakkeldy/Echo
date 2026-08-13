@@ -2,18 +2,18 @@
 import Foundation
 
 /// Accent of a Kokoro narration voice (the language Echo's English G2P targets).
-enum VoiceAccent: String, Sendable {
+nonisolated enum VoiceAccent: String, Sendable {
     case american, british
     var title: String { self == .american ? "American" : "British" }
 }
 
 /// Speaker gender, used only for grouping the picker.
-enum VoiceGender: String, Sendable {
+nonisolated enum VoiceGender: String, Sendable {
     case female, male
     var title: String { self == .female ? "Female" : "Male" }
 }
 
-struct NarrationVoice: Identifiable, Hashable, Sendable {
+nonisolated struct NarrationVoice: Identifiable, Hashable, Sendable {
     let id: VoiceID
     let displayName: String
     let descriptor: String  // short quality hint shown under the name
@@ -23,13 +23,13 @@ struct NarrationVoice: Identifiable, Hashable, Sendable {
 }
 
 /// A grouped run of voices for the picker (e.g. "American · Female").
-struct VoiceSection: Identifiable, Sendable {
+nonisolated struct VoiceSection: Identifiable, Sendable {
     let id: String
     let title: String
     let voices: [NarrationVoice]
 }
 
-enum VoiceCatalog {
+nonisolated enum VoiceCatalog {
     /// All 28 English Kokoro voices (American `a*` + British `b*`). Their
     /// `[510,256]` fp32 style packs are bundled in `EchoCore/Resources/<id>.f32`,
     /// fetched verbatim from `onnx-community/Kokoro-82M-v1.0-ONNX` via
@@ -117,5 +117,27 @@ enum VoiceCatalog {
         case "C": return "Good quality"
         default: return "Standard quality"  // D / F tiers
         }
+    }
+}
+
+nonisolated enum ExportVideoPreferredVoiceRequestError: Error, Equatable, Sendable {
+    case unknownVoice(String)
+}
+
+/// Resolves one caller-supplied preferred voice at the video-export boundary.
+/// Anthology chapter overrides still take precedence later in render planning.
+nonisolated enum ExportVideoPreferredVoiceRequest {
+    static func resolve(_ rawValue: String?) throws -> VoiceID {
+        guard
+            let rawValue,
+            !rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return VoiceCatalog.default.id
+        }
+        let voiceID = VoiceID(rawValue)
+        guard VoiceCatalog.voice(for: voiceID) != nil else {
+            throw ExportVideoPreferredVoiceRequestError.unknownVoice(rawValue)
+        }
+        return voiceID
     }
 }

@@ -48,6 +48,63 @@ Prerequisites:
 
 
 
+### ios screenshots
+
+```sh
+[bundle exec] fastlane ios screenshots
+```
+
+Capture App Store screenshots on the simulator.
+
+Runs the EchoScreenshots UI test (EchoUITests target) via the
+"Echo Screenshots" scheme across the devices/languages in fastlane/Snapfile,
+writing PNGs to fastlane/screenshots/<locale>/.
+
+No App Store Connect key required.
+
+Prerequisites:
+- The app auto-seeds screenshot media in DEBUG simulator builds. This lane
+  forces the bundled Standard Ebooks Great Gatsby EPUB fixture and Echo's
+  internal Dark appearance setting, even if a local audio sample is present.
+  See fastlane/screenshots/en-US/README_SCREENSHOTS.md.
+- Snapfile resolves current Xcode simulator names for the required sizes.
+
+Tip: stage the trickier shots by hand with Scripts/capture_screenshots.sh.
+
+
+### ios frame_app_store_screenshots
+
+```sh
+[bundle exec] fastlane ios frame_app_store_screenshots
+```
+
+Wrap the captured screenshots in device frames (requires `brew install imagemagick`).
+
+### ios upload_metadata
+
+```sh
+[bundle exec] fastlane ios upload_metadata
+```
+
+Upload metadata to App Store Connect (no binary, no screenshots).
+
+Pushes fastlane/metadata/ to the app's current editable version. Requires
+fastlane/api_key.json. Use this when copy changes need to reconcile the ASC
+draft before final screenshots are ready.
+
+
+### ios upload_screenshots
+
+```sh
+[bundle exec] fastlane ios upload_screenshots
+```
+
+Upload screenshots + metadata to App Store Connect (no binary).
+
+Pushes fastlane/screenshots/ and fastlane/metadata/ to the app's current
+editable version. Requires fastlane/api_key.json.
+
+
 ----
 
 This README.md is auto-generated and will be re-generated every time [_fastlane_](https://fastlane.tools) is run.

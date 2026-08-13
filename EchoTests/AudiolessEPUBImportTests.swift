@@ -18,6 +18,182 @@ private final class AudiolessFixtureLocator {}
 @MainActor
 @Suite struct AudiolessEPUBImportTests {
 
+    @Test func audiolessABSDocumentTitleUsesPersistedMetadata() throws {
+        let db = try DatabaseService(inMemory: ())
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let audiobookID = folder.absoluteString
+        let expectedTitle = "Nonviolent Communication (Summary)"
+        try AudiobookDAO(db: db.writer).save(
+            AudiobookRecord(
+                id: audiobookID,
+                title: expectedTitle,
+                author: "Marshall Rosenberg",
+                duration: 0,
+                fileCount: 0,
+                addedAt: "2026-06-28T00:00:00Z",
+                sourceType: "audiobookshelf",
+                serverID: "server-1",
+                remoteItemID: folder.lastPathComponent))
+
+        let title = PlayerLoadingCoordinator.audiolessDocumentDisplayTitle(
+            sourceURL: folder, audiobookID: audiobookID, db: db)
+
+        #expect(title == expectedTitle)
+    }
+
+    @Test func standalonePDFUsesFilenameAsDisplayTitle() throws {
+        let db = try DatabaseService(inMemory: ())
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Imported Books", isDirectory: true)
+        let pdf = parent.appendingPathComponent("Echo Overnight PDF Narration Probe.pdf")
+        try AudiobookDAO(db: db.writer).save(
+            AudiobookRecord(
+                id: parent.absoluteString,
+                title: parent.lastPathComponent,
+                author: "",
+                duration: 0,
+                fileCount: 0,
+                addedAt: "2026-07-25T00:00:00Z"))
+
+        let title = PlayerLoadingCoordinator.audiolessDocumentDisplayTitle(
+            sourceURL: pdf, audiobookID: parent.absoluteString, db: db)
+
+        #expect(title == "Echo Overnight PDF Narration Probe")
+    }
+
+    @Test func directEPUBPreservesPersistedMetadataTitle() throws {
+        let db = try DatabaseService(inMemory: ())
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Imported Books", isDirectory: true)
+        let epub = parent.appendingPathComponent("opaque-export-name.epub")
+        let expectedTitle = "A Meaningful OPF Title"
+        try AudiobookDAO(db: db.writer).save(
+            AudiobookRecord(
+                id: parent.absoluteString,
+                title: expectedTitle,
+                author: "Fixture Author",
+                duration: 0,
+                fileCount: 0,
+                addedAt: "2026-07-25T00:00:00Z"))
+
+        let title = PlayerLoadingCoordinator.audiolessDocumentDisplayTitle(
+            sourceURL: epub, audiobookID: parent.absoluteString, db: db)
+
+        #expect(title == expectedTitle)
+    }
+
+    @Test func standalonePDFPersistsFilenameOnlyOverParentPlaceholder() throws {
+        let db = try DatabaseService(inMemory: ())
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Imported Books", isDirectory: true)
+        let pdf = parent.appendingPathComponent("Useful PDF Title.pdf")
+        let dao = AudiobookDAO(db: db.writer)
+        try dao.save(
+            AudiobookRecord(
+                id: parent.absoluteString,
+                title: parent.lastPathComponent,
+                author: "",
+                duration: 0,
+                fileCount: 0,
+                addedAt: "2026-07-25T00:00:00Z"))
+
+        PlayerLoadingCoordinator.persistStandalonePDFTitleIfPlaceholder(
+            "Useful PDF Title",
+            sourceURL: pdf,
+            audiobookID: parent.absoluteString,
+            db: db)
+
+        #expect(try dao.get(parent.absoluteString)?.title == "Useful PDF Title")
+
+        var enriched = try #require(try dao.get(parent.absoluteString))
+        enriched.title = "Curated Library Title"
+        try dao.save(enriched)
+        PlayerLoadingCoordinator.persistStandalonePDFTitleIfPlaceholder(
+            "Useful PDF Title",
+            sourceURL: pdf,
+            audiobookID: parent.absoluteString,
+            db: db)
+        #expect(try dao.get(parent.absoluteString)?.title == "Curated Library Title")
+    }
+
+    @Test func reselectedPDFReplacesOnlyThePreviousFilenameFallback() throws {
+        let db = try DatabaseService(inMemory: ())
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Imported Books", isDirectory: true)
+        let previousPDF = parent.appendingPathComponent("Old Filename.pdf")
+        let currentPDF = parent.appendingPathComponent("Renamed Study Guide.pdf")
+        let dao = AudiobookDAO(db: db.writer)
+        try dao.save(
+            AudiobookRecord(
+                id: parent.absoluteString,
+                title: "Old Filename",
+                author: "",
+                duration: 0,
+                fileCount: 0,
+                addedAt: "2026-07-25T00:00:00Z"))
+
+        let title = PlayerLoadingCoordinator.audiolessDocumentDisplayTitle(
+            sourceURL: currentPDF,
+            previousSourceDocumentURL: previousPDF,
+            audiobookID: parent.absoluteString,
+            db: db)
+        PlayerLoadingCoordinator.persistStandalonePDFTitleIfPlaceholder(
+            title,
+            sourceURL: currentPDF,
+            previousSourceDocumentURL: previousPDF,
+            audiobookID: parent.absoluteString,
+            db: db)
+
+        #expect(title == "Renamed Study Guide")
+        #expect(try dao.get(parent.absoluteString)?.title == "Renamed Study Guide")
+
+        var curated = try #require(try dao.get(parent.absoluteString))
+        curated.title = "Curated PDF Metadata"
+        try dao.save(curated)
+        let nextPDF = parent.appendingPathComponent("Another Export Name.pdf")
+        let preserved = PlayerLoadingCoordinator.audiolessDocumentDisplayTitle(
+            sourceURL: nextPDF,
+            previousSourceDocumentURL: currentPDF,
+            audiobookID: parent.absoluteString,
+            db: db)
+        #expect(preserved == "Curated PDF Metadata")
+    }
+
+    @Test func supersededDocumentImportCannotMatchTheNewActivePDF() {
+        let folder = URL(fileURLWithPath: "/provider/books", isDirectory: true)
+        let oldEPUB = folder.appendingPathComponent("old.epub")
+        let newPDF = folder.appendingPathComponent("new.pdf")
+
+        #expect(
+            !PlayerLoadingCoordinator.documentImportMatchesActiveBook(
+                generation: 1,
+                currentGeneration: 2,
+                pickedURL: oldEPUB,
+                isDirectory: false,
+                folderURL: folder,
+                currentFolderURL: folder,
+                currentSourceDocumentURL: newPDF))
+        #expect(
+            !PlayerLoadingCoordinator.documentImportMatchesActiveBook(
+                generation: 2,
+                currentGeneration: 2,
+                pickedURL: oldEPUB,
+                isDirectory: false,
+                folderURL: folder,
+                currentFolderURL: folder,
+                currentSourceDocumentURL: newPDF))
+        #expect(
+            PlayerLoadingCoordinator.documentImportMatchesActiveBook(
+                generation: 2,
+                currentGeneration: 2,
+                pickedURL: newPDF,
+                isDirectory: false,
+                folderURL: folder,
+                currentFolderURL: folder,
+                currentSourceDocumentURL: newPDF))
+    }
+
     @Test func epubOnlyFolderImportsAsAudioLessBookWithChapterZeroBlocks() async throws {
         let db = try DatabaseService(inMemory: ())
 
@@ -96,7 +272,7 @@ private final class AudiolessFixtureLocator {}
     /// In `loadFolder`, when the user opens an EPUB *file* directly, the audiobook
     /// row was keyed off the raw picked `url` (the FILE) while blocks are keyed off
     /// the normalised parent directory (`state.folderURL`). `epub_block.audiobook_id`
-    /// has a NOT NULL cascade FK to `audiobook(id)` (Schema_V5), so when the only
+    /// has a NOT NULL cascade FK to `audiobook(id)`, so when the only
     /// audiobook row is at the FILE key, the block INSERT under the PARENT key has
     /// no parent row and the FK rejects it — zero blocks import and narration falls
     /// back to a sample. This asserts that pre-fix split fails.

@@ -186,17 +186,16 @@ struct AlignmentServiceTests {
         #expect(b1?.alignmentStatus != AlignmentStatus.omitted.rawValue)
     }
 
-    @Test func chapterAnchorOperations() throws {
+    @Test func moveBlockPersistsCallerSource() throws {
         let (db, audiobookID) = try setupAlignmentDB()
         let service = AlignmentService(db: db.writer, audiobookID: audiobookID)
 
-        try service.anchorChapterStart(blockID: "b0", chapterIndex: 0, time: 0)
-        try service.anchorChapterEnd(blockID: "b3", chapterIndex: 0, time: 1800)
+        try service.moveBlockToCurrentTime(blockID: "b0", time: 0)
+        try service.moveBlockToCurrentTime(blockID: "b2", time: 90, source: .chapterBoundary)
 
         let anchors = try AlignmentAnchorDAO(db: db.writer).anchors(for: audiobookID)
-        #expect(anchors.count == 2)
-        #expect(anchors.contains(where: { $0.anchorKind == "chapterStart" }))
-        #expect(anchors.contains(where: { $0.anchorKind == "chapterEnd" }))
+        #expect(anchors.first(where: { $0.epubBlockID == "b0" })?.source == "moveToNow")
+        #expect(anchors.first(where: { $0.epubBlockID == "b2" })?.source == "chapterBoundary")
     }
 
     @Test func searchResultAnchoring() throws {

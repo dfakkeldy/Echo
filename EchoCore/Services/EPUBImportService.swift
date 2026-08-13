@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import GRDB
 import os.log
 
 /// Imports EPUB structure into the application's SQL database and local asset storage.
@@ -37,15 +38,21 @@ struct EPUBImportService {
         audiobookID: String,
         epubURL: URL,
         chapters: [Chapter],
-        bookDuration: TimeInterval?
+        bookDuration: TimeInterval?,
+        generatedIdentity: GeneratedAnthologyImportIdentity? = nil,
+        persistencePolicy: EPUBBlockPersistencePolicy = .replaceAll
     ) async throws -> [EPubBlockRecord] {
         // Parse the canonical block set + stable IDs via the shared driver, then
         // run the shared persist/post-process phase. Text import reuses that
         // phase via the `parse:` overload below.
-        let parse = try parseEPUBBlocks(audiobookID: audiobookID, epubURL: epubURL)
+        let parse = try parseEPUBBlocks(
+            audiobookID: audiobookID,
+            epubURL: epubURL,
+            generatedIdentity: generatedIdentity)
         return try await `import`(
             parse: parse, audiobookID: audiobookID, chapters: chapters,
-            bookDuration: bookDuration, assetBaseURL: epubURL)
+            bookDuration: bookDuration, assetBaseURL: epubURL,
+            persistencePolicy: persistencePolicy)
     }
 
     /// Persist + post-process a pre-computed block parse (image localization, TOC
@@ -57,35 +64,15 @@ struct EPUBImportService {
         audiobookID: String,
         chapters: [Chapter],
         bookDuration: TimeInterval?,
-        assetBaseURL: URL
+        assetBaseURL: URL,
+        persistencePolicy: EPUBBlockPersistencePolicy = .replaceAll
     ) async throws -> [EPubBlockRecord] {
         // 2. Prepare asset storage directory (for image localization below).
         try assetStorage.prepare(for: audiobookID)
 
         var allBlocks = parse.blocks
 
-        // 3. Rebuild the per-spine lookups for resolving TOC entries to blocks:
-        // fragment anchor → block id, plus first-heading / first-block
-        // fallbacks for entries that point at whole files. Descriptors are
-        // aligned 1:1 with blocks; kinds here are pre-TOC-promotion, matching
-        // the original ordering.
-        var anchorBlockIDBySpine: [Int: [String: String]] = [:]
-        var firstHeadingBlockIDBySpine: [Int: String] = [:]
-        var firstBlockIDBySpine: [Int: String] = [:]
-        for (block, descriptor) in zip(parse.blocks, parse.descriptors) {
-            let i = block.spineIndex
-            if firstBlockIDBySpine[i] == nil { firstBlockIDBySpine[i] = block.id }
-            if firstHeadingBlockIDBySpine[i] == nil,
-                block.blockKind == EPubBlockRecord.Kind.heading.rawValue
-            {
-                firstHeadingBlockIDBySpine[i] = block.id
-            }
-            for anchor in descriptor.anchorIDs where anchorBlockIDBySpine[i]?[anchor] == nil {
-                anchorBlockIDBySpine[i, default: [:]][anchor] = block.id
-            }
-        }
-
-        // 4. Copy images referenced in blocks to local asset storage.
+        // 3. Copy images referenced in blocks to local asset storage.
         for idx in allBlocks.indices {
             guard allBlocks[idx].blockKind == EPubBlockRecord.Kind.image.rawValue,
                 let imagePath = allBlocks[idx].imagePath
@@ -102,24 +89,21 @@ struct EPUBImportService {
             }
         }
 
-        // 5. Resolve the publisher's TOC tree (NCX navPoint / nav ol nesting)
-        // to concrete blocks, promoting fragment targets that aren't marked up
-        // as headings (table-styled topic titles) so the reader can style and
-        // anchor them. Runs before chapter-index assignment so promotions
-        // count as headings there.
-        let tocRecords = Self.resolveTOCEntries(
-            parse.tocEntryTree,
+        // 4. Resolve the publisher's TOC tree (NCX navPoint / nav ol nesting)
+        // and apply the same structure chaptering used by read-only preflight.
+        let tocRecords = try Self.resolveTOCEntriesAndAssignChapterIndices(
+            parse: parse,
             audiobookID: audiobookID,
-            spine: parse.spine,
-            anchorBlockIDBySpine: anchorBlockIDBySpine,
-            firstHeadingBlockIDBySpine: firstHeadingBlockIDBySpine,
-            firstBlockIDBySpine: firstBlockIDBySpine,
-            blocks: &allBlocks
-        )
+            assignsStructureChapterIndices: chapters.isEmpty,
+            blocks: &allBlocks)
 
         // 7. Assign Chapter Index based on cumulative word-count fraction.
         if let duration = bookDuration, !chapters.isEmpty, !allBlocks.isEmpty {
-            let totalWords = Double(allBlocks.reduce(0) { $0 + ($1.wordCount ?? 1) })
+            let totalWords = Double(
+                allBlocks.reduce(0) {
+                    $0 + CommercialAudioAlignmentSource.wordWeight(for: $1)
+                }
+            )
             if totalWords > 0 {
                 var cumulativeWords = 0
                 var hasSeenFirstHeading = false
@@ -127,7 +111,9 @@ struct EPUBImportService {
                     if allBlocks[i].blockKind == EPubBlockRecord.Kind.heading.rawValue {
                         hasSeenFirstHeading = true
                     }
-                    cumulativeWords += allBlocks[i].wordCount ?? 1
+                    cumulativeWords += CommercialAudioAlignmentSource.wordWeight(
+                        for: allBlocks[i]
+                    )
                     let estimatedFraction = Double(cumulativeWords) / totalWords
                     let estimatedTime = estimatedFraction * duration
                     if let matchedChapter = chapters.first(where: { ch in
@@ -143,37 +129,26 @@ struct EPUBImportService {
                     }
                 }
             } else {
-                let totalBlocks = Double(allBlocks.count)
-                for i in 0..<allBlocks.count {
-                    let estimatedFraction = Double(allBlocks[i].sequenceIndex) / totalBlocks
-                    let estimatedTime = estimatedFraction * duration
-                    if let matchedChapter = chapters.first(where: { ch in
-                        estimatedTime >= ch.startSeconds && estimatedTime < ch.endSeconds
-                    }) {
-                        allBlocks[i].chapterIndex = matchedChapter.index
+                let nonCodeBlockCount = allBlocks.reduce(0) { count, block in
+                    count + (block.blockKind == EPubBlockRecord.Kind.code.rawValue ? 0 : 1)
+                }
+                if nonCodeBlockCount > 0 {
+                    var nonCodePosition = 0
+                    for i in allBlocks.indices {
+                        let estimatedFraction =
+                            Double(nonCodePosition) / Double(nonCodeBlockCount)
+                        let estimatedTime = estimatedFraction * duration
+                        if let matchedChapter = chapters.first(where: { chapter in
+                            estimatedTime >= chapter.startSeconds
+                                && estimatedTime < chapter.endSeconds
+                        }) {
+                            allBlocks[i].chapterIndex = matchedChapter.index
+                        }
+                        if allBlocks[i].blockKind != EPubBlockRecord.Kind.code.rawValue {
+                            nonCodePosition += 1
+                        }
                     }
                 }
-            }
-        } else if chapters.isEmpty, bookDuration == nil, !allBlocks.isEmpty {
-            // Standalone EPUB (no audiobook): there are no audio chapters to map
-            // blocks to, so the book's own spine items are its chapters. The
-            // reader and on-device narration read blocks by chapter index —
-            // otherwise every block stays at chapterIndex nil and "chapter 0" is
-            // empty. Map BODY-matter spine items to 0-based chapter indices and
-            // leave front matter (cover/title/copyright) unassigned, so the first
-            // narrated chapter is the book's real chapter 1, not the copyright
-            // page. Front-matter blocks still appear in the reader (ordered by
-            // sequence); they simply aren't a narration chapter.
-            var chapterForSpine: [Int: Int] = [:]
-            let bodySpines = Set(allBlocks.filter { !$0.isFrontMatter }.map(\.spineIndex))
-            // Degenerate book that is entirely front matter: fall back to all
-            // spines so there is still a chapter 0 to read.
-            let spinesToNumber = bodySpines.isEmpty ? Set(allBlocks.map(\.spineIndex)) : bodySpines
-            for spine in spinesToNumber.sorted() {
-                chapterForSpine[spine] = chapterForSpine.count
-            }
-            for i in 0..<allBlocks.count {
-                allBlocks[i].chapterIndex = chapterForSpine[allBlocks[i].spineIndex]
             }
         }
 
@@ -181,13 +156,31 @@ struct EPUBImportService {
         guard let db = assetStorage.databaseService else {
             throw EPUBImportError.databaseNotAvailable
         }
-        let dao = EPubBlockDAO(db: db.writer)
-        try dao.deleteAll(for: audiobookID)
-        try dao.insertAll(allBlocks)
-
-        let tocDAO = EPubTOCEntryDAO(db: db.writer)
-        try tocDAO.deleteAll(for: audiobookID)
-        try tocDAO.insertAll(tocRecords)
+        let blocksToInsert = allBlocks
+        let tocRecordsToInsert = tocRecords
+        try await db.writer.write { database in
+            switch persistencePolicy {
+            case .replaceAll:
+                try EPubTOCEntryRecord
+                    .filter(Column("audiobook_id") == audiobookID)
+                    .deleteAll(database)
+                try EPubBlockRecord
+                    .filter(Column("audiobook_id") == audiobookID)
+                    .deleteAll(database)
+                for var block in blocksToInsert {
+                    try block.insert(database)
+                }
+                for var tocRecord in tocRecordsToInsert {
+                    try tocRecord.insert(database)
+                }
+            case .reconcileGenerated:
+                try GeneratedAnthologyImportReconciler.reconcile(
+                    audiobookID: audiobookID,
+                    incomingBlocks: blocksToInsert,
+                    tocEntries: tocRecordsToInsert,
+                    in: database)
+            }
+        }
 
         logger.info(
             "Imported \(allBlocks.count) EPUB blocks and \(tocRecords.count) TOC entries for \(audiobookID)"
@@ -196,6 +189,47 @@ struct EPUBImportService {
     }
 
     // MARK: - TOC entry resolution
+
+    /// Resolves publisher TOC entries and, when no audio chapters exist,
+    /// applies the structure chaptering shared with resolver preflight.
+    static func resolveTOCEntriesAndAssignChapterIndices(
+        parse: EPUBBlockParse,
+        audiobookID: String,
+        assignsStructureChapterIndices: Bool,
+        blocks: inout [EPubBlockRecord]
+    ) throws -> [EPubTOCEntryRecord] {
+        var anchorBlockIDBySpine: [Int: [String: String]] = [:]
+        var firstHeadingBlockIDBySpine: [Int: String] = [:]
+        var firstBlockIDBySpine: [Int: String] = [:]
+        for (block, descriptor) in zip(blocks, parse.descriptors) {
+            let spineIndex = block.spineIndex
+            if firstBlockIDBySpine[spineIndex] == nil { firstBlockIDBySpine[spineIndex] = block.id }
+            if firstHeadingBlockIDBySpine[spineIndex] == nil,
+                block.blockKind == EPubBlockRecord.Kind.heading.rawValue
+            {
+                firstHeadingBlockIDBySpine[spineIndex] = block.id
+            }
+            for anchor in descriptor.anchorIDs where anchorBlockIDBySpine[spineIndex]?[anchor] == nil {
+                anchorBlockIDBySpine[spineIndex, default: [:]][anchor] = block.id
+            }
+        }
+        let tocRecords = try resolveTOCEntries(
+            parse.tocEntryTree,
+            audiobookID: audiobookID,
+            spine: parse.spine,
+            anchorBlockIDBySpine: anchorBlockIDBySpine,
+            firstHeadingBlockIDBySpine: firstHeadingBlockIDBySpine,
+            firstBlockIDBySpine: firstBlockIDBySpine,
+            blocks: &blocks)
+        if assignsStructureChapterIndices {
+            let chapterIndices = EPUBStructureChaptering.chapterIndices(
+                blocks: blocks, tocEntries: tocRecords)
+            for index in blocks.indices {
+                blocks[index].chapterIndex = chapterIndices[blocks[index].id]
+            }
+        }
+        return tocRecords
+    }
 
     /// Flattens the parsed TOC tree (preorder) into persistable records,
     /// resolving each entry to a block: fragment anchor when the NCX/nav names
@@ -210,7 +244,7 @@ struct EPUBImportService {
         firstHeadingBlockIDBySpine: [Int: String],
         firstBlockIDBySpine: [Int: String],
         blocks: inout [EPubBlockRecord]
-    ) -> [EPubTOCEntryRecord] {
+    ) throws -> [EPubTOCEntryRecord] {
         guard !tree.isEmpty else { return [] }
 
         var spineIndexByHref: [String: Int] = [:]
@@ -236,10 +270,10 @@ struct EPUBImportService {
             return spineIndexByFilename[URL(fileURLWithPath: normalized).lastPathComponent]
         }
 
-        func appendEntries(_ nodes: [TOCEntryNode], parentID: String?, depth: Int) {
+        func appendEntries(_ nodes: [TOCEntryNode], parentID: String?, depth: Int) throws {
             for node in nodes {
                 guard let spineIdx = resolveSpineIndex(node.href) else {
-                    appendEntries(node.children, parentID: parentID, depth: depth)
+                    try appendEntries(node.children, parentID: parentID, depth: depth)
                     continue
                 }
 
@@ -273,14 +307,14 @@ struct EPUBImportService {
                     let blockID = resolvedBlockID,
                     let arrayIdx = blockArrayIndexByID[blockID]
                 {
-                    promoteToHeadingIfTitleMatches(
+                    try promoteToHeadingIfTitleMatches(
                         &blocks[arrayIdx], title: node.title, depth: depth)
                 }
 
-                appendEntries(node.children, parentID: entryID, depth: depth + 1)
+                try appendEntries(node.children, parentID: entryID, depth: depth + 1)
             }
         }
-        appendEntries(tree, parentID: nil, depth: 0)
+        try appendEntries(tree, parentID: nil, depth: 0)
         return records
     }
 
@@ -291,7 +325,7 @@ struct EPUBImportService {
     /// body prose safe when an entry anchors at a regular paragraph.
     private static func promoteToHeadingIfTitleMatches(
         _ block: inout EPubBlockRecord, title: String, depth: Int
-    ) {
+    ) throws {
         guard block.blockKind == EPubBlockRecord.Kind.paragraph.rawValue,
             let text = block.text, !text.isEmpty, text.count <= 120,
             titlesEssentiallyMatch(text, title)
@@ -299,7 +333,7 @@ struct EPUBImportService {
 
         block.blockKind = EPubBlockRecord.Kind.heading.rawValue
         let level = min(max(depth + 1, 1), 6)
-        var markers = block.decodedMarkers
+        var markers = try block.decodeMarkers()
         markers.insert(
             SyncMarker(type: .chapterStart, payload: String(level), epubCharOffset: 0),
             at: 0

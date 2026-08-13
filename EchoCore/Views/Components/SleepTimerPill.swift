@@ -41,14 +41,14 @@ struct SleepTimerPill: View {
                         .fill(model.coverTheme.chip)
                         .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
                 }
-                .foregroundStyle(model.artworkAccentColor ?? Color.accentColor)
+                .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
             } else {
                 Image(systemName: "moon.zzz")
                     .font(.body.bold())
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
                     // Cover accent like the sibling header chips (was .secondary).
-                    .foregroundStyle(model.artworkAccentColor ?? Color.accentColor)
+                    .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
             }
         }
         .accessibilityLabel(Text("Sleep Timer"))

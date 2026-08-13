@@ -20,20 +20,17 @@ struct SpeedSuggestion: Identifiable, Equatable, Sendable {
         case .onTrack:
             String(localized: "On track to finish by \(formattedDate)")
         case .needAdjustment(let speed):
-            String(localized: "Schedule \(String(format: "%.1f", speed))x to finish by \(formattedDate)")
+            String(localized: "Schedule \(formattedSpeed(speed))x to finish by \(formattedDate)")
         case .insufficient:
             String(localized: "Not enough time even at max speed")
         }
     }
 
-    private static let dateFormatter: DateFormatter = {
-        let fmt = DateFormatter()
-        fmt.dateStyle = .medium
-        fmt.timeStyle = .short
-        return fmt
-    }()
-
     private var formattedDate: String {
-        Self.dateFormatter.string(from: estimatedCompletionDate)
+        estimatedCompletionDate.formatted(.dateTime.month(.abbreviated).day().hour().minute())
+    }
+
+    private func formattedSpeed(_ speed: Double) -> String {
+        speed.formatted(.number.precision(.fractionLength(1)))
     }
 }

@@ -21,6 +21,8 @@ enum ThemeColor: String, CaseIterable, Identifiable {
 
     var id: String { self.rawValue }
 
+    var settingsSummaryTitle: String { rawValue }
+
     /// Returns the static colour for this theme, or `nil` for `.system`
     /// (use OS default) and `.artwork` (use dynamic colour from cover).
     var color: Color? {

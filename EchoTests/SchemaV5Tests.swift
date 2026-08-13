@@ -5,11 +5,11 @@ import GRDB
 @testable import Echo
 
 @MainActor
-struct SchemaV5Tests {
+struct ReaderSchemaBaselineTests {
 
-    // MARK: - Schema_V5 table creation
+    // MARK: - Reader baseline schema
 
-    @Test func v5MigrationCreatesEPubBlockTable() throws {
+    @Test func baselineCreatesEPubBlockTable() throws {
         let db = try DatabaseService(inMemory: ())
 
         let tables = try db.read { db in
@@ -20,7 +20,7 @@ struct SchemaV5Tests {
         #expect(tables.count == 1)
     }
 
-    @Test func v5MigrationCreatesAlignmentAnchorTable() throws {
+    @Test func baselineCreatesAlignmentAnchorTable() throws {
         let db = try DatabaseService(inMemory: ())
 
         let tables = try db.read { db in
@@ -31,7 +31,7 @@ struct SchemaV5Tests {
         #expect(tables.count == 1)
     }
 
-    @Test func v5MigrationAddsTimelineAlignmentColumns() throws {
+    @Test func baselineIncludesTimelineAlignmentColumns() throws {
         let db = try DatabaseService(inMemory: ())
 
         let columnNames = try db.read { db in
@@ -45,7 +45,7 @@ struct SchemaV5Tests {
         #expect(nameSet.contains("alignment_confidence"))
     }
 
-    @Test func v5EPubBlockIndexesExist() throws {
+    @Test func epubBlockIndexesExist() throws {
         let db = try DatabaseService(inMemory: ())
 
         let indexes = try db.read { db in
@@ -58,7 +58,7 @@ struct SchemaV5Tests {
         #expect(indexes.contains("idx_epub_block_hidden"))
     }
 
-    @Test func v5AlignmentAnchorIndexesExist() throws {
+    @Test func alignmentAnchorIndexesExist() throws {
         let db = try DatabaseService(inMemory: ())
 
         let indexes = try db.read { db in

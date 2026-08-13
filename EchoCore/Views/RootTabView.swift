@@ -1,14 +1,127 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
+
+/// A wrapper to make UUID Identifiable for use with `.sheet(item:)`.
+struct IdentifiableUUID: Identifiable, Hashable {
+    let id: UUID
+}
+
+struct CompanionDocumentImportRequest: Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
+        case epub
+        case pdf
+
+        var loadingMessage: String {
+            switch self {
+            case .epub: "Importing EPUB..."
+            case .pdf: "Importing PDF..."
+            }
+        }
+    }
+
+    let id: UUID
+    let url: URL
+    let kind: Kind
+
+    init(result: Result<[URL], Error>) throws {
+        let urls = try result.get()
+        guard let url = urls.first else {
+            throw CompanionDocumentImportSelectionError.noSelection
+        }
+        try self.init(url: url)
+    }
+
+    init(url: URL) throws {
+        let pathExtension = url.pathExtension.lowercased()
+        switch pathExtension {
+        case "epub":
+            self.id = UUID()
+            self.url = url
+            self.kind = .epub
+        case "pdf":
+            self.id = UUID()
+            self.url = url
+            self.kind = .pdf
+        default:
+            throw CompanionDocumentImportSelectionError.unsupportedFileType(url)
+        }
+    }
+}
+
+enum CompanionDocumentImportSelectionError: LocalizedError, Equatable {
+    case noSelection
+    case unsupportedFileType(URL)
+
+    nonisolated var errorDescription: String? {
+        switch self {
+        case .noSelection:
+            return "No document was selected."
+        case .unsupportedFileType(let url):
+            return "Choose an EPUB or PDF document. \(url.lastPathComponent) is not supported."
+        }
+    }
+}
+
+private enum DocumentImportPhase {
+    case idle
+    case importing(id: UUID, kind: CompanionDocumentImportRequest.Kind)
+    case failed(DocumentImportFailure)
+
+    var loadingMessage: String? {
+        guard case .importing(_, let kind) = self else { return nil }
+        return kind.loadingMessage
+    }
+
+    var failureMessage: String? {
+        guard case .failed(let failure) = self else { return nil }
+        return failure.message
+    }
+
+    var activeRequestID: UUID? {
+        guard case .importing(let id, _) = self else { return nil }
+        return id
+    }
+}
+
+private struct DocumentImportFailure {
+    let message: String
+
+    init(error: Error) {
+        self.message = error.localizedDescription
+    }
+}
+
+private struct DocumentImportProgressOverlay: View {
+    let message: String
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.18)
+                .ignoresSafeArea()
+
+            ProgressView {
+                Text(message)
+            }
+            .padding()
+            .background(.regularMaterial)
+            .clipShape(.rect(cornerRadius: 8))
+            .accessibilityElement(children: .combine)
+        }
+    }
+}
 
 struct RootTabView: View {
     @Binding var pendingDeepLink: PlayerDeepLink?
     @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
     @Environment(StoreManager.self) private var storeManager
+    @Environment(AutoExportService.self) private var autoExport
     @Environment(\.displayScale) private var displayScale
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var showingFolderPicker = false
     @State private var showingSettings = false
@@ -26,17 +139,32 @@ struct RootTabView: View {
     /// Unified ".m4b export" sheet, presented from the global More menu. The
     /// resolver auto-detects narrated-vs-imported, so one action covers both.
     @State private var showingExport = false
-    @State private var showingReview = false
-    @State private var reviewViewModel: DailyReviewViewModel?
+    @State private var showingVideoExport = false
+    @State private var showingStudyNotesExport = false
     @State private var editingIdentifiableUUID: IdentifiableUUID?
+    @State private var documentImportPhase: DocumentImportPhase = .idle
+    @State private var documentImportTask: Task<Void, Never>?
+    @State private var readerFollowState = ReaderFollowState.following
+    @State private var readerReturnRequest = 0
+    @State private var readerReturnStatus: String?
+    @State private var readerReturnRequestTracker = ReaderReturnRequestTracker()
+    @State private var readerViewportState = ReaderViewportState()
+    @State private var dockStatusFeedback: DockStatusFeedback?
+    @State private var dockStatusFeedbackTask: Task<Void, Never>?
+    @State private var readerOverlayContentHeight: CGFloat = 0
+
+    #if os(iOS)
+        @State private var transcribeCoordinator: TranscribeBookCoordinator?
+        @State private var showingTranscribeProgress = false
+    #endif
 
     @State private var nowPlayingPath = NavigationPath()
     @State private var readPath = NavigationPath()
-    @State private var timelinePath = NavigationPath()
+    @State private var libraryPath = NavigationPath()
 
     @SceneStorage("nowPlayingPathData") private var nowPlayingPathData: Data?
     @SceneStorage("readPathData") private var readPathData: Data?
-    @SceneStorage("timelinePathData") private var timelinePathData: Data?
+    @SceneStorage("libraryPathData") private var libraryPathData: Data?
 
     init(pendingDeepLink: Binding<PlayerDeepLink?> = .constant(nil)) {
         _pendingDeepLink = pendingDeepLink
@@ -45,13 +173,10 @@ struct RootTabView: View {
     var body: some View {
         @Bindable var model = model
         ZStack(alignment: .top) {
-            // Saturated dynamic background ONLY on the player tab
-            if model.selectedTab == .nowPlaying {
-                AdaptiveBackground()
-            } else {
-                Color(uiColor: .systemBackground)
-                    .ignoresSafeArea()
-            }
+            // NOTE: no background layer here. Each tab's NavigationStack paints
+            // an opaque systemBackground of its own, so anything placed behind
+            // the stacks in this ZStack can never show through. The player's
+            // cover-derived wash renders inside NowPlayingTab (AdaptiveBackground).
 
             // Per-tab NavigationStacks for independent navigation state.
             Group {
@@ -63,8 +188,7 @@ struct RootTabView: View {
                             openFolder: { showingFolderPicker = true },
                             showHelp: { model.showingHelp = true },
                             showBookSettings: { showingBookSettings = true },
-                            showSettings: { showingSettings = true },
-                            onCreateBookmark: { draft in newBookmarkDraft = draft }
+                            onConnectServer: { showingSettings = true }
                         )
                         .toolbarVisibility(.hidden, for: .navigationBar)
                         .navigationDestination(for: NavigationDestination.self) { dest in
@@ -74,20 +198,81 @@ struct RootTabView: View {
                 case .read:
                     NavigationStack(path: $readPath) {
                         Group {
-                            if model.hasEPUB {
-                                ReaderTab(folderURL: model.folderURL!)
-                            } else if model.hasPDF {
-                                PDFDocumentView(folderURL: model.folderURL!)
-                            } else if model.hasStandaloneTranscript,
+                            // A *parsed* PDF (has a .pdf file AND visible blocks,
+                            // so hasEPUB is true) can show either the visual page
+                            // or the reflow feed — render the user-selected one.
+                            // `hasEPUB` here means "has parsed reflowable blocks".
+                            if ReaderSurfaceResolver.offersToggle(
+                                hasPDF: model.hasPDF, hasReflowableBlocks: model.hasEPUB),
                                 let folder = model.folderURL,
+                                let bookURL = model.bookIdentityURL
+                            {
+                                PDFReadingSurface(
+                                    folderURL: folder,
+                                    bookURL: bookURL,
+                                    followState: $readerFollowState,
+                                    viewportAnchor: readerViewportState.anchor,
+                                    viewportPublicationContext:
+                                        readerViewportState.publicationContext,
+                                    onViewportAnchorCaptured: publishReaderViewport,
+                                    rootOverlayClearance: readerOverlayClearance,
+                                    returnRequest: readerReturnRequest,
+                                    hasPendingReturnRequest: readerReturnRequestTracker.hasPending(
+                                        readerReturnRequest
+                                    ),
+                                    claimReturnRequest: claimReaderReturnRequest,
+                                    onReturnTargetResolved: resolveReaderReturn
+                                )
+                            } else if model.hasEPUB,
+                                let folder = model.folderURL,
+                                let bookURL = model.bookIdentityURL
+                            {
+                                ReaderTab(
+                                    folderURL: folder,
+                                    bookURL: bookURL,
+                                    followState: $readerFollowState,
+                                    viewportAnchor: readerViewportState.anchor,
+                                    viewportPublicationContext:
+                                        readerViewportState.publicationContext,
+                                    onViewportAnchorCaptured: publishReaderViewport,
+                                    rootOverlayClearance: readerOverlayClearance,
+                                    returnRequest: readerReturnRequest,
+                                    claimReturnRequest: claimReaderReturnRequest,
+                                    onReturnTargetResolved: resolveReaderReturn
+                                )
+                            } else if model.hasPDF,
+                                let folder = model.folderURL,
+                                let bookURL = model.bookIdentityURL
+                            {
+                                PDFDocumentView(folderURL: folder, bookURL: bookURL)
+                            } else if model.hasStandaloneTranscript,
+                                let audiobookID = model.bookIdentityURL?.absoluteString,
                                 let db = model.databaseService
                             {
                                 StandaloneTranscriptView(
-                                    audiobookID: folder.absoluteString,
+                                    audiobookID: audiobookID,
                                     db: db.writer
                                 )
                             } else {
-                                ReaderEmptyState()
+                                VStack {
+                                    ReaderEmptyState(
+                                        hasLoadedBook: model.folderURL != nil,
+                                        canAddEPUB: !model.narrationPlaybackState.isRunning,
+                                        onImportBook: { showingFolderPicker = true },
+                                        onAddEPUB: { model.showingDocumentImporter = true }
+                                    )
+                                    #if os(iOS)
+                                        if model.folderURL != nil,
+                                            model.tracks.indices.contains(model.currentIndex)
+                                        {
+                                            Button(String(localized: "Transcribe Audiobook")) {
+                                                startTranscription(model: model)
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .padding(.top, 4)
+                                        }
+                                    #endif
+                                }
                             }
                         }
                         .toolbarVisibility(.hidden, for: .navigationBar)
@@ -95,51 +280,161 @@ struct RootTabView: View {
                             dest.view(using: model)
                         }
                     }
-                case .timeline:
-                    NavigationStack(path: $timelinePath) {
-                        TimelineTab(
-                            onReviewTap: { launchReview() },
-                            onEditBookmark: { id in editingBookmarkID = id },
-                            onCreateBookmark: { draft in newBookmarkDraft = draft }
-                        )
+                case .library:
+                    NavigationStack(path: $libraryPath) {
+                        Group {
+                            if let db = model.databaseService {
+                                LibraryView(
+                                    db: db,
+                                    openBook: { model.openLibraryBook($0) },
+                                    onAddFolder: { showingFolderPicker = true },
+                                    onConnectServer: { showingSettings = true }
+                                )
+                                .navigationDestination(for: NavigationDestination.self) { dest in
+                                    dest.view(using: model)
+                                }
+                            } else {
+                                ProgressView()
+                            }
+                        }
                         .toolbarVisibility(.hidden, for: .navigationBar)
-                        .navigationDestination(for: NavigationDestination.self) { dest in
-                            dest.view(using: model)
+                        // The outer reservation below sits outside the
+                        // UIKit-backed NavigationStack and never reaches its
+                        // content, so the Library mode picker rendered under
+                        // the floating header chips. Reserve the row inside
+                        // the stack, on its root content, where safe-area
+                        // insets actually apply.
+                        .safeAreaInset(edge: .top, spacing: 0) {
+                            Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
                         }
                     }
                 }
             }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            // Unified Top Header System (Row 1: global navigation), overlaid
-            // at the top of the Z-stack on top of the content behind it.
-            UnifiedTopHeader(
-                onFolderTap: { showingFolderPicker = true },
-                onSettingsTap: { showingSettings = true },
-                onBookSettingsTap: { showingBookSettings = true },
-                onHelpTap: { model.showingHelp = true },
-                onStatsTap: { showingStats = true },
-                onFidgetTap: { showingFidget = true },
-                onExportTap: (model.folderURL != nil && !model.narrationPlaybackState.isRunning)
-                    ? { showingExport = true } : nil
-            )
+            // Root-owned global navigation, visible across primary stacks and
+            // their pushed destinations without appearing in modal sheets.
+            UnifiedTopHeader(onFolderTap: { showingFolderPicker = true })
 
-            // UnifiedBottomDock is only overlaid on non-NowPlaying views.
-            // In NowPlayingTab, it is placed at the bottom of the VStack.
-            if model.selectedTab != .nowPlaying && !model.isPlayingVoiceMemo {
+            // The bottom deck is root-owned so Now Playing and Reader share the
+            // exact same bottom edge during tab transitions.
+            if !model.isPlayingVoiceMemo && !usesExperimentalPlayerChrome {
                 VStack {
                     Spacer()
                     UnifiedBottomDock(
                         onCreateBookmark: { draft in newBookmarkDraft = draft },
+                        onMarkPassageResult: showDockStatus(for:),
                         onShowPlaybackOptions: { showingPlaybackOptions = true },
-                        // WS-C C2: the player-More closures are required on the dock.
-                        // Full wiring on this non-NowPlaying overlay (chapter sheet
-                        // binding) is task C3; Bookmarks/Settings reuse existing state.
                         onShowChapters: { showingChapterPicker = true },
-                        onShowBookmarks: { model.selectedTab = .timeline },
-                        onShowSettings: { showingSettings = true }
+                        onShowBookmarks: { model.selectedTab = .read },
+                        onStats: { showingStats = true },
+                        onFidget: { showingFidget = true },
+                        onSettings: { showingSettings = true },
+                        onHelp: { model.showingHelp = true },
+                        onAddDocument: (model.folderURL != nil
+                            && !model.narrationPlaybackState.isRunning)
+                            ? { model.showingDocumentImporter = true } : nil,
+                        onExport: (model.folderURL != nil
+                            && !model.narrationPlaybackState.isRunning)
+                            ? { showingExport = true } : nil,
+                        onVideoExport: (model.folderURL != nil
+                            && !model.narrationPlaybackState.isRunning)
+                            ? { showingVideoExport = true } : nil,
+                        onStudyNotesExport: (model.folderURL != nil
+                            && !model.narrationPlaybackState.isRunning)
+                            ? { showingStudyNotesExport = true } : nil
                     )
+                    .environment(\.showPlaybackOptions, { showingPlaybackOptions = true })
                 }
+                .ignoresSafeArea(.container, edges: .bottom)
+            }
+
+            VStack {
+                Spacer()
+                VStack(spacing: 8) {
+                    if let dockStatusFeedback {
+                        DockStatusFeedbackCapsule(feedback: dockStatusFeedback)
+                            .transition(
+                                reduceMotion
+                                    ? .identity
+                                    : .move(edge: .bottom).combined(with: .opacity)
+                            )
+                    }
+                    if model.selectedTab == .read && readerFollowState == .exploring {
+                        readerReturnButton
+                    }
+                }
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.height
+                } action: { newHeight in
+                    readerOverlayContentHeight = newHeight
+                }
+                .padding(.bottom, model.bottomInset + 12)
+                .animation(
+                    reduceMotion ? nil : .easeInOut(duration: 0.2),
+                    value: dockStatusFeedback
+                )
+            }
+
+            if usesExperimentalPlayerChrome && !model.isPlayingVoiceMemo {
+                ExperimentalControlLayer(
+                    onShowChapters: { showingChapterPicker = true },
+                    onShowBookmarks: { model.selectedTab = .read },
+                    onShowPlaybackOptions: { showingPlaybackOptions = true },
+                    onStats: { showingStats = true },
+                    onFidget: { showingFidget = true },
+                    onSettings: { showingSettings = true },
+                    onHelp: { model.showingHelp = true },
+                    onAddDocument: (model.folderURL != nil
+                        && !model.narrationPlaybackState.isRunning)
+                        ? { model.showingDocumentImporter = true } : nil,
+                    onExport: (model.folderURL != nil
+                        && !model.narrationPlaybackState.isRunning)
+                        ? { showingExport = true } : nil,
+                    onStudyNotesExport: (model.folderURL != nil
+                        && !model.narrationPlaybackState.isRunning)
+                        ? { showingStudyNotesExport = true } : nil
+                )
+            }
+        }
+        .overlay(alignment: .bottom) {
+            checkpointOverlay
+        }
+        .alert(
+            model.pendingRetirePrompt?.coveringCardCount == 1
+                ? "Retire this chapter's re-listen card?"
+                : "Retire this chapter's re-listen card?",
+            isPresented: Binding(
+                get: { model.pendingRetirePrompt != nil },
+                set: { if !$0 { model.pendingRetirePrompt = nil } }
+            ),
+            presenting: model.pendingRetirePrompt
+        ) { prompt in
+            Button("Retire", role: .destructive) {
+                if let db = model.databaseService {
+                    try? StudyChapterRetireService(db: db.writer).retire(
+                        assignmentCardID: prompt.assignmentCardID,
+                        assignmentItemID: prompt.assignmentItemID
+                    )
+                    NotificationCenter.default.post(name: .studyQueueDidChange, object: nil)
+                }
+                model.pendingRetirePrompt = nil
+            }
+            Button("Keep Both", role: .cancel) {
+                model.pendingRetirePrompt = nil
+            }
+        } message: { prompt in
+            if prompt.coveringCardCount == 1 {
+                Text(
+                    "You now have your own flashcards in \"\(prompt.chapterTitle)\". Review with your cards instead? You can re-enable the re-listen card any time from the study plan."
+                )
+            } else {
+                Text(
+                    "\(prompt.coveringCardCount) cards now cover \"\(prompt.chapterTitle)\". Review with those instead? You can re-enable the re-listen card any time from the study plan."
+                )
             }
         }
         // NOTE: the player/background layers ignore the safe area themselves
@@ -153,6 +448,7 @@ struct RootTabView: View {
                 showingFolderPicker = false
                 // A picked folder, audio file, or lone study EPUB all flow
                 // through the same loader; an EPUB opens as an audio-less book.
+                Task { await model.registerLibraryRoot(url: url) }
                 model.loadFolder(url)
             }
         }
@@ -191,11 +487,6 @@ struct RootTabView: View {
         .sheet(item: $model.activeBookmarkDraft) { draft in
             EditBookmarkView(bookmarkID: nil, draft: draft)
         }
-        .sheet(isPresented: $showingReview) {
-            if let vm = reviewViewModel {
-                FlashcardReviewSession(viewModel: vm)
-            }
-        }
         .sheet(isPresented: $showingFidget) {
             FidgetOverlayView(
                 audiobookID: model.folderURL?.lastPathComponent ?? "unknown",
@@ -215,7 +506,8 @@ struct RootTabView: View {
             }
         }
         .sheet(isPresented: $showingExport) {
-            if let id = model.folderURL?.absoluteString, let writer = model.databaseService?.writer
+            if let id = model.bookIdentityURL?.absoluteString,
+                let writer = model.databaseService?.writer
             {
                 ExportProgressView(
                     audiobookID: id,
@@ -224,13 +516,104 @@ struct RootTabView: View {
                     databaseWriter: writer)
             }
         }
+        .sheet(isPresented: $showingVideoExport) {
+            if let id = model.folderURL?.absoluteString,
+                let writer = model.databaseService?.writer
+            {
+                VideoExportProgressView(
+                    audiobookID: id,
+                    bookTitle: model.currentTitle,
+                    cacheDirectory: PlayerModel.narrationCacheDirectory(),
+                    databaseWriter: writer)
+            }
+        }
+        .sheet(isPresented: $showingStudyNotesExport) {
+            if let folderURL = model.folderURL,
+                let audiobookID = model.bookIdentityURL?.absoluteString,
+                let writer = model.databaseService?.writer
+            {
+                StudyNotesExportView(
+                    audiobookID: audiobookID,
+                    bookTitle: model.currentTitle,
+                    sourceFolderURL: folderURL,
+                    databaseWriter: writer,
+                    chapters: model.chapters
+                )
+            }
+        }
+        #if os(iOS)
+            .sheet(isPresented: $showingTranscribeProgress) {
+                if let coordinator = transcribeCoordinator {
+                    TranscribeProgressView(
+                        progress: coordinator.service.progress,
+                        isFinalizing: coordinator.isFinalizing,
+                        onCancel: { coordinator.service.cancel() }
+                    )
+                }
+            }
+        #endif
         .sheet(isPresented: $model.showPaywall) {
             PaywallView(context: model.paywallContext)
         }
+        .fullScreenCover(
+            item: Binding(
+                get: { model.fullscreenImage },
+                set: { model.fullscreenImage = $0 })
+        ) { item in
+            FullscreenImageViewer(image: item.image)
+        }
+        .alert(
+            "Folder Access Not Saved",
+            isPresented: $model.showingBookmarkPersistenceWarning
+        ) {
+            Button("OK", role: .cancel) {}
+            Button("Choose Folder") { showingFolderPicker = true }
+        } message: {
+            Text(
+                "Echo could not save permanent access to this folder. You can keep using it now, but you may need to choose it again after relaunch."
+            )
+        }
+        .alert(
+            "Can’t Find This Book’s Files",
+            isPresented: $model.showingMissingBookWarning
+        ) {
+            Button("OK", role: .cancel) {}
+            Button("Choose Book") { showingFolderPicker = true }
+        } message: {
+            Text(
+                "The files for your last book may have moved or been deleted. Choose the book again to keep listening."
+            )
+        }
+        .fileImporter(
+            isPresented: $model.showingDocumentImporter,
+            allowedContentTypes: companionDocumentTypes,
+            allowsMultipleSelection: false
+        ) { result in
+            beginDocumentImport(with: result)
+        }
+        .overlay {
+            if let message = documentImportPhase.loadingMessage {
+                DocumentImportProgressOverlay(message: message)
+            }
+        }
+        .alert(
+            "Couldn’t Import Document",
+            isPresented: documentImportErrorPresented
+        ) {
+            Button("OK", role: .cancel) {
+                documentImportPhase = .idle
+            }
+        } message: {
+            Text(documentImportPhase.failureMessage ?? "Import failed.")
+        }
         .onAppear {
+            ReviewPromptManager.shared.recordSessionStart()
             model.setSettingsManager(settings)
             model.setDisplayScale(displayScale)
             model.restoreLastSelectionIfPossible()
+            model.selectedTab = LibraryViewModel.smartLandingTab(
+                hasCurrentBook: model.folderURL != nil)
+            readerViewportState.prepare(for: model.bookIdentityURL)
             applyPendingDeepLinkIfNeeded()
 
             // Restore navigation paths from SceneStorage
@@ -248,12 +631,12 @@ struct RootTabView: View {
             {
                 readPath = NavigationPath(representation)
             }
-            if let data = timelinePathData,
+            if let data = libraryPathData,
                 let representation = try? JSONDecoder().decode(
                     NavigationPath.CodableRepresentation.self, from: data
                 )
             {
-                timelinePath = NavigationPath(representation)
+                libraryPath = NavigationPath(representation)
             }
         }
         .onChange(of: pendingDeepLink) { _, _ in
@@ -263,8 +646,22 @@ struct RootTabView: View {
             guard let destination else { return }
             pushNavigationDestination(destination)
         }
+        .onChange(of: model.bookIdentityURL) { oldValue, newValue in
+            guard oldValue != newValue else { return }
+            readerFollowState = .following
+            readerReturnStatus = nil
+            readerViewportState.prepare(for: newValue)
+        }
         .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .background || newPhase == .inactive {
+            if newPhase == .active {
+                ReviewPromptManager.shared.recordSessionStart()
+                // Widget/Siri "Create Bookmark" can only stage into the App Group;
+                // pull those into the real per-book store now that we're foreground.
+                model.drainPendingWidgetBookmarks()
+                Task { await autoExport.retryPendingIfAny() }
+            } else if newPhase == .background || newPhase == .inactive {
+                Task { await autoExport.flushNow() }
+
                 // Persist navigation paths
                 if let codable = nowPlayingPath.codable,
                     let data = try? JSONEncoder().encode(codable)
@@ -276,10 +673,10 @@ struct RootTabView: View {
                 {
                     readPathData = data
                 }
-                if let codable = timelinePath.codable,
+                if let codable = libraryPath.codable,
                     let data = try? JSONEncoder().encode(codable)
                 {
-                    timelinePathData = data
+                    libraryPathData = data
                 }
                 model.persistCurrentState()
             }
@@ -303,20 +700,161 @@ struct RootTabView: View {
         switch appearance {
         case "Light": return .light
         case "Dark": return .dark
+        case "Cover": return model.coverPreferredScheme
         default: return nil
         }
     }
 
-    private func launchReview() {
-        guard let db = model.databaseService else { return }
-        let vm = DailyReviewViewModel(
-            db: db.writer, folderURL: model.folderURL, snippetPlayer: model.snippetPlayer)
-        vm.onRequestSnippetPlay = { [weak model] url, start, end in
-            model?.snippetPlayer.play(url: url, startTime: start, endTime: end)
+    private var companionDocumentTypes: [UTType] {
+        [UTType(filenameExtension: "epub") ?? .data, .pdf]
+    }
+
+    /// The experimental Now Playing layout draws its own floating controls, so the
+    /// shared bottom deck must stand down while that tab is frontmost. Reader and
+    /// Library keep the dock untouched.
+    private var usesExperimentalPlayerChrome: Bool {
+        settings.experimentalNowPlayingLayout
+            && model.selectedTab == .nowPlaying
+            && model.folderURL != nil
+    }
+
+    /// Reader already reserves the root dock. This is only the measured stack
+    /// that floats above it (plus its fixed gap), so Dynamic Type cannot cover
+    /// the last lines or distort magnetic centering.
+    private var readerOverlayClearance: CGFloat {
+        guard model.selectedTab == .read, readerOverlayContentHeight > 0 else { return 0 }
+        return readerOverlayContentHeight + 12
+    }
+
+    private func resolveReaderReturn(targetResolved: Bool) {
+        let resolved = readerFollowState.completeReturn(targetResolved: targetResolved)
+        readerReturnStatus = resolved ? nil : String(localized: "Finding current text…")
+    }
+
+    private var readerReturnButton: some View {
+        Button {
+            readerReturnStatus = nil
+            readerReturnRequest &+= 1
+        } label: {
+            Label(
+                readerReturnStatus ?? String(localized: "Return to current text"),
+                systemImage: "scope"
+            )
+            .font(.headline)
+            .padding(.horizontal, 18)
+            .frame(minHeight: 44)
+            .background(.regularMaterial, in: Capsule())
         }
-        vm.loadDueCards()
-        reviewViewModel = vm
-        showingReview = true
+        .buttonStyle(.plain)
+        .accessibilityHint(
+            Text("Returns to the spoken text and resumes following playback")
+        )
+    }
+
+    private func showDockStatus(for result: MarkPassageResult) {
+        let feedback = DockStatusFeedback(result: result)
+        dockStatusFeedbackTask?.cancel()
+        dockStatusFeedback = feedback
+        UIAccessibility.post(notification: .announcement, argument: feedback.message)
+        dockStatusFeedbackTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .seconds(1.5))
+            } catch {
+                return
+            }
+            dockStatusFeedback = nil
+        }
+    }
+
+    private func claimReaderReturnRequest(_ request: Int) -> Bool {
+        readerReturnRequestTracker.claim(request)
+    }
+
+    private func publishReaderViewport(_ publication: ReaderViewportPublication) {
+        readerViewportState.apply(publication)
+    }
+
+    private var documentImportErrorPresented: Binding<Bool> {
+        Binding(
+            get: {
+                if case .failed = documentImportPhase { return true }
+                return false
+            },
+            set: { isPresented in
+                if !isPresented, case .failed = documentImportPhase {
+                    documentImportPhase = .idle
+                }
+            }
+        )
+    }
+
+    /// The end-of-chapter grade window (design 3.3). Bottom-anchored so the
+    /// player chrome stays visible behind it; renders nothing while idle.
+    @ViewBuilder
+    private var checkpointOverlay: some View {
+        if let coordinator = model.checkpointCoordinator,
+            coordinator.state != .idle
+        {
+            StudyCheckpointPanelView(coordinator: coordinator)
+                .padding(.bottom, 96)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
+    private func beginDocumentImport(with result: Result<[URL], Error>) {
+        guard documentImportPhase.activeRequestID == nil else { return }
+
+        do {
+            let request = try CompanionDocumentImportRequest(result: result)
+            documentImportPhase = .importing(id: request.id, kind: request.kind)
+            documentImportTask = Task {
+                await importCompanionDocument(request)
+            }
+        } catch {
+            handleDocumentImportError(error, requestID: nil)
+        }
+    }
+
+    private func importCompanionDocument(_ request: CompanionDocumentImportRequest) async {
+        do {
+            let url = request.url
+            switch request.kind {
+            case .pdf:
+                try await model.importPDFDocument(from: url)
+            case .epub:
+                try await model.importEPUBDocument(from: url)
+            }
+            guard isActiveDocumentImport(request.id), !Task.isCancelled else { return }
+            documentImportPhase = .idle
+            documentImportTask = nil
+        } catch {
+            handleDocumentImportError(error, requestID: request.id)
+        }
+    }
+
+    private func handleDocumentImportError(_ error: Error, requestID: UUID?) {
+        if let requestID, !isActiveDocumentImport(requestID) {
+            return
+        }
+
+        if isDocumentImportCancellation(error) {
+            documentImportPhase = .idle
+        } else {
+            documentImportPhase = .failed(DocumentImportFailure(error: error))
+        }
+        documentImportTask = nil
+    }
+
+    private func isActiveDocumentImport(_ requestID: UUID) -> Bool {
+        documentImportPhase.activeRequestID == requestID
+    }
+
+    private func isDocumentImportCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+
+        let nsError = error as NSError
+        return nsError.domain == NSCocoaErrorDomain
+            && nsError.code == CocoaError.Code.userCancelled.rawValue
     }
 
     private func applyPendingDeepLinkIfNeeded() {
@@ -342,4 +880,25 @@ struct RootTabView: View {
             readPath.append(destination)
         }
     }
+
+    #if os(iOS)
+        /// Starts on-device transcription for the current audio-only book.
+        private func startTranscription(model: PlayerModel) {
+            guard let db = model.databaseService,
+                let audiobookID = model.bookIdentityURL?.absoluteString,
+                model.tracks.indices.contains(model.currentIndex)
+            else { return }
+            let coordinator = TranscribeBookCoordinator(db: db.writer)
+            transcribeCoordinator = coordinator
+            showingTranscribeProgress = true
+            Task { @MainActor in
+                await coordinator.transcribe(
+                    audiobookID: audiobookID,
+                    audioFileURL: model.tracks[model.currentIndex].url,
+                    chapters: model.alignmentPickerChapters,
+                    resume: true)
+                model.bumpDocumentIngestionTrigger()
+            }
+        }
+    #endif
 }

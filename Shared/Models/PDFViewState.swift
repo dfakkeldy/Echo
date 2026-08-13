@@ -1,17 +1,25 @@
+import CoreGraphics
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
-import CoreGraphics
 
 /// Stores the state of the PDF view for saving into bookmarks and Anki cards.
-struct PDFViewState: Equatable, Hashable, Sendable {
+// `nonisolated`: a pure `Sendable` value type. Under the iOS target's Swift 6
+// MainActor default isolation its synthesized `Equatable`/`Hashable` conformances
+// would otherwise be main-actor-isolated, which a `nonisolated` container (e.g.
+// the now-`nonisolated` `Bookmark`) cannot use. The `Codable` members are already
+// individually `nonisolated`; this covers the synthesized conformances too.
+nonisolated struct PDFViewState: Equatable, Hashable, Sendable {
     var pageIndex: Int
     var zoomScale: Double
     var offsetX: Double
     var offsetY: Double
 }
 
-extension PDFViewState: Codable {
-    nonisolated init(from decoder: Decoder) throws {
+// `nonisolated extension`: makes the `Codable` *conformance* itself non-isolated
+// (not just the two methods), so GRDB's nonisolated JSON encode/decode path
+// (`BookmarkRecord`) can use it under Swift 6 MainActor default isolation.
+nonisolated extension PDFViewState: Codable {
+    init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         pageIndex = try container.decode(Int.self, forKey: .pageIndex)
         zoomScale = try container.decode(Double.self, forKey: .zoomScale)

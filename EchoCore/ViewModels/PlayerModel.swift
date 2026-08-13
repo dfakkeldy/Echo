@@ -15,10 +15,23 @@ import os.log
 /// metadata. Serves as the single source of truth for the player UI.
 @Observable @MainActor
 final class PlayerModel {
+    static let nowPlayingBottomInset: CGFloat = 230
+    static let compactPlaybackBottomInset: CGFloat = 150
+    static let utilityOnlyBottomInset: CGFloat = 90
+
     // MARK: - Services
 
     let playbackController = PlaybackController()
     let watchSyncManager = WatchSyncManager()
+    #if os(iOS)
+        @ObservationIgnored var watchStateSequenceGenerator = WatchStateSequenceGenerator()
+        @ObservationIgnored var lastWatchArtworkVersion: Int?
+        @ObservationIgnored var watchArtworkSequence: Double = 0
+    #endif
+    /// Mirrors the playback snapshot into the shared App Group so the iOS
+    /// home-screen widget + Control Center toggle reflect real play/pause state.
+    /// The watch syncs over WatchConnectivity; the widgets had no such writer.
+    @ObservationIgnored let widgetStatePublisher = WidgetStatePublisher()
     @ObservationIgnored private lazy var watchCommandRouter = WatchCommandRouter(
         facade: WatchConnectivityCoordinator(playerModel: self)
     )
@@ -27,10 +40,9 @@ final class PlayerModel {
     /// Voice memo recorder used for CarPlay voice-memo capture. Owned by
     /// PlayerModel so recordings can start even when no bookmark-editing view
     /// is presented (e.g. fired from a CarPlay notification).
-    /// Guarded by `canImport(UIKit)` because `VoiceMemoRecorder` is defined
-    /// inside that same conditional in Bookmarks.swift.
+    /// Guarded by `canImport(UIKit)` because `VoiceMemoRecorder` is iOS-only.
     #if canImport(UIKit)
-        @ObservationIgnored private(set) var carPlayVoiceMemoRecorder = VoiceMemoRecorder()
+        @ObservationIgnored private(set) var carPlayVoiceMemoRecorder: VoiceMemoRecorder?
     #endif
 
     /// Observer tokens for CarPlay notifications. Retained so they can be
@@ -47,6 +59,7 @@ final class PlayerModel {
 
     var audioEngine: AudioEngine { playbackController.audioEngine }
     @ObservationIgnored weak var settingsManager: SettingsManager?
+    @ObservationIgnored var freeTierGate: FreeTierGate?
     let bookSettingsOverrideStore = BookSettingsOverrideStore()
 
     /// Convenience accessor for the shared playback state owned by PlaybackController.
@@ -70,6 +83,8 @@ final class PlayerModel {
     @ObservationIgnored var absSyncRemoteItemID: String? = nil
     /// Epoch-seconds timestamp of the last successful ABS progress push.
     @ObservationIgnored var absLastPushAt: TimeInterval? = nil
+    /// User-visible warning when local ABS disconnect succeeds but server-side revoke fails.
+    var absRemoteSignOutWarning: String?
 
     // MARK: - UI state (local to PlayerModel)
 
@@ -93,26 +108,36 @@ final class PlayerModel {
     var epubSearchText: String = ""
     var showReaderSettings: Bool = false
     var showReaderTOC: Bool = false
-    var epubScrollToActiveTrigger: Int = 0
+    var readerCaptureAnchorBlockID: String?
+    var isReaderVoiceMemoRecording: Bool = false
+    @ObservationIgnored var readerAddNoteAction: (@MainActor () -> Void)?
+    @ObservationIgnored var readerToggleVoiceMemoAction: (@MainActor () -> Void)?
 
     var showChapters: Bool = true
     var showBookmarks: Bool = true
     var isPlaylistEditing: Bool = false
     var showingDocumentImporter: Bool = false
+    var showingBookmarkPersistenceWarning: Bool = false
+    /// Set when a previously-open book can't be restored because its files were
+    /// moved or deleted. Drives the "Can't Find This Book's Files" recovery alert.
+    var showingMissingBookWarning: Bool = false
     var showingABSBrowse: Bool = false
+
+    #if canImport(UIKit)
+        /// Image presented edge-to-edge by RootTabView's fullScreenCover.
+        var fullscreenImage: FullscreenImageItem? = nil
+    #endif
 
     /// The dynamic bottom clearance required for scrollable views to not be covered by the custom dock.
     var bottomInset: CGFloat {
-        if folderURL != nil && !tracks.isEmpty {
-            return 170.0
-        } else {
-            return 90.0
+        if selectedTab == .nowPlaying && folderURL != nil && hasPlaybackContent {
+            return Self.nowPlayingBottomInset
         }
-    }
-
-    /// Backward-compatible accessor — reads `true` when the Timeline tab is active.
-    var showingTimeline: Bool {
-        selectedTab == .timeline
+        if folderURL != nil && hasPlaybackContent {
+            return Self.compactPlaybackBottomInset
+        } else {
+            return Self.utilityOnlyBottomInset
+        }
     }
 
     /// When true, the timeline feed is frozen so the user can browse the EPUB
@@ -124,9 +149,19 @@ final class PlayerModel {
 
     /// The current state of the PDF view, updated as the user scrolls or zooms.
     @ObservationIgnored var currentPDFViewState: PDFViewState? = nil
+    @ObservationIgnored private var pdfViewStatesByAudiobookID: [String: PDFViewState] = [:]
 
     /// When a bookmark is tapped, this stores its PDF view state so the PDFDocumentView can restore it.
     var pendingPDFViewStateRestore: PDFViewState? = nil
+
+    func pdfViewState(for folderURL: URL) -> PDFViewState? {
+        pdfViewStatesByAudiobookID[folderURL.absoluteString]
+    }
+
+    func updatePDFViewState(_ state: PDFViewState, for folderURL: URL) {
+        currentPDFViewState = state
+        pdfViewStatesByAudiobookID[folderURL.absoluteString] = state
+    }
 
     // MARK: - UI state (pass-through to PlaybackController)
 
@@ -186,21 +221,21 @@ final class PlayerModel {
 
     func updateBookFontOverride(_ value: String?) {
         bookFontOverride = value
-        if let key = folderURL?.absoluteString {
+        if let key = bookIdentityURL?.absoluteString {
             bookSettingsOverrideStore.persistFontOverride(value, for: key)
         }
     }
 
     func updateBookPlayBookmarksInlineOverride(_ value: String?) {
         bookPlayBookmarksInlineOverride = value
-        if let key = folderURL?.absoluteString {
+        if let key = bookIdentityURL?.absoluteString {
             bookSettingsOverrideStore.persistBookmarksInlineOverride(value, for: key)
         }
     }
 
     func updateBookVolumeBoostOverride(_ value: String?) {
         bookVolumeBoostOverride = value
-        if let key = folderURL?.absoluteString {
+        if let key = bookIdentityURL?.absoluteString {
             bookSettingsOverrideStore.persistVolumeBoostOverride(value, for: key)
         }
         playbackController.setVolumeBoost(
@@ -217,8 +252,13 @@ final class PlayerModel {
 
     var folderURL: URL? {
         get { state.folderURL }
-        set { state.folderURL = newValue }
+        set {
+            state.folderURL = newValue
+            state.bookIdentityURL = newValue
+        }
     }
+    var bookIdentityURL: URL? { state.activeBookURL }
+    var persistenceFolderURL: URL? { state.persistenceFolderURL }
     var tracks: [Track] {
         get { state.tracks }
         set { state.tracks = newValue }
@@ -243,18 +283,61 @@ final class PlayerModel {
     var durationText: String { state.durationText }
     var durationSeconds: Double? { state.durationSeconds }
     var currentPlaybackTime: TimeInterval { audioEngine.currentTime }
-    /// Total playback position accounting for multi-M4B cumulative track offsets.
-    /// For single-M4B books, returns currentPlaybackTime directly.
+    /// Total playback position on the book-absolute time base.
     var cumulativePlaybackTime: TimeInterval {
-        guard isMultiM4B else { return currentPlaybackTime }
-        return state.currentBookStartOffset + currentPlaybackTime
+        state.bookTime(forCurrentTrackOffset: currentPlaybackTime)
     }
+    var effectiveBookDuration: TimeInterval { state.effectiveBookDuration }
+    var bookProgressFraction: Double {
+        state.bookProgressFraction(forCurrentTrackOffset: currentPlaybackTime)
+    }
+    var bookProgressBoundaryFractions: [Double] { state.bookProgressBoundaryFractions }
+    var hasWholeBookProgress: Bool { state.hasWholeBookProgress }
     /// Coarse 0–100 book progress that changes ~1 Hz, not per tick (§7.3).
     var bookProgressPercent: Int { state.bookProgressPercent }
     var thumbnailImage: UIImage? { state.thumbnailImage }
     var currentDisplayArtwork: UIImage? { state.currentDisplayArtwork }
     var currentDisplayArtworkVersion: Int { state.currentDisplayArtworkVersion }
     var watchThumbnailData: Data? { state.watchThumbnailData }
+
+    // MARK: - Book chrome (display title / author)
+
+    /// Human-facing book title for chrome (player eyebrow, book-settings
+    /// header): the persisted metadata title when the library has one, else
+    /// the folder name — both humanized. `currentTitle` is the raw track
+    /// FILENAME and can be a dash-slug ("system-that-does-the-reviewing").
+    var bookDisplayTitle: String { bookChrome.title }
+
+    /// Metadata author when the library knows one; nil lets callers fall back
+    /// to their own heuristics (e.g. the parent-folder guess in the eyebrow).
+    var bookMetadataAuthor: String? { bookChrome.author }
+
+    /// One DB lookup per loaded book (same retry-free cache pattern as
+    /// `cachedSignature`); metadata enriched after this session shows up on
+    /// the next book load.
+    @ObservationIgnored private var cachedBookChrome:
+        (identity: URL, title: String, author: String?)?
+
+    private var bookChrome: (title: String, author: String?) {
+        guard let identity = bookIdentityURL else {
+            return (BookTitleFormatter.humanized(currentTitle), nil)
+        }
+        if let cached = cachedBookChrome, cached.identity == identity {
+            return (cached.title, cached.author)
+        }
+        var record: AudiobookRecord?
+        if let db = databaseService {
+            record = try? AudiobookDAO(db: db.writer).get(identity.absoluteString)
+        }
+        let title = BookTitleFormatter.displayTitle(
+            storedTitle: record?.title,
+            fallbackName: identity.deletingPathExtension().lastPathComponent
+        )
+        let trimmedAuthor = record?.author?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let author = (trimmedAuthor?.isEmpty ?? true) ? nil : trimmedAuthor
+        cachedBookChrome = (identity, title, author)
+        return (title, author)
+    }
 
     // MARK: - Dynamic accent colour from artwork
 
@@ -268,38 +351,75 @@ final class PlayerModel {
     @ObservationIgnored private var cachedTheme: CoverTheme?
     @ObservationIgnored private var cachedThemeVersion: Int = -1
     @ObservationIgnored private var cachedThemeScheme: ColorScheme = .light
+    @ObservationIgnored private var cachedThemeVivid = false
 
-    /// One cached extraction pass for the current cover (or thumbnail).
-    /// Nil ONLY while no artwork is loaded, so the next access retries —
-    /// the same retry contract the old palette cache had.
+    // The Watch's roles need no scheme in the cache key: they are always
+    // resolved dark, so unlike `cachedTheme` they survive a light/dark switch.
+    @ObservationIgnored private var cachedWatchRoles: CoverThemeBuilder.Resolved?
+    @ObservationIgnored private var cachedWatchRolesVersion: Int = -1
+    @ObservationIgnored private var cachedWatchRolesVivid = false
+
+    /// One cached signature for the current cover. Base artwork prefers the
+    /// signature extracted from the SOURCE cover at load time
+    /// (`PlaybackState.sourceCoverSignature`): the displayed images are the
+    /// square blur-fill composites whose margins and scrim dilute small vivid
+    /// counter-colours below the accent-promotion floor. Bookmark artwork is
+    /// displayed un-composited, so extracting from the displayed image stays
+    /// correct there. Nil ONLY while no artwork is loaded, so the next access
+    /// retries — the same retry contract the old palette cache had.
     private var currentSignature: CoverSignature? {
         let version = currentDisplayArtworkVersion
         if version != cachedSignatureVersion || cachedSignature == nil {
-            guard let image = currentDisplayArtwork ?? thumbnailImage else { return nil }
-            cachedSignature = DominantColorExtractor.signature(from: image)
+            if !artworkCoordinator.isShowingBookmarkArtwork,
+                let source = state.sourceCoverSignature
+            {
+                cachedSignature = source
+            } else {
+                guard let image = currentDisplayArtwork ?? thumbnailImage else { return nil }
+                cachedSignature = DominantColorExtractor.signature(from: image)
+            }
             cachedSignatureVersion = version
         }
         return cachedSignature
     }
 
+    /// Accent-promotion style from Settings. Read inside the theme getters so
+    /// Observation tracks the SettingsManager property and themed views
+    /// refresh when the toggle flips.
+    private var vividAccentEnabled: Bool {
+        settingsManager?.vividCoverAccent ?? SettingsManager.Defaults.vividCoverAccent
+    }
+
     /// The role-based theme for the current cover and colour scheme.
     /// Never nil: missing artwork gets the designed neutral theme.
     var coverTheme: CoverTheme {
+        let vivid = vividAccentEnabled
         guard let signature = currentSignature else {
             return CoverThemeBuilder.build(from: .neutral, scheme: uiColorScheme)
         }
         let version = currentDisplayArtworkVersion
         if version == cachedThemeVersion,
             uiColorScheme == cachedThemeScheme,
+            vivid == cachedThemeVivid,
             let theme = cachedTheme
         {
             return theme
         }
-        let theme = CoverThemeBuilder.build(from: signature, scheme: uiColorScheme)
+        let theme = CoverThemeBuilder.build(
+            from: signature, scheme: uiColorScheme, vividAccent: vivid)
         cachedTheme = theme
         cachedThemeVersion = version
         cachedThemeScheme = uiColorScheme
+        cachedThemeVivid = vivid
         return theme
+    }
+
+    /// The scheme the current cover asks for when the appearance setting is
+    /// "Cover": light for covers anchoring pale, dark for covers anchoring
+    /// deep, nil (follow system) when no artwork is loaded or the cover
+    /// expresses no preference.
+    var coverPreferredScheme: ColorScheme? {
+        CoverThemeBuilder.preferredScheme(for: currentSignature)
     }
 
     /// Artwork accent facade. Nil when the cover has no vivid colour
@@ -314,27 +434,70 @@ final class PlayerModel {
     /// theme color, else nil (system default). Settings sheets must use this
     /// too — re-applying the static-only tint nils out the artwork accent.
     var resolvedThemeTint: Color? {
-        if settingsManager?.themeColor == ThemeColor.artwork.rawValue {
-            return artworkAccentColor
-        }
-        return ThemeColor(rawValue: settingsManager?.themeColor ?? "")?.color
+        let theme =
+            ThemeColor(rawValue: settingsManager?.themeColor ?? SettingsManager.Defaults.themeColor)
+            ?? .artwork
+        return resolvedTint(for: theme)
     }
 
-    /// Accent hex for the Watch, built with the DARK recipe — Watch surfaces
+    func resolvedTint(for theme: ThemeColor) -> Color? {
+        switch theme {
+        case .artwork:
+            return artworkAccentColor ?? coverTheme.accent
+        case .system:
+            return nil
+        default:
+            return theme.color
+        }
+    }
+
+    /// Cover roles for the Watch, built with the DARK recipe — Watch surfaces
     /// are always dark regardless of the phone's scheme.
-    var artworkAccentColorHex: String? {
-        guard let signature = currentSignature, !signature.isNeutral else { return nil }
-        let resolved = CoverThemeBuilder.resolve(
-            signature,
-            scheme: .dark,
-            brand: ColorMetrics.rgb(Color.accentColor)
-        )
-        let a = resolved.accent
-        return String(
+    ///
+    /// Nil for a neutral cover, which keeps the Watch on flat black rather than
+    /// trading it for the near-grey neutral room: on an OLED watch face black
+    /// costs no power and says the same nothing more cheaply.
+    /// Cached like `coverTheme` is: all three hexes below read this, and
+    /// `watchStateContext()` reads all three on every progress tick, so an
+    /// uncached resolve would run the OKLCH work three times a second on the
+    /// main actor for a cover that has not changed.
+    private var watchCoverRoles: CoverThemeBuilder.Resolved? {
+        let version = currentDisplayArtworkVersion
+        let vivid = vividAccentEnabled
+        if version == cachedWatchRolesVersion, vivid == cachedWatchRolesVivid {
+            return cachedWatchRoles
+        }
+
+        let roles: CoverThemeBuilder.Resolved? =
+            if let signature = currentSignature, !signature.isNeutral {
+                CoverThemeBuilder.resolve(
+                    signature,
+                    scheme: .dark,
+                    brand: ColorMetrics.rgb(Color.accentColor),
+                    vividAccent: vivid
+                )
+            } else {
+                nil
+            }
+        cachedWatchRoles = roles
+        cachedWatchRolesVersion = version
+        cachedWatchRolesVivid = vivid
+        return roles
+    }
+
+    var artworkAccentColorHex: String? { watchCoverRoles.map { Self.hex($0.accent) } }
+
+    /// Ends of the Watch's background ramp. They ride the same state replies as
+    /// the accent — three short strings, never image data (PR #521).
+    var coverRampTopHex: String? { watchCoverRoles.map { Self.hex($0.backgroundTop) } }
+    var coverRampBottomHex: String? { watchCoverRoles.map { Self.hex($0.backgroundBottom) } }
+
+    private static func hex(_ c: ColorMetrics.RGB) -> String {
+        String(
             format: "#%02X%02X%02X",
-            Int((a.r * 255).rounded()),
-            Int((a.g * 255).rounded()),
-            Int((a.b * 255).rounded()))
+            Int((c.r * 255).rounded()),
+            Int((c.g * 255).rounded()),
+            Int((c.b * 255).rounded()))
     }
 
     // MARK: - Chapters (pass-through to PlaybackState)
@@ -369,16 +532,33 @@ final class PlayerModel {
     }
     var currentChapterIndex: Int? { state.currentChapterIndex }
 
-    /// True when the loaded book has at least two chapters and the current
-    /// position is not the first chapter. Drives the "previous chapter" chevron.
-    /// `currentChapterIndex` is optional; an unresolved index is treated as 0.
-    var hasPreviousChapter: Bool { chapters.count >= 2 && (currentChapterIndex ?? 0) > 0 }
+    /// True when the loaded book has chapter-style navigation. M4B/M4A chapter
+    /// metadata uses `chapters`; MP3 folders usually expose one synthetic
+    /// chapter per file, so their chapter navigation falls back to the track list.
+    var hasChapterNavigation: Bool { chapters.count >= 2 || tracks.count >= 2 }
 
-    /// True when the loaded book has at least two chapters and the current
-    /// position is not the last chapter. Drives the "next chapter" chevron.
-    /// `currentChapterIndex` is optional; an unresolved index is treated as 0.
+    /// True when the loaded book can navigate to a previous chapter-like item.
+    /// `currentChapterIndex` is optional; an unresolved parsed-chapter index is
+    /// treated as 0. MP3-folder books fall back to previous enabled tracks.
+    var hasPreviousChapter: Bool {
+        if chapters.count >= 2 {
+            return (currentChapterIndex ?? 0) > 0
+        }
+        guard tracks.indices.contains(currentIndex), currentIndex > 0 else { return false }
+        return tracks[..<currentIndex].contains { $0.isEnabled }
+    }
+
+    /// True when the loaded book can navigate to a next chapter-like item.
+    /// `currentChapterIndex` is optional; an unresolved parsed-chapter index is
+    /// treated as 0. MP3-folder books fall back to next enabled tracks.
     var hasNextChapter: Bool {
-        chapters.count >= 2 && (currentChapterIndex ?? 0) < chapters.count - 1
+        if chapters.count >= 2 {
+            return (currentChapterIndex ?? 0) < chapters.count - 1
+        }
+        guard tracks.indices.contains(currentIndex), currentIndex < tracks.count - 1 else {
+            return false
+        }
+        return tracks[(currentIndex + 1)...].contains { $0.isEnabled }
     }
 
     var chapterWordClouds: [Int: [WordFrequency]] {
@@ -405,28 +585,71 @@ final class PlayerModel {
     /// Whether EPUB blocks have been imported for the current audiobook.
     var hasEPUB: Bool {
         _ = state.documentIngestionTrigger  // register dependency
-        return timelinePersistence.hasEPUB(for: folderURL?.absoluteString)
+        return timelinePersistence.hasEPUB(for: bookIdentityURL?.absoluteString)
     }
 
-    @ObservationIgnored private var cachedHasPDF: (trigger: Int, value: Bool)?
+    var hasActiveNarrationWork: Bool {
+        narrationPlaybackState.isRunning || state.narrationRenderInFlight
+    }
+
+    var documentIngestionTrigger: Int {
+        state.documentIngestionTrigger
+    }
+
+    @ObservationIgnored private var cachedHasPDF:
+        (trigger: Int, bookURL: URL?, sourceDocumentURL: URL?, value: Bool)?
 
     /// Whether a PDF file is present in the current audiobook folder. The
     /// directory scan is cached against `documentIngestionTrigger`, so it runs
     /// once per import rather than on every view-body read (§7.2).
     var hasPDF: Bool {
         let trigger = state.documentIngestionTrigger  // register observation dependency
-        if let cached = cachedHasPDF, cached.trigger == trigger { return cached.value }
-        let value =
-            (folderURL.flatMap { try? FileManager.default.contentsOfDirectory(atPath: $0.path) })?
-            .contains { $0.lowercased().hasSuffix(".pdf") } ?? false
-        cachedHasPDF = (trigger, value)
+        let bookURL = bookIdentityURL
+        let sourceDocumentURL = state.sourceDocumentURL
+        if let cached = cachedHasPDF,
+            cached.trigger == trigger,
+            cached.bookURL == bookURL,
+            cached.sourceDocumentURL == sourceDocumentURL
+        {
+            return cached.value
+        }
+        let value: Bool
+        if let sourceDocumentURL,
+            sourceDocumentURL.pathExtension.localizedCaseInsensitiveCompare("pdf") == .orderedSame
+        {
+            value = true
+        } else if let folderURL,
+            let contents = try? FileManager.default.contentsOfDirectory(
+                at: folderURL,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: .skipsHiddenFiles)
+        {
+            let pdfs = contents.filter {
+                $0.pathExtension.localizedCaseInsensitiveCompare("pdf") == .orderedSame
+            }
+            if let bookURL, bookURL != folderURL {
+                value =
+                    CompanionDocumentSelector.select(
+                        documents: pdfs,
+                        for: bookURL,
+                        folderIsDirectory: false,
+                        siblingFiles: contents) != nil
+            } else {
+                value = !pdfs.isEmpty
+            }
+        } else {
+            value = false
+        }
+        cachedHasPDF = (trigger, bookURL, sourceDocumentURL, value)
         return value
     }
 
     /// Whether a standalone transcript exists for the current audiobook (no EPUB/PDF).
     var hasStandaloneTranscript: Bool {
         _ = state.documentIngestionTrigger  // register dependency
-        guard let db = databaseService, let folder = folderURL?.absoluteString else { return false }
+        guard let db = databaseService, let folder = bookIdentityURL?.absoluteString else {
+            return false
+        }
         return
             ((try? db.read { db in
                 try StandaloneTranscriptRecord
@@ -439,6 +662,12 @@ final class PlayerModel {
     var hasTranscript: Bool {
         _ = state.documentIngestionTrigger  // register dependency
         return !transcription.isEmpty || !enhancedTranscription.isEmpty
+    }
+
+    /// Bumps the document-ingestion trigger so reader routing re-evaluates after
+    /// transcript materialization inserts `epub_block` rows (`hasEPUB` flips true).
+    func bumpDocumentIngestionTrigger() {
+        playbackController.state.documentIngestionTrigger += 1
     }
 
     var isTranscriptProcessingEnabled: Bool {
@@ -461,10 +690,13 @@ final class PlayerModel {
     let bookmarkStore = BookmarkStore()
     let sleepTimerManager = SleepTimerManager()
     let artworkCoordinator = BookmarkArtworkCoordinator()
-    let flashcardTriggerController = InlineFlashcardTriggerController()
     let progressPresenter = PlaybackProgressPresenter()
     let chapterLoadingCoordinator = ChapterLoadingCoordinator()
     let playerLoadingCoordinator = PlayerLoadingCoordinator()
+    var checkpointCoordinator: StudyCheckpointCoordinator?
+    var pendingRetirePrompt: StudyChapterRetireService.RetirePrompt?
+    @ObservationIgnored let checkpointAnnouncer = StudyCheckpointAnnouncer()
+    @ObservationIgnored let checkpointNotifications = StudyCheckpointNotificationService()
     var continuousAlignmentService: ContinuousAlignmentService?
 
     // On-device narration playback: an audio-less study EPUB renders its
@@ -472,8 +704,21 @@ final class PlayerModel {
     // scrubber all work). The TTS engine is reused across books so the one-time
     // ANE model compile is paid once, not per book.
     @ObservationIgnored lazy var narrationTTS: any TTSEngine = NarrationEngineFactory.make()
+    @ObservationIgnored var narrationAudioWriter: any AudioFileWriting = AVFoundationAudioWriter()
+    @ObservationIgnored var narrationCacheDirectoryProvider: () -> URL = {
+        NarrationCache.directory()
+    }
     @ObservationIgnored var narrationRenderTask: Task<Void, Never>?
+    @ObservationIgnored var narrationOperation = NarrationOperationToken()
+    @ObservationIgnored var narrationExpectedFileNamesByChapter: [Int: Set<String>] = [:]
     let narrationPlaybackState = NarrationState()
+
+    @discardableResult
+    func replaceNarrationOperation() -> NarrationOperationToken {
+        let operation = NarrationOperationToken()
+        narrationOperation = operation
+        return operation
+    }
 
     private func computeWordClouds() {
         transcriptService.computeWordClouds()
@@ -487,9 +732,6 @@ final class PlayerModel {
     var isPlayingVoiceMemo: Bool { bookmarkStore.isPlayingVoiceMemo }
     /// 0...1 progress of the currently playing voice memo, for the overlay UI.
     var voiceMemoProgress: Double { bookmarkStore.voiceMemoProgress }
-
-    /// The currently triggered inline flashcard, shown as an overlay during playback.
-    /// Whether an inline flashcard overlay is currently presented.
 
     /// Active playback session event ID for timeline logging.
     @ObservationIgnored var currentPlaybackEventID: String?
@@ -518,19 +760,25 @@ final class PlayerModel {
         self.settingsManager = settingsManager
     }
 
+    func setFreeTierGate(_ gate: FreeTierGate) {
+        freeTierGate = gate
+    }
+
     // MARK: - Playback infrastructure
 
     /// Background task claim held during pause to reduce the chance of eviction
     /// from the system Now Playing slot.
     private var pauseBackgroundTask: UIBackgroundTaskIdentifier = .invalid
 
-    /// Timer driving the joystick scrubbing loop in ManualAlignmentSheet.
+    /// Task driving the joystick scrubbing loop in ManualAlignmentSheet.
     /// Fires every 0.1 s, relaying the current playback time to the view's
-    /// `onTick` closure so it can compute scrub deltas.
-    @ObservationIgnored private var joystickScrubTimer: Timer?
-    /// Timer that plays brief 0.2 s audio snippets during joystick scrubbing.
+    /// `onTick` closure so it can compute scrub deltas. A `Task` rather than a
+    /// `Timer` so the main-actor `onTick`/`timeProvider` closures stay on-actor
+    /// (a `Timer`'s `@Sendable` callback can't capture them under Swift 6).
+    @ObservationIgnored private var joystickScrubTask: Task<Void, Never>?
+    /// Task that plays brief 0.2 s audio snippets during joystick scrubbing.
     /// Fires every 0.4 s while the user holds a joystick deflection.
-    @ObservationIgnored private var snippetPlaybackTimer: Timer?
+    @ObservationIgnored private var snippetPlaybackTask: Task<Void, Never>?
 
     /// Tracks if audio was playing prior to an interruption, to determine if we should resume.
     var wasPlayingBeforeInterruption: Bool = false
@@ -586,6 +834,7 @@ final class PlayerModel {
         set {
             timelinePersistence.databaseService = newValue
             configureContinuousAlignment()
+            configureStudyCheckpoint()
             if let db = newValue {
                 sessionRecorder = PlaybackSessionRecorder(writer: db.writer)
             } else {
@@ -625,7 +874,7 @@ final class PlayerModel {
 
         bookmarkStore.onPersist = { [weak self] bookmarks in
             guard let self, let key = bookmarksStorageKey else { return }
-            persistence.saveBookmarks(bookmarks, for: key, folderURL: folderURL)
+            persistence.saveBookmarks(bookmarks, for: key, folderURL: persistenceFolderURL)
         }
         bookmarkStore.onDeleteFile = { url in
             do {
@@ -636,9 +885,12 @@ final class PlayerModel {
         }
         bookmarkStore.onBookmarksChanged = { [weak self] in
             guard let self else { return }
-            artworkCoordinator.invalidateCache()
+            // Deliberately NOT invalidateCache(): that would drop the base
+            // cover's watch payload, which nothing regenerates mid-book, and
+            // the watch would show no cover until the book is reloaded.
+            artworkCoordinator.invalidateBookmarkArtwork()
             artworkCoordinator.updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
-            if loopMode == .bookmark && currentTrackBookmarks.isEmpty {
+            if loopMode == .bookmark && !canBookmarkLoop {
                 setLoopMode(.off)
             }
         }
@@ -680,8 +932,30 @@ final class PlayerModel {
             // is already false, so pause() (which clears the flag) won't run — clear it
             // here so a chapter that finishes rendering after the cutoff doesn't auto-
             // advance one chapter past the sleep cutoff.
+            let narrationPlayback = self.narrationPlaybackState.snapshot.playback
+            let narrationAutoplayWasPending: Bool
+            switch narrationPlayback {
+            case .waitingForRender, .resuming:
+                narrationAutoplayWasPending = true
+            default:
+                narrationAutoplayWasPending = false
+            }
+            let cancelledNarrationWait =
+                self.narrationPlaybackState.hasSession
+                && (self.state.awaitingNarrationChapter || narrationAutoplayWasPending)
             self.state.awaitingNarrationChapter = false
+            if cancelledNarrationWait {
+                self.playerLoadingCoordinator.suppressAutoplay()
+            }
             if self.isPlaying { self.pause() }
+            if cancelledNarrationWait {
+                self.narrationPlaybackState.transitionPlayback(
+                    to: .paused(
+                        chapterDisplayNumber: self.currentNarrationChapterDisplayNumber),
+                    event: self.playbackEvent(
+                        "Narration wait cancelled by sleep timer", severity: .notice))
+                self.publishNarrationStatusToNowPlaying()
+            }
             self.syncToWatch()
         }
         sleepTimerManager.onTick = { [weak self] in
@@ -710,26 +984,19 @@ final class PlayerModel {
             self?.syncToWatch()
         }
 
-        // Wire flashcard trigger controller dependencies.
-        flashcardTriggerController.databaseServiceProvider = { [weak self] in self?.databaseService
-        }
-        flashcardTriggerController.trackKeyProvider = { [weak self] in
-            guard let self, self.state.tracks.indices.contains(self.currentIndex) else { return "" }
-            return self.state.tracks[self.currentIndex].url.lastPathComponent
-        }
-        flashcardTriggerController.isPlayingProvider = { [weak self] in self?.isPlaying ?? false }
-        flashcardTriggerController.isManualSeekingProvider = { [weak self] in
-            self?.isManualSeeking ?? false
-        }
-        flashcardTriggerController.loopModeProvider = { [weak self] in self?.loopMode ?? .off }
-
         // Wire progress presenter dependencies.
         progressPresenter.state = state
         progressPresenter.audioEngine = audioEngine
         progressPresenter.nowPlayingController = nowPlayingController
         progressPresenter.speedProvider = { [weak self] in self?.speed ?? 1.0 }
         progressPresenter.currentTitleProvider = { [weak self] in self?.currentTitle ?? "" }
-        progressPresenter.currentSubtitleProvider = { [weak self] in self?.currentSubtitle ?? "" }
+        progressPresenter.currentSubtitleProvider = { [weak self] in
+            guard let self else { return "" }
+            return NarrationStatusFormatter.presentation(
+                for: self.narrationPlaybackState.snapshot,
+                hasSession: self.narrationPlaybackState.hasSession,
+                now: Date())?.lockScreenSubtitle ?? self.currentSubtitle
+        }
         progressPresenter.currentDisplayArtworkProvider = { [weak self] in
             self?.currentDisplayArtwork
         }
@@ -765,23 +1032,46 @@ final class PlayerModel {
                         self.seek(toSeconds: time)
                     }
                 }
-            } else if let folder = self.folderURL?.absoluteString,
-                let progress = self.persistence.getBookProgress(for: folder),
+            } else if let pendingBookTime = self.state.pendingBookTimeSeek,
+                self.state.tracks.indices.contains(self.currentIndex),
+                let offset = self.state.trackOffset(
+                    forBookTime: pendingBookTime,
+                    trackID: self.state.tracks[self.currentIndex].id),
+                offset <= seconds
+            {
+                self.state.pendingBookTimeSeek = nil
+                self.state.pendingBookTimeSeekSuppressesProgressPush = false
+                Task { @MainActor in self.seek(toSeconds: offset) }
+            } else if let bookURL = self.bookIdentityURL,
+                let progress = self.persistence.getBookProgress(
+                    for: bookURL.absoluteString, folderURL: self.persistenceFolderURL),
                 self.state.tracks.indices.contains(self.currentIndex),
                 progress.trackId == self.state.tracks[self.currentIndex].id,
-                progress.time > 0, progress.time < seconds
+                progress.time > 0
             {
-                let savedTime = progress.time
-                Task { @MainActor in
-                    self.state.isManualSeeking = true
-                    self.audioEngine.seek(to: savedTime) { [weak self] _ in
-                        self?.state.isManualSeeking = false
-                        self?.chapterLoadingCoordinator.updateCurrentChapterFromPlayerTime()
-                        self?.progressPresenter.updateElapsedTime()
-                        self?.progressPresenter.updateProgress()
-                        if let self, self.isPlaying {
-                            self.audioEngine.playImmediately(atRate: self.speed)
-                            self.playbackController.applySpeedToCurrentItem()
+                let currentTrackID = self.state.tracks[self.currentIndex].id
+                let savedTime =
+                    self.state.trackOffset(forBookTime: progress.time, trackID: currentTrackID)
+                    ?? max(0, progress.time - self.state.currentTrackStartOffset)
+                if self.state.tracks.count > 1, self.state.bookTimeIndex.totalDuration == 0,
+                    savedTime >= seconds
+                {
+                    self.state.pendingBookTimeSeek = progress.time
+                    self.state.pendingBookTimeSeekSuppressesProgressPush = false
+                    return
+                }
+                if savedTime < seconds {
+                    Task { @MainActor in
+                        self.state.isManualSeeking = true
+                        self.audioEngine.seek(to: savedTime) { [weak self] _ in
+                            self?.state.isManualSeeking = false
+                            self?.chapterLoadingCoordinator.updateCurrentChapterFromPlayerTime()
+                            self?.progressPresenter.updateElapsedTime()
+                            self?.progressPresenter.updateProgress()
+                            if let self, self.isPlaying {
+                                self.audioEngine.playImmediately(atRate: self.speed)
+                                self.playbackController.applySpeedToCurrentItem()
+                            }
                         }
                     }
                 }
@@ -803,7 +1093,6 @@ final class PlayerModel {
         playerLoadingCoordinator.bookSettingsOverrideStore = bookSettingsOverrideStore
         playerLoadingCoordinator.securityScope = securityScope
         playerLoadingCoordinator.artworkCoordinator = artworkCoordinator
-        playerLoadingCoordinator.flashcardTriggerController = flashcardTriggerController
         playerLoadingCoordinator.bookmarkStore = bookmarkStore
         playerLoadingCoordinator.progressPresenter = progressPresenter
         playerLoadingCoordinator.chapterLoadingCoordinator = chapterLoadingCoordinator
@@ -832,6 +1121,16 @@ final class PlayerModel {
         playerLoadingCoordinator.onConfigureContinuousAlignment = { [weak self] in
             self?.configureContinuousAlignment()
         }
+        playerLoadingCoordinator.onSavedPlaybackProgress = { [weak self] in
+            guard self?.state.pendingBookTimeSeekSuppressesProgressPush != true else {
+                return
+            }
+            self?.maybePushABSProgress(force: true)
+        }
+        playerLoadingCoordinator.onPlaybackQueueMutation = { [weak self] in
+            guard let self, self.narrationPlaybackState.hasSession else { return }
+            self.refreshNarrationBufferStatus()
+        }
 
         // Wire PlaybackController coordination closures.
         playbackController.coordinator_seekBackwardDuration = { [weak self] in
@@ -854,10 +1153,13 @@ final class PlayerModel {
         playbackController.coordinator_loadTrack = { [weak self] index, autoplay in
             self?.playerLoadingCoordinator.prepareToPlay(index: index, autoplay: autoplay)
         }
+        playbackController.coordinator_pauseRequested = { [weak self] in
+            self?.playerLoadingCoordinator.suppressAutoplay()
+        }
         playbackController.coordinator_persistAndSync = { [weak self] isPaused in
             self?.updateNowPlayingInfo(isPaused: isPaused)
             self?.syncToWatch()
-            if let folder = self?.folderURL?.absoluteString {
+            if let folder = self?.bookIdentityURL?.absoluteString {
                 self?.persistence.savePauseTimestamp(self?.state.pauseTimestamp, for: folder)
             }
         }
@@ -869,21 +1171,23 @@ final class PlayerModel {
             if !isManual {
                 self.updateCurrentChapterFromPlayerTime()
             }
+            self.updateNowPlayingInfo(isPaused: !self.isPlaying)
             self.sessionRecorder?.yield(
                 .seeked(toPosition: self.audioEngine.currentTime, at: Date()))
         }
         playbackController.coordinator_persistSpeed = { [weak self] key, speed in
-            self?.persistence.saveSpeed(for: key, speed: speed)
+            self?.persistence.saveSpeed(
+                for: key, speed: speed, folderURL: self?.persistenceFolderURL)
             self?.sessionRecorder?.yield(.speedChanged(newSpeed: Double(speed), at: Date()))
         }
         playbackController.coordinator_persistLoopMode = { [weak self] key, mode in
-            self?.persistence.saveLoopMode(for: key, loopMode: mode)
+            self?.persistence.saveLoopMode(
+                for: key, loopMode: mode, folderURL: self?.persistenceFolderURL)
         }
-        playbackController.coordinator_hasBookmarks = { [weak self] in
-            !(self?.bookmarkStore.bookmarks.isEmpty ?? true)
+        playbackController.coordinator_canBookmarkLoop = { [weak self] in
+            self?.canBookmarkLoop ?? false
         }
         playbackController.coordinator_refreshProgress = { [weak self] in
-            self?.updateNowPlayingElapsedTime()
             self?.updateProgressFromPlayer()
             if let self, self.audioEngine.currentTime.isFinite {
                 self.sessionRecorder?.yield(
@@ -903,8 +1207,12 @@ final class PlayerModel {
             self?.endBackgroundTask()
         }
         playbackController.coordinator_saveProgress = { [weak self] folder, trackId, time in
-            self?.persistence.saveBookProgress(for: folder, trackId: trackId, time: time)
-            self?.maybePushABSProgress()
+            guard let self else { return }
+            let bookTime = self.state.bookTime(forCurrentTrackOffset: time)
+            self.persistence.saveBookProgress(
+                for: folder, trackId: trackId, time: bookTime,
+                folderURL: self.persistenceFolderURL)
+            self.maybePushABSProgress()
         }
         playbackController.coordinator_stopSecurityScope = { [weak self] in
             self?.stopCurrentFileSecurityScopeIfNeeded()
@@ -930,13 +1238,13 @@ final class PlayerModel {
             self?.startSelectionSecurityScopeIfNeeded()
             self?.startCurrentFileSecurityScopeIfNeeded()
         }
-        playbackController.coordinator_playStateChanged = { [weak self] isPlaying in
+        playbackController.coordinator_playStateChanged = { [weak self] change in
             guard let self else { return }
-            if isPlaying {
+            if change == .playing {
                 self.startPlaybackSessionLogging()
                 self.sessionRecorder?.yield(
                     .opened(
-                        audiobookID: self.folderURL?.absoluteString ?? "unknown",
+                        audiobookID: self.bookIdentityURL?.absoluteString ?? "unknown",
                         trackID: self.state.tracks.indices.contains(self.state.currentIndex)
                             ? self.state.tracks[self.state.currentIndex].id : nil,
                         position: self.audioEngine.currentTime,
@@ -953,6 +1261,49 @@ final class PlayerModel {
                     .closed(position: self.audioEngine.currentTime, at: Date()))
                 self.continuousAlignmentService?.stop()
             }
+
+            guard self.narrationPlaybackState.hasSession else { return }
+            switch change {
+            case .loading:
+                self.narrationPlaybackState.transitionPlayback(
+                    to: .loading(
+                        chapterDisplayNumber: self.currentNarrationChapterDisplayNumber),
+                    event: .init(
+                        category: .playback, severity: .info,
+                        message: String(localized: "Loading narration audio"),
+                        developerMessage: "playback audio loading"))
+            case .playing:
+                self.narrationPlaybackState.transitionPlayback(
+                    to: .playing(
+                        chapterDisplayNumber: self.currentNarrationChapterDisplayNumber),
+                    event: self.playbackEvent("Playing", severity: .notice))
+            case .paused:
+                self.narrationPlaybackState.transitionPlayback(
+                    to: .paused(
+                        chapterDisplayNumber: self.currentNarrationChapterDisplayNumber),
+                    event: self.playbackEvent("Paused", severity: .notice))
+            case .waitingForNarration:
+                self.narrationPlaybackState.transitionPlayback(
+                    to: .waitingForRender(
+                        chapterDisplayNumber: self.currentRenderingChapterDisplayNumber),
+                    event: self.playbackEvent(
+                        "Waiting for rendered narration", severity: .warning))
+            case .reachedNaturalEnd:
+                self.narrationPlaybackState.transitionPlayback(
+                    to: .completed,
+                    event: self.playbackEvent(
+                        "Narration playback complete", severity: .notice))
+            case .failed(let privateDetail):
+                let message = String(localized: "Unable to load narration audio")
+                self.narrationPlaybackState.transitionPlayback(
+                    to: .failed(message: message),
+                    event: .init(
+                        category: .error, severity: .error,
+                        message: message,
+                        developerMessage: "playback audio load failed",
+                        privateDetail: privateDetail))
+            }
+            self.publishNarrationStatusToNowPlaying()
         }
         playlistManager.coordinator_postResetRefresh = { [weak self] in
             self?.updateCurrentChapterFromPlayerTime()
@@ -988,7 +1339,7 @@ final class PlayerModel {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.markPassageAtCurrentTime() }
+            MainActor.assumeIsolated { _ = self?.markPassageAtCurrentTime() }
         }
 
         carPlayNotificationObservers = [bookmarkObs, voiceMemoObs, markPassageObs]
@@ -999,19 +1350,50 @@ final class PlayerModel {
     /// pass `.progress` to stay live-only and avoid churning the durable context.
     func syncToWatch(reason: WatchSyncManager.SyncReason = .significant) {
         watchSyncManager.syncToWatch(reason: reason)
+        // Mirror the same snapshot into the App Group so the iOS widget + Control
+        // Center toggle stay in sync. Only on `.significant` (play/pause, track,
+        // speed, loop, load): progress ticks would hammer the defaults + widget
+        // reloads, and the widget's own 60s timeline already covers the ring.
+        if reason == .significant {
+            widgetStatePublisher.publish(
+                context: watchStateContext(), thumbnailData: state.watchThumbnailData)
+        }
+        // The "Bookmark this in Echo" Siri / App Intent needs the live PER-TRACK
+        // position, so publish it on every sync (reload-free) — a position only
+        // refreshed on `.significant` would be minutes stale mid-chapter and
+        // mis-place the bookmark.
+        widgetStatePublisher.publishPlaybackPosition(currentWidgetPlaybackState())
+    }
+
+    /// Snapshot of the live per-track playback position for the widget / Siri
+    /// bookmark intent, or `nil` when no book is loaded (which clears the keys).
+    /// `currentPlaybackTime` (`audioEngine.currentTime`) is the per-track offset
+    /// `Bookmark.timestamp` stores — the same value the in-app
+    /// `addBookmarkAtCurrentTime()` records, never the cumulative book time.
+    private func currentWidgetPlaybackState() -> WidgetPlaybackState? {
+        guard audioEngine.isItemLoaded,
+            currentPlaybackTime.isFinite,
+            let folderKey = bookIdentityURL?.absoluteString,
+            tracks.indices.contains(currentIndex)
+        else { return nil }
+        return WidgetPlaybackState(
+            folderKey: folderKey,
+            trackId: tracks[currentIndex].id,
+            perTrackTime: currentPlaybackTime)
     }
 
     /// Persists the current playback progress and pause timestamp.
     /// Called when the app enters the background to prevent data loss.
     func persistCurrentState() {
         if audioEngine.isItemLoaded,
-            let folder = state.folderURL?.absoluteString,
+            let bookURL = state.activeBookURL,
             state.tracks.indices.contains(state.currentIndex)
         {
             persistence.saveBookProgress(
-                for: folder, trackId: state.tracks[state.currentIndex].id,
-                time: audioEngine.currentTime, folderURL: state.folderURL)
-            persistence.savePauseTimestamp(state.pauseTimestamp, for: folder)
+                for: bookURL.absoluteString, trackId: state.tracks[state.currentIndex].id,
+                time: cumulativePlaybackTime, folderURL: state.persistenceFolderURL)
+            persistence.savePauseTimestamp(state.pauseTimestamp, for: bookURL.absoluteString)
+            maybePushABSProgress(force: true)
         }
     }
 
@@ -1038,11 +1420,11 @@ final class PlayerModel {
             continuousAlignmentService?.stop()
             continuousAlignmentService = nil
 
-            // Invalidate scrub / snippet timers so they do not outlive the model.
-            joystickScrubTimer?.invalidate()
-            joystickScrubTimer = nil
-            snippetPlaybackTimer?.invalidate()
-            snippetPlaybackTimer = nil
+            // Cancel scrub / snippet tasks so they do not outlive the model.
+            joystickScrubTask?.cancel()
+            joystickScrubTask = nil
+            snippetPlaybackTask?.cancel()
+            snippetPlaybackTask = nil
         }
     }
 
@@ -1078,16 +1460,71 @@ final class PlayerModel {
     /// - Parameters:
     ///   - url: The folder or file URL to load.
     ///   - autoplay: Whether to automatically begin playback after loading. Defaults to `true`.
-    func loadFolder(_ url: URL, autoplay: Bool = true) {
+    func loadFolder(_ url: URL, autoplay: Bool = true, persistBookmark: Bool = true) {
+        if audioEngine.isItemLoaded {
+            maybePushABSProgress(force: true)
+        }
         // Stop narrating the previous book before its tracks are replaced, so a
         // stale render can't append chapters onto the newly loaded book, and
         // clear its narration playback state so the new book starts fresh.
+        let hadActiveNarrationWork = hasActiveNarrationWork
         narrationRenderTask?.cancel()
         narrationRenderTask = nil
+        replaceNarrationOperation()
+        if hadActiveNarrationWork {
+            narrationPlaybackState.transitionRender(
+                to: .cancelled,
+                event: .init(
+                    category: .render,
+                    severity: .notice,
+                    message: String(
+                        localized: "Narration cancelled because the active book changed"),
+                    developerMessage: "render cancelled active book changed"))
+        }
         state.narrationRenderInFlight = false
         state.awaitingNarrationChapter = false
+        state.narrationDefaultVoice = nil
+        state.narrationVoiceOverrideCount = 0
+        narrationExpectedFileNamesByChapter = [:]
         narrationPlaybackState.reset()
-        playerLoadingCoordinator.loadFolder(url, autoplay: autoplay)
+        playerLoadingCoordinator.loadFolder(
+            url, autoplay: autoplay, persistBookmark: persistBookmark)
+    }
+
+    /// Opens a book resolved from the Library. A root-backed child book cannot be
+    /// independently bookmarked, so the root scope stays held while the player
+    /// loads the child and the per-book bookmark save is skipped. Switches to the
+    /// Now Playing tab so the loaded book is actually visible — otherwise the book
+    /// loads behind the still-showing Library shelf and the tap looks inert.
+    func openLibraryBook(_ target: LibraryOpenTarget) {
+        if let root = target.scopedRoot {
+            securityScope.startLibraryRoot(url: root)
+        } else {
+            securityScope.stopLibraryRoot()
+        }
+        persistence.saveLastLibraryBook(id: target.url.absoluteString)
+        let openingURL =
+            BookPreferencesService.reopenDocumentURL(for: target.url) ?? target.url
+        loadFolder(openingURL, autoplay: false, persistBookmark: false)
+        selectedTab = .nowPlaying
+    }
+
+    func registerLibraryRoot(url: URL) async {
+        guard let db = databaseService else { return }
+        let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+        guard isDirectory else { return }
+
+        let service = LibraryService(db: db)
+        do {
+            let root = try service.registerRoot(url: url)
+            _ = try await service.rescan(
+                root: root,
+                readMetadata: { await LibraryScanner.readMetadata(for: $0) },
+                coversDir: FileLocations.libraryCoversDirectory)
+        } catch {
+            Logger(category: "LibraryRegistration")
+                .error("registerLibraryRoot failed: \(error.localizedDescription)")
+        }
     }
 
     /// Restores the last selected folder or file from a security-scoped bookmark,
@@ -1095,7 +1532,7 @@ final class PlayerModel {
     /// Re-ingests timeline items for the current audiobook, reloading EPUB blocks
     /// and anchors from the database. Call after EPUB import or anchor changes.
     func reingestTimelineFromEPUB() async {
-        guard let audiobookID = folderURL?.absoluteString else { return }
+        guard let audiobookID = bookIdentityURL?.absoluteString else { return }
         let audioURL: URL = {
             if state.tracks.indices.contains(currentIndex) {
                 return state.tracks[currentIndex].url
@@ -1113,23 +1550,47 @@ final class PlayerModel {
     }
 
     /// Restores the last selected folder or file from a security-scoped bookmark,
-    /// loading it without autoplay. Falls back to sample content in DEBUG simulator
-    /// builds when no persisted selection exists.
+    /// loading it without autoplay.
     func restoreLastSelectionIfPossible() {
-        guard let url = persistence.restoreBookmark() else {
-            #if DEBUG && targetEnvironment(simulator)
-                if let sampleURL = MockMediaProvider.sampleAudiobookURL() {
-                    loadFolder(sampleURL, autoplay: false)
-                }
-            #endif
-            return
+        #if DEBUG && targetEnvironment(simulator)
+            if let forcedSampleURL = MockMediaProvider.forcedSampleMediaURL() {
+                loadFolder(forcedSampleURL, autoplay: false)
+                return
+            }
+        #endif
+
+        switch persistence.restoreBookmarkResult() {
+        case .restored(let url):
+            loadFolder(url, autoplay: false)
+        case .missing:
+            showingMissingBookWarning = true
+        case .none:
+            if !restoreLastLibraryBookIfPossible() {
+                #if DEBUG && targetEnvironment(simulator)
+                    if let sampleURL = MockMediaProvider.sampleMediaURL() {
+                        loadFolder(sampleURL, autoplay: false)
+                    }
+                #endif
+            }
         }
-        loadFolder(url, autoplay: false)
+    }
+
+    @discardableResult
+    private func restoreLastLibraryBookIfPossible() -> Bool {
+        guard let bookID = persistence.lastLibraryBookID(),
+            let db = databaseService,
+            let book = try? AudiobookDAO(db: db.writer).get(bookID),
+            let target = try? LibraryService(db: db).urlForOpening(book)
+        else { return false }
+        openLibraryBook(target)
+        return true
     }
 
     /// Sets up or tears down the continuous alignment service.
     func configureContinuousAlignment() {
-        guard let db = databaseService?.writer, let audiobookID = folderURL?.absoluteString else {
+        guard let db = databaseService?.writer,
+            let audiobookID = bookIdentityURL?.absoluteString
+        else {
             continuousAlignmentService?.stop()
             continuousAlignmentService = nil
             return
@@ -1176,8 +1637,8 @@ final class PlayerModel {
             selectedTab = .read
             pendingNavigationDestination = .chapter(index)
         case .navigateToBookmark:
-            selectedTab = .timeline
-        // Bookmarks are visible on the timeline tab by default.
+            selectedTab = .read
+        // Bookmarks are visible in the Read & Study feed.
         }
     }
 
@@ -1227,13 +1688,18 @@ final class PlayerModel {
     }
 
     func togglePlayPause() {
-        playbackController.togglePlayPause()
+        if isPlaying {
+            pause()
+        } else {
+            play()
+        }
     }
 
     func play() {
+        playerLoadingCoordinator.allowAutoplay()
         // For narration-only books (EPUB with no audio tracks), pressing Play
         // should start narration instead of no-op'ing (§8.1).
-        if state.tracks.isEmpty, hasEPUB, !narrationPlaybackState.isRunning {
+        if state.tracks.isEmpty, hasEPUB, !hasActiveNarrationWork {
             let voiceID = settingsManager?.narrationVoiceID ?? ""
             let voice =
                 voiceID.isEmpty
@@ -1326,19 +1792,20 @@ final class PlayerModel {
     /// compute scrub deltas from its `joystickValue` State.
     func startJoystickScrubbing(onTick: @escaping (TimeInterval) -> Void) {
         stopJoystickScrubbing()
-        joystickScrubTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) {
-            [weak self] _ in
-            Task { @MainActor [weak self] in
+        joystickScrubTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(100))
+                if Task.isCancelled { return }
                 guard let self else { return }
                 onTick(self.currentPlaybackTime)
             }
         }
     }
 
-    /// Invalidates the joystick scrub timer.
+    /// Cancels the joystick scrub task.
     func stopJoystickScrubbing() {
-        joystickScrubTimer?.invalidate()
-        joystickScrubTimer = nil
+        joystickScrubTask?.cancel()
+        joystickScrubTask = nil
     }
 
     /// Starts a recurring 0.4 s snippet playback timer that plays brief 0.2 s
@@ -1346,11 +1813,16 @@ final class PlayerModel {
     /// `timeProvider` to forward the current scrubbed time.
     func startSnippetPlayback(timeProvider: @escaping () -> TimeInterval) {
         stopSnippetPlayback()
-        snippetPlaybackTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) {
-            [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self, !self.isPlaying else { return }
-                guard self.tracks.indices.contains(self.currentIndex) else { return }
+        snippetPlaybackTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(400))
+                if Task.isCancelled { return }
+                // nil self means the model was deallocated → terminate the loop
+                // (matching startJoystickScrubbing); the not-playing/invalid-index
+                // cases are transient, so keep polling.
+                guard let self else { return }
+                guard !self.isPlaying else { continue }
+                guard self.tracks.indices.contains(self.currentIndex) else { continue }
                 let currentScrubTime = timeProvider()
                 let url = self.tracks[self.currentIndex].url
                 let duration = self.durationSeconds ?? .infinity
@@ -1360,10 +1832,10 @@ final class PlayerModel {
         }
     }
 
-    /// Invalidates the snippet playback timer.
+    /// Cancels the snippet playback task.
     func stopSnippetPlayback() {
-        snippetPlaybackTimer?.invalidate()
-        snippetPlaybackTimer = nil
+        snippetPlaybackTask?.cancel()
+        snippetPlaybackTask = nil
     }
 
     func setSpeed(_ newSpeed: Float) {
@@ -1415,7 +1887,29 @@ final class PlayerModel {
     }
 
     func stop() {
+        playerLoadingCoordinator.suppressAutoplay()
+        if narrationPlaybackState.hasSession {
+            state.awaitingNarrationChapter = false
+        }
         playbackController.stop()
+        if narrationPlaybackState.hasSession {
+            let chapterSuffix =
+                currentNarrationChapterDisplayNumber.map {
+                    " chapter=\($0)"
+                } ?? ""
+            narrationPlaybackState.transitionPlayback(
+                to: .stopped,
+                event: .init(
+                    category: .playback,
+                    severity: .notice,
+                    message: String(localized: "Narration playback stopped"),
+                    developerMessage: "playback stopped\(chapterSuffix)"))
+            publishNarrationStatusToNowPlaying()
+        }
+        // stop() doesn't flow through the play/pause persistAndSync path, so
+        // without this the iOS widget + Control Center toggle stay stuck on the
+        // last "playing" snapshot. Publish the stopped state explicitly.
+        syncToWatch()
     }
 
     private func configureAudioSessionIfNeeded() {
@@ -1457,11 +1951,29 @@ final class PlayerModel {
             play: { [weak self] in self?.play() },
             pause: { [weak self] in self?.pause() },
             togglePlayPause: { [weak self] in self?.togglePlayPause() },
-            nextTrack: { [weak self] in self?.skipForwardNavigation() },
-            skipBackward: { [weak self] in self?.skipBackward30() },
-            skipForward: { [weak self] in self?.skipForward30() },
-            previousTrack: { [weak self] in self?.skipBackwardNavigation() },
-            seek: { [weak self] position in self?.seek(toSeconds: position) },
+            nextTrack: { [weak self] in
+                guard let self else { return }
+                if self.consumeRemoteSkipAsCheckpointGrade(.good) { return }
+                self.skipForwardNavigation()
+            },
+            skipBackward: { [weak self] in
+                guard let self else { return }
+                if self.consumeRemoteSkipAsCheckpointGrade(.again) { return }
+                self.skipBackward30()
+            },
+            skipForward: { [weak self] in
+                guard let self else { return }
+                if self.consumeRemoteSkipAsCheckpointGrade(.good) { return }
+                self.skipForward30()
+            },
+            previousTrack: { [weak self] in
+                guard let self else { return }
+                if self.consumeRemoteSkipAsCheckpointGrade(.again) { return }
+                self.skipBackwardNavigation()
+            },
+            seek: { [weak self] position in
+                self?.playbackController.seekFromRemoteCommand(positionTime: position)
+            },
             skipBackwardInterval: settingsManager?.seekBackwardDuration
                 ?? SettingsManager.Defaults.seekBackwardDuration,
             skipForwardInterval: settingsManager?.seekForwardDuration
@@ -1536,7 +2048,7 @@ final class PlayerModel {
         func carPlayStartVoiceMemo() {
             addBookmarkAtCurrentTime()
 
-            guard folderURL != nil else {
+            guard let dir = folderURL else {
                 os_log("CarPlay voice memo: no audiobook folder — recording skipped")
                 return
             }
@@ -1544,7 +2056,9 @@ final class PlayerModel {
             pause()
 
             do {
-                try carPlayVoiceMemoRecorder.startRecording(in: folderURL)
+                let r = VoiceMemoRecorder(destinationDirectory: dir)
+                try r.start()
+                carPlayVoiceMemoRecorder = r
             } catch {
                 os_log(
                     .error, "CarPlay voice memo recording failed: %{public}@",
@@ -1573,19 +2087,13 @@ final class PlayerModel {
         }
     }
 
-    // MARK: - Inline Flashcard wrappers
-
-    /// Grades the currently shown inline flashcard and resumes playback.
-
-    /// Dismisses the inline flashcard overlay without grading, resuming playback.
-
     private func persistSelection(url: URL) {
         // Refresh security scope for the new selection.
         securityScope.stopSelection()
         securityScope.startSelection(url: url)
 
         // Save security-scoped bookmark so it restores after relaunch.
-        persistence.saveBookmark(url: url)
+        showingBookmarkPersistenceWarning = !persistence.saveBookmark(url: url)
 
         // Load bookmarks for this book.
         loadBookmarksForCurrentBook()

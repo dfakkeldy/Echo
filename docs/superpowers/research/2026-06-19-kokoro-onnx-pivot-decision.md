@@ -89,4 +89,4 @@ Four levers, each fails:
 
 **Gate:** first word < ~4s AND no jetsam on a real iPhone 12 Pro. If RTF unacceptable even streamed → evaluate MLX (§4).
 
-**Doc-sync (when the gate resolves):** update `ARCHITECTURE.md`, `CODE_AUDIT_NARRATION.md`, the narration plans, and the MEMORY narration entry; the shrink/delivery brief is superseded by this one.
+**Doc-sync (when the gate resolves):** update `ARCHITECTURE.md`, the archived `CODE_AUDIT_NARRATION.md` notice if needed, the narration plans, and the repo-local narration remediation map; the shrink/delivery brief is superseded by this one. Do not use this as an instruction to edit external memory stores.

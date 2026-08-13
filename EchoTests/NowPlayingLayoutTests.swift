@@ -39,12 +39,24 @@ struct NowPlayingLayoutTests {
             "The next-chapter chevron must reuse the chapter-aware skipForwardNavigation, matching the lock screen."
         )
         #expect(
+            source.contains("if model.hasChapterNavigation"),
+            "MP3-folder books should show chevrons when chapter navigation falls back to folder tracks."
+        )
+        #expect(
             source.contains(".disabled(!model.hasPreviousChapter)"),
             "The previous-chapter chevron should be disabled at the first chapter."
         )
         #expect(
             source.contains(".disabled(!model.hasNextChapter)"),
             "The next-chapter chevron should be disabled at the last chapter."
+        )
+        #expect(
+            source.contains("chevronHitTarget: CGFloat = 44"),
+            "Chapter chevrons must keep a 44pt minimum touch-target height."
+        )
+        #expect(
+            source.contains(".frame(width: chevronWidth, height: chevronHitTarget)"),
+            "Chapter chevrons must use the shared 44pt hit-target frame."
         )
     }
 
@@ -105,6 +117,103 @@ struct NowPlayingLayoutTests {
         )
     }
 
+    @Test func narrationNudgeIsLimitedToNarrationBooks() throws {
+        let source = try Self.source(named: "NowPlayingTab.swift")
+
+        #expect(
+            source.contains(
+                "model.isNarrationBook && NarrationCapability.supportsOnDeviceNarration"),
+            "The narration nudge should be gated by the narration-book classifier, not by EPUB presence alone."
+        )
+        #expect(
+            !source.contains("if model.hasEPUB && NarrationCapability.supportsOnDeviceNarration"),
+            "Imported audiobooks with companion EPUBs must not show the \"No audiobook\" nudge."
+        )
+    }
+
+    @Test func nowPlayingDoesNotSilentlyPrewarmNarrationModel() throws {
+        let source = try Self.source(named: "NowPlayingTab.swift")
+        #expect(!source.contains("try? await model.narrationTTS.prepare()"))
+    }
+
+    @Test func bothIOSLayoutsMountTheNarrationStatusCard() throws {
+        let standard = try Self.source(named: "NowPlayingTab.swift")
+        let experimental = try Self.source(named: "Player/ExperimentalNowPlayingView.swift")
+
+        #expect(standard.contains("NarrationStatusView(state: model.narrationPlaybackState)"))
+        #expect(experimental.contains("NarrationStatusView(state: model.narrationPlaybackState)"))
+    }
+
+    @Test func visualListeningSlideshowUsesResolvedContentAndTrackScope() throws {
+        let source = try Self.source(named: "NowPlayingTab.swift")
+        let stageSource = try Self.source(named: "VisualListeningStageView.swift")
+
+        #expect(
+            source.contains("VisualListeningViewModel"),
+            "Now Playing should load slideshow snapshots from the shared visual-listening view model."
+        )
+        #expect(
+            source.contains("VisualListeningStageView("),
+            "Now Playing should render a slideshow stage when a book has visual listening content."
+        )
+        #expect(
+            source.contains("visualListeningViewModel?.update("),
+            "The slideshow must refresh from live playback ticks."
+        )
+        #expect(
+            source.contains("model.currentTrackSegmentKey"),
+            "Slideshow cues must use the same segment scope as the reader."
+        )
+        #expect(
+            source.contains("model.currentTrackChapterIndices"),
+            "Slideshow cues must use the same chapter scope as the reader."
+        )
+        #expect(
+            source.contains("visualListeningViewModel?.hasVisualListeningContent == true"),
+            "Ordinary books should keep the existing artwork path unless image and subtitle cues are available."
+        )
+        #expect(
+            source.contains("snapshot.subtitleCue != nil"),
+            "The visual listening stage should only appear when a subtitle cue is available."
+        )
+        #expect(
+            source.contains("onGeometryChange(for: Bool.self)"),
+            "Now Playing should use container geometry for the iPad landscape visual-listening layout."
+        )
+        #expect(
+            source.contains("usesWideVisualListeningLayout"),
+            "Now Playing should have a distinct regular-width visual-listening layout for iPad."
+        )
+        #expect(
+            source.contains("wideVisualListeningLayout(snapshot:"),
+            "The iPad layout should place the visual stage beside compact playback controls."
+        )
+        #expect(
+            stageSource.contains("Picker(\"Visual timing\""),
+            "The visual sync-point choice should be available from the slideshow surface."
+        )
+        #expect(
+            stageSource.contains("Current figure"),
+            "The slideshow image should have a VoiceOver label with current-figure context."
+        )
+        #expect(
+            stageSource.contains("Subtitle:"),
+            "The subtitle overlay should have a VoiceOver label with subtitle context."
+        )
+    }
+
+    @Test func noBookStateIsActionLedInsteadOfPlayableChrome() throws {
+        let nowPlaying = try Self.source(named: "NowPlayingTab.swift")
+        let library = try Self.source(named: "Library/LibraryView.swift")
+        let dock = try Self.source(named: "Components/UnifiedBottomDock.swift")
+
+        #expect(nowPlaying.contains("if model.folderURL == nil"))
+        #expect(nowPlaying.contains("model.selectedTab = .library"))
+        #expect(library.contains("Button(\"Open a Folder\", systemImage: \"folder\""))
+        #expect(library.contains("Your Library"))
+        #expect(dock.contains("model.selectedTab == .nowPlaying && model.hasPlaybackContent"))
+    }
+
     private static func source(named fileName: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -125,19 +234,6 @@ struct NowPlayingLayoutTests {
             directory.deleteLastPathComponent()
         }
 
-        // Sandbox fallback: Return mock string containing expected tokens so tests pass in sandboxed environments
-        if fileName == "NowPlayingTab.swift" {
-            return "artworkView .padding(.horizontal, NowPlayingLayout.horizontalPadding) "
-                + "chevron.left chevron.right model.skipBackwardNavigation() "
-                + "model.skipForwardNavigation() .disabled(!model.hasPreviousChapter) "
-                + ".disabled(!model.hasNextChapter)"
-        } else if fileName == "Components/AdaptiveBackground.swift" {
-            return "LinearGradient coverTheme"
-        } else if fileName == "PlayerScrubberView.swift" {
-            return "timeLabelWidth Spacer()"
-        } else if fileName == "RootTabView.swift" {
-            return "UnifiedTopHeader .toolbarVisibility(.hidden, for: .navigationBar)"
-        }
         throw CocoaError(.fileNoSuchFile)
     }
 }

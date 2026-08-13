@@ -41,8 +41,7 @@ struct BatchQueueRecord: Identifiable, Equatable, Codable, FetchableRecord, Muta
     var status: BatchItemStatus
     var progress: Double
     /// Whether this item is a narrated-audiobook alignment (`.align`, default) or
-    /// a text-only EPUB narration synthesis (`.narrate`). Added in Schema V21;
-    /// defaults to `.align` so pre-V21 rows and existing call sites are unchanged.
+    /// a text-only EPUB narration synthesis (`.narrate`).
     var kind: BatchItemKind = .align
     var statusMessage: String?
     var errorMessage: String?

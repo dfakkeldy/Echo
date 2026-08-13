@@ -23,14 +23,20 @@ import Foundation
 /// This type is intentionally a tiny, pure, dependency-free helper living in
 /// `Shared/` so that **both** the iOS reader (`ReaderFeedViewModel`) and the
 /// macOS reader (`MacReaderFeedView`) call the exact same logic and cannot drift.
-enum ReaderActiveBlockResolver {
+nonisolated enum ReaderActiveBlockResolver {
 
     /// One timeline row: an audio `[start, end)` range mapped to an EPUB block,
-    /// carrying the block's `chapterIndex` so resolution can be track-scoped.
+    /// carrying the block's `chapterIndex` and optional `segmentKey` so
+    /// resolution can be track-scoped, then segment-scoped when segment files
+    /// reset the same chapter's local clock.
     /// `chapterIndex == nil` denotes front-matter blocks (the importer leaves the
     /// chapter index null); those belong to track 0 only.
     typealias TimelineRow = (
-        start: TimeInterval, end: TimeInterval, blockID: String, chapterIndex: Int?
+        start: TimeInterval,
+        end: TimeInterval,
+        blockID: String,
+        chapterIndex: Int?,
+        segmentKey: String?
     )
 
     /// One word's audio `[start, end)` within a block, for karaoke highlighting.
@@ -54,6 +60,52 @@ enum ReaderActiveBlockResolver {
         return nil
     }
 
+    /// Pre-grouped word rows, one bucket per block, **preserving each row's
+    /// original relative order within its block**. Build ONCE when the word
+    /// cache loads; the 12.5 Hz tick then only scans one block's rows instead
+    /// of linear-scanning the whole book (the audit's hottest polling loop).
+    ///
+    /// The win here is narrowing the scan to a single block (tens of rows)
+    /// out of the whole book (thousands) — NOT a sorted/binary-searchable
+    /// structure. Word timings are not guaranteed disjoint or non-overlapping
+    /// (no DB constraint enforces it, and this repo has shipped timing
+    /// anomalies before), so rows are intentionally left unsorted: sorting by
+    /// `start` would change which row wins when ranges overlap, silently
+    /// diverging from the legacy first-match-in-array-order scan.
+    struct WordIndex: Sendable {
+        private let byBlock: [String: [WordRow]]
+
+        init(rows: [WordRow]) {
+            var grouped: [String: [WordRow]] = [:]
+            for row in rows { grouped[row.blockID, default: []].append(row) }
+            byBlock = grouped
+        }
+
+        fileprivate func rows(for blockID: String) -> [WordRow]? { byBlock[blockID] }
+    }
+
+    /// Index-backed variant of `activeWord(in:time:activeBlockID:)` — a
+    /// per-block linear scan in the rows' original order, so it returns
+    /// exactly the same first-match result as the whole-book scan, including
+    /// when ranges overlap or nest. The performance win is scanning one
+    /// block's rows instead of the whole book's.
+    static func activeWord(
+        in index: WordIndex,
+        time: TimeInterval,
+        activeBlockID: String?
+    ) -> Int? {
+        guard let activeBlockID, let rows = index.rows(for: activeBlockID) else { return nil }
+        for row in rows {
+            if time >= row.start && time < row.end { return row.wordIndex }
+        }
+        return nil
+    }
+
+    /// Shared durable key used by segment writers and reader call sites.
+    static func segmentKey(forChapter chapter: Int, segment: Int) -> String {
+        "\(chapter)-\(segment)"
+    }
+
     /// Resolves the block whose audio range contains `time`, considering only the
     /// rows that belong to the current track.
     ///
@@ -74,8 +126,18 @@ enum ReaderActiveBlockResolver {
     static func activeBlockID(
         in cache: [TimelineRow],
         time: TimeInterval,
+        currentTrackSegmentKey: String? = nil,
         currentTrackChapterIndices: Set<Int>?
     ) -> String? {
+        if let segmentKey = currentTrackSegmentKey {
+            for row in cache where row.segmentKey == segmentKey {
+                if time >= row.start && time < row.end {
+                    return row.blockID
+                }
+            }
+            return nil
+        }
+
         if let scope = currentTrackChapterIndices {
             // Track-scoped: filter to the current track, then linear-scan by time.
             // The scoped slice is small (one chapter's worth of blocks for the

@@ -54,10 +54,20 @@ on:
         options: [nightly, weekly]
         default: nightly
 
-# Don't pile up overlapping builds of the same channel, but never cancel an
-# in-flight upload (an interrupted TestFlight submission is messy to recover).
+# ONE shared group across BOTH channels, and never cancel an in-flight upload
+# (an interrupted TestFlight submission is messy to recover). Per-channel keys
+# look tempting — a weekly dispatch would not have to wait for a nightly — but
+# they reintroduce the Monday build-number race: both crons fire at 08:20 UTC
+# on Mondays, and with different group keys the nightly and weekly runs build
+# CONCURRENTLY. Each then computes `latest_testflight_build_number + 1` from
+# the same TestFlight state, so both archives get the same build number and
+# one upload dies as a "Redundant Binary Upload" (the 2026-06-29 collision,
+# re-proven by the twin 2026-08-10 Monday failures). A single group serializes
+# them: the second run queues until the first finishes, then reads the fresh
+# build number. GitHub keeps at most one queued run per group, which is
+# exactly enough for the two Monday crons.
 concurrency:
-  group: release-trains-${{ github.event.inputs.channel || github.event.schedule }}
+  group: release-trains
   cancel-in-progress: false
 
 jobs:
@@ -203,9 +213,12 @@ jobs:
           ruby-version: .ruby-version
           bundler-cache: true
 
-      # The `beta` lane archives iOS (+ embedded watch & widget) and macOS, then
-      # uploads every binary to TestFlight using fastlane/testflight/*.txt for
-      # the "What to Test" copy. Tip: route the Nightly and Weekly builds to
+      # The `beta` lane archives iOS (+ embedded watch & widget) and, when the
+      # shared "Echo macOS" scheme is present, the Mac app too. Only the iOS
+      # .ipa is uploaded — pilot takes one binary per call, so the macOS .pkg is
+      # built but not shipped, and a macOS archive failure is a warning that
+      # never blocks the iOS upload. "What to Test" copy comes from
+      # fastlane/testflight/*.txt. Tip: route the Nightly and Weekly builds to
       # separate TestFlight tester groups so testers self-select their risk.
       - name: Upload ${{ needs.resolve.outputs.channel }} build to TestFlight
         if: steps.creds.outputs.ready == 'true'

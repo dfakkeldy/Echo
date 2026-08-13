@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import os.log
 
 #if canImport(AudioMarker)
     import AudioMarker
 #endif
 
 /// One chapter boundary for the exported m4b.
-struct ChapterAtom {
+nonisolated struct ChapterAtom: Sendable {
     let startTime: Double
     let title: String
 }
@@ -22,8 +23,10 @@ struct ChapterAtom {
 
 /// Writes real Nero (`chpl`) + QuickTime (`chap`) chapter atoms via the
 /// `swift-audio-marker` package. Replaces the former copy-only stub.
-struct ChapterMarkerWriter {
+nonisolated struct ChapterMarkerWriter {
     enum WriteError: Error { case unavailableOnPlatform }
+
+    static let logger = Logger(subsystem: "com.echo.export", category: "ChapterMarkerWriter")
 
     /// Copies `sourceURL` → `outputURL`, then writes chapter atoms (and, when
     /// supplied, book-level title/author/cover-art tags) in place.
@@ -43,7 +46,8 @@ struct ChapterMarkerWriter {
         _ chapters: [ChapterAtom],
         to sourceURL: URL,
         outputURL: URL,
-        metadata: ExportMetadata? = nil
+        metadata: ExportMetadata? = nil,
+        replaceExistingBookMetadata: Bool = false
     ) async throws {
         if FileManager.default.fileExists(atPath: outputURL.path) {
             try FileManager.default.removeItem(at: outputURL)
@@ -61,12 +65,36 @@ struct ChapterMarkerWriter {
                     PackageChapter(start: .seconds(atom.startTime), title: atom.title)
                 })
             if let metadata {
-                info.metadata.title = metadata.title
+                // Map the book onto the audiobook tags players expect, landing in the
+                // `ilst` atoms ©nam/©alb/©ART/aART/©gen/©cmt. album/albumArtist/genre
+                // DEFAULT only when the source carries none — so re-exporting an
+                // imported m4b keeps its real album/series/genre rather than clobbering
+                // them with the title / "Audiobook". Repair retag opts into replacement.
+                if !metadata.title.isEmpty {
+                    info.metadata.title = metadata.title
+                    if replaceExistingBookMetadata || (info.metadata.album ?? "").isEmpty {
+                        info.metadata.album = metadata.title
+                    }
+                }
+                if replaceExistingBookMetadata || (info.metadata.genre ?? "").isEmpty {
+                    info.metadata.genre = "Audiobook"
+                }
                 if let author = metadata.author, !author.isEmpty {
                     info.metadata.artist = author
+                    if replaceExistingBookMetadata || (info.metadata.albumArtist ?? "").isEmpty {
+                        info.metadata.albumArtist = author
+                    }
+                }
+                if let comment = metadata.comment, !comment.isEmpty {
+                    info.metadata.comment = comment
                 }
                 if let coverArt = metadata.coverArt {
-                    info.metadata.artwork = try? Artwork(data: coverArt)
+                    if let artwork = try? Artwork(data: coverArt) {
+                        info.metadata.artwork = artwork
+                    } else {
+                        Self.logger.warning(
+                            "export: cover art could not be decoded; exporting without a cover")
+                    }
                 }
             }
             try engine.modify(info, in: outputURL)

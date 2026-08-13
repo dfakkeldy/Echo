@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Testing
+
 @testable import Echo
 
 struct SchedulingAlgorithmTests {
@@ -67,6 +68,16 @@ struct SchedulingAlgorithmTests {
         #expect(result.intervalDays >= 1)
     }
 
+    @Test func fsrs_persistsClampedLastGradeForOffScaleInput() {
+        // Legacy/watch senders historically emitted 0 ("Again") / 5 ("Easy").
+        // lastGrade must be stored clamped to a valid ReviewGrade (1...4).
+        let scheduler = FSRSScheduler()
+        #expect(scheduler.review(card: makeCard(), grade: 5, now: now).lastGrade == 4)
+        #expect(scheduler.review(card: makeCard(), grade: 0, now: now).lastGrade == 1)
+        let stored = scheduler.review(card: makeCard(), grade: 5, now: now).lastGrade ?? -1
+        #expect(ReviewGrade(rawValue: stored) != nil)
+    }
+
     @Test func fsrs_firstFail_lowStability() {
         let card = makeCard()
         let scheduler = FSRSScheduler()
@@ -112,6 +123,20 @@ struct SchedulingAlgorithmTests {
         let lowGrade = scheduler.review(card: makeCard(difficulty: 1.0), grade: 1, now: now)
         #expect((lowGrade.difficulty ?? 0) >= 1.0)
         #expect((lowGrade.difficulty ?? 10) <= 10.0)
+    }
+
+    @Test func fsrsPersistsClampedLowGrade() {
+        let scheduler = FSRSScheduler()
+        let result = scheduler.review(card: makeCard(), grade: 0, now: now)
+
+        #expect(result.lastGrade == ReviewGrade.again.rawValue)
+    }
+
+    @Test func fsrsPersistsClampedHighGrade() {
+        let scheduler = FSRSScheduler()
+        let result = scheduler.review(card: makeCard(), grade: 5, now: now)
+
+        #expect(result.lastGrade == ReviewGrade.easy.rawValue)
     }
 
     // ── Helpers ──
