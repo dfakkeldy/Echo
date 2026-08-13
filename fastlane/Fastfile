@@ -4,14 +4,38 @@ default_platform(:ios)
 
 # ── Helpers ────────────────────────────────────────────────────────
 
-# Returns true if the given scheme name exists in the project.
+# Absolute path to the repository root.
+#
+# Fastlane runs a lane body and an action from DIFFERENT working directories:
+# `Runner#execute` wraps the whole lane in `Dir.chdir(FastlaneFolder.path)`
+# (= fastlane/), while `Runner#execute_action` separately chdirs to ".." for
+# each action. So `build_app(project: "Echo.xcodeproj")` resolves, but anything
+# the lane touches directly — a bare `sh`, a `File.exist?` — resolves against
+# fastlane/. FastlaneFolder.path is itself cwd-relative ("./" from inside the
+# folder, "./fastlane/" from the root), so expanding ".." against it yields the
+# repo root from either position.
+def repo_root
+  File.expand_path("..", FastlaneCore::FastlaneFolder.path || Dir.pwd)
+end
+
+# Returns true if the named *shared* scheme is committed in the project.
+#
+# Only shared schemes (Echo.xcodeproj/xcshareddata/xcschemes/) survive a fresh
+# clone, so they are exactly the set CI can build — checking the file is both
+# cheaper and more honest than shelling out to `xcodebuild -list`.
+#
+# History: this probe used to run `sh("xcodebuild -project 'Echo.xcodeproj'
+# -list -json")`. Inside a Fastfile `sh` is FastFile#sh → Actions.sh_no_action,
+# which does NOT chdir to the repo root, so xcodebuild looked for
+# fastlane/Echo.xcodeproj, exited non-zero, `sh` raised, and the bare `rescue`
+# swallowed it. The probe therefore returned false on EVERY run since it was
+# written, the macOS archive below was never attempted, and the weekly guard
+# that depends on it was dead code. Keep the rescue loud so the next silent
+# failure shows up in the log.
 def scheme_exists?(scheme_name)
-  output = sh(
-    "xcodebuild -project 'Echo.xcodeproj' -list -json",
-    log: false
-  )
-  JSON.parse(output)["project"]["schemes"].include?(scheme_name)
-rescue
+  File.exist?(File.join(repo_root, "Echo.xcodeproj", "xcshareddata", "xcschemes", "#{scheme_name}.xcscheme"))
+rescue => e
+  UI.important("Scheme probe for '#{scheme_name}' failed: #{e.message}. Treating the scheme as absent.")
   false
 end
 
@@ -126,8 +150,10 @@ platform :ios do
     This lane:
     1. Syncs code signing via match (appstore) for all bundle IDs
     2. Archives the iOS target (includes bundled watchOS app + widget)
-    3. Archives the macOS target (if a macOS scheme exists)
-    4. Uploads all resulting .ipa / .pkg files to TestFlight
+    3. Archives the macOS target when the shared "Echo macOS" scheme exists.
+       Failures only warn — they never block the iOS upload.
+    4. Uploads the iOS .ipa to TestFlight. pilot takes ONE binary per call, so
+       any macOS .pkg is archived but NOT uploaded (see the upload note below).
 
     Prerequisites:
     - fastlane match set up with a git repo and MATCH_PASSWORD
@@ -269,18 +295,38 @@ platform :ios do
         )
       rescue => e
         message = "macOS archive failed for #{channel.empty? ? 'manual' : channel} channel: #{e.message}"
-        if channel == "nightly"
-          github_warning("#{message}. Continuing nightly iOS upload; fix the macOS target and re-run.")
-        else
-          UI.user_error!("#{message}. Weekly/release trains require a successful macOS archive.")
-        end
+        # Deliberately a warning on EVERY channel, weekly included.
+        #
+        # This block used to hard-fail (`UI.user_error!`) on weekly/release, but
+        # that guard had never once executed: `scheme_exists?` was cwd-broken
+        # (see the helper above), so the whole macOS path was dead code. Now that
+        # the probe works, a hard fail here would abort the lane BEFORE
+        # upload_to_testflight and take the iOS build down with it — on a macOS
+        # signing path that has never run in CI and whose Mac Installer
+        # Distribution certificate is still unresolved.
+        #
+        # Re-arm the weekly hard fail once a macOS archive has actually succeeded
+        # in CI *and* a Mac binary is genuinely part of the release (which also
+        # needs its own upload_to_testflight call — see the upload note below).
+        github_warning("#{message}. Continuing the iOS upload; fix the macOS target and re-run.")
       end
     else
-      UI.important("No macOS scheme found — skipping macOS build. Create 'Echo macOS' scheme in Xcode to include it.")
+      UI.important("No shared 'Echo macOS' scheme found — skipping macOS build. Mark the scheme Shared in Xcode (Product ▸ Scheme ▸ Manage Schemes) and commit it to include the Mac archive.")
     end
 
-    # ── Upload to TestFlight ─────────────────────────
-    # This will automatically pick up and upload both the iOS (.ipa) and macOS (.pkg/.ipa) binaries found in the build directory
+    # ── Upload to TestFlight (iOS ONLY) ──────────────
+    # pilot uploads exactly ONE binary per call: `ipa` and `pkg` are declared as
+    # conflicting options. When the macOS archive above succeeds it leaves a
+    # .pkg in lane_context, pilot picks the .ipa, logs a "both defined" warning,
+    # and silently discards the .pkg. `app_platform` is pinned to "ios" below so
+    # that choice is explicit instead of inferred from the ipa's Info.plist.
+    #
+    # Actually shipping the Mac app needs a SECOND upload_to_testflight call with
+    # `pkg:` + `app_platform: "osx"` — plus macOS tester copy and a macOS beta
+    # review path, neither of which exists yet. Don't add that call until a macOS
+    # archive has succeeded in CI and the Mac Installer Distribution cert is
+    # resolved.
+    #
     # TestFlight copy lives in version-controlled files (paths relative to fastlane/):
     #   testflight/what_to_test.txt          → per-build "What to Test" (≤4000 chars)
     #   testflight/beta_app_description.txt  → Test Information description (≤4000 chars)
@@ -290,6 +336,10 @@ platform :ios do
       # pilot needs a single bundle id; the Appfile's for_lane(:beta) sets
       # app_identifier to an ARRAY (for match), which upload_to_testflight rejects.
       app_identifier: "com.echo.audiobooks",
+      # Explicit so the .ipa is chosen deterministically even when a macOS .pkg
+      # is present, and so pilot never falls through to its interactive
+      # "Please enter the app's platform" prompt on a headless runner.
+      app_platform: "ios",
       skip_waiting_for_build_processing: false,
       notify_external_testers: tf_external,
       changelog: File.read("testflight/what_to_test.txt"),
