@@ -225,7 +225,7 @@ Accessibility labels announce the active sort, active-filter count, import stage
 
 ### Verification
 
-Run the narrowest relevant tests first, followed by Echo's primary `make test` unit gate through the required Xcode build-slot wrapper. Live acceptance against the owner's Audiobookshelf server should retry the reported Cory Doctorow title and one previously successful title, observing stage progress, Added state, local Library presence, and Open in Echo. Live credentials and private media remain outside committed artifacts.
+Run the narrowest relevant tests first, followed by Echo's primary `make test` unit gate through the required Xcode build-slot wrapper. Live acceptance against the owner's Audiobookshelf server should retry the reported failing title and one previously successful title, observing stage progress, Added state, local Library presence, and Open in Echo. Live credentials, private library metadata, and private media remain outside committed artifacts.
 
 ## Compatibility and rollout
 

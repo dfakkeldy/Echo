@@ -1040,7 +1040,7 @@ Using non-private fixture books, verify on iPhone Simulator and macOS: default N
 
 - [ ] **Step 7: Perform owner-authorized live acceptance**
 
-Against the owner's existing server, without recording credentials/media: retry **The Reverse Centaur's Guide to Life After AI**; observe bytes and stages; confirm retained failure or Added; confirm local Library presence; Open and load audio; repeat with a previously successful title; exercise author/series and genre/tag filters. If failure remains, capture only privacy-safe stage/error category and do not weaken acceptance.
+Against the owner's existing server, without recording credentials, private library metadata, or media: retry the reported failing title; observe bytes and stages; confirm retained failure or Added; confirm local Library presence; Open and load audio; repeat with a previously successful title; exercise author/series and genre/tag filters. If failure remains, capture only privacy-safe stage/error category and do not weaken acceptance.
 
 - [ ] **Step 8: Commit documentation and in-scope final corrections**
 
