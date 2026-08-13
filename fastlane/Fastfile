@@ -315,6 +315,38 @@ platform :ios do
       tf_options[:demo_account_required] = review_info[:demo_account_required]
     end
     upload_to_testflight(tf_options)
+
+    # ── External only: open the group's public TestFlight link ────────────
+    # Tester recruiting is link-driven: a public link lets anyone join the
+    # Weekly group without an email invite (App Store Connect caps public-link
+    # signups at 10,000). Enabling is idempotent and safe before the first
+    # build clears Beta App Review — the link simply starts working once an
+    # approved build is available. Fail-safe: recruiting plumbing must never
+    # kill a train whose upload already succeeded, so every failure here
+    # degrades to a warning. pilot has already logged Spaceship in with the
+    # same key; the ||= is only a belt-and-braces fallback.
+    if tf_group && tf_external
+      begin
+        Spaceship::ConnectAPI.token ||= Spaceship::ConnectAPI::Token.from(hash: @api_key)
+        app = Spaceship::ConnectAPI::App.find("com.echo.audiobooks")
+        group = app.get_beta_groups(filter: { name: tf_group }).first
+        if group.nil?
+          github_warning("TestFlight group '#{tf_group}' not found — public link not enabled.")
+        else
+          unless group.public_link_enabled
+            group.update(attributes: {
+              public_link_enabled: true,
+              public_link_limit_enabled: true,
+              public_link_limit: 10_000
+            })
+            group = app.get_beta_groups(filter: { name: tf_group }).first
+          end
+          UI.important("Public TestFlight link for #{tf_group}: #{group.public_link || '(pending — ASC shows it once a build is approved)'}")
+        end
+      rescue => e
+        github_warning("Could not enable the #{tf_group} public TestFlight link: #{e.message}. Enable it manually in App Store Connect ▸ TestFlight ▸ #{tf_group}.")
+      end
+    end
   end
 
   lane :test_auth do
