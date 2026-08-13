@@ -312,6 +312,7 @@ import ZIPFoundation
             in: fixture, pathSuffix: "/api/libraries", afterRequestCount: priorRequestCount)
         refresh.cancel()
         await refresh.value
+        try await waitUntilPendingResponseCount(0, in: fixture)
 
         #expect(fixture.pendingResponseCount == 0)
     }
