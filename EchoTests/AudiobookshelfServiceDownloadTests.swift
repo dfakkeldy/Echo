@@ -56,10 +56,12 @@ import Testing
         try await fixture.service.downloadItemZip(itemID: "it1", to: destination) { _ in }
 
         let request = try #require(fixture.requests.last)
+        let queryItems =
+            URLComponents(
+                url: try #require(request.url), resolvingAgainstBaseURL: false
+            )?.queryItems ?? []
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer acc")
-        #expect(
-            URLComponents(url: try #require(request.url), resolvingAgainstBaseURL: false)?
-                .queryItems?.contains(where: { $0.name == "token" }) == false)
+        #expect(!queryItems.contains { $0.name == "token" })
     }
 }
 

@@ -357,6 +357,7 @@ import ZIPFoundation
         try await waitUntilRequest(in: fixture, sort: "media.metadata.title")
         fixture.model.cancel()
         await load.value
+        try await waitUntilPendingResponseCount(0, in: fixture)
 
         #expect(fixture.model.loadState == .idle)
         #expect(fixture.pendingResponseCount == 0)

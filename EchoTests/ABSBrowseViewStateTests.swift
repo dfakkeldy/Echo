@@ -27,7 +27,7 @@ struct ABSBrowseViewStateTests {
 
         #expect(src.contains("case .loading"))
         #expect(src.contains("ProgressView(\"Loading books"))
-        #expect(src.contains("ContentUnavailableView(\"No Libraries\""))
+        #expect(src.contains("\"No Libraries\", systemImage: \"books.vertical\""))
         #expect(src.contains("No books in this library"))
         #expect(src.contains("No search results"))
         #expect(src.contains("No books match these filters"))
