@@ -25,14 +25,77 @@ struct MacAudiobookshelfParityTests {
             "Connect must handle the self-signed certificate trust flow.")
     }
 
-    @Test func browsesAndImports() throws {
-        let src = try MacSource.read("Views/MacAudiobookshelfView.swift")
+    @Test func browseUsesSharedStateAndRetainsSuccess() throws {
+        let host = try MacSource.read("Views/MacAudiobookshelfView.swift")
+        let browse = try MacSource.read("Views/MacAudiobookshelfBrowseView.swift")
         #expect(
-            src.contains(".libraries()") && src.contains(".allItems(") && src.contains(".search("),
-            "The browser must list libraries/items and search via the shared service.")
+            host.contains("ABSBrowseModel(")
+                && host.contains("var browseModel: ABSBrowseModel?"),
+            "macOS must construct and retain the shared browse model after connecting.")
         #expect(
-            src.contains("ABSImportService(") && src.contains("prepareLocalFolder("),
-            "Adding an item must download + import it via the shared ABSImportService.")
+            browse.contains("Open in Echo")
+                && browse.contains("Clear Filters")
+                && browse.contains("Not Added to Echo"),
+            "The native Mac browser must expose retained success and matching filters.")
+        #expect(
+            browse.contains("onPlay(book.folderURL)"),
+            "Only the explicit Open in Echo action should hand the imported folder to playback.")
+        #expect(
+            !browse.contains("if await model.addToLibrary(item) { dismiss() }"),
+            "A successful import must not dismiss the Audiobookshelf browser.")
+    }
+
+    @Test func browseExposesMatchingOrganizationAndPagingControls() throws {
+        let browse = try MacSource.read("Views/MacAudiobookshelfBrowseView.swift")
+
+        #expect(browse.contains("Library"))
+        #expect(browse.contains("Sort"))
+        #expect(browse.contains("Filters"))
+        #expect(browse.contains("Search Audiobookshelf"))
+        #expect(browse.contains("loadNextPageIfNeeded"))
+        #expect(browse.contains("refresh()"))
+        #expect(browse.contains("Result count"))
+    }
+
+    @Test func browseRetainsIndependentSelectionAndImportOutcomes() throws {
+        let browse = try MacSource.read("Views/MacAudiobookshelfBrowseView.swift")
+
+        #expect(browse.contains("@State private var selectedItem: ABSLibraryItem?"))
+        #expect(browse.contains("browseModel.importState(for:"))
+        #expect(browse.contains("MacABSImportPresentation.progressLabel(progress)"))
+        #expect(browse.contains("Elapsed"))
+        #expect(browse.contains("Cancel Import"))
+        #expect(browse.contains("Retry"))
+        #expect(browse.contains("Added to Echo"))
+        #expect(browse.contains(".disabled(browseModel.isImporting)"))
+    }
+
+    @Test func browseLifecycleCancelsOwnedWork() throws {
+        let host = try MacSource.read("Views/MacAudiobookshelfView.swift")
+        let browse = try MacSource.read("Views/MacAudiobookshelfBrowseView.swift")
+
+        #expect(host.contains("browseModel?.cancelImport()"))
+        #expect(host.contains("browseModel?.cancel()"))
+        #expect(browse.contains(".onDisappear { cancelOwnedWork() }"))
+        #expect(browse.contains("browseModel.cancelImport()"))
+        #expect(browse.contains("browseModel.cancel()"))
+    }
+
+    @Test func switchingConnectionsReplacesBrowseOwnership() throws {
+        let host = try MacSource.read("Views/MacAudiobookshelfView.swift")
+
+        #expect(
+            host.range(
+                of: #"func installBrowseModel\([\s\S]*?browseModel = ABSBrowseModel\("#,
+                options: .regularExpression) != nil)
+        #expect(
+            host.range(
+                of: #"func switchTo\([\s\S]*?installBrowseModel\("#,
+                options: .regularExpression) != nil)
+        #expect(
+            host.range(
+                of: #"func removeSavedServer\([\s\S]*?browseModel = nil"#,
+                options: .regularExpression) != nil)
     }
 
     @Test func menuOpensAudiobookshelf() throws {
@@ -158,22 +221,17 @@ struct MacAudiobookshelfParityTests {
         )
     }
 
-    /// Found via live device testing: connecting to a brand-new server via the manual
-    /// form (attemptConnect, used for both first connect and "Add Server" while already
-    /// connected) left `selectedLibraryID` set to whatever it was for the PREVIOUSLY
-    /// active server. `loadLibraries()` only assigns a fresh ID when `selectedLibraryID
-    /// == nil`, so the stale ID survived and got queried against the new server —
-    /// observed live as "Server returned HTTP 404" after switching from audiobooks.dev
-    /// to a self-hosted server. `switchTo(_:)` already reset this; attemptConnect() did
-    /// not.
-    @Test func attemptConnectResetsSelectedLibraryBeforeLoadingNewServer() throws {
+    /// Connecting manually must replace the server-scoped shared browser before loading.
+    /// Reusing the prior model would retain that server's library/filter IDs and can query
+    /// them against the new server, reproducing the observed cross-server HTTP 404.
+    @Test func attemptConnectInstallsFreshBrowseModelBeforeLoadingNewServer() throws {
         let src = try MacSource.read("Views/MacAudiobookshelfView.swift")
         #expect(
             src.range(
                 of:
-                    #"func attemptConnect\([\s\S]*?selectedLibraryID = nil[\s\S]*?await loadLibraries\(\)"#,
+                    #"func attemptConnect\([\s\S]*?installBrowseModel\([\s\S]*?await browseModel\?\.load\(\)"#,
                 options: .regularExpression) != nil,
-            "attemptConnect() must reset selectedLibraryID to nil before loadLibraries() runs, so a library ID left over from a previously-connected server can't be queried against the newly-connected one."
+            "attemptConnect() must install and load a fresh ABSBrowseModel for the newly-connected server, so prior server query state cannot leak across the switch."
         )
     }
 }
