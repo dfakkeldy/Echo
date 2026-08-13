@@ -1,1 +1,1 @@
-Runs locally and does not require a login or account. Place your DRM-free audiobook in a folder to play.
+Echo runs entirely on-device and requires no login or account. Quickest review path: add any DRM-free EPUB from Files, then tap Narrate — Echo synthesizes narration on-device after a one-time voice-model download. Audiobook playback: add a DRM-free audiobook (m4b or mp3 folder) the same way. The optional Echo Pro purchase only lifts free-tier limits (narrated chapters and flashcard count); every feature relevant to review is reachable without purchasing.
