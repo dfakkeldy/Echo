@@ -8,9 +8,12 @@ struct MacAudioExportView: View {
     let audiobookID: String
     let bookTitle: String
     let databaseWriter: DatabaseWriter
+    /// Injected, not read from `@Environment` — see `MacArticleWorkshopView`:
+    /// sheet content does not see the `.environment(...)` writes applied to the
+    /// window root, so an environment read here trapped on open.
+    let settings: SettingsManager
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(SettingsManager.self) private var settings
     @State private var isExporting = false
     @State private var savedPath = ""
     @State private var errorText: String?
