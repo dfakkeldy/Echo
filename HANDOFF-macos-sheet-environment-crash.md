@@ -30,3 +30,24 @@ branch claude/peaceful-jones-5c018f. Verify commit 384948f3: run
 then make build-tests && make test-only FILTER=EchoTests/MacSheetEnvironmentInjectionTests,
 then open a PR with --base nightly.
 ```
+
+## 2026-08-13 — Local verification green, PR opened
+
+Done: `Echo macOS` scheme BUILD SUCCEEDED (the four converted views compile, which
+also proves no other call site presented them). `make build-tests` → TEST BUILD
+SUCCEEDED; `make test-only FILTER=EchoTests/MacSheetEnvironmentInjectionTests` →
+4/4 passed. CHANGELOG `[Unreleased] ▸ Fixed` entry added (`436bee1d`). Pushed and
+opened a PR against `nightly`.
+
+Next: Watch hosted CI ("Build gate + tests", ~53 min for a full pass — a ~8 min
+"failure" died at the build step). Then device-verify: open View ▸ Article
+Workshop…, Study ▸ Export for Anki… (⌥⌘E), .m4b export, and slideshow export in
+the real Mac app. Delete this file in the PR that closes the task.
+
+Resume:
+
+```
+Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/peaceful-jones-5c018f,
+branch claude/peaceful-jones-5c018f, PR open against nightly. Run
+`gh pr checks --watch` and report CI as passing, failing, pending, or blocked.
+```
