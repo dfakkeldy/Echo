@@ -7,8 +7,6 @@ import SwiftUI
 /// needs its own presentation while continuing to share ingestion, anthology,
 /// EPUB-build, and library-import behavior.
 struct MacArticleWorkshopView: View {
-    @Environment(SettingsManager.self) private var settings
-
     @State private var inbox: ArticleInboxViewModel
     @State private var websiteCapture: ArticleWebsiteCaptureCoordinator
     @State private var linkBatch: ArticleLinkBatchCoordinator
@@ -25,9 +23,17 @@ struct MacArticleWorkshopView: View {
     @State private var websiteSubmissionID = 0
 
     private let anthologyService: AnthologyService
+    /// Injected rather than read from `@Environment`: this view is presented as a
+    /// sheet from `Echo_macOSApp`, and a sheet only inherits the environment that
+    /// exists where its `.sheet` modifier is attached — which is *outside* the
+    /// `.environment(...)` writes applied to the window's root view. Reading
+    /// `SettingsManager` from the environment therefore trapped on open. A stored
+    /// dependency makes the requirement a compile-time one instead.
+    private let settings: SettingsManager
 
     @MainActor
-    init(db: DatabaseService) {
+    init(db: DatabaseService, settings: SettingsManager) {
+        self.settings = settings
         let fileStore = ArticleWorkshopFileStore()
         let anthologyService = AnthologyService(db: db, fileStore: fileStore)
         self.anthologyService = anthologyService
@@ -580,9 +586,11 @@ private struct MacArticleLinkBatchSheet: View {
 
                 if failureCount > 0, successCount > 0 {
                     HStack {
-                        Text("You can retry the failures or create an anthology from the captured links.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        Text(
+                            "You can retry the failures or create an anthology from the captured links."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                         Spacer()
                         Button("Create with \(successCount) of \(uniqueLinkCount)") {
                             coordinator.createWithSuccesses()
@@ -623,12 +631,15 @@ private struct MacArticleLinkBatchSheet: View {
             .foregroundStyle(.red)
         } else if uniqueLinkCount > 0 {
             HStack(spacing: 12) {
-                Label("\(uniqueLinkCount) link\(uniqueLinkCount == 1 ? "" : "s") ready", systemImage: "link")
+                Label(
+                    "\(uniqueLinkCount) link\(uniqueLinkCount == 1 ? "" : "s") ready",
+                    systemImage: "link")
                 if duplicateCount > 0 {
                     Label(
                         "\(duplicateCount) duplicate\(duplicateCount == 1 ? "" : "s") skipped",
-                        systemImage: "doc.on.doc")
-                        .foregroundStyle(.orange)
+                        systemImage: "doc.on.doc"
+                    )
+                    .foregroundStyle(.orange)
                 }
             }
             .font(.caption)

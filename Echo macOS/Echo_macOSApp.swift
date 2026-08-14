@@ -102,15 +102,23 @@ struct Echo_macOSApp: App {
                         .environment(batchService)
                         .environment(player)
                 }
+                // Every sheet below must be handed the services it needs
+                // explicitly. A `.sheet` inherits the environment that exists
+                // where its modifier is attached, and these modifiers sit
+                // *outside* the `.environment(...)` writes applied to
+                // MacTriPaneView above — so sheet content sees none of them, and
+                // an environment-observable read inside one traps the moment the
+                // sheet opens. MacSheetEnvironmentInjectionTests enforces this.
                 .sheet(isPresented: $showAnkiExport) {
-                    MacAnkiExportView()
+                    MacAnkiExportView(dbService: dbService)
                 }
                 .sheet(isPresented: $showAudioExport) {
                     if let id = player.audiobookID, let db = player.dbService?.writer {
                         MacAudioExportView(
                             audiobookID: id,
                             bookTitle: player.currentTitle,
-                            databaseWriter: db)
+                            databaseWriter: db,
+                            settings: settings)
                     }
                 }
                 .sheet(isPresented: $showVideoExport) {
@@ -118,11 +126,12 @@ struct Echo_macOSApp: App {
                         MacVideoExportView(
                             audiobookID: id,
                             bookTitle: player.currentTitle,
-                            databaseWriter: db)
+                            databaseWriter: db,
+                            settings: settings)
                     }
                 }
                 .sheet(isPresented: $showArticleWorkshop) {
-                    MacArticleWorkshopView(db: dbService)
+                    MacArticleWorkshopView(db: dbService, settings: settings)
                 }
         }
         .defaultLaunchBehavior(.presented)
