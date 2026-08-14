@@ -38,3 +38,18 @@ Next action: after 22:00, xcode-build-slot.sh sim Debug build → capture
 real screenshots per images/figures.json → replace imgNN.png → rerun
 build_book_images.py → recopy to ~/Downloads/book-inbox/.
 ```
+
+## 2026-08-13 late — Real screenshots in, second edition rebuilt + delivered
+Done: 24/36 real figures (23 sim + 1 Mac window); fixed invented "loop
+playlist" + "capture bar" + wrong Mac pane layout in ch05/ch11/ch14/ch15,
+captions, figures.json, skill FIGURES; EPUB rebuilt (51,718 w, mimetype 0),
+delivered to ~/Downloads/book-inbox/ + sent; beta-guide fix PR #556 (open);
+crash chips: Article Workshop (task_c20e89fc), Review Queue (task_61df588b).
+Next: 12 placeholders remain (img03/04/05/06/09/15/21/22/23/29/32/35) —
+most need env fixes (App Group, watch, ABS) or the two crash fixes first.
+Resume:
+```
+Worktree .claude/worktrees/echo-manual-updates-3e9128, branch
+claude/echo-manual-updates-3e9128. Manual done + delivered. Next action:
+none pending here — merge PR #556, then close this task branch.
+```
