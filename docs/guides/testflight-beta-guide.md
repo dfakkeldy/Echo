@@ -157,7 +157,7 @@ When Echo Pro does ship it will be a **one-time unlock, never a subscription**.
 ### Plan N — Mark & Convert *(capture without breaking flow)*
 1. While listening — ideally mid-chore — tap **Mark Passage** on the dock. Playback must never stop. Do it from the watch too.
 2. Later, open the **Card Inbox**: your marks, grouped by book, with context (and a transcript snippet on aligned books). Convert one into a card — write the front as a question — dismiss another, leave a third.
-3. In the reader feed, use the **capture bar**: type a note, then hold to record a voice memo, all while playback continues. Both should thread into the feed at the right position; the memo should play back from its row.
+3. In the reader feed, open the dock's **bookmark button menu**: choose **Add note** and type one, then choose **Record memo** and speak one (stop it from the same menu), all while playback continues. Both should thread into the feed at the right position; the memo should play back from its row.
 4. Promote a note to a bookmark, and a bookmark to a flashcard.
 5. Turn on **Chapter Checkpoints** (in Settings): at a chapter boundary Echo should pause and ask — replay, grade it and move on, or wait. Does the configurable delay behave? Does the new-chapters-per-day cap hold?
 
