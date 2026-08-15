@@ -35,6 +35,11 @@ final class MacBatchProcessingService {
     private(set) var items: [BatchQueueRecord] = []
     private(set) var isProcessing = false
     private var runner: BatchQueueRunner?
+    /// The live drain, retained so `remove` can cancel a book mid-render.
+    private var drainTask: Task<Void, Never>?
+    /// Row id the runner is currently working, set at the top of the stage closure.
+    /// Only this id needs the drain cancelled when it is removed.
+    private var processingItemID: Int64?
 
     init(dbService: DatabaseService, settings: SettingsManager) {
         self.dbService = dbService
@@ -160,13 +165,19 @@ final class MacBatchProcessingService {
         guard runner == nil else { return }
         let runner = BatchQueueRunner(dao: dao, stages: makeStages())
         self.runner = runner
-        Task(priority: .utility) { [weak self] in
+        // An unstructured `Task` does NOT inherit cancellation from the task that
+        // creates it, so the restart below still gives a live drain even when it
+        // runs inside the continuation of a task `remove` just cancelled.
+        drainTask = Task(priority: .utility) { [weak self] in
             guard let self else { return }
             self.isProcessing = true
             await runner.drain()
             self.runner = nil
+            self.drainTask = nil
+            self.processingItemID = nil
             self.refresh()
-            // Re-check for work enqueued during the drain→clear gap.
+            // Re-check for work enqueued during the drain→clear gap, and pick up
+            // whatever a cancelled drain left behind.
             if (try? self.dao.nextQueued()) != nil {
                 self.start()
             } else {
@@ -176,17 +187,30 @@ final class MacBatchProcessingService {
     }
 
     func refresh() { items = (try? dao.allItems()) ?? [] }
-    func clearCompleted() {
-        try? dao.deleteCompleted()
+
+    /// Clears every terminal row — completed *and* failed.
+    func clearFinished() {
+        try? dao.deleteFinished()
         refresh()
     }
 
-    /// Removes a still-queued item from the queue (no-op if the runner has already
-    /// started it). Only the queue row is deleted — any rendered chapters for the
-    /// book stay in the library. Mirrors `clearCompleted()`: DAO write then refresh.
-    func removeQueued(_ item: BatchQueueRecord) {
+    /// Removes any item from the queue, whatever its status.
+    ///
+    /// Deleting the row is not enough for an item the runner is mid-way through:
+    /// the render would keep burning the engine for a book that is no longer
+    /// queued, and the next status write would silently no-op. So when the removed
+    /// row is the live one, cancel the drain too. `start()`'s completion path then
+    /// spins up a fresh drain for whatever is still queued.
+    ///
+    /// Only the queue row is deleted — any chapters already rendered for the book
+    /// stay in the library.
+    func remove(_ item: BatchQueueRecord) {
         guard let id = item.id else { return }
-        try? dao.deleteQueued(id: id)
+        try? dao.delete(id: id)
+        if processingItemID == id {
+            drainTask?.cancel()
+            processingItemID = nil
+        }
         refresh()
     }
 
@@ -205,6 +229,10 @@ final class MacBatchProcessingService {
         let alignmentService = self.alignmentService
         let logger = self.logger
         return .init(run: { [weak self] record, rawProgress in
+            // Record which row is live so `remove` knows whether deleting it also
+            // has to cancel the drain. Cleared by `start()`'s completion path.
+            self?.processingItemID = record.id
+
             // Wrap the runner's DAO-writing progress callback so each stage
             // transition ALSO refreshes the in-memory `items` snapshot. Without
             // this, the runner persists importing→transcribing→aligning to the
@@ -448,7 +476,8 @@ final class MacBatchProcessingService {
                             chapterIndex: chapter.chapterIndex,
                             sourceChapterKey: chapter.sourceChapterKey,
                             blocks: chapter.blocks,
-                            voice: chapter.voice).path
+                            voice: chapter.voice
+                        ).path
                     }
                     guard
                         let offset = NarrationPlanTrackOffsets.chapterOffsets(
