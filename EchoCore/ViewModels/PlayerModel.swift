@@ -2032,6 +2032,18 @@ final class PlayerModel {
     func stopVoiceMemo() {
         bookmarkStore.stopVoiceMemo()
         resumeAudioForMainPlayer()
+        // Resume only if the book was playing when the memo took over.
+        // `prepareAudioForVoiceMemo()` pauses the engine without touching
+        // `state.isPlaying`, so that flag still carries the pre-memo truth.
+        // Resuming unconditionally restarted a paused book the listener never
+        // asked to resume, and published rate = speed over it — leaving the
+        // system Now Playing card showing a pause button while Echo's own UI
+        // (which reads `isPlaying`) still showed play. Mirrors the guards in
+        // `bookmarkStore.onSwitchToMainPlayer` and `snippetPlayer.onPlaybackDidEnd`.
+        guard isPlaying else {
+            updateNowPlayingInfo(isPaused: true)
+            return
+        }
         audioEngine.playImmediately(atRate: speed)
         playbackController.applySpeedToCurrentItem()
         updateNowPlayingInfo(isPaused: false)
