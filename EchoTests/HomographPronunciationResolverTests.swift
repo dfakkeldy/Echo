@@ -128,6 +128,9 @@ import Testing
         #expect(
             HomographPronunciationResolver.apply(to: "The live content shipped today.")
                 == "The [live](/lˈIv/) [content](/kˈɑntɛnt/) shipped today.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "He lost his live stock in the fire.")
+                == "He lost his [live](/lˈIv/) stock in the fire.")
     }
 
     @Test func resolvesWeatherLinkLiveProductName() throws {
