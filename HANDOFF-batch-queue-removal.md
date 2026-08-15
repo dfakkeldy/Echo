@@ -10,10 +10,19 @@ cancels the drain when the removed row is the live one; the row shows
 `errorMessage` for failed items instead of the stale progress message.
 Tests added to `BatchQueueDAOTests` and `BatchQueueRunnerTests`.
 
-Next: Build + test. Blocked — `xcode-build-slot.sh --status` reports HOLD
-(Saturday, outside daily 22:00–07:00 and weekday 09:00–15:00 windows).
-Needs `make test` AND an out-of-band `Echo macOS` build (the iOS test gate
-is blind to the macOS scheme). Then PR `--base nightly`.
+Verified: `make test` → `** TEST SUCCEEDED **` (full EchoTests, 0 failures),
+run under `XBG_ALLOW_NOW=1`. NOTE the first attempt exited 0 having built
+nothing — "Build deferred: resource admission failed after preflight"
+(pressure 2/2, swapFree 1188MB < warnMin 2048 while Echo was rendering).
+`XBG_ALLOW_NOW=1` overrides the schedule, NOT the memory gate. Always grep
+the output for `TEST SUCCEEDED`; exit 0 alone proves nothing.
+
+Also verified: `xcodebuild build -scheme "Echo macOS" -destination
+'platform=macOS' -jobs 5 CODE_SIGNING_ALLOWED=NO` → `** BUILD SUCCEEDED **`,
+0 errors. Needed out of band: `make test` never compiles the macOS scheme, so
+the view and service edits are invisible to it (and to CI's build gate).
+
+Next: PR `--base nightly`, then delete this file in that PR once CI is green.
 
 Open, separate bug: narration has no intra-chapter resume. The `.partial.m4a`
 is deleted on entry and in the `defer` (`NarrationService.swift:965-973`) and
