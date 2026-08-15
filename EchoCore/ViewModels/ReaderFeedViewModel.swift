@@ -253,6 +253,22 @@ final class ReaderFeedViewModel {
                 var audioChaptersWithHeadings: Set<Int> = []
                 var titlesByKey: [Int: String] = [:]
 
+                // The publisher's TOC label for whichever entry anchors each
+                // chapter's first block, else the audio chapter's own title —
+                // the rule the macOS reader shares. Hoisted out of the loop
+                // below, which re-read every audio chapter once per chapter.
+                let audioChapters = (try? chapterDAO.chapters(for: audiobookID)) ?? []
+                var firstBlockIDByChapter: [Int: String] = [:]
+                for key in sortedKeys where key >= 0 {
+                    if let first = grouped[key]?.first { firstBlockIDByChapter[key] = first.id }
+                }
+                let resolvedTitles = ChapterTitleResolver.titles(
+                    firstBlockIDByChapter: firstBlockIDByChapter,
+                    tocEntries: tocEntries,
+                    audioChapterTitles: Dictionary(
+                        audioChapters.enumerated().map { ($0.offset, $0.element.title) },
+                        uniquingKeysWith: { first, _ in first }))
+
                 for key in sortedKeys {
                     guard let chapterBlocks = grouped[key], !chapterBlocks.isEmpty else { continue }
 
@@ -261,8 +277,7 @@ final class ReaderFeedViewModel {
                     if isFrontMatter {
                         chapterTitle = ""
                     } else {
-                        let chapters = try? chapterDAO.chapters(for: audiobookID)
-                        let rawTitle = chapters?[safe: key]?.title ?? "Chapter \(key + 1)"
+                        let rawTitle = resolvedTitles[key] ?? "Chapter \(key + 1)"
                         chapterTitle = Self.formatChapterTitle(rawTitle)
                     }
                     titlesByKey[key] = chapterTitle
