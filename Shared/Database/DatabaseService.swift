@@ -129,6 +129,12 @@ final class DatabaseService {
     nonisolated static func makeMigrator() -> DatabaseMigrator {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("v1_create_schema") { db in try Schema_V1.migrate(db) }
+        migrator.registerMigration(
+            "v24_feed_note_position_voice_memo",
+            merging: Schema_V24.mergedMigrationIdentifiers
+        ) { db, appliedIdentifiers in
+            try Schema_V24.migrate(db, appliedIdentifiers: appliedIdentifiers)
+        }
         migrator.registerMigration("v25_study_plans") { db in
             try Schema_V25.migrate(db)
         }
