@@ -97,8 +97,25 @@ struct EPUBImportService {
             assignsStructureChapterIndices: chapters.isEmpty,
             blocks: &allBlocks)
 
-        // 7. Assign Chapter Index based on cumulative word-count fraction.
-        if let duration = bookDuration, !chapters.isEmpty, !allBlocks.isEmpty {
+        // 7. Assign Chapter Index for a book whose audio carries chapter marks.
+        // Prefer the publisher TOC whenever its labels line up with the audio
+        // chapter list: it names each chapter's exact first block, where the
+        // cumulative word-count fraction below can only estimate — and that
+        // estimate drifts, because no audiobook is narrated at a uniform
+        // words-per-second rate (credits carry no text; contents lists,
+        // timelines, and cast pages are read at a different density entirely).
+        if !chapters.isEmpty, !allBlocks.isEmpty,
+            let tocChapterIndices = AudioChapterTOCAlignment.chapterIndices(
+                blocks: allBlocks,
+                tocEntries: tocRecords,
+                audioChapters: chapters.map {
+                    AudioChapterTOCAlignment.AudioChapter(index: $0.index, title: $0.title)
+                })
+        {
+            for index in allBlocks.indices {
+                allBlocks[index].chapterIndex = tocChapterIndices[allBlocks[index].id]
+            }
+        } else if let duration = bookDuration, !chapters.isEmpty, !allBlocks.isEmpty {
             let totalWords = Double(
                 allBlocks.reduce(0) {
                     $0 + CommercialAudioAlignmentSource.wordWeight(for: $1)
@@ -209,7 +226,8 @@ struct EPUBImportService {
             {
                 firstHeadingBlockIDBySpine[spineIndex] = block.id
             }
-            for anchor in descriptor.anchorIDs where anchorBlockIDBySpine[spineIndex]?[anchor] == nil {
+            for anchor in descriptor.anchorIDs
+            where anchorBlockIDBySpine[spineIndex]?[anchor] == nil {
                 anchorBlockIDBySpine[spineIndex, default: [:]][anchor] = block.id
             }
         }
