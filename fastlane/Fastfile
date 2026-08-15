@@ -4,25 +4,15 @@ default_platform(:ios)
 
 # ── Helpers ────────────────────────────────────────────────────────
 
-# Absolute path to the repository root.
-#
-# Fastlane runs a lane body and an action from DIFFERENT working directories:
-# `Runner#execute` wraps the whole lane in `Dir.chdir(FastlaneFolder.path)`
-# (= fastlane/), while `Runner#execute_action` separately chdirs to ".." for
-# each action. So `build_app(project: "Echo.xcodeproj")` resolves, but anything
-# the lane touches directly — a bare `sh`, a `File.exist?` — resolves against
-# fastlane/. FastlaneFolder.path is itself cwd-relative ("./" from inside the
-# folder, "./fastlane/" from the root), so expanding ".." against it yields the
-# repo root from either position.
-def repo_root
-  File.expand_path("..", FastlaneCore::FastlaneFolder.path || Dir.pwd)
-end
+require_relative "lib/echo_release_scheme"
 
 # Returns true if the named *shared* scheme is committed in the project.
 #
 # Only shared schemes (Echo.xcodeproj/xcshareddata/xcschemes/) survive a fresh
 # clone, so they are exactly the set CI can build — checking the file is both
-# cheaper and more honest than shelling out to `xcodebuild -list`.
+# cheaper and more honest than shelling out to `xcodebuild -list`. The helper
+# anchors the project path to its own file, so Fastlane's lane/action chdir
+# behavior cannot change the result.
 #
 # History: this probe used to run `sh("xcodebuild -project 'Echo.xcodeproj'
 # -list -json")`. Inside a Fastfile `sh` is FastFile#sh → Actions.sh_no_action,
@@ -33,7 +23,7 @@ end
 # that depends on it was dead code. Keep the rescue loud so the next silent
 # failure shows up in the log.
 def scheme_exists?(scheme_name)
-  File.exist?(File.join(repo_root, "Echo.xcodeproj", "xcshareddata", "xcschemes", "#{scheme_name}.xcscheme"))
+  EchoReleaseScheme.scheme_exists?(scheme_name)
 rescue => e
   UI.important("Scheme probe for '#{scheme_name}' failed: #{e.message}. Treating the scheme as absent.")
   false

@@ -20,6 +20,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Fastlane shared-scheme probe (fast, no Xcode)
+        run: make fastlane-scheme-test
+
       # Fast, no-Xcode signal: a pure-stdlib Python unittest suite over
       # Scripts/echo_renderer/ (versioned renderer install/verify/promote/repair).
       # Runs in seconds without a simulator or SDK, so failures here are caught
