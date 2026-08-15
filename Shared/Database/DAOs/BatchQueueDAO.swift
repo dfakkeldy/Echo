@@ -76,23 +76,28 @@ struct BatchQueueDAO {
         }
     }
 
-    func deleteCompleted() throws {
+    /// Removes every terminal row — both `completed` and `failed`. A failed row
+    /// used to be unremovable: `deleteCompleted` skipped it and the per-row delete
+    /// only accepted `queued`, so a book that failed months ago was stuck in the
+    /// queue with no UI able to clear it.
+    func deleteFinished() throws {
         _ = try db.write { db in
             try BatchQueueRecord
-                .filter(Column("status") == BatchItemStatus.completed.rawValue)
+                .filter(BatchItemStatus.finishedRawValues.contains(Column("status")))
                 .deleteAll(db)
         }
     }
 
-    /// Removes a single queue entry, but only while it is still `queued` — a row the
-    /// runner has already started (or finished) is left untouched, and deleting a
-    /// non-queued id is a no-op. Only the queue row is removed; rendered audio,
-    /// tracks, and anchors for the book are not touched.
-    func deleteQueued(id: Int64) throws {
+    /// Removes a single queue entry regardless of status. Deleting a row the runner
+    /// is mid-processing is safe here — `updateStatus` no-ops on a missing id — but
+    /// the caller must also cancel the drain, or the engine keeps rendering a book
+    /// that is no longer queued. `MacBatchProcessingService.remove` does both.
+    ///
+    /// Only the queue row is removed; rendered audio, tracks, and anchors for the
+    /// book are not touched.
+    func delete(id: Int64) throws {
         _ = try db.write { db in
-            try BatchQueueRecord
-                .filter(Column("id") == id && Column("status") == BatchItemStatus.queued.rawValue)
-                .deleteAll(db)
+            try BatchQueueRecord.filter(Column("id") == id).deleteAll(db)
         }
     }
 }

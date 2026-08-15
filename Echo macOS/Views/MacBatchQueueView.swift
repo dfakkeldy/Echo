@@ -35,15 +35,16 @@ struct MacBatchQueueView: View {
                         MacBatchQueueRow(
                             item: item,
                             onOpen: (item.kind == .narrate
-                                && (item.status == .completed || item.status == .failed)
+                                && item.status.isFinished
                                 && service.hasRenderedTracks(for: item.audiobookID))
                                 ? {
                                     player.loadNarratedBook(audiobookID: item.audiobookID)
                                     dismiss()
                                 }
                                 : nil,
-                            // Only a not-yet-started item can be pulled from the queue.
-                            onRemove: item.status == .queued ? { service.removeQueued(item) } : nil)
+                            // Every item is removable, whatever its status. Removing
+                            // the one being processed cancels the render too.
+                            onRemove: { service.remove(item) })
                     }
                 }
             }
@@ -54,14 +55,17 @@ struct MacBatchQueueView: View {
     }
 
     /// Inline header bar standing in for the absent sheet titlebar: title,
-    /// "Clear Completed", and a cancel-role "Done" (also fired by Escape).
+    /// "Clear Finished", and a cancel-role "Done" (also fired by Escape).
     private var header: some View {
         HStack {
             Text("Batch Queue")
                 .font(.headline)
             Spacer()
-            Button("Clear Completed") { service.clearCompleted() }
-                .disabled(!service.items.contains { $0.status == .completed })
+            // Clears failed rows as well as completed ones — a failed book used to
+            // have no way out of the queue at all.
+            Button("Clear Finished") { service.clearFinished() }
+                .disabled(!service.items.contains { $0.status.isFinished })
+                .help("Remove every finished and failed book from the queue")
             Button("Done") { dismiss() }
                 .keyboardShortcut(.cancelAction)
         }
@@ -74,7 +78,7 @@ private struct MacBatchQueueRow: View {
     let item: BatchQueueRecord
     /// Non-nil for a completed narrated book: opens it in the player.
     var onOpen: (() -> Void)? = nil
-    /// Non-nil for a queued item: removes it from the queue.
+    /// Removes the item from the queue — offered for every status.
     var onRemove: (() -> Void)? = nil
 
     var body: some View {
@@ -82,12 +86,12 @@ private struct MacBatchQueueRow: View {
             icon
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.displayName).font(.headline)
-                if let msg = item.statusMessage ?? item.errorMessage {
-                    Text(msg).font(.caption).foregroundStyle(.secondary)
+                if let detail {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(item.status == .failed ? .red : .secondary)
                 }
-                if item.status != .queued && item.status != .completed
-                    && item.status != .failed
-                {
+                if item.status.isInFlight {
                     ProgressView(value: item.progress)
                 }
             }
@@ -99,20 +103,45 @@ private struct MacBatchQueueRow: View {
             if let onRemove {
                 Spacer()
                 Button(role: .destructive, action: onRemove) {
-                    Image(systemName: "minus.circle")
+                    Image(systemName: item.status.isInFlight ? "stop.circle" : "minus.circle")
                 }
                 .buttonStyle(.borderless)
-                .help("Remove from Queue")
+                .help(removeHelp)
+                .accessibilityLabel(removeLabel)
             }
         }
         .padding(.vertical, 4)
         .contextMenu {
             if let onRemove {
                 Button(
-                    "Remove from Queue", systemImage: "minus.circle", role: .destructive,
+                    removeLabel,
+                    systemImage: item.status.isInFlight ? "stop.circle" : "minus.circle",
+                    role: .destructive,
                     action: onRemove)
             }
         }
+    }
+
+    /// A failed row shows the error. Without this it kept showing the last
+    /// *progress* message (`updateStatus` only overwrites `statusMessage` when a
+    /// new one is passed), so a book that died on a malformed EPUB still read
+    /// "Loading voice models… 3 of 19" and the real reason was never visible.
+    private var detail: String? {
+        item.status == .failed
+            ? (item.errorMessage ?? item.statusMessage)
+            : (item.statusMessage ?? item.errorMessage)
+    }
+
+    private var removeLabel: String {
+        item.status.isInFlight
+            ? String(localized: "Stop and Remove")
+            : String(localized: "Remove from Queue")
+    }
+
+    private var removeHelp: String {
+        item.status.isInFlight
+            ? String(localized: "Stop processing this book and remove it from the queue")
+            : String(localized: "Remove from Queue")
     }
 
     private var icon: some View {
