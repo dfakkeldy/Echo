@@ -98,6 +98,42 @@ import UIKit
             (pausedInfo[MPNowPlayingInfoPropertyDefaultPlaybackRate] as? NSNumber)?.doubleValue
                 == 2.0)
     }
+
+    /// Regression guard for "the watch Smart Stack Now Playing card shows the ⏸
+    /// button while the book is paused" — the same symptom as the test above,
+    /// one layer further out, and fixed three times on the wrong surface first.
+    ///
+    /// Rate-0 metadata alone is *not* sufficient here. `AudioEngine.pause()`
+    /// pauses only the `AVAudioPlayerNode`, the `AVAudioEngine` keeps running
+    /// and the `.playback` session is never deactivated, so Echo is an app
+    /// "where playback state cannot be determined by the application's audio
+    /// session" (`MPNowPlayingInfoCenter.h`) on iOS as much as on macOS. The
+    /// explicit assertion below is the only transport signal the relayed watch
+    /// card can read, so it must be published on every platform EchoCore builds
+    /// for — do not re-gate it behind `#if os(macOS)`.
+    @Test func playbackStateFollowsPauseFlagOnEveryPlatform() {
+        let controller = NowPlayingController()
+        let center = MPNowPlayingInfoCenter.default()
+        let previousInfo = center.nowPlayingInfo
+        let previousState = center.playbackState
+        defer {
+            center.nowPlayingInfo = previousInfo
+            center.playbackState = previousState
+        }
+
+        var playing = NowPlayingController.NowPlayingParams()
+        playing.title = "Playing Book"
+        playing.duration = 100
+        playing.isPaused = false
+        playing.playbackRate = 2.0
+        controller.updateNowPlayingInfo(playing)
+        #expect(center.playbackState == .playing)
+
+        var paused = playing
+        paused.isPaused = true
+        controller.updateNowPlayingInfo(paused)
+        #expect(center.playbackState == .paused)
+    }
 }
 
 /// Test-only bridge for the Obj-C artwork object that MediaPlayer itself invokes cross-queue.

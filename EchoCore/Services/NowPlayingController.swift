@@ -178,11 +178,20 @@ final class NowPlayingController {
         let center = MPNowPlayingInfoCenter.default()
         center.nowPlayingInfo = info
 
-        #if os(macOS)
-            // Apple documents this explicit state property as macOS-only. iOS
-            // derives transport state from the playback-rate metadata above.
-            center.playbackState = params.isPaused ? .paused : .playing
-        #endif
+        // `playbackState` applies wherever "playback state cannot be determined
+        // by the application's audio session" (MPNowPlayingInfoCenter.h). That
+        // condition holds for Echo on iOS exactly as it does on macOS:
+        // `AudioEngine.pause()` pauses only the AVAudioPlayerNode — the
+        // AVAudioEngine keeps running and the .playback session is never
+        // deactivated — so from the system's side nothing about our audio
+        // changes when the listener pauses, and the rate-0 metadata above is
+        // the only hint it gets. That is enough for the Lock Screen, which
+        // renders `nowPlayingInfo` directly, but not for the relayed transport
+        // state the watch Smart Stack Now Playing card draws: it showed a pause
+        // button over a paused book because Echo had never asserted this.
+        // Available since iOS 13 / macOS 10.12.2; EchoCore compiles only into
+        // the iOS app, the macOS app and echo-cli, never watchOS.
+        center.playbackState = params.isPaused ? .paused : .playing
     }
 
     /// MediaPlayer invokes the artwork request handler on its own queue. Build the
