@@ -1164,12 +1164,14 @@
 /* Begin PBXShellScriptBuildPhase section */
 		E5A6C9D01A2B3C4D5E6F7081 /* Stamp build metadata */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
 			);
 			inputPaths = (
+				"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
 			);
 			name = "Stamp build metadata";
 				outputFileListPaths = (
@@ -1183,12 +1185,14 @@
 		};
 		E5A6C9D01A2B3C4D5E6F7082 /* Stamp build metadata */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
 			);
 			inputPaths = (
+				"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
 			);
 			name = "Stamp build metadata";
 				outputFileListPaths = (
