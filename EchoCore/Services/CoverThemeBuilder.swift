@@ -210,24 +210,25 @@ nonisolated enum CoverThemeBuilder {
 
     // MARK: - Public API
 
-    #if canImport(UIKit)
-        static func build(
-            from signature: CoverSignature, scheme: ColorScheme, vividAccent: Bool = false
-        ) -> CoverTheme {
-            let r = resolve(
-                signature, scheme: scheme, brand: ColorMetrics.rgb(Color.accentColor),
-                vividAccent: vividAccent)
-            return CoverTheme(
-                accent: ColorMetrics.color(r.accent),
-                onAccent: ColorMetrics.color(r.onAccent),
-                secondaryAccent: ColorMetrics.color(r.secondaryAccent),
-                backgroundTop: ColorMetrics.color(r.backgroundTop),
-                backgroundBottom: ColorMetrics.color(r.backgroundBottom),
-                chip: ColorMetrics.color(r.chip),
-                isNeutralFallback: r.isNeutralFallback
-            )
-        }
-    #endif
+    /// `resolve` in SwiftUI `Color` terms, seeded from the asset catalog's
+    /// accent. Ungated: its only platform dependency is `ColorMetrics`, which
+    /// now bridges on both UIKit and AppKit.
+    static func build(
+        from signature: CoverSignature, scheme: ColorScheme, vividAccent: Bool = false
+    ) -> CoverTheme {
+        let r = resolve(
+            signature, scheme: scheme, brand: ColorMetrics.rgb(Color.accentColor),
+            vividAccent: vividAccent)
+        return CoverTheme(
+            accent: ColorMetrics.color(r.accent),
+            onAccent: ColorMetrics.color(r.onAccent),
+            secondaryAccent: ColorMetrics.color(r.secondaryAccent),
+            backgroundTop: ColorMetrics.color(r.backgroundTop),
+            backgroundBottom: ColorMetrics.color(r.backgroundBottom),
+            chip: ColorMetrics.color(r.chip),
+            isNeutralFallback: r.isNeutralFallback
+        )
+    }
 
     /// Pure core. `brand` is injected so tests don't depend on the asset catalog.
     /// `vividAccent` selects the accent-promotion style: false (default) judges
