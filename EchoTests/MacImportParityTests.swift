@@ -12,8 +12,10 @@ struct MacImportParityTests {
     @Test func folderLoadPersistsAudiobookAndTrackRecords() throws {
         let src = try MacSource.read("Views/MacPlayerModel.swift")
         #expect(
-            src.contains("persistFolderAudiobookToSQL(folderURL: folderURL, audioFiles: audioFiles)"),
-            "MacPlayerModel.loadFolder must persist the opened folder to SQL after audio discovery.")
+            src.contains(
+                "persistFolderAudiobookToSQL(folderURL: folderURL, audioFiles: audioFiles)"),
+            "MacPlayerModel.loadFolder must persist the opened folder to SQL after audio discovery."
+        )
         #expect(
             src.contains("AudiobookDAO(db: db.writer)") && src.contains("TrackDAO(db: db.writer)"),
             "Folder persistence must use the shared audiobook and track DAOs.")
@@ -21,8 +23,57 @@ struct MacImportParityTests {
             src.contains("let audiobookID = folderURL.absoluteString"),
             "The persisted AudiobookRecord ID must match MacPlayerModel.audiobookID.")
         #expect(
-            src.contains("id: audioURL.absoluteString") && src.contains("filePath: audioURL.absoluteString"),
+            src.contains("id: audioURL.absoluteString")
+                && src.contains("filePath: audioURL.absoluteString"),
             "Persisted TrackRecord IDs must remain compatible with macOS URL-string track IDs.")
+    }
+
+    @Test func batchNarrationImportsPDFsThroughTheSharedScanner() throws {
+        let src = try MacSource.read("Services/MacBatchProcessingService.swift")
+        // Anchored on the whole call, not on "force: true" alone — that fragment
+        // appears three times in this file, so a bare match would be vacuous.
+        #expect(
+            src.contains(
+                "PDFAutoImportScanner.importPDFFile(pdfURL: documentURL, audiobookID: audiobookID, databaseService: dbService, chapters: [], duration: nil, force: true)"
+            ),
+            "A queued PDF must import through the shared PDF scanner with force: true (matching the headless runner), not fall through to the EPUB coordinator."
+        )
+        #expect(
+            src.contains("TextAutoImportScanner.importTextFile")
+                && src.contains(
+                    "EPUBImportCoordinator.importEPUB(from: documentURL, to: documentURL, databaseService: dbService, chapters: [], duration: nil)"
+                ),
+            "The PDF branch must sit alongside the existing text and EPUB import branches, not replace them."
+        )
+    }
+
+    @Test func batchNarrationAcceptsPDFSelections() throws {
+        let scanner = try MacSource.read("Services/FolderAudioScanner.swift")
+        #expect(
+            scanner.contains("narratableDocumentExtensions: Set<String> = [\"epub\", \"pdf\"]")
+                && scanner.contains(
+                    "for documentURL in scanForNarratableDocuments(in: folderURL)"),
+            "A narrate folder sweep must enqueue PDFs alongside EPUBs.")
+
+        // `showOpenPanel` lists `.pdf` too, so this anchors on the narrate panel's
+        // own assignment rather than a bare ".pdf".
+        let app = try MacSource.read("Echo_macOSApp.swift")
+        #expect(
+            app.contains("func chooseDocumentsToNarrate()")
+                && app.contains(
+                    "panel.allowedContentTypes = [UTType(filenameExtension: \"epub\") ?? .data, .pdf,"
+                ),
+            "The narrate open panel must offer PDF, or a PDF can never be selected in the first place."
+        )
+        #expect(
+            app.contains(
+                "narratableFileExtensions: Set<String> = [\"epub\", \"pdf\", \"md\", \"markdown\", \"txt\", \"text\"]"
+            ),
+            "The single-file narrate gate must accept .pdf, or the panel selection is silently dropped."
+        )
+        #expect(
+            app.contains("FolderAudioScanner.enqueueDocumentsForNarration"),
+            "Folder selections must route through the generalized document sweep.")
     }
 
     @Test func folderLoadImportsSiblingEPUBAndPDFDocuments() throws {
@@ -30,7 +81,8 @@ struct MacImportParityTests {
         #expect(
             src.contains(
                 "prepareCompanionDocumentImport(folderURL: folderURL, audioFiles: audioFiles)"),
-            "MacPlayerModel.loadFolder must schedule sibling document import with every discovered audio file.")
+            "MacPlayerModel.loadFolder must schedule sibling document import with every discovered audio file."
+        )
         #expect(
             src.contains("EPUBAutoImportScanner.scanAndImportIfNeeded")
                 && src.contains("PDFAutoImportScanner.scanAndImportIfNeeded"),
@@ -41,7 +93,8 @@ struct MacImportParityTests {
             "The document ingestion trigger must bump when either companion import succeeds.")
         #expect(
             src.contains("let didStart = folderURL.startAccessingSecurityScopedResource()")
-                && src.contains("defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }"),
+                && src.contains(
+                    "defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }"),
             "Asynchronous companion scanning must balance folder security-scoped access.")
     }
 
@@ -67,19 +120,24 @@ struct MacImportParityTests {
         #expect(
             loadFolder.contains(
                 "prepareCompanionDocumentImport(folderURL: folderURL, audioFiles: audioFiles)"),
-            "Folder audio import must queue every discovered track for companion context aggregation.")
+            "Folder audio import must queue every discovered track for companion context aggregation."
+        )
         #expect(
             !loadFolder.contains(
-                "prepareCompanionDocumentImport(folderURL: folderURL, audioURL: audioFiles[currentTrackIndex])"),
+                "prepareCompanionDocumentImport(folderURL: folderURL, audioURL: audioFiles[currentTrackIndex])"
+            ),
             "Multi-track companion import must not limit context to the selected/current track.")
         #expect(
             pendingImport.contains("let audioFiles: [URL]"),
-            "Pending companion imports must retain the full folder track list, not only one audio URL.")
+            "Pending companion imports must retain the full folder track list, not only one audio URL."
+        )
         #expect(
             src.contains("CompanionDocumentImportContext")
                 && src.contains(
-                    "importPendingCompanionDocumentsIfNeeded(for: url, loadedChapters: parsed, loadedDuration: loadedDuration)"),
-            "MacPlayerModel must defer companion import until the selected file has loaded parsed chapters and duration.")
+                    "importPendingCompanionDocumentsIfNeeded(for: url, loadedChapters: parsed, loadedDuration: loadedDuration)"
+                ),
+            "MacPlayerModel must defer companion import until the selected file has loaded parsed chapters and duration."
+        )
         #expect(
             contextBuilder.contains("audioFiles.count <= 1")
                 && contextBuilder.contains("loadedChapters: loadedChapters"),
@@ -96,7 +154,8 @@ struct MacImportParityTests {
         #expect(
             contextBuilder.contains("title: audioFile.deletingPathExtension().lastPathComponent")
                 && contextBuilder.contains("duration: totalDuration > 0 ? totalDuration : nil"),
-            "Tracks without embedded chapters need fallback track windows and the scanners need total duration.")
+            "Tracks without embedded chapters need fallback track windows and the scanners need total duration."
+        )
         #expect(
             companionImport.contains("chapters: context.chapters")
                 && companionImport.contains("duration: context.duration"),
@@ -104,7 +163,8 @@ struct MacImportParityTests {
         #expect(
             !companionImport.contains("chapters: []")
                 && !companionImport.contains("duration: nil"),
-            "Folder audio companion import must not call scanners with empty chapters and nil duration.")
+            "Folder audio companion import must not call scanners with empty chapters and nil duration."
+        )
     }
 
     @Test func modelOpensAudiolessDocuments() throws {
@@ -124,16 +184,19 @@ struct MacImportParityTests {
             src.contains("let identityURL = audiobookIdentityURL ?? url")
                 && src.contains("let audiobookID = identityURL.absoluteString")
                 && src.contains("folderURL = identityURL"),
-            "Audio-less Library opens must keep the durable container identity separate from the readable child document.")
+            "Audio-less Library opens must keep the durable container identity separate from the readable child document."
+        )
         #expect(
             src.contains("if alreadyImported")
                 && src.contains("EPubBlockDAO(db: db.writer).count(for: audiobookID)"),
-            "Opening an already-imported generated anthology must surface existing blocks without re-importing them.")
+            "Opening an already-imported generated anthology must surface existing blocks without re-importing them."
+        )
         #expect(
             src.contains("AudiobookDAO(db: db.writer).get(audiobookID)")
                 && src.contains("let baseTitle = record?.title")
                 && src.contains("loadLibraryCover(path: record?.coverArtPath"),
-            "Audio-less Library opens must restore shelf-owned title and cover metadata from the existing record.")
+            "Audio-less Library opens must restore shelf-owned title and cover metadata from the existing record."
+        )
     }
 
     @Test func primaryClickAndContextMenuUseTheSameLibraryDispatcher() throws {

@@ -92,7 +92,7 @@ struct Echo_macOSApp: App {
                     }
                 }
                 // The reader's idle-state "Narrate an EPUB" nudge routes here so
-                // it reuses the same picker as the Batch ▸ "Narrate EPUB(s)…" command.
+                // it reuses the same picker as the Batch ▸ "Narrate Documents…" command.
                 .onReceive(NotificationCenter.default.publisher(for: .requestNarrateEPUBs)) { _ in
                     narrateEPUBs()
                 }
@@ -199,7 +199,7 @@ struct Echo_macOSApp: App {
                 }
                 .keyboardShortcut("b", modifiers: [.command, .option])
 
-                Button("Narrate EPUB(s)…") {
+                Button("Narrate Documents…") {
                     narrateEPUBs()
                 }
                 .keyboardShortcut("n", modifiers: [.command, .option])
@@ -356,50 +356,58 @@ struct Echo_macOSApp: App {
         return panel.url
     }
 
-    /// Presents an NSOpenPanel to select EPUB or text files and/or folders to
-    /// narrate on-device. Returns the chosen URLs (empty if cancelled). Folders
-    /// are scanned for EPUBs; individual `.epub`, `.md`, `.markdown`, `.txt`, or
-    /// `.text` files are enqueued directly.
-    private func chooseEPUBsToNarrate() -> [URL] {
+    /// Presents an NSOpenPanel to select documents and/or folders to narrate
+    /// on-device. Returns the chosen URLs (empty if cancelled). Folders are
+    /// scanned for EPUBs and PDFs; individual `.epub`, `.pdf`, `.md`,
+    /// `.markdown`, `.txt`, or `.text` files are enqueued directly.
+    private func chooseDocumentsToNarrate() -> [URL] {
         let panel = NSOpenPanel()
-        panel.title = String(localized: "Narrate EPUB(s)")
+        panel.title = String(localized: "Narrate Documents")
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
         panel.allowedContentTypes = [
             UTType(filenameExtension: "epub") ?? .data,
+            .pdf,
             UTType(filenameExtension: "md") ?? .plainText,
             UTType(filenameExtension: "markdown") ?? .plainText,
             .plainText,
         ]
         panel.message = String(
-            localized: "Choose EPUB files (or a folder of them) to narrate on-device overnight.")
+            localized:
+                "Choose EPUB, PDF, or text files (or a folder of them) to narrate on-device overnight."
+        )
 
         guard panel.runModal() == .OK else { return [] }
         return panel.urls
     }
 
-    /// Prompts for EPUB(s) to narrate, enqueues them, and — if anything was
+    /// Prompts for documents to narrate, enqueues them, and — if anything was
     /// enqueued — opens the Batch Queue so the user gets immediate feedback
     /// (synthesis runs in the background, so without this there was no visible
     /// sign anything happened, success or failure).
     private func narrateEPUBs() {
-        let urls = chooseEPUBsToNarrate()
+        let urls = chooseDocumentsToNarrate()
         for url in urls { narrateSelection(url) }
         if !urls.isEmpty { showBatchQueue = true }
     }
 
-    /// Enqueues a selected URL for narration: a folder is scanned for EPUBs, an
-    /// `.epub`, `.md`, `.markdown`, `.txt`, or `.text` file is enqueued directly;
-    /// anything else is ignored.
+    /// Extensions accepted as an explicit single-file narration pick. Wider than
+    /// `FolderAudioScanner.narratableDocumentExtensions`, which deliberately does
+    /// not sweep loose `.md`/`.txt` out of a folder.
+    private static let narratableFileExtensions: Set<String> = [
+        "epub", "pdf", "md", "markdown", "txt", "text",
+    ]
+
+    /// Enqueues a selected URL for narration: a folder is scanned for EPUBs and
+    /// PDFs, a narratable file is enqueued directly; anything else is ignored.
     private func narrateSelection(_ url: URL) {
         let isDirectory =
             (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
         if isDirectory {
-            try? FolderAudioScanner.enqueueEPUBsForNarration(url, into: batchService)
-        } else if ["epub", "md", "markdown", "txt", "text"].contains(url.pathExtension.lowercased())
-        {
-            try? batchService.enqueueNarration(epubURL: url)
+            try? FolderAudioScanner.enqueueDocumentsForNarration(url, into: batchService)
+        } else if Self.narratableFileExtensions.contains(url.pathExtension.lowercased()) {
+            try? batchService.enqueueNarration(documentURL: url)
         }
     }
 

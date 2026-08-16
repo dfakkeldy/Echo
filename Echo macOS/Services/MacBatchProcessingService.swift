@@ -121,29 +121,30 @@ final class MacBatchProcessingService {
         start()
     }
 
-    /// Adds a standalone EPUB to the persistent queue as a **text-only narration**
-    /// item (`kind: .narrate`) and (re)starts processing.
+    /// Adds a standalone document — EPUB, PDF, or a Markdown/plain-text file — to
+    /// the persistent queue as a **text-only narration** item (`kind: .narrate`)
+    /// and (re)starts processing.
     ///
-    /// Unlike `enqueue(fileURL:companionEPUB:)`, the EPUB itself is the bookmarked
-    /// primary source — there is no companion audio. `audiobookID` derives from
-    /// the EPUB's parent directory `absoluteString`, matching the importer's
+    /// Unlike `enqueue(fileURL:companionEPUB:)`, the document itself is the
+    /// bookmarked primary source — there is no companion audio. `audiobookID` is
+    /// the document's own `absoluteString`, matching the importer's
     /// `folderURL.absoluteString` scheme so synthesized tracks, EPUB blocks, and
     /// `.synthesized` anchors all key off the same identifier. (Device-local id
     /// portability is tracked separately, consistent with the align path.)
-    func enqueueNarration(epubURL: URL) throws {
-        let bookmark = try epubURL.bookmarkData(
+    func enqueueNarration(documentURL: URL) throws {
+        let bookmark = try documentURL.bookmarkData(
             options: .withSecurityScope,
             includingResourceValuesForKeys: nil,
             relativeTo: nil)
-        // One EPUB = one book, so key off the EPUB's own URL (not its parent
-        // directory): multiple EPUBs in a single folder must not share an id.
-        let audiobookID = epubURL.absoluteString
+        // One document = one book, so key off the document's own URL (not its
+        // parent directory): several books in one folder must not share an id.
+        let audiobookID = documentURL.absoluteString
         _ = try dao.enqueue(
             BatchQueueRecord(
                 audiobookID: audiobookID,
                 sourceBookmark: bookmark,
                 companionBookmark: nil,
-                displayName: epubURL.deletingPathExtension().lastPathComponent,
+                displayName: documentURL.deletingPathExtension().lastPathComponent,
                 queuePosition: 0,
                 status: .queued,
                 progress: 0,
@@ -247,14 +248,16 @@ final class MacBatchProcessingService {
                 self?.refresh()
             }
 
-            // Text-only EPUB narration: synthesize on-device audio for an EPUB
-            // with no companion audiobook, instead of the align pipeline. The
-            // EPUB itself is the bookmarked source, so this branch resolves its
-            // own bookmark and returns early, leaving the audio-oriented align
-            // body below untouched.
+            // Text-only narration: synthesize on-device audio for a document
+            // (EPUB, PDF, or Markdown/plain text) with no companion audiobook,
+            // instead of the align pipeline. The document itself is the bookmarked
+            // source, so this branch resolves its own bookmark and returns early,
+            // leaving the audio-oriented align body below untouched. Everything
+            // downstream of the import is extension-agnostic — it reads
+            // `epub_block` rows, not the source file.
             if record.kind == .narrate {
                 var narrateStale = false
-                let epubURL = try URL(
+                let sourceURL = try URL(
                     resolvingBookmarkData: record.sourceBookmark,
                     options: .withSecurityScope,
                     relativeTo: nil,
@@ -264,26 +267,26 @@ final class MacBatchProcessingService {
                         "Bookmark stale for \(record.displayName, privacy: .public); continuing this run"
                     )
                 }
-                guard epubURL.startAccessingSecurityScopedResource() else {
-                    throw BatchProcessingError.cannotAccessFile(epubURL.lastPathComponent)
+                guard sourceURL.startAccessingSecurityScopedResource() else {
+                    throw BatchProcessingError.cannotAccessFile(sourceURL.lastPathComponent)
                 }
-                defer { epubURL.stopAccessingSecurityScopedResource() }
+                defer { sourceURL.stopAccessingSecurityScopedResource() }
 
-                // Per-EPUB id (matches enqueueNarration) — see importEPUBOnly.
-                let audiobookID = epubURL.absoluteString
+                // Per-document id (matches enqueueNarration) — see importDocumentOnly.
+                let audiobookID = sourceURL.absoluteString
 
-                // 1) Import the EPUB's blocks (no audio). `chapterIndex` comes from
-                //    the EPUB's own structure, so empty audio `chapters` is fine —
-                //    the same path the iOS study-book reader uses.
-                progress(.importing, 0.05, "Importing EPUB…")
-                try await self?.importEPUBOnly(
-                    epubURL: epubURL, audiobookID: audiobookID, dbService: dbService)
+                // 1) Import the document's blocks (no audio). `chapterIndex` comes
+                //    from the document's own structure, so empty audio `chapters`
+                //    is fine — the same path the iOS study-book reader uses.
+                progress(.importing, 0.05, "Importing document…")
+                try await self?.importDocumentOnly(
+                    documentURL: sourceURL, audiobookID: audiobookID, dbService: dbService)
 
                 let blocks =
                     (try? EPubBlockDAO(db: dbService.writer).blocks(for: audiobookID)) ?? []
                 let plannedChapters = NarrationChapterPlanner.plan(from: blocks)
                 guard !plannedChapters.isEmpty else {
-                    throw BatchProcessingError.emptyImport(epubURL.lastPathComponent)
+                    throw BatchProcessingError.emptyImport(sourceURL.lastPathComponent)
                 }
 
                 // 2) Synthesize each chapter on-device into the shared narration
@@ -299,7 +302,7 @@ final class MacBatchProcessingService {
                     ?? VoiceCatalog.default.id
                 let manifest = try AnthologyNarrationManifestResolver(db: dbService.writer).resolve(
                     audiobookID: audiobookID,
-                    epubURL: epubURL.standardizedFileURL)
+                    epubURL: sourceURL.standardizedFileURL)
                 let chapters = try NarrationChapterRenderPlanner.plan(
                     chapters: plannedChapters,
                     preferredVoice: voice,
@@ -504,7 +507,7 @@ final class MacBatchProcessingService {
                             )
                         }
                     if !sidecar.isEmpty {
-                        let scURL = AlignmentSidecar.url(forEPUB: epubURL)
+                        let scURL = AlignmentSidecar.url(forEPUB: sourceURL)
                         let enc = JSONEncoder()
                         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
                         try enc.encode(sidecar).write(to: scURL, options: .atomic)
@@ -649,14 +652,14 @@ final class MacBatchProcessingService {
         }
     }
 
-    /// Imports a standalone EPUB's blocks (no audio) under `audiobookID`, reusing
-    /// the same `EPUBImportCoordinator.importEPUB` path as the align flow but with
-    /// no audio chapters/duration. The EPUB is imported in place (source == dest),
-    /// so the same-folder copy is skipped. Throws on import failure or if zero
-    /// blocks were persisted, so the runner marks the item `.failed` rather than
+    /// Imports a standalone document's blocks (no audio) under `audiobookID`,
+    /// reusing the same import paths as the align flow but with no audio
+    /// chapters/duration. An EPUB is imported in place (source == dest), so the
+    /// same-folder copy is skipped. Throws on import failure or if zero blocks
+    /// were persisted, so the runner marks the item `.failed` rather than
     /// completing an empty book.
-    private func importEPUBOnly(
-        epubURL: URL, audiobookID: String, dbService: DatabaseService
+    private func importDocumentOnly(
+        documentURL: URL, audiobookID: String, dbService: DatabaseService
     ) async throws {
         // Create the parent `audiobook` row FIRST. `epub_block` has a NOT-NULL
         // FK to `audiobook` (ON DELETE CASCADE, Schema V5), and — unlike the
@@ -667,32 +670,47 @@ final class MacBatchProcessingService {
         try AudiobookDAO(db: dbService.writer).save(
             AudiobookRecord(
                 id: audiobookID,
-                title: epubURL.deletingPathExtension().lastPathComponent,
+                title: documentURL.deletingPathExtension().lastPathComponent,
                 author: nil,
                 duration: 0,
                 fileCount: 0,
                 addedAt: Date().ISO8601Format()))
 
         // Import in place under the per-file `audiobookID`. Text files
-        // (.md/.markdown/.txt/.text) are handled by `TextAutoImportScanner`;
-        // EPUBs are handled by `EPUBImportCoordinator` (same-file copy skipped).
-        // Both paths key blocks off the file's own URL so multiple files in one
-        // folder don't collide on a shared parent-dir id.
-        let ext = epubURL.pathExtension.lowercased()
+        // (.md/.markdown/.txt/.text) are handled by `TextAutoImportScanner`,
+        // PDFs by `PDFAutoImportScanner`, and EPUBs by `EPUBImportCoordinator`
+        // (same-file copy skipped). All three key blocks off the file's own URL
+        // so multiple files in one folder don't collide on a shared parent-dir id.
+        let ext = documentURL.pathExtension.lowercased()
         if ["md", "markdown", "txt", "text"].contains(ext) {
             _ = await TextAutoImportScanner.importTextFile(
-                textURL: epubURL, audiobookID: audiobookID, databaseService: dbService, force: true)
+                textURL: documentURL, audiobookID: audiobookID, databaseService: dbService,
+                force: true)
+        } else if ext == "pdf" {
+            // `force: true` matches the headless runner: a queued narrate item is
+            // an explicit request, so re-running it must re-extract rather than
+            // silently skip on the "blocks already exist" fast path.
+            let imported = await PDFAutoImportScanner.importPDFFile(
+                pdfURL: documentURL,
+                audiobookID: audiobookID,
+                databaseService: dbService,
+                chapters: [],
+                duration: nil,
+                force: true)
+            guard imported else {
+                throw BatchProcessingError.emptyImport(documentURL.lastPathComponent)
+            }
         } else {
             _ = try await EPUBImportCoordinator.importEPUB(
-                from: epubURL,
-                to: epubURL,
+                from: documentURL,
+                to: documentURL,
                 databaseService: dbService,
                 chapters: [],
                 duration: nil)
         }
         let blockCount = (try? EPubBlockDAO(db: dbService.writer).count(for: audiobookID)) ?? 0
         guard blockCount > 0 else {
-            throw BatchProcessingError.emptyImport(epubURL.lastPathComponent)
+            throw BatchProcessingError.emptyImport(documentURL.lastPathComponent)
         }
     }
 

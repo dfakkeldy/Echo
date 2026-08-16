@@ -348,7 +348,7 @@ private struct MacPlaybackSettingsPane: View {
                 Text("Narration")
             } footer: {
                 Text(
-                    "Echo synthesizes EPUBs that have no audiobook on-device, using the voice above. Queue them with Batch ▸ “Narrate EPUB(s)…” (⌘⌥N); progress appears in the Batch Queue."
+                    "Echo synthesizes EPUB, PDF, and text documents that have no audiobook on-device, using the voice above. Queue them with Batch ▸ “Narrate Documents…” (⌘⌥N); progress appears in the Batch Queue."
                 )
                 .font(.footnote)
                 .foregroundStyle(.secondary)
