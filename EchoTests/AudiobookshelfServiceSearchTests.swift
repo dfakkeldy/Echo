@@ -6,18 +6,10 @@ import Testing
 
 @MainActor
 @Suite struct AudiobookshelfServiceSearchTests {
-    private func makeService() -> AudiobookshelfService {
-        URLProtocolStub.reset()
-        let tokens = ABSTokenStore(serverID: "search-\(UUID().uuidString)")
-        tokens.accessToken = "acc"
-        return AudiobookshelfService(
-            baseURL: URL(string: "http://h:13378")!,
-            tokens: tokens, session: URLProtocolStub.makeSession())
-    }
-
     @Test func searchReturnsBookLibraryItems() async throws {
-        let service = makeService()
+        let fixture = AudiobookshelfServiceSearchFixture()
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/search",
             json: """
                 {"book":[
@@ -25,15 +17,16 @@ import Testing
                   {"libraryItem":{"id":"it2","libraryId":"lib1","media":{"metadata":{"title":"When the Body Says No","author":"Y"}}}}
                 ],"authors":[],"genres":[],"narrators":[],"series":[],"tags":[]}
                 """)
-        let results = try await service.search(libraryID: "lib1", query: "body")
+        let results = try await fixture.service.search(libraryID: "lib1", query: "body")
         #expect(results.items.map(\.id) == ["it1", "it2"])
         #expect(results.items.first?.title == "The Wakeful Body")
         #expect(!results.isLimited)
     }
 
     @Test func searchDecodesExpandedMetadataArraysFromCurrentABSResponses() async throws {
-        let service = makeService()
+        let fixture = AudiobookshelfServiceSearchFixture()
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/search",
             json: """
                 {"book":[
@@ -49,7 +42,7 @@ import Testing
                 ],"tags":[],"authors":[],"series":[]}
                 """)
 
-        let results = try await service.search(libraryID: "lib1", query: "High Conflict")
+        let results = try await fixture.service.search(libraryID: "lib1", query: "High Conflict")
 
         #expect(results.items.map(\.id) == ["it1"])
         #expect(results.items.first?.title == "High Conflict")
@@ -60,14 +53,16 @@ import Testing
     }
 
     @Test func searchFallsBackToLibraryItemsForAuthorOnlyResults() async throws {
-        let service = makeService()
+        let fixture = AudiobookshelfServiceSearchFixture()
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/search",
             json: """
                 {"book":[],"podcast":[],"authors":[{"id":"aut1","name":"Daniel Kahneman"}],
                  "genres":[],"narrators":[],"series":[],"tags":[]}
                 """)
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/items",
             queryItems: ["page": "0", "limit": "25"],
             json: """
@@ -79,15 +74,16 @@ import Testing
                 ]}
                 """)
 
-        let results = try await service.search(libraryID: "lib1", query: "Kahneman")
+        let results = try await fixture.service.search(libraryID: "lib1", query: "Kahneman")
 
         #expect(results.items.map(\.id) == ["it1"])
-        #expect(URLProtocolStub.requests.contains { $0.url?.path.hasSuffix("/items") == true })
+        #expect(fixture.requests.contains { $0.url?.path.hasSuffix("/items") == true })
     }
 
     @Test func searchUnionsSeriesBooksWithDirectAndAuthorResultsUsingStableIDs() async throws {
-        let service = makeService()
+        let fixture = AudiobookshelfServiceSearchFixture()
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/search",
             json: """
                 {"book":[
@@ -102,6 +98,7 @@ import Testing
                  "genres":[],"narrators":[],"tags":[]}
                 """)
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/items",
             queryItems: ["page": "0", "limit": "25"],
             json: """
@@ -111,15 +108,16 @@ import Testing
                 ]}
                 """)
 
-        let results = try await service.search(libraryID: "lib1", query: "Earthsea")
+        let results = try await fixture.service.search(libraryID: "lib1", query: "Earthsea")
 
         #expect(results.items.map(\.id) == ["direct", "duplicate", "series-only", "author-only"])
         #expect(results.items[1].title == "Direct Copy")
     }
 
     @Test func searchReportsCategoryLimitEvenWhenSeriesBooksDeduplicateBelowIt() async throws {
-        let service = makeService()
+        let fixture = AudiobookshelfServiceSearchFixture()
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/search",
             json: """
                 {"book":[{"libraryItem":{"id":"same","libraryId":"lib1"}}],
@@ -130,21 +128,48 @@ import Testing
                  ]}
                 """)
 
-        let results = try await service.search(libraryID: "lib1", query: "Saga", limit: 2)
+        let results = try await fixture.service.search(libraryID: "lib1", query: "Saga", limit: 2)
 
         #expect(results.items.map(\.id) == ["same"])
         #expect(results.isLimited)
     }
 
     @Test func emptyBookArrayReturnsEmpty() async throws {
-        let service = makeService()
+        let fixture = AudiobookshelfServiceSearchFixture()
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/search",
             json: """
                 {"book":[],"authors":[],"genres":[],"narrators":[],"series":[],"tags":[]}
                 """)
-        let results = try await service.search(libraryID: "lib1", query: "zzz")
+        let results = try await fixture.service.search(libraryID: "lib1", query: "zzz")
         #expect(results.items.isEmpty)
         #expect(!results.isLimited)
+    }
+}
+
+/// Per-test stub isolation: suites and the tests inside them run concurrently in
+/// one process, so a shared stub scope lets one test's `reset()` erase another's
+/// recorded requests. A unique scope per fixture keeps each test's traffic its own.
+@MainActor
+private final class AudiobookshelfServiceSearchFixture {
+    let scope: String
+    let service: AudiobookshelfService
+    private let tokenStore: ABSTokenStore
+
+    var requests: [URLRequest] { URLProtocolStub.requests(scope: scope) }
+
+    init() {
+        scope = "abs-search-service-\(UUID().uuidString)"
+        URLProtocolStub.reset(scope: scope)
+        tokenStore = ABSTokenStore(serverID: "search-\(UUID().uuidString)")
+        tokenStore.accessToken = "acc"
+        service = AudiobookshelfService(
+            baseURL: URL(string: "http://h:13378")!,
+            tokens: tokenStore, session: URLProtocolStub.makeSession(scope: scope))
+    }
+
+    isolated deinit {
+        URLProtocolStub.finish(scope: scope)
     }
 }

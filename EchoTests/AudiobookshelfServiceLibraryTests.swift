@@ -6,31 +6,24 @@ import Testing
 
 @MainActor
 @Suite struct AudiobookshelfServiceLibraryTests {
-    private func makeService() -> AudiobookshelfService {
-        URLProtocolStub.reset()
-        let tokens = ABSTokenStore(serverID: "lib-\(UUID().uuidString)")
-        tokens.accessToken = "acc"
-        return AudiobookshelfService(
-            baseURL: URL(string: "http://homelab.local:13378")!,
-            tokens: tokens, session: URLProtocolStub.makeSession())
-    }
-
     @Test func fetchLibrariesDecodes() async throws {
-        let service = makeService()
+        let fixture = AudiobookshelfServiceLibraryFixture()
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/api/libraries",
             json: """
                 {"libraries":[{"id":"lib1","name":"Audiobooks"},{"id":"lib2","name":"Podcasts"}]}
                 """)
-        let libs = try await service.libraries()
+        let libs = try await fixture.service.libraries()
         #expect(libs.map(\.id) == ["lib1", "lib2"])
         #expect(libs.first?.name == "Audiobooks")
     }
 
     @Test func fetchItemsDecodesTitleAuthorDuration() async throws {
-        let service = makeService()
+        let fixture = AudiobookshelfServiceLibraryFixture()
         // Path suffix "/items" matches /api/libraries/lib1/items.
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/items",
             json: """
                 {"total":1,"page":0,"results":[
@@ -38,7 +31,7 @@ import Testing
                    "metadata":{"title":"Thinking Fast","author":"Kahneman"}}}
                 ]}
                 """)
-        let page = try await service.items(
+        let page = try await fixture.service.items(
             libraryID: "lib1", query: ABSLibraryItemsQuery(sort: .title))
         #expect(page.results.first?.title == "Thinking Fast")
         #expect(page.results.first?.author == "Kahneman")
@@ -46,8 +39,9 @@ import Testing
     }
 
     @Test func fetchLibraryFilterDataDecodesAllBrowseGroups() async throws {
-        let service = makeService()
+        let fixture = AudiobookshelfServiceLibraryFixture()
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/api/libraries/lib1",
             queryItems: ["include": "filterdata"],
             json: """
@@ -59,25 +53,30 @@ import Testing
                 }}
                 """)
 
-        let filterData = try await service.libraryFilterData(libraryID: "lib1")
+        let filterData = try await fixture.service.libraryFilterData(libraryID: "lib1")
 
-        #expect(filterData.authors == [
-            ABSFilterOption(group: .authors, value: "aut_1", label: "Author One")
-        ])
-        #expect(filterData.series == [
-            ABSFilterOption(group: .series, value: "ser_1", label: "Series One")
-        ])
-        #expect(filterData.genres == [
-            ABSFilterOption(group: .genres, value: "History", label: "History")
-        ])
-        #expect(filterData.tags == [
-            ABSFilterOption(group: .tags, value: "Studied", label: "Studied")
-        ])
+        #expect(
+            filterData.authors == [
+                ABSFilterOption(group: .authors, value: "aut_1", label: "Author One")
+            ])
+        #expect(
+            filterData.series == [
+                ABSFilterOption(group: .series, value: "ser_1", label: "Series One")
+            ])
+        #expect(
+            filterData.genres == [
+                ABSFilterOption(group: .genres, value: "History", label: "History")
+            ])
+        #expect(
+            filterData.tags == [
+                ABSFilterOption(group: .tags, value: "Studied", label: "Studied")
+            ])
     }
 
     @Test func fetchItemsDecodesCurrentABSFilePayloadShapesAndMissingCoverPath() async throws {
-        let service = makeService()
+        let fixture = AudiobookshelfServiceLibraryFixture()
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/items",
             json: """
                 {"total":1,"page":0,"results":[
@@ -92,7 +91,7 @@ import Testing
                 """)
 
         let item = try #require(
-            try await service.items(
+            try await fixture.service.items(
                 libraryID: "lib1", query: ABSLibraryItemsQuery(sort: .title)
             ).results.first)
 
@@ -106,8 +105,9 @@ import Testing
     }
 
     @Test func fetchAllItemsRequestsPagesUntilTotalIsReached() async throws {
-        let service = makeService()
+        let fixture = AudiobookshelfServiceLibraryFixture()
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/items",
             queryItems: ["page": "0", "limit": "2"],
             json: """
@@ -117,6 +117,7 @@ import Testing
                 ]}
                 """)
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/items",
             queryItems: ["page": "1", "limit": "2"],
             json: """
@@ -125,9 +126,9 @@ import Testing
                 ]}
                 """)
 
-        let items = try await service.allItems(
+        let items = try await fixture.service.allItems(
             libraryID: "lib1", query: ABSLibraryItemsQuery(limit: 2, sort: .title))
-        let requestedPages = URLProtocolStub.requests.compactMap { request -> String? in
+        let requestedPages = fixture.requests.compactMap { request -> String? in
             guard request.url?.path.hasSuffix("/items") == true,
                 let url = request.url,
                 let page = URLComponents(url: url, resolvingAgainstBaseURL: false)?
@@ -141,8 +142,9 @@ import Testing
     }
 
     @Test func fetchAllItemsStopsAfterShortNonzeroStartPageWithoutNumPages() async throws {
-        let service = makeService()
+        let fixture = AudiobookshelfServiceLibraryFixture()
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/items",
             queryItems: ["page": "1", "limit": "2"],
             json: """
@@ -151,9 +153,9 @@ import Testing
                 ]}
                 """)
 
-        let items = try await service.allItems(
+        let items = try await fixture.service.allItems(
             libraryID: "lib1", query: ABSLibraryItemsQuery(page: 1, limit: 2, sort: .title))
-        let requestedPages = URLProtocolStub.requests.compactMap { request -> String? in
+        let requestedPages = fixture.requests.compactMap { request -> String? in
             guard let url = request.url else { return nil }
             return URLComponents(url: url, resolvingAgainstBaseURL: false)?
                 .queryItems?.first(where: { $0.name == "page" })?.value
@@ -164,8 +166,9 @@ import Testing
     }
 
     @Test func fetchAllItemsStopsAfterFullNonzeroFinalPageUsingTotalOffset() async throws {
-        let service = makeService()
+        let fixture = AudiobookshelfServiceLibraryFixture()
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/items",
             queryItems: ["page": "1", "limit": "2"],
             json: """
@@ -175,17 +178,18 @@ import Testing
                 ]}
                 """)
 
-        let items = try await service.allItems(
+        let items = try await fixture.service.allItems(
             libraryID: "lib1", query: ABSLibraryItemsQuery(page: 1, limit: 2, sort: .title))
-        let requestedPages = requestedItemPages()
+        let requestedPages = requestedItemPages(fixture)
 
         #expect(items.map(\.id) == ["itC", "itD"])
         #expect(requestedPages == ["1"])
     }
 
     @Test func fetchAllItemsContinuesWhenServerCapsPageSize() async throws {
-        let service = makeService()
+        let fixture = AudiobookshelfServiceLibraryFixture()
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/items",
             queryItems: ["page": "0", "limit": "100"],
             json: """
@@ -195,6 +199,7 @@ import Testing
                 ]}
                 """)
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/items",
             queryItems: ["page": "1", "limit": "100"],
             json: """
@@ -203,17 +208,18 @@ import Testing
                 ]}
                 """)
 
-        let items = try await service.allItems(
+        let items = try await fixture.service.allItems(
             libraryID: "lib1", query: ABSLibraryItemsQuery(limit: 100, sort: .title))
-        let requestedPages = requestedItemPages()
+        let requestedPages = requestedItemPages(fixture)
 
         #expect(items.map(\.id) == ["itA", "itB", "itC"])
         #expect(requestedPages == ["0", "1"])
     }
 
     @Test func pagedItemsEmitsPagesBeforeLaterPageFails() async throws {
-        let service = makeService()
+        let fixture = AudiobookshelfServiceLibraryFixture()
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/items",
             queryItems: ["page": "0", "limit": "2"],
             json: """
@@ -223,6 +229,7 @@ import Testing
                 ]}
                 """)
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/items",
             queryItems: ["page": "1", "limit": "2"],
             status: 500,
@@ -231,7 +238,7 @@ import Testing
         var emittedIDs: [String] = []
 
         do {
-            _ = try await service.pagedItems(
+            _ = try await fixture.service.pagedItems(
                 libraryID: "lib1", query: ABSLibraryItemsQuery(limit: 2, sort: .title)
             ) { pageItems in
                 emittedIDs.append(contentsOf: pageItems.map(\.id))
@@ -245,31 +252,34 @@ import Testing
     }
 
     @Test func fetchItemDetailDecodes() async throws {
-        let service = makeService()
+        let fixture = AudiobookshelfServiceLibraryFixture()
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/api/items/it1",
             json: """
                 {"id":"it1","libraryId":"lib1","media":{"duration":3600,"numTracks":1,
                  "tracks":[{"index":0,"duration":3600,"title":"Chapter 1"}],
                  "metadata":{"title":"Thinking Fast","author":"Kahneman"}}}
                 """)
-        let item = try await service.item(id: "it1")
+        let item = try await fixture.service.item(id: "it1")
         #expect(item.title == "Thinking Fast")
         #expect(item.media?.tracks?.first?.title == "Chapter 1")
     }
 
     @Test func coverImageDataUsesAuthorizationHeaderWithoutTokenQuery() async throws {
-        let service = makeService()  // tokens.accessToken == "acc"
+        let fixture = AudiobookshelfServiceLibraryFixture()  // tokens.accessToken == "acc"
         let payload = Data([0x89, 0x50, 0x4E, 0x47])
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/api/items/it1/cover", status: 200, data: payload,
             headers: ["Content-Type": "image/png"])
 
-        let data = try await service.coverImageData(itemID: "it1")
-        let request = try #require(URLProtocolStub.requests.last)
-        let queryItems = URLComponents(
-            url: try #require(request.url), resolvingAgainstBaseURL: false
-        )?.queryItems ?? []
+        let data = try await fixture.service.coverImageData(itemID: "it1")
+        let request = try #require(fixture.requests.last)
+        let queryItems =
+            URLComponents(
+                url: try #require(request.url), resolvingAgainstBaseURL: false
+            )?.queryItems ?? []
 
         #expect(data == payload)
         #expect(request.url?.path == "/api/items/it1/cover")
@@ -277,13 +287,39 @@ import Testing
         #expect(!queryItems.contains { $0.name == "token" })
     }
 
-    private func requestedItemPages() -> [String] {
-        URLProtocolStub.requests.compactMap { request -> String? in
+    private func requestedItemPages(_ fixture: AudiobookshelfServiceLibraryFixture) -> [String] {
+        fixture.requests.compactMap { request -> String? in
             guard request.url?.path.hasSuffix("/items") == true,
                 let url = request.url
             else { return nil }
             return URLComponents(url: url, resolvingAgainstBaseURL: false)?
                 .queryItems?.first(where: { $0.name == "page" })?.value
         }
+    }
+}
+
+/// Per-test stub isolation: suites and the tests inside them run concurrently in
+/// one process, so a shared stub scope lets one test's `reset()` erase another's
+/// recorded requests. A unique scope per fixture keeps each test's traffic its own.
+@MainActor
+private final class AudiobookshelfServiceLibraryFixture {
+    let scope: String
+    let service: AudiobookshelfService
+    private let tokenStore: ABSTokenStore
+
+    var requests: [URLRequest] { URLProtocolStub.requests(scope: scope) }
+
+    init() {
+        scope = "abs-library-service-\(UUID().uuidString)"
+        URLProtocolStub.reset(scope: scope)
+        tokenStore = ABSTokenStore(serverID: "lib-\(UUID().uuidString)")
+        tokenStore.accessToken = "acc"
+        service = AudiobookshelfService(
+            baseURL: URL(string: "http://homelab.local:13378")!,
+            tokens: tokenStore, session: URLProtocolStub.makeSession(scope: scope))
+    }
+
+    isolated deinit {
+        URLProtocolStub.finish(scope: scope)
     }
 }
