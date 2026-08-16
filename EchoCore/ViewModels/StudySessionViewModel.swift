@@ -6,7 +6,8 @@ import os.log
 
 @MainActor
 @Observable
-final class StudySessionViewModel {
+final class StudySessionViewModel: Identifiable {
+    let id = UUID()
     var queue: StudyQueue = .empty
     var currentIndex: Int = 0
     var isRevealed: Bool = false

@@ -20,7 +20,6 @@ struct StatsView: View {
     @State private var speedTrend: [SpeedTrendPoint] = []
     @State private var timeOfDayHistogram: [HourBucket] = []
     @State private var plannerAdherence: PlannerAdherence?
-    @State private var showingStudySession = false
     @State private var studySessionViewModel: StudySessionViewModel?
     @State private var studySessionLaunchError: String?
 
@@ -45,10 +44,8 @@ struct StatsView: View {
         .background(Color(uiColor: .systemBackground))
         .task { await loadAll() }
         .onChange(of: selectedBucket) { _, _ in Task { await loadBucketed() } }
-        .sheet(isPresented: $showingStudySession) {
-            if let vm = studySessionViewModel {
-                StudySessionView(viewModel: vm)
-            }
+        .sheet(item: $studySessionViewModel) { vm in
+            StudySessionView(viewModel: vm)
         }
         .alert(
             "Could Not Start Study",
@@ -315,10 +312,8 @@ struct StatsView: View {
                     ?? SettingsManager.Defaults.studyNewCardsPerDayLimit
             )
             studySessionViewModel = vm
-            showingStudySession = true
         } catch {
             studySessionViewModel = nil
-            showingStudySession = false
             studySessionLaunchError = String(
                 localized: "The study queue could not be loaded. Try again.")
             logger.error("Failed to launch study session: \(error.localizedDescription)")
