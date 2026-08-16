@@ -27,3 +27,22 @@ branch claude/macos-echo-ux-c62409. Build the "Echo macOS" scheme through
 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh, then make build-tests and
 make test-only FILTER=EchoTests/BookAlignmentSummaryTests, then make echo-cli.
 ```
+
+## 2026-08-16 — PR #573 open against nightly
+
+Done: macOS scheme builds; `make build-tests` succeeds; both new suites pass
+(34 tests). Isolation fix committed (`nonisolated struct BookAlignmentSummary` —
+`Sendable` alone does not opt out of `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`).
+Branch pushed, PR https://github.com/dfakkeldy/Echo/pull/573.
+
+Next: local `make echo-cli` is queued behind another session's build (CI gates it
+too, as its last step). Watch CI on #573, then delete this handoff file in a final
+commit on the same PR.
+
+Resume:
+
+```
+Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/macos-echo-ux-c62409,
+branch claude/macos-echo-ux-c62409. Check `gh pr checks 573`; if green, git rm
+HANDOFF-macos-echo-ux.md, commit, push.
+```
