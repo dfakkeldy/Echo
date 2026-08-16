@@ -5,6 +5,27 @@ import Testing
 @testable import Echo
 
 @Suite struct AppBuildMetadataTests {
+    @Test func buildMetadataStampRunsForEveryAppBuild() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let project = try String(
+            contentsOf: repositoryRoot.appending(path: "Echo.xcodeproj/project.pbxproj"),
+            encoding: .utf8
+        )
+        let stampPhases = project.components(separatedBy: "/* Stamp build metadata */ = {")
+            .dropFirst()
+
+        #expect(stampPhases.count == 2)
+        for phase in stampPhases {
+            let phaseBody = try #require(phase.components(separatedBy: "\n\t\t};").first)
+            #expect(phaseBody.contains("alwaysOutOfDate = 1;"))
+            #expect(
+                phaseBody.contains(
+                    "\"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)\","))
+        }
+    }
+
     @Test func readsVersionBuildAndCommitFromBundle() throws {
         let fileManager = FileManager.default
         let bundleURL = fileManager.temporaryDirectory.appending(
