@@ -20,10 +20,20 @@ actor blocked 300/800/2000 ms and still throw when the work never happens.
 `cancellationAfterResumeRemovalPreventsLateDelivery` was checked and
 deliberately left alone — `resume()` removes the entry synchronously.
 
-Next: `make build-tests`, then `make test-only FILTER=EchoTests/ABSBrowseModelTests`,
-then full `make test`. The wrapper returned rc 75 "HOLD — outside preferred
-windows" at 17:24 Sun; it admits work daily 22:00–07:00 and weekdays
-09:00–15:00. Then push and open a PR to nightly. Delete this handoff in that PR.
+Next: `make build-tests`, then the suite filter below, then push and open a PR
+to nightly. The wrapper returned rc 75 "HOLD — outside preferred windows" at
+17:24 Sun; it admits work daily 22:00–07:00 and weekdays 09:00–15:00.
+Delete this handoff in that PR.
+
+**The suite filter is not the filename.** `ABSBrowseModelTests.swift` declares
+two `@Suite` structs — `ABSBrowseModelTests` (line 9) and
+`URLProtocolStubLifecycleTests` (line 851) — and the cancellation fix is in the
+second one. `FILTER=EchoTests/ABSBrowseModelTests` alone skips it and still goes
+green. Run both:
+
+```
+make test-only FILTER="EchoTests/ABSBrowseModelTests -only-testing:EchoTests/URLProtocolStubLifecycleTests"
+```
 
 Also open, deliberately out of scope: an audit confirmed racy assertions on
 `URLProtocolStub.requests` for the shared `"default"` scope in
@@ -39,6 +49,31 @@ Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/racy-stub-assertions-
 branch claude/racy-stub-assertions-a41f, commit a2474171 unpushed. Next:
 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
 (after 22:00, or with XBG_ALLOW_NOW=1 if Dan asks for an off-hours run), then
-make test-only FILTER=EchoTests/ABSBrowseModelTests, then full make test, then
-push and open a PR to nightly.
+the two-suite filter above, then push and open a PR to nightly.
+```
+
+## 2026-08-16 — Local gates green, PR opened
+
+Done: `make build-tests` → `** TEST BUILD SUCCEEDED **`, 0 errors (the
+`weak var model` warning at line 371 is pre-existing; no hunk touches it). Then
+the two-suite filter three times: 39 tests in 2 suites passed on every pass,
+with `URLProtocolStubLifecycleTests` confirmed started and passed each time, so
+the cancellation fix was genuinely exercised. Both ran with
+`XBG_ALLOW_NOW=1`, which Dan authorized for this off-hours run.
+
+Full local `make test` was deliberately **not** run: it is ~53 min and CI's
+"Build gate + tests" runs the whole EchoTests target on the PR anyway. Hosted CI
+is the full gate — report its state, do not assume it from the local runs.
+
+Next: watch CI on the PR. If it is green, delete this handoff file in a final
+commit on this branch before merge. If the same two tests fail again, the fix is
+wrong rather than incomplete — re-measure, do not add more waiting.
+
+Resume:
+
+```
+Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/racy-stub-assertions-a41f,
+branch claude/racy-stub-assertions-a41f, PR open against nightly. Next:
+gh pr checks --watch on that PR; when green, git rm HANDOFF-racy-stub-assertions.md,
+commit, push.
 ```
