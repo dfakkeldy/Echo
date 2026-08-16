@@ -343,6 +343,7 @@ nonisolated enum ContextualPronunciationDiscovery {
                 atWordStart: wordSpan.lowerBound)
             let hasExactProperNameContext =
                 analysis.ruleID == "homograph.live.product.weather-link-live"
+                || analysis.ruleID == "homograph.live.adjective.follower"
                 || analysis.ruleID == "homograph.record.noun.preceder"
                 || analysis.ruleID == "homograph.record.noun.compound"
                 || analysis.ruleID == "homograph.content.noun.follower"

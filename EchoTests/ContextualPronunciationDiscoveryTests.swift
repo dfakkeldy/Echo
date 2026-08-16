@@ -233,6 +233,19 @@ import Testing
         #expect(occurrence.deterministicRuleID == "homograph.live.product.weather-link-live")
     }
 
+    @Test func titleCaseLiveBeforeAnAdjectiveFollowerRetainsExactEvidence() throws {
+        let occurrence = try #require(
+            ContextualPronunciationDiscovery.discover(
+                text: "his hay and grain, and his Live Stock, consumed by fire",
+                blockID: "live-stock"
+            ).first)
+
+        #expect(occurrence.targetWord == "Live")
+        #expect(occurrence.familyID == "live")
+        #expect(occurrence.deterministicCandidateID == "live.adjective")
+        #expect(occurrence.deterministicRuleID == "homograph.live.adjective.follower")
+    }
+
     @Test func hiddenAndCodeCueInputsAreExplicitlyExcluded() {
         #expect(
             ContextualPronunciationDiscovery.discover(
