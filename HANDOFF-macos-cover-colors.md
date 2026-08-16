@@ -61,3 +61,26 @@ branch claude/macos-cover-colors-016824, PR #575 open to nightly. All local gate
 are green. Next: `gh pr checks 575`, then run the Mac app and check the accent on
 a duotone, a near-monochrome, and a coverless book.
 ```
+
+## 2026-08-16 — CI green on #575
+
+Done: CI failed once with 2 of 3872 tests, both in `EchoTests/ABSBrowseModelTests.swift`
+(`canceledSuspendedRequestIsRemovedAndScopeCanBeCleaned`, `staleSnapshotRetains…`)
+— Audiobookshelf networking, untouched by this PR, and zero cover-theme tests
+failed. An unmodified rerun of the same commit passed in 43m29s, so they are
+flakes. PR #575 is now CLEAN and MERGEABLE. Root cause filed separately: the
+`== 0` assertion after `request.cancel()` has no bounded spin, unlike the `== 1`
+read a few lines above it.
+
+Next: manual Mac acceptance is the only gate left — duotone, near-monochrome,
+and coverless books, plus an iOS side-by-side for the AppKit `rgb(_:)` branch.
+Delete this handoff in the commit that closes the task.
+
+Resume:
+
+```
+Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/macos-cover-colors-016824,
+branch claude/macos-cover-colors-016824, PR #575 open to nightly, CI green.
+Next: run the Mac app and check the accent on a duotone, a near-monochrome, and a
+coverless book; compare the same book against iOS.
+```
