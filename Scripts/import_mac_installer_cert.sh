@@ -100,6 +100,55 @@ case "$RUBY_SSL" in
     first:  eval \"\$(rbenv init - zsh)\"" ;;
 esac
 
+# Linking OpenSSL is necessary but NOT sufficient. Native gem extensions (.bundle
+# files under vendor/bundle) are linked against one exact Ruby patch release, so
+# a Ruby that satisfies the check above can still be unable to load them:
+#
+#   linked to incompatible .../3.3.11/lib/libruby.3.3.dylib - .../nkf.bundle
+#
+# That surfaces as a wall of Ruby backtrace at the `match import` call — i.e. at
+# the very END of this script, AFTER the manual Keychain export has been done and
+# thrown away. Prove fastlane can run before asking anyone to export a key.
+# The repo's .ruby-version is not authoritative here: it records the Ruby the
+# project targets, not necessarily the one vendor/bundle was installed under.
+step "Checking that fastlane can actually run"
+
+if bundle exec fastlane --version >/dev/null 2>&1; then
+  ok "bundle exec fastlane runs under Ruby $(ruby -e 'print RUBY_VERSION')"
+else
+  warn "bundle exec fastlane fails under Ruby $(ruby -e 'print RUBY_VERSION' 2>/dev/null || echo '?')"
+  WORKING_RUBY=""
+  for candidate in "${RBENV_ROOT:-$HOME/.rbenv}"/versions/*/bin; do
+    [[ -x "$candidate/ruby" ]] || continue
+    if PATH="$candidate:$PATH" bundle exec fastlane --version >/dev/null 2>&1; then
+      WORKING_RUBY="$candidate"
+      break
+    fi
+  done
+
+  if [[ -n "$WORKING_RUBY" ]]; then
+    die "fastlane cannot run under the Ruby currently on PATH, but it works under
+    $("$WORKING_RUBY/ruby" -e 'print RUBY_VERSION').
+
+    Run this, then start the script again:
+
+        export PATH=\"$WORKING_RUBY:\$PATH\"
+
+    (The gems in vendor/bundle were compiled against that Ruby. This is a local
+    toolchain mismatch only — CI installs its own gems and is unaffected.)"
+  else
+    die "fastlane cannot run under any installed Ruby. Reinstall the gems against
+    the Ruby you intend to use:
+
+        bundle install
+
+    Full error:
+$(bundle exec fastlane --version 2>&1 | head -5 | sed 's/^/        /')"
+  fi
+fi
+
+step "Checking the keychain"
+
 IDENTITY_LINE="$(security find-identity -v | grep "$CERT_CN_PREFIX" | head -1 || true)"
 [[ -n "$IDENTITY_LINE" ]] || die "No \"$CERT_CN_PREFIX\" identity in your keychain.
     This script imports a certificate you ALREADY have. If you genuinely have
