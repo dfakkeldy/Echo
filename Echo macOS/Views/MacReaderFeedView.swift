@@ -24,6 +24,9 @@ struct MacReaderFeedView: View {
     @Environment(MacPlayerModel.self) private var player
     @Environment(DatabaseService.self) private var dbService
     @Environment(SettingsManager.self) private var settings
+    /// Watched only to know when the batch queue goes idle, which is when a
+    /// just-finished alignment makes the header badge stale.
+    @Environment(MacBatchProcessingService.self) private var batchService
     @State private var blocks: [EPubBlockRecord] = []
     @State private var currentBlockID: String?
     @State private var isLoading = true
@@ -58,6 +61,11 @@ struct MacReaderFeedView: View {
     /// True shows the page-faithful `MacPDFReaderView` instead of the reflowed
     /// block feed below.
     @State private var showingPageView = false
+    /// Whether this book's text is genuinely aligned to its audio, surfaced in
+    /// the header. Recomputed on load and whenever the batch queue finishes a
+    /// book, since a completed alignment changes the answer without touching
+    /// any of the reader's other reload triggers.
+    @State private var alignmentSummary: BookAlignmentSummary = .empty
 
     /// Blocks grouped into one entry per chapter, in reading order.
     /// Uses `$0.chapterIndex ?? -1` because `EPubBlockRecord.chapterIndex` is `Int?`;
@@ -204,6 +212,21 @@ struct MacReaderFeedView: View {
             // book without changing currentURL; reload so read-along appears.
             Task { await loadBlocks() }
         }
+        // A batch alignment writes anchors and rebuilds the timeline for a book
+        // that may already be open, without touching currentURL or the
+        // ingestion trigger. Re-read the verdict when the queue falls idle so
+        // the badge doesn't keep claiming "Estimated only" after the run that
+        // fixed it. Cheap enough to do unconditionally: three indexed COUNTs.
+        .onChange(of: batchService.activity == nil) { _, isIdle in
+            guard isIdle, let audiobookID = player.audiobookID else { return }
+            Task { await refreshAlignmentSummary(audiobookID: audiobookID) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .timelineItemsIngested)) { note in
+            guard let ingestedID = note.userInfo?["audiobookID"] as? String,
+                ingestedID == player.audiobookID
+            else { return }
+            Task { await refreshAlignmentSummary(audiobookID: ingestedID) }
+        }
     }
 
     // MARK: - Header
@@ -212,6 +235,9 @@ struct MacReaderFeedView: View {
         HStack {
             Text("Reader")
                 .customFont(.headline, appFont: settings.appFont)
+
+            MacAlignmentBadge(summary: alignmentSummary)
+
             Spacer()
             if hasPDFPages {
                 Picker("View", selection: $showingPageView) {
@@ -248,6 +274,7 @@ struct MacReaderFeedView: View {
             wordIndex = ReaderActiveBlockResolver.WordIndex(rows: [])
             hasPDFPages = false
             showingPageView = false
+            alignmentSummary = .empty
             return
         }
 
@@ -278,6 +305,7 @@ struct MacReaderFeedView: View {
                 )
             }
             wordIndex = ReaderActiveBlockResolver.WordIndex(rows: wordCache)
+            await refreshAlignmentSummary(audiobookID: audiobookID)
         } catch {
             blocks = []
             chapterTitles = [:]
@@ -286,7 +314,24 @@ struct MacReaderFeedView: View {
             timelineCache = []
             wordCache = []
             wordIndex = ReaderActiveBlockResolver.WordIndex(rows: [])
+            alignmentSummary = .empty
         }
+    }
+
+    /// Recomputes the header's alignment verdict off the UI actor.
+    ///
+    /// `BookAlignmentSummary.load` is deliberately synchronous (a plain
+    /// `nonisolated async` would still run on this main-actor caller under
+    /// `SWIFT_APPROACHABLE_CONCURRENCY`), so the hop off main has to be
+    /// explicit. The queries are three indexed `COUNT`s, but they run against
+    /// the same writer the batch queue is hammering during an alignment, which
+    /// is exactly when this refreshes.
+    private func refreshAlignmentSummary(audiobookID: String) async {
+        let writer = dbService.writer
+        alignmentSummary =
+            await Task.detached(priority: .utility) {
+                (try? BookAlignmentSummary.load(audiobookID: audiobookID, db: writer)) ?? .empty
+            }.value
     }
 
     /// Chapter display titles for the loaded book, via the shared
