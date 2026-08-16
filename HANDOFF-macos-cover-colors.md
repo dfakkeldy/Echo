@@ -27,3 +27,31 @@ but unbuilt: run `make test`, then
 `/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- xcodebuild build -scheme "Echo macOS" -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO`
 and `make echo-cli`, then open a PR to nightly.
 ```
+
+## 2026-08-16 — All three local gates green, PR open
+
+Done: `Echo macOS` build, `make echo-cli`, and `make test` all pass
+(`** TEST SUCCEEDED **`). `make test` first failed with `cannot find type
+'CoverSignature'` while compiling `MacCoverTint.swift` into the widget
+extension. Cause: `membershipExceptions` inverts direction. `Echo
+WidgetExtension` does not own the `EchoCore` synchronized group, so for that
+target the list reads as *includes* — the entry added the file to the widget
+without its dependencies instead of keeping it out. Fixed by deleting the
+entry; the echo-cli entry is a true exclusion and stays. Verified at the
+compiler-input level via `Build/Intermediates.noindex/.../*.SwiftFileList`,
+which is the authoritative per-target file list and answers membership
+questions without a build.
+
+Next: watch CI on the PR, then manual Mac acceptance — a duotone cover, a
+near-monochrome cover, and a book with no artwork, plus the same book side by
+side with iOS to check the AppKit `rgb(_:)` colour-space branch. Delete this
+handoff in the commit that closes the task.
+
+Resume:
+
+```
+Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/macos-cover-colors-016824,
+branch claude/macos-cover-colors-016824, PR open to nightly. All local gates are
+green. Next: report CI status with `gh pr checks`, then run the Mac app and
+check the accent on a duotone, a near-monochrome, and a coverless book.
+```
