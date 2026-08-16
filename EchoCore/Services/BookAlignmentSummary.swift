@@ -16,7 +16,13 @@ import GRDB
 ///
 /// This type is deliberately free of any UI vocabulary: it reports the state
 /// and the counts behind it, and each platform's view decides how to word them.
-struct BookAlignmentSummary: Equatable, Sendable {
+///
+/// `nonisolated` because the app targets build with
+/// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`: without it every member here —
+/// including the pure `make(...)` classifier — would be main-actor-isolated,
+/// and ``load(audiobookID:db:)`` could not call them from the background.
+/// Conforming to `Sendable` alone does not opt a type out.
+nonisolated struct BookAlignmentSummary: Equatable, Sendable {
     /// How the book's text relates to its audio, worst to best.
     enum State: String, Sendable {
         /// No reader text at all — there is nothing to align.
@@ -135,13 +141,13 @@ struct BookAlignmentSummary: Equatable, Sendable {
 
     /// Reads the four counts this summary needs.
     ///
-    /// Synchronous and `nonisolated` on purpose. The app targets default to
-    /// main-actor isolation, and a plain `nonisolated async` function still
-    /// runs on the caller's actor under `SWIFT_APPROACHABLE_CONCURRENCY`, so an
+    /// Synchronous on purpose. A plain `nonisolated async` function still runs
+    /// on the caller's actor under `SWIFT_APPROACHABLE_CONCURRENCY`, so an
     /// `async` spelling here would quietly do its database work on the UI
-    /// actor. Callers that care hop off main themselves (`Task.detached`); the
-    /// queries are three indexed `COUNT`s, so a direct call is also fine.
-    nonisolated static func load(audiobookID: String, db: any DatabaseReader) throws
+    /// actor while *looking* like it had moved off it. Callers that care hop
+    /// off main themselves (`Task.detached`); the queries are three indexed
+    /// `COUNT`s, so a direct call is also fine.
+    static func load(audiobookID: String, db: any DatabaseReader) throws
         -> BookAlignmentSummary
     {
         try db.read { database in
