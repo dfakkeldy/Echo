@@ -98,11 +98,17 @@ struct MacNowPlayingParityTests {
         )
     }
 
-    @Test func appearanceFooterDropsFalseArtworkClaim() throws {
+    /// This assertion used to run the other way: the footer was forbidden from
+    /// claiming artwork theming, because the Artwork option silently resolved to
+    /// the system accent. Now that `MacTriPaneView` applies a cover-derived tint
+    /// the claim is true, and the test's job flips from suppressing a lie to
+    /// keeping the promise. `MacCoverThemeWiringTests` pins the other half — the
+    /// wiring the footer is now describing — so the two cannot drift apart.
+    @Test func appearanceFooterDescribesArtworkTheming() throws {
         let src = try MacSource.read("Views/MacSettingsView.swift")
         #expect(
-            !src.contains("derives the accent from the current book cover"),
-            "The Appearance footer must not claim artwork-derived theming that macOS does not implement."
+            src.contains("derives the accent from the current book cover"),
+            "The Appearance footer must describe the artwork-derived accent macOS now applies."
         )
     }
 

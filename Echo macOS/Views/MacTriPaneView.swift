@@ -25,6 +25,7 @@ struct MacTriPaneView: View {
     @Environment(DatabaseService.self) private var dbService
     @Environment(SettingsManager.self) private var settings
     @Environment(MacBatchProcessingService.self) private var batchService
+    @Environment(\.colorScheme) private var colorScheme
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     /// Whether the trailing transcript/notes inspector is showing. Persisted so
     /// a reader who hides it keeps it hidden across launches.
@@ -46,6 +47,57 @@ struct MacTriPaneView: View {
 
     var body: some View {
         fullyConfiguredSplitView
+            // The window's base tint is applied by the scene, which cannot do
+            // this job: a `Scene` has no `@Environment(\.colorScheme)`, and
+            // reading the appearance from AppKit is not observable, so a
+            // light/dark switch would strand a stale accent. This view sits
+            // under `.preferredColorScheme(...)`, so its scheme is live, and it
+            // is also where the loaded cover is in reach. Refining the tint here
+            // is what lets the Artwork preference actually follow the artwork.
+            .tint(
+                player.coverTint(
+                    themeColor: settings.themeColor,
+                    vividAccent: settings.vividCoverAccent,
+                    scheme: resolvedColorScheme))
+    }
+
+    /// A cover wash behind the transport, and only behind the transport.
+    ///
+    /// Scope is the player chrome by design, following the rule this codebase
+    /// already states in `CoverThemedSheet`: long-form reading surfaces stay
+    /// system-neutral, and `MacReaderFeedView` is what fills the rest of this
+    /// pane. Washing the sidebar or the reader would trade legibility for
+    /// colour on exactly the surfaces that cannot afford it.
+    ///
+    /// Drawn at full strength rather than dimmed to some pleasant-looking
+    /// opacity, because the strength is the guarantee: `CoverThemeBuilder`
+    /// enforces `accentFloor` contrast between the accent and *both* of these
+    /// gradient stops, so the tinted transport controls are provably legible on
+    /// this exact pair of colours. Diluting the wash silently voids that
+    /// arithmetic. As on iOS, the wash keeps following the cover even when
+    /// Theme Color names a static accent: `PlayerModel.coverTheme` ignores that
+    /// preference too, because picking a blue accent does not change which book
+    /// you are listening to.
+    private var playerBarWash: some View {
+        let theme = player.coverTheme(
+            vividAccent: settings.vividCoverAccent, scheme: resolvedColorScheme)
+        return LinearGradient(
+            colors: [theme.backgroundTop, theme.backgroundBottom],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    /// The scheme the cover recipes should be built for.
+    ///
+    /// An explicit Appearance preference is read straight from settings rather
+    /// than from the environment: `.preferredColorScheme` publishes upward to
+    /// the window and only then flows back down, so trusting the environment
+    /// alone would resolve the accent against the outgoing scheme on the update
+    /// where the preference changes. `nil` means the user chose "System", and
+    /// there the environment is both correct and reactive.
+    private var resolvedColorScheme: ColorScheme {
+        Echo_macOSApp.colorScheme(for: settings.appAppearance) ?? colorScheme
     }
 
     private var fullyConfiguredSplitView: some View {
@@ -183,6 +235,7 @@ struct MacTriPaneView: View {
                 .frame(height: 48)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
+                .background(playerBarWash)
 
             // Batch work runs for hours; without this it was invisible unless
             // the queue sheet happened to be open.

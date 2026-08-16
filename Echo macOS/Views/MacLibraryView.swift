@@ -211,9 +211,21 @@ private struct MacLibraryBookRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: book.isAvailable ? "book.closed" : "exclamationmark.triangle")
-                .foregroundStyle(book.isAvailable ? Color.secondary : Color.orange)
-                .frame(width: 18)
+            // The shelf already stores a cover per book; showing it is what the
+            // shared `LibraryCoverImage` is for, and it compiles on macOS
+            // unchanged (it typealiases `NSImage` and loads off the main actor).
+            // A missing book keeps the warning triangle instead: "this file is
+            // gone" is the more urgent thing to read at a glance, and it is the
+            // signal the placeholder cover could not carry.
+            if book.isAvailable {
+                LibraryCoverImage(coverArtPath: book.coverArtPath)
+                    .frame(width: 28, height: 28)
+                    .accessibilityHidden(true)
+            } else {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(Color.orange)
+                    .frame(width: 28)
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(book.title)

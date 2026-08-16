@@ -3,6 +3,8 @@ import SwiftUI
 
 #if canImport(UIKit)
     import UIKit
+#elseif canImport(AppKit)
+    import AppKit
 #endif
 
 /// Pure colour math shared by the cover-theme pipeline.
@@ -43,6 +45,14 @@ nonisolated enum ColorMetrics {
 
     // MARK: - Color bridge (the only platform-touching part)
 
+    /// Creates a SwiftUI `Color` from an sRGB triple. Platform-neutral — the
+    /// initializer is pure SwiftUI — so it sits outside the gate `rgb(_:)`
+    /// needs. It lived inside that gate until macOS started consuming the
+    /// pipeline, which was proximity, not a dependency.
+    static func color(_ c: RGB) -> Color {
+        Color(red: c.r, green: c.g, blue: c.b)
+    }
+
     #if canImport(UIKit)
         /// Extracts sRGB components from a SwiftUI `Color`.
         static func rgb(_ color: Color) -> RGB {
@@ -54,10 +64,31 @@ nonisolated enum ColorMetrics {
             ui.getRed(&r, green: &g, blue: &b, alpha: &a)
             return RGB(r: Double(r), g: Double(g), b: Double(b))
         }
-
-        /// Creates a SwiftUI `Color` from an sRGB triple.
-        static func color(_ c: RGB) -> Color {
-            Color(red: c.r, green: c.g, blue: c.b)
+    #elseif canImport(AppKit)
+        /// AppKit twin of the UIKit bridge above.
+        ///
+        /// The colour-space conversion is mandatory, not defensive:
+        /// `NSColor.redComponent` and friends raise unless the receiver is
+        /// already in an RGB space, and the one colour this is called with —
+        /// `Color.accentColor` — is a catalog colour that is not. Converting to
+        /// sRGB explicitly also keeps the Mac's reading identical to the
+        /// phone's on a Display P3 screen, which is what makes the two
+        /// platforms resolve the same accent for the same cover.
+        static func rgb(_ color: Color) -> RGB {
+            // `.sRGB` then `.deviceRGB`: the second is a belt-and-braces path
+            // for a colour whose profile refuses the first. Both failing means
+            // the brand colour is unreadable, which only affects the neutral
+            // fallback's seed hue — `enforcedAccent` still guarantees the
+            // contrast floors from whatever seed it gets.
+            let ns = NSColor(color)
+            guard let rgb = ns.usingColorSpace(.sRGB) ?? ns.usingColorSpace(.deviceRGB) else {
+                return RGB(r: 0, g: 0, b: 0)
+            }
+            return RGB(
+                r: Double(rgb.redComponent),
+                g: Double(rgb.greenComponent),
+                b: Double(rgb.blueComponent)
+            )
         }
     #endif
 }

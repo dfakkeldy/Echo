@@ -4,7 +4,12 @@ import SwiftUI
 /// The app-wide accent-color choices surfaced in Settings → Appearance → Accent
 /// Color. `.system` defers to the OS tint; `.artwork` is resolved dynamically
 /// from the loaded book's cover (see `PlayerModel.resolvedThemeTint`).
-enum ThemeColor: String, CaseIterable, Identifiable {
+// `nonisolated`: a pure preference mapping with no main-actor state. Under this
+// project's default MainActor isolation it would otherwise be inferred
+// `@MainActor`, which stops `MacCoverTint` — a nonisolated resolver, so that it
+// is testable without a macOS test bundle — from reading `color` at all. Same
+// declaration `CoverSignature` and `CoverThemeBuilder` already carry.
+nonisolated enum ThemeColor: String, CaseIterable, Identifiable {
     case artwork = "Artwork"
     case system = "System"
     case blue = "Blue"

@@ -18,6 +18,7 @@ import ImageIO
 import LocalAuthentication
 import Observation
 import Security
+import SwiftUI
 import Synchronization
 import UniformTypeIdentifiers
 import os.log
@@ -61,6 +62,17 @@ final class MacPlayerModel {
     /// `ArtworkCache`, which is UIKit-only and excluded from the macOS target).
     /// `nil` until loaded, or when neither source has artwork.
     private(set) var coverImage: NSImage?
+    /// Identity hues of `coverImage`, extracted on the same off-main pass that
+    /// decodes it (never on the UI actor). Drives the cover-derived app tint
+    /// via `MacCoverTint`. `nil` whenever `coverImage` is, and for artwork the
+    /// extractor judges to carry no usable hue.
+    private(set) var coverSignature: CoverSignature?
+    /// Memoized `coverTheme(vividAccent:scheme:)` result and the inputs it was
+    /// built from. `@ObservationIgnored` because these are a cache, not state:
+    /// publishing them would re-render every observer each time the cache
+    /// filled, from inside the very body evaluation that filled it.
+    @ObservationIgnored private var cachedCoverTheme: CoverTheme?
+    @ObservationIgnored private var cachedCoverThemeKey: CoverThemeKey?
     /// Author/artist for the current book, surfaced as the Now Playing
     /// album/subtitle line. Extracted from the audio file's metadata alongside
     /// the cover art. `nil` when the file has no artist metadata.
@@ -394,6 +406,7 @@ final class MacPlayerModel {
         // Drop stale cover art / author immediately so Now Playing never shows the
         // previous book's art; the new file's art is loaded asynchronously below.
         coverImage = nil
+        coverSignature = nil
         currentAuthor = nil
         // Infer folder from the file's parent directory if not already set.
         if folderURL == nil {
@@ -904,6 +917,7 @@ final class MacPlayerModel {
         chapters = []
         currentChapterIndex = 0
         coverImage = nil
+        coverSignature = nil
         currentAuthor = record?.author
         duration = record?.duration ?? 0
         currentTime = 0
@@ -1680,6 +1694,7 @@ extension MacPlayerModel {
             self.coverImage = meta.cgImage.map {
                 NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height))
             }
+            self.coverSignature = meta.signature
             self.currentAuthor = meta.author
             self.updateNowPlaying()
         }
@@ -1697,14 +1712,56 @@ extension MacPlayerModel {
         }
         let url = FileLocations.libraryCoversDirectory.appending(path: path)
         Task { @MainActor [weak self] in
-            let cgImage = await MacArtworkLoader.loadImage(at: url)
+            let cover = await MacArtworkLoader.loadImage(at: url)
             guard let self, self.artworkLoadToken == token else { return }
-            self.coverImage = cgImage.map {
+            self.coverImage = cover.cgImage.map {
                 NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height))
             }
+            self.coverSignature = cover.signature
             self.currentAuthor = author
             self.updateNowPlaying()
         }
+    }
+}
+
+// MARK: - Cover-derived tint
+
+/// The inputs the cover theme is a pure function of. Comparing one of these is
+/// far cheaper than rebuilding a theme, which is the whole point of the memo.
+/// `themeColor` is absent on purpose: the theme ignores the accent preference.
+private struct CoverThemeKey: Equatable {
+    let signature: CoverSignature?
+    let vividAccent: Bool
+    let scheme: ColorScheme
+}
+
+extension MacPlayerModel {
+    /// The current book's cover roles — accent, wash, chip.
+    ///
+    /// Memoized rather than computed fresh because the views that read it
+    /// observe `currentTime`, so their bodies re-evaluate several times a
+    /// second, while the answer only changes when the book, the Vivid
+    /// preference, or the appearance does. `CoverThemeBuilder` walks lightness
+    /// in small steps to clear its contrast floors — inexpensive once, wasteful
+    /// at playback tick rate.
+    func coverTheme(vividAccent: Bool, scheme: ColorScheme) -> CoverTheme {
+        let key = CoverThemeKey(
+            signature: coverSignature, vividAccent: vividAccent, scheme: scheme)
+        if key == cachedCoverThemeKey, let cached = cachedCoverTheme { return cached }
+        let theme = MacCoverTint.theme(
+            signature: coverSignature, vividAccent: vividAccent, scheme: scheme)
+        cachedCoverThemeKey = key
+        cachedCoverTheme = theme
+        return theme
+    }
+
+    /// The app-wide accent, or `nil` to leave the system tint in place. Free on
+    /// top of `coverTheme` — the preference switch is an enum lookup, so only
+    /// the memoized build costs anything.
+    func coverTint(themeColor: String, vividAccent: Bool, scheme: ColorScheme) -> Color? {
+        MacCoverTint.tint(
+            themeColor: themeColor,
+            coverTheme: coverTheme(vividAccent: vividAccent, scheme: scheme))
     }
 }
 
@@ -1725,6 +1782,10 @@ private nonisolated enum MacArtworkLoader {
     struct BookMetadata: Sendable {
         let cgImage: CGImage?
         let author: String?
+        /// Extracted here rather than by the caller so the histogram pass runs
+        /// on the cooperative pool with the decode. `CoverSignature` is a value
+        /// type of `Double`s, so it crosses back to the main actor freely.
+        let signature: CoverSignature?
     }
 
     #if DEBUG
@@ -1772,13 +1833,26 @@ private nonisolated enum MacArtworkLoader {
             }
         }
         if cgImage == nil { cgImage = folderArtworkImage(near: url) }
-        return BookMetadata(cgImage: cgImage, author: author)
+        return BookMetadata(
+            cgImage: cgImage, author: author, signature: cgImage.map(coverSignature))
     }
 
+    /// Loads a library cover and its identity hues together, for the same
+    /// reason `load` does: both halves belong on the cooperative pool.
     @concurrent
-    static func loadImage(at url: URL) async -> CGImage? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return MacImageDecode.downsampledCGImage(data: data, maxPixelSize: 600)
+    static func loadImage(at url: URL) async -> (cgImage: CGImage?, signature: CoverSignature?) {
+        guard let data = try? Data(contentsOf: url),
+            let cgImage = MacImageDecode.downsampledCGImage(data: data, maxPixelSize: 600)
+        else { return (nil, nil) }
+        return (cgImage, coverSignature(cgImage))
+    }
+
+    /// The platform-neutral core of the shared extractor — the `UIImage` entry
+    /// point beside it is the only UIKit-gated part, and the Mac has a
+    /// `CGImage` in hand already. Sharing this exact call is what makes a cover
+    /// resolve to the same accent on both platforms.
+    private static func coverSignature(_ cgImage: CGImage) -> CoverSignature {
+        DominantColorExtractor.signature(from: cgImage)
     }
 
     /// Falls back to a `cover.*` (or first, name-sorted) image file alongside the

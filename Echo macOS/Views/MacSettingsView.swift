@@ -79,7 +79,7 @@ private struct MacAppearanceSettingsPane: View {
                 Text("Appearance")
             } footer: {
                 Text(
-                    "Color scheme and font apply across the macOS app window. Theme color tints accents throughout the app. Vivid Cover Accent prefers the cover's most saturated color, even when it covers only a small area."
+                    "Color scheme and font apply across the macOS app window. Theme color tints accents throughout the app; Artwork derives the accent from the current book cover. Vivid Cover Accent prefers the cover's most saturated color — like colored title text — even when it covers only a small area."
                 )
                 .font(.footnote)
                 .foregroundStyle(.secondary)
