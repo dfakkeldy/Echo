@@ -2005,6 +2005,78 @@ unique, monotonic build number from TestFlight's latest + 1, so `MARKETING_VERSI
 only moves for real releases. A purely local upload is `bundle exec fastlane beta
 channel:weekly` (needs `fastlane/api_key.json` and `MATCH_PASSWORD`).
 
+**Shipping the Mac app — the two-certificate rule.** A macOS App Store
+submission needs **two** certificates, and this is the single most expensive
+thing to rediscover about Echo's release plumbing. `Apple Distribution` signs
+the `.app` and is shared with iOS. But the Mac App Store does not accept a bare
+`.app` — it accepts an *installer package*, and that `.pkg` is signed by a
+different certificate type: **Mac Installer Distribution**, which Keychain
+Access displays as `3rd Party Mac Developer Installer`. iOS never needs it, so
+an iOS-first `match` setup stores only `Apple Distribution` and every macOS
+export dies at the very last step with:
+
+```
+** ARCHIVE SUCCEEDED **
+error: exportArchive No signing certificate "Mac Installer Distribution" found
+```
+
+The archive is fine; only the packaging fails. `match` manages that certificate
+only when the macOS `sync_code_signing` names it via
+`additional_cert_types: ["mac_installer_distribution"]`, which makes it read
+`certs/mac_installer_distribution/` in the certificates repo.
+
+The lane passes that option **only on CI**, and the gate is load-bearing. The
+flag does two different things depending on `readonly`. Under `readonly: true`
+(CI) it globs the match repo and imports the stored `.cer`/`.p12` into the
+keychain, never contacting the portal. Under `readonly: false` (a local run) the
+same missing-certificate branch goes to `Generator`, which forces certificate
+*creation* — see the warning below. A local `fastlane beta` does not need the
+option anyway: the developer's own installer identity is already in the login
+keychain, which is where `gym` looks.
+
+Seeding that directory is a **one-time local step**, because Apple never
+re-issues a private key: the certificate must be imported together with the key
+that created it. Run it once:
+
+```
+Scripts/import_mac_installer_cert.sh
+```
+
+Two traps that fail *silently* and are encoded in that script, so nobody has to
+find them twice:
+
+- The `.cer` must be **DER, not PEM**. `match import` compares
+  `Base64(raw file bytes)` against the portal's stored certificate content;
+  `security find-certificate -p` emits PEM, whose bytes never match, and the
+  only symptom is "the certificate contents did not match".
+- The `.p12` must be exported with an **empty passphrase**. `match` imports it
+  with a hardcoded `security import -P ''`, so a password-protected `.p12` works
+  on your Mac and fails **only on CI**.
+
+Do **not** seed the repo by running `match` non-readonly with
+`--additional_cert_types`: `Generator` passes `force: true` to `cert`, which
+skips the reuse check and mints a *brand new* certificate, orphaning the working
+one. And do not run `match --type mac_installer_distribution`, which looks
+correct, is accepted, and silently produces a duplicate **Apple Distribution**
+certificate instead — `Generator` forwards the specific cert type only for
+`developer_id_application`, so `cert` falls through to its default. That is what
+happened on 2026-06-20; it was the wrong parameter, not an API-key limitation.
+
+Two further notes on the macOS export path:
+
+- `export_method` must stay the literal string `"app-store"`. Xcode logs
+  `Command line name "app-store" is deprecated. Use "app-store-connect"` — ignore
+  it. `gym` rejects `"app-store-connect"` outright, and its installer-certificate
+  detection only maps the literal `"app-store"`, so "fixing" the deprecation
+  re-breaks the export.
+- `pilot` uploads one binary per call, so the Mac `.pkg` gets its own
+  `upload_to_testflight` with `app_platform: "osx"` (the only accepted macOS
+  value — `"macos"` is rejected). Mac builds currently go to **internal testers
+  only**, on every channel, including weekly. Promoting them to the external
+  Weekly group means mirroring the iOS `distribute_external` /
+  `submit_beta_review` block; do that once a Mac build has been installed from
+  TestFlight and smoke-tested.
+
 **Release checklist guardrail.** Before merging any future CarPlay scene
 declaration or marketing copy, verify the App ID/provisioning profile includes
 the matching CarPlay entitlement (`com.apple.developer.carplay-audio`), the
