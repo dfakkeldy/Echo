@@ -42,7 +42,13 @@ compiler-input level via `Build/Intermediates.noindex/.../*.SwiftFileList`,
 which is the authoritative per-target file list and answers membership
 questions without a build.
 
-Next: watch CI on the PR, then manual Mac acceptance — a duotone cover, a
+Rebased onto origin/nightly eb1ed641 (#573), which reworked this same
+`MacTriPaneView` from three columns to two-plus-inspector. One file, three
+hunks: kept nightly's inspector wiring verbatim (20 EchoTests files scan this
+file as text) and attached the wash to the transport. All three gates re-run
+green after the rebase. PR https://github.com/dfakkeldy/Echo/pull/575 → nightly.
+
+Next: CI on #575, then manual Mac acceptance — a duotone cover, a
 near-monochrome cover, and a book with no artwork, plus the same book side by
 side with iOS to check the AppKit `rgb(_:)` colour-space branch. Delete this
 handoff in the commit that closes the task.
@@ -51,7 +57,7 @@ Resume:
 
 ```
 Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/macos-cover-colors-016824,
-branch claude/macos-cover-colors-016824, PR open to nightly. All local gates are
-green. Next: report CI status with `gh pr checks`, then run the Mac app and
-check the accent on a duotone, a near-monochrome, and a coverless book.
+branch claude/macos-cover-colors-016824, PR #575 open to nightly. All local gates
+are green. Next: `gh pr checks 575`, then run the Mac app and check the accent on
+a duotone, a near-monochrome, and a coverless book.
 ```
