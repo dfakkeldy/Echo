@@ -69,6 +69,13 @@ struct MacDailyReviewView: View {
             VStack(spacing: 16) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
+                        // Image cards (PDF figures, imported decks) keep their asset path in
+                        // `media_json`. Capped shorter than the iOS 220 because this sheet is a
+                        // fixed 380pt tall and a taller image buries the question below the fold.
+                        if let imagePath = StudyCardMedia.imagePath(fromMediaJSON: card.mediaJSON) {
+                            StudyLocalImageView(path: imagePath, accessibilityLabel: card.frontText)
+                                .frame(maxHeight: 140)
+                        }
                         Text(card.frontText)
                             .font(.title3)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -83,6 +90,9 @@ struct MacDailyReviewView: View {
                     }
                     .padding()
                 }
+                // Reset scroll position when the deck advances; without a stable identity
+                // SwiftUI reuses the ScrollView and card 2 opens mid-scroll.
+                .id(card.id)
                 .frame(maxWidth: .infinity)
                 .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 10))
 
