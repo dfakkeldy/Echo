@@ -96,6 +96,12 @@ final class PlayerModel {
     /// NavigationStack path, then clears it.
     var pendingNavigationDestination: NavigationDestination?
 
+    /// Bumped when an explicit Library selection must reveal the root Listen
+    /// screen. RootTabView owns the Now Playing `NavigationPath`, so it watches
+    /// this one-shot and pops back to the root; a new value every time keeps
+    /// two opens of the same book from collapsing into one no-op change.
+    var nowPlayingRootRequestID = UUID()
+
     /// Presentation state of the Help/Focus guide sheet.
     var showingHelp: Bool = false
 
@@ -1506,6 +1512,7 @@ final class PlayerModel {
         let openingURL =
             BookPreferencesService.reopenDocumentURL(for: target.url) ?? target.url
         loadFolder(openingURL, autoplay: false, persistBookmark: false)
+        nowPlayingRootRequestID = UUID()
         selectedTab = .nowPlaying
     }
 

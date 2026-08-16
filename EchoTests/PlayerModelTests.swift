@@ -348,11 +348,35 @@ struct PlayerModelTests {
 
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let rootRequestBeforeOpen = model.nowPlayingRootRequestID
         model.openLibraryBook(LibraryOpenTarget(url: folder, scopedRoot: nil))
 
         // Without this the book loads behind the still-visible shelf and the tap
         // looks like it "did nothing".
         #expect(model.selectedTab == .nowPlaying)
+        // The Listen tab keeps its NavigationPath across tab switches, so without
+        // a reset request the new book appears under whatever child screen the
+        // previous book was left on — a chapter list showing the old chapters.
+        #expect(model.nowPlayingRootRequestID != rootRequestBeforeOpen)
+    }
+
+    @Test("Each library open requests its own Listen-root reset")
+    func openLibraryBookRequestsAFreshRootResetEveryTime() throws {
+        let model = PlayerModel()
+        model.databaseService = try DatabaseService(inMemory: ())
+
+        let first = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        model.openLibraryBook(LibraryOpenTarget(url: first, scopedRoot: nil))
+        let afterFirstOpen = model.nowPlayingRootRequestID
+
+        let second = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        model.openLibraryBook(LibraryOpenTarget(url: second, scopedRoot: nil))
+
+        // `.onChange` only fires on a *different* value. A stamp that repeated
+        // would leave the second open stranded on the first book's child screen.
+        #expect(model.nowPlayingRootRequestID != afterFirstOpen)
     }
 
     @Test("registerLibraryRoot ignores picked files")
