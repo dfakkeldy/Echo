@@ -1116,4 +1116,14 @@ extension PlaybackController: AudioEngineDelegate {
         // paused until the user explicitly resumes.
         pause()
     }
+
+    func audioEngineDidStopUnexpectedly(_ engine: AudioEngine) {
+        // The audio hardware reconfigured and the engine could not be brought
+        // back at the current position. pause() drives the full state update —
+        // Now Playing, watch sync, pause timestamp — so the transport stops
+        // advertising playback that is not happening. Like a disconnect and
+        // unlike an interruption, it never arms wasPlayingBeforeInterruption:
+        // there is no resume event coming, so the user resumes explicitly.
+        pause()
+    }
 }

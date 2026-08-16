@@ -15,6 +15,9 @@ protocol AudioEngineDelegate: AnyObject {
     func audioEngineInterruptionBegan(_ engine: AudioEngine)
     func audioEngineInterruptionEnded(_ engine: AudioEngine, shouldResume: Bool)
     func audioEngineOutputDeviceDisconnected(_ engine: AudioEngine)
+    /// The engine stopped itself on a hardware reconfiguration and could not be
+    /// restarted at the current position. Settle into a real paused state.
+    func audioEngineDidStopUnexpectedly(_ engine: AudioEngine)
 }
 
 // MARK: - WS-4 Audio Engine Upgrade Protocols
@@ -55,6 +58,11 @@ final class AudioEngine {
 
     /// Whether an audio file is loaded and ready.
     var isItemLoaded: Bool { audioFile != nil && playerNode != nil }
+
+    /// Whether the engine is listening for hardware reconfigurations. The
+    /// original headphone-connect bug was that nothing observed this at all, so
+    /// tests assert the observer is armed for as long as the graph exists.
+    var isObservingConfigurationChanges: Bool { configurationChangeObserver != nil }
 
     /// The URL of the currently loaded audio file, if any.
     var audioFileURL: URL? { audioFile?.url }
@@ -100,6 +108,7 @@ final class AudioEngine {
     private var routeChangeObserver: NSObjectProtocol?
     private var mediaServicesLostObserver: NSObjectProtocol?
     private var mediaServicesResetObserver: NSObjectProtocol?
+    private var configurationChangeObserver: NSObjectProtocol?
     private var audioSessionConfigured = false
     private var seekGeneration = 0
 
@@ -169,6 +178,94 @@ final class AudioEngine {
         soundscapeMixer = DefaultSoundscapeMixer(engine: engine)
         chimePlayer = DefaultChimePlayer(engine: engine)
         visualizerTap = DefaultVisualizerTap(engine: engine)
+
+        setupConfigurationChangeObserver(for: engine)
+    }
+
+    /// AVAudioEngine stops *itself* whenever the audio hardware configuration
+    /// changes — most often when an output device **connects** (Bluetooth
+    /// headphones waking up mid-book) or the default output device changes.
+    /// Unlike an interruption or a disconnect, nothing else tells the app, so
+    /// `isPlaying` is left true over a stopped engine: the transport keeps
+    /// showing a pause button while silence plays, and the next tap pauses an
+    /// already-stopped engine — which is why resuming took two presses.
+    ///
+    /// Scoped to this engine instance; `SnippetPlayer` and `BookmarkStore` build
+    /// their own AVAudioEngines whose reconfigurations are none of our business.
+    private func setupConfigurationChangeObserver(for engine: AVAudioEngine) {
+        guard configurationChangeObserver == nil else { return }
+        configurationChangeObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                self.handleConfigurationChange()
+            }
+        }
+    }
+
+    private func removeConfigurationChangeObserver() {
+        if let obs = configurationChangeObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+        configurationChangeObserver = nil
+    }
+
+    /// Restart at the current position so playback follows the new route.
+    ///
+    /// The re-seek is load-bearing: a bare `engine.start()` would resume, but
+    /// stopping resets the player node's sample time, and `currentTime` is
+    /// derived from it (`seekOffset + sampleTime / sampleRate`), so resuming
+    /// without rescheduling would rewind the book to the last seek point.
+    /// Re-seeking rebases `seekOffset` onto the position we actually reached.
+    func handleConfigurationChange() {
+        // A reconfiguration while paused needs nothing: the next `play()` goes
+        // through `startEngineIfNeeded()`, which restarts a stopped engine.
+        // `!engine.isRunning` also stops the restart below from re-entering if
+        // starting the engine posts a further configuration change.
+        guard isPlaying, let engine, !engine.isRunning else { return }
+
+        // A device leaving can reconfigure the engine too, and that notification
+        // races `.oldDeviceUnavailable`. Resuming when we have landed back on the
+        // built-in output would play the book out loud for the instant before the
+        // disconnect handler's pause arrives — the very thing that handler exists
+        // to prevent — so treat it as a stop rather than a route to follow.
+        guard !reconfiguredOntoBuiltInOutput else {
+            reportUnexpectedStop()
+            return
+        }
+
+        seek(to: currentTime) { [weak self] rescheduled in
+            guard let self else { return }
+            if rescheduled, self.engine?.isRunning == true { return }
+            // The engine would not come back. Report a real pause rather than
+            // leaving a pause button sitting over a dead engine.
+            self.reportUnexpectedStop()
+        }
+    }
+
+    /// True when the new route is the device's own speaker/receiver, i.e. the
+    /// output device went away rather than arrived. Always false off iOS, where
+    /// there is no AVAudioSession and a reconfiguration is a switch *to* a device.
+    private var reconfiguredOntoBuiltInOutput: Bool {
+        #if os(iOS)
+            let outputs = AVAudioSession.sharedInstance().currentRoute.outputs
+            return !outputs.isEmpty
+                && outputs.allSatisfy {
+                    $0.portType == .builtInSpeaker || $0.portType == .builtInReceiver
+                }
+        #else
+            return false
+        #endif
+    }
+
+    /// Settle into a truthful paused transport after the engine stopped on us.
+    private func reportUnexpectedStop() {
+        isPlaying = false
+        stopTimeTimer()
+        delegate?.audioEngineDidStopUnexpectedly(self)
     }
 
     // MARK: - Playback Controls
@@ -446,6 +543,10 @@ final class AudioEngine {
 
     func cleanup() {
         stop()
+        // Paired with `configureEngineGraph()`, not with `stop()`: the engine
+        // instance survives `stop()` and the graph builder early-returns while
+        // it does, so tearing the observer down there would never re-arm it.
+        removeConfigurationChangeObserver()
         engine = nil
         playerNode = nil
         eqNode = nil
