@@ -30,11 +30,9 @@
 - Modify `EchoCore/Views/BottomToolbarView.swift`: forward the optional Reader actions to `PlayerMoreMenu`.
 - Modify `EchoCore/Views/Components/UnifiedBottomDock.swift`: forward the optional Reader actions from root to the toolbar.
 - Modify `EchoCore/Localizable.xcstrings`: add the Reader overflow's **Open Book or Folder…** localization.
-- Modify `EchoTests/ReaderChromeClearanceTests.swift`: test surface-selection rules and root wiring.
-- Modify `EchoTests/UnifiedChromeLayoutTests.swift`: pin conditional ownership of the global reservation.
+- Modify `EchoTests/ReaderChromeClearanceTests.swift`: test the standalone-Reader surface-selection rules.
 - Modify `EchoTests/SleepTimerPillStateTests.swift`: test shared timer presentation and menu status values.
-- Modify `EchoTests/PlayerMoreMenuTests.swift`: test Reader-only inputs, timer state, shared menu use, and forwarding.
-- Modify `EchoTests/ChromeConsolidationTests.swift`: compile-check the expanded More-menu interface while keeping defaults source-compatible.
+- Modify `EchoTests/PlayerMoreMenuTests.swift`: test the Reader timer-indicator behavior and remove the obsolete single-home assertion.
 - Modify `CHANGELOG.md`: record the user-visible Reader collision fix and relocated actions.
 
 ### Task 1: Resolve and apply standalone Reader chrome state
@@ -43,13 +41,12 @@
 - Modify: `EchoCore/ViewModels/ReaderChromeClearance.swift:4-10`
 - Modify: `EchoCore/Views/RootTabView.swift:161-167,173-321`
 - Test: `EchoTests/ReaderChromeClearanceTests.swift:7-41`
-- Test: `EchoTests/UnifiedChromeLayoutTests.swift:168-178`
 
 **Interfaces:**
 - Consumes: booleans already available in `RootTabView` (`model.selectedTab == .read`, `readPath.isEmpty`, `model.hasEPUB`, `model.hasPDF`, and `model.hasStandaloneTranscript`).
 - Produces: `ReaderTopChromeLayout.usesCompactHeader(selectedTabIsRead:readPathIsEmpty:hasEPUB:hasPDF:hasStandaloneTranscript:) -> Bool` and `RootTabView.usesCompactReaderTopChrome: Bool`.
 
-- [ ] **Step 1: Add failing pure resolver and root-wiring tests**
+- [ ] **Step 1: Add failing pure resolver tests**
 
 Append these tests inside `ReaderChromeClearanceTests` before its source helper:
 
@@ -114,22 +111,6 @@ Append these tests inside `ReaderChromeClearanceTests` before its source helper:
     )
 }
 
-@Test func rootUsesOneCompactStateForHeaderAndReservation() throws {
-    let root = try source("RootTabView.swift")
-    #expect(root.contains("private var usesCompactReaderTopChrome: Bool"))
-    #expect(
-        root.components(separatedBy: "if !usesCompactReaderTopChrome").count == 3,
-        "Root must gate exactly the global reservation and UnifiedTopHeader with the same state."
-    )
-}
-```
-
-Update `UnifiedChromeLayoutTests.rootOwnsTheOnlyGlobalHeaderReservation()` with these root assertions while retaining the existing checks that Reader, Now Playing, and `LibraryShelfGrid` do not own the row:
-
-```swift
-#expect(root.contains("ReaderTopChromeLayout.usesCompactHeader("))
-#expect(root.contains("if !usesCompactReaderTopChrome"))
-#expect(root.contains("Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)"))
 ```
 
 - [ ] **Step 2: Build the tests to verify the new resolver test fails**
@@ -223,15 +204,14 @@ Run:
 ```bash
 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderChromeClearanceTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/UnifiedChromeLayoutTests
 ```
 
-Expected: build succeeds; both suites pass. The pure tests must show that PDF, transcript, non-Read tabs, pushed Read destinations, and empty Reader state all retain global chrome.
+Expected: build succeeds and `ReaderChromeClearanceTests` passes. The pure tests must show that PDF, transcript, non-Read tabs, pushed Read destinations, and empty Reader state all retain global chrome. Task 4 verifies the rendered Root wiring in Simulator.
 
 - [ ] **Step 6: Commit the surface-selection change**
 
 ```bash
-git add EchoCore/ViewModels/ReaderChromeClearance.swift EchoCore/Views/RootTabView.swift EchoTests/ReaderChromeClearanceTests.swift EchoTests/UnifiedChromeLayoutTests.swift
+git add EchoCore/ViewModels/ReaderChromeClearance.swift EchoCore/Views/RootTabView.swift EchoTests/ReaderChromeClearanceTests.swift
 git commit -m "fix(reader): reclaim global top chrome"
 ```
 
@@ -280,10 +260,6 @@ Append these tests to `SleepTimerPillStateTests`:
     )
 }
 
-@Test @MainActor func sharedMenuContentSupportsPillAndReaderVariants() {
-    _ = SleepTimerMenuContent()
-    _ = SleepTimerMenuContent(showsActiveStatus: true)
-}
 ```
 
 - [ ] **Step 2: Build to verify the shared-presentation tests fail**
@@ -294,7 +270,7 @@ Run:
 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
-Expected: FAIL because `accessibilityValue`, `activeStatusText`, and `SleepTimerMenuContent` do not yet exist.
+Expected: FAIL because `accessibilityValue` and `activeStatusText` do not yet exist.
 
 - [ ] **Step 3: Extend the pure timer presentation state**
 
@@ -453,27 +429,16 @@ git commit -m "refactor(player): share sleep timer menu content"
 - Modify: `EchoCore/Localizable.xcstrings:4684-4720`
 - Modify: `CHANGELOG.md:107-112`
 - Test: `EchoTests/PlayerMoreMenuTests.swift:7-126`
-- Test: `EchoTests/ChromeConsolidationTests.swift:6-27`
 
 **Interfaces:**
 - Consumes: `RootTabView.usesCompactReaderTopChrome`, root-owned `showingFolderPicker`, `SleepTimerMenuContent(showsActiveStatus:)`, and `SleepTimerPillState.accessibilityValue(mode:remainingSeconds:)`.
 - Produces: optional `onOpenBookOrFolder: (() -> Void)?` and `showsReaderSleepTimer: Bool` inputs on `UnifiedBottomDock`, `BottomToolbarView`, and `PlayerMoreMenu`; `PlayerMoreMenuState.timerAccessibilityValue(showsReaderSleepTimer:mode:remainingSeconds:) -> String?`.
 
-- [ ] **Step 1: Replace the obsolete More-menu expectations with failing Reader-action tests**
+- [ ] **Step 1: Replace the obsolete single-home assertion and add failing timer-indicator tests**
 
-In `PlayerMoreMenuTests.playerMoreMenuExposesConsolidatedActions()`, replace the old assertion that sleep-timer arming belongs only to `SleepTimerPill` with:
+In `PlayerMoreMenuTests.playerMoreMenuExposesConsolidatedActions()`, delete lines 40-43: the obsolete source-text assertion that the sleep timer belongs only to `SleepTimerPill`.
 
-```swift
-#expect(source.contains("onOpenBookOrFolder"))
-#expect(source.contains("showsReaderSleepTimer"))
-#expect(source.contains("SleepTimerMenuContent(showsActiveStatus: true)"))
-#expect(
-    !source.contains("model.setSleepTimer"),
-    "PlayerMoreMenu must reuse shared sleep-timer content instead of duplicating timer logic."
-)
-```
-
-Add these pure state tests:
+Do not replace it with another source-text assertion. Add these pure state tests, whose literal expected values independently exercise the real presentation decision:
 
 ```swift
 @Test func timerIndicatorIsAbsentOutsideReaderAndWhenOff() {
@@ -510,47 +475,6 @@ Add these pure state tests:
     )
 }
 
-@Test func readerOnlyActionsAreForwardedFromRootToMoreMenu() throws {
-    let root = try Self.source(named: "RootTabView.swift")
-    let dock = try Self.source(named: "Components/UnifiedBottomDock.swift")
-    let toolbar = try Self.source(named: "BottomToolbarView.swift")
-
-    #expect(root.contains("onOpenBookOrFolder: usesCompactReaderTopChrome"))
-    #expect(root.contains("showsReaderSleepTimer: usesCompactReaderTopChrome"))
-    #expect(dock.contains("onOpenBookOrFolder: onOpenBookOrFolder"))
-    #expect(dock.contains("showsReaderSleepTimer: showsReaderSleepTimer"))
-    #expect(toolbar.contains("onOpenBookOrFolder: onOpenBookOrFolder"))
-    #expect(toolbar.contains("showsReaderSleepTimer: showsReaderSleepTimer"))
-}
-```
-
-Update the sandbox fallback strings in `PlayerMoreMenuTests.source(named:)` so they include the new tokens:
-
-```swift
-if fileName == "BottomToolbarView.swift" {
-    return "PlayerMoreMenu( utilityChip onOpenBookOrFolder: onOpenBookOrFolder showsReaderSleepTimer: showsReaderSleepTimer"
-} else if fileName == "PlayerMoreMenu.swift" {
-    return
-        "struct PlayerMoreMenu PlayerMoreMenuState onShowChapters onShowBookmarks "
-        + "onAddDocument onExport onStudyNotesExport onStats onFidget onSettings onHelp "
-        + "onOpenBookOrFolder showsReaderSleepTimer SleepTimerMenuContent(showsActiveStatus: true) "
-        + "Add Document Replace Document Label(\"Settings\", systemImage: \"gearshape\")"
-} else if fileName == "RootTabView.swift" {
-    return
-        "onShowChapters: onShowBookmarks: onSettings: onAddDocument: ChapterPickerSheet "
-        + "onOpenBookOrFolder: usesCompactReaderTopChrome showsReaderSleepTimer: usesCompactReaderTopChrome "
-        + ".fileImporter( companionDocumentTypes .pdf model.importPDFDocument(from: url) "
-        + "model.importEPUBDocument(from: url)"
-} else if fileName == "Components/UnifiedBottomDock.swift" {
-    return "onOpenBookOrFolder: onOpenBookOrFolder showsReaderSleepTimer: showsReaderSleepTimer"
-}
-```
-
-In `ChromeConsolidationTests.playerMoreMenuCarriesAppLevelActions()`, explicitly compile-check the new optional inputs after the export arguments:
-
-```swift
-onOpenBookOrFolder: {},
-showsReaderSleepTimer: true
 ```
 
 - [ ] **Step 2: Build to verify the new menu-state tests fail**
@@ -561,7 +485,7 @@ Run:
 /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
-Expected: FAIL because `PlayerMoreMenuState`, `onOpenBookOrFolder`, and `showsReaderSleepTimer` do not exist.
+Expected: FAIL because `PlayerMoreMenuState` does not exist.
 
 - [ ] **Step 3: Add the pure More-menu timer state**
 
@@ -741,7 +665,7 @@ Expected: build succeeds and all four suites pass. The existing experimental-pla
 - [ ] **Step 9: Commit the Reader overflow implementation**
 
 ```bash
-git add EchoCore/Views/PlayerMoreMenu.swift EchoCore/Views/BottomToolbarView.swift EchoCore/Views/Components/UnifiedBottomDock.swift EchoCore/Views/RootTabView.swift EchoCore/Localizable.xcstrings EchoTests/PlayerMoreMenuTests.swift EchoTests/ChromeConsolidationTests.swift CHANGELOG.md
+git add EchoCore/Views/PlayerMoreMenu.swift EchoCore/Views/BottomToolbarView.swift EchoCore/Views/Components/UnifiedBottomDock.swift EchoCore/Views/RootTabView.swift EchoCore/Localizable.xcstrings EchoTests/PlayerMoreMenuTests.swift CHANGELOG.md
 git commit -m "feat(reader): relocate top actions into more menu"
 ```
 
