@@ -26,6 +26,39 @@ import os.log
 @MainActor
 @Observable
 final class MacBatchProcessingService {
+    /// Live detail about the book the runner is working on right now.
+    ///
+    /// Held in memory rather than persisted. `batch_queue` stores a `Double`
+    /// progress and a message, which is everything a relaunch needs to
+    /// reconstruct the queue — but the UI also wants two things that are
+    /// worthless the moment the app quits: whether the current phase has a
+    /// meaningful fraction at all, and when this book started. Adding schema
+    /// columns for a presentation hint would mean a migration (and a forced
+    /// re-import risk) for state with no persistent meaning.
+    struct Activity: Equatable, Sendable {
+        let itemID: Int64?
+        let displayName: String
+        let message: String
+        /// `nil` while the current phase's duration cannot be predicted, so the
+        /// UI can show an indeterminate bar instead of a parked number.
+        let fraction: Double?
+        let startedAt: Date
+
+        /// How long this book has been processing, as `m:ss` under an hour and
+        /// `h:mm:ss` above it. Pure, so the formatting is testable without a
+        /// running queue.
+        func elapsedLabel(at now: Date) -> String {
+            let seconds = max(0, Int(now.timeIntervalSince(startedAt)))
+            let (hours, minutes, secs) = (seconds / 3600, (seconds % 3600) / 60, seconds % 60)
+            return hours > 0
+                ? String(format: "%d:%02d:%02d", hours, minutes, secs)
+                : String(format: "%d:%02d", minutes, secs)
+        }
+    }
+
+    /// The in-flight book's live phase, or `nil` when nothing is processing.
+    private(set) var activity: Activity?
+
     private let dbService: DatabaseService
     private let settings: SettingsManager
     private let dao: BatchQueueDAO
@@ -176,6 +209,7 @@ final class MacBatchProcessingService {
             self.runner = nil
             self.drainTask = nil
             self.processingItemID = nil
+            self.activity = nil
             self.refresh()
             // Re-check for work enqueued during the drain→clear gap, and pick up
             // whatever a cancelled drain left behind.
@@ -211,6 +245,10 @@ final class MacBatchProcessingService {
         if processingItemID == id {
             drainTask?.cancel()
             processingItemID = nil
+            // Drop the live phase with the row it described, so the activity
+            // strip doesn't keep reporting a book that is no longer queued
+            // during the window before the drain actually unwinds.
+            activity = nil
         }
         refresh()
     }
@@ -234,6 +272,15 @@ final class MacBatchProcessingService {
             // has to cancel the drain. Cleared by `start()`'s completion path.
             self?.processingItemID = record.id
 
+            let itemStartedAt = Date()
+            // Transcription reports once per 30-second chunk — hundreds of
+            // times for a full-length book. Persisting every one of them would
+            // rewrite the queue row and re-read the whole table for movement
+            // finer than a pixel, so the DB write is gated on the rounded
+            // percentage or the message actually changing. `activity` is
+            // updated unconditionally: it is in-memory and drives the live UI.
+            var lastPersisted: (percent: Int, message: String?) = (-1, nil)
+
             // Wrap the runner's DAO-writing progress callback so each stage
             // transition ALSO refreshes the in-memory `items` snapshot. Without
             // this, the runner persists importing→transcribing→aligning to the
@@ -242,8 +289,22 @@ final class MacBatchProcessingService {
             // A nested func (vs a closure-typed `let`) stays non-escaping so it
             // can legally call the non-escaping `rawProgress` parameter.
             @MainActor func progress(
-                _ status: BatchItemStatus, _ value: Double, _ message: String?
+                _ status: BatchItemStatus,
+                _ value: Double,
+                _ message: String?,
+                indeterminate: Bool = false
             ) {
+                self?.activity = Activity(
+                    itemID: record.id,
+                    displayName: record.displayName,
+                    message: message ?? self?.activity?.message ?? "",
+                    fraction: indeterminate ? nil : value,
+                    startedAt: itemStartedAt)
+
+                let percent = Int((value * 100).rounded())
+                guard percent != lastPersisted.percent || message != lastPersisted.message
+                else { return }
+                lastPersisted = (percent, message)
                 rawProgress(status, value, message)
                 self?.refresh()
             }
@@ -606,17 +667,61 @@ final class MacBatchProcessingService {
             // 2) Transcribe + 3) Align + 4) word timings. `MacAlignmentService`
             //    transcribes with WhisperKit, runs TokenDTW, writes anchors, then
             //    calls `recalculateTimeline` — which materializes `word_timing`
-            //    rows (Phase A). The two progress steps front the single call so
-            //    the UI reflects the long-running transcription phase.
-            progress(.transcribing, 0.33, "Transcribing…")
-            progress(.aligning, 0.66, "Aligning…")
+            //    rows (Phase A).
+            //
+            //    This used to be two bare `progress` calls (0.33, then 0.66)
+            //    fired back-to-back *before* the single `align` await. The bar
+            //    therefore jumped to 66% in a millisecond and then sat there for
+            //    the entire run — hours, for a full-length audiobook — with no
+            //    way to tell work from a hang. `align` reports its own phases
+            //    now, including genuine per-chunk transcription progress, and
+            //    they are mapped into this item's remaining budget below.
+            progress(.transcribing, Self.alignBandStart, "Starting alignment…")
+            // An indeterminate phase carries no fraction of its own, so it
+            // holds the last known one. Recomputing from zero would drag the
+            // bar backwards to 10% every time alignment entered the DTW match
+            // or the timeline rebuild.
+            var lastAlignFraction = 0.0
             try await alignmentService.align(
                 audiobookID: audiobookID,
                 audioURL: url,
                 epubURL: epubURL,
-                dbService: dbService)
+                dbService: dbService,
+                onProgress: { report in
+                    if let fraction = report.fraction { lastAlignFraction = fraction }
+                    progress(
+                        Self.queueStatus(forAlignmentFraction: lastAlignFraction),
+                        Self.queueProgress(forAlignmentFraction: lastAlignFraction),
+                        report.message,
+                        indeterminate: report.fraction == nil)
+                })
             self?.refresh()
         })
+    }
+
+    // MARK: - Alignment Progress Mapping
+
+    /// Where the align pipeline picks up in a queue item's 0…1 budget. Import
+    /// owns everything below it.
+    static let alignBandStart = 0.10
+
+    /// The queue item's overall progress for a given alignment fraction.
+    ///
+    /// Alignment owns the whole band above ``alignBandStart``, so a book that
+    /// is halfway through transcription reads as roughly halfway through the
+    /// queue item too, rather than pinned to whichever constant the stage
+    /// happened to be labelled with.
+    static func queueProgress(forAlignmentFraction fraction: Double) -> Double {
+        let clamped = min(1.0, max(0.0, fraction))
+        return alignBandStart + (1.0 - alignBandStart) * clamped
+    }
+
+    /// The queue status — and therefore the row's icon — for a given alignment
+    /// fraction. Crossing from transcription into matching flips the icon from
+    /// a waveform to text, which is a second, glanceable signal that the run is
+    /// moving even when the reader isn't watching the percentage.
+    static func queueStatus(forAlignmentFraction fraction: Double) -> BatchItemStatus {
+        fraction < MacAlignmentService.transcribeEnd ? .transcribing : .aligning
     }
 
     // MARK: - Adapters

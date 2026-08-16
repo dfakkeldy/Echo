@@ -96,6 +96,11 @@ struct Echo_macOSApp: App {
                 .onReceive(NotificationCenter.default.publisher(for: .requestNarrateEPUBs)) { _ in
                     narrateEPUBs()
                 }
+                // The main window's batch-activity strip opens the same sheet
+                // as ⌘⇧B rather than presenting its own copy.
+                .onReceive(NotificationCenter.default.publisher(for: .requestBatchQueue)) { _ in
+                    showBatchQueue = true
+                }
                 // WS-12 sheets
                 .sheet(isPresented: $showBatchQueue) {
                     MacBatchQueueView()
@@ -180,7 +185,10 @@ struct Echo_macOSApp: App {
 
                 Divider()
 
-                Button("Toggle Review Pane") {
+                // Shows/hides the trailing notes inspector. Named for what it
+                // acts on, not "Review Pane" — the pane it used to toggle was
+                // the split view's detail column, which could not be hidden.
+                Button("Hide or Show Notes") {
                     NotificationCenter.default.post(name: .requestToggleDetailPane, object: nil)
                 }
                 .keyboardShortcut("t", modifiers: [.command])
@@ -605,8 +613,11 @@ extension Notification.Name {
     static let requestNewNote = Notification.Name("com.echo.requestNewNote")
     /// Posted when the user presses "Find in Book".
     static let requestFocusSearch = Notification.Name("com.echo.requestFocusSearch")
-    /// Posted when the user presses "Toggle Review Pane".
+    /// Posted when the user presses "Hide/Show Notes Pane" (⌘T). Toggles the
+    /// trailing transcript/notes inspector in `MacTriPaneView`.
     static let requestToggleDetailPane = Notification.Name("com.echo.requestToggleDetailPane")
+    /// Posted by the batch-activity strip to open the shared Batch Queue sheet.
+    static let requestBatchQueue = Notification.Name("com.echo.requestBatchQueue")
     /// Posted when the user presses "Export Transcript".
     static let requestExportTranscript = Notification.Name("com.echo.requestExportTranscript")
     /// Posted by the reader's idle "Narrate an EPUB" nudge to open the picker.

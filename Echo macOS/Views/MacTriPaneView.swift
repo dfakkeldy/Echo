@@ -6,15 +6,29 @@ import UniformTypeIdentifiers
 /// The tri-pane study layout for macOS.
 ///
 /// Layout:
-///   Sidebar  |  Content  |  Detail
-///   (TOC)    | (Reader)  | (Transcript + Notes)
+///   Sidebar            |  Content   |  Inspector
+///   (Library + TOC)    | (Reader)   | (Transcript + Notes)
 ///
-/// A thin player bar at the bottom of the center pane shows playback controls.
+/// A thin player bar at the bottom of the center pane shows playback controls,
+/// and a batch-activity strip appears below it while the queue is working.
+///
+/// The trailing pane is an **inspector**, not a `NavigationSplitView` detail
+/// column, because `NavigationSplitViewVisibility` only governs the *leading*
+/// columns: in a three-column split view there is no value that hides the
+/// detail column. This layout previously was three columns, and "Toggle Review
+/// Pane" set `.detailOnly` — which hid the library and the reader and left only
+/// the notes pane, the exact opposite of hiding it. As a two-column split view
+/// with an inspector, both side panes hide independently: the standard sidebar
+/// toggle for the leading one, ⌘T or the toolbar button for the trailing one.
 struct MacTriPaneView: View {
     @Environment(MacPlayerModel.self) private var player
     @Environment(DatabaseService.self) private var dbService
     @Environment(SettingsManager.self) private var settings
+    @Environment(MacBatchProcessingService.self) private var batchService
     @State private var columnVisibility = NavigationSplitViewVisibility.all
+    /// Whether the trailing transcript/notes inspector is showing. Persisted so
+    /// a reader who hides it keeps it hidden across launches.
+    @AppStorage("mac.showsNotesInspector") private var showsNotesInspector = true
     @State private var dbServiceWired = false
     @State private var showingPlaybackOptions = false
     @State private var transcribeCoordinator: MacTranscribeCoordinator?
@@ -112,22 +126,15 @@ struct MacTriPaneView: View {
                 showingDeckImporter = true
             }
             .onReceive(NotificationCenter.default.publisher(for: .requestToggleDetailPane)) { _ in
-                withAnimation {
-                    columnVisibility =
-                        columnVisibility == .detailOnly
-                        ? .all
-                    : (columnVisibility == .all ? .detailOnly : .all)
-                }
+                withAnimation { showsNotesInspector.toggle() }
             }
     }
 
     private var splitView: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarPane
-        } content: {
-            centerPane
         } detail: {
-            detailPane
+            centerPane
         }
     }
 
@@ -176,8 +183,40 @@ struct MacTriPaneView: View {
                 .frame(height: 48)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
+
+            // Batch work runs for hours; without this it was invisible unless
+            // the queue sheet happened to be open.
+            if let activity = batchService.activity {
+                Divider()
+                MacBatchActivityStrip(activity: activity) {
+                    // Routed through the app scene rather than a local sheet so
+                    // there is exactly one Batch Queue window, shared with the
+                    // ⌘⇧B menu command.
+                    NotificationCenter.default.post(name: .requestBatchQueue, object: nil)
+                }
+            }
         }
-        .navigationSplitViewColumnWidth(min: 300, ideal: 450)
+        // The reader is the detail column now rather than the middle one, so it
+        // sizes from the window instead of a fixed column width.
+        .frame(minWidth: 320)
+        .animation(.default, value: batchService.activity == nil)
+        .inspector(isPresented: $showsNotesInspector) {
+            MacNotesPane()
+                .inspectorColumnWidth(min: 220, ideal: 320, max: 520)
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    withAnimation { showsNotesInspector.toggle() }
+                } label: {
+                    Label("Toggle Notes Pane", systemImage: "sidebar.trailing")
+                }
+                .help(
+                    showsNotesInspector
+                        ? "Hide the transcript and notes pane"
+                        : "Show the transcript and notes pane")
+            }
+        }
         .overlay(alignment: .bottom) {
             if let coordinator = player.checkpointCoordinator,
                 coordinator.state != .idle
@@ -225,11 +264,6 @@ struct MacTriPaneView: View {
         .sheet(item: $studyDeckGenerationPresentation) { presentation in
             MacStudyDeckGenerationSheetHost(presentation: presentation)
         }
-    }
-
-    private var detailPane: some View {
-        MacNotesPane()
-            .navigationSplitViewColumnWidth(min: 200, ideal: 300, max: 500)
     }
 
     // MARK: - Visual Listening
@@ -530,7 +564,8 @@ struct MacTriPaneView: View {
             }
 
             do {
-                let result = try DeckImportService().importDeckVNext(from: url, db: dbService.writer)
+                let result = try DeckImportService().importDeckVNext(
+                    from: url, db: dbService.writer)
                 studyWorkflowAlert = ("Import Complete", importCompletionMessage(for: result))
             } catch {
                 studyWorkflowAlert = ("Import Failed", error.localizedDescription)
@@ -623,26 +658,27 @@ private struct MacStudyDeckGenerationSheetHost: View {
         }
 
         let providerClients = clients
-        let makeGenerator: (@escaping @Sendable (Int, Int) -> Void) ->
-            (any StudyDeckGenerating)? = { progress in
-                let cloud: (@Sendable () -> any StudyDeckGenerating)?
-                if let pair = providerClients {
-                    cloud = {
-                        AnthropicStudyDeckGenerator(
-                            client: pair.primary,
-                            briefClient: pair.brief,
-                            progress: progress
-                        )
+        let makeGenerator:
+            (@escaping @Sendable (Int, Int) -> Void) ->
+                (any StudyDeckGenerating)? = { progress in
+                    let cloud: (@Sendable () -> any StudyDeckGenerating)?
+                    if let pair = providerClients {
+                        cloud = {
+                            AnthropicStudyDeckGenerator(
+                                client: pair.primary,
+                                briefClient: pair.brief,
+                                progress: progress
+                            )
+                        }
+                    } else {
+                        cloud = nil
                     }
-                } else {
-                    cloud = nil
+                    return StudyDeckGeneratorFactory.makeForUI(
+                        preference: preference,
+                        fmAvailable: fmAvailable,
+                        cloud: cloud
+                    )
                 }
-                return StudyDeckGeneratorFactory.makeForUI(
-                    preference: preference,
-                    fmAvailable: fmAvailable,
-                    cloud: cloud
-                )
-            }
         let model = StudyDeckGenerationViewModel(
             audiobookID: presentation.audiobookID,
             bookTitle: presentation.bookTitle,
