@@ -646,6 +646,10 @@ struct RootTabView: View {
             guard let destination else { return }
             pushNavigationDestination(destination)
         }
+        .onChange(of: model.nowPlayingRootRequestID) { _, _ in
+            nowPlayingPath = NavigationPath()
+            nowPlayingPathData = nil
+        }
         .onChange(of: model.bookIdentityURL) { oldValue, newValue in
             guard oldValue != newValue else { return }
             readerFollowState = .following
