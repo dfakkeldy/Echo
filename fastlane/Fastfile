@@ -46,6 +46,46 @@ def github_warning(message)
   end
 end
 
+# The one-time bootstrap the macOS .pkg export depends on. Kept as a constant so
+# the CI warning, the lane description, and ARCHITECTURE.md all say the same
+# thing — a stale copy of this instruction is worse than none.
+MAC_INSTALLER_CERT_REMEDIATION = <<~TEXT.freeze
+  The Mac App Store ships a signed .pkg, and signing it needs the separate
+  "Mac Installer Distribution" certificate ("3rd Party Mac Developer Installer"
+  in Keychain Access). It is not in the match certificates repo, so CI cannot
+  sign the installer.
+
+  Fix it once, locally (Apple never re-issues a private key, so the certificate
+  has to be imported with the key that created it):
+
+      Scripts/import_mac_installer_cert.sh
+
+  That stores certs/mac_installer_distribution/<id>.{cer,p12} in the match repo;
+  every later CI run installs it automatically.
+TEXT
+
+# True when no Mac Installer Distribution identity is available to sign a .pkg.
+#
+# Tests the precondition directly rather than pattern-matching the failure text.
+# Both disguises this bug wears carry no machine-readable cause — gym reports
+# "Error packaging up the application" and match's readonly path reports "No code
+# signing identity found", neither of which names the certificate — so matching
+# on either string would be broad enough to mislabel unrelated failures.
+#
+# Only ever consulted from a rescue, i.e. after something has already failed, so
+# the worst case is one extra hint on an already-red run. That matters because
+# the check is not airtight: match imports into its own keychain on CI, and if
+# that keychain is outside the default search list this reports "missing" even
+# though the export had the identity. Do not promote this to a precondition
+# check that gates the build.
+def mac_installer_identity_missing?
+  identities = `security find-identity -v 2>/dev/null`
+  !identities.match?(/3rd Party Mac Developer Installer|Mac Installer Distribution/)
+rescue StandardError => e
+  UI.important("Could not inspect the keychain for a Mac Installer identity: #{e.message}")
+  false
+end
+
 def fastlane_file_value(path)
   File.read(path).strip
 rescue Errno::ENOENT
@@ -140,14 +180,18 @@ platform :ios do
     This lane:
     1. Syncs code signing via match (appstore) for all bundle IDs
     2. Archives the iOS target (includes bundled watchOS app + widget)
-    3. Archives the macOS target when the shared "Echo macOS" scheme exists.
-       Failures only warn — they never block the iOS upload.
-    4. Uploads the iOS .ipa to TestFlight. pilot takes ONE binary per call, so
-       any macOS .pkg is archived but NOT uploaded (see the upload note below).
+    3. Archives the macOS target when the shared "Echo macOS" scheme exists,
+       exporting a signed .pkg. Failures only warn — they never block iOS.
+    4. Uploads the iOS .ipa to TestFlight, then the macOS .pkg in a second call
+       (pilot takes ONE binary per call). Mac builds go to internal testers only.
 
     Prerequisites:
     - fastlane match set up with a git repo and MATCH_PASSWORD
     - App Store Connect API key JSON at fastlane/api_key.json
+    - For the macOS .pkg: the Mac Installer Distribution certificate must be in
+      the match repo. It is a separate certificate from Apple Distribution and
+      iOS never needs it. Seed it once with
+      Scripts/import_mac_installer_cert.sh.
   DESC
   lane :beta do |options|
     require_api_key!
@@ -254,15 +298,55 @@ platform :ios do
     # so it doesn't clobber the iOS profile mapping. Nightly may continue after a
     # visible warning; weekly/release lanes fail so Mac archive regressions cannot
     # silently ride the promotion train.
+    #
+    # Stays nil unless the macOS archive AND its .pkg export both succeed, which
+    # is what gates the macOS TestFlight upload further down.
+    macos_pkg_path = nil
     if scheme_exists?("Echo macOS")
       begin
-        sync_code_signing(
+        macos_signing = {
           api_key: @api_key,
           type: "appstore",
           platform: "macos",
           app_identifier: ["com.echo.audiobooks"],
           readonly: is_ci
-        )
+        }
+        # THE reason macOS packaging never once succeeded. A Mac App Store
+        # submission needs TWO certificates, not one: "Apple Distribution"
+        # signs the .app (shared with iOS), but the Mac App Store accepts an
+        # *installer package*, and that .pkg must be signed by a separate
+        # certificate type — "Mac Installer Distribution" (the keychain calls
+        # it "3rd Party Mac Developer Installer"). iOS never needs it, so an
+        # iOS-first match setup stores only Apple Distribution and every macOS
+        # export died at the very last step with:
+        #   error: exportArchive No signing certificate "Mac Installer Distribution" found
+        # match only manages that cert when it is named here (match/options.rb
+        # :additional_cert_types → runner.rb#fetch_certificate, which reads
+        # certs/mac_installer_distribution/ in the certificates repo).
+        #
+        # Bootstrap is a ONE-TIME local step, because Apple never hands back a
+        # private key: the cert must be imported into the match repo with the
+        # key that created it. Run Scripts/import_mac_installer_cert.sh once.
+        # Until then CI fails fast and loudly in the rescue below instead of
+        # burning ~9 minutes archiving and dying on a generic export error.
+        #
+        # CI-ONLY, and that restriction is load-bearing — do not "simplify" it to
+        # an unconditional option. This flag behaves in two completely different
+        # ways depending on `readonly`:
+        #   readonly: true  (CI)    → runner.rb globs certs/mac_installer_distribution/
+        #                             in the match repo and imports the .cer/.p12
+        #                             into the keychain. No portal call at all.
+        #   readonly: false (local) → the same missing-cert branch goes to
+        #                             Generator, which passes `force: true` to
+        #                             cert (generator.rb:29), skipping the
+        #                             reuse-an-existing-cert check and MINTING A
+        #                             NEW installer certificate on every run.
+        # Apple allows very few installer certificates per account, and each new
+        # one orphans the previous. A developer running `fastlane beta` locally
+        # does not need this option anyway: their own Mac Installer identity is
+        # already in the login keychain, which is where gym looks.
+        macos_signing[:additional_cert_types] = ["mac_installer_distribution"] if is_ci
+        sync_code_signing(macos_signing)
         if is_ci
           macos_profile = (lane_context[SharedValues::MATCH_PROVISIONING_PROFILE_MAPPING] || {})["com.echo.audiobooks"]
           unless macos_profile.nil?
@@ -283,6 +367,7 @@ platform :ios do
           output_directory: "build",
           xcargs: release_archive_xcargs(next_build)
         )
+        macos_pkg_path = lane_context[SharedValues::PKG_OUTPUT_PATH]
       rescue => e
         message = "macOS archive failed for #{channel.empty? ? 'manual' : channel} channel: #{e.message}"
         # Deliberately a warning on EVERY channel, weekly included.
@@ -291,31 +376,30 @@ platform :ios do
         # that guard had never once executed: `scheme_exists?` was cwd-broken
         # (see the helper above), so the whole macOS path was dead code. Now that
         # the probe works, a hard fail here would abort the lane BEFORE
-        # upload_to_testflight and take the iOS build down with it — on a macOS
-        # signing path that has never run in CI and whose Mac Installer
-        # Distribution certificate is still unresolved.
+        # upload_to_testflight and take the iOS build down with it.
         #
-        # Re-arm the weekly hard fail once a macOS archive has actually succeeded
-        # in CI *and* a Mac binary is genuinely part of the release (which also
-        # needs its own upload_to_testflight call — see the upload note below).
+        # Re-arm the weekly hard fail once a macOS .pkg has actually shipped from
+        # CI at least once.
+        #
+        # Name the remediation instead of leaving a generic message. gym reports
+        # a missing installer certificate as the useless "Error packaging up the
+        # application", and match's readonly path reports it as a generic "cannot
+        # create a new one" — both of which cost real debugging time to trace
+        # back to one absent certificate. Detect both and say what to do.
         github_warning("#{message}. Continuing the iOS upload; fix the macOS target and re-run.")
+        github_warning(MAC_INSTALLER_CERT_REMEDIATION) if mac_installer_identity_missing?
       end
     else
       UI.important("No shared 'Echo macOS' scheme found — skipping macOS build. Mark the scheme Shared in Xcode (Product ▸ Scheme ▸ Manage Schemes) and commit it to include the Mac archive.")
     end
 
-    # ── Upload to TestFlight (iOS ONLY) ──────────────
+    # ── Upload to TestFlight (iOS first, then macOS) ──────────────
     # pilot uploads exactly ONE binary per call: `ipa` and `pkg` are declared as
     # conflicting options. When the macOS archive above succeeds it leaves a
     # .pkg in lane_context, pilot picks the .ipa, logs a "both defined" warning,
     # and silently discards the .pkg. `app_platform` is pinned to "ios" below so
     # that choice is explicit instead of inferred from the ipa's Info.plist.
-    #
-    # Actually shipping the Mac app needs a SECOND upload_to_testflight call with
-    # `pkg:` + `app_platform: "osx"` — plus macOS tester copy and a macOS beta
-    # review path, neither of which exists yet. Don't add that call until a macOS
-    # archive has succeeded in CI and the Mac Installer Distribution cert is
-    # resolved.
+    # The Mac binary gets its own second call after this one.
     #
     # TestFlight copy lives in version-controlled files (paths relative to fastlane/):
     #   testflight/what_to_test.txt          → per-build "What to Test" (≤4000 chars)
@@ -355,6 +439,64 @@ platform :ios do
       tf_options[:demo_account_required] = review_info[:demo_account_required]
     end
     upload_to_testflight(tf_options)
+
+    # ── Second upload: the macOS .pkg ─────────────────────────────────────
+    # Until the Mac Installer Distribution certificate existed this could not
+    # run, so the Mac app was archived every night and thrown away. Now that the
+    # export produces a signed .pkg, ship it.
+    #
+    # Guarded on the path, not on `scheme_exists?`: pilot auto-fills BOTH :ipa
+    # and :pkg from lane_context (upload_to_testflight.rb), so calling it with
+    # app_platform "osx" and no .pkg does NOT fail cleanly — it reaches
+    # PkgUploadPackageBuilder with a nil path and dies in File.size(nil).
+    #
+    # DELIBERATELY internal-only, even on the weekly/external channel. The iOS
+    # call above submits weekly builds to Beta App Review and distributes them
+    # to the external Weekly group; doing the same for a Mac binary that has
+    # never once been built would put an unreviewed, never-launched app in front
+    # of external testers. Internal (Nightly) testers receive every processed
+    # build automatically with no distribution call, which is the right audience
+    # for the first Mac builds. Add the groups/distribute_external/
+    # submit_beta_review block here — mirroring the iOS one — once a Mac build
+    # has been installed and smoke-tested from TestFlight.
+    if macos_pkg_path && File.exist?(macos_pkg_path)
+      begin
+        # The iOS .ipa is still in lane_context and pilot would log a confusing
+        # "Both `ipa` and `pkg` options are defined". It picks the .pkg
+        # regardless (build_manager.rb branches on app_platform == "osx"), but
+        # this bug hid behind an ambiguous log once already — keep it readable.
+        lane_context[SharedValues::IPA_OUTPUT_PATH] = nil
+
+        upload_to_testflight(
+          api_key: @api_key,
+          app_identifier: "com.echo.audiobooks",
+          pkg: macos_pkg_path,
+          # "osx" is the only accepted macOS value — pilot's verify_block
+          # rejects "macos". It is also the switch that makes pilot choose the
+          # .pkg over the .ipa.
+          app_platform: "osx",
+          skip_waiting_for_build_processing: false,
+          # BuildWatcher has no default timeout; without this a Mac build that
+          # never appears in App Store Connect hangs the runner until the job's
+          # 90-minute cap.
+          wait_processing_timeout_duration: 1800,
+          notify_external_testers: false,
+          # Reuse the copy the iOS call already read rather than re-reading the
+          # files, so the two platforms can never ship with different release
+          # notes for the same commit.
+          changelog: tf_options[:changelog],
+          beta_app_description: tf_options[:beta_app_description],
+          beta_app_feedback_email: tf_options[:beta_app_feedback_email]
+        )
+      rescue => e
+        # Same reasoning as the archive rescue: the iOS build has already
+        # uploaded successfully by this point, and a macOS-side problem must not
+        # retroactively fail the run that shipped it.
+        github_warning("macOS .pkg upload failed: #{e.message}. The iOS build shipped normally.")
+      end
+    elsif scheme_exists?("Echo macOS")
+      github_warning("No macOS .pkg was produced, so no Mac build was uploaded to TestFlight.")
+    end
 
     # ── External only: open the group's public TestFlight link ────────────
     # Tester recruiting is link-driven: a public link lets anyone join the
