@@ -20,6 +20,18 @@ struct MacStudyParityTests {
             "The review view must load due cards and grade them via the shared FSRS scheduler.")
     }
 
+    @Test func dailyReviewRendersImageCards() throws {
+        let src = try MacSource.read("Views/MacDailyReviewView.swift")
+        #expect(
+            src.contains("StudyCardMedia.imagePath(fromMediaJSON: card.mediaJSON)")
+                && src.contains("StudyLocalImageView("),
+            "Cards carrying a media_json image must render it on macOS, as the iOS review card does."
+        )
+        #expect(
+            src.contains(".id(card.id)"),
+            "The card ScrollView needs a per-card identity so scroll position resets on advance.")
+    }
+
     @Test func studyMenuOpensDailyReview() throws {
         let app = try MacSource.read("Echo_macOSApp.swift")
         #expect(
