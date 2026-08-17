@@ -103,3 +103,34 @@ nothing committed. Single next action: re-run
 "Echo macOS" build, then make echo-cli). It exits 0 on deferral — grep the
 output for "Build deferred" / "NEVER ADMITTED".
 ```
+
+## 2026-08-16 — Verified, committed, pushed, PR #581 open
+
+Done:
+- Verification green on all four stages: `make build-tests` OK; **68 tests in
+  6 suites passed** (EPUBReimportCarryOverTests ×13 new, DocumentImportFinalizer,
+  SidecarImportSummary, CloudKitSyncSource, EPUBImport, MacImportParity);
+  `Echo macOS` BUILD SUCCEEDED; `make echo-cli` 0 errors (the 2
+  `ABSEndpoints.swift` warnings are pre-existing, not from this change).
+- Committed `65873bb7`, pushed, PR #581 → nightly (MERGEABLE).
+- Did NOT rebase: the 2 upstream commits (#576, #577) touch
+  ABSBrowseModelTests / a cert script / another handoff — zero overlap, and
+  AGENTS.md says no auto-rebase as a standing rule.
+- Memory updated: `epub-m4b-sidecar-spine-parity` corrected (its "re-import
+  breaks notes" line is now false), new `url-caches-resource-values`.
+
+Next:
+- Watch CI on #581. A full PASS takes ~53 min; a ~8 min "failure" died at build
+  and never ran tests.
+- User-side: More → Replace Document… on the iPhone fixes "Blood in the Water"
+  today, without waiting for this PR. Judge by whether text tracks audio, not
+  by the Book Settings line.
+
+Resume:
+```
+Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/epub-identity-fork,
+branch fix/reimport-source-text, clean, PR #581 open against nightly.
+Single next action: gh pr checks 581 — if red, read the job log before
+touching code; if green, the task is done and this handoff should be deleted
+in the PR that closes it.
+```
