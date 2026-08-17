@@ -2,6 +2,7 @@
 import CoreGraphics
 import Foundation
 import ImageIO
+import Synchronization
 import Testing
 import UniformTypeIdentifiers
 
