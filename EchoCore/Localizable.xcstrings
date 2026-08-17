@@ -4699,6 +4699,24 @@
         }
       }
     },
+    "Open Book or Folder…" : {
+      "comment" : "Reader overflow action that opens the shared book or folder picker",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Book or Folder…"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open boek of map…"
+          }
+        }
+      }
+    },
     "Open folder" : {
       "comment" : "macOS button — open folder picker",
       "extractionState" : "manual",

@@ -25,6 +25,66 @@ import Testing
         #expect(pdf.contains("rootOverlayClearance"))
     }
 
+    @Test func standaloneEPUBReaderRootUsesCompactTopChrome() {
+        #expect(
+            ReaderTopChromeLayout.usesCompactHeader(
+                selectedTabIsRead: true,
+                readPathIsEmpty: true,
+                hasEPUB: true,
+                hasPDF: false,
+                hasStandaloneTranscript: false
+            )
+        )
+    }
+
+    @Test func otherReadSurfacesAndDestinationsKeepGlobalTopChrome() {
+        #expect(
+            !ReaderTopChromeLayout.usesCompactHeader(
+                selectedTabIsRead: false,
+                readPathIsEmpty: true,
+                hasEPUB: true,
+                hasPDF: false,
+                hasStandaloneTranscript: false
+            )
+        )
+        #expect(
+            !ReaderTopChromeLayout.usesCompactHeader(
+                selectedTabIsRead: true,
+                readPathIsEmpty: false,
+                hasEPUB: true,
+                hasPDF: false,
+                hasStandaloneTranscript: false
+            )
+        )
+        #expect(
+            !ReaderTopChromeLayout.usesCompactHeader(
+                selectedTabIsRead: true,
+                readPathIsEmpty: true,
+                hasEPUB: true,
+                hasPDF: true,
+                hasStandaloneTranscript: false
+            )
+        )
+        #expect(
+            !ReaderTopChromeLayout.usesCompactHeader(
+                selectedTabIsRead: true,
+                readPathIsEmpty: true,
+                hasEPUB: false,
+                hasPDF: false,
+                hasStandaloneTranscript: true
+            )
+        )
+        #expect(
+            !ReaderTopChromeLayout.usesCompactHeader(
+                selectedTabIsRead: true,
+                readPathIsEmpty: true,
+                hasEPUB: false,
+                hasPDF: false,
+                hasStandaloneTranscript: false
+            )
+        )
+    }
+
     private func source(_ name: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath)
         while directory.path != "/" {
