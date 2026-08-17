@@ -19,9 +19,59 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history so the change-scope classifier below can diff against
+          # the pull request's merge base. A shallow clone has no merge base,
+          # so every PR would look like it changed everything.
+          fetch-depth: 0
+
+      # Documentation-only pull requests cannot change anything the compiler or
+      # the Swift test suite observes, so they skip the Xcode gate below and
+      # finish in about a minute instead of ~53. The decision deliberately does
+      # NOT live here as shell: a wrong "true" silently skips the whole build
+      # gate and the PR still reports green. It lives in a unit-tested module
+      # that also carries a tripwire for newly bundled Markdown
+      # (Scripts/doc_contracts/changed_scope.py).
+      #
+      # Note this is a step-level skip inside a job that always runs. A
+      # workflow-level `paths-ignore` would stop this workflow reporting the
+      # "Build gate + tests" context at all, and because that context is a
+      # required status check on main/weekly/nightly, the PR would then wait
+      # forever for a check that never arrives.
+      - name: Classify change scope
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            echo "Not a pull request — running the full gate."
+            exit 0
+          fi
+          CHANGED="$(git diff --name-only "$BASE_SHA...$HEAD_SHA")"
+          echo "Changed files:"
+          echo "$CHANGED"
+          # The module exits non-zero if the pbxproj tripwire trips, failing this
+          # step rather than quietly downgrading to a skipped build.
+          DOCS_ONLY="$(printf '%s\n' "$CHANGED" |
+            PYTHONPATH=Scripts python3 -m doc_contracts.changed_scope --stdin)"
+          echo "docs_only=$DOCS_ONLY" >> "$GITHUB_OUTPUT"
+          if [ "$DOCS_ONLY" = "true" ]; then
+            echo "::notice title=Documentation-only change::Skipping the Xcode build gate. Doc and help-text contracts still run."
+          fi
 
       - name: Fastlane shared-scheme probe (fast, no Xcode)
         run: make fastlane-scheme-test
+
+      # Documentation and in-app help contracts. These assertions used to live in
+      # the EchoTests Swift target, where they cost a full simulator build even
+      # though they never import app code — they open files and match substrings.
+      # Running them here catches a stale Settings path in under a second, on
+      # every PR including documentation-only ones.
+      - name: Doc & help-text contracts (fast, no Xcode)
+        run: make doc-contract-test
 
       # Fast, no-Xcode signal: a pure-stdlib Python unittest suite over
       # Scripts/echo_renderer/ (versioned renderer install/verify/promote/repair).
@@ -79,14 +129,17 @@ jobs:
       # Xcode 26.x today, and this explicit selection keeps future image updates
       # from silently jumping to a new major.
       - name: Select Xcode 26
+        if: steps.scope.outputs.docs_only != 'true'
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: '26'
 
       - name: Install Metal toolchain
+        if: steps.scope.outputs.docs_only != 'true'
         run: xcodebuild -downloadComponent MetalToolchain
 
       - name: Cache Swift Package Manager
+        if: steps.scope.outputs.docs_only != 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -100,6 +153,7 @@ jobs:
             ${{ runner.os }}-xcode26-spm-
 
       - name: Diagnostics
+        if: steps.scope.outputs.docs_only != 'true'
         run: |
           xcodebuild -version
           echo "=== installed simulator runtimes ==="
@@ -108,6 +162,7 @@ jobs:
           xcrun simctl list devices available | grep -E "iPhone|Watch" || true
 
       - name: Select iOS 26 test simulator
+        if: steps.scope.outputs.docs_only != 'true'
         id: ios-sim
         run: |
           set -euo pipefail
@@ -181,6 +236,7 @@ jobs:
           xcodebuild -version
 
       - name: Resolve package dependencies
+        if: steps.scope.outputs.docs_only != 'true'
         run: |
           xcodebuild -resolvePackageDependencies \
             -project Echo.xcodeproj \
@@ -195,6 +251,7 @@ jobs:
       # app + widget + embedded watch app + EchoTests without booting a simulator,
       # so it fails fast and clearly on compile errors.
       - name: Build for testing — Echo (iOS app + widget + watch + tests)
+        if: steps.scope.outputs.docs_only != 'true'
         run: |
           set -o pipefail
           xcodebuild build-for-testing \
@@ -213,6 +270,7 @@ jobs:
       # undiagnosable — a crashed test process and a failed assertion print
       # identically under `-quiet`. The result bundle preserves the crash logs.
       - name: Test — EchoTests
+        if: steps.scope.outputs.docs_only != 'true'
         run: |
           set -o pipefail
           rm -rf TestResults.xcresult
@@ -226,7 +284,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO
 
       - name: Upload test result bundle
-        if: failure()
+        if: failure() && steps.scope.outputs.docs_only != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: TestResults-${{ github.run_id }}-${{ github.run_attempt }}
@@ -235,6 +293,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Build — Echo macOS
+        if: steps.scope.outputs.docs_only != 'true'
         run: |
           set -o pipefail
           xcodebuild build \
@@ -246,6 +305,7 @@ jobs:
             -quiet
 
       - name: Build — echo-cli
+        if: steps.scope.outputs.docs_only != 'true'
         run: |
           set -o pipefail
           xcodebuild build \
