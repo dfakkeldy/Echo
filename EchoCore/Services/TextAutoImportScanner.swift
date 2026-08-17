@@ -18,9 +18,13 @@ enum TextAutoImportScanner {
         databaseService: DatabaseService,
         force: Bool = false
     ) async -> Bool {
+        // `allBlocks`, not `visibleBlocks`: a re-import now carries `is_hidden`
+        // across (`EPUBImportService.carryUserState`), so a document whose blocks
+        // the user all excluded would look un-imported forever and re-run the
+        // destructive rebuild on every open.
         if !force {
             let alreadyImported =
-                (try? EPubBlockDAO(db: databaseService.writer).visibleBlocks(for: audiobookID)
+                (try? EPubBlockDAO(db: databaseService.writer).allBlocks(for: audiobookID)
                     .isEmpty) == false
             if alreadyImported { return false }
         }

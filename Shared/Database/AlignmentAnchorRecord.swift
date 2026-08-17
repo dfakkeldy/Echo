@@ -54,4 +54,23 @@ extension AlignmentAnchorRecord {
         case synthesized = "synthesized"  // TTS-generated narration anchors
         case transcriptAlignment = "transcriptAlignment"  // ASR↔source-block alignment (M2)
     }
+
+    /// The sources a person placed by hand. Every other source is a machine
+    /// measurement that a later alignment pass can recompute; these cannot be
+    /// recomputed from anything, so no automatic pass may discard one.
+    ///
+    /// Single definition on purpose — `DocumentImportFinalizer` (which refuses to
+    /// overwrite them with a fresh alignment) and `EPUBImportService` (which
+    /// restores them across a `.replaceAll` block rebuild) have to agree about
+    /// what "human" means, and a second copy would drift.
+    ///
+    /// `nonisolated` computed so the importer can read it from inside GRDB's
+    /// `@Sendable` write closure under this project's MainActor default isolation.
+    nonisolated static var humanAnchorSources: Set<String> {
+        [
+            Source.moveToNow.rawValue,
+            Source.searchResult.rawValue,
+            Source.chapterBoundary.rawValue,
+        ]
+    }
 }

@@ -416,7 +416,14 @@ struct DocumentImportFinalizerTests {
         #expect(anchors.map(\.id) == ["existing-machine"])
         let summary = try #require(BookPreferencesService.loadSidecarSummary(for: audiobookID))
         #expect(summary.status == .staleSource)
-        #expect(summary.readAlongStatusLine.contains("stale"))
+        // The line must name the side that is actually out of date: the imported
+        // book text, not the alignment file. It used to say the file was "stale",
+        // which sent users looking for a file they could not fix.
+        #expect(
+            summary.readAlongStatusLine
+                == "Paragraph-level — imported book text no longer matches the alignment file")
+        #expect(!summary.readAlongStatusLine.contains("stale"))
+        #expect(summary.readAlongRecoveryHint?.contains("Replace Document") == true)
     }
 
     @Test func unresolvedIdentityBearingAnchorRejectsEntireSidecar() async throws {
@@ -1153,6 +1160,109 @@ struct DocumentImportFinalizerTests {
         #expect(
             DocumentImportFinalizer.alignmentSidecarURL(for: m4bURL)?.lastPathComponent
                 == "MyBook-audio.alignment.json")
+    }
+
+    /// An anchors-only sidecar — the shape every Mac-batch DTW export has — must
+    /// report `.applied`. Applying word timings is a no-op *by definition* when
+    /// no anchor carries any, so the old unconditional `blocksApplied == 0`
+    /// downgrade filed a fully successful block-level ingest as
+    /// `.foundButUnresolved`: every anchor resolved, and Book Settings still said
+    /// the file had not been applied.
+    @Test func wordlessSidecarThatResolvesEveryAnchorReportsApplied() async throws {
+        let audiobookID = "wordless-book"
+        let databaseService = try DatabaseService(inMemory: ())
+        let blocks = (0..<3).map { index in
+            block(
+                id: "epub-\(audiobookID)-s0-b\(index)",
+                audiobookID: audiobookID,
+                sequenceIndex: index)
+        }
+        try insertAudiobook(audiobookID, databaseService: databaseService)
+        try EPubBlockDAO(db: databaseService.writer).insertAll(blocks)
+        defer {
+            UserDefaults.standard.removeObject(
+                forKey: BookPreferencesService.sidecarSummaryKey(for: audiobookID))
+        }
+
+        let fileURL = try makeDocumentURL()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        let sidecar = (0..<3).map { index in
+            AlignmentSidecar.Anchor(
+                blockId: "s0-b\(index)", timestamp: Double(index) * 10, confidence: 1)
+        }
+        try AlignmentSidecar.encode(sidecar).write(to: AlignmentSidecar.url(forEPUB: fileURL))
+
+        let finalized = await DocumentImportFinalizer.finalize(
+            audiobookID: audiobookID,
+            blocks: blocks,
+            fileURL: fileURL,
+            duration: 100,
+            databaseService: databaseService
+        )
+        #expect(finalized)
+
+        // Every anchor really did land — this is a success, not a failure.
+        let anchors = try AlignmentAnchorDAO(db: databaseService.writer).anchors(for: audiobookID)
+        #expect(anchors.count == 3)
+
+        let summary = try #require(BookPreferencesService.loadSidecarSummary(for: audiobookID))
+        #expect(summary.status == .applied)
+        #expect(summary.blocksMatched == 0)
+        #expect(summary.wordsWritten == 0)
+        #expect(
+            summary.readAlongStatusLine
+                == "Paragraph-level — alignment file applied, no word timings")
+        #expect(summary.readAlongRecoveryHint == nil)
+    }
+
+    /// The genuine failure the old condition was reaching for must still be
+    /// reported: a sidecar that DOES carry word timings and lands none of them is
+    /// not word-level, so `.foundButUnresolved` is correct there.
+    @Test func wordBearingSidecarThatAppliesNothingStillReportsUnresolved() async throws {
+        let audiobookID = "word-bearing-book"
+        let databaseService = try DatabaseService(inMemory: ())
+        // "one two three" tokenizes to three rows; the sidecar offers one word,
+        // so the count check rejects the block and nothing is applied.
+        let blocks = [
+            block(
+                id: "epub-\(audiobookID)-s0-b0", audiobookID: audiobookID, sequenceIndex: 0,
+                text: "one two three"),
+            block(
+                id: "epub-\(audiobookID)-s0-b1", audiobookID: audiobookID, sequenceIndex: 1,
+                text: "four five six"),
+        ]
+        try insertAudiobook(audiobookID, databaseService: databaseService)
+        try EPubBlockDAO(db: databaseService.writer).insertAll(blocks)
+        defer {
+            UserDefaults.standard.removeObject(
+                forKey: BookPreferencesService.sidecarSummaryKey(for: audiobookID))
+        }
+
+        let fileURL = try makeDocumentURL()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        let sidecar = [
+            AlignmentSidecar.Anchor(
+                blockId: "s0-b0", timestamp: 0, confidence: 1,
+                words: [AlignmentSidecar.Anchor.Word(word: "one", start: 0, end: 1)]),
+            AlignmentSidecar.Anchor(
+                blockId: "s0-b1", timestamp: 50, confidence: 1,
+                words: [AlignmentSidecar.Anchor.Word(word: "four", start: 50, end: 51)]),
+        ]
+        try AlignmentSidecar.encode(sidecar).write(to: AlignmentSidecar.url(forEPUB: fileURL))
+
+        #expect(
+            await DocumentImportFinalizer.finalize(
+                audiobookID: audiobookID,
+                blocks: blocks,
+                fileURL: fileURL,
+                duration: 100,
+                databaseService: databaseService
+            )
+        )
+
+        let summary = try #require(BookPreferencesService.loadSidecarSummary(for: audiobookID))
+        #expect(summary.status == .foundButUnresolved)
+        #expect(summary.blocksMatched == 0)
     }
 
     private func insertAudiobook(

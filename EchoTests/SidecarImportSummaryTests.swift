@@ -25,6 +25,67 @@ struct SidecarImportSummaryTests {
             summary.readAlongStatusLine == "Paragraph-level — alignment file found but not applied")
     }
 
+    /// An anchors-only sidecar (every Mac-batch DTW export) ingests successfully
+    /// and simply has no per-word timings to give. It must read as applied, not
+    /// as a failure.
+    @Test func appliedSummaryWithoutWordTimingsReadsAsSuccess() {
+        let summary = SidecarImportSummary(
+            status: .applied, sidecarFound: true, blocksMatched: 0, wordsWritten: 0,
+            totalBlocks: 1572, updatedAt: "2026-08-16T00:00:00Z")
+        #expect(
+            summary.readAlongStatusLine
+                == "Paragraph-level — alignment file applied, no word timings")
+        #expect(summary.readAlongRecoveryHint == nil)
+    }
+
+    @Test func staleSourceLineBlamesTheBookTextAndOffersRecovery() {
+        let summary = SidecarImportSummary(
+            status: .staleSource, sidecarFound: true, blocksMatched: 0, wordsWritten: 0,
+            totalBlocks: 755, updatedAt: "2026-08-16T00:00:00Z")
+        #expect(
+            summary.readAlongStatusLine
+                == "Paragraph-level — imported book text no longer matches the alignment file")
+        #expect(!summary.readAlongStatusLine.contains("stale"))
+        let hint = summary.readAlongRecoveryHint
+        #expect(hint == "Re-import the book with More → Replace Document… to restore read-along.")
+    }
+
+    /// Only the user-fixable state produces a hint: nothing else should push a
+    /// reader toward a document re-import.
+    @Test func recoveryHintIsOfferedOnlyForStaleSource() {
+        for status in [
+            SidecarImportSummary.Status.applied, .foundButUnresolved, .notDownloaded,
+            .decodeError, .noSidecar,
+        ] {
+            let summary = SidecarImportSummary(
+                status: status, sidecarFound: true, blocksMatched: 0, wordsWritten: 0,
+                totalBlocks: 10, updatedAt: "2026-08-16T00:00:00Z")
+            #expect(summary.readAlongRecoveryHint == nil, "\(status) must not offer a hint")
+        }
+        // A word-level book whose snapshot still says `.staleSource` is healthy
+        // now; the hint keys off the live block count, not the frozen status.
+        let recovered = SidecarImportSummary(
+            status: .staleSource, sidecarFound: true, blocksMatched: 12, wordsWritten: 40,
+            totalBlocks: 12, updatedAt: "2026-08-16T00:00:00Z")
+        #expect(recovered.readAlongRecoveryHint == nil)
+    }
+
+    @Test func resolverSurfacesTheRecoveryHintAndNothingWithoutASnapshot() throws {
+        let store = try #require(UserDefaults(suiteName: "sidecar-hint-\(UUID().uuidString)"))
+        // No snapshot: we cannot tell a healthy paragraph-level book from a
+        // broken one, so we must not send anyone to a destructive re-import.
+        #expect(ReadAlongStatusResolver.recoveryHint(audiobookID: "bk", store: store) == nil)
+
+        BookPreferencesService.saveSidecarSummary(
+            SidecarImportSummary(
+                status: .staleSource, sidecarFound: true, blocksMatched: 0, wordsWritten: 0,
+                totalBlocks: 9, updatedAt: "2026-08-16T00:00:00Z"),
+            for: "bk", store: store)
+        #expect(
+            ReadAlongStatusResolver.recoveryHint(audiobookID: "bk", store: store)?
+                .contains("Replace Document") == true)
+    }
+
     @Test func notDownloadedSummaryNamesTheICloudReason() {
         let summary = SidecarImportSummary(
             status: .notDownloaded, sidecarFound: true, blocksMatched: 0, wordsWritten: 0,
