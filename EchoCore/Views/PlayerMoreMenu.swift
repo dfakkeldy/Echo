@@ -1,6 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
+enum PlayerMoreMenuState {
+    static func timerAccessibilityValue(
+        showsReaderSleepTimer: Bool,
+        mode: SleepTimerMode,
+        remainingSeconds: Int
+    ) -> String? {
+        guard showsReaderSleepTimer, mode.isActive else { return nil }
+        return SleepTimerPillState.accessibilityValue(
+            mode: mode,
+            remainingSeconds: remainingSeconds
+        )
+    }
+}
+
 /// The single overflow menu, hosted in the root-owned utility dock
 /// (`BottomToolbarView`). It carries playback-context actions and app-level
 /// actions that used to live in `UnifiedTopHeader`, keeping one predictable
@@ -27,6 +41,8 @@ struct PlayerMoreMenu: View {
     var onExport: (() -> Void)?
     var onVideoExport: (() -> Void)?
     var onStudyNotesExport: (() -> Void)?
+    var onOpenBookOrFolder: (() -> Void)? = nil
+    var showsReaderSleepTimer = false
     /// Experimental player only: enter edit-button mode. `nil` outside the player.
     var onEditLayout: (() -> Void)? = nil
 
@@ -56,6 +72,21 @@ struct PlayerMoreMenu: View {
                         model.hasEPUB || model.hasPDF
                             ? "Replace Document…" : "Add Document…",
                         systemImage: "book.pages"
+                    )
+                }
+            }
+            if let onOpenBookOrFolder {
+                Button(action: onOpenBookOrFolder) {
+                    Label("Open Book or Folder…", systemImage: "folder")
+                }
+            }
+            if showsReaderSleepTimer {
+                Menu {
+                    SleepTimerMenuContent(showsActiveStatus: true)
+                } label: {
+                    Label(
+                        "Sleep Timer",
+                        systemImage: model.sleepTimerMode.isActive ? "moon.zzz.fill" : "moon.zzz"
                     )
                 }
             }
@@ -94,14 +125,43 @@ struct PlayerMoreMenu: View {
         } label: {
             chip
         }
-        .accessibilityLabel(Text("More options"))
     }
 
+    @ViewBuilder
     private var chip: some View {
-        Image(systemName: "ellipsis.circle.fill")
-            .font(.title2)
-            .frame(width: 44, height: 44)
-            .contentShape(Rectangle())
-            .foregroundStyle(model.resolvedThemeTint ?? .accentColor)
+        if let timerValue = timerAccessibilityValue {
+            chipContent
+                .accessibilityLabel(Text("More options"))
+                .accessibilityValue(Text(timerValue))
+        } else {
+            chipContent
+                .accessibilityLabel(Text("More options"))
+        }
+    }
+
+    private var chipContent: some View {
+        ZStack(alignment: .topTrailing) {
+            Image(systemName: "ellipsis.circle.fill")
+                .font(.title2)
+            if timerAccessibilityValue != nil {
+                Image(systemName: "moon.fill")
+                    .font(.system(size: 8, weight: .bold))
+                    .padding(3)
+                    .background(model.coverTheme.chip, in: Circle())
+                    .offset(x: 2, y: -2)
+                    .accessibilityHidden(true)
+            }
+        }
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
+        .foregroundStyle(model.resolvedThemeTint ?? .accentColor)
+    }
+
+    private var timerAccessibilityValue: String? {
+        PlayerMoreMenuState.timerAccessibilityValue(
+            showsReaderSleepTimer: showsReaderSleepTimer,
+            mode: model.sleepTimerMode,
+            remainingSeconds: model.sleepTimerRemainingSeconds
+        )
     }
 }

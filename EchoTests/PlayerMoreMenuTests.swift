@@ -37,9 +37,39 @@ struct PlayerMoreMenuTests {
             source.contains("Label(\"Settings\", systemImage: \"gearshape\")"),
             "The consolidated More menu should keep the obvious Settings entry point."
         )
+    }
+
+    @Test func timerIndicatorIsAbsentOutsideReaderAndWhenOff() {
         #expect(
-            !source.contains("setSleepTimer"),
-            "Sleep timer arming belongs to SleepTimerPill, not the consolidated More menu."
+            PlayerMoreMenuState.timerAccessibilityValue(
+                showsReaderSleepTimer: false,
+                mode: .minutes(30),
+                remainingSeconds: 1335
+            ) == nil
+        )
+        #expect(
+            PlayerMoreMenuState.timerAccessibilityValue(
+                showsReaderSleepTimer: true,
+                mode: .off,
+                remainingSeconds: 0
+            ) == nil
+        )
+    }
+
+    @Test func timerIndicatorDescribesTimedAndEndOfChapterModes() {
+        #expect(
+            PlayerMoreMenuState.timerAccessibilityValue(
+                showsReaderSleepTimer: true,
+                mode: .minutes(30),
+                remainingSeconds: 1335
+            ) == "30 minutes, 1335 seconds remaining"
+        )
+        #expect(
+            PlayerMoreMenuState.timerAccessibilityValue(
+                showsReaderSleepTimer: true,
+                mode: .endOfChapter,
+                remainingSeconds: 0
+            ) == "End of Chapter"
         )
     }
 

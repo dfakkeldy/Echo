@@ -364,7 +364,11 @@ struct RootTabView: View {
                             ? { showingVideoExport = true } : nil,
                         onStudyNotesExport: (model.folderURL != nil
                             && !model.narrationPlaybackState.isRunning)
-                            ? { showingStudyNotesExport = true } : nil
+                            ? { showingStudyNotesExport = true } : nil,
+                        onOpenBookOrFolder: usesCompactReaderTopChrome
+                            ? { showingFolderPicker = true }
+                            : nil,
+                        showsReaderSleepTimer: usesCompactReaderTopChrome
                     )
                     .environment(\.showPlaybackOptions, { showingPlaybackOptions = true })
                 }
