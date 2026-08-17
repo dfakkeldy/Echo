@@ -13,50 +13,57 @@ enum SleepTimerPillState {
         case .endOfChapter: return "EOC"
         }
     }
-}
 
-/// The single timer home: a bare moon glyph when no timer is armed
-/// (inactive = bare glyph), a tinted chip with moon + countdown when armed
-/// (active = filled chip). Tapping opens the arming/cancel menu either way.
-struct SleepTimerPill: View {
-    @Environment(PlayerModel.self) private var model
-
-    var body: some View {
-        Menu {
-            menuItems
-        } label: {
-            if let label = SleepTimerPillState.labelText(
-                mode: model.sleepTimerMode, remainingSeconds: model.sleepTimerRemainingSeconds)
-            {
-                HStack(spacing: 6) {
-                    Image(systemName: "moon.zzz.fill")
-                        .font(.subheadline.bold())
-                    Text(label)
-                        .font(.subheadline.monospacedDigit().bold())
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background {
-                    Capsule()
-                        .fill(model.coverTheme.chip)
-                        .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
-                }
-                .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
-            } else {
-                Image(systemName: "moon.zzz")
-                    .font(.body.bold())
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-                    // Cover accent like the sibling header chips (was .secondary).
-                    .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
-            }
+    static func accessibilityValue(mode: SleepTimerMode, remainingSeconds: Int) -> String {
+        switch mode {
+        case .off:
+            return String(localized: "Off")
+        case .minutes(let minutes):
+            return String(
+                format: String(localized: "%lld minutes, %lld seconds remaining"),
+                minutes,
+                remainingSeconds
+            )
+        case .endOfChapter:
+            return String(localized: "End of Chapter")
         }
-        .accessibilityLabel(Text("Sleep Timer"))
-        .accessibilityValue(Text(accessibilityValue))
     }
 
+    static func activeStatusText(mode: SleepTimerMode, remainingSeconds: Int) -> String? {
+        switch mode {
+        case .off:
+            return nil
+        case .minutes:
+            let countdown = sleepTimerCountdownText(remainingSeconds)
+            return String(
+                localized: "Remaining: \(countdown)",
+                comment: "Sleep timer remaining countdown"
+            )
+        case .endOfChapter:
+            return String(localized: "End of Chapter")
+        }
+    }
+}
+
+struct SleepTimerMenuContent: View {
+    @Environment(PlayerModel.self) private var model
+    var showsActiveStatus = false
+
     @ViewBuilder
-    private var menuItems: some View {
+    var body: some View {
+        if showsActiveStatus,
+            let status = SleepTimerPillState.activeStatusText(
+                mode: model.sleepTimerMode,
+                remainingSeconds: model.sleepTimerRemainingSeconds
+            )
+        {
+            Button(action: {}) {
+                Label(status, systemImage: "moon.zzz.fill")
+            }
+            .disabled(true)
+            Divider()
+        }
+
         Button {
             model.setSleepTimer(.minutes(15))
             Haptic.play(.light)
@@ -98,14 +105,52 @@ struct SleepTimerPill: View {
             }
         }
     }
+}
 
-    private var accessibilityValue: String {
-        switch model.sleepTimerMode {
-        case .off: return String(localized: "Off")
-        case .minutes(let m):
-            return String(
-                localized: "\(m) minutes, \(model.sleepTimerRemainingSeconds) seconds remaining")
-        case .endOfChapter: return String(localized: "End of Chapter")
+/// The single timer home: a bare moon glyph when no timer is armed
+/// (inactive = bare glyph), a tinted chip with moon + countdown when armed
+/// (active = filled chip). Tapping opens the arming/cancel menu either way.
+struct SleepTimerPill: View {
+    @Environment(PlayerModel.self) private var model
+
+    var body: some View {
+        Menu {
+            SleepTimerMenuContent()
+        } label: {
+            if let label = SleepTimerPillState.labelText(
+                mode: model.sleepTimerMode, remainingSeconds: model.sleepTimerRemainingSeconds)
+            {
+                HStack(spacing: 6) {
+                    Image(systemName: "moon.zzz.fill")
+                        .font(.subheadline.bold())
+                    Text(label)
+                        .font(.subheadline.monospacedDigit().bold())
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background {
+                    Capsule()
+                        .fill(model.coverTheme.chip)
+                        .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+                }
+                .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
+            } else {
+                Image(systemName: "moon.zzz")
+                    .font(.body.bold())
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+                    // Cover accent like the sibling header chips (was .secondary).
+                    .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
+            }
         }
+        .accessibilityLabel(Text("Sleep Timer"))
+        .accessibilityValue(
+            Text(
+                SleepTimerPillState.accessibilityValue(
+                    mode: model.sleepTimerMode,
+                    remainingSeconds: model.sleepTimerRemainingSeconds
+                )
+            )
+        )
     }
 }
