@@ -41,18 +41,24 @@ nonisolated enum CoverImageCache {
 
     /// Identity of a cached cover. Covers live in the *caches* directory and
     /// are rewritten in place by library enrichment and ABS import, so a path
-    /// alone is not an identity: including the modification date and size means
-    /// a replaced cover misses and re-decodes instead of serving stale art.
+    /// alone is not an identity: including the file number, modification date,
+    /// and size means a replaced cover misses and re-decodes instead of serving
+    /// stale art. The file number matters when a file is removed and recreated
+    /// quickly enough for its other metadata to collide.
     struct Key: Hashable, Sendable {
         let path: String
+        let fileNumber: UInt64?
         let modified: Date?
         let size: Int?
 
         init(url: URL) {
+            let path = url.path(percentEncoded: false)
             let values = try? url.resourceValues(forKeys: [
                 .contentModificationDateKey, .fileSizeKey,
             ])
-            path = url.path(percentEncoded: false)
+            let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+            self.path = path
+            fileNumber = (attributes?[.systemFileNumber] as? NSNumber)?.uint64Value
             modified = values?.contentModificationDate
             size = values?.fileSize
         }
