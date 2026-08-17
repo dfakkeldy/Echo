@@ -7,53 +7,45 @@ It's all open source. You can audit every claim below: [github.com/dfakkeldy/Ech
 ---
 
 <!-- AUTO-DEVLOG:START -->
-## Automated update - Jun 15-21, 2026
+## Automated update - Aug 10-16, 2026
 
-*Generated from 383 commits merged during the week.*
+*Generated from 47 commits merged during the week.*
 
 ### Shipped
-- Make Echo Pro a one-time unlock — remove subscription path ([e67e867](https://github.com/dfakkeldy/Echo/commit/e67e867))
-- Regenerate what_to_test.txt on nightly builds ([59d0da9](https://github.com/dfakkeldy/Echo/commit/59d0da9))
-- What_to_test template + make targets ([df313bf](https://github.com/dfakkeldy/Echo/commit/df313bf))
-- Whats_new CLI with fail-safe file write ([125d56b](https://github.com/dfakkeldy/Echo/commit/125d56b))
-- TestFlight renderer with 4000-char cap ([611cb9b](https://github.com/dfakkeldy/Echo/commit/611cb9b))
-- Commit change-extractor (changes.py) ([e5e2ebf](https://github.com/dfakkeldy/Echo/commit/e5e2ebf))
-- Ship all 28 English Kokoro voices + voice OOV fallback ([781d2b2](https://github.com/dfakkeldy/Echo/commit/781d2b2))
-- Show per-block prepare progress on the lock screen ([036f5e1](https://github.com/dfakkeldy/Echo/commit/036f5e1))
-- ...and 129 more shipped items.
+- Derive the app accent and player wash from the book cover (#575) ([4b64dbe](https://github.com/dfakkeldy/Echo/commit/4b64dbe))
+- Real progress, an alignment verdict, and a hideable notes pane (#573) ([eb1ed64](https://github.com/dfakkeldy/Echo/commit/eb1ed64))
+- Narrate PDFs from the batch queue (#565) ([8bf7678](https://github.com/dfakkeldy/Echo/commit/8bf7678))
+- Make Echo Pro a one-time unlock — remove the subscription path (#551) ([b0f8a50](https://github.com/dfakkeldy/Echo/commit/b0f8a50))
+- Improve browsing and import reliability (#545) ([137946c](https://github.com/dfakkeldy/Echo/commit/137946c))
+- Weekly external launch prep — What to Test rewrite + public link (#549) ([e97bcca](https://github.com/dfakkeldy/Echo/commit/e97bcca))
+- Add Vivid Cover Accent setting with core-first promotion (#544) ([0864cc0](https://github.com/dfakkeldy/Echo/commit/0864cc0))
+- Expose end-to-end status visibility (#540) ([bfde4a4](https://github.com/dfakkeldy/Echo/commit/bfde4a4))
+- ...and 4 more shipped items.
 
 ### Fixed
-- Use explicit weekly refspec in beta lane ([fc5ac92](https://github.com/dfakkeldy/Echo/commit/fc5ac92))
-- Align in-app & store copy with shipped features ([2126f27](https://github.com/dfakkeldy/Echo/commit/2126f27))
-- Shorten home-screen display name to "Echo" ([706e78f](https://github.com/dfakkeldy/Echo/commit/706e78f))
-- Karaoke + tap-to-seek + player theming (#4, #5, #6) ([4661e89](https://github.com/dfakkeldy/Echo/commit/4661e89))
-- One cache file per chapter in narrated .m4b export ([e38b70c](https://github.com/dfakkeldy/Echo/commit/e38b70c))
-- Don't group-distribute internal nightly builds to TestFlight ([85d9fb3](https://github.com/dfakkeldy/Echo/commit/85d9fb3))
-- Don't cache a failed ONNX prepare (un-brick narration) ([e1ab85c](https://github.com/dfakkeldy/Echo/commit/e1ab85c))
-- Resolve multi-m4b book time by file URL, not track index ([11ac8d8](https://github.com/dfakkeldy/Echo/commit/11ac8d8))
-- ...and 80 more fixed items.
+- Recover read-along when the book text stops matching the sidecar (#581) ([dc5294e](https://github.com/dfakkeldy/Echo/commit/dc5294e))
+- Fail the cert bootstrap early on a mismatched Ruby (#576) ([667de79](https://github.com/dfakkeldy/Echo/commit/667de79))
+- Sign the macOS .pkg and actually ship it to TestFlight (#574) ([f3fa205](https://github.com/dfakkeldy/Echo/commit/f3fa205))
+- Follow the route when an output device connects mid-book (#572) ([8c3273e](https://github.com/dfakkeldy/Echo/commit/8c3273e))
+- Keep contextual evidence for title-case live before an adjective follower (#571) ([0eeb02f](https://github.com/dfakkeldy/Echo/commit/0eeb02f))
+- Reset the Listen tab to its root when a Library tap opens a book (#570) ([f62218a](https://github.com/dfakkeldy/Echo/commit/f62218a))
+- Show unassigned flashcards in Decks and count today's reviews (#569) ([83b25e7](https://github.com/dfakkeldy/Echo/commit/83b25e7))
+- Translate between manifest file names and track identities (#568) ([c9e8d41](https://github.com/dfakkeldy/Echo/commit/c9e8d41))
+- ...and 17 more fixed items.
 
 ### Improved
-- Tune ONNX session (graph-opt + injectable intra-op threads) ([b1af352](https://github.com/dfakkeldy/Echo/commit/b1af352))
-- Coalesce per-chapter timeline reloads during narration ([63c4fce](https://github.com/dfakkeldy/Echo/commit/63c4fce))
-- Scope per-chapter word-timing rebuild to the chapter ([10451c3](https://github.com/dfakkeldy/Echo/commit/10451c3))
-- Parallelize Kokoro model download, stream to disk ([7f9b658](https://github.com/dfakkeldy/Echo/commit/7f9b658))
-- Cap duration-model compile + harden compile cache ([2f772a9](https://github.com/dfakkeldy/Echo/commit/2f772a9))
-- Cache compiled Kokoro .mlmodelc + report compile progress ([c59e573](https://github.com/dfakkeldy/Echo/commit/c59e573))
-- Finish-plan Phase 6 quick wins (§2.1, §7.2, §9.2) ([e318aaa](https://github.com/dfakkeldy/Echo/commit/e318aaa))
-- Stream synthesized chunks straight to disk (stream-to-sink) ([2f9afbf](https://github.com/dfakkeldy/Echo/commit/2f9afbf))
-- ...and 1 more improved item.
+- Decode each library cover once, through a shared cache (#580) ([4b0d916](https://github.com/dfakkeldy/Echo/commit/4b0d916))
 
 ### Build, docs, and housekeeping
-- Disable code signing for simulator test targets ([8a5440a](https://github.com/dfakkeldy/Echo/commit/8a5440a))
-- Document nightly What-to-Test auto-draft ([61a1baa](https://github.com/dfakkeldy/Echo/commit/61a1baa))
-- Nightly What-to-Test automation implementation plan ([83954cb](https://github.com/dfakkeldy/Echo/commit/83954cb))
-- Fix Anki/FSRS claims, add narration + Audiobookshelf product pages ([17417db](https://github.com/dfakkeldy/Echo/commit/17417db))
-- Add GPLv3 §7 App Store distribution exception ([f134f70](https://github.com/dfakkeldy/Echo/commit/f134f70))
-- Nightly What-to-Test automation design ([cbbbe77](https://github.com/dfakkeldy/Echo/commit/cbbbe77))
-- Surface m4b export + shipped features; fix stale SM-2→FSRS ([e628c3d](https://github.com/dfakkeldy/Echo/commit/e628c3d))
-- Sync narration docs for all-voices + voiced OOV fallback ([3177d9c](https://github.com/dfakkeldy/Echo/commit/3177d9c))
-- ...and 141 more housekeeping items.
+- Regenerate the source tree from `make architecture` (#579) ([33e41ff](https://github.com/dfakkeldy/Echo/commit/33e41ff))
+- Give each ABS stub test its own URLProtocolStub scope (#578) ([27b0f89](https://github.com/dfakkeldy/Echo/commit/27b0f89))
+- Bound the ABS browse waits in time, not in yields (#577) ([80f0466](https://github.com/dfakkeldy/Echo/commit/80f0466))
+- Land the nightly renderer auto-tracker design, refreshed (#564) ([30e2fc3](https://github.com/dfakkeldy/Echo/commit/30e2fc3))
+- Remove 13 stale handoff files from the repository root (#562) ([700eb1e](https://github.com/dfakkeldy/Echo/commit/700eb1e))
+- Describe the real capture flow (bookmark-button menu) (#556) ([e0b5001](https://github.com/dfakkeldy/Echo/commit/e0b5001))
+- Refresh test plans for post-June features (#555) ([983b00b](https://github.com/dfakkeldy/Echo/commit/983b00b))
+- Make EchoTests failures diagnosable again (#554) ([73681fa](https://github.com/dfakkeldy/Echo/commit/73681fa))
+- ...and 1 more housekeeping item.
 
 <!-- AUTO-DEVLOG:END -->
 
