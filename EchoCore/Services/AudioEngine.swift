@@ -25,6 +25,7 @@ protocol AudioEngineDelegate: AnyObject {
 protocol SoundscapePlaying: AnyObject {
     func play(preset: SoundscapePreset) async
     func stop()
+    var isActive: Bool { get }
     var volume: Float { get set }
 }
 
@@ -58,6 +59,11 @@ final class AudioEngine {
 
     /// Whether an audio file is loaded and ready.
     var isItemLoaded: Bool { audioFile != nil && playerNode != nil }
+
+    /// Whether the shared render engine is currently active. Playback controls
+    /// use this independently from `isPlaying` because ambient audio can keep
+    /// rendering while the audiobook player node is paused.
+    var isEngineRunning: Bool { engine?.isRunning == true }
 
     /// Whether the engine is listening for hardware reconfigurations. The
     /// original headphone-connect bug was that nothing observed this at all, so
@@ -298,6 +304,9 @@ final class AudioEngine {
         playerNode?.pause()
         isPlaying = false
         stopTimeTimer()
+        if soundscapeMixer?.isActive != true {
+            engine?.pause()
+        }
     }
 
     func seek(to targetSeconds: Double, completion: ((Bool) -> Void)? = nil) {
