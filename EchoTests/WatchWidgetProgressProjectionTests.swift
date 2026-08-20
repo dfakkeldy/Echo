@@ -97,6 +97,11 @@ struct WatchWidgetProgressProjectionTests {
 
     // MARK: Timeline schedule
 
+    @Test("Projected entries respect WidgetKit's minimum recommended spacing")
+    func projectedEntrySpacingRespectsWidgetKitBudget() {
+        #expect(WatchWidgetProgressProjection.entryStride >= 5 * 60)
+    }
+
     @Test("paused yields the single static entry the widget always rendered")
     func pausedTimelineIsSingleEntry() {
         let now = Date(timeIntervalSinceReferenceDate: 1_000_000)

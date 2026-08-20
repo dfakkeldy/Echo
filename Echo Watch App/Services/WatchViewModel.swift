@@ -196,6 +196,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     var playbackSpeed: Double { availableSpeeds[currentSpeedIndex] }
 
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let reloadWidget: @MainActor () -> Void
     @ObservationIgnored private var wakeRefreshPolicy = WatchWakeRefreshPolicy()
     @ObservationIgnored private var stateRecencyPolicy: WatchStateRecencyPolicy
 
@@ -208,11 +209,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     @ObservationIgnored private var stateRequestRetriesRemaining = 0
     @ObservationIgnored private var stateRequestRetryTask: Task<Void, Never>?
     private static let maxStateRequestRetries = 3
-
-    /// Debounce widget timeline reloads to at most once per 30 seconds,
-    /// instead of firing on every `applyState` call (which can happen
-    /// multiple times per second during playback sync).
-    @ObservationIgnored private var lastWidgetReload: Date = .distantPast
+    @ObservationIgnored private var scrubReloadCoordinator = WatchWidgetScrubReloadCoordinator()
 
     /// Plays a haptic only when the user has haptic feedback enabled in settings.
     /// Centralises the gate so individual call sites don't repeat the check.
@@ -346,8 +343,13 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         self.init(defaults: AppGroupDefaults.shared, migrateStandardDefaults: true)
     }
 
-    init(defaults: UserDefaults, migrateStandardDefaults: Bool = false) {
+    init(
+        defaults: UserDefaults,
+        migrateStandardDefaults: Bool = false,
+        reloadWidget: @MainActor @escaping () -> Void = WatchViewModel.reloadWidgetTimeline
+    ) {
         self.defaults = defaults
+        self.reloadWidget = reloadWidget
         let persistedSequence =
             (defaults.object(forKey: WatchStateRecencyPolicy.persistedSequenceKey) as? NSNumber)?
             .doubleValue
@@ -552,7 +554,9 @@ class WatchViewModel: NSObject, WCSessionDelegate {
 
     @discardableResult
     private func applyState(
-        _ state: [String: Any], source: WatchStateDeliverySource
+        _ state: [String: Any], source: WatchStateDeliverySource,
+        forceWidgetReload: Bool = false,
+        reloadOnProgressDiscontinuity: Bool = true
     ) -> Bool {
         guard !state.isEmpty else { return false }
         guard stateRecencyPolicy.shouldApply(state, source: source) else { return false }
@@ -566,10 +570,24 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             defaults.set(sequence, forKey: WatchStateRecencyPolicy.persistedThumbnailSequenceKey)
         }
 
+        let widgetSnapshotDate = Date()
+        let projectedProgress = WatchWidgetProgressProjection.read(from: defaults)
+            .fraction(at: widgetSnapshotDate)
+        let incomingDisplayTitle = (state["title"] as? String).map {
+            $0.applyingChapterTruncation(
+                enabled: defaults.bool(forKey: "truncateChapterNamesEnabled"))
+        }
         let shouldReloadWidgetImmediately = WatchWidgetReloadPolicy.shouldReload(
             state: state,
             currentIsPlaying: isPlaying,
+            currentFolderKey: folderKey,
             currentTrackId: trackId,
+            currentTitle: title,
+            incomingTitle: incomingDisplayTitle,
+            currentPlaybackSpeed: playbackSpeed,
+            projectedProgressFraction: projectedProgress,
+            reloadOnProgressDiscontinuity: reloadOnProgressDiscontinuity,
+            currentBookDuration: totalBookDuration,
             currentAccentHex: artworkAccentColorHex,
             currentRampTopHex: coverRampTopHex,
             hasCachedThumbnail: thumbnailImage != nil
@@ -600,9 +618,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 self.isPlaying = isPlaying
                 self.defaults.set(isPlaying, forKey: "isPlaying")
             }
-            if let title = state["title"] as? String {
-                let truncateEnabled = self.defaults.bool(forKey: "truncateChapterNamesEnabled")
-                let displayTitle = title.applyingChapterTruncation(enabled: truncateEnabled)
+            if let displayTitle = incomingDisplayTitle {
                 self.title = displayTitle
                 self.defaults.set(displayTitle, forKey: "title")
             }
@@ -635,7 +651,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 // Anchor the widget's wall-clock projection to this
                 // authoritative fraction so timeline entries can keep the
                 // Smart Stack bar moving between deliveries.
-                WatchWidgetProgressProjection.writeAnchor(Date(), to: self.defaults)
+                WatchWidgetProgressProjection.writeAnchor(widgetSnapshotDate, to: self.defaults)
                 if delta > 0.02 {
                     Task { @MainActor in
                         try? await Task.sleep(for: .seconds(0.5))
@@ -853,16 +869,16 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             if state["commandResult"] as? String == "bookmarkJump" {
                 self.playHaptic(.success)
             }
-            let now = Date()
-            if shouldReloadWidgetImmediately
-                || now.timeIntervalSince(self.lastWidgetReload) >= 30
-            {
-                self.lastWidgetReload = now
-                WidgetCenter.shared.reloadTimelines(ofKind: "Echo_Widget")
+            if shouldReloadWidgetImmediately || forceWidgetReload {
+                reloadWidget()
             }
             self.updatePlaybackTimer()
             return true
         }
+    }
+
+    static func reloadWidgetTimeline() {
+        WidgetCenter.shared.reloadTimelines(ofKind: "Echo_Widget")
     }
 
     /// Sends a flashcard grade back to iPhone for FSRS processing and persistence.
@@ -895,6 +911,34 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     func applyReceivedUserInfo(_ userInfo: [String: Any]) -> Bool {
         guard !userInfo.isEmpty else { return false }
         return applyState(userInfo, source: .queuedUserInfo)
+    }
+
+    @discardableResult
+    func applyReceivedCommandReply(_ reply: [String: Any], command: String) -> Bool {
+        guard !reply.isEmpty else { return false }
+        return applyState(
+            reply,
+            source: .liveMessage,
+            forceWidgetReload: Self.commandRequiresWidgetReload(command),
+            reloadOnProgressDiscontinuity: command != "scrubDelta")
+    }
+
+    func finishScrubbing() {
+        if scrubReloadCoordinator.gestureDidEnd() {
+            reloadWidget()
+        }
+    }
+
+    private func finishScrubCommand(requiresRecovery: Bool = false) {
+        if scrubReloadCoordinator.commandFinished(requiresRecovery: requiresRecovery) {
+            reloadWidget()
+        }
+    }
+
+    private func finishScrubRecovery() {
+        if scrubReloadCoordinator.recoveryStateApplied() {
+            reloadWidget()
+        }
     }
 
     @discardableResult
@@ -940,6 +984,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 Task { @MainActor [weak self, payload] in
                     self?.cancelStateRequestRetry()
                     self?.applyState(payload.value, source: .liveMessage)
+                    self?.finishScrubRecovery()
                 }
             },
             errorHandler: { @Sendable error in
@@ -1029,12 +1074,28 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         command == "volumeDelta" || command == "scrubDelta"
     }
 
+    private static func commandRequiresWidgetReload(_ command: String) -> Bool {
+        switch command {
+        case "play", "pause", "toggle", "cycleSpeed", "seek", "next", "previous", "nextSection",
+            "previousSection", "skipBackward", "skipForward":
+            return true
+        default:
+            return false
+        }
+    }
+
     @discardableResult
     func sendCommand(_ command: String, params: [String: Any]? = nil) -> Bool {
         guard !command.isEmpty else { return false }
         let session = WCSession.default
+        if command == "scrubDelta" {
+            scrubReloadCoordinator.commandSent()
+        }
 
         guard session.activationState == .activated else {
+            if command == "scrubDelta" {
+                finishScrubCommand(requiresRecovery: true)
+            }
             rollback()
             requestCurrentState()
             return false
@@ -1046,7 +1107,6 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 message[key] = value
             }
         }
-
         // WatchConnectivity invokes these reply/error handlers on a background
         // serial queue. @Sendable keeps the closures from inheriting this type's
         // MainActor isolation before they can hop back. Mirrors the
@@ -1057,7 +1117,10 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 let payload = WatchConnectivityDictionary(value: reply)
                 Task { @MainActor [weak self, payload] in
                     self?.clearPendingRollback()
-                    self?.applyState(payload.value, source: .liveMessage)
+                    self?.applyReceivedCommandReply(payload.value, command: command)
+                    if command == "scrubDelta" {
+                        self?.finishScrubCommand()
+                    }
                     if Self.isDirectionalCommand(command),
                         self?.loopMode == "bookmark",
                         payload.value["commandResult"] as? String != "bookmarkJump"
@@ -1077,6 +1140,9 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 // re-pull the phone's authoritative state — not to queue a stale command.
                 let errorDescription = error.localizedDescription
                 Task { @MainActor [weak self, errorDescription] in
+                    if command == "scrubDelta" {
+                        self?.finishScrubCommand(requiresRecovery: true)
+                    }
                     self?.logger.error(
                         "Error sending command \(command): \(errorDescription). Reverting optimistic state."
                     )

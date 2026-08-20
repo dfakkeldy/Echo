@@ -81,6 +81,42 @@ struct Echo_Watch_AppTests {
         #expect(policy.canRefresh(now: start.addingTimeInterval(1.5)))
     }
 
+    @Test("A scrub reload waits for the final delayed command reply")
+    func scrubReloadCoordinatorWaitsForIdleAndFinalReply() {
+        var coordinator = WatchWidgetScrubReloadCoordinator()
+        coordinator.commandSent()
+        coordinator.commandSent()
+
+        #expect(!coordinator.gestureDidEnd())
+        #expect(!coordinator.commandFinished())
+        #expect(coordinator.commandFinished())
+        #expect(!coordinator.commandFinished())
+    }
+
+    @Test("A failed scrub waits for authoritative recovery state before reloading")
+    func scrubReloadCoordinatorWaitsForRecovery() {
+        var coordinator = WatchWidgetScrubReloadCoordinator()
+        coordinator.commandSent()
+
+        #expect(!coordinator.gestureDidEnd())
+        #expect(!coordinator.commandFinished(requiresRecovery: true))
+        #expect(coordinator.recoveryStateApplied())
+    }
+
+    @Test("A new scrub cancels an earlier gesture's idle state")
+    func newScrubCancelsPreviousIdleState() {
+        var coordinator = WatchWidgetScrubReloadCoordinator()
+        coordinator.commandSent()
+        #expect(!coordinator.gestureDidEnd())
+        #expect(!coordinator.commandFinished(requiresRecovery: true))
+
+        coordinator.commandSent()
+
+        #expect(!coordinator.recoveryStateApplied())
+        #expect(!coordinator.commandFinished())
+        #expect(coordinator.gestureDidEnd())
+    }
+
     @MainActor
     @Test func receivedApplicationContextUpdatesWatchState() throws {
         let (defaults, suiteName) = try Self.testDefaults()
@@ -99,6 +135,185 @@ struct Echo_Watch_AppTests {
         #expect(viewModel.currentTime == 42.0)
         #expect(viewModel.totalProgressFraction == 0.25)
         #expect(viewModel.progressFraction == 0.5)
+    }
+
+    @MainActor
+    @Test("Routine progress snapshots do not spend a complication reload")
+    func progressOnlySnapshotDoesNotReloadWidget() throws {
+        let (defaults, suiteName) = try Self.testDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("file:///book-a", forKey: "folderKey")
+        defaults.set("file:///book-a/chapter.m4b", forKey: "trackId")
+        defaults.set(true, forKey: "isPlaying")
+        defaults.set(0.4, forKey: "totalProgressFraction")
+        defaults.set(1.0, forKey: "playbackSpeed")
+        defaults.set(3_600.0, forKey: "totalBookDuration")
+        WatchWidgetProgressProjection.writeAnchor(Date(), to: defaults)
+        var reloadCount = 0
+        let viewModel = WatchViewModel(
+            defaults: defaults,
+            reloadWidget: { reloadCount += 1 })
+
+        let applied = viewModel.applyReceivedApplicationContext([
+            "stateSeq": 1.0,
+            "isPlaying": true,
+            "folderKey": "file:///book-a",
+            "trackId": "file:///book-a/chapter.m4b",
+            "totalProgressFraction": 0.401,
+        ])
+
+        #expect(applied)
+        #expect(reloadCount == 0)
+    }
+
+    @MainActor
+    @Test("A new book reloads the complication even when playback state is unchanged")
+    func bookIdentityChangeReloadsWidget() throws {
+        let (defaults, suiteName) = try Self.testDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("file:///book-a", forKey: "folderKey")
+        defaults.set(false, forKey: "isPlaying")
+        var reloadCount = 0
+        let viewModel = WatchViewModel(
+            defaults: defaults,
+            reloadWidget: { reloadCount += 1 })
+
+        let applied = viewModel.applyReceivedApplicationContext([
+            "stateSeq": 1.0,
+            "isPlaying": false,
+            "folderKey": "file:///book-b",
+            "totalProgressFraction": 0.0,
+        ])
+
+        #expect(applied)
+        #expect(reloadCount == 1)
+    }
+
+    @MainActor
+    @Test("A large same-track progress jump reloads the complication timeline")
+    func seekProgressJumpReloadsWidget() throws {
+        let (defaults, suiteName) = try Self.testDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "isPlaying")
+        defaults.set(0.2, forKey: "totalProgressFraction")
+        defaults.set(1.0, forKey: "playbackSpeed")
+        defaults.set(3_600.0, forKey: "totalBookDuration")
+        WatchWidgetProgressProjection.writeAnchor(Date(), to: defaults)
+        var reloadCount = 0
+        let viewModel = WatchViewModel(
+            defaults: defaults,
+            reloadWidget: { reloadCount += 1 })
+
+        let applied = viewModel.applyReceivedApplicationContext([
+            "stateSeq": 1.0,
+            "isPlaying": true,
+            "totalProgressFraction": 0.6,
+        ])
+
+        #expect(applied)
+        #expect(reloadCount == 1)
+    }
+
+    @MainActor
+    @Test("A duration correction reloads the projected complication timeline")
+    func durationChangeReloadsWidget() throws {
+        let (defaults, suiteName) = try Self.testDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(3_600.0, forKey: "totalBookDuration")
+        var reloadCount = 0
+        let viewModel = WatchViewModel(
+            defaults: defaults,
+            reloadWidget: { reloadCount += 1 })
+
+        let applied = viewModel.applyReceivedApplicationContext([
+            "stateSeq": 1.0,
+            "totalBookDuration": 7_200.0,
+        ])
+
+        #expect(applied)
+        #expect(reloadCount == 1)
+    }
+
+    @MainActor
+    @Test("An authoritative play reply reloads after the optimistic state already changed")
+    func optimisticPlayReplyReloadsWidget() throws {
+        let (defaults, suiteName) = try Self.testDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var reloadCount = 0
+        let viewModel = WatchViewModel(
+            defaults: defaults,
+            reloadWidget: { reloadCount += 1 })
+        viewModel.isPlaying = true
+
+        let applied = viewModel.applyReceivedCommandReply(
+            ["stateSeq": 1.0, "isPlaying": true], command: "play")
+
+        #expect(applied)
+        #expect(reloadCount == 1)
+    }
+
+    @MainActor
+    @Test("Crown scrub replies wait until the gesture ends to reload the complication")
+    func scrubRepliesDoNotReloadWidgetContinuously() throws {
+        let (defaults, suiteName) = try Self.testDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(0.4, forKey: "totalProgressFraction")
+        defaults.set(false, forKey: "isPlaying")
+        WatchWidgetProgressProjection.writeAnchor(Date(), to: defaults)
+        var reloadCount = 0
+        let viewModel = WatchViewModel(
+            defaults: defaults,
+            reloadWidget: { reloadCount += 1 })
+
+        let applied = viewModel.applyReceivedCommandReply(
+            ["stateSeq": 1.0, "totalProgressFraction": 0.8], command: "scrubDelta")
+
+        #expect(applied)
+        #expect(reloadCount == 0)
+
+        viewModel.finishScrubbing()
+
+        #expect(reloadCount == 1)
+    }
+
+    @MainActor
+    @Test("A chapter-title change reloads the rectangular complication")
+    func titleChangeReloadsWidget() throws {
+        let (defaults, suiteName) = try Self.testDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("Chapter One", forKey: "title")
+        var reloadCount = 0
+        let viewModel = WatchViewModel(
+            defaults: defaults,
+            reloadWidget: { reloadCount += 1 })
+
+        let applied = viewModel.applyReceivedApplicationContext([
+            "stateSeq": 1.0,
+            "title": "Chapter Two",
+        ])
+
+        #expect(applied)
+        #expect(reloadCount == 1)
+    }
+
+    @MainActor
+    @Test("A playback-speed change reloads the projected complication timeline")
+    func playbackSpeedChangeReloadsWidget() throws {
+        let (defaults, suiteName) = try Self.testDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(1.0, forKey: "playbackSpeed")
+        var reloadCount = 0
+        let viewModel = WatchViewModel(
+            defaults: defaults,
+            reloadWidget: { reloadCount += 1 })
+
+        let applied = viewModel.applyReceivedApplicationContext([
+            "stateSeq": 1.0,
+            "playbackSpeed": 2.0,
+        ])
+
+        #expect(applied)
+        #expect(reloadCount == 1)
     }
 
     @MainActor
