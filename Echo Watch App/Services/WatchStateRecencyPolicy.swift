@@ -110,11 +110,55 @@ struct WatchStateRecencyPolicy {
     }
 }
 
+struct WatchWidgetScrubReloadCoordinator {
+    private var outstandingCommands = 0
+    private var gestureIsIdle = false
+    private var recoveryRequired = false
+
+    mutating func commandSent() {
+        gestureIsIdle = false
+        outstandingCommands += 1
+    }
+
+    mutating func gestureDidEnd() -> Bool {
+        gestureIsIdle = true
+        return consumeReloadIfReady()
+    }
+
+    mutating func commandFinished(requiresRecovery: Bool = false) -> Bool {
+        if outstandingCommands > 0 {
+            outstandingCommands -= 1
+        }
+        recoveryRequired = recoveryRequired || requiresRecovery
+        return consumeReloadIfReady()
+    }
+
+    mutating func recoveryStateApplied() -> Bool {
+        recoveryRequired = false
+        return consumeReloadIfReady()
+    }
+
+    private mutating func consumeReloadIfReady() -> Bool {
+        guard gestureIsIdle, outstandingCommands == 0, !recoveryRequired else { return false }
+        gestureIsIdle = false
+        return true
+    }
+}
+
 enum WatchWidgetReloadPolicy {
+    private static let progressDiscontinuityThreshold = 0.02
+
     static func shouldReload(
         state: [String: Any],
         currentIsPlaying: Bool,
+        currentFolderKey: String? = nil,
         currentTrackId: String?,
+        currentTitle: String? = nil,
+        incomingTitle: String? = nil,
+        currentPlaybackSpeed: Double? = nil,
+        projectedProgressFraction: Double? = nil,
+        reloadOnProgressDiscontinuity: Bool = true,
+        currentBookDuration: Double? = nil,
         currentAccentHex: String?,
         currentRampTopHex: String?,
         hasCachedThumbnail: Bool
@@ -131,9 +175,30 @@ enum WatchWidgetReloadPolicy {
         let incomingRampTop = (state["coverRampTopHex"] as? String).flatMap {
             $0.isEmpty ? nil : $0
         }
+        let hasProgressDiscontinuity: Bool = {
+            guard let incoming = state["totalProgressFraction"] as? Double,
+                let projectedProgressFraction,
+                incoming.isFinite,
+                projectedProgressFraction.isFinite
+            else { return false }
+            return abs(incoming - projectedProgressFraction) > progressDiscontinuityThreshold
+        }()
+        let hasDurationCorrection: Bool = {
+            guard let incoming = state["totalBookDuration"] as? Double,
+                let currentBookDuration,
+                incoming.isFinite,
+                currentBookDuration.isFinite
+            else { return false }
+            return abs(incoming - currentBookDuration) > 1
+        }()
 
         return ((state["isPlaying"] as? Bool).map { $0 != currentIsPlaying } ?? false)
+            || ((state["folderKey"] as? String).map { $0 != currentFolderKey } ?? false)
             || ((state["trackId"] as? String).map { $0 != currentTrackId } ?? false)
+            || (incomingTitle.map { $0 != currentTitle } ?? false)
+            || ((state["playbackSpeed"] as? Double).map { $0 != currentPlaybackSpeed } ?? false)
+            || (reloadOnProgressDiscontinuity && hasProgressDiscontinuity)
+            || hasDurationCorrection
             || (state["artworkAccentColorHex"] != nil && incomingAccent != currentAccentHex)
             || (state["coverRampTopHex"] != nil && incomingRampTop != currentRampTopHex)
             || state["thumbnailData"] != nil
