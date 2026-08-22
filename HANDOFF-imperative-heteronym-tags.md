@@ -15,3 +15,11 @@ Resume:
 ```
 gh pr checks 588 --repo dfakkeldy/Echo
 ```
+
+## 2026-08-22 — CI round 2 green; PR #588 ready for review/merge
+Done: hosted `Build gate + tests` passed on 14bef5d3 (EchoTests step success; macOS + echo-cli builds ran). Branch = origin/nightly + 2 commits.
+Next: merge #588 into nightly (squash); delete this handoff in the closing PR if it survives the squash. Local `make test` never ran on the Mac (build window) — hosted CI is the gate of record for this PR.
+Resume:
+```
+gh pr view 588 --repo dfakkeldy/Echo --json mergeable,reviewDecision,statusCheckRollup
+```
