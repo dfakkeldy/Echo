@@ -66,7 +66,11 @@ nonisolated enum NarrationFileNaming {
     /// semantics through G2P, changing narration bytes for the same source text.
     /// v23 = acoustically rejected atomic chunks retry their frozen plan before
     /// fail-open audio fallback, changing accepted audio and evidence receipts.
-    static let renderVersion = 23
+    /// v24 = a sentence-initial heteronym directly followed by an object
+    /// ("Permit me", "Close the door", "Project the image") is retagged as a
+    /// verb before lexicon lookup, changing narration bytes for the same
+    /// source text.
+    static let renderVersion = 24
     /// Stable renderer-family identity persisted beside headless captures. The
     /// cache render version tracks byte-affecting revisions within this family;
     /// this value prevents a different engine/G2P stack from inheriting them.

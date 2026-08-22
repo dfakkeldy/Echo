@@ -8,7 +8,7 @@ import Testing
     @Test func renderVersionRegeneratesCachesForAtomicQualityRetry() {
         // v23 may replace a rejected atomic result with an accepted retry, so
         // v22 audio and pronunciation evidence may not be reused.
-        #expect(NarrationFileNaming.renderVersion == 23)
+        #expect(NarrationFileNaming.renderVersion == 24)
         let current = NarrationFileNaming.chapterFileName(
             audiobookID: "book",
             chapterIndex: 0,
