@@ -2252,11 +2252,11 @@ Two further notes on the macOS export path:
   re-breaks the export.
 - `pilot` uploads one binary per call, so the Mac `.pkg` gets its own
   `upload_to_testflight` with `app_platform: "osx"` (the only accepted macOS
-  value — `"macos"` is rejected). Mac builds currently go to **internal testers
-  only**, on every channel, including weekly. Promoting them to the external
-  Weekly group means mirroring the iOS `distribute_external` /
-  `submit_beta_review` block; do that once a Mac build has been installed from
-  TestFlight and smoke-tested.
+  value — `"macos"` is rejected). Nightly Mac builds stay internal. Weekly Mac
+  builds use the same external group, notification setting, and Beta App Review
+  metadata as iOS. This external path was enabled after the signed Mac package
+  shipped through TestFlight and passed an installation smoke test on August 23,
+  2026.
 
 **Release checklist guardrail.** Before merging any future CarPlay scene
 declaration or marketing copy, verify the App ID/provisioning profile includes

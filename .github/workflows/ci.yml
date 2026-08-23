@@ -62,8 +62,8 @@ jobs:
             echo "::notice title=Documentation-only change::Skipping the Xcode build gate. Doc and help-text contracts still run."
           fi
 
-      - name: Fastlane shared-scheme probe (fast, no Xcode)
-        run: make fastlane-scheme-test
+      - name: Fastlane release tests (fast, no Xcode)
+        run: make fastlane-test
 
       # Documentation and in-app help contracts. These assertions used to live in
       # the EchoTests Swift target, where they cost a full simulator build even

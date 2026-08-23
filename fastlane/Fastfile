@@ -128,6 +128,19 @@ def beta_app_review_info
   info
 end
 
+def testflight_distribution_options(group:, external:, review_info:)
+  return { notify_external_testers: false } unless group && external
+
+  {
+    notify_external_testers: true,
+    groups: [group],
+    distribute_external: true,
+    submit_beta_review: true,
+    beta_app_review_info: review_info,
+    demo_account_required: review_info[:demo_account_required]
+  }
+end
+
 def screenshot_upload_files
   Dir.glob("screenshots/**/*.{png,jpg,jpeg}", File::FNM_CASEFOLD).select { |path| File.file?(path) }
 end
@@ -183,7 +196,8 @@ platform :ios do
     3. Archives the macOS target when the shared "Echo macOS" scheme exists,
        exporting a signed .pkg. Failures only warn — they never block iOS.
     4. Uploads the iOS .ipa to TestFlight, then the macOS .pkg in a second call
-       (pilot takes ONE binary per call). Mac builds go to internal testers only.
+       (pilot takes ONE binary per call). Weekly sends both platforms to external
+       testers; Nightly remains internal.
 
     Prerequisites:
     - fastlane match set up with a git repo and MATCH_PASSWORD
@@ -218,6 +232,13 @@ platform :ios do
                             else [nil, false]
                             end
     UI.message("Release channel: #{channel.empty? ? '(none)' : channel} → group: #{tf_group || '(none)'}, external: #{tf_external}")
+
+    review_info = beta_app_review_info if tf_group && tf_external
+    distribution_options = testflight_distribution_options(
+      group: tf_group,
+      external: tf_external,
+      review_info: review_info
+    )
 
     # ── Nightly only: auto-draft "What to Test" from the commit delta ──────
     # Internal/nightly testers should always see fresh copy. Weekly/external
@@ -415,29 +436,16 @@ platform :ios do
       # "Please enter the app's platform" prompt on a headless runner.
       app_platform: "ios",
       skip_waiting_for_build_processing: false,
-      notify_external_testers: tf_external,
       changelog: File.read("testflight/what_to_test.txt"),
       beta_app_description: File.read("testflight/beta_app_description.txt"),
       # Where TestFlight's "Send Beta Feedback" emails land. Reuses the App Store
       # review contact for now; swap for a dedicated support address if one exists.
       beta_app_feedback_email: File.read("metadata/review_information/email_address.txt").strip
     }
-    # Only EXTERNAL channels need explicit group distribution. Internal testers
-    # (the Nightly group) AUTOMATICALLY receive every processed (VALID) build — no
-    # distribution call needed. Worse, pilot's distribute_build treats any `groups`
-    # assignment as an external submission and demands full Beta App Review data
-    # (demo account, contact, notes), so passing the internal group makes the lane
-    # fail with "Missing required information to submit for external testing". The
-    # external Weekly group genuinely submits for review, so it keeps the groups +
-    # distribute_external path and supplies the committed Beta App Review details.
-    if tf_group && tf_external
-      review_info = beta_app_review_info
-      tf_options[:groups] = [tf_group]
-      tf_options[:distribute_external] = true
-      tf_options[:submit_beta_review] = true
-      tf_options[:beta_app_review_info] = review_info
-      tf_options[:demo_account_required] = review_info[:demo_account_required]
-    end
+    # Only external channels get groups and Beta App Review options. Internal
+    # testers automatically receive every processed build, and assigning their
+    # group explicitly makes pilot treat the upload as external distribution.
+    tf_options.merge!(distribution_options)
     upload_to_testflight(tf_options)
 
     # ── Second upload: the macOS .pkg ─────────────────────────────────────
@@ -450,15 +458,8 @@ platform :ios do
     # app_platform "osx" and no .pkg does NOT fail cleanly — it reaches
     # PkgUploadPackageBuilder with a nil path and dies in File.size(nil).
     #
-    # DELIBERATELY internal-only, even on the weekly/external channel. The iOS
-    # call above submits weekly builds to Beta App Review and distributes them
-    # to the external Weekly group; doing the same for a Mac binary that has
-    # never once been built would put an unreviewed, never-launched app in front
-    # of external testers. Internal (Nightly) testers receive every processed
-    # build automatically with no distribution call, which is the right audience
-    # for the first Mac builds. Add the groups/distribute_external/
-    # submit_beta_review block here — mirroring the iOS one — once a Mac build
-    # has been installed and smoke-tested from TestFlight.
+    # Weekly Mac builds use the same external group and Beta App Review options
+    # as iOS. Nightly stays internal and receives processed builds automatically.
     if macos_pkg_path && File.exist?(macos_pkg_path)
       begin
         # The iOS .ipa is still in lane_context and pilot would log a confusing
@@ -467,7 +468,7 @@ platform :ios do
         # this bug hid behind an ambiguous log once already — keep it readable.
         lane_context[SharedValues::IPA_OUTPUT_PATH] = nil
 
-        upload_to_testflight(
+        macos_tf_options = {
           api_key: @api_key,
           app_identifier: "com.echo.audiobooks",
           pkg: macos_pkg_path,
@@ -480,14 +481,15 @@ platform :ios do
           # never appears in App Store Connect hangs the runner until the job's
           # 90-minute cap.
           wait_processing_timeout_duration: 1800,
-          notify_external_testers: false,
           # Reuse the copy the iOS call already read rather than re-reading the
           # files, so the two platforms can never ship with different release
           # notes for the same commit.
           changelog: tf_options[:changelog],
           beta_app_description: tf_options[:beta_app_description],
           beta_app_feedback_email: tf_options[:beta_app_feedback_email]
-        )
+        }
+        macos_tf_options.merge!(distribution_options)
+        upload_to_testflight(macos_tf_options)
       rescue => e
         # Same reasoning as the archive rescue: the iOS build has already
         # uploaded successfully by this point, and a macOS-side problem must not

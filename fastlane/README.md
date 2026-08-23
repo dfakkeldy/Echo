@@ -36,7 +36,8 @@ This lane:
 3. Archives the macOS target when the shared "Echo macOS" scheme exists,
    exporting a signed .pkg. Failures only warn — they never block iOS.
 4. Uploads the iOS .ipa to TestFlight, then the macOS .pkg in a second call
-   (pilot takes ONE binary per call). Mac builds go to internal testers only.
+   (pilot takes ONE binary per call). Weekly sends both platforms to external
+   testers; Nightly remains internal.
 
 Prerequisites:
 - fastlane match set up with a git repo and MATCH_PASSWORD

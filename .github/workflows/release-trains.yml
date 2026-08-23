@@ -217,10 +217,10 @@ jobs:
       # shared "Echo macOS" scheme is present, the Mac app too. pilot takes one
       # binary per call, so the .ipa and the macOS .pkg are uploaded in two
       # separate calls; a macOS archive/export/upload failure is a warning that
-      # never blocks the iOS upload. Mac builds go to internal testers only —
-      # see ARCHITECTURE.md ▸ "Shipping the Mac app" before widening that, and
-      # note the .pkg needs the Mac Installer Distribution certificate in the
-      # match repo (one-time: Scripts/import_mac_installer_cert.sh).
+      # never blocks the iOS upload. Nightly Mac builds stay internal; Weekly
+      # submits the Mac build to the external Weekly group after Beta App Review.
+      # The .pkg needs the Mac Installer Distribution certificate in the match
+      # repo (one-time: Scripts/import_mac_installer_cert.sh).
       # "What to Test" copy comes from fastlane/testflight/*.txt. Tip: route the
       # Nightly and Weekly builds to separate TestFlight tester groups so
       # testers self-select their risk.
