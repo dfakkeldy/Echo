@@ -1,4 +1,4 @@
-.PHONY: help docs architecture whats-new devlog-update devlog-pr-body doc-automation-test doc-contract-test fastlane-scheme-test pronunciation-corpus-test pronunciation-corpus-qualification pronunciation-program-report pronunciation-pack pronunciation-pack-test pronunciation-audit-pack pronunciation-audit-pack-test pronunciation-audio-judge-test neural-g2p-fetch-test neural-g2p-fetch neural-g2p-qualification-test neural-g2p-qualification test build-tests test-only hooks-test echo-cli renderer-install-test install-renderer verify-renderer promote-renderer repair-renderer
+.PHONY: help docs architecture whats-new devlog-update devlog-pr-body doc-automation-test doc-contract-test fastlane-test fastlane-scheme-test pronunciation-corpus-test pronunciation-corpus-qualification pronunciation-program-report pronunciation-pack pronunciation-pack-test pronunciation-audit-pack pronunciation-audit-pack-test pronunciation-audio-judge-test neural-g2p-fetch-test neural-g2p-fetch neural-g2p-qualification-test neural-g2p-qualification test build-tests test-only hooks-test echo-cli renderer-install-test install-renderer verify-renderer promote-renderer repair-renderer
 
 help: ## List available targets
 	@echo "Echo: Audiobook Study Player — available targets:"
@@ -40,6 +40,9 @@ doc-automation-test: ## Run the doc-automation Python unit tests
 
 fastlane-scheme-test: ## Verify the release scheme probe from Fastlane's working directories
 	@ruby fastlane/test/scheme_probe_test.rb
+
+fastlane-test: fastlane-scheme-test ## Verify Fastlane release routing without Xcode
+	@ruby fastlane/test/testflight_distribution_test.rb
 
 pronunciation-corpus-test: ## Validate pronunciation corpus tests and fixture contracts
 	python3 -m unittest discover -s Tools/Pronunciation/tests -p 'test_pronunciation_corpus.py'
