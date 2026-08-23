@@ -2,8 +2,14 @@
 import Foundation
 
 /// A `URLProtocol` that returns canned responses keyed by URL path suffix.
-/// Register a session via `URLProtocolStub.makeSession()` and stub responses
-/// with `URLProtocolStub.stub(pathSuffix:status:json:)`.
+/// Register a session via `URLProtocolStub.makeSession(scope:)` and stub responses
+/// with `URLProtocolStub.stub(scope:pathSuffix:status:json:)`.
+///
+/// Every entry point takes an explicit `scope` on purpose. Swift Testing runs
+/// suites — and the tests within a suite — concurrently in a single process, so
+/// state keyed on anything shared is state two tests can overwrite for each
+/// other. Give each test a fresh scope (see the `*Fixture` classes in the ABS
+/// suites) rather than reaching for a common one.
 // `nonisolated`: a `URLProtocol` subclass whose overrides (`canInit`, `startLoading`,
 // etc.) must match URLProtocol's nonisolated isolation. Under Swift 6 MainActor
 // default isolation the class would otherwise be inferred `@MainActor`, mismatching
@@ -16,7 +22,10 @@ nonisolated final class URLProtocolStub: URLProtocol {
         var suspended: Bool
     }
 
-    private static let defaultScope = "default"
+    /// Bucket for traffic that did not come from `makeSession(scope:)` and so
+    /// carries no scope header. No test reads it; it exists so an unrouted
+    /// request is parked somewhere inert instead of landing in a real scope.
+    private static let unroutedScope = "unrouted"
     private static let scopeHeader = "X-Echo-URLProtocolStub-Scope"
     private static let lock = NSLock()
     private let deliveryState = DeliveryState()
@@ -24,10 +33,6 @@ nonisolated final class URLProtocolStub: URLProtocol {
     nonisolated(unsafe) private static var queryResponses: [QueryResponse] = []
     nonisolated(unsafe) private static var scopedRequests: [(String, URLRequest)] = []
     nonisolated(unsafe) private static var pending: [PendingResponse] = []
-
-    static var requests: [URLRequest] {
-        requests(scope: defaultScope)
-    }
 
     static func requests(scope: String) -> [URLRequest] {
         lock.withLock { scopedRequests.compactMap { $0.0 == scope ? $0.1 : nil } }
@@ -74,7 +79,7 @@ nonisolated final class URLProtocolStub: URLProtocol {
         }
     }
 
-    static func reset(scope: String = defaultScope) {
+    static func reset(scope: String) {
         lock.withLock {
             responses[scope] = [:]
             queryResponses.removeAll { $0.scope == scope }
@@ -90,29 +95,6 @@ nonisolated final class URLProtocolStub: URLProtocol {
             scopedRequests.removeAll { $0.0 == scope }
             pending.removeAll { $0.scope == scope }
         }
-    }
-
-    static func stub(
-        pathSuffix: String, status: Int = 200, json: String, headers: [String: String] = [:]
-    ) {
-        stub(
-            scope: defaultScope, pathSuffix: pathSuffix, status: status,
-            data: Data(json.utf8), headers: headers)
-    }
-    static func stub(
-        pathSuffix: String, status: Int = 200, data: Data, headers: [String: String] = [:]
-    ) {
-        stub(
-            scope: defaultScope, pathSuffix: pathSuffix, status: status,
-            data: data, headers: headers)
-    }
-    static func stub(
-        pathSuffix: String, queryItems: [String: String], status: Int = 200, json: String,
-        headers: [String: String] = [:]
-    ) {
-        stub(
-            scope: defaultScope, pathSuffix: pathSuffix, queryItems: queryItems,
-            status: status, json: json, headers: headers)
     }
 
     static func stub(
@@ -173,7 +155,7 @@ nonisolated final class URLProtocolStub: URLProtocol {
         }
     }
 
-    static func makeSession(scope: String = defaultScope) -> URLSession {
+    static func makeSession(scope: String) -> URLSession {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [URLProtocolStub.self]
         config.httpAdditionalHeaders = [scopeHeader: scope]
@@ -187,7 +169,7 @@ nonisolated final class URLProtocolStub: URLProtocol {
             client?.urlProtocolDidFinishLoading(self)
             return
         }
-        let scope = request.value(forHTTPHeaderField: Self.scopeHeader) ?? Self.defaultScope
+        let scope = request.value(forHTTPHeaderField: Self.scopeHeader) ?? Self.unroutedScope
         let queryItems =
             URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         let queryValues = Dictionary(

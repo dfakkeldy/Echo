@@ -155,6 +155,38 @@ struct BookPreferencesService {
         return try? JSONDecoder().decode(SidecarImportSummary.self, from: data)
     }
 
+    // MARK: - Stale-source recovery fuse
+
+    nonisolated static func staleSourceRecoveryKey(for audiobookID: String) -> String {
+        "book_staleSourceRecovery_\(audiobookID)"
+    }
+
+    /// Records that automatic stale-source recovery has been attempted for this
+    /// document/alignment revision pair, so it runs at most once per revision
+    /// instead of re-extracting and re-parsing the book on every open. Written
+    /// *before* the attempt, so a failure or a crash mid-recovery does not earn a
+    /// retry — only a genuinely new revision does.
+    nonisolated static func saveStaleSourceRecoveryAttempt(
+        _ attempt: StaleSourceRecoveryAttempt?, for audiobookID: String,
+        store: UserDefaults = .standard
+    ) {
+        let key = staleSourceRecoveryKey(for: audiobookID)
+        guard let attempt, let data = try? JSONEncoder().encode(attempt) else {
+            store.removeObject(forKey: key)
+            return
+        }
+        store.set(data, forKey: key)
+    }
+
+    nonisolated static func loadStaleSourceRecoveryAttempt(
+        for audiobookID: String, store: UserDefaults = .standard
+    ) -> StaleSourceRecoveryAttempt? {
+        guard let data = store.data(forKey: staleSourceRecoveryKey(for: audiobookID)) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(StaleSourceRecoveryAttempt.self, from: data)
+    }
+
     // MARK: - Load
 
     static func loadOverrides(for audiobookID: String) -> (

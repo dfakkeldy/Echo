@@ -19,6 +19,8 @@ struct UnifiedBottomDock: View {
     var onExport: (() -> Void)?
     var onVideoExport: (() -> Void)?
     var onStudyNotesExport: (() -> Void)?
+    var onOpenBookOrFolder: (() -> Void)? = nil
+    var showsReaderSleepTimer = false
 
     /// Platform-agnostic separator color.
     @MainActor private var separatorColor: Color {
@@ -91,7 +93,9 @@ struct UnifiedBottomDock: View {
                 canCreateReaderCapture: model.readerCaptureAnchorBlockID != nil,
                 isReaderVoiceMemoRecording: model.isReaderVoiceMemoRecording,
                 onAddReaderNote: model.readerAddNoteAction,
-                onToggleReaderMemo: model.readerToggleVoiceMemoAction
+                onToggleReaderMemo: model.readerToggleVoiceMemoAction,
+                onOpenBookOrFolder: onOpenBookOrFolder,
+                showsReaderSleepTimer: showsReaderSleepTimer
             )
             .padding(.horizontal, 16)
         }

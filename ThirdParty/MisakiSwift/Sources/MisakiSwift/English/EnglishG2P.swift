@@ -649,6 +649,78 @@ final public class EnglishG2P {
     token.tag = .noun
   }
 
+  // MARK: - Sentence-initial imperative retagging
+
+  /// Object-like words that can directly follow a sentence-initial verb. A bare
+  /// noun cannot be followed by one of these without a relative clause, so
+  /// `<heteronym> <follower>` at sentence start reads as an imperative (or an
+  /// inverted question). Relative markers (`that`, `which`) and subject
+  /// pronouns are deliberately absent: "Content that is useful…" and
+  /// "Progress we made…" are nouns.
+  private static let imperativeObjectFollowers: Set<String> = [
+    "the", "a", "an", "this", "these", "those",
+    "my", "your", "his", "her", "its", "our", "their",
+    "each", "every", "all", "some", "any", "no", "another", "both", "either", "neither",
+    "me", "it", "us", "them", "him", "one",
+    "myself", "yourself", "yourselves", "himself", "herself", "itself", "ourselves", "themselves",
+    "everything", "something", "anything", "nothing",
+    "everyone", "someone", "anyone", "everybody", "somebody", "anybody", "nobody",
+    "what", "whatever",
+  ]
+
+  private static let sentenceTerminators: Set<Character> = [".", "!", "?", "…"]
+
+  /// Apple's tagger reads a capitalised sentence-initial heteronym as a noun,
+  /// adjective, or adverb even when an object follows — "Permit me…",
+  /// "Close the door.", "Project the image…", "Separate the eggs." — which
+  /// selects the wrong lexicon entry. Measured: the same words tag as verbs as
+  /// soon as anything precedes them ("Please permit me…"), and a preceding
+  /// sentence does not help, so this is a sentence-initial prior, not missing
+  /// context. Retag that shape as a verb before lookup; the lexicon's `VERB`
+  /// entry (or its verb-form `DEFAULT`) then wins. Only the gold lexicon's
+  /// part-of-speech heteronyms are eligible, authored pronunciations are never
+  /// touched, and punctuation or a line break between the word and its
+  /// follower disqualifies the pair.
+  private func applyImperativeVerbTags(to words: [Any]) {
+    let tokens: [MToken] = words.flatMap { item -> [MToken] in
+      if let token = item as? MToken { return [token] }
+      return (item as? [MToken]) ?? []
+    }
+    var atSentenceStart = true
+    for (index, token) in tokens.enumerated() {
+      let text = token.text
+      if text.contains(where: { $0.isLetter || $0.isNumber }) {
+        if atSentenceStart {
+          atSentenceStart = false
+          let follower = index + 1 < tokens.count ? tokens[index + 1] : nil
+          if isSentenceInitialImperative(token, followedBy: follower) {
+            token.tag = .verb
+          }
+        }
+      } else if text.contains(where: { Self.sentenceTerminators.contains($0) }) {
+        atSentenceStart = true
+      }
+      if token.whitespace.contains(where: \.isNewline) {
+        atSentenceStart = true
+      }
+    }
+  }
+
+  private func isSentenceInitialImperative(_ token: MToken, followedBy follower: MToken?) -> Bool {
+    guard token.phonemes == nil, token.`_`.alias == nil, token.tag != .verb else { return false }
+    let text = token.text
+    guard text.count > 1,
+          text.allSatisfy(\.isLetter),
+          text != text.uppercased(),
+          lexicon.hasPartOfSpeechVariants(text.lowercased())
+    else { return false }
+    guard let follower,
+          !token.whitespace.contains(where: \.isNewline),
+          follower.text.allSatisfy(\.isLetter)
+    else { return false }
+    return Self.imperativeObjectFollowers.contains(follower.text.lowercased())
+  }
+
   private func nextWordText(in words: [Any], after index: Int) -> String? {
     guard index + 1 < words.count else { return nil }
 
@@ -721,6 +793,7 @@ final public class EnglishG2P {
     tokens = foldLeft(tokens)
     
     let words = retokenize(tokens)
+    applyImperativeVerbTags(to: words)
     
     var ctx = TokenContext()
     var fallbackHits: [EnglishG2PFallbackHit] = []

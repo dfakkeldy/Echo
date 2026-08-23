@@ -3,6 +3,26 @@ import Foundation
 import Testing
 
 struct StudySessionLaunchSettingsTests {
+    @Test func statsLaunchUsesViewModelAsSheetItem() throws {
+        let source = try Self.source(named: "Stats/StatsView.swift")
+
+        #expect(source.contains(".sheet(item: $studySessionViewModel)"))
+        #expect(!source.contains("@State private var showingStudySession"))
+        #expect(!source.contains(".sheet(isPresented: $showingStudySession)"))
+    }
+
+    /// `.sheet(item:)` compiles against the free `Identifiable` conformance
+    /// `AnyObject` provides, whose `id` is the object address and can be reused
+    /// once a dismissed session deallocates. A stable stored id keeps a new
+    /// session from being mistaken for the one just dismissed.
+    @Test func studySessionViewModelCarriesAStableIdentity() throws {
+        let source = try Self.source(
+            named: "StudySessionViewModel.swift", under: "EchoCore/ViewModels")
+
+        #expect(source.contains("final class StudySessionViewModel: Identifiable"))
+        #expect(source.contains("let id = UUID()"))
+    }
+
     @Test func statsLaunchPassesGlobalNewChapterLimitFromSettings() throws {
         let source = try Self.source(named: "Stats/StatsView.swift")
 
@@ -25,7 +45,9 @@ struct StudySessionLaunchSettingsTests {
         #expect(source.contains("SettingsManager.Defaults.studyNewCardsPerDayLimit"))
     }
 
-    private static func source(named fileName: String) throws -> String {
+    private static func source(
+        named fileName: String, under directoryPath: String = "EchoCore/Views"
+    ) throws -> String {
         var directory = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
 
@@ -33,7 +55,7 @@ struct StudySessionLaunchSettingsTests {
             let candidate =
                 directory
                 .deletingLastPathComponent()
-                .appendingPathComponent("EchoCore/Views")
+                .appendingPathComponent(directoryPath)
                 .appendingPathComponent(fileName)
 
             if FileManager.default.fileExists(atPath: candidate.path) {

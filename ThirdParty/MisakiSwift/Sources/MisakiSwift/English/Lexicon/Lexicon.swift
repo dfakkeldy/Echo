@@ -420,6 +420,17 @@ final class Lexicon {
     return (applied, rating)
   }
   
+  /// Keys that mark a gold entry as a part-of-speech heteronym — a word whose
+  /// pronunciation the tagger decides. Function words whose only alternative is
+  /// the utterance-final strong form (`None`) are not heteronyms.
+  private static let partOfSpeechVariantKeys = ["VERB", "NOUN", "ADJ", "ADV"]
+
+  /// True when the gold lexicon carries part-of-speech variants for `word`.
+  func hasPartOfSpeechVariants(_ word: String) -> Bool {
+    guard let variants = golds[word] as? [String: String?] else { return false }
+    return Lexicon.partOfSpeechVariantKeys.contains { variants[$0] != nil }
+  }
+
   private func getParentTag(_ tag: NLTag?, token: String?) -> String? {
     guard let tag = tag else { return "XX" }
     let pennTag = pennTag(for: tag, token: token)

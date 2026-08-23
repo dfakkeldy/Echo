@@ -79,7 +79,7 @@ private struct MacAppearanceSettingsPane: View {
                 Text("Appearance")
             } footer: {
                 Text(
-                    "Color scheme and font apply across the macOS app window. Theme color tints accents throughout the app. Vivid Cover Accent prefers the cover's most saturated color, even when it covers only a small area."
+                    "Color scheme and font apply across the macOS app window. Theme color tints accents throughout the app; Artwork derives the accent from the current book cover. Vivid Cover Accent prefers the cover's most saturated color — like colored title text — even when it covers only a small area."
                 )
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -348,7 +348,7 @@ private struct MacPlaybackSettingsPane: View {
                 Text("Narration")
             } footer: {
                 Text(
-                    "Echo synthesizes EPUBs that have no audiobook on-device, using the voice above. Queue them with Batch ▸ “Narrate EPUB(s)…” (⌘⌥N); progress appears in the Batch Queue."
+                    "Echo synthesizes EPUB, PDF, and text documents that have no audiobook on-device, using the voice above. Queue them with Batch ▸ “Narrate Documents…” (⌘⌥N); progress appears in the Batch Queue."
                 )
                 .font(.footnote)
                 .foregroundStyle(.secondary)

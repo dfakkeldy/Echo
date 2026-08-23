@@ -12,7 +12,10 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct MacAnkiExportView: View {
-    @Environment(DatabaseService.self) private var dbService
+    /// Injected, not read from `@Environment` — see `MacArticleWorkshopView`:
+    /// sheet content does not see the `.environment(...)` writes applied to the
+    /// window root, so an environment read here trapped on open.
+    let dbService: DatabaseService
 
     @State private var selectedDeckIDs = Set<String>()
     @State private var decks: [Deck] = []

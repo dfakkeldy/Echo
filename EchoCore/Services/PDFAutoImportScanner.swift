@@ -78,13 +78,15 @@ enum PDFAutoImportScanner {
             return false
         }
 
-        guard let pdfURL = CompanionDocumentSelector.select(
-            documents: pdfFiles,
-            for: folderURL,
-            folderIsDirectory: folderIsDirectory,
-            siblingFiles: contents)
+        guard
+            let pdfURL = CompanionDocumentSelector.select(
+                documents: pdfFiles,
+                for: folderURL,
+                folderIsDirectory: folderIsDirectory,
+                siblingFiles: contents)
         else {
-            logger.debug("No unambiguous .pdf companion found for: \(sanitizedPath(folderURL.path))")
+            logger.debug(
+                "No unambiguous .pdf companion found for: \(sanitizedPath(folderURL.path))")
             return false
         }
 
@@ -136,10 +138,14 @@ enum PDFAutoImportScanner {
         // Security-scoped access is managed by SecurityScopeManager in loadFolder.
         // Don't start/stop here — duplicate cycles break file-provider access.
 
-        // Skip import when text is already present.
+        // Skip import when text is already present. `allBlocks`, not
+        // `visibleBlocks`: a re-import now carries `is_hidden` across
+        // (`EPUBImportService.carryUserState`), so a book whose blocks the user
+        // all excluded would look un-imported forever and re-run the destructive
+        // rebuild on every open.
         if !force {
             let alreadyImported =
-                (try? EPubBlockDAO(db: databaseService.writer).visibleBlocks(for: audiobookID)
+                (try? EPubBlockDAO(db: databaseService.writer).allBlocks(for: audiobookID)
                     .isEmpty) == false
             if alreadyImported {
                 logger.debug(

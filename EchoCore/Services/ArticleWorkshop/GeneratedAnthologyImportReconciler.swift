@@ -573,6 +573,29 @@ nonisolated enum GeneratedAnthologyImportReconciler {
         return byID
     }
 
+    /// Drops the timing rows derived from one block's source text.
+    ///
+    /// This IS lossy, deliberately and in one specific way worth naming: the
+    /// `alignment_anchor` delete is unfiltered, so it also removes the
+    /// human-authored anchors (`moveToNow`, `chapterBoundary`) that
+    /// `DocumentImportFinalizer.humanAnchorSources` protects everywhere else.
+    /// The two policies are not in conflict — they answer different questions.
+    /// `replaceMachineAnchors` is machine-replacing-machine, where a human's
+    /// judgement outranks a fresh alignment pass. This function only runs for a
+    /// block whose `blockKind`/`text`/`sourceChapterKey` actually changed, and a
+    /// human anchor says "*this wording* is at 12:34" — once the wording is gone
+    /// the claim is not preserved by keeping it, only falsified.
+    ///
+    /// `EPUBImportService.replaceAllPreservingUserState` deliberately does NOT
+    /// match this for `.replaceAll`: it drops *machine* anchors on a changed
+    /// block but restores hand-placed ones
+    /// (`AlignmentAnchorRecord.humanAnchorSources`). The difference is the input.
+    /// `.replaceAll` re-imports a document the user chose — often a corrected or
+    /// re-issued EPUB of a book they have already aligned by hand — so a
+    /// re-worded paragraph must not cost them work nothing can recompute. This
+    /// path rebuilds Echo's OWN generated anthology from its manifest, where the
+    /// changed block is content Echo just regenerated. If that stops being true,
+    /// adopt the human-anchor allow-list here too.
     private static func deleteDerivedRows(
         audiobookID: String,
         blockID: String,

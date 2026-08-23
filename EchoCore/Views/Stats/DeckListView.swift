@@ -6,7 +6,7 @@ import os.log
 /// Lists all flashcard decks with card counts and due counts.
 struct DeckListView: View {
     @Environment(PlayerModel.self) private var model
-    @State private var decks: [DeckSummary] = []
+    @State private var snapshot = DeckLibrarySnapshot.empty
     @State private var isShowingNewDeckPrompt = false
     @State private var newDeckName = ""
     @State private var deckPendingRename: DeckSummary?
@@ -15,16 +15,9 @@ struct DeckListView: View {
     @State private var creationError: String?
     private let logger = Logger(category: "DeckListView")
 
-    struct DeckSummary: Identifiable {
-        let id: String
-        let name: String
-        let cardCount: Int
-        let dueCount: Int
-    }
-
     var body: some View {
         Group {
-            if decks.isEmpty {
+            if snapshot.isEmpty {
                 ContentUnavailableView(
                     "No Decks",
                     systemImage: "rectangle.stack",
@@ -33,27 +26,43 @@ struct DeckListView: View {
             } else {
                 List {
                     // "All Cards" pseudo-deck
-                    let allDue = decks.reduce(0) { $0 + $1.dueCount }
-                    let allTotal = decks.reduce(0) { $0 + $1.cardCount }
                     NavigationLink {
-                        DeckDetailView(deckID: nil, deckName: "All Cards")
+                        DeckDetailView(scope: .all, deckName: "All Cards")
                     } label: {
                         HStack {
                             Text("All Cards")
                             Spacer()
-                            Text("\(allTotal) cards")
+                            Text("^[\(snapshot.totalCardCount) card](inflect: true)")
                                 .foregroundStyle(.secondary)
-                            if allDue > 0 {
-                                Text("\(allDue) due")
+                            if snapshot.totalDueCount > 0 {
+                                Text("\(snapshot.totalDueCount) due")
                                     .foregroundStyle(.red)
                                     .font(.caption)
                             }
                         }
                     }
 
-                    ForEach(decks) { deck in
+                    if snapshot.unassignedCardCount > 0 {
                         NavigationLink {
-                            DeckDetailView(deckID: deck.id, deckName: deck.name)
+                            DeckDetailView(scope: .unassigned, deckName: "Unassigned")
+                        } label: {
+                            HStack {
+                                Text("Unassigned")
+                                Spacer()
+                                Text("^[\(snapshot.unassignedCardCount) card](inflect: true)")
+                                    .foregroundStyle(.secondary)
+                                if snapshot.unassignedDueCount > 0 {
+                                    Text("\(snapshot.unassignedDueCount) due")
+                                        .foregroundStyle(.red)
+                                        .font(.caption)
+                                }
+                            }
+                        }
+                    }
+
+                    ForEach(snapshot.namedDecks) { deck in
+                        NavigationLink {
+                            DeckDetailView(scope: .deck(id: deck.id), deckName: deck.name)
                         } label: {
                             HStack {
                                 Text(deck.name)
@@ -169,26 +178,8 @@ struct DeckListView: View {
     private func load() async {
         guard let db = model.databaseService else { return }
         do {
-            decks = try await db.writer.read { db in
-                let rows = try Row.fetchCursor(db, sql: """
-                    SELECT d.id, d.name,
-                           COUNT(f.id) as card_count,
-                           SUM(CASE WHEN f.next_review_date <= ? AND f.is_enabled = 1 THEN 1 ELSE 0 END) as due_count
-                    FROM deck d
-                    LEFT JOIN flashcard f ON f.deck_id = d.id
-                    GROUP BY d.id, d.name
-                    ORDER BY d.name
-                    """, arguments: [Date()])
-                var result: [DeckSummary] = []
-                while let row = try rows.next() {
-                    result.append(DeckSummary(
-                        id: row["id"],
-                        name: row["name"],
-                        cardCount: row["card_count"] ?? 0,
-                        dueCount: row["due_count"] ?? 0
-                    ))
-                }
-                return result
+            snapshot = try await db.writer.read { db in
+                try DeckLibrarySnapshot.fetch(in: db)
             }
         } catch {
             logger.error("Failed to load decks: \(error.localizedDescription)")

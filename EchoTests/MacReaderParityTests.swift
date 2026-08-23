@@ -147,7 +147,9 @@ struct MacReaderParityTests {
         let src = try MacSource.read("Services/MacBatchProcessingService.swift")
 
         #expect(src.contains("AnthologyNarrationManifestResolver(db: dbService.writer).resolve("))
-        #expect(src.contains("epubURL: epubURL.standardizedFileURL"))
+        // The argument label stays `epubURL:` (the resolver's own parameter name);
+        // the local is `sourceURL` because the narrate branch now carries PDFs too.
+        #expect(src.contains("epubURL: sourceURL.standardizedFileURL"))
         #expect(src.contains("NarrationChapterRenderPlanner.plan("))
         #expect(src.contains("sourceChapterKey: chapter.sourceChapterKey"))
         #expect(src.contains("voice: chapter.voice"))

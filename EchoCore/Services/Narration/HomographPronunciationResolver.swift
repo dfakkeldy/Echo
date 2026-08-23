@@ -87,8 +87,8 @@ nonisolated enum HomographPronunciationResolver {
         "argument", "asset", "assets", "audience", "broadcast", "broadcasts", "content",
         "coverage", "demo", "demos", "event", "events", "feed", "feeds", "lesson",
         "lessons", "lecture", "lectures", "music", "performance", "performances",
-        "recording", "recordings", "session", "sessions", "show", "shows", "stream",
-        "streams", "update", "updates", "wire", "wires",
+        "recording", "recordings", "session", "sessions", "show", "shows", "stock",
+        "stream", "streams", "update", "updates", "wire", "wires",
     ]
 
     private static let livesNounPreceders: Set<String> = [

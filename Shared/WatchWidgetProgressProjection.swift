@@ -31,17 +31,18 @@ nonisolated struct WatchWidgetProgressProjection: Equatable {
         static let anchorDate = "totalProgressAnchorDate"
     }
 
-    /// Spacing between projected timeline entries. Two minutes moves a
-    /// multi-hour book's bar by well under a percent per entry — smooth at
-    /// widget scale without inflating the timeline.
-    static let entryStride: TimeInterval = 120
+    /// WidgetKit recommends timeline entries at least about five minutes apart.
+    /// Five minutes still moves a multi-hour book's bar by well under a percent
+    /// per entry, while avoiding a cadence watchOS may coalesce or throttle.
+    static let entryStride: TimeInterval = 5 * 60
 
     /// How far past the anchor the projection is trusted before freezing.
     static let projectionHorizon: TimeInterval = 3 * 60 * 60
 
-    /// Upper bound on scheduled entries per timeline (2 hours at
-    /// `entryStride`); the refresh policy re-runs the provider afterwards.
-    static let maxTimelineEntries = 60
+    /// Upper bound on scheduled entries per timeline; the projection horizon
+    /// normally stops generation first, and the refresh policy then re-runs the
+    /// provider.
+    static let maxTimelineEntries = 37
 
     var anchorDate: Date?
     var anchorFraction: Double

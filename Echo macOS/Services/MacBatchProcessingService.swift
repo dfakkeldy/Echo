@@ -26,6 +26,39 @@ import os.log
 @MainActor
 @Observable
 final class MacBatchProcessingService {
+    /// Live detail about the book the runner is working on right now.
+    ///
+    /// Held in memory rather than persisted. `batch_queue` stores a `Double`
+    /// progress and a message, which is everything a relaunch needs to
+    /// reconstruct the queue — but the UI also wants two things that are
+    /// worthless the moment the app quits: whether the current phase has a
+    /// meaningful fraction at all, and when this book started. Adding schema
+    /// columns for a presentation hint would mean a migration (and a forced
+    /// re-import risk) for state with no persistent meaning.
+    struct Activity: Equatable, Sendable {
+        let itemID: Int64?
+        let displayName: String
+        let message: String
+        /// `nil` while the current phase's duration cannot be predicted, so the
+        /// UI can show an indeterminate bar instead of a parked number.
+        let fraction: Double?
+        let startedAt: Date
+
+        /// How long this book has been processing, as `m:ss` under an hour and
+        /// `h:mm:ss` above it. Pure, so the formatting is testable without a
+        /// running queue.
+        func elapsedLabel(at now: Date) -> String {
+            let seconds = max(0, Int(now.timeIntervalSince(startedAt)))
+            let (hours, minutes, secs) = (seconds / 3600, (seconds % 3600) / 60, seconds % 60)
+            return hours > 0
+                ? String(format: "%d:%02d:%02d", hours, minutes, secs)
+                : String(format: "%d:%02d", minutes, secs)
+        }
+    }
+
+    /// The in-flight book's live phase, or `nil` when nothing is processing.
+    private(set) var activity: Activity?
+
     private let dbService: DatabaseService
     private let settings: SettingsManager
     private let dao: BatchQueueDAO
@@ -35,6 +68,11 @@ final class MacBatchProcessingService {
     private(set) var items: [BatchQueueRecord] = []
     private(set) var isProcessing = false
     private var runner: BatchQueueRunner?
+    /// The live drain, retained so `remove` can cancel a book mid-render.
+    private var drainTask: Task<Void, Never>?
+    /// Row id the runner is currently working, set at the top of the stage closure.
+    /// Only this id needs the drain cancelled when it is removed.
+    private var processingItemID: Int64?
 
     init(dbService: DatabaseService, settings: SettingsManager) {
         self.dbService = dbService
@@ -116,29 +154,30 @@ final class MacBatchProcessingService {
         start()
     }
 
-    /// Adds a standalone EPUB to the persistent queue as a **text-only narration**
-    /// item (`kind: .narrate`) and (re)starts processing.
+    /// Adds a standalone document — EPUB, PDF, or a Markdown/plain-text file — to
+    /// the persistent queue as a **text-only narration** item (`kind: .narrate`)
+    /// and (re)starts processing.
     ///
-    /// Unlike `enqueue(fileURL:companionEPUB:)`, the EPUB itself is the bookmarked
-    /// primary source — there is no companion audio. `audiobookID` derives from
-    /// the EPUB's parent directory `absoluteString`, matching the importer's
+    /// Unlike `enqueue(fileURL:companionEPUB:)`, the document itself is the
+    /// bookmarked primary source — there is no companion audio. `audiobookID` is
+    /// the document's own `absoluteString`, matching the importer's
     /// `folderURL.absoluteString` scheme so synthesized tracks, EPUB blocks, and
     /// `.synthesized` anchors all key off the same identifier. (Device-local id
     /// portability is tracked separately, consistent with the align path.)
-    func enqueueNarration(epubURL: URL) throws {
-        let bookmark = try epubURL.bookmarkData(
+    func enqueueNarration(documentURL: URL) throws {
+        let bookmark = try documentURL.bookmarkData(
             options: .withSecurityScope,
             includingResourceValuesForKeys: nil,
             relativeTo: nil)
-        // One EPUB = one book, so key off the EPUB's own URL (not its parent
-        // directory): multiple EPUBs in a single folder must not share an id.
-        let audiobookID = epubURL.absoluteString
+        // One document = one book, so key off the document's own URL (not its
+        // parent directory): several books in one folder must not share an id.
+        let audiobookID = documentURL.absoluteString
         _ = try dao.enqueue(
             BatchQueueRecord(
                 audiobookID: audiobookID,
                 sourceBookmark: bookmark,
                 companionBookmark: nil,
-                displayName: epubURL.deletingPathExtension().lastPathComponent,
+                displayName: documentURL.deletingPathExtension().lastPathComponent,
                 queuePosition: 0,
                 status: .queued,
                 progress: 0,
@@ -160,13 +199,20 @@ final class MacBatchProcessingService {
         guard runner == nil else { return }
         let runner = BatchQueueRunner(dao: dao, stages: makeStages())
         self.runner = runner
-        Task(priority: .utility) { [weak self] in
+        // An unstructured `Task` does NOT inherit cancellation from the task that
+        // creates it, so the restart below still gives a live drain even when it
+        // runs inside the continuation of a task `remove` just cancelled.
+        drainTask = Task(priority: .utility) { [weak self] in
             guard let self else { return }
             self.isProcessing = true
             await runner.drain()
             self.runner = nil
+            self.drainTask = nil
+            self.processingItemID = nil
+            self.activity = nil
             self.refresh()
-            // Re-check for work enqueued during the drain→clear gap.
+            // Re-check for work enqueued during the drain→clear gap, and pick up
+            // whatever a cancelled drain left behind.
             if (try? self.dao.nextQueued()) != nil {
                 self.start()
             } else {
@@ -176,17 +222,34 @@ final class MacBatchProcessingService {
     }
 
     func refresh() { items = (try? dao.allItems()) ?? [] }
-    func clearCompleted() {
-        try? dao.deleteCompleted()
+
+    /// Clears every terminal row — completed *and* failed.
+    func clearFinished() {
+        try? dao.deleteFinished()
         refresh()
     }
 
-    /// Removes a still-queued item from the queue (no-op if the runner has already
-    /// started it). Only the queue row is deleted — any rendered chapters for the
-    /// book stay in the library. Mirrors `clearCompleted()`: DAO write then refresh.
-    func removeQueued(_ item: BatchQueueRecord) {
+    /// Removes any item from the queue, whatever its status.
+    ///
+    /// Deleting the row is not enough for an item the runner is mid-way through:
+    /// the render would keep burning the engine for a book that is no longer
+    /// queued, and the next status write would silently no-op. So when the removed
+    /// row is the live one, cancel the drain too. `start()`'s completion path then
+    /// spins up a fresh drain for whatever is still queued.
+    ///
+    /// Only the queue row is deleted — any chapters already rendered for the book
+    /// stay in the library.
+    func remove(_ item: BatchQueueRecord) {
         guard let id = item.id else { return }
-        try? dao.deleteQueued(id: id)
+        try? dao.delete(id: id)
+        if processingItemID == id {
+            drainTask?.cancel()
+            processingItemID = nil
+            // Drop the live phase with the row it described, so the activity
+            // strip doesn't keep reporting a book that is no longer queued
+            // during the window before the drain actually unwinds.
+            activity = nil
+        }
         refresh()
     }
 
@@ -205,6 +268,19 @@ final class MacBatchProcessingService {
         let alignmentService = self.alignmentService
         let logger = self.logger
         return .init(run: { [weak self] record, rawProgress in
+            // Record which row is live so `remove` knows whether deleting it also
+            // has to cancel the drain. Cleared by `start()`'s completion path.
+            self?.processingItemID = record.id
+
+            let itemStartedAt = Date()
+            // Transcription reports once per 30-second chunk — hundreds of
+            // times for a full-length book. Persisting every one of them would
+            // rewrite the queue row and re-read the whole table for movement
+            // finer than a pixel, so the DB write is gated on the rounded
+            // percentage or the message actually changing. `activity` is
+            // updated unconditionally: it is in-memory and drives the live UI.
+            var lastPersisted: (percent: Int, message: String?) = (-1, nil)
+
             // Wrap the runner's DAO-writing progress callback so each stage
             // transition ALSO refreshes the in-memory `items` snapshot. Without
             // this, the runner persists importing→transcribing→aligning to the
@@ -213,20 +289,36 @@ final class MacBatchProcessingService {
             // A nested func (vs a closure-typed `let`) stays non-escaping so it
             // can legally call the non-escaping `rawProgress` parameter.
             @MainActor func progress(
-                _ status: BatchItemStatus, _ value: Double, _ message: String?
+                _ status: BatchItemStatus,
+                _ value: Double,
+                _ message: String?,
+                indeterminate: Bool = false
             ) {
+                self?.activity = Activity(
+                    itemID: record.id,
+                    displayName: record.displayName,
+                    message: message ?? self?.activity?.message ?? "",
+                    fraction: indeterminate ? nil : value,
+                    startedAt: itemStartedAt)
+
+                let percent = Int((value * 100).rounded())
+                guard percent != lastPersisted.percent || message != lastPersisted.message
+                else { return }
+                lastPersisted = (percent, message)
                 rawProgress(status, value, message)
                 self?.refresh()
             }
 
-            // Text-only EPUB narration: synthesize on-device audio for an EPUB
-            // with no companion audiobook, instead of the align pipeline. The
-            // EPUB itself is the bookmarked source, so this branch resolves its
-            // own bookmark and returns early, leaving the audio-oriented align
-            // body below untouched.
+            // Text-only narration: synthesize on-device audio for a document
+            // (EPUB, PDF, or Markdown/plain text) with no companion audiobook,
+            // instead of the align pipeline. The document itself is the bookmarked
+            // source, so this branch resolves its own bookmark and returns early,
+            // leaving the audio-oriented align body below untouched. Everything
+            // downstream of the import is extension-agnostic — it reads
+            // `epub_block` rows, not the source file.
             if record.kind == .narrate {
                 var narrateStale = false
-                let epubURL = try URL(
+                let sourceURL = try URL(
                     resolvingBookmarkData: record.sourceBookmark,
                     options: .withSecurityScope,
                     relativeTo: nil,
@@ -236,26 +328,26 @@ final class MacBatchProcessingService {
                         "Bookmark stale for \(record.displayName, privacy: .public); continuing this run"
                     )
                 }
-                guard epubURL.startAccessingSecurityScopedResource() else {
-                    throw BatchProcessingError.cannotAccessFile(epubURL.lastPathComponent)
+                guard sourceURL.startAccessingSecurityScopedResource() else {
+                    throw BatchProcessingError.cannotAccessFile(sourceURL.lastPathComponent)
                 }
-                defer { epubURL.stopAccessingSecurityScopedResource() }
+                defer { sourceURL.stopAccessingSecurityScopedResource() }
 
-                // Per-EPUB id (matches enqueueNarration) — see importEPUBOnly.
-                let audiobookID = epubURL.absoluteString
+                // Per-document id (matches enqueueNarration) — see importDocumentOnly.
+                let audiobookID = sourceURL.absoluteString
 
-                // 1) Import the EPUB's blocks (no audio). `chapterIndex` comes from
-                //    the EPUB's own structure, so empty audio `chapters` is fine —
-                //    the same path the iOS study-book reader uses.
-                progress(.importing, 0.05, "Importing EPUB…")
-                try await self?.importEPUBOnly(
-                    epubURL: epubURL, audiobookID: audiobookID, dbService: dbService)
+                // 1) Import the document's blocks (no audio). `chapterIndex` comes
+                //    from the document's own structure, so empty audio `chapters`
+                //    is fine — the same path the iOS study-book reader uses.
+                progress(.importing, 0.05, "Importing document…")
+                try await self?.importDocumentOnly(
+                    documentURL: sourceURL, audiobookID: audiobookID, dbService: dbService)
 
                 let blocks =
                     (try? EPubBlockDAO(db: dbService.writer).blocks(for: audiobookID)) ?? []
                 let plannedChapters = NarrationChapterPlanner.plan(from: blocks)
                 guard !plannedChapters.isEmpty else {
-                    throw BatchProcessingError.emptyImport(epubURL.lastPathComponent)
+                    throw BatchProcessingError.emptyImport(sourceURL.lastPathComponent)
                 }
 
                 // 2) Synthesize each chapter on-device into the shared narration
@@ -271,7 +363,7 @@ final class MacBatchProcessingService {
                     ?? VoiceCatalog.default.id
                 let manifest = try AnthologyNarrationManifestResolver(db: dbService.writer).resolve(
                     audiobookID: audiobookID,
-                    epubURL: epubURL.standardizedFileURL)
+                    epubURL: sourceURL.standardizedFileURL)
                 let chapters = try NarrationChapterRenderPlanner.plan(
                     chapters: plannedChapters,
                     preferredVoice: voice,
@@ -448,7 +540,8 @@ final class MacBatchProcessingService {
                             chapterIndex: chapter.chapterIndex,
                             sourceChapterKey: chapter.sourceChapterKey,
                             blocks: chapter.blocks,
-                            voice: chapter.voice).path
+                            voice: chapter.voice
+                        ).path
                     }
                     guard
                         let offset = NarrationPlanTrackOffsets.chapterOffsets(
@@ -475,7 +568,7 @@ final class MacBatchProcessingService {
                             )
                         }
                     if !sidecar.isEmpty {
-                        let scURL = AlignmentSidecar.url(forEPUB: epubURL)
+                        let scURL = AlignmentSidecar.url(forEPUB: sourceURL)
                         let enc = JSONEncoder()
                         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
                         try enc.encode(sidecar).write(to: scURL, options: .atomic)
@@ -574,17 +667,61 @@ final class MacBatchProcessingService {
             // 2) Transcribe + 3) Align + 4) word timings. `MacAlignmentService`
             //    transcribes with WhisperKit, runs TokenDTW, writes anchors, then
             //    calls `recalculateTimeline` — which materializes `word_timing`
-            //    rows (Phase A). The two progress steps front the single call so
-            //    the UI reflects the long-running transcription phase.
-            progress(.transcribing, 0.33, "Transcribing…")
-            progress(.aligning, 0.66, "Aligning…")
+            //    rows (Phase A).
+            //
+            //    This used to be two bare `progress` calls (0.33, then 0.66)
+            //    fired back-to-back *before* the single `align` await. The bar
+            //    therefore jumped to 66% in a millisecond and then sat there for
+            //    the entire run — hours, for a full-length audiobook — with no
+            //    way to tell work from a hang. `align` reports its own phases
+            //    now, including genuine per-chunk transcription progress, and
+            //    they are mapped into this item's remaining budget below.
+            progress(.transcribing, Self.alignBandStart, "Starting alignment…")
+            // An indeterminate phase carries no fraction of its own, so it
+            // holds the last known one. Recomputing from zero would drag the
+            // bar backwards to 10% every time alignment entered the DTW match
+            // or the timeline rebuild.
+            var lastAlignFraction = 0.0
             try await alignmentService.align(
                 audiobookID: audiobookID,
                 audioURL: url,
                 epubURL: epubURL,
-                dbService: dbService)
+                dbService: dbService,
+                onProgress: { report in
+                    if let fraction = report.fraction { lastAlignFraction = fraction }
+                    progress(
+                        Self.queueStatus(forAlignmentFraction: lastAlignFraction),
+                        Self.queueProgress(forAlignmentFraction: lastAlignFraction),
+                        report.message,
+                        indeterminate: report.fraction == nil)
+                })
             self?.refresh()
         })
+    }
+
+    // MARK: - Alignment Progress Mapping
+
+    /// Where the align pipeline picks up in a queue item's 0…1 budget. Import
+    /// owns everything below it.
+    static let alignBandStart = 0.10
+
+    /// The queue item's overall progress for a given alignment fraction.
+    ///
+    /// Alignment owns the whole band above ``alignBandStart``, so a book that
+    /// is halfway through transcription reads as roughly halfway through the
+    /// queue item too, rather than pinned to whichever constant the stage
+    /// happened to be labelled with.
+    static func queueProgress(forAlignmentFraction fraction: Double) -> Double {
+        let clamped = min(1.0, max(0.0, fraction))
+        return alignBandStart + (1.0 - alignBandStart) * clamped
+    }
+
+    /// The queue status — and therefore the row's icon — for a given alignment
+    /// fraction. Crossing from transcription into matching flips the icon from
+    /// a waveform to text, which is a second, glanceable signal that the run is
+    /// moving even when the reader isn't watching the percentage.
+    static func queueStatus(forAlignmentFraction fraction: Double) -> BatchItemStatus {
+        fraction < MacAlignmentService.transcribeEnd ? .transcribing : .aligning
     }
 
     // MARK: - Adapters
@@ -620,14 +757,14 @@ final class MacBatchProcessingService {
         }
     }
 
-    /// Imports a standalone EPUB's blocks (no audio) under `audiobookID`, reusing
-    /// the same `EPUBImportCoordinator.importEPUB` path as the align flow but with
-    /// no audio chapters/duration. The EPUB is imported in place (source == dest),
-    /// so the same-folder copy is skipped. Throws on import failure or if zero
-    /// blocks were persisted, so the runner marks the item `.failed` rather than
+    /// Imports a standalone document's blocks (no audio) under `audiobookID`,
+    /// reusing the same import paths as the align flow but with no audio
+    /// chapters/duration. An EPUB is imported in place (source == dest), so the
+    /// same-folder copy is skipped. Throws on import failure or if zero blocks
+    /// were persisted, so the runner marks the item `.failed` rather than
     /// completing an empty book.
-    private func importEPUBOnly(
-        epubURL: URL, audiobookID: String, dbService: DatabaseService
+    private func importDocumentOnly(
+        documentURL: URL, audiobookID: String, dbService: DatabaseService
     ) async throws {
         // Create the parent `audiobook` row FIRST. `epub_block` has a NOT-NULL
         // FK to `audiobook` (ON DELETE CASCADE, Schema V5), and — unlike the
@@ -638,32 +775,47 @@ final class MacBatchProcessingService {
         try AudiobookDAO(db: dbService.writer).save(
             AudiobookRecord(
                 id: audiobookID,
-                title: epubURL.deletingPathExtension().lastPathComponent,
+                title: documentURL.deletingPathExtension().lastPathComponent,
                 author: nil,
                 duration: 0,
                 fileCount: 0,
                 addedAt: Date().ISO8601Format()))
 
         // Import in place under the per-file `audiobookID`. Text files
-        // (.md/.markdown/.txt/.text) are handled by `TextAutoImportScanner`;
-        // EPUBs are handled by `EPUBImportCoordinator` (same-file copy skipped).
-        // Both paths key blocks off the file's own URL so multiple files in one
-        // folder don't collide on a shared parent-dir id.
-        let ext = epubURL.pathExtension.lowercased()
+        // (.md/.markdown/.txt/.text) are handled by `TextAutoImportScanner`,
+        // PDFs by `PDFAutoImportScanner`, and EPUBs by `EPUBImportCoordinator`
+        // (same-file copy skipped). All three key blocks off the file's own URL
+        // so multiple files in one folder don't collide on a shared parent-dir id.
+        let ext = documentURL.pathExtension.lowercased()
         if ["md", "markdown", "txt", "text"].contains(ext) {
             _ = await TextAutoImportScanner.importTextFile(
-                textURL: epubURL, audiobookID: audiobookID, databaseService: dbService, force: true)
+                textURL: documentURL, audiobookID: audiobookID, databaseService: dbService,
+                force: true)
+        } else if ext == "pdf" {
+            // `force: true` matches the headless runner: a queued narrate item is
+            // an explicit request, so re-running it must re-extract rather than
+            // silently skip on the "blocks already exist" fast path.
+            let imported = await PDFAutoImportScanner.importPDFFile(
+                pdfURL: documentURL,
+                audiobookID: audiobookID,
+                databaseService: dbService,
+                chapters: [],
+                duration: nil,
+                force: true)
+            guard imported else {
+                throw BatchProcessingError.emptyImport(documentURL.lastPathComponent)
+            }
         } else {
             _ = try await EPUBImportCoordinator.importEPUB(
-                from: epubURL,
-                to: epubURL,
+                from: documentURL,
+                to: documentURL,
                 databaseService: dbService,
                 chapters: [],
                 duration: nil)
         }
         let blockCount = (try? EPubBlockDAO(db: dbService.writer).count(for: audiobookID)) ?? 0
         guard blockCount > 0 else {
-            throw BatchProcessingError.emptyImport(epubURL.lastPathComponent)
+            throw BatchProcessingError.emptyImport(documentURL.lastPathComponent)
         }
     }
 

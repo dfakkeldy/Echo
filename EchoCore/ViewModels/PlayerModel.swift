@@ -96,6 +96,12 @@ final class PlayerModel {
     /// NavigationStack path, then clears it.
     var pendingNavigationDestination: NavigationDestination?
 
+    /// Bumped when an explicit Library selection must reveal the root Listen
+    /// screen. RootTabView owns the Now Playing `NavigationPath`, so it watches
+    /// this one-shot and pops back to the root; a new value every time keeps
+    /// two opens of the same book from collapsing into one no-op change.
+    var nowPlayingRootRequestID = UUID()
+
     /// Presentation state of the Help/Focus guide sheet.
     var showingHelp: Bool = false
 
@@ -1506,6 +1512,7 @@ final class PlayerModel {
         let openingURL =
             BookPreferencesService.reopenDocumentURL(for: target.url) ?? target.url
         loadFolder(openingURL, autoplay: false, persistBookmark: false)
+        nowPlayingRootRequestID = UUID()
         selectedTab = .nowPlaying
     }
 
@@ -2032,6 +2039,18 @@ final class PlayerModel {
     func stopVoiceMemo() {
         bookmarkStore.stopVoiceMemo()
         resumeAudioForMainPlayer()
+        // Resume only if the book was playing when the memo took over.
+        // `prepareAudioForVoiceMemo()` pauses the engine without touching
+        // `state.isPlaying`, so that flag still carries the pre-memo truth.
+        // Resuming unconditionally restarted a paused book the listener never
+        // asked to resume, and published rate = speed over it — leaving the
+        // system Now Playing card showing a pause button while Echo's own UI
+        // (which reads `isPlaying`) still showed play. Mirrors the guards in
+        // `bookmarkStore.onSwitchToMainPlayer` and `snippetPlayer.onPlaybackDidEnd`.
+        guard isPlaying else {
+            updateNowPlayingInfo(isPaused: true)
+            return
+        }
         audioEngine.playImmediately(atRate: speed)
         playbackController.applySpeedToCurrentItem()
         updateNowPlayingInfo(isPaused: false)

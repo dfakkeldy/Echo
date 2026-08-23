@@ -92,16 +92,6 @@ import ZIPFoundation
         return try JSONDecoder().decode(ABSLibraryItem.self, from: Data(json.utf8))
     }
 
-    private func makeService(serverID: String = "imp-\(UUID().uuidString)") -> AudiobookshelfService
-    {
-        URLProtocolStub.reset()
-        let tokens = ABSTokenStore(serverID: serverID)
-        tokens.accessToken = "acc"
-        return AudiobookshelfService(
-            baseURL: URL(string: "http://h:13378")!, tokens: tokens,
-            session: URLProtocolStub.makeSession())
-    }
-
     private func itemSpecificImportResidues(remoteItemID: String) -> [URL] {
         let finalFolder = FileLocations.absLibraryDirectory(remoteItemID: remoteItemID)
         let parent = finalFolder.deletingLastPathComponent()
@@ -171,14 +161,15 @@ import ZIPFoundation
 
     @Test func prepareLocalFolderDownloadsUnzipsAndStamps() async throws {
         let dbService = try DatabaseService(inMemory: ())
-        let svc = makeService()
+        let fixture = ABSImportServiceFixture()
         let zipBytes = try makeZip(entry: "book.m4b", contents: "fake-audio-bytes")
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/download", status: 200, data: zipBytes,
             headers: ["Content-Type": "application/zip"])
 
         let item = try makeItem(id: "item-\(UUID().uuidString)")
-        let importer = ABSImportService(service: svc, db: dbService, serverID: "srvX")
+        let importer = ABSImportService(service: fixture.service, db: dbService, serverID: "srvX")
         let folder = try await importer.prepareLocalFolder(for: item) { _ in }.folderURL
         defer { try? FileManager.default.removeItem(at: folder) }
 
@@ -201,8 +192,8 @@ import ZIPFoundation
 
     @Test func failedReimportPreservesExistingCompletedFolder() async throws {
         let dbService = try DatabaseService(inMemory: ())
-        let svc = makeService()
-        URLProtocolStub.stub(pathSuffix: "/download", status: 500, json: "{}")
+        let fixture = ABSImportServiceFixture()
+        URLProtocolStub.stub(scope: fixture.scope, pathSuffix: "/download", status: 500, json: "{}")
 
         let item = try makeItem(id: "item-\(UUID().uuidString)")
         let folder = FileLocations.absLibraryDirectory(remoteItemID: item.id)
@@ -213,7 +204,7 @@ import ZIPFoundation
         try existingData.write(to: existingFile)
         defer { try? FileManager.default.removeItem(at: folder) }
 
-        let importer = ABSImportService(service: svc, db: dbService, serverID: "srvX")
+        let importer = ABSImportService(service: fixture.service, db: dbService, serverID: "srvX")
         await #expect {
             try await importer.prepareLocalFolder(for: item) { _ in }
         } throws: { error in
@@ -226,9 +217,10 @@ import ZIPFoundation
 
     @Test func successfulReimportAtomicallyReplacesExistingFolderWithoutResidue() async throws {
         let dbService = try DatabaseService(inMemory: ())
-        let svc = makeService()
+        let fixture = ABSImportServiceFixture()
         let zipBytes = try makeZip(entry: "new.m4b", contents: "new-import")
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/download", status: 200, data: zipBytes,
             headers: ["Content-Type": "application/zip"])
 
@@ -240,7 +232,7 @@ import ZIPFoundation
         try Data("old-import".utf8).write(to: existingFile)
         defer { try? FileManager.default.removeItem(at: folder) }
 
-        let importer = ABSImportService(service: svc, db: dbService, serverID: "srvX")
+        let importer = ABSImportService(service: fixture.service, db: dbService, serverID: "srvX")
         let importedFolder = try await importer.prepareLocalFolder(for: item) { _ in }.folderURL
 
         #expect(importedFolder.standardizedFileURL == folder.standardizedFileURL)
@@ -255,9 +247,10 @@ import ZIPFoundation
     {
         let dbService = try DatabaseService(inMemory: ())
         try dbService.write { db in try db.execute(sql: "DROP TABLE audiobook") }
-        let svc = makeService()
+        let fixture = ABSImportServiceFixture()
         let zipBytes = try makeZip(entry: "new.m4b", contents: "new-import")
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/download", status: 200, data: zipBytes,
             headers: ["Content-Type": "application/zip"])
 
@@ -270,7 +263,7 @@ import ZIPFoundation
         try existingData.write(to: existingFile)
         defer { try? FileManager.default.removeItem(at: folder) }
 
-        let importer = ABSImportService(service: svc, db: dbService, serverID: "srvX")
+        let importer = ABSImportService(service: fixture.service, db: dbService, serverID: "srvX")
         await #expect {
             try await importer.prepareLocalFolder(for: item) { _ in }
         } throws: { _ in
@@ -287,9 +280,10 @@ import ZIPFoundation
     {
         let dbService = try DatabaseService(inMemory: ())
         try dbService.write { db in try db.execute(sql: "DROP TABLE audiobook") }
-        let svc = makeService()
+        let fixture = ABSImportServiceFixture()
         let zipBytes = try makeZip(entry: "book.m4b", contents: "fake-audio-bytes")
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/download", status: 200, data: zipBytes,
             headers: ["Content-Type": "application/zip"])
 
@@ -298,7 +292,7 @@ import ZIPFoundation
         try? FileManager.default.removeItem(at: folder)
         defer { try? FileManager.default.removeItem(at: folder) }
 
-        let importer = ABSImportService(service: svc, db: dbService, serverID: "srvX")
+        let importer = ABSImportService(service: fixture.service, db: dbService, serverID: "srvX")
         await #expect {
             try await importer.prepareLocalFolder(for: item) { _ in }
         } throws: { _ in
@@ -311,12 +305,13 @@ import ZIPFoundation
 
     @Test func prepareLocalFolderRejectsWholeItemZipThatExceedsAudiobookBudget() async throws {
         let dbService = try DatabaseService(inMemory: ())
-        let svc = makeService()
+        let fixture = ABSImportServiceFixture()
         let oversizedEntrySize = UInt32(
             ArchiveExtractionLimits.Budget.absWholeAudiobook.maxEntryBytes + 1)
         let zipBytes = makeZipWithDeclaredUncompressedSize(
             entry: "giant.m4b", size: oversizedEntrySize)
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/download", status: 200, data: zipBytes,
             headers: ["Content-Type": "application/zip"])
 
@@ -324,7 +319,7 @@ import ZIPFoundation
         let folder = FileLocations.absLibraryDirectory(remoteItemID: item.id)
         defer { try? FileManager.default.removeItem(at: folder) }
 
-        let importer = ABSImportService(service: svc, db: dbService, serverID: "srvX")
+        let importer = ABSImportService(service: fixture.service, db: dbService, serverID: "srvX")
         await #expect {
             try await importer.prepareLocalFolder(for: item) { _ in }
         } throws: { error in
@@ -334,19 +329,21 @@ import ZIPFoundation
 
     @Test func prepareLocalFolderDownloadsServerCoverIntoManagedFolder() async throws {
         let dbService = try DatabaseService(inMemory: ())
-        let svc = makeService()
+        let fixture = ABSImportServiceFixture()
         let zipBytes = try makeZip(entry: "book.m4b", contents: "fake-audio-bytes")
         let coverBytes = Data([0xFF, 0xD8, 0xFF, 0xD9])
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/download", status: 200, data: zipBytes,
             headers: ["Content-Type": "application/zip"])
         URLProtocolStub.stub(
+            scope: fixture.scope,
             pathSuffix: "/cover", status: 200, data: coverBytes,
             headers: ["Content-Type": "image/jpeg"])
 
         let item = try makeItem(
             id: "item-\(UUID().uuidString)", coverPath: "/metadata/items/cover.jpg")
-        let importer = ABSImportService(service: svc, db: dbService, serverID: "srvX")
+        let importer = ABSImportService(service: fixture.service, db: dbService, serverID: "srvX")
         let folder = try await importer.prepareLocalFolder(for: item) { _ in }.folderURL
         defer { try? FileManager.default.removeItem(at: folder) }
 
@@ -365,5 +362,29 @@ import ZIPFoundation
         #expect(src.contains("@concurrent"))
         #expect(src.contains("extractWholeAudiobookArchive"))
         #expect(!src.contains("FileManager.default.unzipItem(at: zipURL, to: folder)"))
+    }
+}
+
+/// Per-test stub isolation. This suite never reads the recorded requests, but it
+/// does stub and reset, so a shared scope let it erase the stubs and request logs
+/// of the ABS service suites running alongside it.
+@MainActor
+private final class ABSImportServiceFixture {
+    let scope: String
+    let service: AudiobookshelfService
+    private let tokenStore: ABSTokenStore
+
+    init(serverID: String = "imp-\(UUID().uuidString)") {
+        scope = "abs-import-service-\(UUID().uuidString)"
+        URLProtocolStub.reset(scope: scope)
+        tokenStore = ABSTokenStore(serverID: serverID)
+        tokenStore.accessToken = "acc"
+        service = AudiobookshelfService(
+            baseURL: URL(string: "http://h:13378")!, tokens: tokenStore,
+            session: URLProtocolStub.makeSession(scope: scope))
+    }
+
+    isolated deinit {
+        URLProtocolStub.finish(scope: scope)
     }
 }
