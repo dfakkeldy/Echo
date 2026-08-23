@@ -24,6 +24,9 @@ struct MacReaderFeedView: View {
     @Environment(MacPlayerModel.self) private var player
     @Environment(DatabaseService.self) private var dbService
     @Environment(SettingsManager.self) private var settings
+    /// Watched only to know when the batch queue goes idle, which is when a
+    /// just-finished alignment makes the header badge stale.
+    @Environment(MacBatchProcessingService.self) private var batchService
     @State private var blocks: [EPubBlockRecord] = []
     @State private var currentBlockID: String?
     @State private var isLoading = true
@@ -31,6 +34,10 @@ struct MacReaderFeedView: View {
     @State private var openChapterKey: Int?
     /// Chapter indices that actually have audio (honest has-audio styling).
     @State private var chaptersWithAudio: Set<Int> = []
+    /// Display title per chapter, from the publisher TOC then audio metadata
+    /// (`ChapterTitleResolver`, shared with the iOS reader). Absent keys fall
+    /// back to the chapter's own first heading below.
+    @State private var chapterTitles: [Int: String] = [:]
     /// Tracks the previously-playing chapter so auto-expand only fires on change.
     @State private var lastPlayingChapterKey: Int?
     /// Timeline rows (audio range → block, with chapter index) for the loaded
@@ -54,6 +61,11 @@ struct MacReaderFeedView: View {
     /// True shows the page-faithful `MacPDFReaderView` instead of the reflowed
     /// block feed below.
     @State private var showingPageView = false
+    /// Whether this book's text is genuinely aligned to its audio, surfaced in
+    /// the header. Recomputed on load and whenever the batch queue finishes a
+    /// book, since a completed alignment changes the answer without touching
+    /// any of the reader's other reload triggers.
+    @State private var alignmentSummary: BookAlignmentSummary = .empty
 
     /// Blocks grouped into one entry per chapter, in reading order.
     /// Uses `$0.chapterIndex ?? -1` because `EPubBlockRecord.chapterIndex` is `Int?`;
@@ -64,11 +76,15 @@ struct MacReaderFeedView: View {
         let grouped = Dictionary(grouping: blocks, by: { $0.chapterIndex ?? -1 })
         return grouped.keys.sorted().map { key in
             let chapterBlocks = grouped[key] ?? []
-            // Use the first heading block's text as the chapter title; fall back to
-            // first block text, then a generic label.
+            // Prefer what the publisher declared. Falling straight to "the first
+            // heading" names a Calibre-converted chapter after its number alone
+            // (`<h1>2</h1>` precedes `<h1>COURTROOM 3: …</h1>`) and names any
+            // chapter opening on a recurring sidebar after the sidebar.
             let title =
-                chapterBlocks.first(where: { $0.blockKind == EPubBlockRecord.Kind.heading.rawValue }
-                )?.text
+                chapterTitles[key]
+                ?? chapterBlocks.first(where: {
+                    $0.blockKind == EPubBlockRecord.Kind.heading.rawValue
+                })?.text
                 ?? chapterBlocks.first?.text
                 ?? "Chapter \(key + 1)"
             return (
@@ -96,13 +112,13 @@ struct MacReaderFeedView: View {
                 if player.audiobookID == nil {
                     // Idle (no book open): nudge toward on-device narration —
                     // the primary way the Mac gets spoken audio for a text-only
-                    // EPUB. The button routes to the same "Narrate EPUB(s)…"
+                    // book. The button routes to the same "Narrate Documents…"
                     // picker as the Batch menu (handled in Echo_macOSApp).
                     NarrationNudgeView(
-                        title: "Narrate an EPUB",
+                        title: "Narrate a Document",
                         message:
-                            "Got a book with no audiobook? Echo can speak it on-device so you can study hands-free.",
-                        buttonTitle: "Choose EPUB to Narrate\u{2026}",
+                            "Got an EPUB, PDF, or text file with no audiobook? Echo can speak it on-device so you can study hands-free.",
+                        buttonTitle: "Choose Document to Narrate\u{2026}",
                         onListen: {
                             NotificationCenter.default.post(
                                 name: .requestNarrateEPUBs, object: nil)
@@ -196,6 +212,21 @@ struct MacReaderFeedView: View {
             // book without changing currentURL; reload so read-along appears.
             Task { await loadBlocks() }
         }
+        // A batch alignment writes anchors and rebuilds the timeline for a book
+        // that may already be open, without touching currentURL or the
+        // ingestion trigger. Re-read the verdict when the queue falls idle so
+        // the badge doesn't keep claiming "Estimated only" after the run that
+        // fixed it. Cheap enough to do unconditionally: three indexed COUNTs.
+        .onChange(of: batchService.activity == nil) { _, isIdle in
+            guard isIdle, let audiobookID = player.audiobookID else { return }
+            Task { await refreshAlignmentSummary(audiobookID: audiobookID) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .timelineItemsIngested)) { note in
+            guard let ingestedID = note.userInfo?["audiobookID"] as? String,
+                ingestedID == player.audiobookID
+            else { return }
+            Task { await refreshAlignmentSummary(audiobookID: ingestedID) }
+        }
     }
 
     // MARK: - Header
@@ -204,6 +235,9 @@ struct MacReaderFeedView: View {
         HStack {
             Text("Reader")
                 .customFont(.headline, appFont: settings.appFont)
+
+            MacAlignmentBadge(summary: alignmentSummary)
+
             Spacer()
             if hasPDFPages {
                 Picker("View", selection: $showingPageView) {
@@ -234,11 +268,13 @@ struct MacReaderFeedView: View {
 
         guard let audiobookID = player.audiobookID else {
             blocks = []
+            chapterTitles = [:]
             timelineCache = []
             wordCache = []
             wordIndex = ReaderActiveBlockResolver.WordIndex(rows: [])
             hasPDFPages = false
             showingPageView = false
+            alignmentSummary = .empty
             return
         }
 
@@ -257,6 +293,8 @@ struct MacReaderFeedView: View {
             // Phase 5: honest per-chapter has-audio for the accordion.
             let resolver = ChapterAudioStatusResolver(db: dbService.writer)
             chaptersWithAudio = (try? resolver.chaptersWithAudio(audiobookID: audiobookID)) ?? []
+            chapterTitles = Self.resolveChapterTitles(
+                blocks: result, audiobookID: audiobookID, db: dbService.writer)
             timelineCache = try await loadTimelineCache(audiobookID: audiobookID)
             // Per-word timings (Phase A) for karaoke; absent on unaligned books → [].
             let words = try WordTimingDAO(db: dbService.writer).words(forAudiobook: audiobookID)
@@ -267,14 +305,60 @@ struct MacReaderFeedView: View {
                 )
             }
             wordIndex = ReaderActiveBlockResolver.WordIndex(rows: wordCache)
+            await refreshAlignmentSummary(audiobookID: audiobookID)
         } catch {
             blocks = []
+            chapterTitles = [:]
             hasPDFPages = false
             showingPageView = false
             timelineCache = []
             wordCache = []
             wordIndex = ReaderActiveBlockResolver.WordIndex(rows: [])
+            alignmentSummary = .empty
         }
+    }
+
+    /// Recomputes the header's alignment verdict off the UI actor.
+    ///
+    /// `BookAlignmentSummary.load` is deliberately synchronous (a plain
+    /// `nonisolated async` would still run on this main-actor caller under
+    /// `SWIFT_APPROACHABLE_CONCURRENCY`), so the hop off main has to be
+    /// explicit. The queries are three indexed `COUNT`s, but they run against
+    /// the same writer the batch queue is hammering during an alignment, which
+    /// is exactly when this refreshes.
+    private func refreshAlignmentSummary(audiobookID: String) async {
+        let writer = dbService.writer
+        alignmentSummary =
+            await Task.detached(priority: .utility) {
+                (try? BookAlignmentSummary.load(audiobookID: audiobookID, db: writer)) ?? .empty
+            }.value
+    }
+
+    /// Chapter display titles for the loaded book, via the shared
+    /// `ChapterTitleResolver` the iOS reader uses — publisher TOC label for the
+    /// entry anchored to each chapter's first block, else the audio chapter's
+    /// own title. `blocks` must already be in reading order.
+    private static func resolveChapterTitles(
+        blocks: [EPubBlockRecord], audiobookID: String, db: any DatabaseWriter
+    ) -> [Int: String] {
+        var firstBlockIDByChapter: [Int: String] = [:]
+        for block in blocks {
+            guard let chapter = block.chapterIndex, firstBlockIDByChapter[chapter] == nil else {
+                continue
+            }
+            firstBlockIDByChapter[chapter] = block.id
+        }
+        let tocEntries = (try? EPubTOCEntryDAO(db: db).entries(for: audiobookID)) ?? []
+        let audioChapters = (try? ChapterDAO(db: db).chapters(for: audiobookID)) ?? []
+        // Chapter index is the audio chapter's position, matching how the
+        // importer assigns `epub_block.chapter_index`.
+        let audioTitles = Dictionary(
+            audioChapters.enumerated().map { ($0.offset, $0.element.title) },
+            uniquingKeysWith: { first, _ in first })
+        return ChapterTitleResolver.titles(
+            firstBlockIDByChapter: firstBlockIDByChapter,
+            tocEntries: tocEntries,
+            audioChapterTitles: audioTitles)
     }
 
     /// Builds the audio-range → block timeline cache, LEFT JOINing `epub_block`

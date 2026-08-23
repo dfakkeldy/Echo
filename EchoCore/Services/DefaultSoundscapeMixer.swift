@@ -15,6 +15,8 @@ final class DefaultSoundscapeMixer: SoundscapePlaying {
     private var isLooping = false
     private var currentFile: AVAudioFile?
 
+    private(set) var isActive = false
+
     var volume: Float {
         get { playerNode?.volume ?? 0.5 }
         set { playerNode?.volume = newValue }
@@ -50,14 +52,17 @@ final class DefaultSoundscapeMixer: SoundscapePlaying {
         stop()
 
         if let fileName = preset.fileName {
-            await playFromFile(named: fileName, playerNode: playerNode)
+            isActive = await playFromFile(named: fileName, playerNode: playerNode)
         } else if let config = preset.generatorConfig {
-            startGenerator(config: config)
-            playerNode.play()
+            if startGenerator(config: config) {
+                playerNode.play()
+                isActive = true
+            }
         }
     }
 
     func stop() {
+        isActive = false
         isLooping = false
         currentFile = nil
         playerNode?.stop()
@@ -70,10 +75,10 @@ final class DefaultSoundscapeMixer: SoundscapePlaying {
 
     // MARK: - File Playback
 
-    private func playFromFile(named fileName: String, playerNode: AVAudioPlayerNode) async {
+    private func playFromFile(named fileName: String, playerNode: AVAudioPlayerNode) async -> Bool {
         guard let soundURL = findFile(named: fileName) else {
             os_log(.error, "SoundscapeMixer: '%@' not found in bundle", fileName)
-            return
+            return false
         }
 
         do {
@@ -82,8 +87,10 @@ final class DefaultSoundscapeMixer: SoundscapePlaying {
             isLooping = true
             scheduleLoop(file: file)
             playerNode.play()
+            return true
         } catch {
             os_log(.error, "SoundscapeMixer: file error %{private}@", error.localizedDescription)
+            return false
         }
     }
 
@@ -113,7 +120,7 @@ final class DefaultSoundscapeMixer: SoundscapePlaying {
 
     // MARK: - Generative Audio
 
-    private func startGenerator(config: SoundscapePreset.GeneratorConfig) {
+    private func startGenerator(config: SoundscapePreset.GeneratorConfig) -> Bool {
         // Remove any previous source node.
         if let old = sourceNode, let engine {
             engine.detach(old)
@@ -144,10 +151,11 @@ final class DefaultSoundscapeMixer: SoundscapePlaying {
             }
         }
 
-        guard let engine else { return }
+        guard let engine else { return false }
         engine.attach(node)
         engine.connect(node, to: eqNode ?? engine.mainMixerNode, format: nil)
         sourceNode = node
+        return true
     }
 
     /// White noise: uniform random samples.

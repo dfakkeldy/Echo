@@ -8,3 +8,21 @@ nonisolated enum ReaderChromeClearance {
         max(0, dockHeight) + max(0, overlayHeight)
     }
 }
+
+/// Selects the one iOS surface that replaces the root-owned top row with the
+/// Reader's local search and utility chrome.
+nonisolated enum ReaderTopChromeLayout {
+    static func usesCompactHeader(
+        selectedTabIsRead: Bool,
+        readPathIsEmpty: Bool,
+        hasEPUB: Bool,
+        hasPDF: Bool,
+        hasStandaloneTranscript: Bool
+    ) -> Bool {
+        selectedTabIsRead
+            && readPathIsEmpty
+            && hasEPUB
+            && !hasPDF
+            && !hasStandaloneTranscript
+    }
+}

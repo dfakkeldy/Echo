@@ -3,6 +3,53 @@ import Foundation
 import ZIPFoundation
 import os.log
 
+/// The revision pair one stale-source recovery attempt was made against.
+///
+/// Recovery re-extracts and re-parses the whole document, so it must not run on
+/// every open — but it must run again the moment either input changes (the user
+/// replaces the EPUB, or drops in a re-exported alignment file). Size plus
+/// modification date is the cheapest fingerprint that moves whenever either
+/// file's content does and costs no read of either one.
+///
+/// `nonisolated` for the same reason as `SidecarImportSummary`: under the app
+/// targets' MainActor default isolation the synthesized `Codable` conformance
+/// would otherwise be main-actor-isolated and unusable from the off-main import
+/// task that persists it.
+nonisolated struct StaleSourceRecoveryAttempt: Codable, Equatable, Sendable {
+    let sourceSize: Int
+    let sourceModified: Double
+    let sidecarSize: Int
+    let sidecarModified: Double
+
+    /// `nil` when either file is missing or has no readable size/date — an
+    /// undownloaded iCloud placeholder, for instance. Recovery declines rather
+    /// than guessing, and a later open retries once the file materializes.
+    init?(sourceURL: URL, sidecarURL: URL) {
+        let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey]
+        // `URL` caches resource values the first time they are read, so a URL
+        // value that outlives a write to the file it names keeps reporting the
+        // OLD size and date. This fingerprint exists purely to detect that a
+        // file changed, which makes a cached read the one failure that matters:
+        // it reports "same revision" and declines the very recovery the user
+        // earned by replacing the file. Drop the cache before every read.
+        var source = sourceURL
+        var sidecar = sidecarURL
+        source.removeAllCachedResourceValues()
+        sidecar.removeAllCachedResourceValues()
+        guard let sourceValues = try? source.resourceValues(forKeys: keys),
+            let sidecarValues = try? sidecar.resourceValues(forKeys: keys),
+            let sourceSize = sourceValues.fileSize,
+            let sidecarSize = sidecarValues.fileSize,
+            let sourceModified = sourceValues.contentModificationDate,
+            let sidecarModified = sidecarValues.contentModificationDate
+        else { return nil }
+        self.sourceSize = sourceSize
+        self.sourceModified = sourceModified.timeIntervalSinceReferenceDate
+        self.sidecarSize = sidecarSize
+        self.sidecarModified = sidecarModified.timeIntervalSinceReferenceDate
+    }
+}
+
 enum EPUBAutoImportScanner {
     private static let logger = Logger(category: "EPUBAutoImport")
 
@@ -112,6 +159,8 @@ enum EPUBAutoImportScanner {
         force: Bool = false,
         finalizerFileURL: URL? = nil,
         networkPolicy: DocumentImportNetworkPolicy = .standard,
+        allowStaleSourceRecovery: Bool = true,
+        recoveryStore: UserDefaults = .standard,
         networkRequestObserver:
             (@Sendable (DocumentImportNetworkRequest) -> Void)? = nil
     ) async -> Bool {
@@ -124,6 +173,8 @@ enum EPUBAutoImportScanner {
             force: force,
             finalizerFileURL: finalizerFileURL,
             networkPolicy: networkPolicy,
+            allowStaleSourceRecovery: allowStaleSourceRecovery,
+            recoveryStore: recoveryStore,
             networkRequestObserver: networkRequestObserver
         )
         return outcome.didImportBlocks
@@ -138,6 +189,9 @@ enum EPUBAutoImportScanner {
         force: Bool = false,
         finalizerFileURL: URL? = nil,
         networkPolicy: DocumentImportNetworkPolicy = .standard,
+        allowStaleSourceRecovery: Bool = true,
+        recoveryStore: UserDefaults = .standard,
+        preExtractedDirectory: URL? = nil,
         networkRequestObserver:
             (@Sendable (DocumentImportNetworkRequest) -> Void)? = nil
     ) async -> ImportOutcome {
@@ -146,13 +200,23 @@ enum EPUBAutoImportScanner {
 
         // Check if EPUB blocks are already imported for this audiobook.
         if !force {
+            // `allBlocks`, not `visibleBlocks`: the question is "has this
+            // document ever been imported", and a re-import now carries
+            // `is_hidden` across. A user who excluded every chapter from the
+            // narration outline has zero VISIBLE blocks, so a `visibleBlocks`
+            // guard would answer "not imported" forever and re-run the full
+            // destructive rebuild on every single open. (It used to self-heal
+            // only because the old `deleteAll` + insert reset `is_hidden`.)
             let alreadyImported =
-                (try? EPubBlockDAO(db: databaseService.writer).visibleBlocks(for: audiobookID)
+                (try? EPubBlockDAO(db: databaseService.writer).allBlocks(for: audiobookID)
                     .isEmpty) == false
             if alreadyImported {
                 logger.debug(
                     "EPUB blocks already exist for \(sanitizedPath(audiobookID)); skipping auto-import."
                 )
+                // The finalizer re-runs the sidecar branch and rewrites the
+                // per-book summary, so the verdict read immediately below is
+                // this open's verdict, not a stale one.
                 _ = await DocumentImportFinalizer.finalizeExistingImportIfAlignmentSidecarPresent(
                     audiobookID: audiobookID,
                     fileURL: finalizerFileURL ?? epubURL,
@@ -161,6 +225,27 @@ enum EPUBAutoImportScanner {
                     networkPolicy: networkPolicy,
                     networkRequestObserver: networkRequestObserver
                 )
+                if allowStaleSourceRecovery,
+                    let recovered = await recoverStaleSourceIfPossible(
+                        epubURL: epubURL,
+                        audiobookID: audiobookID,
+                        databaseService: databaseService,
+                        chapters: chapters,
+                        duration: duration,
+                        finalizerFileURL: finalizerFileURL,
+                        networkPolicy: networkPolicy,
+                        recoveryStore: recoveryStore,
+                        networkRequestObserver: networkRequestObserver
+                    )
+                {
+                    // The recovery re-import COMMITTED its block rebuild before
+                    // the finalizer ran, so its real outcome has to reach the
+                    // caller. Collapsing a `.failed` finalize to
+                    // `.alreadyImported` would tell the caller "nothing happened"
+                    // about a book whose blocks were just rewritten, and it would
+                    // skip the timeline re-ingest that leaves it usable.
+                    return recovered
+                }
                 return .alreadyImported
             }
         }
@@ -168,24 +253,33 @@ enum EPUBAutoImportScanner {
         // Try downloading CloudKit anchors first if not forced, but wait, if blocks aren't extracted yet, CloudKit anchors need the blocks.
         // So we must extract EPUB first, insert blocks, then check CloudKit before doing auto-alignment.
 
-        // Extract the EPUB archive to a cache directory.
-        let safeID = SafeFileName.fromAudiobookID(audiobookID)
-        let cacheDir: URL
-        do {
-            cacheDir = try prepareCacheDirectory(safeID: safeID)
-        } catch {
-            logger.error("Failed to prepare EPUB cache directory: \(error.localizedDescription)")
-            return .failed(epubURL, underlying: error)
-        }
-
+        // Extract the EPUB archive to a cache directory — unless the caller
+        // already expanded this exact archive. Copying and unzipping a book
+        // twice is not free here: `extractEPUB` and `parseEPUBBlocks` are both
+        // synchronous under this target's MainActor default isolation, so each
+        // pass is main-thread time. Stale-source recovery expands the archive to
+        // validate the alignment file and hands that directory straight over.
         let extractedDir: URL
-        do {
-            extractedDir = try extractEPUB(epubURL, to: cacheDir, safeID: safeID)
-        } catch {
-            logger.error(
-                "Failed to extract EPUB \(sanitizedPath(epubURL.lastPathComponent)): \(error.localizedDescription)"
-            )
-            return .failed(epubURL, underlying: error)
+        if let preExtractedDirectory {
+            extractedDir = preExtractedDirectory
+        } else {
+            let safeID = SafeFileName.fromAudiobookID(audiobookID)
+            let cacheDir: URL
+            do {
+                cacheDir = try prepareCacheDirectory(safeID: safeID)
+            } catch {
+                logger.error(
+                    "Failed to prepare EPUB cache directory: \(error.localizedDescription)")
+                return .failed(epubURL, underlying: error)
+            }
+            do {
+                extractedDir = try extractEPUB(epubURL, to: cacheDir, safeID: safeID)
+            } catch {
+                logger.error(
+                    "Failed to extract EPUB \(sanitizedPath(epubURL.lastPathComponent)): \(error.localizedDescription)"
+                )
+                return .failed(epubURL, underlying: error)
+            }
         }
 
         // Import extracted EPUB blocks.
@@ -215,6 +309,207 @@ enum EPUBAutoImportScanner {
             logger.error("EPUB auto-import failed: \(error.localizedDescription)")
             return .failed(epubURL, underlying: error)
         }
+    }
+
+    // MARK: - Stale-source recovery
+
+    /// The recovery fuse, as a pure decision so the no-loop property can be
+    /// proven without a filesystem, a database, or a clock.
+    ///
+    /// Recovery costs a full extract + re-parse, so it must never run on an
+    /// ordinary open. It runs when the last finalize actually reported
+    /// `.staleSource`, both files could be fingerprinted, and that fingerprint
+    /// differs from the one already tried. Because the caller records the
+    /// fingerprint *before* attempting, a repeat on unchanged inputs — the loop —
+    /// is impossible: the second call sees `attempt == lastAttempt`.
+    static func shouldAttemptStaleSourceRecovery(
+        status: SidecarImportSummary.Status?,
+        attempt: StaleSourceRecoveryAttempt?,
+        lastAttempt: StaleSourceRecoveryAttempt?
+    ) -> Bool {
+        guard status == .staleSource, let attempt else { return false }
+        return attempt != lastAttempt
+    }
+
+    /// Repairs the `.staleSource` state automatically when — and only when — the
+    /// document on disk would validate against the alignment file.
+    ///
+    /// `.staleSource` does not mean the alignment file is out of date. It means
+    /// the *persisted* `epub_block` text no longer matches it: the user replaced
+    /// the EPUB, or re-imported an edition the sidecar was not produced from, and
+    /// `AlignmentSidecar.sourceValidation` fails closed on the first mismatching
+    /// anchor. When the file sitting next to the book NOW is the one the sidecar
+    /// was produced from, the database is simply behind, and re-importing fixes it
+    /// — which is only safe to do automatically because
+    /// `EPUBImportService.replaceAllPreservingUserState` carries hidden/coloured
+    /// blocks, human anchors, notes, memos, and cards across the rebuild.
+    ///
+    /// Ordering matters: the dry run parses and validates BEFORE any write, so a
+    /// book whose text genuinely diverged is never re-imported on a guess — but
+    /// only because `sidecarProvesDocumentIdentity` first refuses the verdicts
+    /// that are not actually about the text. See that function.
+    ///
+    /// - Returns: `nil` when nothing was attempted, otherwise the real outcome of
+    ///   the forced re-import — including `.failed`, which the caller must not
+    ///   flatten to "nothing happened" because the block rebuild has committed by
+    ///   then.
+    private static func recoverStaleSourceIfPossible(
+        epubURL: URL,
+        audiobookID: String,
+        databaseService: DatabaseService,
+        chapters: [Chapter],
+        duration: TimeInterval?,
+        finalizerFileURL: URL?,
+        networkPolicy: DocumentImportNetworkPolicy,
+        recoveryStore: UserDefaults,
+        networkRequestObserver:
+            (@Sendable (DocumentImportNetworkRequest) -> Void)?
+    ) async -> ImportOutcome? {
+        // 1. Both files must be on disk: the sidecar to validate against, the
+        //    source to re-parse. A dataless iCloud sidecar has no attributes to
+        //    fingerprint and is left for a later open to download.
+        let sidecarURL = DocumentImportFinalizer.alignmentSidecarURL(
+            for: finalizerFileURL ?? epubURL)
+        let attempt = sidecarURL.flatMap {
+            StaleSourceRecoveryAttempt(sourceURL: epubURL, sidecarURL: $0)
+        }
+
+        // 2. The fuse: act only on the one state this repairs, and only once per
+        //    (document, alignment) revision pair.
+        guard
+            shouldAttemptStaleSourceRecovery(
+                status: BookPreferencesService.loadSidecarSummary(
+                    for: audiobookID, store: recoveryStore)?.status,
+                attempt: attempt,
+                lastAttempt: BookPreferencesService.loadStaleSourceRecoveryAttempt(
+                    for: audiobookID, store: recoveryStore))
+        else { return nil }
+        guard let sidecarURL, let attempt else { return nil }
+
+        // Burn the fuse BEFORE the work, not after: a parse that throws, or a
+        // process kill mid-import, must not earn a fresh attempt on the next
+        // open. Only a genuinely new revision does — or an abandonment, which
+        // rearms it explicitly below.
+        BookPreferencesService.saveStaleSourceRecoveryAttempt(
+            attempt, for: audiobookID, store: recoveryStore)
+
+        // Cancellation means the user left this book. Nothing has been written
+        // yet at these two points, so re-arm the fuse and leave: the repair is
+        // still owed, and burning it here would strand the book forever.
+        func abandonBeforeAnyWrite() -> ImportOutcome? {
+            BookPreferencesService.saveStaleSourceRecoveryAttempt(
+                nil, for: audiobookID, store: recoveryStore)
+            return nil
+        }
+        if Task.isCancelled { return abandonBeforeAnyWrite() }
+
+        // 3. Dry run: parse the document that is on disk now and ask whether the
+        //    sidecar validates against THOSE blocks. Nothing is written yet.
+        let safeID = SafeFileName.fromAudiobookID(audiobookID)
+        let probeDir: URL
+        do {
+            let cacheDir = try prepareCacheDirectory(safeID: safeID)
+            probeDir = try extractEPUB(epubURL, to: cacheDir, safeID: safeID)
+        } catch {
+            logger.info(
+                "Stale-source recovery: could not extract the document to re-check it — \(error.localizedDescription)"
+            )
+            return nil
+        }
+        // The probe leaves no cache residue when it declines. When it proceeds it
+        // hands the expansion to the import instead of deleting it, so the
+        // archive is copied and unzipped once rather than twice — both passes are
+        // synchronous main-actor work on the book-open path.
+        var handedOffToImport = false
+        defer {
+            if !handedOffToImport { try? FileManager.default.removeItem(at: probeDir) }
+        }
+        if Task.isCancelled { return abandonBeforeAnyWrite() }
+
+        do {
+            let data = try Data(contentsOf: sidecarURL)
+            let exports = try AlignmentSidecar.decode(data)
+            guard sidecarProvesDocumentIdentity(exports) else { return nil }
+            let parsed = try parseEPUBBlocks(audiobookID: audiobookID, epubURL: probeDir)
+            let validation = AlignmentSidecar.sourceValidation(
+                for: exports, blocks: parsed.blocks)
+            guard validation == .current else {
+                logger.info(
+                    "Stale-source recovery declined: the document on disk still does not match the alignment file (\(String(describing: validation)))"
+                )
+                return nil
+            }
+        } catch {
+            logger.info(
+                "Stale-source recovery: could not re-check the document against the alignment file — \(error.localizedDescription)"
+            )
+            return nil
+        }
+        if Task.isCancelled { return abandonBeforeAnyWrite() }
+
+        // 4. The document on disk IS the one the alignment file was produced
+        //    from. Re-import it for real. `allowStaleSourceRecovery: false` makes
+        //    the no-loop property structural rather than an inference from
+        //    `force` skipping the branch above.
+        logger.info(
+            "Stale-source recovery: the document on disk matches the alignment file — re-importing to restore read-along"
+        )
+        handedOffToImport = true
+        let outcome = await importEPUBFileOutcome(
+            epubURL: epubURL,
+            audiobookID: audiobookID,
+            databaseService: databaseService,
+            chapters: chapters,
+            duration: duration,
+            force: true,
+            finalizerFileURL: finalizerFileURL,
+            networkPolicy: networkPolicy,
+            allowStaleSourceRecovery: false,
+            recoveryStore: recoveryStore,
+            preExtractedDirectory: probeDir,
+            networkRequestObserver: networkRequestObserver
+        )
+        if case .failed(_, let underlying) = outcome {
+            // `EPUBImportService` committed the block rebuild in its own
+            // transaction before the finalizer ran, so a failure here leaves the
+            // book rebuilt but with its timeline un-rebuilt. Re-arm the fuse so
+            // the next open can finish the repair rather than leaving it
+            // half-done for the life of these two files.
+            logger.error(
+                "Stale-source recovery re-imported the blocks but could not finalize; re-arming for the next open — \(underlying.localizedDescription)"
+            )
+            BookPreferencesService.saveStaleSourceRecoveryAttempt(
+                nil, for: audiobookID, store: recoveryStore)
+        }
+        return outcome
+    }
+
+    /// Whether an alignment file makes a checkable claim about *which document*
+    /// it describes.
+    ///
+    /// `AlignmentSidecar.sourceValidation` short-circuits when no anchor carries
+    /// a `sourceBlockIdentity`: for a legacy file its verdict is a pure function
+    /// of "do these blocks contain a code block", and says nothing whatever about
+    /// the text. That makes `.current` useless as evidence here — worse than
+    /// useless. `.staleSource` from a legacy sidecar MEANS the persisted blocks
+    /// contained code, so the only way a re-parse can flip the verdict to
+    /// `.current` is if the document on disk parses with NO code, i.e. if it is a
+    /// *different document*. Trusting the legacy verdict would fire the
+    /// destructive re-import in precisely the case it must refuse: a user drops
+    /// an unrelated EPUB into the folder, `CompanionDocumentSelector` picks it up,
+    /// and the book's blocks, anchors, word timings and study pins are silently
+    /// replaced with another book's.
+    ///
+    /// So require a real identity claim. A legacy sidecar is not repairable
+    /// automatically; it needs a re-export, or an explicit Replace Document.
+    static func sidecarProvesDocumentIdentity(_ exports: [AlignmentSidecar.Anchor]) -> Bool {
+        guard exports.contains(where: { $0.sourceBlockIdentity != nil }) else {
+            logger.info(
+                "Stale-source recovery declined: the alignment file carries no source identities, so it cannot prove which document it describes"
+            )
+            return false
+        }
+        return true
     }
 
     // MARK: - Anchor lookup

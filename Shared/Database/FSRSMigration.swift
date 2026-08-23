@@ -7,7 +7,7 @@ import Foundation
 /// inversely to FSRS difficulty (lower ease = harder card = higher difficulty;
 /// the SM-2 default ease 2.5 maps to a neutral difficulty of 5).
 enum FSRSMigration {
-    static func seed(intervalDays: Int, easeFactor: Double)
+    nonisolated static func seed(intervalDays: Int, easeFactor: Double)
         -> (stability: Double, difficulty: Double)
     {
         let stability = max(0.1, Double(intervalDays))

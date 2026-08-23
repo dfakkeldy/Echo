@@ -31,11 +31,12 @@ nonisolated enum DocumentImportNetworkRequest: Equatable, Sendable {
 /// `SidecarImportSummary` records what happened for Book Settings to surface.
 enum DocumentImportFinalizer {
     private static let logger = Logger(category: "DocumentImportFinalizer")
-    private static let humanAnchorSources: Set<String> = [
-        AlignmentAnchorRecord.Source.moveToNow.rawValue,
-        AlignmentAnchorRecord.Source.searchResult.rawValue,
-        AlignmentAnchorRecord.Source.chapterBoundary.rawValue,
-    ]
+    /// Canonical on `AlignmentAnchorRecord` so this allow-list and the one
+    /// `EPUBImportService.replaceAllPreservingUserState` applies across a block
+    /// rebuild cannot drift apart.
+    private static var humanAnchorSources: Set<String> {
+        AlignmentAnchorRecord.humanAnchorSources
+    }
 
     /// Outcome of locating an alignment sidecar next to a book, including the
     /// dataless-iCloud case that a plain `fileExists` check misses.
@@ -338,9 +339,19 @@ enum DocumentImportFinalizer {
             )
             summary.blocksMatched = application.blocksApplied
             summary.wordsWritten = application.wordsApplied
-            // Anchors resolved but not one block's words applied (all mismatched
-            // or unaligned): the book is not truly word-level, so say so.
-            if application.blocksApplied == 0 {
+            // `Anchor.words` is optional and omitted when a producer has no
+            // per-word timings, so an anchors-only sidecar is the normal shape —
+            // every Mac-batch DTW export is one. Applying word timings is a no-op
+            // *by definition* for those, and the old unconditional
+            // `blocksApplied == 0` downgrade therefore reported a fully
+            // successful block-level ingest (1572 anchors resolved) as
+            // `.foundButUnresolved`. Only claim failure when the file actually
+            // carried word timings and not one block accepted them — the genuine
+            // "resolved but nothing aligned" case.
+            let sidecarCarriedWords = ingestedSidecar.exports.contains {
+                $0.words?.isEmpty == false
+            }
+            if sidecarCarriedWords, application.blocksApplied == 0 {
                 summary.status = .foundButUnresolved
             }
         }

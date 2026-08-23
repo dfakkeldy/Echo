@@ -274,8 +274,12 @@ struct ContentView: View {
             scrubIdleTask = Task {
                 try? await Task.sleep(for: .seconds(1.0))
                 guard !Task.isCancelled else { return }
+                let shouldReloadWidget = isScrubbingActive
                 isScrubbingActive = false
                 accumulatedScrubDelta = 0.0
+                if shouldReloadWidget {
+                    viewModel.finishScrubbing()
+                }
             }
         } else {
             // Optimistic local gain mirror drives the indicator; a haptic fires

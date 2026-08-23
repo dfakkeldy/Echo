@@ -8,7 +8,7 @@ import os.log
 struct DeckDetailView: View {
     @Environment(PlayerModel.self) private var model
 
-    let deckID: String?
+    let scope: DeckCardScope
     let deckName: String
 
     @State private var cards: [Flashcard] = []
@@ -88,16 +88,7 @@ struct DeckDetailView: View {
         guard let db = model.databaseService else { return }
         do {
             cards = try await db.writer.read { db in
-                if let deckID {
-                    try Flashcard
-                        .filter(Column("deck_id") == deckID)
-                        .order(Column("created_at").desc)
-                        .fetchAll(db)
-                } else {
-                    try Flashcard
-                        .order(Column("created_at").desc)
-                        .fetchAll(db)
-                }
+                try scope.fetchCards(in: db)
             }
         } catch {
             logger.error("Failed to load deck detail: \(error.localizedDescription)")

@@ -162,6 +162,7 @@ struct BookSettingsView: View {
     @State private var studyDeckGenerationPresentation: StudyDeckGenerationSheetPresentation?
     @State private var echoDeckBuilderExportURL: URL?
     @State private var readAlongStatus: String?
+    @State private var readAlongRecoveryHint: String?
 
     var body: some View {
         CoverThemedSheet(theme: model.coverTheme) {
@@ -214,6 +215,14 @@ struct BookSettingsView: View {
                             Text(readAlongStatus ?? "Checking…")
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.trailing)
+                        }
+                        // Only present when the state is user-fixable, and it
+                        // names the action that fixes it rather than leaving the
+                        // reason as a dead end.
+                        if let readAlongRecoveryHint {
+                            Text(readAlongRecoveryHint)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -287,10 +296,12 @@ struct BookSettingsView: View {
             let audiobookID = model.state.folderURL?.absoluteString
         else {
             readAlongStatus = nil
+            readAlongRecoveryHint = nil
             return
         }
         readAlongStatus = ReadAlongStatusResolver.statusLine(
             audiobookID: audiobookID, writer: db)
+        readAlongRecoveryHint = ReadAlongStatusResolver.recoveryHint(audiobookID: audiobookID)
     }
 
     private func refreshEchoDeckBuilderExportURL() {

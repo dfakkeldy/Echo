@@ -228,14 +228,16 @@ This is **informational only**. `deliveryMode: "sharedEchoCache"` means the mode
 
 ## 9. No automatic update, list, or cleanup
 
-The CLI is deliberately narrow: exactly four subcommands exist — `install`, `verify`, `promote`, `repair`. There is no `list`, no `update`, and no automatic cleanup of anything:
+As shipped, the CLI is narrow: exactly four subcommands exist — `install`, `verify`, `promote`, `repair`. There is no `list`, no `update`, and no automatic cleanup of anything:
 
 - old renderer packages that are no longer selected by any `approved-renderer.json` are never garbage-collected;
 - quarantine directories from `repair` (§8) are never removed automatically;
 - nothing periodically re-checks or re-verifies an installed package on its own;
 - a hard crash mid-install (power loss, `kill -9`) can strand a temporary `echo-renderer-staging-<random>` directory *beside* the store root (normal failures clean it up automatically); a stranded one is safe to delete whenever no install is currently running.
 
-Auditing what's on disk, deciding what's safe to delete, and actually deleting it are all manual operator tasks (`ls`/`find`/`rm` against the store layout in §2) — intentionally, so a bug in this tooling can never silently delete a package another process is relying on.
+So today, auditing what's on disk, deciding what's safe to delete, and actually deleting it are all manual operator tasks (`ls`/`find`/`rm` against the store layout in §2). Budget for it: the store grows by one ~160–222 MB package per install and nothing shrinks it.
+
+**This is the current state, not a permanent guarantee.** What actually protects a package another process is relying on is the lease and selector discipline described in §5–§6 and §8 — not the absence of a cleanup feature. A designed-but-unimplemented tracker (`docs/superpowers/specs/2026-07-19-nightly-renderer-auto-tracker-design.md`) would add a fifth subcommand that follows `origin/nightly`, auto-promotes, and prunes old packages on a schedule. If that or any comparable automation is built, it must honor the same discipline: take the source's selector lease before deleting its packages, never delete the package the live selector points at, and skip selectors, quarantine directories, and any unrecognized entry at the store root. Read that spec alongside this section rather than treating the list above as a closed design.
 
 ---
 

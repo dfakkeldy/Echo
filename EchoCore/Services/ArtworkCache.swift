@@ -67,24 +67,20 @@ struct ArtworkCache {
     }
 
     /// Downscales an image file for display, with security-scoped access.
+    ///
+    /// The decode itself is `CoverImageCache.decode`, the same call the Mac
+    /// makes, so a cover cannot downsample differently on the two platforms.
+    /// Deliberately the uncached entry point: this is also the folder-scan path
+    /// below, which probes candidate filenames that usually do not exist and
+    /// should not populate a memo. The library shelf goes through
+    /// `CoverImageCache.image(at:)` instead.
     static func loadImageFile(at imageURL: URL) async -> UIImage? {
         await ensureItemIsAvailable(url: imageURL)
 
         let didStart = imageURL.startAccessingSecurityScopedResource()
         defer { if didStart { imageURL.stopAccessingSecurityScopedResource() } }
 
-        let maxPixelSize = 600
-        guard let source = CGImageSourceCreateWithURL(imageURL as CFURL, nil) else { return nil }
-        let downsampleOptions: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
-        ]
-        guard
-            let cgImage = CGImageSourceCreateThumbnailAtIndex(
-                source, 0, downsampleOptions as CFDictionary)
-        else { return nil }
+        guard let cgImage = CoverImageCache.decode(at: imageURL) else { return nil }
         return UIImage(cgImage: cgImage)
     }
 

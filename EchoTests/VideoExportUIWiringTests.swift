@@ -538,6 +538,14 @@ struct VideoExportUIWiringTests {
         #expect((tags["public.filename-extension"] as? [String])?.contains("srt") == true)
     }
 
+    @Test func macInfoPlistRanksEveryDocumentTypeAsAlternate() throws {
+        let plist = try macInfoPlist()
+        let documentTypes = try #require(plist["CFBundleDocumentTypes"] as? [[String: Any]])
+
+        #expect(!documentTypes.isEmpty)
+        #expect(documentTypes.allSatisfy { $0["LSHandlerRank"] as? String == "Alternate" })
+    }
+
     @Test func macViewOffersKaraokeAndSimpleModesWithKaraokeDefault() throws {
         let text = try source("Echo macOS/Views/MacVideoExportView.swift")
 

@@ -162,6 +162,16 @@ struct RootTabView: View {
     @State private var readPath = NavigationPath()
     @State private var libraryPath = NavigationPath()
 
+    private var usesCompactReaderTopChrome: Bool {
+        ReaderTopChromeLayout.usesCompactHeader(
+            selectedTabIsRead: model.selectedTab == .read,
+            readPathIsEmpty: readPath.isEmpty,
+            hasEPUB: model.hasEPUB,
+            hasPDF: model.hasPDF,
+            hasStandaloneTranscript: model.hasStandaloneTranscript
+        )
+    }
+
     @SceneStorage("nowPlayingPathData") private var nowPlayingPathData: Data?
     @SceneStorage("readPathData") private var readPathData: Data?
     @SceneStorage("libraryPathData") private var libraryPathData: Data?
@@ -311,13 +321,22 @@ struct RootTabView: View {
                 }
             }
             .safeAreaInset(edge: .top, spacing: 0) {
-                Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
+                if !usesCompactReaderTopChrome {
+                    Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             // Root-owned global navigation, visible across primary stacks and
             // their pushed destinations without appearing in modal sheets.
-            UnifiedTopHeader(onFolderTap: { showingFolderPicker = true })
+            if !usesCompactReaderTopChrome {
+                UnifiedTopHeader(onFolderTap: { showingFolderPicker = true })
+                    .transition(
+                        reduceMotion
+                            ? .identity
+                            : .move(edge: .top).combined(with: .opacity)
+                    )
+            }
 
             // The bottom deck is root-owned so Now Playing and Reader share the
             // exact same bottom edge during tab transitions.
@@ -345,7 +364,11 @@ struct RootTabView: View {
                             ? { showingVideoExport = true } : nil,
                         onStudyNotesExport: (model.folderURL != nil
                             && !model.narrationPlaybackState.isRunning)
-                            ? { showingStudyNotesExport = true } : nil
+                            ? { showingStudyNotesExport = true } : nil,
+                        onOpenBookOrFolder: usesCompactReaderTopChrome
+                            ? { showingFolderPicker = true }
+                            : nil,
+                        showsReaderSleepTimer: usesCompactReaderTopChrome
                     )
                     .environment(\.showPlaybackOptions, { showingPlaybackOptions = true })
                 }
@@ -400,6 +423,10 @@ struct RootTabView: View {
                 )
             }
         }
+        .animation(
+            reduceMotion ? nil : .easeInOut(duration: 0.2),
+            value: usesCompactReaderTopChrome
+        )
         .overlay(alignment: .bottom) {
             checkpointOverlay
         }
@@ -645,6 +672,10 @@ struct RootTabView: View {
         .onChange(of: model.pendingNavigationDestination) { _, destination in
             guard let destination else { return }
             pushNavigationDestination(destination)
+        }
+        .onChange(of: model.nowPlayingRootRequestID) { _, _ in
+            nowPlayingPath = NavigationPath()
+            nowPlayingPathData = nil
         }
         .onChange(of: model.bookIdentityURL) { oldValue, newValue in
             guard oldValue != newValue else { return }

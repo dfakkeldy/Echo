@@ -13,28 +13,67 @@ import os.log
 @MainActor
 @Observable
 final class MacAlignmentService {
+    /// One progress report from ``align(audiobookID:audioURL:epubURL:dbService:onProgress:)``.
+    ///
+    /// `fraction` is `nil` for the phases whose duration genuinely cannot be
+    /// predicted — downloading and compiling the speech model, the DTW match,
+    /// and the timeline rebuild. A `nil` asks the UI for an indeterminate bar,
+    /// which reads as "working, duration unknown"; a determinate bar parked at
+    /// the same number for ten minutes reads as "hung".
+    struct Progress: Equatable, Sendable {
+        let fraction: Double?
+        let message: String
+    }
+
     private let logger = Logger(category: "MacAlignment")
 
     var isAligning: Bool = false
     var alignmentProgress: Double = 0
     var alignmentStatus: String = ""
+    /// True while the current phase has no meaningful fraction. Mirrors the
+    /// `nil` in ``Progress/fraction`` for observers reading the properties
+    /// rather than the callback.
+    var alignmentIsIndeterminate: Bool = false
 
     private var whisperKit: WhisperKit?
 
     /// Aligns an audiobook-EPUB pair, writing anchors into the shared database.
+    ///
+    /// - Parameter onProgress: Called on the main actor at every phase change
+    ///   and once per transcribed chunk. Transcription dominates the run — for
+    ///   a full-length audiobook it is the difference between a bar that moves
+    ///   for an hour and one that never moves at all — so it reports genuine
+    ///   per-chunk progress with an estimate of the time remaining.
+    ///
+    ///   Non-optional with a no-op default rather than `((Progress) -> Void)?`:
+    ///   an optional closure parameter is implicitly `@escaping`, which would
+    ///   stop the batch queue from passing its non-escaping progress reporter
+    ///   straight through.
     func align(
         audiobookID: String,
         audioURL: URL,
         epubURL: URL,
-        dbService: DatabaseService
+        dbService: DatabaseService,
+        onProgress: (Progress) -> Void = { _ in }
     ) async throws {
         isAligning = true
         alignmentProgress = 0
-        alignmentStatus = "Extracting EPUB text…"
+
+        /// Publishes one report to both the observable properties and the
+        /// caller's callback, so the two can never drift apart.
+        func report(_ fraction: Double?, _ message: String) {
+            if let fraction { alignmentProgress = fraction }
+            alignmentIsIndeterminate = fraction == nil
+            alignmentStatus = message
+            onProgress(Progress(fraction: fraction, message: message))
+        }
+
+        report(0.0, "Reading EPUB text…")
 
         defer {
             isAligning = false
             alignmentProgress = 1.0
+            alignmentIsIndeterminate = false
             WhisperSession.shared.release()
             self.whisperKit = nil
         }
@@ -50,21 +89,29 @@ final class MacAlignmentService {
         }
         guard !epubTokens.isEmpty else { throw AlignmentError.noTextBlocks }
 
-        alignmentStatus = "Loading WhisperKit…"
+        // The first run downloads and compiles the model, which can take
+        // minutes on its own — hence indeterminate rather than a parked number.
+        report(nil, "Preparing the speech model…")
         try await loadModelIfNeeded()
 
-        alignmentStatus = "Transcribing audio…"
         let extractor = AudioExtractor(url: audioURL)
         let totalDuration = try await extractor.prepare()
         let chunkDuration: TimeInterval = 30.0
         var audioTokens: [TokenDTW.AudioToken] = []
+        let transcriptionStart = Date()
+
+        report(Self.transcribeStart, "Transcribing audio…")
 
         while let (pcmBuffer, chunkStartTime) = try await extractor.readNextChunk(
             durationInSeconds: chunkDuration)
         {
-            alignmentStatus =
-                "Transcribing \(formatTimeHMS(chunkStartTime)) / \(formatTimeHMS(totalDuration))…"
-            alignmentProgress = (chunkStartTime / totalDuration) * 0.5
+            let heard = totalDuration > 0 ? min(1.0, chunkStartTime / totalDuration) : 0
+            report(
+                Self.transcribeStart + heard * (Self.transcribeEnd - Self.transcribeStart),
+                Self.transcribeMessage(
+                    heard: chunkStartTime,
+                    total: totalDuration,
+                    elapsed: Date().timeIntervalSince(transcriptionStart)))
             let result = try await transcribeChunk(pcmBuffer)
             for token in result.tokens {
                 audioTokens.append(
@@ -76,18 +123,26 @@ final class MacAlignmentService {
 
         guard !audioTokens.isEmpty else { throw AlignmentError.noAudioTokens }
 
-        alignmentStatus =
-            "Aligning \(epubTokens.count) blocks with \(audioTokens.count) tokens…"
-        alignmentProgress = 0.75
+        // DTW cost scales with tokens × blocks and reports nothing from inside,
+        // so name the scale in the message and let the bar go indeterminate.
+        report(
+            nil,
+            """
+            Matching \(audioTokens.count) spoken words to \(epubTokens.count) \
+            paragraphs — this can take several minutes…
+            """)
 
-        let selected = await Task.detached(priority: .utility) {
+        // The cancellable variant checks for cancellation between bisection
+        // steps, so "Stop and Remove" during the match actually stops instead
+        // of burning CPU on a book the user has already removed.
+        let selected = try await Task.detached(priority: .utility) {
             AnchorSelector.select(
-                candidates: TokenDTW.alignWithBisection(epub: epubTokens, audio: audioTokens))
+                candidates: try await TokenDTW.alignWithBisectionCancellable(
+                    epub: epubTokens, audio: audioTokens))
         }.value
         guard !selected.isEmpty else { throw AlignmentError.noAnchorsProduced }
 
-        alignmentStatus = "Saving \(selected.count) anchors…"
-        alignmentProgress = 0.90
+        report(Self.saveAnchors, "Saving \(selected.count) anchors…")
 
         let alignmentService = AlignmentService(
             db: dbService.writer, audiobookID: audiobookID)
@@ -117,9 +172,9 @@ final class MacAlignmentService {
         // `insertAnchors` already recalculates the timeline AND materializes
         // word timings (it forwards `materializeWordTimings: true` by default),
         // so a follow-up `recalculateTimeline()` would redo that whole pass.
-        // Do it once here.
-        alignmentStatus = "Recalculating timeline…"
-        alignmentProgress = 0.95
+        // Do it once here. Like DTW it is a single opaque call over the whole
+        // book, so it reports indeterminate rather than a stuck 95%.
+        report(nil, "Building the read-along timeline…")
         try await Task.detached(priority: .utility) {
             try alignmentService.insertAnchors(records)
         }.value
@@ -140,10 +195,53 @@ final class MacAlignmentService {
             logger.error("Failed to write alignment sidecar: \(error.localizedDescription)")
         }
 
-        alignmentStatus =
-            "Alignment complete — \(selected.count) anchors across \(epubTokens.count) blocks."
-        alignmentProgress = 1.0
+        report(
+            1.0,
+            "Alignment complete — \(selected.count) anchors across \(epubTokens.count) blocks.")
         logger.info("Alignment complete: \(selected.count) anchors")
+    }
+
+    // MARK: - Progress Phases
+
+    /// Fraction at which transcription begins. Everything before it (EPUB
+    /// parse, model load) is fast or indeterminate.
+    static let transcribeStart = 0.05
+    /// Fraction at which transcription hands over to the DTW match.
+    static let transcribeEnd = 0.60
+    /// Fraction reported while anchors are written.
+    static let saveAnchors = 0.85
+
+    /// The transcription line: how much audio has been heard, and — once
+    /// there's enough of a sample to extrapolate from — how much longer it will
+    /// take. Pure and `static` so the wording and the estimate are unit-testable
+    /// without running WhisperKit.
+    static func transcribeMessage(
+        heard: TimeInterval,
+        total: TimeInterval,
+        elapsed: TimeInterval
+    ) -> String {
+        let position = "Transcribing \(formatTimeHMS(heard)) of \(formatTimeHMS(total))"
+        // Below ~2% the sample is too short to extrapolate from, and a wildly
+        // wrong "4 hours left" that then collapses is worse than no estimate.
+        guard total > 0, elapsed > 0 else { return position + "…" }
+        let fraction = heard / total
+        guard fraction >= 0.02 else { return position + "…" }
+        let remaining = elapsed / fraction - elapsed
+        guard remaining.isFinite, remaining >= 1 else { return position + "…" }
+        return position + " — about \(approximateDuration(remaining)) left"
+    }
+
+    /// A coarse, human duration ("3 min", "1 hr 20 min"). Deliberately rounded:
+    /// this is an extrapolation, and second-level precision would overstate how
+    /// much it knows.
+    static func approximateDuration(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds.rounded())
+        if total < 60 { return "\(max(1, total)) sec" }
+        let minutes = total / 60
+        if minutes < 60 { return "\(minutes) min" }
+        let hours = minutes / 60
+        let remainder = minutes % 60
+        return remainder == 0 ? "\(hours) hr" : "\(hours) hr \(remainder) min"
     }
 
     // MARK: - EPUB Extraction

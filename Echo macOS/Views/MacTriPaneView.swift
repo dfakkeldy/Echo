@@ -6,15 +6,30 @@ import UniformTypeIdentifiers
 /// The tri-pane study layout for macOS.
 ///
 /// Layout:
-///   Sidebar  |  Content  |  Detail
-///   (TOC)    | (Reader)  | (Transcript + Notes)
+///   Sidebar            |  Content   |  Inspector
+///   (Library + TOC)    | (Reader)   | (Transcript + Notes)
 ///
-/// A thin player bar at the bottom of the center pane shows playback controls.
+/// A thin player bar at the bottom of the center pane shows playback controls,
+/// and a batch-activity strip appears below it while the queue is working.
+///
+/// The trailing pane is an **inspector**, not a `NavigationSplitView` detail
+/// column, because `NavigationSplitViewVisibility` only governs the *leading*
+/// columns: in a three-column split view there is no value that hides the
+/// detail column. This layout previously was three columns, and "Toggle Review
+/// Pane" set `.detailOnly` — which hid the library and the reader and left only
+/// the notes pane, the exact opposite of hiding it. As a two-column split view
+/// with an inspector, both side panes hide independently: the standard sidebar
+/// toggle for the leading one, ⌘T or the toolbar button for the trailing one.
 struct MacTriPaneView: View {
     @Environment(MacPlayerModel.self) private var player
     @Environment(DatabaseService.self) private var dbService
     @Environment(SettingsManager.self) private var settings
+    @Environment(MacBatchProcessingService.self) private var batchService
+    @Environment(\.colorScheme) private var colorScheme
     @State private var columnVisibility = NavigationSplitViewVisibility.all
+    /// Whether the trailing transcript/notes inspector is showing. Persisted so
+    /// a reader who hides it keeps it hidden across launches.
+    @AppStorage("mac.showsNotesInspector") private var showsNotesInspector = true
     @State private var dbServiceWired = false
     @State private var showingPlaybackOptions = false
     @State private var transcribeCoordinator: MacTranscribeCoordinator?
@@ -32,6 +47,57 @@ struct MacTriPaneView: View {
 
     var body: some View {
         fullyConfiguredSplitView
+            // The window's base tint is applied by the scene, which cannot do
+            // this job: a `Scene` has no `@Environment(\.colorScheme)`, and
+            // reading the appearance from AppKit is not observable, so a
+            // light/dark switch would strand a stale accent. This view sits
+            // under `.preferredColorScheme(...)`, so its scheme is live, and it
+            // is also where the loaded cover is in reach. Refining the tint here
+            // is what lets the Artwork preference actually follow the artwork.
+            .tint(
+                player.coverTint(
+                    themeColor: settings.themeColor,
+                    vividAccent: settings.vividCoverAccent,
+                    scheme: resolvedColorScheme))
+    }
+
+    /// A cover wash behind the transport, and only behind the transport.
+    ///
+    /// Scope is the player chrome by design, following the rule this codebase
+    /// already states in `CoverThemedSheet`: long-form reading surfaces stay
+    /// system-neutral, and `MacReaderFeedView` is what fills the rest of this
+    /// pane. Washing the sidebar or the reader would trade legibility for
+    /// colour on exactly the surfaces that cannot afford it.
+    ///
+    /// Drawn at full strength rather than dimmed to some pleasant-looking
+    /// opacity, because the strength is the guarantee: `CoverThemeBuilder`
+    /// enforces `accentFloor` contrast between the accent and *both* of these
+    /// gradient stops, so the tinted transport controls are provably legible on
+    /// this exact pair of colours. Diluting the wash silently voids that
+    /// arithmetic. As on iOS, the wash keeps following the cover even when
+    /// Theme Color names a static accent: `PlayerModel.coverTheme` ignores that
+    /// preference too, because picking a blue accent does not change which book
+    /// you are listening to.
+    private var playerBarWash: some View {
+        let theme = player.coverTheme(
+            vividAccent: settings.vividCoverAccent, scheme: resolvedColorScheme)
+        return LinearGradient(
+            colors: [theme.backgroundTop, theme.backgroundBottom],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    /// The scheme the cover recipes should be built for.
+    ///
+    /// An explicit Appearance preference is read straight from settings rather
+    /// than from the environment: `.preferredColorScheme` publishes upward to
+    /// the window and only then flows back down, so trusting the environment
+    /// alone would resolve the accent against the outgoing scheme on the update
+    /// where the preference changes. `nil` means the user chose "System", and
+    /// there the environment is both correct and reactive.
+    private var resolvedColorScheme: ColorScheme {
+        Echo_macOSApp.colorScheme(for: settings.appAppearance) ?? colorScheme
     }
 
     private var fullyConfiguredSplitView: some View {
@@ -112,22 +178,15 @@ struct MacTriPaneView: View {
                 showingDeckImporter = true
             }
             .onReceive(NotificationCenter.default.publisher(for: .requestToggleDetailPane)) { _ in
-                withAnimation {
-                    columnVisibility =
-                        columnVisibility == .detailOnly
-                        ? .all
-                    : (columnVisibility == .all ? .detailOnly : .all)
-                }
+                withAnimation { showsNotesInspector.toggle() }
             }
     }
 
     private var splitView: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarPane
-        } content: {
-            centerPane
         } detail: {
-            detailPane
+            centerPane
         }
     }
 
@@ -176,8 +235,41 @@ struct MacTriPaneView: View {
                 .frame(height: 48)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
+                .background(playerBarWash)
+
+            // Batch work runs for hours; without this it was invisible unless
+            // the queue sheet happened to be open.
+            if let activity = batchService.activity {
+                Divider()
+                MacBatchActivityStrip(activity: activity) {
+                    // Routed through the app scene rather than a local sheet so
+                    // there is exactly one Batch Queue window, shared with the
+                    // ⌘⇧B menu command.
+                    NotificationCenter.default.post(name: .requestBatchQueue, object: nil)
+                }
+            }
         }
-        .navigationSplitViewColumnWidth(min: 300, ideal: 450)
+        // The reader is the detail column now rather than the middle one, so it
+        // sizes from the window instead of a fixed column width.
+        .frame(minWidth: 320)
+        .animation(.default, value: batchService.activity == nil)
+        .inspector(isPresented: $showsNotesInspector) {
+            MacNotesPane()
+                .inspectorColumnWidth(min: 220, ideal: 320, max: 520)
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    withAnimation { showsNotesInspector.toggle() }
+                } label: {
+                    Label("Toggle Notes Pane", systemImage: "sidebar.trailing")
+                }
+                .help(
+                    showsNotesInspector
+                        ? "Hide the transcript and notes pane"
+                        : "Show the transcript and notes pane")
+            }
+        }
         .overlay(alignment: .bottom) {
             if let coordinator = player.checkpointCoordinator,
                 coordinator.state != .idle
@@ -225,11 +317,6 @@ struct MacTriPaneView: View {
         .sheet(item: $studyDeckGenerationPresentation) { presentation in
             MacStudyDeckGenerationSheetHost(presentation: presentation)
         }
-    }
-
-    private var detailPane: some View {
-        MacNotesPane()
-            .navigationSplitViewColumnWidth(min: 200, ideal: 300, max: 500)
     }
 
     // MARK: - Visual Listening
@@ -530,7 +617,8 @@ struct MacTriPaneView: View {
             }
 
             do {
-                let result = try DeckImportService().importDeckVNext(from: url, db: dbService.writer)
+                let result = try DeckImportService().importDeckVNext(
+                    from: url, db: dbService.writer)
                 studyWorkflowAlert = ("Import Complete", importCompletionMessage(for: result))
             } catch {
                 studyWorkflowAlert = ("Import Failed", error.localizedDescription)
@@ -623,26 +711,27 @@ private struct MacStudyDeckGenerationSheetHost: View {
         }
 
         let providerClients = clients
-        let makeGenerator: (@escaping @Sendable (Int, Int) -> Void) ->
-            (any StudyDeckGenerating)? = { progress in
-                let cloud: (@Sendable () -> any StudyDeckGenerating)?
-                if let pair = providerClients {
-                    cloud = {
-                        AnthropicStudyDeckGenerator(
-                            client: pair.primary,
-                            briefClient: pair.brief,
-                            progress: progress
-                        )
+        let makeGenerator:
+            (@escaping @Sendable (Int, Int) -> Void) ->
+                (any StudyDeckGenerating)? = { progress in
+                    let cloud: (@Sendable () -> any StudyDeckGenerating)?
+                    if let pair = providerClients {
+                        cloud = {
+                            AnthropicStudyDeckGenerator(
+                                client: pair.primary,
+                                briefClient: pair.brief,
+                                progress: progress
+                            )
+                        }
+                    } else {
+                        cloud = nil
                     }
-                } else {
-                    cloud = nil
+                    return StudyDeckGeneratorFactory.makeForUI(
+                        preference: preference,
+                        fmAvailable: fmAvailable,
+                        cloud: cloud
+                    )
                 }
-                return StudyDeckGeneratorFactory.makeForUI(
-                    preference: preference,
-                    fmAvailable: fmAvailable,
-                    cloud: cloud
-                )
-            }
         let model = StudyDeckGenerationViewModel(
             audiobookID: presentation.audiobookID,
             bookTitle: presentation.bookTitle,

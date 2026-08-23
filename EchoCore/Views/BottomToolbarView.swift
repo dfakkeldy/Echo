@@ -27,6 +27,8 @@ struct BottomToolbarView: View {
     var isReaderVoiceMemoRecording: Bool = false
     var onAddReaderNote: (@MainActor () -> Void)?
     var onToggleReaderMemo: (@MainActor () -> Void)?
+    var onOpenBookOrFolder: (() -> Void)? = nil
+    var showsReaderSleepTimer = false
 
     var body: some View {
         HStack {
@@ -40,7 +42,9 @@ struct BottomToolbarView: View {
                 onAddDocument: onAddDocument,
                 onExport: onExport,
                 onVideoExport: onVideoExport,
-                onStudyNotesExport: onStudyNotesExport
+                onStudyNotesExport: onStudyNotesExport,
+                onOpenBookOrFolder: onOpenBookOrFolder,
+                showsReaderSleepTimer: showsReaderSleepTimer
             )
             Spacer()
             speedMenu

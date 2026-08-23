@@ -156,7 +156,7 @@ struct Persistence {
         if let url = folderURL,
             let manifest = PlaylistManifestService.read(from: url)
         {
-            return manifest.tracks.map(\.file)
+            return manifest.tracks.map { url.appending(path: $0.file).absoluteString }
         }
         return defaults.stringArray(forKey: "order_\(key)")
     }
@@ -172,7 +172,11 @@ struct Persistence {
         if let url = folderURL,
             let manifest = PlaylistManifestService.read(from: url)
         {
-            return Dictionary(uniqueKeysWithValues: manifest.tracks.map { ($0.file, $0.enabled) })
+            return Dictionary(
+                uniqueKeysWithValues: manifest.tracks.map {
+                    (url.appending(path: $0.file).absoluteString, $0.enabled)
+                }
+            )
         }
         return defaults.dictionary(forKey: "enabled_\(key)") as? [String: Bool]
     }

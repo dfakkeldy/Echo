@@ -135,10 +135,7 @@ import ZIPFoundation
         await model.load()
 
         let enabled = model.setNotAddedOnly(true)
-        for _ in 0..<50_000 {
-            if await gate.hasSuspendedProjection { break }
-            await Task.yield()
-        }
+        try await gate.waitUntilSuspended()
         let projectionDidSuspend = await gate.hasSuspendedProjection
         #expect(projectionDidSuspend)
         let disabled = model.setNotAddedOnly(false)
@@ -643,10 +640,7 @@ import ZIPFoundation
         await fixture.model.load()
 
         let projection = fixture.model.setNotAddedOnly(true)
-        for _ in 0..<50_000 {
-            if await gate.hasSuspendedProjection { break }
-            await Task.yield()
-        }
+        try await gate.waitUntilSuspended()
         #expect(await gate.hasSuspendedProjection)
 
         await fixture.model.add(fixture.item)
@@ -875,6 +869,15 @@ import ZIPFoundation
             try await request.value
         } throws: { error in
             error is CancellationError || (error as? URLError)?.code == .cancelled
+        }
+        // `request.value` resumes as soon as the cancellation error is delivered,
+        // but the pending entry is dropped by `stopLoading()` on URLSession's own
+        // thread, which lands afterwards — measured at a median of 16 yields and
+        // up to 485. Wait for it the same way the arming check above does; without
+        // this the assertion reads a stale 1 whenever the runner is busy.
+        for _ in 0..<50_000 {
+            if URLProtocolStub.pendingResponseCount(scope: scope) == 0 { break }
+            await Task.yield()
         }
         #expect(URLProtocolStub.pendingResponseCount(scope: scope) == 0)
 
@@ -1261,11 +1264,18 @@ private actor NextAsyncGate {
     }
 
     func waitUntilSuspended() async throws {
-        for _ in 0..<50_000 {
-            if suspended { return }
-            await Task.yield()
+        // `suspended` is flipped by main-actor work several hops away, but this
+        // poll reads the gate's own state and never touches the main actor — so a
+        // `Task.yield()` budget is spent at full speed however starved that work
+        // is. Measured, 50_000 yields is about 200 ms of real time no matter how
+        // long the awaited side needs, which is what timed this out on CI. Bound
+        // the wait in wall-clock time instead, and sleep rather than spin so the
+        // poll stops competing for the cores the awaited work needs.
+        let deadline = ContinuousClock.now + .seconds(30)
+        while !suspended {
+            if ContinuousClock.now >= deadline { throw NextAsyncGateTimeoutError() }
+            try await Task.sleep(for: .milliseconds(1))
         }
-        throw NextAsyncGateTimeoutError()
     }
 
     func release() {
@@ -1276,10 +1286,26 @@ private actor NextAsyncGate {
 
 private struct NextAsyncGateTimeoutError: Error {}
 
+private struct FirstProjectionGateTimeoutError: Error {}
+
 private actor FirstProjectionGate {
     private var continuation: CheckedContinuation<Void, Never>?
     private(set) var hasSuspendedProjection = false
     private var didSuspend = false
+
+    /// Same wall-clock bound as `NextAsyncGate.waitUntilSuspended()`, and for the
+    /// same reason: the projection that flips this flag runs on the main actor,
+    /// while the poll only ever touches this gate. The two call sites used to spin
+    /// 50_000 yields inline and then fall through to `#expect` — so a starved
+    /// projection was reported as "the projection never suspended" rather than as
+    /// a timeout.
+    func waitUntilSuspended() async throws {
+        let deadline = ContinuousClock.now + .seconds(30)
+        while !hasSuspendedProjection {
+            if ContinuousClock.now >= deadline { throw FirstProjectionGateTimeoutError() }
+            try await Task.sleep(for: .milliseconds(1))
+        }
+    }
 
     func suspendFirstProjection() async {
         guard !didSuspend else { return }
