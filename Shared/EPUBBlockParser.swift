@@ -8,7 +8,7 @@ import Foundation
 /// The macOS aligner consumes only `blocks`; both the iOS importer and the
 /// macOS alignment pipeline call the one `parseEPUBBlocks` driver, so the two
 /// can never emit divergent block sets or IDs (CODE_AUDIT.md §5.1 / Phase A1).
-struct EPUBBlockParse {
+nonisolated struct EPUBBlockParse {
     /// Flat, reading-order block records carrying final
     /// `epub-<audiobookID>-s<i>-b<j>` IDs.
     let blocks: [EPubBlockRecord]
@@ -46,7 +46,7 @@ struct EPUBBlockParse {
 ///     use the same value for the resulting IDs to match.
 ///   - epubURL: An expanded EPUB directory (callers extract `.epub` archives
 ///     first, mirroring the iOS import path).
-func parseEPUBBlocks(audiobookID: String, epubURL: URL) throws -> EPUBBlockParse {
+nonisolated func parseEPUBBlocks(audiobookID: String, epubURL: URL) throws -> EPUBBlockParse {
     // 1. Locate container.xml and find the OPF path.
     let containerURL = epubURL.appendingPathComponent("META-INF/container.xml")
     guard FileManager.default.fileExists(atPath: containerURL.path) else {
@@ -244,7 +244,7 @@ func parseEPUBBlocks(audiobookID: String, epubURL: URL) throws -> EPUBBlockParse
 /// Pure helpers for classifying EPUB spine structure. Shared so the one block
 /// driver (and the iOS importer's TOC resolution) agree on href normalization
 /// and body-matter detection.
-enum EPUBStructure {
+nonisolated enum EPUBStructure {
 
     /// Spine index where body matter starts, from EPUB 3 landmarks
     /// (`epub:type="bodymatter"`) or the EPUB 2 guide (`type="text"`).
@@ -287,7 +287,7 @@ enum EPUBStructure {
 
 // MARK: - Errors
 
-enum EPUBImportError: LocalizedError, Equatable {
+nonisolated enum EPUBImportError: LocalizedError, Equatable {
     case notAnEPUB(url: URL)
     case missingOPF
     case spineEmpty

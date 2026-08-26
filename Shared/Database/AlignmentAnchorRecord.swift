@@ -5,7 +5,7 @@ import GRDB
 /// A user-created or system-generated anchor point that pins an EPUB block
 /// to a specific audio timestamp. Anchors are the foundation of the manual
 /// alignment system — interpolation fills in timestamps between anchors.
-struct AlignmentAnchorRecord: Identifiable, Equatable, Codable, FetchableRecord,
+nonisolated struct AlignmentAnchorRecord: Identifiable, Equatable, Codable, FetchableRecord,
     MutablePersistableRecord
 {
     var id: String

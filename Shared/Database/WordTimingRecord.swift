@@ -6,7 +6,7 @@ import GRDB
 /// Materialized by `WordTimingMaterializer` on every (re)alignment. Rendered-word
 /// granularity (whitespace split of the block's plain text), not normalized DTW
 /// tokens — so the reader can index it directly by word position.
-struct WordTimingRecord: Identifiable, Equatable, Codable, FetchableRecord, MutablePersistableRecord
+nonisolated struct WordTimingRecord: Identifiable, Equatable, Codable, FetchableRecord, MutablePersistableRecord
 {
     var id: Int64?
     var audiobookID: String

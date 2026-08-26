@@ -2,7 +2,7 @@
 import Foundation
 
 /// A section of the EPUB reader feed, containing a heading hierarchy and a list of cards.
-struct ReaderCardSection: Identifiable, Hashable, Sendable {
+nonisolated struct ReaderCardSection: Identifiable, Hashable, Sendable {
     let id: String
     /// Stack of heading titles (e.g. ["Chapter 1", "Section 1.1"])
     let headingStack: [String]
@@ -10,7 +10,7 @@ struct ReaderCardSection: Identifiable, Hashable, Sendable {
 }
 
 /// Items displayed in the EPUB reader feed.
-enum ReaderCardItem {
+nonisolated enum ReaderCardItem {
     /// A divider between chapters showing the chapter title.
     case chapterHeader(title: String, chapterIndex: Int)
     /// An EPUB block (heading, paragraph, or image).

@@ -7,7 +7,7 @@ import Foundation
 /// and replaces path separators so the result is safe for use in filenames
 /// and directory names across chapter artwork caches, EPUB asset folders,
 /// and any future derived asset paths.
-enum SafeFileName {
+nonisolated enum SafeFileName {
     static func fromAudiobookID(_ id: String) -> String {
         let cleaned = id
             .replacingOccurrences(of: "file://", with: "")

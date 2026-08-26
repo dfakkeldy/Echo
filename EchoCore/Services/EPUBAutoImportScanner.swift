@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import GRDB
 import ZIPFoundation
 import os.log
 
-enum EPUBAutoImportScanner {
+nonisolated enum EPUBAutoImportScanner {
     private static let logger = Logger(category: "EPUBAutoImport")
 
     /// Scans the given audiobook folder for `.epub` files. When one is found
     /// and no prior EPUB blocks exist in the database, the archive is extracted
     /// and imported via `EPUBImportService`.
+    ///
+    /// The entry point is `@MainActor` only to read `databaseService.writer`;
+    /// the scan, extraction, parse, and DB writes all run on the concurrent
+    /// executor so book load never freezes the UI behind an EPUB import.
     ///
     /// - Parameters:
     ///   - folderURL: The audiobook folder to scan.
@@ -19,9 +24,24 @@ enum EPUBAutoImportScanner {
     ///   callers must re-ingest timeline items so `timeline_item` rows reference
     ///   the freshly created block IDs. `false` when skipped or failed.
     @discardableResult
+    @MainActor
     static func scanAndImportIfNeeded(
         folderURL: URL,
         databaseService: DatabaseService,
+        chapters: [Chapter],
+        duration: TimeInterval?
+    ) async -> Bool {
+        await scanAndImportIfNeeded(
+            folderURL: folderURL, writer: databaseService.writer,
+            chapters: chapters, duration: duration)
+    }
+
+    /// Off-main scan body — see the `@MainActor` overload for semantics.
+    @discardableResult
+    @concurrent
+    static func scanAndImportIfNeeded(
+        folderURL: URL,
+        writer: DatabaseWriter,
         chapters: [Chapter],
         duration: TimeInterval?
     ) async -> Bool {
@@ -74,7 +94,7 @@ enum EPUBAutoImportScanner {
         return await importEPUBFile(
             epubURL: epubURL,
             audiobookID: audiobookID,
-            databaseService: databaseService,
+            writer: writer,
             chapters: chapters,
             duration: duration,
             force: false
@@ -82,8 +102,10 @@ enum EPUBAutoImportScanner {
     }
 
     /// Imports a specific EPUB file for an audiobook, extracting and parsing its blocks.
+    /// `@MainActor` wrapper — the import itself runs on the concurrent executor.
     /// - Returns: `true` when blocks were imported, `false` when skipped or failed.
     @discardableResult
+    @MainActor
     static func importEPUBFile(
         epubURL: URL,
         audiobookID: String,
@@ -92,14 +114,30 @@ enum EPUBAutoImportScanner {
         duration: TimeInterval?,
         force: Bool = false
     ) async -> Bool {
+        await importEPUBFile(
+            epubURL: epubURL, audiobookID: audiobookID, writer: databaseService.writer,
+            chapters: chapters, duration: duration, force: force)
+    }
+
+    /// Off-main import body — see the `@MainActor` overload for semantics.
+    @discardableResult
+    @concurrent
+    static func importEPUBFile(
+        epubURL: URL,
+        audiobookID: String,
+        writer: DatabaseWriter,
+        chapters: [Chapter],
+        duration: TimeInterval?,
+        force: Bool = false
+    ) async -> Bool {
         // Security-scoped access is managed by SecurityScopeManager in loadFolder.
         // Don't start/stop here — duplicate cycles break file-provider access.
 
-        // Check if EPUB blocks are already imported for this audiobook.
+        // Check if EPUB blocks are already imported for this audiobook. A cheap
+        // EXISTS query — decoding every block row here stalled large books.
         if !force {
             let alreadyImported =
-                (try? EPubBlockDAO(db: databaseService.writer).visibleBlocks(for: audiobookID)
-                    .isEmpty) == false
+                (try? EPubBlockDAO(db: writer).hasVisibleBlocks(for: audiobookID)) == true
             if alreadyImported {
                 logger.debug(
                     "EPUB blocks already exist for \(sanitizedPath(audiobookID)); skipping auto-import."
@@ -133,7 +171,7 @@ enum EPUBAutoImportScanner {
 
         // Import extracted EPUB blocks.
         do {
-            let assetStorage = EPUBAssetStorage(databaseService: databaseService)
+            let assetStorage = EPUBAssetStorage(writer: writer)
             let importer = EPUBImportService(assetStorage: assetStorage)
             let blocks = try await importer.import(
                 audiobookID: audiobookID,
@@ -148,8 +186,8 @@ enum EPUBAutoImportScanner {
             // Create initial system anchors (first block → 0, last block → duration)
             // so every block gets an interpolated timestamp from the start.
             let alignmentService = AlignmentService(
-                db: databaseService.writer, audiobookID: audiobookID)
-            let anchorDAO = AlignmentAnchorDAO(db: databaseService.writer)
+                db: writer, audiobookID: audiobookID)
+            let anchorDAO = AlignmentAnchorDAO(db: writer)
 
             let alignmentSidecarURL = epubURL.deletingPathExtension().appendingPathExtension(
                 "alignment.json")
@@ -181,10 +219,12 @@ enum EPUBAutoImportScanner {
                         "Failed to ingest alignment.json sidecar: \(error.localizedDescription)")
                 }
             } else {
-                // Try CloudKit sync
-                let syncService = CloudKitSyncService(db: databaseService.writer)
+                // Try CloudKit sync. CloudKitSyncService is deliberately
+                // @MainActor, so construct it there; the download itself
+                // awaits CloudKit's own async machinery and never blocks.
+                let syncService = await MainActor.run { CloudKitSyncService(db: writer) }
                 let folderURL = epubURL.deletingLastPathComponent()
-                let record = try? AudiobookDAO(db: databaseService.writer).get(audiobookID)
+                let record = try? AudiobookDAO(db: writer).get(audiobookID)
                 let (title, author) = anchorLookupMetadata(folderURL: folderURL, record: record)
                 let durationVal = duration ?? 0.0
 
@@ -428,7 +468,7 @@ enum EPUBAutoImportScanner {
 
 // MARK: - Sidecar Models
 
-struct AlignmentAnchorExport: Codable {
+nonisolated struct AlignmentAnchorExport: Codable {
     let blockId: String
     let timestamp: TimeInterval
     let confidence: Double
@@ -436,7 +476,7 @@ struct AlignmentAnchorExport: Codable {
 
 // MARK: - Errors
 
-private enum ScannerError: LocalizedError {
+private nonisolated enum ScannerError: LocalizedError {
     case cachesUnavailable
     case invalidArchive(url: URL)
     case invalidEPUB(path: String)

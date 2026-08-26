@@ -2,7 +2,7 @@
 import Foundation
 import GRDB
 
-struct TimelineDAO {
+nonisolated struct TimelineDAO {
     let db: DatabaseWriter
 
     // MARK: - Range query (push-driven scroll sync)

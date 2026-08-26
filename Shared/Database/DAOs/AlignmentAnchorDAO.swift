@@ -4,7 +4,7 @@ import GRDB
 
 /// DAO for alignment anchors — user-created or auto-generated lock points
 /// that tie an EPUB block to a specific audio timestamp.
-struct AlignmentAnchorDAO {
+nonisolated struct AlignmentAnchorDAO {
     let db: DatabaseWriter
 
     // MARK: - Insert

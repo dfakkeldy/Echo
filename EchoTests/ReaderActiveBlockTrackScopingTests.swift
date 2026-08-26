@@ -239,7 +239,7 @@ struct ReaderActiveBlockTrackScopingTests {
         try insertTimeline(db, id: "ti2", blockID: "b2", start: 10, end: 15)
 
         let vm = ReaderFeedViewModel(audiobookID: "book-1", db: db.writer)
-        vm.reload()
+        vm.reloadSync()
 
         vm.updateActiveBlock(time: 7, currentTrackChapterIndices: nil)
         #expect(vm.activeBlockID == "b1")
@@ -269,7 +269,7 @@ struct ReaderActiveBlockTrackScopingTests {
         try insertTimeline(db, id: "ti1c", blockID: "c1-c", start: 10, end: 15)
 
         let vm = ReaderFeedViewModel(audiobookID: "book-1", db: db.writer)
-        vm.reload()
+        vm.reloadSync()
 
         vm.updateActiveBlock(time: 5, currentTrackChapterIndices: [0])
         #expect(vm.activeBlockID == "c0-b")
@@ -292,7 +292,7 @@ struct ReaderActiveBlockTrackScopingTests {
         try insertTimeline(db, id: "ti2", blockID: "c2-a", start: 0, end: 5)
 
         let vm = ReaderFeedViewModel(audiobookID: "book-1", db: db.writer)
-        vm.reload()
+        vm.reloadSync()
 
         vm.updateActiveBlock(time: 2, currentTrackChapterIndices: [0])
         #expect(vm.activeBlockID == "c0-a")
@@ -315,7 +315,7 @@ struct ReaderActiveBlockTrackScopingTests {
         try insertTimeline(db, id: "ti1", blockID: "c1-a", start: 0, end: 5)
 
         let vm = ReaderFeedViewModel(audiobookID: "book-1", db: db.writer)
-        vm.reload()
+        vm.reloadSync()
 
         // Track 0 sees the front-matter block.
         vm.updateActiveBlock(time: 2, currentTrackChapterIndices: [0])
@@ -338,7 +338,7 @@ struct ReaderActiveBlockTrackScopingTests {
         try insertTimeline(db, id: "ti1", blockID: "c1-a", start: 5, end: 10)
 
         let vm = ReaderFeedViewModel(audiobookID: "book-1", db: db.writer)
-        vm.reload()
+        vm.reloadSync()
 
         // Scoping to track 1 → only the chapter-1 block reads as aligned.
         vm.updateActiveBlock(time: 6, currentTrackChapterIndices: [1])

@@ -3,7 +3,7 @@ import Foundation
 
 /// Analyzes EPUB XHTML blocks to infer structural semantics (e.g. what is a heading
 /// vs a paragraph) using a heuristic scoring approach.
-struct EPUBHeuristicEngine {
+nonisolated struct EPUBHeuristicEngine {
     let tocLabels: [String]
     let spineItemCount: Int
     

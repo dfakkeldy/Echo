@@ -2,7 +2,7 @@
 import Foundation
 import GRDB
 
-enum TimelineItemType: String, Codable {
+nonisolated enum TimelineItemType: String, Codable {
     case textSegment
     case chapterMarker
     case imageAsset
@@ -10,7 +10,7 @@ enum TimelineItemType: String, Codable {
     case ankiCard
 }
 
-enum GranularityLevel: Int, Codable {
+nonisolated enum GranularityLevel: Int, Codable {
     case chapter = 0
     case paragraph = 1
     case sentence = 2
@@ -18,7 +18,7 @@ enum GranularityLevel: Int, Codable {
 }
 
 /// Materialized timeline item for the dual-path feed.
-struct TimelineItem: Identifiable, Equatable, Codable, FetchableRecord, MutablePersistableRecord {
+nonisolated struct TimelineItem: Identifiable, Equatable, Codable, FetchableRecord, MutablePersistableRecord {
     var id: String
     var audiobookID: String
     var itemType: TimelineItemType
@@ -77,7 +77,7 @@ struct TimelineItem: Identifiable, Equatable, Codable, FetchableRecord, MutableP
     }
 }
 
-extension TimelineItem {
+nonisolated extension TimelineItem {
     var effectivePosition: TimeInterval {
         playlistPosition ?? audioStartTime
     }
@@ -96,7 +96,7 @@ extension TimelineItem {
 
 // MARK: - EPUB Block Materialization
 
-extension TimelineItem {
+nonisolated extension TimelineItem {
     /// Canonical timeline row for an EPUB block, with unaligned defaults.
     ///
     /// Single source of truth shared by bulk ingestion
@@ -135,7 +135,7 @@ extension TimelineItem {
 
 // MARK: - Alignment Constants
 
-enum TimestampSource: String {
+nonisolated enum TimestampSource: String {
     case none
     case estimated
     case interpolated
@@ -143,7 +143,7 @@ enum TimestampSource: String {
     case transcript
 }
 
-enum AlignmentStatus: String {
+nonisolated enum AlignmentStatus: String {
     case unaligned
     case estimated
     case interpolated
@@ -153,7 +153,7 @@ enum AlignmentStatus: String {
 
 // MARK: - Legacy compatibility
 
-extension TimelineItemType {
+nonisolated extension TimelineItemType {
     /// Maps legacy item types to new unified types for migration support.
     init?(legacyRawValue: String) {
         switch legacyRawValue {

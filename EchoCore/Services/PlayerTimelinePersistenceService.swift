@@ -14,19 +14,21 @@ final class PlayerTimelinePersistenceService {
 
     func hasEPUB(for audiobookID: String?) -> Bool {
         guard let db = databaseService, let audiobookID else { return false }
-        return (try? EPubBlockDAO(db: db.writer).visibleBlocks(for: audiobookID).isEmpty) == false
+        return (try? EPubBlockDAO(db: db.writer).hasVisibleBlocks(for: audiobookID)) == true
     }
 
     // MARK: - SQL persistence
 
     func persistAudiobookToSQL(folderURL: URL, tracks: [Track], duration: TimeInterval?) {
         guard let db = databaseService else { return }
-        TimelineIngestionService.persistAudiobook(db: db, folderURL: folderURL, tracks: tracks, duration: duration)
+        TimelineIngestionService.persistAudiobook(
+            db: db, folderURL: folderURL, tracks: tracks, duration: duration)
     }
 
     func persistTranscriptToSQL(audiobookID: String, transcription: [TranscriptionSegment]) {
         guard let db = databaseService else { return }
-        TimelineIngestionService.persistTranscript(db: db, audiobookID: audiobookID, transcription: transcription)
+        TimelineIngestionService.persistTranscript(
+            db: db, audiobookID: audiobookID, transcription: transcription)
     }
 
     func ingestTimelineItems(

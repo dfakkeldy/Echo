@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import GRDB
 import os.log
 
 /// Imports EPUB structure into the application's SQL database and local asset storage.
@@ -14,7 +15,7 @@ import os.log
 ///
 /// For V1, the EPUB is expected to be provided as an expanded directory.
 /// ZIP extraction support requires the ZIPFoundation package.
-struct EPUBImportService {
+nonisolated struct EPUBImportService {
     private let logger = Logger(category: "EPUBImport")
 
     /// Destination for EPUB asset files.
@@ -163,14 +164,14 @@ struct EPUBImportService {
         }
 
         // 8. Write blocks to database.
-        guard let db = assetStorage.databaseService else {
+        guard let writer = assetStorage.writer else {
             throw EPUBImportError.databaseNotAvailable
         }
-        let dao = EPubBlockDAO(db: db.writer)
+        let dao = EPubBlockDAO(db: writer)
         try dao.deleteAll(for: audiobookID)
         try dao.insertAll(allBlocks)
 
-        let tocDAO = EPubTOCEntryDAO(db: db.writer)
+        let tocDAO = EPubTOCEntryDAO(db: writer)
         try tocDAO.deleteAll(for: audiobookID)
         try tocDAO.insertAll(tocRecords)
 

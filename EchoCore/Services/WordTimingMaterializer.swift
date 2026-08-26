@@ -6,7 +6,7 @@ import GRDB
 /// timeline. Runs AFTER `AlignmentService.recalculateTimeline` so it sees the
 /// final per-block `audio_start_time`s. Clears prior rows first, so each
 /// (re)alignment converges (mirrors `AlignmentAnchorDAO.deleteAutoPipelineAnchors`).
-enum WordTimingMaterializer {
+nonisolated enum WordTimingMaterializer {
     /// One aligned block: its text and start time, ordered by start.
     private struct Block {
         let id: String

@@ -83,6 +83,9 @@ final class ReaderFeedViewModel {
         didSet { reload() }
     }
 
+    /// In-flight async rebuild; superseded (cancelled) by each new `reload()`.
+    private var reloadTask: Task<Void, Never>?
+
     init(audiobookID: String, db: DatabaseWriter) {
         self.audiobookID = audiobookID
         self.blockDAO = EPubBlockDAO(db: db)
@@ -90,20 +93,92 @@ final class ReaderFeedViewModel {
         self.db = db
     }
 
-    /// Load blocks from the database and build the card array.
+    /// Everything `reload()` derives from the database, built off the main
+    /// actor in one pass and applied in one shot on the main actor.
+    private nonisolated struct FeedState {
+        var sections: [ReaderCardSection] = []
+        var tocEntries: [EPubTOCEntryRecord] = []
+        var cardIndexByBlockID: [String: IndexPath] = [:]
+        var timelineCache: [ReaderActiveBlockResolver.TimelineRow] = []
+        var wordCache: [ReaderActiveBlockResolver.WordRow] = []
+        var allAlignmentStatusByBlockID: [String: String] = [:]
+        var allAudioStartTimeByBlockID: [String: TimeInterval] = [:]
+        var chapterIndexByBlockID: [String: Int?] = [:]
+    }
+
+    /// Rebuild the feed from the database **without blocking the main actor**.
+    /// A whole-book rebuild decodes every block and every per-word timing row;
+    /// doing that synchronously froze the UI (and the play controls) for
+    /// seconds on older phones each time a book was opened. The DB reads and
+    /// card building run on the concurrent executor; results are applied back
+    /// here in one shot. A newer `reload()` supersedes an in-flight one.
     func reload() {
+        let query = searchQuery
+        reloadTask?.cancel()
+        reloadTask = Task {
+            guard
+                let state = await Self.buildFeedStateOffMain(
+                    audiobookID: self.audiobookID, searchQuery: query, db: self.db)
+            else { return }
+            guard !Task.isCancelled else { return }
+            self.apply(state)
+        }
+    }
+
+    /// Synchronous rebuild for callers that need the state populated on
+    /// return (tests assert immediately after reloading).
+    func reloadSync() {
+        guard
+            let state = Self.buildFeedState(
+                audiobookID: audiobookID, searchQuery: searchQuery, db: db)
+        else { return }
+        apply(state)
+    }
+
+    /// Publishes a freshly built state, re-gating the alignment badge
+    /// dictionaries to the current track scope.
+    private func apply(_ state: FeedState) {
+        sections = state.sections
+        tocEntries = state.tocEntries
+        cardIndexByBlockID = state.cardIndexByBlockID
+        timelineCache = state.timelineCache
+        wordCache = state.wordCache
+        allAlignmentStatusByBlockID = state.allAlignmentStatusByBlockID
+        allAudioStartTimeByBlockID = state.allAudioStartTimeByBlockID
+        chapterIndexByBlockID = state.chapterIndexByBlockID
+        applyTrackScope(currentTrackScope)
+    }
+
+    /// Off-main wrapper so the GRDB reads and card building never run on the
+    /// main actor (plain `nonisolated async` would stay on the caller).
+    @concurrent
+    private nonisolated static func buildFeedStateOffMain(
+        audiobookID: String, searchQuery: String?, db: DatabaseWriter
+    ) async -> FeedState? {
+        buildFeedState(audiobookID: audiobookID, searchQuery: searchQuery, db: db)
+    }
+
+    /// Load blocks from the database and build the card array.
+    /// Returns nil when the database read fails (the previous state stays up).
+    private nonisolated static func buildFeedState(
+        audiobookID: String, searchQuery: String?, db: DatabaseWriter
+    ) -> FeedState? {
+        let logger = Logger(category: "ReaderFeed")
+        let blockDAO = EPubBlockDAO(db: db)
+        let chapterDAO = ChapterDAO(db: db)
+        var state = FeedState()
         do {
-            let blocks: [EPubBlockRecord]
+            state.tocEntries = (try? EPubTOCEntryDAO(db: db).entries(for: audiobookID)) ?? []
             if let query = searchQuery, !query.isEmpty {
-                blocks = try blockDAO.searchBlocks(for: audiobookID, query: query)
-                sections = [
+                let blocks = try blockDAO.searchBlocks(for: audiobookID, query: query)
+                state.sections = [
                     ReaderCardSection(
                         id: "search", headingStack: ["Search Results"],
                         items: blocks.map { .block($0) })
                 ]
             } else {
                 let grouped = try blockDAO.blocksByChapter(for: audiobookID)
-                tocEntries = (try? EPubTOCEntryDAO(db: db).entries(for: audiobookID)) ?? []
+                let tocEntries = state.tocEntries
 
                 // Map TOC entries to block sequence positions: the breadcrumb
                 // for any block is the path of the last entry at or before it.
@@ -222,15 +297,15 @@ final class ReaderFeedViewModel {
                                 items: currentItems))
                     }
                 }
-                sections = parsedSections
+                state.sections = parsedSections
             }
 
             // Rebuild block ID index.
-            cardIndexByBlockID = [:]
-            for (sectionIdx, section) in sections.enumerated() {
+            for (sectionIdx, section) in state.sections.enumerated() {
                 for (itemIdx, card) in section.items.enumerated() {
                     if case .block(let block) = card {
-                        cardIndexByBlockID[block.id] = IndexPath(item: itemIdx, section: sectionIdx)
+                        state.cardIndexByBlockID[block.id] = IndexPath(
+                            item: itemIdx, section: sectionIdx)
                     }
                 }
             }
@@ -280,26 +355,25 @@ final class ReaderFeedViewModel {
                     newAlignmentStatus[blockID] = status
                 }
             }
-            timelineCache = newTimeline
+            state.timelineCache = newTimeline
 
             // Load per-word read-along timings for karaoke highlighting. Uses
             // the same writer the timeline query above runs on.
             let words = try WordTimingDAO(db: db).words(forAudiobook: audiobookID)
-            wordCache = words.map {
+            state.wordCache = words.map {
                 (
                     start: $0.audioStartTime, end: $0.audioEndTime,
                     blockID: $0.epubBlockID, wordIndex: $0.wordIndex
                 )
             }
 
-            allAlignmentStatusByBlockID = newAlignmentStatus
-            allAudioStartTimeByBlockID = newAudioStartTime
-            chapterIndexByBlockID = newChapterIndex
-            // Re-publish the track-gated badge dictionaries for the existing scope
-            // (whole-book until the first scoped updateActiveBlock call).
-            applyTrackScope(currentTrackScope)
+            state.allAlignmentStatusByBlockID = newAlignmentStatus
+            state.allAudioStartTimeByBlockID = newAudioStartTime
+            state.chapterIndexByBlockID = newChapterIndex
+            return state
         } catch {
             logger.error("Failed to load reader blocks: \(error.localizedDescription)")
+            return nil
         }
     }
 
@@ -400,7 +474,7 @@ final class ReaderFeedViewModel {
     /// Heading-level breadcrumb inference for books without a publisher TOC:
     /// h-tag levels (with part/chapter/section text overrides) cascade into a
     /// six-slot stack, demoting repeat headings within one audio chapter.
-    private static func applyLegacyHeadingCascade(
+    private nonisolated static func applyLegacyHeadingCascade(
         text: String,
         block: EPubBlockRecord,
         audioChapterKey: Int,
@@ -492,7 +566,7 @@ final class ReaderFeedViewModel {
     }
 }
 
-extension Array {
+nonisolated extension Array {
     fileprivate subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
     }

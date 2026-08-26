@@ -2,7 +2,7 @@
 import Foundation
 import GRDB
 
-struct AudiobookDAO {
+nonisolated struct AudiobookDAO {
     let db: DatabaseWriter
 
     func insert(_ audiobook: AudiobookRecord) throws {
@@ -46,7 +46,7 @@ struct AudiobookDAO {
     }
 }
 
-struct AudiobookRecord: Codable, FetchableRecord, MutablePersistableRecord {
+nonisolated struct AudiobookRecord: Codable, FetchableRecord, MutablePersistableRecord {
     var id: String
     var title: String
     var author: String?

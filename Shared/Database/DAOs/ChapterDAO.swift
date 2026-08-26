@@ -2,7 +2,7 @@
 import Foundation
 import GRDB
 
-struct ChapterDAO {
+nonisolated struct ChapterDAO {
     let db: DatabaseWriter
 
     func chapters(for audiobookID: String) throws -> [ChapterRecord] {
