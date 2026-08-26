@@ -21,21 +21,51 @@ struct RealTimeEventDAO {
         sourceItemType: String?
     ) throws {
         try db.write { db in
-            try db.execute(
-                sql: """
-                    INSERT INTO real_time_event
-                    (id, event_type, audiobook_id, media_timestamp, started_at, ended_at,
-                     title, subtitle, metadata_json, source_item_id, source_item_type)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                arguments: [
-                    id, eventType, audiobookID, mediaTimestamp,
-                    startedAt.ISO8601Format(), endedAt?.ISO8601Format(),
-                    title, subtitle, metadataJSON,
-                    sourceItemID, sourceItemType
-                ]
+            try Self.log(
+                id: id,
+                eventType: eventType,
+                audiobookID: audiobookID,
+                mediaTimestamp: mediaTimestamp,
+                startedAt: startedAt,
+                endedAt: endedAt,
+                title: title,
+                subtitle: subtitle,
+                metadataJSON: metadataJSON,
+                sourceItemID: sourceItemID,
+                sourceItemType: sourceItemType,
+                in: db
             )
         }
+    }
+
+    static func log(
+        id: String = UUID().uuidString,
+        eventType: String,
+        audiobookID: String?,
+        mediaTimestamp: TimeInterval?,
+        startedAt: Date,
+        endedAt: Date?,
+        title: String?,
+        subtitle: String?,
+        metadataJSON: String?,
+        sourceItemID: String?,
+        sourceItemType: String?,
+        in db: Database
+    ) throws {
+        try db.execute(
+            sql: """
+                INSERT INTO real_time_event
+                (id, event_type, audiobook_id, media_timestamp, started_at, ended_at,
+                 title, subtitle, metadata_json, source_item_id, source_item_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+            arguments: [
+                id, eventType, audiobookID, mediaTimestamp,
+                startedAt.ISO8601Format(), endedAt?.ISO8601Format(),
+                title, subtitle, metadataJSON,
+                sourceItemID, sourceItemType
+            ]
+        )
     }
 
     func updateEndedAt(id: String, endedAt: Date) throws {

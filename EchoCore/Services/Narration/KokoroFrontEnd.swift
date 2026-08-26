@@ -7,8 +7,8 @@
     /// across every `synthesize` call.
     ///
     /// Why this exists: `OnnxKokoroEngine.synthesize` previously rebuilt all three on
-    /// every call, and `NarrationService` calls `synthesize` once per ≤200-char
-    /// sub-chunk — dozens to hundreds of times per chapter. Each rebuild re-parsed
+    /// every call, and `NarrationService` calls `synthesize` once per text sub-chunk
+    /// — dozens to hundreds of times per chapter. Each rebuild re-parsed
     /// ~6 MB of MisakiSwift lexicon JSON (`us_gold.json` + `us_silver.json`, each
     /// run through `growDictionary`) and re-read the 510×256 voice blob, of which
     /// only one 256-float row is used. That was pure per-sub-chunk CPU + allocator
@@ -19,7 +19,7 @@
     /// id, so the same `(text, voice)` always yields the same `(ids, refS)`. Held on
     /// the `OnnxKokoroEngine` actor, so every access is actor-isolated — no Sendable
     /// concern despite the mutable cache.
-    final class KokoroFrontEnd {
+    nonisolated final class KokoroFrontEnd {
         private var g2p: KokoroG2P?
         private var vocab: KokoroPhonemeVocab?
         private var voicePacks: [String: KokoroVoicePack] = [:]
@@ -36,12 +36,22 @@
         func encode(text: String, voice: VoiceID) throws -> (ids: [Int32], refS: [Float]) {
             let g2p = g2p(for: text)
             let vocab = try phonemeVocab()
-            let pack = try voicePack(named: voice.rawValue)
 
-            let phonemes = g2p.phonemes(for: text)
+            let phonemes = g2p.result(for: text).phonemes
             let ids = vocab.ids(forPhonemes: phonemes)
-            let refS = pack.refS(forPhonemeCount: phonemes.count)
+            let refS = try referenceStyle(voice: voice, phonemeCount: phonemes.count)
             return (ids, refS)
+        }
+
+        /// Returns only the requested voice's style row. Planned synthesis already
+        /// owns its final phonemes and token ids, so this path must not initialize or
+        /// invoke G2P merely to select the matching reference style.
+        func referenceStyle(voice: VoiceID, phonemeCount: Int) throws -> [Float] {
+            try voicePack(named: voice.rawValue).refS(forPhonemeCount: phonemeCount)
+        }
+
+        func fallbackHits(for text: String) -> [PronunciationFallbackHit] {
+            g2p(for: text).result(for: text).fallbackHits
         }
 
         // MARK: - Cached components

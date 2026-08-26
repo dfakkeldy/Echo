@@ -20,301 +20,169 @@ struct PhonePlayerSettingsView: View {
     private let palette: [WatchAction] = [
         .playPause, .skipForward, .skipBackward,
         .nextSection, .previousSection,
-        .speed, .sleepTimer, .bookmark,
+        .speed, .sleepTimer, .bookmark, .markPassage,
     ]
 
     /// Actions the mini-player slots can perform (no sleep timer — that lives
     /// in the top pill; no pomodoro yet).
     private let miniPlayerChoices: [WatchAction] = [
         .playPause, .skipBackward, .skipForward,
-        .previousSection, .nextSection, .speed, .bookmark, .empty,
+        .previousSection, .nextSection, .speed, .bookmark, .markPassage, .empty,
     ]
 
-    private func miniPlayerChoiceName(_ action: WatchAction) -> String {
-        switch action {
-        case .playPause: return String(localized: "Play / Pause")
-        case .skipBackward: return String(localized: "Skip Back")
-        case .skipForward: return String(localized: "Skip Forward")
-        case .previousTrack: return String(localized: "Previous Chapter")
-        case .nextTrack: return String(localized: "Next Chapter")
-        case .previousSection: return String(localized: "Previous Section")
-        case .nextSection: return String(localized: "Next Section")
-        case .loopMode: return String(localized: "Loop Mode")
-        case .speed: return String(localized: "Speed")
-        case .bookmark: return String(localized: "Bookmark")
-        case .sleepTimer: return String(localized: "Sleep Timer")
-        case .pomodoro: return String(localized: "Pomodoro")
-        case .empty: return String(localized: "Empty")
-        }
+    private var phoneSlotChoices: [WatchAction] {
+        palette + [.empty]
     }
 
     var body: some View {
         @Bindable var settings = settings
 
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-
-                // MARK: Player Layout Style
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Player Layout Style")
-                        .customFont(.title3, weight: .semibold, appFont: settings.appFont)
-                        .foregroundStyle(.secondary)
-
-                    Picker("Layout Style", selection: $settings.playerLayoutStyle) {
-                        Text("Default").tag("default")
-                        Text("Compact").tag("compact")
-                    }
-                    .pickerStyle(.segmented)
-
-                    Text(
-                        "The Compact layout uses a smaller scrubber and reorganizes transport controls for a more minimalist look."
-                    )
-                    .customFont(.subheadline, appFont: settings.appFont)
-                    .foregroundStyle(.tertiary)
+        Form {
+            Section {
+                Picker("Player Layout", selection: $settings.playerLayoutStyle) {
+                    Text("Default").tag("default")
+                    Text("Compact").tag("compact")
                 }
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(.quaternary)
+                .pickerStyle(.segmented)
+            } header: {
+                Text("Layout")
+            } footer: {
+                Text(
+                    "Compact uses a smaller scrubber and reorganizes transport controls for a more minimal player."
                 )
+            }
 
-                // MARK: Mini-Player Buttons
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Mini-Player Buttons")
-                        .customFont(.title3, weight: .semibold, appFont: settings.appFont)
-                        .foregroundStyle(.secondary)
-
-                    ForEach(0..<3, id: \.self) { slot in
-                        Picker(
-                            String(localized: "Slot \(slot + 1)"),
-                            selection: Binding(
-                                get: {
-                                    settings.miniPlayerPage.indices.contains(slot)
-                                        ? settings.miniPlayerPage[slot] : .empty
-                                },
-                                set: { newAction in
-                                    var page = settings.miniPlayerPage
-                                    while page.count < 3 { page.append(.empty) }
-                                    page[slot] = newAction
-                                    settings.miniPlayerPage = page
-                                }
-                            )
-                        ) {
-                            ForEach(miniPlayerChoices) { action in
-                                Label(miniPlayerChoiceName(action), systemImage: action.iconName)
-                                    .tag(action)
+            Section {
+                ForEach(0..<3, id: \.self) { slot in
+                    Picker(
+                        String(localized: "Slot \(slot + 1)"),
+                        selection: Binding(
+                            get: {
+                                settings.miniPlayerPage.indices.contains(slot)
+                                    ? settings.miniPlayerPage[slot] : .empty
+                            },
+                            set: { newAction in
+                                var page = settings.miniPlayerPage
+                                while page.count < 3 { page.append(.empty) }
+                                page[slot] = newAction
+                                settings.miniPlayerPage = page
                             }
-                        }
-                        .pickerStyle(.menu)
-                    }
-
-                    Text(
-                        "The three buttons shown in the mini-player on the Timeline and Reader tabs."
-                    )
-                    .customFont(.subheadline, appFont: settings.appFont)
-                    .foregroundStyle(.tertiary)
-                }
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(.quaternary)
-                )
-
-                // MARK: Phone App Designer Info
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(
-                        "Customize your playback control layout by dragging actions into the slots on the phone preview below."
-                    )
-                    .customFont(.subheadline, appFont: settings.appFont)
-                    .foregroundStyle(.secondary)
-                }
-                .padding()
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(.quaternary)
-                )
-
-                // MARK: Designer Canvas
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Phone Player Designer")
-                        .customFont(.title3, weight: .semibold, appFont: settings.appFont)
-                        .foregroundStyle(.secondary)
-
-                    Picker("Configure", selection: $configMode) {
-                        Text("Tap Actions").tag(ConfigMode.tap)
-                        Text("Long Press").tag(ConfigMode.longPress)
-                    }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 16)
-
-                    VStack(spacing: 16) {
-                        PhonePreviewCanvas(
-                            slots: configMode == .tap ? $slots : $longPressSlots,
-                            onChange: saveSlots
                         )
+                    ) {
+                        ForEach(miniPlayerChoices) { action in
+                            Label(action.displayName, systemImage: action.iconName)
+                                .tag(action)
+                        }
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(16)
-                    .background(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .fill(.quaternary)
+                    .pickerStyle(.menu)
+                }
+            } header: {
+                Text("Mini-Player")
+            } footer: {
+                Text("The three buttons shown in the mini-player on Now Playing and Read surfaces.")
+            }
+
+            Section("Player Buttons") {
+                Picker("Configure", selection: $configMode) {
+                    Text("Tap Actions").tag(ConfigMode.tap)
+                    Text("Long Press").tag(ConfigMode.longPress)
+                }
+                .pickerStyle(.segmented)
+
+                VStack(spacing: 16) {
+                    PhonePreviewCanvas(
+                        slots: configMode == .tap ? $slots : $longPressSlots,
+                        onChange: saveSlots
+                    )
+                    PhoneSlotPickerGrid(
+                        slots: configMode == .tap ? $slots : $longPressSlots,
+                        choices: phoneSlotChoices,
+                        onChange: saveSlots
                     )
                 }
+                .frame(maxWidth: .infinity)
 
-                // MARK: Available Actions
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Available Actions (Drag to slots)")
-                        .customFont(.subheadline, weight: .semibold, appFont: settings.appFont)
-                        .foregroundStyle(.secondary)
+                Text("Choose actions for each slot, or drag actions into the phone preview.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
 
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 18) {
-                            ForEach(palette) { action in
-                                PaletteItem(action: action)
-                            }
-                        }
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, 4)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(.quaternary)
-                )
-
-                // MARK: Focus
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Focus")
-                        .customFont(.title3, weight: .semibold, appFont: settings.appFont)
-                        .foregroundStyle(.secondary)
-
-                    Button {
-                        showingSoundscapePicker = true
-                    } label: {
-                        Label("Soundscape", systemImage: "waveform")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        showingChimeSettings = true
-                    } label: {
-                        Label("Interval Chime", systemImage: "bell")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(.quaternary)
-                )
-
-                // MARK: Layout Presets
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text("Layout Presets")
-                            .customFont(.title3, weight: .semibold, appFont: settings.appFont)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button {
-                            newPresetName = ""
-                            showingSaveAlert = true
-                        } label: {
-                            Label("Save Current", systemImage: "plus.circle")
-                        }
-                    }
-
-                    if settings.phonePresets.isEmpty {
-                        Text("No presets saved yet.")
-                            .customFont(.subheadline, appFont: settings.appFont)
-                            .foregroundStyle(.tertiary)
-                            .padding(.vertical, 8)
-                    } else {
-                        ForEach(settings.phonePresets) { preset in
-                            HStack {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(preset.name)
-                                        .customFont(
-                                            .headline, weight: .bold, appFont: settings.appFont)
-                                    Text(
-                                        "Slots: \(preset.slots.map { $0 == .empty ? "➕" : $0.rawValue }.joined(separator: ", "))"
-                                    )
-                                    .customFont(.caption2, appFont: settings.appFont)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                }
-                                Spacer()
-
-                                Button {
-                                    slots = padded(preset.slots)
-                                    if let lps = preset.longPressSlots {
-                                        longPressSlots = padded(lps)
-                                    } else {
-                                        longPressSlots = Array(repeating: .empty, count: 5)
-                                    }
-                                    saveSlots()
-                                    Haptic.play(.medium)
-                                } label: {
-                                    Text("Load")
-                                        .customFont(
-                                            .caption, weight: .bold, appFont: settings.appFont)
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .buttonBorderShape(.capsule)
-                                .controlSize(.small)
-
-                                Button(role: .destructive) {
-                                    settings.phonePresets.removeAll(where: { $0.id == preset.id })
-                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                } label: {
-                                    Image(systemName: "trash")
-                                        .foregroundStyle(.red)
-                                }
-                                .padding(.leading, 8)
-                            }
-                            .padding()
-                            .background(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .fill(.quaternary)
-                            )
-                        }
-                    }
-                }
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(.quaternary)
-                )
-                .alert("Save Current Layout", isPresented: $showingSaveAlert) {
-                    TextField("Preset Name", text: $newPresetName)
-                    Button("Save") {
-                        saveCurrentAsPreset()
-                    }
-                    Button("Cancel", role: .cancel) {}
-                } message: {
-                    Text("Enter a name for this phone layout configuration.")
+            Section("Focus Tools") {
+                Button {
+                    showingSoundscapePicker = true
+                } label: {
+                    Label("Soundscape", systemImage: "waveform")
                 }
 
                 Button {
+                    showingChimeSettings = true
+                } label: {
+                    Label("Interval Chime", systemImage: "bell")
+                }
+            }
+
+            Section("Available Actions") {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 18) {
+                        ForEach(palette) { action in
+                            PaletteItem(action: action)
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
+                .scrollIndicators(.hidden)
+            }
+
+            Section("Presets") {
+                Button {
+                    newPresetName = ""
+                    showingSaveAlert = true
+                } label: {
+                    Label("Save Current", systemImage: "plus.circle")
+                }
+
+                if settings.phonePresets.isEmpty {
+                    Text("No presets saved yet.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(settings.phonePresets) { preset in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(preset.name)
+                                Text(
+                                    "Slots: \(preset.slots.map(\.displayName).joined(separator: ", "))"
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            }
+                            Spacer()
+
+                            Button("Load") {
+                                slots = padded(preset.slots)
+                                longPressSlots = padded(preset.longPressSlots ?? [])
+                                saveSlots()
+                                Haptic.play(.medium)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+
+                            Button("Delete", systemImage: "trash", role: .destructive) {
+                                settings.phonePresets.removeAll(where: { $0.id == preset.id })
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            }
+                            .labelStyle(.iconOnly)
+                        }
+                    }
+                }
+
+                Button("Reset to Defaults", role: .destructive) {
                     slots = [.skipBackward, .empty, .playPause, .empty, .skipForward]
                     longPressSlots = Array(repeating: .empty, count: 5)
                     saveSlots()
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                } label: {
-                    Text("Reset to Defaults")
-                        .customFont(.headline, weight: .bold, appFont: settings.appFont)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
                 }
-                .buttonStyle(.bordered)
-                .tint(.red)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
         }
         .navigationTitle("Phone Player Settings")
         .navigationBarTitleDisplayMode(.inline)
@@ -324,6 +192,15 @@ struct PhonePlayerSettingsView: View {
         }
         .sheet(isPresented: $showingChimeSettings) {
             ChimeSettingsView(engine: model.audioEngine.chimePlayer)
+        }
+        .alert("Save Current Layout", isPresented: $showingSaveAlert) {
+            TextField("Preset Name", text: $newPresetName)
+            Button("Save") {
+                saveCurrentAsPreset()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Enter a name for this phone layout configuration.")
         }
     }
 
@@ -352,6 +229,43 @@ struct PhonePlayerSettingsView: View {
     }
 }
 
+private struct PhoneSlotPickerGrid: View {
+    @Binding var slots: [WatchAction]
+    let choices: [WatchAction]
+    var onChange: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            ForEach(0..<5, id: \.self) { slot in
+                Picker(
+                    String(localized: "Slot \(slot + 1)"),
+                    selection: slotBinding(for: slot)
+                ) {
+                    ForEach(choices) { action in
+                        Label(action.displayName, systemImage: action.iconName)
+                            .tag(action)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private func slotBinding(for slot: Int) -> Binding<WatchAction> {
+        Binding(
+            get: {
+                slots.indices.contains(slot) ? slots[slot] : .empty
+            },
+            set: { newAction in
+                while slots.count < 5 { slots.append(.empty) }
+                slots[slot] = newAction
+                onChange()
+            }
+        )
+    }
+}
+
 // A draggable palette chip showing the action icon + label.
 private struct PaletteItem: View {
     let action: WatchAction
@@ -370,13 +284,13 @@ private struct PaletteItem: View {
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(.tint)
             }
-            Text(action.rawValue)
+            Text(action.displayName)
                 .customFont(.caption, appFont: settings.appFont)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
         .frame(width: 78)
-        .accessibilityLabel(Text("Action: \(action.rawValue)"))
+        .accessibilityLabel(Text("Action: \(action.displayName)"))
         .onDrag {
             NSItemProvider(object: NSString(string: action.rawValue))
         }
@@ -489,7 +403,7 @@ private struct DropSlot: View {
                 if let raw = string as? String,
                     let action = WatchAction(rawValue: raw)
                 {
-                    DispatchQueue.main.async {
+                    Task { @MainActor in
                         slot = action
                         onChange()
                     }

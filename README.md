@@ -4,9 +4,9 @@
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#)
 [![TestFlight](https://img.shields.io/badge/TestFlight-Beta-blue.svg)](#)
-[![Platform](https://img.shields.io/badge/iOS-19+-blue.svg)](#)
-[![Platform](https://img.shields.io/badge/macOS-16+-blue.svg)](#)
-[![Platform](https://img.shields.io/badge/watchOS-12+-blue.svg)](#)
+[![Platform](https://img.shields.io/badge/iOS-18+-blue.svg)](#)
+[![Platform](https://img.shields.io/badge/macOS-15+-blue.svg)](#)
+[![Platform](https://img.shields.io/badge/watchOS-11+-blue.svg)](#)
 [![License](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 **Echo** turns audiobooks into a serious study medium. It aligns the audiobook you already own to its EPUB/PDF for word-level read-along, **narrates ebooks that have no audiobook** on-device, and turns what you hear into flashcards you review with spaced repetition — all without leaving the audio.
@@ -63,23 +63,34 @@ Review with spaced repetition   →   Retain what you learned, on your schedule
 See honest insights & export your second brain   →   Own what you learned
 ```
 
+### Auto Study Plans
+
+For EPUB-backed books, Echo can create a Study Plan from Book Settings. A plan generates one listening-assignment card per included chapter, can include image cards for EPUB pictures, and releases new chapter work on a daily or weekly cadence. After the first grade, the existing FSRS review scheduler controls future due dates.
+
 ### Features Built for Focus
 
 - **Intermittent Attention Support.** Smart rewind ensures you never lose context when you hit play after a pause. The longer you've been away, the further it rewinds — perfect for delivery drivers, commuters, and anyone with an interrupted day.
+- **Local Library Shelf.** Point Echo at folders of audiobooks and it builds a browsable shelf without copying your files. The Library tab groups by recent additions, author, topic, folder, study status, and processing status; missing books can be hidden, relocated, or removed; and the Mac app gets the same shelf in its sidebar.
 - **Chapter Looping.** Put a single chapter on repeat until the concepts are fully absorbed. Loop between bookmarks for targeted review sessions.
 - **Voice Memo Bookmarks.** Instantly save your thoughts without fumbling with your phone. Perfect for driving, walking, or when your hands are full. Memos can play back inline when the narration reaches them.
+- **Sessions history.** Review when and where you listened — GPS route and distance, minutes, the chapters you covered, and the bookmarks, cards, and notes you made — then tap any session to jump back into that exact slice of the book.
 - **Photo Bookmarks.** Attach a photo (from camera or library) to any bookmark; the player artwork dynamically switches to your photo as playback passes that moment. Built on *context-dependent memory* — your brain encodes where you were alongside what you heard, and the photo becomes a retrieval cue. [The science →](https://dfakkeldy.github.io/Echo/learn.html)
-- **Spaced Repetition (SRS).** Built-in flashcard system using the SM-2 algorithm to help you memorize crucial facts, languages, or concepts permanently — with audio snippets on cards, Anki-style deck import, review stats, daily reminders, and hands-free review on Apple Watch.
-- **Mark Now, Card Later.** 🚧 One tap (phone or watch) marks a passage without pausing playback; the **Card Inbox** turns marks into flashcards when you have the bandwidth. Retires mid-playback popups for good.
-- **Decks, Tags & Real Anki Import.** 🚧 Organize cards into decks with tags, edit any card, review per deck — and import genuine `.apkg` Anki decks with scheduling history preserved. JSON deck export round-trips losslessly.
+- **Spaced Repetition (SRS).** Built-in flashcard system using the **FSRS** algorithm (the modern free-spaced-repetition scheduler) to help you memorize crucial facts, languages, or concepts permanently — with audio snippets on cards, Anki-style deck import, review stats, daily reminders, and resilient hands-free review on Apple Watch.
+- **Mark Now, Card Later.** One tap (phone or watch) marks a passage without pausing playback; the **Card Inbox** turns marks into flashcards when you have the bandwidth. Retires mid-playback popups for good.
+- **Decks, Tags & Real Anki Import.** 🚧 Organize cards into decks with tags, edit any card, review per deck — and import genuine `.apkg` Anki decks with scheduling history and referenced media preserved. Imported cards can be **anchored to the exact EPUB passage** they came from, so they appear inline at the right spot in the reader. JSON deck export round-trips losslessly.
+- **AI-Generated Cards.** 🚧 Turn a book's text into question/answer and cloze flashcards with either **your own** Anthropic API key (stored in your Keychain; no Echo account or servers) or, when Apple's Foundation Models runtime is available, an on-device provider that keeps the book text private. It's opt-in and off by default, anchored to the source passage, and drops straight into the same FSRS review flow. The book's text is sent to Anthropic only when you choose the cloud provider.
 - **Brain Dump / Book Notes.** 🚧 A frictionless mental inbox: park any thought — text or voice, even dictated from the watch — without pausing the book, then promote keepers to bookmarks or flashcards. Built for leaky working memory.
-- **Context Memory (opt-in).** 🚧 Echo can tag bookmarks, sessions, and chapter starts with an approximate place name ("Chapter 3 started at Oak Street") — context-dependent memory, automated. Off by default, reduced accuracy, deletable in one tap, session history never syncs.
-- **Insights.** 🚧 A dedicated stats screen computed entirely on-device: listening time by day/week/month/year, streaks, per-chapter coverage heatmaps ("Ch 7 — 86%, listened 3×"), speed trends, time-of-day patterns, retention curves, grade distributions, and a 30-day review forecast.
-- **Second-Brain Export.** 🚧 Per-book Markdown bundles — bookmarks, notes, flashcards, voice memos, photos — that drop straight into Obsidian, Logseq, or Notion. Plain files, relative links, no accounts, no lock-in. (Bookmark Markdown export ships today.)
+- **Context Memory (opt-in).** 🚧 Echo can tag new bookmarks with an approximate place name — context-dependent memory, automated. Off by default, reduced accuracy, and deletable in one tap; session and chapter-start tagging are the remaining 1.0 scope decision.
+- **Insights.** 🚧 A dedicated stats screen computed entirely on-device: listening time by day/week/month/year, streaks, playback-speed trends, time-of-day patterns, Study review charts with retention curves and grade distributions, a 30-day review forecast, plus upcoming per-chapter coverage heatmaps ("Ch 7 — 86%, listened 3×") and session-length views.
+- **Second-Brain Export.** Per-book Markdown `.zip` bundles from the iOS More menu, plus full-library study-notes export from Settings — bookmarks, notes, flashcards, chapters, voice memos, photos, and imported card media — that drop straight into Obsidian, Logseq, or Notion. Echo Pro can also auto-export a text-only Markdown mirror to a folder you pick (for example iCloud Drive), keeping one deterministic file per book updated for Mac-side tools. Plain files, relative links, no accounts, no lock-in.
 - **iCloud Study Sync.** 🚧 Flashcards, decks, bookmarks, and playback position across iPhone, Mac, and Watch via your personal iCloud — Echo runs no servers.
-- **On-Device EPUB Alignment (+ PDF companion).** Seamlessly scroll through the EPUB text and view diagrams exactly when the audio reaches that section. On-device auto-alignment ([WhisperKit](https://dfakkeldy.github.io/Echo/glossary.html#whisperkit) + [CoreML](https://dfakkeldy.github.io/Echo/glossary.html#coreml)) maps every paragraph of the **EPUB** to the narration — no cloud API calls, no privacy concerns. **PDF** is supported as a read-only companion with **page-level** alignment (pin a page to a timestamp) and per-page screenshot bookmarks — not the word-level auto-pipeline EPUB gets.
+- **On-Device EPUB Alignment (+ PDF companion).** Seamlessly scroll through the EPUB text and view diagrams exactly when the audio reaches that section. On-device auto-alignment ([WhisperKit](https://dfakkeldy.github.io/Echo/glossary.html#whisperkit) + [CoreML](https://dfakkeldy.github.io/Echo/glossary.html#coreml)) maps every paragraph of the **EPUB** to the narration — no cloud API calls, no privacy concerns. **PDF** companions get page-level alignment (pin a page to a timestamp) and per-page screenshot bookmarks — and, for PDFs parsed into text, a **read-along reading surface** you can flip between the original page and a reflowed text feed (iOS), with the narration auto-following the page and the current word highlighted.
 - **Word-by-Word Read-Along (Karaoke).** As the narration plays, the current word lights up in the text — on iPhone *and* Mac. Built on the same on-device alignment, refined to the narrator's actual word timings wherever speech recognition is confident. (Existing books need a one-time re-align to light up.)
-- **On-Device Narration for text-only books.** Got an EPUB with no audiobook? Echo can speak it in a natural voice (Kokoro, the same on-device model on iPhone and Mac, run via ONNX Runtime on the CPU) — no cloud, no account, no API keys. On iPhone it narrates as you listen (every device — no Neural-Engine requirement); on Mac you can queue EPUBs to synthesize overnight, then play them back like any audiobook, with full read-along. The playlist shows the book's **full chapter outline** up front, and you can tap any chapter to **skip narrating it** — handy for cutting front matter, appendices, or chapters you don't need spoken.
+- **Audio-only transcription reader.** Imported audiobooks that have no EPUB/PDF can be transcribed on-device into searchable read-along text, with word timing, tap-to-seek, and clear provenance so ASR text never masquerades as the canonical book.
+- **On-Device Narration for text-only books.** Got an EPUB with no audiobook? Echo can speak it in a natural voice (Kokoro, the same on-device model on iPhone and Mac, run via ONNX Runtime on the CPU) — no cloud, no account, no API keys. **Choose from 28 built-in voices** (American & British, female & male). On iPhone it narrates as you listen (every device — no Neural-Engine requirement); on Mac you can queue EPUBs to synthesize overnight, then play them back like any audiobook, with full read-along. The playlist shows the book's **full chapter outline** up front, and generated tracks/M4B markers use heading-derived names like `ch. 1: The Door Opens` when available, falling back to `Chapter N`. You can tap any chapter to **skip narrating it** — handy for cutting front matter, appendices, or chapters you don't need spoken. **Markdown (`.md`/`.markdown`) and plain text (`.txt`) files are also supported** — imported as standalone narratable books on both iOS and macOS, with the same narration, read-along, and chaptered playback as EPUBs. Markdown chapters follow the heading hierarchy; plain text uses heuristic chapter detection ("Chapter N", prominent ALL-CAPS titles) and falls back to a single chapter.
+- On-device narrated books get exact word-by-word read-along highlighting, timed from the speech synthesizer itself (no transcription pass).
+- **Transcript and narration QA.** Source-backed alignment can compare ASR against the real EPUB/PDF text, and generated narration can be listened back for reviewable divergences. Pronunciation fixes save overrides and regenerate the affected chapter so names and jargon stay correct.
+- **Tap or hold a word (iOS).** In the reflowed reader and on the PDF page, tap a word to jump the audio there, or press-and-hold to **Look Up** its definition or **Save word** — saved words become spaced-repetition vocabulary cards that replay in their original sentence.
 - **Teach the narrator how to say names.** Invented character names, brands, and niche jargon trip up any text-to-speech. A built-in **Pronunciation** dictionary (Settings) lets you spell a word out in IPA once, and the narrator says it your way everywhere it appears.
 - **Overnight Batch Processing (Mac).** Point the Mac app at a folder of audiobooks and it imports, transcribes, and aligns them one by one, unattended — and picks up where it left off if you quit and relaunch. The same queue can also **narrate text-only EPUBs** overnight (Batch ▸ “Narrate EPUB(s)…”).
 - **Chaptered M4B Export.** Export any book — AI-narrated or already-imported — as a single `.m4b` with real chapter markers and embedded metadata, playable in any chapter-aware player. Works on both iPhone and Mac; one tap on iOS (player More menu → share sheet), File menu → Save on Mac.
@@ -97,16 +108,16 @@ Echo has a defined 1.0 — rebuilt 2026-06-19 around **six competitive wedges**,
 
 | Wedge | Competitors fail at… | …so Echo ships |
 |---|---|---|
-| **1 · Study Moat** *(lead)* | nobody has it | FSRS + **Chapter Study Mode** (each chapter an Anki-style card) + narrator-voice flashcards + watch review + align-*or*-narrate + deep on-device analytics |
-| **2 · Rock-Solid** | crashes, freezes, lost progress | never crashes, never loses your place — a real crash-free + no-lost-progress bar |
-| **3 · Clarity** | confusing UI, poor onboarding | a genuine UI overhaul + <60s onboarding; obvious from first launch |
-| **4 · Trust** | ads, paywalls, hidden fees | free, open-source, ad-free, **verifiably** private (you can read the code) |
-| **5 · Sync Done Right** | losing progress across devices | full iCloud study-state sync **and** a self-hosted Audiobookshelf library (connect/browse/download-to-local/two-way progress sync — built on branch, pending merge + device verify), no lost progress |
-| **6 · Support** | slow, unhelpful support | responsive, open, in-app feedback |
+| **1 · Study Moat** *(lead)* | nobody has it | FSRS + **Chapter Study Mode** (partial: chapter assignment grade policy + global daily cap wired; hands-free Again/re-listen/retire prompts remain) + narrator-voice flashcards + resilient watch review + align-*or*-narrate + deep on-device analytics |
+| **2 · Rock-Solid** | crashes, freezes, lost progress | never crashes, never loses your place — MetricKit diagnostics capture and macOS relaunch resume are wired; App Store Connect crash-free data and broader no-lost-progress verification remain |
+| **3 · Clarity** | confusing UI, poor onboarding | a genuine UI overhaul + <60s onboarding; first-launch workflow guide, action-led empty/recovery states, Reader search/filter recovery, Reader card VoiceOver actions, inline Reader speed presets, ABS browse/Card Inbox/study-review recovery, current help/manual/settings/architecture copy, EPUB/PDF companion import, visible Bookmark Loop unavailable states, non-drag phone/watch control customization, and 44pt reader/player utility targets are in place; full interactive tutorial/UI overhaul still pending |
+| **4 · Trust** | ads, hidden fees, subscriptions | free core + a **one-time** Pro unlock (never a subscription), open-source, ad-free, **verifiably** private (you can read the code) |
+| **5 · Sync Done Right** | losing progress across devices | full iCloud study-state sync, a BYO local Library shelf with managed folder roots, and a self-hosted Audiobookshelf library (connect/browse/download-to-local/two-way progress sync — **shipped**; macOS UI + multiple saved servers wired on nightly; live-sync device verification and full background download remain), no lost progress |
+| **6 · Support** | slow, unhelpful support | responsive, open, in-app feedback via email, GitHub Issues, and the manual |
 
 **macOS is a full peer in 1.0** — the study layer comes to Mac, and the batch transcribe/align/narrate pipeline is already there. Full plan and the launch-gate criteria: **[ROADMAP.md](ROADMAP.md)**.
 
-**Deferred to 1.x:** photo-of-a-page → audio jump · multi-voice narration · AI-generated Q&A cards · CarPlay capture · Audiobookshelf **streaming** (connect/browse/download/sync is now built — download-based; streaming only is deferred) · AnkiConnect · focus soundscapes. See [ROADMAP.md](ROADMAP.md).
+**Deferred to 1.x:** photo-of-a-page → audio jump · CarPlay capture · Audiobookshelf **streaming** (connect/browse/download/sync is now built — download-based; streaming only is deferred) · AnkiConnect · focus soundscapes. See [ROADMAP.md](ROADMAP.md).
 
 ---
 
@@ -114,7 +125,7 @@ Echo has a defined 1.0 — rebuilt 2026-06-19 around **six competitive wedges**,
 
 > 💡 New to a term in this section or the next? Look it up in the [Glossary](https://dfakkeldy.github.io/Echo/glossary.html) — on the website, technical words carry hover-to-define popovers.
 
-Echo is a full-featured audiobook study application organized as a single Xcode workspace with four distinct targets. It supports bookmarking with optional voice memos, chapter navigation, loop modes, a sleep timer, variable playback speed, and intelligent rewind logic that adapts to pause duration. The iOS and watchOS apps communicate bidirectionally via WatchConnectivity, while a Widget displays the current playback state on the Home Screen / Lock Screen.
+Echo is a full-featured audiobook study application organized as a single Xcode workspace with four distinct targets. It supports bookmarking with optional voice memos, chapter navigation, loop modes, a sleep timer, variable playback speed, and intelligent rewind logic that adapts to pause duration. The iOS and watchOS apps communicate bidirectionally via WatchConnectivity, while the watchOS widget displays current artwork and progress in circular watch-face and rectangular Smart Stack/complication families. iPhone Lock Screen controls come from the system Now Playing integration, not the watch-only widget extension.
 
 When you add an EPUB or PDF file alongside your audiobook, Echo unlocks its study toolkit: a searchable, browsable reader with per-paragraph audio alignment. Long-press any paragraph or PDF page to lock it to the current playback position, color-code important passages, or create timestamped bookmarks. Use **Auto-Align Chapters** to let Echo automatically align every chapter — it first matches audiobook chapter titles (from M4B metadata) against EPUB headings instantly, with no ML required, then falls back to on-device speech recognition (WhisperKit + CoreML) for any remaining chapters, transcribing short clips and fuzzy-matching them against the EPUB text ([Levenshtein](https://dfakkeldy.github.io/Echo/glossary.html#levenshtein) + [Jaccard](https://dfakkeldy.github.io/Echo/glossary.html#jaccard)) to create precise alignment anchors. Drift detection finds misaligned chapters, and drift repair uses [TokenDTW (Dynamic Time Warping)](https://dfakkeldy.github.io/Echo/glossary.html#dtw) to insert correction anchors at word-level precision. Optional **Continuous Alignment** runs in the background during playback. For PDF documents, use the **Manual Alignment** sheet with the scrubber joystick for fine-tuned alignment.
 
@@ -126,10 +137,10 @@ The workspace is composed of four targets, each with its own entry point and vie
 
 | Target | Bundle Identifier / Entry Point | Purpose |
 |---|---|---|
-| **EchoCore** (`iOS/iPadOS`) | `EchoCoreApp.swift` → `RootTabView.swift` | Primary audiobook player. Uses a 3-tab layout (NowPlayingTab, ReaderTab with EPUB/PDF alignment and full-text search, PlaylistTab). PlayerModel acts as a thin coordinator over 20+ single-responsibility services. Handles file/folder selection, bookmarks, voice memos, WatchConnectivity, and Now Playing integration. When an EPUB or PDF file is loaded alongside the audiobook, the Reader tab provides a searchable, browsable book with per-paragraph alignment (EPUB) or page-level alignment (PDF). |
-| **Echo macOS** (`macOS`) | `Echo_macOSApp.swift` → `MacTriPaneView.swift` | Native macOS desktop companion. Uses `MacPlayerModel` (`@Observable`-based) with a tri-pane `NavigationSplitView` layout: a bookmarks sidebar, a player pane with a `< Chapter Title >` chevron nav bar, a Playback Options popover (speed / loop / skip / boost), a More menu, and EPUB alignment via `MacAlignmentService` with streaming audio transcription support. A native Preferences scene (⌘,, `MacSettingsView`) binds the shared `SettingsManager`. |
+| **EchoCore** (`iOS/iPadOS`) | `EchoCoreApp.swift` → `RootTabView.swift` | Primary audiobook player. Uses a 3-tab layout (Now Playing, Read & Study with EPUB/PDF alignment and full-text search, Library). PlayerModel acts as a thin coordinator over 20+ single-responsibility services. Handles library roots, file/folder selection, bookmarks, voice memos, WatchConnectivity, and Now Playing integration. When an EPUB or PDF file is loaded alongside the audiobook, the Reader tab provides a searchable, browsable book with per-paragraph alignment (EPUB) or page-level alignment (PDF). |
+| **Echo macOS** (`macOS`) | `Echo_macOSApp.swift` → `MacTriPaneView.swift` | Native macOS desktop companion. Uses `MacPlayerModel` (`@Observable`-based) with a tri-pane `NavigationSplitView` layout: a local Library shelf plus table-of-contents sidebar, a player pane with a `< Chapter Title >` chevron nav bar, a Playback Options popover (speed / loop / skip / boost), a More menu, and EPUB alignment via `MacAlignmentService` with streaming audio transcription support. A native Preferences scene (⌘,, `MacSettingsView`) binds the shared `SettingsManager`. |
 | **Echo Watch App** (`watchOS`) | `EchoCoreWatchApp.swift` → `ContentView.swift` | Wearable remote for the iOS player. Communicates with the phone via `WCSession` to send play/pause, skip, scrub, volume, loop mode, sleep timer, section navigation, and bookmark commands. Features a customizable button layout with up to five pages of five action slots each (25 total), with configurable seek forward/backward durations (5–60s), all syncable from the phone. |
-| **Echo Widget** (`Widgets`) | `Echo_WidgetBundle.swift` → `Echo_Widget.swift` | A `WidgetBundle` exposing a `StaticConfiguration` widget (`.accessoryCircular`) that shows the current track title, progress ring, and thumbnail via `AppGroupDefaults` communication. Also includes a `TogglePlaybackIntent` (App Intent) for Control Center / widget interactions. |
+| **Echo Widget** (`watchOS`) | `Echo_WidgetBundle.swift` → `Echo_Widget.swift` | The watchOS widget extension exposes `.accessoryCircular` and `.accessoryRectangular` families through the Watch App's `AppGroupDefaults`. Circular rendering shows the current thumbnail inside a bold system-tinted progress ring. The rectangular Smart Stack/complication card adds title, playback state, percentage, and a bold gauge; it uses the cover-derived accent only in WidgetKit full-colour rendering and adopts the watch-face palette in accented or vibrant rendering. The source includes an iOS Control Widget implementation behind a platform gate, but the current extension target is watchOS-only. |
 
 Shared models and utilities used across targets include:
 
@@ -161,7 +172,7 @@ Shared models and utilities used across targets include:
 	- **`FileLocations`** — Centralized directory access (`documentsDirectory`, `cachesDirectory`, `applicationSupportDirectory`, `epubUnpackedDirectory(safeID:)`) replacing ad-hoc `FileManager.default.urls(for:in:)` calls across the codebase.
 	- **`KeychainStore`** — Thin Keychain wrapper for storing security-scoped bookmark data and other sensitive blobs that should not live in unencrypted `UserDefaults`.
 	- **`Logger+Subsystem`** — Single `"com.echo.audiobooks"` subsystem constant used by every logger in the project — prevents log fragmentation from typos in repeated string literals.
-	- **`Schema_V11`** — Database migration adding `pdf_view_state_json` (TEXT) columns to `bookmark` and `timeline_item` tables for PDF page/zoom/scroll state persistence.
+	- **`Schema_V1`** — Fresh-install GRDB baseline schema. This is the post-reset source of truth for Echo's current database shape; future TestFlight changes should be additive migrations again.
 		- **`AnimationDurations`** — Named animation timing constants (`.micro`, `.standard`, `.emphasized`, `.slow`) to replace magic-number literals scattered across view bodies.
 	- **`AudioSnippetPlayer`** — Lightweight, single-use audio player for voice-memo previews and bookmark playback. Eliminates the ad-hoc `AVAudioEngine` setup duplicated across `BookmarkStore`, `Bookmarks`, and `SnippetPlayer`.
 
@@ -202,7 +213,8 @@ The Echo app icon features an **infinity symbol (∞) in silver and gold** — a
 
 - AVPlayer is configured with `mode: .spokenAudio` for optimal speech reproduction and language-specific voiceover support.
 - All interactive controls (play/pause, skip, seek) are surfaced via `UIAccessibility` and WatchOS `accessibility` modifiers.
-- Widget progress rings use high-contrast `.tint` fills and avoid ambiguous color-only state indicators.
+- Both Watch complication families combine title, playback state, and percentage into one VoiceOver element so colour is never the only signal. The circular ring always joins WidgetKit's system accent group; the rectangular gauge uses the cover-derived accent only in full-colour rendering and otherwise follows the system palette.
+- The Watch Pomodoro shows exactly two large digits in a rounded semantic font that adapts to Dynamic Type, changing from upward-rounded hours to minutes at 60 minutes and from minutes to seconds at 60 seconds. VoiceOver announces running/stopped/complete state plus the full unit and exposes a named **Set duration** action alongside the unchanged physical long press.
 
 ---
 
@@ -226,18 +238,43 @@ xcodebuild test \
   -destination 'platform=iOS Simulator,name=iPhone 16 Pro'
 ```
 
+CI build-gates the embedded watch app through the `Echo` scheme, but watchOS
+unit tests are manual until a pinned watchOS simulator destination is reliable on
+the runner. To run them locally, first choose a destination from:
+
+```bash
+xcodebuild -showdestinations \
+  -project Echo.xcodeproj \
+  -scheme "Echo Watch App"
+```
+
+Then run:
+
+```bash
+WATCH_DEST='platform=watchOS Simulator,name=Apple Watch Series 10 (46mm)'
+xcodebuild test \
+  -project Echo.xcodeproj \
+  -scheme "Echo Watch App" \
+  -destination "$WATCH_DEST" \
+  -only-testing:"Echo Watch AppTests" \
+  -parallel-testing-enabled NO \
+  CODE_SIGNING_ALLOWED=NO
+```
+
 ### MockMediaProvider
 
-[`MockMediaProvider.swift`](EchoCore/MockMediaProvider.swift) is a `#if DEBUG`-only utility that seeds a sample audiobook (`BIFF.m4b`) into the simulator's Documents directory on first launch. It is automatically invoked during `DEBUG && targetEnvironment(simulator)` builds in the app's `init()`.
+[`MockMediaProvider.swift`](EchoCore/Services/MockMediaProvider.swift) is a `#if DEBUG`-only utility that seeds screenshot/development media into the simulator's Documents directory on first launch. It prefers a local, rights-cleared sample audiobook (`EchoScreenshotSample.m4b`) when one is bundled, and otherwise falls back to the bundled Standard Ebooks copy of *The Great Gatsby*. Audio samples are intentionally git-ignored; use public-domain or otherwise rights-cleared media for screenshots and testing.
 
-A development EPUB fixture is also available for testing the reader pipeline:
+Development EPUB fixtures are also available for testing the reader pipeline:
 
 ```
+EchoCore/Development Assets/standardebooks_great_gatsby/
+└── f-scott-fitzgerald_the-great-gatsby.epub  ← F. Scott Fitzgerald (EPUB)
 EchoCore/Development Assets/aliceinwonderland_1102_librivox/
 └── Alice's Adventures in Wonderland.epub  ← Lewis Carroll (EPUB)
 ```
 
-In `#if DEBUG` builds, `SettingsView` exposes a "Load Development Assets" button under a "Debug Menu" section. This invokes `PlayerModel.loadFolder()` with the main bundle URL, seeding the sample audiobook for immediate testing of the reader, alignment, and search features without requiring external file selection.
+In `#if DEBUG` builds, `SettingsView` exposes a "Load Development Assets" button under a "Debug Menu" section. This invokes `PlayerModel.loadFolder()` with the main bundle URL, seeding bundled development media for immediate testing of the reader, alignment, and search features without requiring external file selection.
 
 This allows developers to test the full playback, bookmarking, and chapter-navigation pipeline without any network dependency or real audiobook files.
 
@@ -258,12 +295,20 @@ feature/* ──▶ nightly ──▶ weekly ──▶ main (stable)
 Hotfixes branch from `main`, then merge back *down* into `weekly`/`nightly`.
 
 CI (`.github/workflows/ci.yml`) gates pushes/PRs to all three branches with the
-**`Build gate + tests`** check. Scheduled TestFlight builds live in
+**`Build gate + tests`** check: the workflow compiles the shared Echo scheme,
+runs `EchoTests` on a pinned iOS 26.4 simulator destination, and smoke-builds the
+macOS target. Scheduled TestFlight builds live in
 `.github/workflows/release-trains.yml` (it runs from `main` and checks out the
 train branch; uploads via `fastlane beta` once the App Store Connect / match
 secrets are configured, compile-only until then). See **Release Engineering —
 Promotion Ladder** in [`ARCHITECTURE.md`](ARCHITECTURE.md) for branch-protection
 settings and the full rhythm.
+
+Nightly builds auto-draft their TestFlight "What to Test" copy from the commit
+history (`make whats-new`); weekly/external builds keep the human-curated copy.
+Weekly builds also submit the committed Beta App Review details and, after a
+successful TestFlight upload, push reviewed App Store screenshots/metadata when
+PNG/JPG assets exist.
 
 ---
 
@@ -289,4 +334,6 @@ When extending or modifying the project with autonomous tooling, future agents M
 
 ## License
 
-This project is licensed under the [GNU General Public License v3.0](LICENSE).
+Echo is licensed under the [GNU General Public License v3.0 or later](LICENSE) (`GPL-3.0-or-later`) — the source stays free and open, and any derivative app must stay open source too.
+
+For distribution through Apple's App Store (and comparable platforms), the copyright holder grants an [**App Store Distribution Exception**](LICENSE-APP-STORE-EXCEPTION.md) — an additional permission under GPLv3 §7 that resolves the known GPL-vs-App-Store incompatibility, on the condition that the complete corresponding source remains available under the GPL through this repository.

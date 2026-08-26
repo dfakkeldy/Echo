@@ -1,6 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import GRDB
 import SwiftUI
+import os.log
+
+/// Manual per-block alignment actions offered in the reader's right-click menu,
+/// mirroring the iOS reader's alignment context menu. The work is done by the
+/// shared, macOS-clean `AlignmentService`.
+enum MacReaderAlignmentAction {
+    case alignToNow
+    case alignTo5sAgo
+    case notInAudio
+    case hideChapter
+    case eraseAnchor
+    case resetAlignment
+}
 
 /// Center pane — scrollable card feed of EPUB blocks matching the iOS reader.
 ///
@@ -10,9 +23,23 @@ import SwiftUI
 struct MacReaderFeedView: View {
     @Environment(MacPlayerModel.self) private var player
     @Environment(DatabaseService.self) private var dbService
+    @Environment(SettingsManager.self) private var settings
+    /// Watched only to know when the batch queue goes idle, which is when a
+    /// just-finished alignment makes the header badge stale.
+    @Environment(MacBatchProcessingService.self) private var batchService
     @State private var blocks: [EPubBlockRecord] = []
     @State private var currentBlockID: String?
     @State private var isLoading = true
+    /// Phase 5 (macOS parity): which chapter is currently expanded (nil = all collapsed).
+    @State private var openChapterKey: Int?
+    /// Chapter indices that actually have audio (honest has-audio styling).
+    @State private var chaptersWithAudio: Set<Int> = []
+    /// Display title per chapter, from the publisher TOC then audio metadata
+    /// (`ChapterTitleResolver`, shared with the iOS reader). Absent keys fall
+    /// back to the chapter's own first heading below.
+    @State private var chapterTitles: [Int: String] = [:]
+    /// Tracks the previously-playing chapter so auto-expand only fires on change.
+    @State private var lastPlayingChapterKey: Int?
     /// Timeline rows (audio range → block, with chapter index) for the loaded
     /// book. Resolution scopes by chapter to the currently-playing track via the
     /// shared `ReaderActiveBlockResolver`, so per-track time collisions across
@@ -22,8 +49,50 @@ struct MacReaderFeedView: View {
     /// (the reader-cache order). Fed to `ReaderActiveBlockResolver.activeWord`
     /// for karaoke word highlighting within the active block.
     @State private var wordCache: [ReaderActiveBlockResolver.WordRow] = []
+    /// Per-block index over `wordCache`, rebuilt alongside it
+    /// so the 12.5 Hz tick in `trackCurrentBlock()` no longer linear-scans the
+    /// whole book's word rows.
+    @State private var wordIndex = ReaderActiveBlockResolver.WordIndex(rows: [])
     /// (blockID, wordIndex) of the currently spoken word, for karaoke highlight.
     @State private var activeWord: (blockID: String, index: Int)?
+    /// Whether the loaded book has source-PDF page data (`pdf_block_page` rows) —
+    /// gates the Reflow/Page toggle. False for EPUB-sourced or unaligned books.
+    @State private var hasPDFPages = false
+    /// True shows the page-faithful `MacPDFReaderView` instead of the reflowed
+    /// block feed below.
+    @State private var showingPageView = false
+    /// Whether this book's text is genuinely aligned to its audio, surfaced in
+    /// the header. Recomputed on load and whenever the batch queue finishes a
+    /// book, since a completed alignment changes the answer without touching
+    /// any of the reader's other reload triggers.
+    @State private var alignmentSummary: BookAlignmentSummary = .empty
+
+    /// Blocks grouped into one entry per chapter, in reading order.
+    /// Uses `$0.chapterIndex ?? -1` because `EPubBlockRecord.chapterIndex` is `Int?`;
+    /// -1 is the front-matter convention already used by `ChapterAudioStatusResolver`.
+    private var chapterGroups:
+        [(key: Int, title: String, hasAudio: Bool, blocks: [EPubBlockRecord])]
+    {
+        let grouped = Dictionary(grouping: blocks, by: { $0.chapterIndex ?? -1 })
+        return grouped.keys.sorted().map { key in
+            let chapterBlocks = grouped[key] ?? []
+            // Prefer what the publisher declared. Falling straight to "the first
+            // heading" names a Calibre-converted chapter after its number alone
+            // (`<h1>2</h1>` precedes `<h1>COURTROOM 3: …</h1>`) and names any
+            // chapter opening on a recurring sidebar after the sidebar.
+            let title =
+                chapterTitles[key]
+                ?? chapterBlocks.first(where: {
+                    $0.blockKind == EPubBlockRecord.Kind.heading.rawValue
+                })?.text
+                ?? chapterBlocks.first?.text
+                ?? "Chapter \(key + 1)"
+            return (
+                key: key, title: title, hasAudio: chaptersWithAudio.contains(key),
+                blocks: chapterBlocks
+            )
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,7 +100,9 @@ struct MacReaderFeedView: View {
 
             Divider()
 
-            if isLoading {
+            if showingPageView, hasPDFPages {
+                MacPDFReaderView()
+            } else if isLoading {
                 Spacer()
                 ProgressView("Loading reader…")
                     .frame(maxWidth: .infinity)
@@ -41,13 +112,13 @@ struct MacReaderFeedView: View {
                 if player.audiobookID == nil {
                     // Idle (no book open): nudge toward on-device narration —
                     // the primary way the Mac gets spoken audio for a text-only
-                    // EPUB. The button routes to the same "Narrate EPUB(s)…"
+                    // book. The button routes to the same "Narrate Documents…"
                     // picker as the Batch menu (handled in Echo_macOSApp).
                     NarrationNudgeView(
-                        title: "Narrate an EPUB",
+                        title: "Narrate a Document",
                         message:
-                            "Got a book with no audiobook? Echo can speak it on-device so you can study hands-free.",
-                        buttonTitle: "Choose EPUB to Narrate\u{2026}",
+                            "Got an EPUB, PDF, or text file with no audiobook? Echo can speak it on-device so you can study hands-free.",
+                        buttonTitle: "Choose Document to Narrate\u{2026}",
                         onListen: {
                             NotificationCenter.default.post(
                                 name: .requestNarrateEPUBs, object: nil)
@@ -66,17 +137,54 @@ struct MacReaderFeedView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(blocks, id: \.id) { block in
-                                MacBlockCardView(
-                                    block: block,
-                                    isActive: block.id == currentBlockID,
-                                    activeWordIndex: block.id == currentBlockID
-                                        ? activeWord?.index : nil,
-                                    onTap: { seekToBlock(block.id) }
-                                )
-                                .equatable()
-                                .id(block.id)
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(chapterGroups, id: \.key) { group in
+                                // Collapsed chapter header row (always visible, tappable).
+                                Button {
+                                    openChapterKey = FeedAccordion.toggled(
+                                        current: openChapterKey, tapped: group.key)
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Image(
+                                            systemName: openChapterKey == group.key
+                                                ? "chevron.down" : "chevron.right"
+                                        )
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        Text(group.title)
+                                            .customFont(.headline, appFont: settings.appFont)
+                                            .foregroundStyle(
+                                                group.hasAudio ? .primary : .secondary)
+                                        if !group.hasAudio {
+                                            Text("Text only")
+                                                .customFont(.caption2, appFont: settings.appFont)
+                                                .foregroundStyle(.tertiary)
+                                        }
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+
+                                // Expanded content (only the open chapter).
+                                if openChapterKey == group.key {
+                                    ForEach(group.blocks, id: \.id) { block in
+                                        MacBlockCardView(
+                                            block: block,
+                                            appFont: settings.appFont,
+                                            isActive: block.id == currentBlockID,
+                                            activeWordIndex: block.id == currentBlockID
+                                                ? activeWord?.index : nil,
+                                            onTap: { seekToBlock(block.id) },
+                                            onAlignmentAction: { performAlignment($0, on: $1) }
+                                        )
+                                        .equatable()
+                                        .id(block.id)
+                                    }
+                                }
+                                Divider()
                             }
                         }
                     }
@@ -99,6 +207,26 @@ struct MacReaderFeedView: View {
         .onChange(of: player.currentURL) { _, _ in
             Task { await loadBlocks() }
         }
+        .onChange(of: player.documentIngestionTrigger) { _, _ in
+            // Transcript materialization creates epub_block rows for the current
+            // book without changing currentURL; reload so read-along appears.
+            Task { await loadBlocks() }
+        }
+        // A batch alignment writes anchors and rebuilds the timeline for a book
+        // that may already be open, without touching currentURL or the
+        // ingestion trigger. Re-read the verdict when the queue falls idle so
+        // the badge doesn't keep claiming "Estimated only" after the run that
+        // fixed it. Cheap enough to do unconditionally: three indexed COUNTs.
+        .onChange(of: batchService.activity == nil) { _, isIdle in
+            guard isIdle, let audiobookID = player.audiobookID else { return }
+            Task { await refreshAlignmentSummary(audiobookID: audiobookID) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .timelineItemsIngested)) { note in
+            guard let ingestedID = note.userInfo?["audiobookID"] as? String,
+                ingestedID == player.audiobookID
+            else { return }
+            Task { await refreshAlignmentSummary(audiobookID: ingestedID) }
+        }
     }
 
     // MARK: - Header
@@ -106,10 +234,22 @@ struct MacReaderFeedView: View {
     private var headerView: some View {
         HStack {
             Text("Reader")
-                .font(.headline)
+                .customFont(.headline, appFont: settings.appFont)
+
+            MacAlignmentBadge(summary: alignmentSummary)
+
             Spacer()
+            if hasPDFPages {
+                Picker("View", selection: $showingPageView) {
+                    Text("Reflow").tag(false)
+                    Text("Page").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 140)
+            }
             Text("\(blocks.count) blocks")
-                .font(.caption)
+                .customFont(.caption, appFont: settings.appFont)
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 12)
@@ -122,10 +262,19 @@ struct MacReaderFeedView: View {
         isLoading = true
         defer { isLoading = false }
 
+        // Reset auto-expand state on book switch so a new book's first playing
+        // chapter is never suppressed by a stale key from the previous book.
+        lastPlayingChapterKey = nil
+
         guard let audiobookID = player.audiobookID else {
             blocks = []
+            chapterTitles = [:]
             timelineCache = []
             wordCache = []
+            wordIndex = ReaderActiveBlockResolver.WordIndex(rows: [])
+            hasPDFPages = false
+            showingPageView = false
+            alignmentSummary = .empty
             return
         }
 
@@ -138,6 +287,14 @@ struct MacReaderFeedView: View {
                     .fetchAll(db)
             }
             blocks = result
+            let pdfPageRows = try PDFBlockPageDAO(db: dbService.writer).rows(for: audiobookID)
+            hasPDFPages = !pdfPageRows.isEmpty
+            if !hasPDFPages { showingPageView = false }
+            // Phase 5: honest per-chapter has-audio for the accordion.
+            let resolver = ChapterAudioStatusResolver(db: dbService.writer)
+            chaptersWithAudio = (try? resolver.chaptersWithAudio(audiobookID: audiobookID)) ?? []
+            chapterTitles = Self.resolveChapterTitles(
+                blocks: result, audiobookID: audiobookID, db: dbService.writer)
             timelineCache = try await loadTimelineCache(audiobookID: audiobookID)
             // Per-word timings (Phase A) for karaoke; absent on unaligned books → [].
             let words = try WordTimingDAO(db: dbService.writer).words(forAudiobook: audiobookID)
@@ -147,11 +304,61 @@ struct MacReaderFeedView: View {
                     blockID: $0.epubBlockID, wordIndex: $0.wordIndex
                 )
             }
+            wordIndex = ReaderActiveBlockResolver.WordIndex(rows: wordCache)
+            await refreshAlignmentSummary(audiobookID: audiobookID)
         } catch {
             blocks = []
+            chapterTitles = [:]
+            hasPDFPages = false
+            showingPageView = false
             timelineCache = []
             wordCache = []
+            wordIndex = ReaderActiveBlockResolver.WordIndex(rows: [])
+            alignmentSummary = .empty
         }
+    }
+
+    /// Recomputes the header's alignment verdict off the UI actor.
+    ///
+    /// `BookAlignmentSummary.load` is deliberately synchronous (a plain
+    /// `nonisolated async` would still run on this main-actor caller under
+    /// `SWIFT_APPROACHABLE_CONCURRENCY`), so the hop off main has to be
+    /// explicit. The queries are three indexed `COUNT`s, but they run against
+    /// the same writer the batch queue is hammering during an alignment, which
+    /// is exactly when this refreshes.
+    private func refreshAlignmentSummary(audiobookID: String) async {
+        let writer = dbService.writer
+        alignmentSummary =
+            await Task.detached(priority: .utility) {
+                (try? BookAlignmentSummary.load(audiobookID: audiobookID, db: writer)) ?? .empty
+            }.value
+    }
+
+    /// Chapter display titles for the loaded book, via the shared
+    /// `ChapterTitleResolver` the iOS reader uses — publisher TOC label for the
+    /// entry anchored to each chapter's first block, else the audio chapter's
+    /// own title. `blocks` must already be in reading order.
+    private static func resolveChapterTitles(
+        blocks: [EPubBlockRecord], audiobookID: String, db: any DatabaseWriter
+    ) -> [Int: String] {
+        var firstBlockIDByChapter: [Int: String] = [:]
+        for block in blocks {
+            guard let chapter = block.chapterIndex, firstBlockIDByChapter[chapter] == nil else {
+                continue
+            }
+            firstBlockIDByChapter[chapter] = block.id
+        }
+        let tocEntries = (try? EPubTOCEntryDAO(db: db).entries(for: audiobookID)) ?? []
+        let audioChapters = (try? ChapterDAO(db: db).chapters(for: audiobookID)) ?? []
+        // Chapter index is the audio chapter's position, matching how the
+        // importer assigns `epub_block.chapter_index`.
+        let audioTitles = Dictionary(
+            audioChapters.enumerated().map { ($0.offset, $0.element.title) },
+            uniquingKeysWith: { first, _ in first })
+        return ChapterTitleResolver.titles(
+            firstBlockIDByChapter: firstBlockIDByChapter,
+            tocEntries: tocEntries,
+            audioChapterTitles: audioTitles)
     }
 
     /// Builds the audio-range → block timeline cache, LEFT JOINing `epub_block`
@@ -161,11 +368,12 @@ struct MacReaderFeedView: View {
     private func loadTimelineCache(audiobookID: String) async throws
         -> [ReaderActiveBlockResolver.TimelineRow]
     {
-        let rows: [Row] = try await dbService.writer.read { db in
+        let rows: [Row] = try dbService.writer.read { db in
             return try Row.fetchAll(
                 db,
                 sql: """
-                    SELECT ti.audio_start_time, ti.audio_end_time, ti.epub_block_id, eb.chapter_index
+                    SELECT ti.audio_start_time, ti.audio_end_time, ti.epub_block_id,
+                           ti.segment_key, eb.chapter_index
                     FROM timeline_item ti
                     LEFT JOIN epub_block eb ON eb.id = ti.epub_block_id
                     WHERE ti.audiobook_id = ? AND ti.epub_block_id IS NOT NULL AND ti.audio_start_time >= 0
@@ -191,7 +399,8 @@ struct MacReaderFeedView: View {
                 end = start + 3600  // Large fallback for the last item
             }
             let chapterIndex: Int? = row["chapter_index"]
-            cache.append((start, end, blockID, chapterIndex))
+            let segmentKey: String? = row["segment_key"]
+            cache.append((start, end, blockID, chapterIndex, segmentKey))
         }
         return cache
     }
@@ -211,11 +420,54 @@ struct MacReaderFeedView: View {
             playingChapterIndex: nil)
     }
 
-    /// Seeks playback to the first timeline row matching the given block ID.
-    /// Uses the shared `timelineCache` built during load.
+    /// Tapping a paragraph card seeks to it AND starts playing (parity with iOS).
+    /// Uses the shared `timelineCache` built during load; an un-timed block is a
+    /// no-op (no audio yet — macOS has no haptics for feedback).
     private func seekToBlock(_ blockID: String) {
-        guard let row = timelineCache.first(where: { $0.blockID == blockID }) else { return }
-        player.seek(to: row.start)
+        let time = timelineCache.first(where: { $0.blockID == blockID })?.start
+        switch CardTapDecision.make(time: time) {
+        case .seekAndPlay(let seconds):
+            player.seek(to: seconds)
+            if !player.isPlaying { player.play() }
+        case .noTime:
+            break
+        }
+    }
+
+    /// Applies a manual alignment edit via the shared `AlignmentService`, then
+    /// reloads the feed so the new anchor/timeline is reflected. Mirrors the iOS
+    /// reader's alignment context menu. A bad anchor no longer forces a full batch
+    /// DTW re-run on macOS.
+    private func performAlignment(_ action: MacReaderAlignmentAction, on block: EPubBlockRecord) {
+        guard let audiobookID = player.audiobookID else { return }
+        let writer = dbService.writer
+        let now = player.currentTime
+        Task {
+            do {
+                let service = AlignmentService(db: writer, audiobookID: audiobookID)
+                switch action {
+                case .alignToNow:
+                    try service.moveBlockToCurrentTime(blockID: block.id, time: now)
+                case .alignTo5sAgo:
+                    try service.moveBlockToCurrentTime(blockID: block.id, time: max(0, now - 5))
+                case .notInAudio:
+                    try service.hideBlock(blockID: block.id, reason: "manual")
+                case .hideChapter:
+                    if let chapterIndex = block.chapterIndex {
+                        try service.hideChapter(chapterIndex: chapterIndex, reason: "manual")
+                    }
+                case .eraseAnchor:
+                    try service.eraseAnchor(blockID: block.id)
+                case .resetAlignment:
+                    try service.resetAlignment()
+                }
+                await loadBlocks()
+            } catch {
+                Logger(subsystem: "com.echo.audiobooks", category: "MacReader")
+                    .error(
+                        "Manual alignment failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 
     /// Periodically resolves the block at the current playback time so the reader
@@ -232,7 +484,7 @@ struct MacReaderFeedView: View {
                     currentTrackChapterIndices: currentTrackChapterIndices
                 )
                 if let idx = ReaderActiveBlockResolver.activeWord(
-                    in: wordCache,
+                    in: wordIndex,
                     time: player.currentTime,
                     activeBlockID: currentBlockID
                 ) {
@@ -240,13 +492,24 @@ struct MacReaderFeedView: View {
                 } else {
                     activeWord = nil
                 }
+                // Phase 5: auto-expand the chapter that is currently playing.
+                if let playingID = currentBlockID,
+                    let playingChapter = blocks.first(where: { $0.id == playingID })?.chapterIndex
+                {
+                    openChapterKey = FeedAccordion.autoExpand(
+                        current: openChapterKey,
+                        playingChapterKey: playingChapter,
+                        lastPlayingChapterKey: lastPlayingChapterKey
+                    )
+                    lastPlayingChapterKey = playingChapter
+                }
             } else {
                 currentBlockID = nil
                 activeWord = nil
             }
             // ~12 Hz while playing for smooth karaoke, 0.5 s when paused so the
             // block poll stays cheap when nothing is moving.
-            try? await Task.sleep(nanoseconds: player.isPlaying ? 80_000_000 : 500_000_000)
+            try? await Task.sleep(for: player.isPlaying ? .milliseconds(80) : .milliseconds(500))
         }
     }
 }
@@ -256,46 +519,84 @@ struct MacReaderFeedView: View {
 private struct MacBlockCardView: View, Equatable {
     @Environment(MacPlayerModel.self) private var player
     let block: EPubBlockRecord
+    let appFont: String
     let isActive: Bool
     /// Word index to karaoke-highlight, or nil when this card isn't the active
     /// block (the parent passes nil for inactive cards, so only the active card
     /// re-renders as the spoken word advances).
     var activeWordIndex: Int?
     var onTap: (() -> Void)?
+    /// Manual alignment menu callback (action, this block). nil hides the menu.
+    var onAlignmentAction: ((MacReaderAlignmentAction, EPubBlockRecord) -> Void)?
 
     // Equatable so the polled reader feed re-evaluates only the cards that
     // actually changed (§8.2). Rendering depends on block + isActive + the
     // highlighted word index, so a moving karaoke highlight updates only the
     // active card.
     nonisolated static func == (lhs: MacBlockCardView, rhs: MacBlockCardView) -> Bool {
-        lhs.block.id == rhs.block.id && lhs.isActive == rhs.isActive
+        lhs.block == rhs.block && lhs.appFont == rhs.appFont && lhs.isActive == rhs.isActive
             && lhs.activeWordIndex == rhs.activeWordIndex
     }
 
     var body: some View {
-        Group {
-            switch block.blockKind {
-            case EPubBlockRecord.Kind.heading.rawValue:
-                headingCard
-            case EPubBlockRecord.Kind.image.rawValue:
-                imageCard
-            default:
-                paragraphCard
+        if block.blockKind == EPubBlockRecord.Kind.code.rawValue {
+            // Keep the code text outside a Button so macOS text selection works.
+            // Seeking remains available as an explicit control in `codeCard`.
+            cardContent
+        } else if let onTap {
+            Button(action: onTap) {
+                cardContent
+            }
+            .buttonStyle(.plain)
+        } else {
+            cardContent
+        }
+    }
+
+    private var cardContent: some View {
+        blockContent
+            .padding(.horizontal)
+            .padding(.vertical, 6)
+            .background(isActive ? Color.accentColor.opacity(0.08) : Color.clear)
+            .overlay(alignment: .leading) {
+                if isActive {
+                    Rectangle()
+                        .fill(Color.accentColor)
+                        .frame(width: 3)
+                }
+            }
+            .contentShape(Rectangle())
+            .contextMenu { alignmentMenu }
+    }
+
+    /// Right-click alignment menu — parity with the iOS reader's per-block menu.
+    @ViewBuilder
+    private var alignmentMenu: some View {
+        if let onAlignmentAction {
+            Button("Align to Now") { onAlignmentAction(.alignToNow, block) }
+            Button("Align to 5s Ago") { onAlignmentAction(.alignTo5sAgo, block) }
+            Divider()
+            Button("Not in Audio (This Paragraph)") { onAlignmentAction(.notInAudio, block) }
+            Button("Not in Audio (Whole Chapter)") { onAlignmentAction(.hideChapter, block) }
+            Divider()
+            Button("Erase Anchor") { onAlignmentAction(.eraseAnchor, block) }
+            Button("Reset Alignment\u{2026}", role: .destructive) {
+                onAlignmentAction(.resetAlignment, block)
             }
         }
-        .padding(.horizontal)
-        .padding(.vertical, 6)
-        .background(isActive ? Color.accentColor.opacity(0.08) : Color.clear)
-        .overlay(alignment: .leading) {
-            if isActive {
-                Rectangle()
-                    .fill(Color.accentColor)
-                    .frame(width: 3)
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            onTap?()
+    }
+
+    @ViewBuilder
+    private var blockContent: some View {
+        switch block.blockKind {
+        case EPubBlockRecord.Kind.heading.rawValue:
+            headingCard
+        case EPubBlockRecord.Kind.image.rawValue:
+            imageCard
+        case EPubBlockRecord.Kind.code.rawValue:
+            codeCard
+        default:
+            paragraphCard
         }
     }
 
@@ -303,9 +604,8 @@ private struct MacBlockCardView: View, Equatable {
 
     private var headingCard: some View {
         Text(highlightedText(block.text ?? "", activeWordIndex: activeWordIndex))
-            .font(.title3)
-            .fontWeight(.semibold)
-            .foregroundColor(resolvedColor)
+            .customFont(.title3, weight: .semibold, appFont: appFont)
+            .foregroundStyle(resolvedColor ?? Color.primary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 12)
             .padding(.bottom, 4)
@@ -315,10 +615,42 @@ private struct MacBlockCardView: View, Equatable {
 
     private var paragraphCard: some View {
         Text(highlightedText(block.text ?? "", activeWordIndex: activeWordIndex))
-            .font(.body)
-            .foregroundColor(resolvedColor)
+            .customFont(.body, appFont: appFont)
+            .foregroundStyle(resolvedColor ?? Color.primary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .lineSpacing(4)
+    }
+
+    // MARK: Code Card
+
+    private var codeCard: some View {
+        VStack(alignment: .leading) {
+            HStack {
+                if let language = block.codeLanguage?.trimmingCharacters(
+                    in: .whitespacesAndNewlines), !language.isEmpty
+                {
+                    Text(language.uppercased())
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if let onTap {
+                    Button("Seek to code listing", systemImage: "play.fill", action: onTap)
+                        .labelStyle(.iconOnly)
+                }
+            }
+
+            ScrollView(.horizontal) {
+                Text(block.text ?? "")
+                    .font(.system(.body, design: .monospaced))
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollIndicators(.hidden)
+            .accessibilityLabel(Text("Code listing"))
+            .accessibilityValue(Text(block.text ?? ""))
+        }
     }
 
     // MARK: Image Card
@@ -336,12 +668,12 @@ private struct MacBlockCardView: View, Equatable {
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 } else {
                     Text("[Image: \(block.imagePath ?? "unknown")]")
-                        .font(.caption)
+                        .customFont(.caption, appFont: appFont)
                         .foregroundStyle(.secondary)
                 }
             } else {
                 Text("[Image]")
-                    .font(.caption)
+                    .customFont(.caption, appFont: appFont)
                     .foregroundStyle(.secondary)
             }
         }
@@ -379,8 +711,9 @@ private struct MacBlockCardView: View, Equatable {
                 ranges[activeWordIndex].upperBound, within: attributed)
         else { return attributed }
         var result = attributed
+        // Color/background only — NO font-weight change. A weight swap reflows the
+        // line on every word step (parity with iOS ParagraphCardCell).
         result[lower..<upper].backgroundColor = .accentColor.opacity(0.25)
-        result[lower..<upper].font = .body.weight(.semibold)
         return result
     }
 

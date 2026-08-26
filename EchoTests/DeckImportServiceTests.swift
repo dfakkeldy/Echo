@@ -15,6 +15,116 @@ struct DeckImportServiceTests {
         return url
     }
 
+    @Test func importKeepsSecurityScopeActiveThroughFileRead() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        let url = URL(fileURLWithPath: "/provider/secured-deck.echo-deck.json")
+        var scopeIsActive = false
+        var didStopScope = false
+        let data = Data(
+            """
+            {
+              "deckName": "Scoped Deck",
+              "targetMediaID": "scoped-book",
+              "cards": [
+                {"frontText": "Q", "backText": "A", "startTime": 0, "endTime": 5, "triggerTiming": "manualOnly"}
+              ]
+            }
+            """.utf8)
+        let fileAccess = DeckImportFileAccess(
+            startAccess: { receivedURL in
+                #expect(receivedURL == url)
+                scopeIsActive = true
+                return true
+            },
+            stopAccess: { receivedURL in
+                #expect(receivedURL == url)
+                #expect(scopeIsActive)
+                scopeIsActive = false
+                didStopScope = true
+            },
+            readData: { receivedURL in
+                #expect(receivedURL == url)
+                #expect(scopeIsActive)
+                return data
+            })
+
+        let result = try DeckImportService(fileAccess: fileAccess)
+            .importDeckVNext(from: url, db: writer)
+
+        #expect(result.importedCount == 1)
+        #expect(!scopeIsActive)
+        #expect(didStopScope)
+    }
+
+    @Test func folderImportScopesClassificationManifestAndBundledImageRead() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        let folder = URL(fileURLWithPath: "/provider/scoped-deck", isDirectory: true)
+        let manifest = folder.appendingPathComponent("study.echo-deck.json")
+        let image = folder.appendingPathComponent("images/card.png")
+        var scopeIsActive = false
+        var callbacks: [String] = []
+        let manifestData = Data(
+            """
+            {
+              "deckName": "Scoped Folder Deck",
+              "targetMediaID": "scoped-folder-book",
+              "cards": [
+                {"frontText": "Q", "backText": "A", "startTime": 0, "endTime": 5,
+                 "triggerTiming": "manualOnly", "imageFile": "images/card.png"}
+              ]
+            }
+            """.utf8)
+        let fileAccess = DeckImportFileAccess(
+            startAccess: { receivedURL in
+                #expect(receivedURL == folder)
+                scopeIsActive = true
+                callbacks.append("start")
+                return true
+            },
+            stopAccess: { receivedURL in
+                #expect(receivedURL == folder)
+                #expect(scopeIsActive)
+                callbacks.append("stop")
+                scopeIsActive = false
+            },
+            readData: { receivedURL in
+                #expect(scopeIsActive)
+                if receivedURL == manifest {
+                    callbacks.append("manifest")
+                    return manifestData
+                }
+                #expect(receivedURL == image)
+                callbacks.append("image")
+                return Data([0x89, 0x50, 0x4E, 0x47])
+            },
+            isDirectory: { receivedURL in
+                #expect(receivedURL == folder)
+                #expect(scopeIsActive)
+                callbacks.append("classify")
+                return true
+            },
+            directoryContents: { receivedURL in
+                #expect(receivedURL == folder)
+                #expect(scopeIsActive)
+                callbacks.append("enumerate")
+                return [manifest]
+            })
+
+        let result = try DeckImportService(fileAccess: fileAccess)
+            .importDeckVNext(from: folder, db: writer)
+
+        #expect(result.importedCount == 1)
+        #expect(callbacks == ["start", "classify", "enumerate", "manifest", "image", "stop"])
+        #expect(!scopeIsActive)
+        let mediaPath = try writer.read { db in
+            try String.fetchOne(db, sql: "SELECT media_json FROM flashcard LIMIT 1")
+        }.flatMap { StudyCardMedia.imagePath(fromMediaJSON: $0) }
+        if let mediaPath {
+            try? FileManager.default.removeItem(
+                at: URL(fileURLWithPath: mediaPath).deletingLastPathComponent())
+        }
+    }
+
     /// §5.4: importing a deck whose `targetMediaID` names a book not yet on this
     /// device must succeed by creating a placeholder `audiobook` row, rather than
     /// aborting on the `flashcard.audiobook_id` NOT NULL foreign key.
@@ -81,5 +191,495 @@ struct DeckImportServiceTests {
                 db, sql: "SELECT title FROM audiobook WHERE id = ?", arguments: [targetID])
         }
         #expect(title == "Real Title")
+    }
+
+    // MARK: - vNext anchor resolution tests
+
+    @Test
+    func importDeckVNextResolvesSourceAnchor() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        try seedBookWithBlocks(writer, targetID: "book-a", blockIDs: ["epub-book-a-s1-b2"])
+        let url = try writeDeckJSON(
+            """
+            {
+              "deckName": "Anchored Deck",
+              "targetMediaID": "book-a",
+              "cards": [
+                {
+                  "frontText": "Question",
+                  "backText": "Answer",
+                  "startTime": 0,
+                  "endTime": 5,
+                  "sourceAnchor": "s1-b2",
+                  "triggerTiming": "beginning"
+                }
+              ]
+            }
+            """)
+
+        let result = try DeckImportService().importDeckVNext(from: url, db: writer)
+
+        #expect(result.importedCount == 1)
+        #expect(result.anchoredCount == 1)
+        #expect(result.warningCount == 0)
+
+        let cards = try writer.read { db in try Flashcard.fetchAll(db) }
+        #expect(cards.count == 1)
+        #expect(cards.first?.sourceBlockID == "epub-book-a-s1-b2")
+    }
+
+    @Test
+    func importDeckVNextAllowsResolvedSourceAnchorWithoutTimestamps() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        try seedBookWithBlocks(writer, targetID: "book-a", blockIDs: ["epub-book-a-s1-b2"])
+        let url = try writeDeckJSON(
+            """
+            {
+              "deckName": "Anchor Only Deck",
+              "targetMediaID": "book-a",
+              "cards": [
+                {
+                  "frontText": "Question",
+                  "backText": "Answer",
+                  "sourceAnchor": "s1-b2",
+                  "triggerTiming": "manualOnly"
+                }
+              ]
+            }
+            """)
+
+        let result = try DeckImportService().importDeckVNext(from: url, db: writer)
+
+        #expect(result.importedCount == 1)
+        #expect(result.anchoredCount == 1)
+        #expect(result.warningCount == 0)
+
+        let card = try writer.read { db in try Flashcard.fetchOne(db) }
+        #expect(card?.sourceBlockID == "epub-book-a-s1-b2")
+        #expect(card?.mediaTimestamp == 0)
+        #expect(card?.endTimestamp == nil)
+    }
+
+    @Test
+    func importDeckVNextAllowsResolvedSourceAnchorWithDegenerateZeroRange() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        try seedBookWithBlocks(writer, targetID: "book-a", blockIDs: ["epub-book-a-s1-b2"])
+        let url = try writeDeckJSON(
+            """
+            {
+              "deckName": "Builder Deck",
+              "targetMediaID": "book-a",
+              "cards": [
+                {
+                  "frontText": "Question",
+                  "backText": "Answer",
+                  "startTime": 0,
+                  "endTime": 0,
+                  "sourceAnchor": "s1-b2",
+                  "triggerTiming": "manualOnly"
+                }
+              ]
+            }
+            """)
+
+        let result = try DeckImportService().importDeckVNext(from: url, db: writer)
+
+        #expect(result.importedCount == 1)
+        #expect(result.anchoredCount == 1)
+        #expect(result.warningCount == 0)
+
+        let card = try writer.read { db in try Flashcard.fetchOne(db) }
+        #expect(card?.sourceBlockID == "epub-book-a-s1-b2")
+        #expect(card?.mediaTimestamp == 0)
+        #expect(card?.endTimestamp == nil)
+    }
+
+    @Test
+    func importDeckVNextRejectsSourceOnlyCardWhenAnchorDoesNotResolve() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        try seedBookWithBlocks(writer, targetID: "book-a", blockIDs: ["epub-book-a-s0-b0"])
+        let url = try writeDeckJSON(
+            """
+            {
+              "deckName": "Unresolved Anchor Only Deck",
+              "targetMediaID": "book-a",
+              "cards": [
+                {
+                  "frontText": "Question",
+                  "backText": "Answer",
+                  "sourceAnchor": "s9-b9",
+                  "triggerTiming": "manualOnly"
+                }
+              ]
+            }
+            """)
+
+        #expect {
+            try DeckImportService().importDeckVNext(from: url, db: writer)
+        } throws: { error in
+            guard case DeckImportError.invalidTimeRange(cardIndex: 0) = error else {
+                return false
+            }
+            return true
+        }
+    }
+
+    @Test
+    func importDeckVNextRehomesFullLegacyBlockID() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        try seedBookWithBlocks(writer, targetID: "book-b", blockIDs: ["epub-book-b-s0-b0"])
+        let url = try writeDeckJSON(
+            """
+            {
+              "deckName": "Rehomed Deck",
+              "targetMediaID": "book-b",
+              "cards": [
+                {
+                  "frontText": "Question",
+                  "backText": "Answer",
+                  "startTime": 0,
+                  "endTime": 5,
+                  "triggerTiming": "manualOnly",
+                  "sourceAnchor": "epub-old-book-s0-b0"
+                }
+              ]
+            }
+            """)
+
+        let result = try DeckImportService().importDeckVNext(from: url, db: writer)
+
+        #expect(result.anchoredCount == 1)
+        #expect(result.importedCount == 1)
+        #expect(result.warnings.isEmpty)
+        let cards = try writer.read { db in try Flashcard.fetchAll(db) }
+        #expect(cards.first?.sourceBlockID == "epub-book-b-s0-b0")
+    }
+
+    @Test
+    func importDeckVNextImportsUnresolvedAnchorWithWarning() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        try seedBookWithBlocks(writer, targetID: "book-a", blockIDs: ["epub-book-a-s0-b0"])
+        let url = try writeDeckJSON(
+            """
+            {
+              "deckName": "Partially Anchored Deck",
+              "targetMediaID": "book-a",
+              "cards": [
+                {
+                  "frontText": "Question",
+                  "backText": "Answer",
+                  "startTime": 0,
+                  "endTime": 5,
+                  "triggerTiming": "manualOnly",
+                  "sourceAnchor": "s9-b9"
+                }
+              ]
+            }
+            """)
+
+        let result = try DeckImportService().importDeckVNext(from: url, db: writer)
+
+        #expect(result.importedCount == 1)
+        #expect(result.anchoredCount == 0)
+        #expect(
+            result.warnings == [
+                .sourceAnchorUnresolved(cardReference: "json-card-0", sourceAnchor: "s9-b9")
+            ])
+
+        let cards = try writer.read { db in try Flashcard.fetchAll(db) }
+        #expect(cards.first?.sourceBlockID == nil)
+    }
+
+    @Test
+    func importDeckVNextImportsMalformedAnchorWithWarning() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        try seedBookWithBlocks(writer, targetID: "book-a", blockIDs: ["epub-book-a-s0-b0"])
+        let url = try writeDeckJSON(
+            """
+            {
+              "deckName": "Malformed Anchor Deck",
+              "targetMediaID": "book-a",
+              "cards": [
+                {
+                  "frontText": "Question",
+                  "backText": "Answer",
+                  "startTime": 0,
+                  "endTime": 5,
+                  "triggerTiming": "manualOnly",
+                  "sourceAnchor": "chapter-1-paragraph-2"
+                }
+              ]
+            }
+            """)
+
+        let result = try DeckImportService().importDeckVNext(from: url, db: writer)
+
+        #expect(result.importedCount == 1)
+        #expect(result.anchoredCount == 0)
+        #expect(
+            result.warnings == [
+                .sourceAnchorMalformed(
+                    cardReference: "json-card-0", sourceAnchor: "chapter-1-paragraph-2")
+            ])
+
+        let cards = try writer.read { db in try Flashcard.fetchAll(db) }
+        #expect(cards.first?.sourceBlockID == nil)
+    }
+
+    @Test
+    func importDeckVNextImportsWrongBookAnchorWithWarning() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        try seedBookWithBlocks(writer, targetID: "book-a", blockIDs: ["epub-book-a-s0-b0"])
+        try seedBookWithBlocks(writer, targetID: "book-b", blockIDs: ["epub-book-b-s1-b1"])
+        let url = try writeDeckJSON(
+            """
+            {
+              "deckName": "Wrong Book Anchor Deck",
+              "targetMediaID": "book-b",
+              "cards": [
+                {
+                  "frontText": "Question",
+                  "backText": "Answer",
+                  "startTime": 0,
+                  "endTime": 5,
+                  "triggerTiming": "manualOnly",
+                  "sourceAnchor": "epub-book-a-s0-b0"
+                }
+              ]
+            }
+            """)
+
+        let result = try DeckImportService().importDeckVNext(from: url, db: writer)
+
+        #expect(result.importedCount == 1)
+        #expect(result.anchoredCount == 0)
+        #expect(
+            result.warnings == [
+                .sourceAnchorWrongBook(
+                    cardReference: "json-card-0", sourceAnchor: "epub-book-a-s0-b0")
+            ])
+
+        let cards = try writer.read { db in try Flashcard.fetchAll(db) }
+        #expect(cards.first?.sourceBlockID == nil)
+    }
+
+    @Test
+    func importDeckVNextReportsTargetWithoutEPUBBlocksOnce() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        try seedAudiobook(writer, id: "book-without-blocks")
+        let url = try writeDeckJSON(
+            """
+            {
+              "deckName": "No Blocks Deck",
+              "targetMediaID": "book-without-blocks",
+              "cards": [
+                { "frontText": "One", "backText": "Answer", "startTime": 0, "endTime": 5, "triggerTiming": "manualOnly", "sourceAnchor": "s0-b0" },
+                { "frontText": "Two", "backText": "Answer", "startTime": 5, "endTime": 10, "triggerTiming": "manualOnly", "sourceAnchor": "s0-b1" }
+              ]
+            }
+            """)
+
+        let result = try DeckImportService().importDeckVNext(from: url, db: writer)
+
+        #expect(result.importedCount == 2)
+        #expect(result.anchoredCount == 0)
+        #expect(
+            result.warnings == [
+                .targetAudiobookHasNoEPUBBlocks(targetMediaID: "book-without-blocks")
+            ])
+
+        let cards = try writer.read { db in try Flashcard.fetchAll(db) }
+        #expect(cards.map(\.sourceBlockID) == [nil, nil])
+    }
+
+    @Test
+    func importDeckVNextReportsInvalidTriggerTiming() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        let url = try writeDeckJSON(
+            """
+            {
+              "deckName": "Bad Trigger Deck",
+              "targetMediaID": "book-a",
+              "cards": [
+                {
+                  "frontText": "Question",
+                  "backText": "Answer",
+                  "startTime": 0,
+                  "endTime": 5,
+                  "triggerTiming": "middle"
+                }
+              ]
+            }
+            """)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect {
+            try DeckImportService().importDeckVNext(from: url, db: writer)
+        } throws: { error in
+            guard case DeckImportError.invalidTriggerTiming("middle", cardIndex: 0) = error else {
+                return false
+            }
+            return true
+        }
+    }
+
+    @Test
+    func reimportingSameDeckReplacesCardsAndTimelineRows() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        let firstURL = try writeDeckJSON(
+            """
+            {
+              "deckName": "Replaceable Deck",
+              "targetMediaID": "book-a",
+              "cards": [
+                {"frontText": "Old 1", "backText": "A1", "startTime": 0, "endTime": 5, "triggerTiming": "manualOnly"},
+                {"frontText": "Old 2", "backText": "A2", "startTime": 5, "endTime": 10, "triggerTiming": "manualOnly"}
+              ]
+            }
+            """)
+        let secondURL = try writeDeckJSON(
+            """
+            {
+              "deckName": "Replaceable Deck",
+              "targetMediaID": "book-a",
+              "cards": [
+                {"frontText": "New", "backText": "Answer", "startTime": 12, "endTime": 18, "triggerTiming": "end"}
+              ]
+            }
+            """)
+        defer {
+            try? FileManager.default.removeItem(at: firstURL)
+            try? FileManager.default.removeItem(at: secondURL)
+        }
+
+        let firstResult = try DeckImportService().importDeckVNext(from: firstURL, db: writer)
+        let secondResult = try DeckImportService().importDeckVNext(from: secondURL, db: writer)
+
+        #expect(firstResult.importedCount == 2)
+        #expect(secondResult.importedCount == 1)
+        try writer.read { db in
+            let cards = try Flashcard.fetchAll(db)
+            #expect(cards.count == 1)
+            #expect(cards.first?.frontText == "New")
+            #expect(cards.first?.triggerTiming == .end)
+
+            let timelineSourceRowIDs = try String.fetchAll(
+                db,
+                sql: """
+                    SELECT source_rowid
+                    FROM timeline_item
+                    WHERE source_table = 'flashcard'
+                    ORDER BY id
+                    """)
+            #expect(timelineSourceRowIDs == cards.map(\.id))
+        }
+    }
+
+    // MARK: - Seed helpers
+
+    private func seedAudiobook(_ writer: DatabaseWriter, id: String) throws {
+        try writer.write { db in
+            var audiobook = AudiobookRecord(
+                id: id,
+                title: id,
+                author: "Test Author",
+                duration: 0,
+                fileCount: nil,
+                addedAt: Date(timeIntervalSince1970: 1_750_000_000).ISO8601Format()
+            )
+            try audiobook.insert(db)
+        }
+    }
+
+    private func seedBookWithBlocks(_ writer: DatabaseWriter, targetID: String, blockIDs: [String])
+        throws
+    {
+        try writer.write { db in
+            var audiobook = AudiobookRecord(
+                id: targetID,
+                title: targetID,
+                author: "Test Author",
+                duration: 0,
+                fileCount: nil,
+                addedAt: Date(timeIntervalSince1970: 1_750_000_000).ISO8601Format()
+            )
+            try audiobook.insert(db)
+
+            for (index, blockID) in blockIDs.enumerated() {
+                var block = EPubBlockRecord(
+                    id: blockID,
+                    audiobookID: targetID,
+                    spineHref: "Text/chapter.xhtml",
+                    spineIndex: index,
+                    blockIndex: index,
+                    sequenceIndex: index,
+                    blockKind: EPubBlockRecord.Kind.paragraph.rawValue,
+                    text: "Block \(index)",
+                    htmlContent: nil,
+                    cardColor: nil,
+                    chapterThemeColor: nil,
+                    imagePath: nil,
+                    chapterIndex: index,
+                    isHidden: false,
+                    hiddenReason: nil,
+                    isFrontMatter: false,
+                    wordCount: nil,
+                    markers: nil,
+                    textFormats: nil,
+                    createdAt: nil,
+                    modifiedAt: nil
+                )
+                try block.insert(db)
+            }
+        }
+    }
+
+    @Test func reimportingSameDeckDoesNotDuplicateCards() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        let json = """
+            {
+              "deckName": "Vocabulary",
+              "targetMediaID": "book-x.m4b",
+              "cards": [
+                {"frontText": "Q1", "backText": "A1", "startTime": 0, "endTime": 5, "triggerTiming": "manualOnly"},
+                {"frontText": "Q2", "backText": "A2", "startTime": 5, "endTime": 10, "triggerTiming": "manualOnly"}
+              ]
+            }
+            """
+        let url = try writeDeckJSON(json)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        _ = try DeckImportService().importDeck(from: url, db: writer)
+        _ = try DeckImportService().importDeck(from: url, db: writer)
+
+        try writer.read { db in
+            let decks = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM deck") ?? 0
+            let cards = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM flashcard") ?? 0
+            #expect(decks == 1)
+            #expect(cards == 2)
+        }
+    }
+
+    @Test func invalidTriggerTimingThrowsCardNumberedError() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        let json = """
+            {
+              "deckName": "Deck",
+              "targetMediaID": "book-y.m4b",
+              "cards": [
+                {"frontText": "Q", "backText": "A", "startTime": 0, "endTime": 5, "triggerTiming": "start"}
+              ]
+            }
+            """
+        let url = try writeDeckJSON(json)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        do {
+            _ = try DeckImportService().importDeck(from: url, db: writer)
+            Issue.record("expected importDeck to throw")
+        } catch DeckImportError.invalidTriggerTiming(let value, let cardIndex) {
+            #expect(value == "start")
+            #expect(cardIndex == 0)
+        }
     }
 }

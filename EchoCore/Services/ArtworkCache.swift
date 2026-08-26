@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import Foundation
 import AVFoundation
+import Foundation
 import UIKit
 import os.log
 
@@ -23,9 +23,10 @@ struct ArtworkCache {
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceShouldCacheImmediately: true,
                 kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+                kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
             ]
-            if let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) {
+            if let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+            {
                 return UIImage(cgImage: cgImage)
             }
         }
@@ -52,10 +53,11 @@ struct ArtworkCache {
         do {
             let values = try url.resourceValues(forKeys: [
                 .isUbiquitousItemKey,
-                .ubiquitousItemDownloadingStatusKey
+                .ubiquitousItemDownloadingStatusKey,
             ])
             guard values.isUbiquitousItem == true else { return }
-            let status = values.ubiquitousItemDownloadingStatus ?? URLUbiquitousItemDownloadingStatus.current
+            let status =
+                values.ubiquitousItemDownloadingStatus ?? URLUbiquitousItemDownloadingStatus.current
             if status != URLUbiquitousItemDownloadingStatus.current {
                 try FileManager.default.startDownloadingUbiquitousItem(at: url)
             }
@@ -65,21 +67,42 @@ struct ArtworkCache {
     }
 
     /// Downscales an image file for display, with security-scoped access.
+    ///
+    /// The decode itself is `CoverImageCache.decode`, the same call the Mac
+    /// makes, so a cover cannot downsample differently on the two platforms.
+    /// Deliberately the uncached entry point: this is also the folder-scan path
+    /// below, which probes candidate filenames that usually do not exist and
+    /// should not populate a memo. The library shelf goes through
+    /// `CoverImageCache.image(at:)` instead.
     static func loadImageFile(at imageURL: URL) async -> UIImage? {
         await ensureItemIsAvailable(url: imageURL)
 
         let didStart = imageURL.startAccessingSecurityScopedResource()
         defer { if didStart { imageURL.stopAccessingSecurityScopedResource() } }
 
-        let maxPixelSize = 600
-        guard let source = CGImageSourceCreateWithURL(imageURL as CFURL, nil) else { return nil }
-        let downsampleOptions: [CFString: Any] = [
+        guard let cgImage = CoverImageCache.decode(at: imageURL) else { return nil }
+        return UIImage(cgImage: cgImage)
+    }
+
+    /// Loads the OPF-declared cover from a standalone EPUB archive.
+    static func epubCoverImage(for epubURL: URL) async -> UIImage? {
+        await ensureItemIsAvailable(url: epubURL)
+
+        let didStart = epubURL.startAccessingSecurityScopedResource()
+        defer { if didStart { epubURL.stopAccessingSecurityScopedResource() } }
+
+        guard let data = EpubCoverResolver.coverData(epubArchiveURL: epubURL),
+            let source = CGImageSourceCreateWithData(data as CFData, nil)
+        else { return nil }
+
+        let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceShouldCacheImmediately: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+            kCGImageSourceThumbnailMaxPixelSize: 600,
         ]
-        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, downsampleOptions as CFDictionary) else { return nil }
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        else { return nil }
         return UIImage(cgImage: cgImage)
     }
 
@@ -101,9 +124,12 @@ struct ArtworkCache {
             let preferred = images.first { fileURL in
                 fileURL.deletingPathExtension().lastPathComponent.lowercased() == "cover"
             }
-            let selected = preferred ?? images.sorted {
-                $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
-            }.first
+            let selected =
+                preferred
+                ?? images.sorted {
+                    $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
+                        == .orderedAscending
+                }.first
             if let selected, let image = await loadImageFile(at: selected) {
                 return image
             }
@@ -122,38 +148,55 @@ struct ArtworkCache {
     /// to avoid redundant JPEG encodes on each sync cycle.
     @MainActor private static var cachedWatchJPEG: (version: Int, data: Data)?
 
-    /// Creates a high-resolution (400x400) JPEG thumbnail suitable for Watch transfer.
+    /// Creates a JPEG thumbnail that stays within the WatchConnectivity payload budget.
     static func makeWatchThumbnailData(from image: UIImage, version: Int? = nil) -> Data? {
         if let version, let cached = cachedWatchJPEG, cached.version == version {
             return cached.data
         }
-        let watchSize = CGSize(width: 200, height: 200)
-        let watchFormat = UIGraphicsImageRendererFormat()
-        watchFormat.scale = 2.0
-        let watchRenderer = UIGraphicsImageRenderer(size: watchSize, format: watchFormat)
-        let watchImage = watchRenderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: watchSize))
-        }
-        let data = watchImage.jpegData(compressionQuality: ImageEncoding.watchTransferJPEGQuality)
+
+        // Preserve the existing 400×400 encoding when it fits. Complex artwork can
+        // produce a much larger JPEG at the same dimensions, so progressively trade
+        // quality and resolution for a payload that the Watch can actually receive.
+        let encodings: [(side: CGFloat, quality: CGFloat)] = [
+            (200, ImageEncoding.watchTransferJPEGQuality),
+            (200, 0.60),
+            (160, 0.60),
+            (128, 0.50),
+            (80, 0.45),
+        ]
+        let data = encodings.lazy.compactMap { encoding -> Data? in
+            let watchImage = ThumbnailRenderer.squareThumbnail(
+                from: image,
+                side: encoding.side,
+                scale: 2.0)
+            guard let data = watchImage.jpegData(compressionQuality: encoding.quality),
+                data.count <= ImageEncoding.watchTransferMaxBytes
+            else {
+                return nil
+            }
+            return data
+        }.first
+
         if let data, let version {
             cachedWatchJPEG = (version, data)
         }
         return data
     }
 
-    /// Generates display (300×300) and watch (400×400) thumbnails from a source image.
+    /// Generates display (300pt square) and watch (400px square) thumbnails from
+    /// a source image. Both preserve the cover's aspect ratio: the cover is
+    /// aspect-fit and centred with an artwork-derived background filling the
+    /// margins (see `ThumbnailRenderer`), so a portrait cover is never squished
+    /// into a square before reaching Now Playing, the lock screen, or the Watch.
     /// - Parameters:
     ///   - sourceImage: The artwork to resize.
     ///   - displayScale: The screen scale factor for the display thumbnail.
     /// - Returns: Tuple of (displayImage, watchData).
-    static func generateThumbnails(from sourceImage: UIImage, displayScale: CGFloat) -> (UIImage, Data?) {
-        let displaySize = CGSize(width: 300, height: 300)
-        let displayFormat = UIGraphicsImageRendererFormat()
-        displayFormat.scale = displayScale
-        let displayRenderer = UIGraphicsImageRenderer(size: displaySize, format: displayFormat)
-        let thumbnailImage = displayRenderer.image { _ in
-            sourceImage.draw(in: CGRect(origin: .zero, size: displaySize))
-        }
+    static func generateThumbnails(from sourceImage: UIImage, displayScale: CGFloat) -> (
+        UIImage, Data?
+    ) {
+        let thumbnailImage = ThumbnailRenderer.squareThumbnail(
+            from: sourceImage, side: 300, scale: displayScale)
         let watchData = makeWatchThumbnailData(from: sourceImage)
         return (thumbnailImage, watchData)
     }

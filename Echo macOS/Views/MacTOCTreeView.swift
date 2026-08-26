@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import GRDB
 import SwiftUI
 
 extension TOCNode {
     var childrenAsOptional: [TOCNode]? { children.isEmpty ? nil : children }
 }
-import GRDB
 
 /// Sidebar view showing the publisher TOC tree from the shared database.
 ///
@@ -39,11 +39,13 @@ struct MacTOCTreeView: View {
                 Spacer()
             } else {
                 List(filteredNodes, id: \.id, children: \.childrenAsOptional) { node in
-                    TOCRowView(node: node)
-                        .id(node.id)
-                        .onTapGesture {
-                            navigateTo(node: node)
-                        }
+                    Button {
+                        navigateTo(node: node)
+                    } label: {
+                        TOCRowView(node: node)
+                            .id(node.id)
+                    }
+                    .buttonStyle(.plain)
                 }
                 .listStyle(.sidebar)
                 .searchable(text: $searchText, prompt: "Filter chapters…")
@@ -54,6 +56,10 @@ struct MacTOCTreeView: View {
             await loadTOC()
         }
         .onChange(of: player.currentURL) { _, _ in
+            Task { await loadTOC() }
+        }
+        .onChange(of: player.documentIngestionTrigger) { _, _ in
+            // Pick up a freshly materialized transcript reader without a track switch.
             Task { await loadTOC() }
         }
     }
@@ -82,7 +88,7 @@ struct MacTOCTreeView: View {
 
     /// Recursively filters the tree keeping only nodes matching the search.
     private func filter(node: TOCNode) -> TOCNode? {
-        let matchingChildren = (node.children ?? []).compactMap { filter(node: $0) }
+        let matchingChildren = node.children.compactMap { filter(node: $0) }
         let selfMatches = node.title.localizedCaseInsensitiveContains(searchText)
         if selfMatches || !matchingChildren.isEmpty {
             return TOCNode(

@@ -34,25 +34,16 @@ struct PlayerScrubberView: View {
 
                 // Audit B5: hairline book track + caption — the "where am I in
                 // the whole book" answer, on the same axis as the scrubber.
-                if model.chapters.count >= 2 {
+                if showsBookProgressTrack {
                     BookProgressTrack(
                         bookFraction: bookFraction,
-                        tickFractions: BookProgressTrackModel.tickFractions(
-                            chapters: model.chapters,
-                            totalDuration: bookTotalDuration
-                        ),
-                        accent: model.artworkAccentColor ?? .accentColor
+                        tickFractions: bookProgressTickFractions,
+                        accent: model.resolvedThemeTint ?? .accentColor
                     )
                     .padding(.top, 9)
                     .padding(.horizontal, 4)
 
-                    Text(
-                        BookProgressTrackModel.caption(
-                            bookFraction: bookFraction,
-                            chapterTitle: currentLogicalChapter?.title,
-                            chapterCount: model.chapters.count
-                        )
-                    )
+                    Text(bookProgressCaption)
                     .customFont(.caption2, appFont: model.resolvedAppFont)
                     .foregroundStyle(.tertiary)
                     .padding(.top, 5)
@@ -60,6 +51,10 @@ struct PlayerScrubberView: View {
                 }
             }
         }
+    }
+
+    private var showsBookProgressTrack: Bool {
+        model.hasWholeBookProgress || model.chapters.count >= 2
     }
 
     private var trailingTimeButton: some View {
@@ -76,13 +71,34 @@ struct PlayerScrubberView: View {
     }
 
     private var bookTotalDuration: Double {
-        model.isMultiM4B ? model.totalBookDuration : (model.durationSeconds ?? 0)
+        model.effectiveBookDuration
     }
 
     private var bookFraction: Double {
-        let total = bookTotalDuration
-        guard total > 0 else { return 0 }
-        return min(1, max(0, model.cumulativePlaybackTime / total))
+        model.bookProgressFraction
+    }
+
+    private var bookProgressTickFractions: [Double] {
+        let playlistTicks = model.bookProgressBoundaryFractions
+        if !playlistTicks.isEmpty { return playlistTicks }
+        return BookProgressTrackModel.tickFractions(
+            chapters: model.chapters,
+            totalDuration: bookTotalDuration
+        )
+    }
+
+    private var bookProgressCaption: String {
+        if model.hasWholeBookProgress {
+            return BookProgressTrackModel.caption(
+                bookFraction: bookFraction,
+                detail: String(localized: "Track \(model.currentIndex + 1) of \(model.tracks.count)")
+            )
+        }
+        return BookProgressTrackModel.caption(
+            bookFraction: bookFraction,
+            chapterTitle: currentLogicalChapter?.title,
+            chapterCount: model.chapters.count
+        )
     }
 
     private var scrubber: some View {

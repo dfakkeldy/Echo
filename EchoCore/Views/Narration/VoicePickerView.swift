@@ -8,29 +8,14 @@ struct VoicePickerView: View {
 
     var body: some View {
         NavigationStack {
-            List(VoiceCatalog.all) { voice in
-                Button {
-                    selectedVoice = voice
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(voice.displayName).font(.headline)
-                            Text(voice.descriptor)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if selectedVoice.id == voice.id {
-                            Image(systemName: "checkmark")
-                                .foregroundStyle(.tint)
-                                .accessibilityHidden(true)
+            List {
+                ForEach(VoiceCatalog.sections) { section in
+                    Section(section.title) {
+                        ForEach(section.voices) { voice in
+                            voiceRow(voice)
                         }
                     }
-                    .contentShape(Rectangle())
-                    .accessibilityElement(children: .combine)
-                    .accessibilityAddTraits(selectedVoice.id == voice.id ? [.isSelected] : [])
                 }
-                .buttonStyle(.plain)
             }
             .navigationTitle("Choose a Voice")
             #if os(iOS)
@@ -51,5 +36,32 @@ struct VoicePickerView: View {
         #if os(iOS)
             .presentationDetents([.medium])
         #endif
+    }
+
+    @ViewBuilder
+    private func voiceRow(_ voice: NarrationVoice) -> some View {
+        let isSelected = selectedVoice.id == voice.id
+        Button {
+            selectedVoice = voice
+        } label: {
+            HStack {
+                VStack(alignment: .leading) {
+                    Text(voice.displayName).font(.headline)
+                    Text(voice.descriptor)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .foregroundStyle(.tint)
+                        .accessibilityHidden(true)
+                }
+            }
+            .contentShape(Rectangle())
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        }
+        .buttonStyle(.plain)
     }
 }

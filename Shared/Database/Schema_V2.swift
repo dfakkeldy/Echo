@@ -49,54 +49,61 @@ enum Schema_V2 {
 
         // ── Replace timeline VIEW to include notes ──
         try db.execute(sql: "DROP VIEW IF EXISTS timeline")
-        try db.execute(sql: """
-            CREATE VIEW timeline AS
-            SELECT id, audiobook_id, 'track' AS item_type, title, NULL AS subtitle,
-                   sort_order AS media_timestamp, is_enabled, playlist_position,
-                   NULL AS created_at, NULL AS modified_at
-            FROM track
-            UNION ALL
-            SELECT CAST(id AS TEXT), audiobook_id, 'chapter' AS item_type, title, NULL AS subtitle,
-                   start_seconds AS media_timestamp, is_enabled, playlist_position,
-                   NULL AS created_at, NULL AS modified_at
-            FROM chapter
-            UNION ALL
-            SELECT id, audiobook_id, 'bookmark' AS item_type, title, note AS subtitle,
-                   media_timestamp, is_enabled, playlist_position, created_at, modified_at
-            FROM bookmark
-            UNION ALL
-            SELECT id, audiobook_id, 'flashcard' AS item_type, front_text AS title, back_text AS subtitle,
-                   media_timestamp, is_enabled, playlist_position, created_at, modified_at
-            FROM flashcard
-            UNION ALL
-            SELECT CAST(id AS TEXT), audiobook_id, 'transcription' AS item_type, text AS title, NULL AS subtitle,
-                   start_time AS media_timestamp, 1 AS is_enabled, NULL AS playlist_position,
-                   NULL AS created_at, NULL AS modified_at
-            FROM transcription_segment
-            UNION ALL
-            SELECT id, audiobook_id, 'note' AS item_type, text AS title, NULL AS subtitle,
-                   media_timestamp, is_enabled, playlist_position, created_at, modified_at
-            FROM note
-            """)
+        try db.execute(
+            sql: """
+                CREATE VIEW timeline AS
+                SELECT id, audiobook_id, 'track' AS item_type, title, NULL AS subtitle,
+                       sort_order AS media_timestamp, is_enabled, playlist_position,
+                       NULL AS created_at, NULL AS modified_at
+                FROM track
+                UNION ALL
+                SELECT CAST(id AS TEXT), audiobook_id, 'chapter' AS item_type, title, NULL AS subtitle,
+                       start_seconds AS media_timestamp, is_enabled, playlist_position,
+                       NULL AS created_at, NULL AS modified_at
+                FROM chapter
+                UNION ALL
+                SELECT id, audiobook_id, 'bookmark' AS item_type, title, note AS subtitle,
+                       media_timestamp, is_enabled, playlist_position, created_at, modified_at
+                FROM bookmark
+                UNION ALL
+                SELECT id, audiobook_id, 'flashcard' AS item_type, front_text AS title, back_text AS subtitle,
+                       media_timestamp, is_enabled, playlist_position, created_at, modified_at
+                FROM flashcard
+                UNION ALL
+                SELECT CAST(id AS TEXT), audiobook_id, 'transcription' AS item_type, text AS title, NULL AS subtitle,
+                       start_time AS media_timestamp, 1 AS is_enabled, NULL AS playlist_position,
+                       NULL AS created_at, NULL AS modified_at
+                FROM transcription_segment
+                UNION ALL
+                SELECT id, audiobook_id, 'note' AS item_type, text AS title, NULL AS subtitle,
+                       media_timestamp, is_enabled, playlist_position, created_at, modified_at
+                FROM note
+                """)
 
         // ── Indexes ──
-        try db.create(index: "idx_note_audiobook", on: "note",
-                       columns: ["audiobook_id", "media_timestamp"],
-                       unique: false, ifNotExists: true)
-        try db.create(index: "idx_note_real_timestamp", on: "note",
-                       columns: ["real_timestamp"],
-                       unique: false, ifNotExists: true)
-        try db.create(index: "idx_planned_session_time", on: "planned_session",
-                       columns: ["start_time", "end_time"],
-                       unique: false, ifNotExists: true)
-        try db.create(index: "idx_real_time_event_time", on: "real_time_event",
-                       columns: ["started_at"],
-                       unique: false, ifNotExists: true)
-        try db.create(index: "idx_real_time_event_type", on: "real_time_event",
-                       columns: ["event_type"],
-                       unique: false, ifNotExists: true)
-        try db.create(index: "idx_real_time_event_audiobook", on: "real_time_event",
-                       columns: ["audiobook_id", "started_at"],
-                       unique: false, ifNotExists: true)
+        try db.create(
+            index: "idx_note_audiobook", on: "note",
+            columns: ["audiobook_id", "media_timestamp"],
+            unique: false, ifNotExists: true)
+        try db.create(
+            index: "idx_note_real_timestamp", on: "note",
+            columns: ["real_timestamp"],
+            unique: false, ifNotExists: true)
+        try db.create(
+            index: "idx_planned_session_time", on: "planned_session",
+            columns: ["start_time", "end_time"],
+            unique: false, ifNotExists: true)
+        try db.create(
+            index: "idx_real_time_event_time", on: "real_time_event",
+            columns: ["started_at"],
+            unique: false, ifNotExists: true)
+        try db.create(
+            index: "idx_real_time_event_type", on: "real_time_event",
+            columns: ["event_type"],
+            unique: false, ifNotExists: true)
+        try db.create(
+            index: "idx_real_time_event_audiobook", on: "real_time_event",
+            columns: ["audiobook_id", "started_at"],
+            unique: false, ifNotExists: true)
     }
 }

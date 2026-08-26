@@ -1,0 +1,7 @@
+Thanks for testing tonight's Echo nightly build.
+
+Here's what's new since the last weekly build:
+
+{{CHANGES}}
+
+Spot something off? Use in-app feedback or reply in TestFlight — thank you!

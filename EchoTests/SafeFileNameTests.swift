@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import XCTest
+
 @testable import Echo
 
-final class SafeFileNameTests: XCTestCase {
+// `nonisolated`: under Swift 6 MainActor default isolation this class would be
+// inferred `@MainActor`, but `XCTestCase`'s designated inits are nonisolated, so the
+// init overrides mismatch. The tests are pure synchronous value checks, so making
+// the class nonisolated is correct (and matches XCTestCase's own isolation).
+nonisolated final class SafeFileNameTests: XCTestCase {
 
     func testSanitizesFileURL() {
-        let result = SafeFileName.fromAudiobookID("file:///var/mobile/Containers/Shared/AppGroup/books/Great Expectations.m4b")
+        let result = SafeFileName.fromAudiobookID(
+            "file:///var/mobile/Containers/Shared/AppGroup/books/Great Expectations.m4b")
         XCTAssertFalse(result.contains("file://"))
         XCTAssertFalse(result.contains("//"))
         XCTAssertFalse(result.contains(" "))
@@ -16,7 +22,8 @@ final class SafeFileNameTests: XCTestCase {
         let result = SafeFileName.fromAudiobookID("file:///Users/test:book/file.m4b")
         XCTAssertFalse(result.contains(":"))
         XCTAssertFalse(result.contains("/"))
-        XCTAssertTrue(result.allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "." || $0 == "-" })
+        XCTAssertTrue(
+            result.allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "." || $0 == "-" })
     }
 
     func testHandlesEmptyInput() {
@@ -45,7 +52,8 @@ final class SafeFileNameTests: XCTestCase {
     /// last. Two long IDs sharing a 128-scalar prefix must still map to
     /// distinct names, or their caches and image assets collide on disk.
     func testLongIDsDifferingOnlyInTruncatedTailStayDistinct() {
-        let sharedPrefix = "file:///Users/test/Library/Mobile Documents/com~apple~CloudDocs/"
+        let sharedPrefix =
+            "file:///Users/test/Library/Mobile Documents/com~apple~CloudDocs/"
             + String(repeating: "Audiobooks/", count: 12)
         let bookA = SafeFileName.fromAudiobookID(sharedPrefix + "Author/Book One/")
         let bookB = SafeFileName.fromAudiobookID(sharedPrefix + "Author/Book Two/")

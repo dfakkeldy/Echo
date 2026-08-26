@@ -3,6 +3,10 @@
 import Observation
 import os.log
 
+nonisolated struct AudioItemLoadFailure: Error, Equatable, Sendable {
+    let privateDetail: String
+}
+
 // MARK: - AudioEngineDelegate
 
 protocol AudioEngineDelegate: AnyObject {
@@ -11,6 +15,9 @@ protocol AudioEngineDelegate: AnyObject {
     func audioEngineInterruptionBegan(_ engine: AudioEngine)
     func audioEngineInterruptionEnded(_ engine: AudioEngine, shouldResume: Bool)
     func audioEngineOutputDeviceDisconnected(_ engine: AudioEngine)
+    /// The engine stopped itself on a hardware reconfiguration and could not be
+    /// restarted at the current position. Settle into a real paused state.
+    func audioEngineDidStopUnexpectedly(_ engine: AudioEngine)
 }
 
 // MARK: - WS-4 Audio Engine Upgrade Protocols
@@ -18,6 +25,7 @@ protocol AudioEngineDelegate: AnyObject {
 protocol SoundscapePlaying: AnyObject {
     func play(preset: SoundscapePreset) async
     func stop()
+    var isActive: Bool { get }
     var volume: Float { get set }
 }
 
@@ -52,6 +60,16 @@ final class AudioEngine {
     /// Whether an audio file is loaded and ready.
     var isItemLoaded: Bool { audioFile != nil && playerNode != nil }
 
+    /// Whether the shared render engine is currently active. Playback controls
+    /// use this independently from `isPlaying` because ambient audio can keep
+    /// rendering while the audiobook player node is paused.
+    var isEngineRunning: Bool { engine?.isRunning == true }
+
+    /// Whether the engine is listening for hardware reconfigurations. The
+    /// original headphone-connect bug was that nothing observed this at all, so
+    /// tests assert the observer is armed for as long as the graph exists.
+    var isObservingConfigurationChanges: Bool { configurationChangeObserver != nil }
+
     /// The URL of the currently loaded audio file, if any.
     var audioFileURL: URL? { audioFile?.url }
 
@@ -79,7 +97,11 @@ final class AudioEngine {
 
     // MARK: - Time Tracking
 
-    private var fadeTimer: Timer?
+    // A structured `Task` rather than a `Timer`: under Swift 6 a `Timer`'s
+    // `@Sendable` callback cannot capture/mutate the fade's step counter or hop to
+    // the main actor without tripping sending diagnostics. An `await Task.sleep`
+    // loop keeps every fade step on the main actor with no isolation crossing.
+    private var fadeTask: Task<Void, Never>?
 
     /// The seek position at the start of the currently playing segment.
     /// `currentTime = seekOffset + Double(sampleTime) / sampleRate`
@@ -92,6 +114,7 @@ final class AudioEngine {
     private var routeChangeObserver: NSObjectProtocol?
     private var mediaServicesLostObserver: NSObjectProtocol?
     private var mediaServicesResetObserver: NSObjectProtocol?
+    private var configurationChangeObserver: NSObjectProtocol?
     private var audioSessionConfigured = false
     private var seekGeneration = 0
 
@@ -161,6 +184,94 @@ final class AudioEngine {
         soundscapeMixer = DefaultSoundscapeMixer(engine: engine)
         chimePlayer = DefaultChimePlayer(engine: engine)
         visualizerTap = DefaultVisualizerTap(engine: engine)
+
+        setupConfigurationChangeObserver(for: engine)
+    }
+
+    /// AVAudioEngine stops *itself* whenever the audio hardware configuration
+    /// changes — most often when an output device **connects** (Bluetooth
+    /// headphones waking up mid-book) or the default output device changes.
+    /// Unlike an interruption or a disconnect, nothing else tells the app, so
+    /// `isPlaying` is left true over a stopped engine: the transport keeps
+    /// showing a pause button while silence plays, and the next tap pauses an
+    /// already-stopped engine — which is why resuming took two presses.
+    ///
+    /// Scoped to this engine instance; `SnippetPlayer` and `BookmarkStore` build
+    /// their own AVAudioEngines whose reconfigurations are none of our business.
+    private func setupConfigurationChangeObserver(for engine: AVAudioEngine) {
+        guard configurationChangeObserver == nil else { return }
+        configurationChangeObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                self.handleConfigurationChange()
+            }
+        }
+    }
+
+    private func removeConfigurationChangeObserver() {
+        if let obs = configurationChangeObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+        configurationChangeObserver = nil
+    }
+
+    /// Restart at the current position so playback follows the new route.
+    ///
+    /// The re-seek is load-bearing: a bare `engine.start()` would resume, but
+    /// stopping resets the player node's sample time, and `currentTime` is
+    /// derived from it (`seekOffset + sampleTime / sampleRate`), so resuming
+    /// without rescheduling would rewind the book to the last seek point.
+    /// Re-seeking rebases `seekOffset` onto the position we actually reached.
+    func handleConfigurationChange() {
+        // A reconfiguration while paused needs nothing: the next `play()` goes
+        // through `startEngineIfNeeded()`, which restarts a stopped engine.
+        // `!engine.isRunning` also stops the restart below from re-entering if
+        // starting the engine posts a further configuration change.
+        guard isPlaying, let engine, !engine.isRunning else { return }
+
+        // A device leaving can reconfigure the engine too, and that notification
+        // races `.oldDeviceUnavailable`. Resuming when we have landed back on the
+        // built-in output would play the book out loud for the instant before the
+        // disconnect handler's pause arrives — the very thing that handler exists
+        // to prevent — so treat it as a stop rather than a route to follow.
+        guard !reconfiguredOntoBuiltInOutput else {
+            reportUnexpectedStop()
+            return
+        }
+
+        seek(to: currentTime) { [weak self] rescheduled in
+            guard let self else { return }
+            if rescheduled, self.engine?.isRunning == true { return }
+            // The engine would not come back. Report a real pause rather than
+            // leaving a pause button sitting over a dead engine.
+            self.reportUnexpectedStop()
+        }
+    }
+
+    /// True when the new route is the device's own speaker/receiver, i.e. the
+    /// output device went away rather than arrived. Always false off iOS, where
+    /// there is no AVAudioSession and a reconfiguration is a switch *to* a device.
+    private var reconfiguredOntoBuiltInOutput: Bool {
+        #if os(iOS)
+            let outputs = AVAudioSession.sharedInstance().currentRoute.outputs
+            return !outputs.isEmpty
+                && outputs.allSatisfy {
+                    $0.portType == .builtInSpeaker || $0.portType == .builtInReceiver
+                }
+        #else
+            return false
+        #endif
+    }
+
+    /// Settle into a truthful paused transport after the engine stopped on us.
+    private func reportUnexpectedStop() {
+        isPlaying = false
+        stopTimeTimer()
+        delegate?.audioEngineDidStopUnexpectedly(self)
     }
 
     // MARK: - Playback Controls
@@ -193,6 +304,9 @@ final class AudioEngine {
         playerNode?.pause()
         isPlaying = false
         stopTimeTimer()
+        if soundscapeMixer?.isActive != true {
+            engine?.pause()
+        }
     }
 
     func seek(to targetSeconds: Double, completion: ((Bool) -> Void)? = nil) {
@@ -297,8 +411,8 @@ final class AudioEngine {
     /// Smoothly fade gain to a target value over the specified duration.
     /// Uses a repeating Timer at ~20 steps per second. Cancels any in-progress fade.
     func fadeGain(to targetGain: Float, duration: TimeInterval) {
-        fadeTimer?.invalidate()
-        fadeTimer = nil
+        fadeTask?.cancel()
+        fadeTask = nil
         guard let eqNode else { return }
         let startGain = eqNode.globalGain
         let steps = Int(duration / 0.05)
@@ -307,28 +421,22 @@ final class AudioEngine {
             return
         }
         let gainDelta = (targetGain - startGain) / Float(steps)
-        var currentStep = 0
-        let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) {
-            [weak self] timer in
-            guard let self else {
-                timer.invalidate()
-                return
-            }
-            Task { @MainActor in
-                currentStep += 1
-                if currentStep >= steps {
-                    self.eqNode?.globalGain = targetGain
-                    // Invalidate via the stored reference, not the captured
-                    // `timer` param: capturing a non-Sendable Timer into this
-                    // @Sendable Task is a Swift-6 error (CODE_AUDIT.md §3.1).
-                    self.fadeTimer?.invalidate()
-                    self.fadeTimer = nil
+        // Ramp on the main actor (the class is @MainActor), one step every 50 ms.
+        // `[weak self]` mirrors the old Timer's weak capture so an in-flight fade
+        // never keeps the engine alive.
+        fadeTask = Task { @MainActor [weak self] in
+            for step in 1...steps {
+                try? await Task.sleep(for: .milliseconds(50))
+                if Task.isCancelled { return }
+                guard let self, let eqNode = self.eqNode else { return }
+                if step >= steps {
+                    eqNode.globalGain = targetGain
+                    self.fadeTask = nil
                 } else {
-                    self.eqNode?.globalGain = startGain + gainDelta * Float(currentStep)
+                    eqNode.globalGain = startGain + gainDelta * Float(step)
                 }
             }
         }
-        fadeTimer = timer
     }
 
     // MARK: - Volume Boost
@@ -343,7 +451,10 @@ final class AudioEngine {
 
     /// Loads an audio file and schedules it from the given startTime.
     /// Maintains the play/pause state across item replacement.
-    func replaceCurrentItem(with url: URL, startTime: TimeInterval? = nil) {
+    @discardableResult
+    func replaceCurrentItem(
+        with url: URL, startTime: TimeInterval? = nil
+    ) -> Result<Void, AudioItemLoadFailure> {
         let wasPlaying = isPlaying
         isPlaying = false
         stopTimeTimer()
@@ -355,7 +466,10 @@ final class AudioEngine {
         currentTime = initialOffset
         duration = nil
 
-        guard let playerNode, engine != nil else { return }
+        guard let playerNode, engine != nil else {
+            return .failure(
+                AudioItemLoadFailure(privateDetail: "Audio engine is not configured"))
+        }
 
         do {
             // Use prebuffered file if it matches the target URL (saves disk I/O).
@@ -376,7 +490,12 @@ final class AudioEngine {
             let startFrame = AVAudioFramePosition(clampedOffset * sampleRate)
             let framesToPlay = AVAudioFrameCount(file.length - startFrame)
 
-            guard framesToPlay > 0 else { return }
+            guard framesToPlay > 0 else {
+                audioFile = nil
+                duration = nil
+                return .failure(
+                    AudioItemLoadFailure(privateDetail: "Audio file contains no playable frames"))
+            }
 
             seekOffset = clampedOffset
             currentTime = clampedOffset
@@ -390,12 +509,17 @@ final class AudioEngine {
                 isPlaying = true
                 startTimeTimer()
             }
+            return .success(())
         } catch {
             os_log(
                 .error, "AudioEngine: replaceCurrentItem error: %{private}@",
                 error.localizedDescription)
             audioFile = nil
             duration = nil
+            return .failure(
+                AudioItemLoadFailure(
+                    privateDetail:
+                        "\(String(reflecting: type(of: error))): \(error.localizedDescription)"))
         }
     }
 
@@ -414,8 +538,8 @@ final class AudioEngine {
         soundscapeMixer?.stop()
         chimePlayer?.cancel()
 
-        fadeTimer?.invalidate()
-        fadeTimer = nil
+        fadeTask?.cancel()
+        fadeTask = nil
         stopTimeTimer()
         #if os(iOS)
             removeInterruptionObserver()
@@ -428,6 +552,10 @@ final class AudioEngine {
 
     func cleanup() {
         stop()
+        // Paired with `configureEngineGraph()`, not with `stop()`: the engine
+        // instance survives `stop()` and the graph builder early-returns while
+        // it does, so tearing the observer down there would never re-arm it.
+        removeConfigurationChangeObserver()
         engine = nil
         playerNode = nil
         eqNode = nil

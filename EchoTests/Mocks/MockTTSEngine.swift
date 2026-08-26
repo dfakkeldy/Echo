@@ -11,20 +11,62 @@ final class MockTTSEngine: TTSEngine, @unchecked Sendable {
     }
     let secondsPerChar: Double
     private(set) var calls: [(text: String, voice: VoiceID)] = []
+    private(set) var plannedCalls: [(chunk: PlannedSynthesisChunk, voice: VoiceID)] = []
     var throwOnText: String?
     /// Sub-chunk text that should raise the skippable length-cap error, so tests
     /// can verify a single over-long sub-chunk is skipped without aborting.
     var lengthCapOnText: String?
+    /// Sub-chunk text that should mimic ONNX Runtime's invalid Expand-shape
+    /// failure, which is another skippable over-long-fragment signal.
+    var invalidExpandShapeOnText: String?
+    /// Sub-chunk text that should return digital silence while still reporting a
+    /// duration, so render tests can exercise acoustic quality retry behavior.
+    var silentOnText: String?
+    var silentTexts: Set<String> = []
+    var returnsSilenceForAllText = false
+    var pronunciationFallbackHitsByText: [String: [PronunciationFallbackHit]] = [:]
 
     init(secondsPerChar: Double = 0.1) { self.secondsPerChar = secondsPerChar }
 
     func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
         calls.append((text, voice))
         if let cap = lengthCapOnText, text == cap { throw NarrationError.lengthCapExceeded }
+        if let bad = invalidExpandShapeOnText, text == bad {
+            throw NSError(
+                domain: "onnxruntime",
+                code: 1,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Non-zero status code returned while running Expand node. Status Message: invalid expand shape"
+                ])
+        }
         if let bad = throwOnText, text == bad { throw NarrationError.synthesisFailed }
         let duration = Double(text.count) * secondsPerChar
+        if returnsSilenceForAllText || silentOnText == text || silentTexts.contains(text) {
+            return TTSChunk(
+                samples: [Float](repeating: 0, count: max(1, text.count)),
+                sampleRate: 24_000,
+                duration: duration)
+        }
+        let sampleCount = max(1, text.count)
+        let samples = (0..<sampleCount).map { index in
+            index.isMultiple(of: 2) ? Float(0.05) : Float(-0.05)
+        }
         return TTSChunk(
-            samples: [Float](repeating: 0, count: max(1, text.count)),
-            sampleRate: 24_000, duration: duration)
+            samples: samples,
+            sampleRate: 24_000,
+            duration: duration,
+            pronunciationFallbackHits: pronunciationFallbackHitsByText[text] ?? [])
+    }
+
+    func synthesize(_ chunk: PlannedSynthesisChunk, voice: VoiceID) async throws -> TTSChunk {
+        plannedCalls.append((chunk, voice))
+        let synthesized = try await synthesize(chunk.g2pInputText, voice: voice)
+        return TTSChunk(
+            samples: synthesized.samples,
+            sampleRate: synthesized.sampleRate,
+            duration: synthesized.duration,
+            wordTimings: synthesized.wordTimings,
+            pronunciationFallbackHits: chunk.pronunciationFallbackHits)
     }
 }

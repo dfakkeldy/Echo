@@ -213,10 +213,17 @@ jobs:
           ruby-version: .ruby-version
           bundler-cache: true
 
-      # The `beta` lane archives iOS (+ embedded watch & widget) and macOS, then
-      # uploads every binary to TestFlight using fastlane/testflight/*.txt for
-      # the "What to Test" copy. Tip: route the Nightly and Weekly builds to
-      # separate TestFlight tester groups so testers self-select their risk.
+      # The `beta` lane archives iOS (+ embedded watch & widget) and, when the
+      # shared "Echo macOS" scheme is present, the Mac app too. pilot takes one
+      # binary per call, so the .ipa and the macOS .pkg are uploaded in two
+      # separate calls; a macOS archive/export/upload failure is a warning that
+      # never blocks the iOS upload. Nightly Mac builds stay internal; Weekly
+      # submits the Mac build to the external Weekly group after Beta App Review.
+      # The .pkg needs the Mac Installer Distribution certificate in the match
+      # repo (one-time: Scripts/import_mac_installer_cert.sh).
+      # "What to Test" copy comes from fastlane/testflight/*.txt. Tip: route the
+      # Nightly and Weekly builds to separate TestFlight tester groups so
+      # testers self-select their risk.
       - name: Upload ${{ needs.resolve.outputs.channel }} build to TestFlight
         if: steps.creds.outputs.ready == 'true'
         run: bundle exec fastlane beta channel:${{ needs.resolve.outputs.channel }}

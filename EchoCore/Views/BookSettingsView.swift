@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import GRDB
 import SwiftUI
 
 /// The per-book override controls, reusable in two homes (audit E1):
@@ -16,12 +17,15 @@ struct BookOverridesSections: View {
 
     var body: some View {
         Section {
-            Picker("Font Override", selection: Binding(
-                get: { model.bookFontOverride ?? "inherit" },
-                set: { newValue in
-                    model.updateBookFontOverride(newValue == "inherit" ? nil : newValue)
-                }
-            )) {
+            Picker(
+                "Font Override",
+                selection: Binding(
+                    get: { model.bookFontOverride ?? "inherit" },
+                    set: { newValue in
+                        model.updateBookFontOverride(newValue == "inherit" ? nil : newValue)
+                    }
+                )
+            ) {
                 Text("Inherit Global").tag("inherit")
                 Text("Lexend").tag("Lexend")
                 Text("OpenDyslexic").tag("OpenDyslexic")
@@ -31,12 +35,16 @@ struct BookOverridesSections: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Play Bookmarks Inline")
                     .font(.subheadline)
-                Picker("Bookmarks Inline Mode", selection: Binding(
-                    get: { model.bookPlayBookmarksInlineOverride ?? "inherit" },
-                    set: { newValue in
-                        model.updateBookPlayBookmarksInlineOverride(newValue == "inherit" ? nil : newValue)
-                    }
-                )) {
+                Picker(
+                    "Bookmarks Inline Mode",
+                    selection: Binding(
+                        get: { model.bookPlayBookmarksInlineOverride ?? "inherit" },
+                        set: { newValue in
+                            model.updateBookPlayBookmarksInlineOverride(
+                                newValue == "inherit" ? nil : newValue)
+                        }
+                    )
+                ) {
                     Text("Inherit").tag("inherit")
                     Text("Always On").tag("alwaysOn")
                     Text("Always Off").tag("alwaysOff")
@@ -48,12 +56,16 @@ struct BookOverridesSections: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Volume Boost")
                     .font(.subheadline)
-                Picker("Volume Boost Mode", selection: Binding(
-                    get: { model.bookVolumeBoostOverride ?? "inherit" },
-                    set: { newValue in
-                        model.updateBookVolumeBoostOverride(newValue == "inherit" ? nil : newValue)
-                    }
-                )) {
+                Picker(
+                    "Volume Boost Mode",
+                    selection: Binding(
+                        get: { model.bookVolumeBoostOverride ?? "inherit" },
+                        set: { newValue in
+                            model.updateBookVolumeBoostOverride(
+                                newValue == "inherit" ? nil : newValue)
+                        }
+                    )
+                ) {
                     Text("Inherit").tag("inherit")
                     Text("Always On").tag("alwaysOn")
                     Text("Always Off").tag("alwaysOff")
@@ -74,11 +86,14 @@ struct BookOverridesSections: View {
             .disabled(isUploading)
             // Presentation modifiers belong on a plain row view, not the
             // Section, so both Form homes present the alert reliably.
-            .alert(uploadAlert?.title ?? "", isPresented: Binding(
-                get: { uploadAlert != nil },
-                set: { if !$0 { uploadAlert = nil } }
-            )) {
-                Button("OK", role: .cancel) { }
+            .alert(
+                uploadAlert?.title ?? "",
+                isPresented: Binding(
+                    get: { uploadAlert != nil },
+                    set: { if !$0 { uploadAlert = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) {}
             } message: {
                 if let message = uploadAlert?.message {
                     Text(message)
@@ -89,30 +104,50 @@ struct BookOverridesSections: View {
                 Text(headerTitle)
             }
         } footer: {
-            Text("Overrides apply to this book only. \u{201C}Inherit\u{201D} follows the global setting.")
+            Text(
+                "Overrides apply to this book only. \u{201C}Inherit\u{201D} follows the global setting."
+            )
         }
     }
 
     private func shareAlignment() async {
         guard let db = model.databaseService?.writer,
-              let audiobookID = model.state.folderURL?.absoluteString else {
+            let audiobookID = model.bookIdentityURL?.absoluteString
+        else {
             uploadAlert = ("Error", "No book loaded.")
             return
         }
 
-        // Extract title/author from path
         let folderURL = URL(string: audiobookID) ?? URL(fileURLWithPath: audiobookID)
-        let title = folderURL.lastPathComponent
-        let author = folderURL.deletingLastPathComponent().lastPathComponent
-        let duration = model.state.totalBookDuration > 0 ? model.state.totalBookDuration : (model.state.durationSeconds ?? 0.0)
+        let record = try? AudiobookDAO(db: db).get(audiobookID)
+        let (title, author) = EPUBAutoImportScanner.anchorLookupMetadata(
+            folderURL: folderURL, record: record)
+        let fallbackDuration =
+            model.state.totalBookDuration > 0
+            ? model.state.totalBookDuration : (model.state.durationSeconds ?? 0.0)
+        let duration = (record?.duration).flatMap { $0 > 0 ? $0 : nil } ?? fallbackDuration
 
         isUploading = true
         defer { isUploading = false }
 
         do {
             let syncService = CloudKitSyncService(db: db)
-            try await syncService.uploadAnchors(audiobookID: audiobookID, title: title, author: author, duration: duration)
-            uploadAlert = ("Success", "Alignment anchors uploaded and shared successfully.")
+            let result = try await syncService.uploadAnchors(
+                audiobookID: audiobookID, title: title, author: author, duration: duration)
+            switch result {
+            case .uploaded, .merged:
+                uploadAlert = ("Success", "Alignment anchors uploaded and shared successfully.")
+            case .noUploadableAnchors:
+                uploadAlert = (
+                    "No Alignment Anchors",
+                    "This book does not have uploadable alignment anchors yet."
+                )
+            case .rateLimited:
+                uploadAlert = (
+                    "Try Again Later",
+                    "Alignment sharing is temporarily rate limited for this book."
+                )
+            }
         } catch {
             uploadAlert = ("Upload Failed", error.localizedDescription)
         }
@@ -123,11 +158,87 @@ struct BookOverridesSections: View {
 struct BookSettingsView: View {
     @Bindable var model: PlayerModel
     @Environment(\.dismiss) private var dismiss
+    @State private var studyPlanPresentation: StudyPlanSheetPresentation?
+    @State private var studyDeckGenerationPresentation: StudyDeckGenerationSheetPresentation?
+    @State private var echoDeckBuilderExportURL: URL?
+    @State private var readAlongStatus: String?
+    @State private var readAlongRecoveryHint: String?
 
     var body: some View {
-        NavigationStack {
+        CoverThemedSheet(theme: model.coverTheme) {
             Form {
+                Section("Study") {
+                    Button("Study Plan", systemImage: "rectangle.stack.badge.play") {
+                        studyPlanPresentation = StudyPlanSheetPresentation(model: model)
+                    }
+                    .disabled(model.databaseService == nil || model.folderURL == nil)
+
+                    Button("Generate Study Deck", systemImage: "rectangle.stack.badge.plus") {
+                        studyDeckGenerationPresentation = StudyDeckGenerationSheetPresentation(
+                            model: model
+                        )
+                    }
+                    .disabled(model.databaseService == nil || model.folderURL == nil)
+
+                    #if os(iOS)
+                        // Only EPUB-backed books can be sent to EchoDeckBuilder.
+                        // Gate on a real resolved .epub (not `hasEPUB`, which is
+                        // also true for parsed PDF / .md / .txt books that have no
+                        // .epub file) so the row is disabled — like the macOS
+                        // sibling — rather than enabled-but-always-failing.
+                        if let echoDeckBuilderExportURL {
+                            ShareLink(item: echoDeckBuilderExportURL) {
+                                Label(
+                                    "Make Flashcards in EchoDeckBuilder",
+                                    systemImage: "square.and.arrow.up"
+                                )
+                            }
+                        } else {
+                            Button(
+                                "Make Flashcards in EchoDeckBuilder",
+                                systemImage: "square.and.arrow.up"
+                            ) {}
+                            .disabled(true)
+                        }
+                    #endif
+                }
+
                 BookOverridesSections(model: model)
+
+                // Read-along status: whether word-level (sidecar) highlighting is
+                // active, or why it fell back to paragraph-level. Cross-platform
+                // (no iOS-only dependency) so macOS gets parity. Lives here rather
+                // than in the reader chrome to keep the reader UX untouched.
+                if model.databaseService?.writer != nil, model.state.folderURL != nil {
+                    Section("Read-Along") {
+                        LabeledContent("Highlighting") {
+                            Text(readAlongStatus ?? "Checking…")
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.trailing)
+                        }
+                        // Only present when the state is user-fixable, and it
+                        // names the action that fixes it rather than leaving the
+                        // reason as a dead end.
+                        if let readAlongRecoveryHint {
+                            Text(readAlongRecoveryHint)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                #if os(iOS)
+                    // Narration QA review — only for a loaded book. The pass itself
+                    // reports "no rendered audio" if the book isn't narrated yet.
+                    if let db = model.databaseService?.writer,
+                        let audiobookID = model.bookIdentityURL?.absoluteString
+                    {
+                        Section("Narration") {
+                            NarrationQASettingsLink(db: db, audiobookID: audiobookID)
+                                .id(audiobookID)
+                        }
+                    }
+                #endif
             }
             .navigationTitle("Book Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -137,6 +248,271 @@ struct BookSettingsView: View {
                 }
             }
         }
-        .environment(\.font, model.resolvedAppFont == SettingsManager.systemFontName ? .body : .custom(model.resolvedAppFont, size: 17, relativeTo: .body))
+        .sheet(item: $studyPlanPresentation) { presentation in
+            StudyPlanSheetHost(presentation: presentation)
+        }
+        .sheet(item: $studyDeckGenerationPresentation) { presentation in
+            StudyDeckGenerationSheetHost(presentation: presentation)
+        }
+        .task(id: echoDeckBuilderRefreshKey) {
+            refreshEchoDeckBuilderExportURL()
+        }
+        .task(id: readAlongRefreshKey) {
+            computeReadAlongStatus()
+        }
+        .environment(
+            \.font,
+            model.resolvedAppFont == SettingsManager.systemFontName
+                ? .body : .custom(model.resolvedAppFont, size: 17, relativeTo: .body))
+    }
+
+    private var canMakeFlashcardsInEchoDeckBuilder: Bool {
+        model.folderURL != nil && model.hasEPUB
+    }
+
+    private var echoDeckBuilderRefreshKey: EchoDeckBuilderRefreshKey {
+        EchoDeckBuilderRefreshKey(
+            folderURL: model.folderURL,
+            sourceDocumentURL: model.state.sourceDocumentURL,
+            currentTrackURL: currentTrackURL,
+            documentIngestionTrigger: model.state.documentIngestionTrigger
+        )
+    }
+
+    private var currentTrackURL: URL? {
+        model.tracks.indices.contains(model.currentIndex)
+            ? model.tracks[model.currentIndex].url
+            : nil
+    }
+
+    /// Recomputes when the book changes or a document (re)ingests, so a
+    /// just-imported sidecar's status is reflected without reopening the sheet.
+    private var readAlongRefreshKey: String {
+        "\(model.state.folderURL?.absoluteString ?? "")#\(model.state.documentIngestionTrigger)"
+    }
+
+    private func computeReadAlongStatus() {
+        guard let db = model.databaseService?.writer,
+            let audiobookID = model.state.folderURL?.absoluteString
+        else {
+            readAlongStatus = nil
+            readAlongRecoveryHint = nil
+            return
+        }
+        readAlongStatus = ReadAlongStatusResolver.statusLine(
+            audiobookID: audiobookID, writer: db)
+        readAlongRecoveryHint = ReadAlongStatusResolver.recoveryHint(audiobookID: audiobookID)
+    }
+
+    private func refreshEchoDeckBuilderExportURL() {
+        guard canMakeFlashcardsInEchoDeckBuilder else {
+            echoDeckBuilderExportURL = nil
+            return
+        }
+
+        // Resolution failure (e.g. a PDF/.md/.txt book with no .epub on disk)
+        // simply leaves the row disabled; there is no action to surface an error.
+        echoDeckBuilderExportURL = try? EchoDeckBuilderHandoffService.currentEPUBURL(
+            bookURL: model.folderURL,
+            sourceDocumentURL: model.state.sourceDocumentURL,
+            currentTrackURL: currentTrackURL
+        )
+    }
+}
+
+#if os(iOS)
+    private struct NarrationQASettingsLink: View {
+        @State private var qaModel: NarrationQAReviewModel
+
+        init(db: DatabaseWriter, audiobookID: String) {
+            _qaModel = State(
+                initialValue: NarrationQAReviewModel(db: db, audiobookID: audiobookID))
+        }
+
+        var body: some View {
+            NavigationLink {
+                NarrationQAReviewView(model: qaModel)
+            } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Label(
+                        "Narration QA",
+                        systemImage: "waveform.badge.magnifyingglass")
+                    if qaModel.hasPronunciationReviewIssues {
+                        Label(
+                            "Pronunciation review available",
+                            systemImage: "textformat.abc"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .task { qaModel.load() }
+        }
+    }
+#endif
+
+private struct EchoDeckBuilderRefreshKey: Equatable {
+    var folderURL: URL?
+    var sourceDocumentURL: URL?
+    var currentTrackURL: URL?
+    var documentIngestionTrigger: Int
+}
+
+private struct StudyPlanSheetPresentation: Identifiable {
+    let audiobookID: String
+    let bookTitle: String
+    let db: DatabaseWriter
+
+    var id: String { audiobookID }
+
+    init?(model: PlayerModel) {
+        guard let db = model.databaseService?.writer,
+            let folderURL = model.folderURL,
+            let audiobookID = model.bookIdentityURL?.absoluteString
+        else {
+            return nil
+        }
+
+        self.audiobookID = audiobookID
+        self.bookTitle = StudyPlanBookTitleResolver.resolve(
+            audiobookID: audiobookID,
+            folderURL: folderURL,
+            db: db,
+            currentTitle: model.currentTitle
+        )
+        self.db = db
+    }
+}
+
+private struct StudyPlanSheetHost: View {
+    @State private var viewModel: StudyPlanViewModel
+
+    init(presentation: StudyPlanSheetPresentation) {
+        _viewModel = State(
+            wrappedValue: StudyPlanViewModel(
+                audiobookID: presentation.audiobookID,
+                bookTitle: presentation.bookTitle,
+                db: presentation.db
+            )
+        )
+    }
+
+    var body: some View {
+        StudyPlanSheet(viewModel: viewModel)
+    }
+}
+
+private struct StudyDeckGenerationSheetPresentation: Identifiable {
+    let audiobookID: String
+    let bookTitle: String
+    let db: DatabaseWriter
+
+    var id: String { audiobookID }
+
+    init?(model: PlayerModel) {
+        guard let db = model.databaseService?.writer,
+            let folderURL = model.folderURL,
+            let audiobookID = model.bookIdentityURL?.absoluteString
+        else {
+            return nil
+        }
+
+        self.audiobookID = audiobookID
+        self.bookTitle = StudyPlanBookTitleResolver.resolve(
+            audiobookID: audiobookID,
+            folderURL: folderURL,
+            db: db,
+            currentTitle: model.currentTitle
+        )
+        self.db = db
+    }
+}
+
+private struct StudyDeckGenerationSheetHost: View {
+    @State private var viewModel: StudyDeckGenerationViewModel
+
+    init(presentation: StudyDeckGenerationSheetPresentation) {
+        // Resolve provider state on the MainActor, then capture Sendable values.
+        let store = AIProviderSettingsStore()
+        let preference = store.generatorPreference
+        let fmAvailable = StudyDeckFMAvailability.isAvailable
+        let clients: (primary: AnthropicMessagesClient, brief: AnthropicMessagesClient)?
+        if store.hasConfiguredCloudProvider,
+            let config = store.config,
+            let token = store.token(for: config.preset)
+        {
+            clients = AnthropicMessagesClient.clients(config: config, token: token)
+        } else {
+            clients = nil
+        }
+
+        let providerClients = clients
+        let makeGenerator:
+            (@escaping @Sendable (Int, Int) -> Void) ->
+                (any StudyDeckGenerating)? = { progress in
+                    let cloud: (@Sendable () -> any StudyDeckGenerating)?
+                    if let pair = providerClients {
+                        cloud = {
+                            AnthropicStudyDeckGenerator(
+                                client: pair.primary,
+                                briefClient: pair.brief,
+                                progress: progress
+                            )
+                        }
+                    } else {
+                        cloud = nil
+                    }
+                    return StudyDeckGeneratorFactory.makeForUI(
+                        preference: preference,
+                        fmAvailable: fmAvailable,
+                        cloud: cloud
+                    )
+                }
+        let model = StudyDeckGenerationViewModel(
+            audiobookID: presentation.audiobookID,
+            bookTitle: presentation.bookTitle,
+            db: presentation.db,
+            makeGenerator: makeGenerator
+        )
+        _viewModel = State(wrappedValue: model)
+    }
+
+    var body: some View {
+        StudyDeckGenerationSheet(viewModel: viewModel)
+    }
+}
+
+enum StudyPlanBookTitleResolver {
+    static func resolve(
+        audiobookID: String,
+        folderURL: URL,
+        db: DatabaseWriter,
+        currentTitle: String
+    ) -> String {
+        let audiobook = try? AudiobookDAO(db: db).get(audiobookID)
+        return resolve(
+            storedTitle: audiobook?.title,
+            folderTitle: folderURL.lastPathComponent,
+            currentTitle: currentTitle
+        )
+    }
+
+    static func resolve(
+        storedTitle: String?,
+        folderTitle: String,
+        currentTitle: String
+    ) -> String {
+        normalizedTitle(storedTitle)
+            ?? normalizedTitle(folderTitle)
+            ?? normalizedTitle(currentTitle)
+            ?? "Book"
+    }
+
+    private static func normalizedTitle(_ title: String?) -> String? {
+        guard let title else { return nil }
+
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

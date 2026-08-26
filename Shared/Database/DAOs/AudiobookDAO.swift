@@ -27,6 +27,26 @@ nonisolated struct AudiobookDAO {
         }
     }
 
+    func audiobookshelfRecords(serverID: String) throws -> [AudiobookRecord] {
+        try db.read { db in
+            try AudiobookRecord
+                .filter(Column("source_type") == "audiobookshelf")
+                .filter(Column("server_id") == serverID)
+                .filter(Column("remote_item_id") != nil)
+                .fetchAll(db)
+        }
+    }
+
+    func audiobookshelfRecordsAsync(serverID: String) async throws -> [AudiobookRecord] {
+        try await db.read { db in
+            try AudiobookRecord
+                .filter(Column("source_type") == "audiobookshelf")
+                .filter(Column("server_id") == serverID)
+                .filter(Column("remote_item_id") != nil)
+                .fetchAll(db)
+        }
+    }
+
     /// Async variant for callers on the main actor (e.g. CarPlay connect) so the
     /// query runs on GRDB's pool rather than blocking the UI thread (audit §7.3).
     /// Named distinctly from `all()` so it doesn't shadow the sync overload at
@@ -46,7 +66,7 @@ nonisolated struct AudiobookDAO {
     }
 }
 
-nonisolated struct AudiobookRecord: Codable, FetchableRecord, MutablePersistableRecord {
+nonisolated struct AudiobookRecord: Codable, FetchableRecord, MutablePersistableRecord, Sendable {
     var id: String
     var title: String
     var author: String?
@@ -57,6 +77,16 @@ nonisolated struct AudiobookRecord: Codable, FetchableRecord, MutablePersistable
     var serverID: String? = nil
     var remoteItemID: String? = nil
     var topicsJSON: String? = nil
+    var coverArtPath: String? = nil
+    var narrator: String? = nil
+    var indexState: Int = 0
+    var isAvailable: Bool = true
+    var lastSeenAt: String? = nil
+    var authorSort: String? = nil
+    var sourceRootID: String? = nil
+    var textOrigin: String? = nil
+    var editionGroupID: String? = nil
+    var editionGroupOptOut: Bool = false
 
     static let databaseTableName = "audiobook"
 
@@ -68,5 +98,15 @@ nonisolated struct AudiobookRecord: Codable, FetchableRecord, MutablePersistable
         case serverID = "server_id"
         case remoteItemID = "remote_item_id"
         case topicsJSON = "topics_json"
+        case coverArtPath = "cover_art_path"
+        case narrator
+        case indexState = "index_state"
+        case isAvailable = "is_available"
+        case lastSeenAt = "last_seen_at"
+        case authorSort = "author_sort"
+        case sourceRootID = "source_root_id"
+        case textOrigin = "text_origin"
+        case editionGroupID = "edition_group_id"
+        case editionGroupOptOut = "edition_group_optout"
     }
 }

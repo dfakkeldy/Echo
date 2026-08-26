@@ -8,7 +8,7 @@ import Foundation
 /// so the mapping is greedy: walk the block's rendered words and the strong DTW
 /// matches in parallel, and when `TokenDTW.normalize(renderedWord)` shares its
 /// first token with the match's token, adopt the match's audio time.
-enum WordTimingRefiner {
+nonisolated enum WordTimingRefiner {
     struct RefinedWord: Equatable {
         let index: Int
         let word: String

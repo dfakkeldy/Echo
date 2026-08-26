@@ -7,7 +7,7 @@ struct NarrationOutlineChapter: Identifiable, Equatable {
     let chapterIndex: Int
     /// 1-based position among narratable chapters (does NOT shift on exclude).
     let displayNumber: Int
-    /// First heading-block text in the chapter, else "Chapter <displayNumber>".
+    /// Heading-derived title, else "Chapter <displayNumber>".
     let title: String
     /// Every block in the chapter is hidden → not narrated.
     let isExcluded: Bool
@@ -26,18 +26,37 @@ enum NarrationOutlineBuilder {
     ) -> [NarrationOutlineChapter] {
         NarrationChapterPlanner.plan(from: allBlocks).map { planned in
             let ordered = planned.blocks.sorted { $0.sequenceIndex < $1.sequenceIndex }
-            let title =
-                ordered.first(where: {
-                    EPubBlockRecord.Kind(rawValue: $0.blockKind) == .heading
-                        && ($0.text?.isEmpty == false)
-                })?.text ?? "Chapter \(planned.displayNumber)"
             let isExcluded = ordered.allSatisfy { $0.isHidden }
             return NarrationOutlineChapter(
                 chapterIndex: planned.index,
                 displayNumber: planned.displayNumber,
-                title: title,
+                title: planned.title,
                 isExcluded: isExcluded,
                 isRendered: isRendered(planned.index))
+        }
+    }
+}
+
+nonisolated enum NarrationOutlineReadiness {
+    static func renderedChapterIndices(
+        expectedFileNamesByChapter: [Int: Set<String>],
+        existingFileNames: Set<String>
+    ) -> Set<Int> {
+        Set(expectedFileNamesByChapter.compactMap { chapterIndex, expectedFileNames in
+            guard !expectedFileNames.isEmpty,
+                expectedFileNames.isSubset(of: existingFileNames)
+            else { return nil }
+            return chapterIndex
+        })
+    }
+
+    static func removableQueueIndices(
+        fileNames: [String],
+        currentIndex: Int,
+        expectedFileNames: Set<String>
+    ) -> [Int] {
+        fileNames.indices.reversed().filter { index in
+            index != currentIndex && expectedFileNames.contains(fileNames[index])
         }
     }
 }

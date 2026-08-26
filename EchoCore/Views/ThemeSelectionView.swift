@@ -45,7 +45,8 @@ struct ThemeSelectionView: View {
             } footer: {
                 if settings.themeColor == ThemeColor.artwork.rawValue,
                     playerModel.artworkAccentColor == nil,
-                    playerModel.currentDisplayArtwork == nil
+                    playerModel.currentDisplayArtwork == nil,
+                    playerModel.thumbnailImage == nil
                 {
                     Text("Load an audiobook to see the extracted accent colour.")
                 }
@@ -59,9 +60,9 @@ struct ThemeSelectionView: View {
     /// colour from the current cover or a fallback placeholder.
     @ViewBuilder
     private var artworkPreviewCircle: some View {
-        if let dynamicColor = playerModel.artworkAccentColor {
+        if playerModel.currentDisplayArtwork != nil || playerModel.thumbnailImage != nil {
             Image(systemName: "circle.fill")
-                .foregroundStyle(dynamicColor)
+                .foregroundStyle(playerModel.resolvedTint(for: .artwork) ?? Color.accentColor)
         } else {
             Image(systemName: "circle.dashed")
                 .foregroundStyle(.secondary)

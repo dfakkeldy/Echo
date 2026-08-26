@@ -15,8 +15,8 @@ struct AlignmentTranscriptTests {
 
     // MARK: - Fixtures
 
-    private func word(_ text: String, _ start: Float) -> WordTiming {
-        WordTiming(word: text, tokens: [], start: start, end: start + 0.3, probability: 1.0)
+    private func word(_ text: String, _ start: Float, probability: Float = 1.0) -> WordTiming {
+        WordTiming(word: text, tokens: [], start: start, end: start + 0.3, probability: probability)
     }
 
     private func segment(start: Float, end: Float, text: String, words: [WordTiming]?) -> WKTranscriptionSegment {
@@ -63,6 +63,16 @@ struct AlignmentTranscriptTests {
         let words = AlignmentTranscript.words(from: [[later, earlier]], captureStart: 0)
 
         #expect(words.map(\.text) == ["alpha", "beta"])
+    }
+
+    @Test func carriesWordTimingConfidence() {
+        let r = result([segment(start: 0.0, end: 1.0, text: " alpha", words: [
+            word(" alpha", 0.1, probability: 0.42),
+        ])])
+
+        let words = AlignmentTranscript.words(from: [[r]], captureStart: 0)
+
+        #expect(abs((words.first?.confidence ?? 0) - 0.42) < 0.001)
     }
 
     @Test func spreadsSegmentTextWhenWordTimingsAreMissing() {

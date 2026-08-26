@@ -11,6 +11,26 @@ import Testing
         #expect(pieces == ["Hello there."])
     }
 
+    @Test func defaultBudgetIsLargerThanTheOldFluidAudioCap() {
+        // The 200-char cap was a FluidAudio/CoreML-era guard against a BNNS vocoder
+        // trap; that engine is gone (ONNX CPU EP, no trap). The live ceiling is
+        // Kokoro's ~510-phoneme context, which 200 chars under-uses ~2x. A larger
+        // default means a multi-sentence paragraph that *used* to split into
+        // separate synth calls (each ending with sentence-final prosody → an
+        // audible "period") is now one utterance — fewer seams, less choppiness.
+        let p = String(
+            repeating: "The quick brown fox jumps over the lazy dog. ", count: 6
+        ).trimmingCharacters(in: .whitespaces)
+        #expect(p.count == 269)  // 6 sentences; would split at the old 200 cap
+
+        let atOldCap = NarrationTextChunker.split(p, maxChars: 200)
+        let atDefault = NarrationTextChunker.split(p)  // new, larger default
+        #expect(atOldCap.count > atDefault.count)  // fewer synth calls now
+        #expect(atDefault == [p])  // the whole paragraph is one utterance
+        // Still safely under the ~510-phoneme model ceiling (~1.1-1.3 phonemes/char).
+        #expect(atDefault.allSatisfy { $0.count <= 380 })
+    }
+
     @Test func emptyAndWhitespaceYieldNoPieces() {
         #expect(NarrationTextChunker.split("", maxChars: 200).isEmpty)
         #expect(NarrationTextChunker.split("   \n\t  ", maxChars: 200).isEmpty)
@@ -32,6 +52,28 @@ import Testing
         #expect(pieces.allSatisfy { $0.count <= 200 })
         // Sentence-boundary split: every piece ends on a sentence terminator.
         #expect(pieces.allSatisfy { $0.hasSuffix(".") })
+    }
+
+    @Test func prefersSentenceBoundaryOverClauseSeamWhenSentencesFit() {
+        // The greedy merge must not end a chunk on a comma when splitting at the
+        // sentence boundary keeps every chunk under budget. A comma seam gets the
+        // model's full sentence-final intonation — an audible "period" mid-sentence.
+        let pieces = NarrationTextChunker.split("A short one. A, b, c, d, e.", maxChars: 25)
+        #expect(pieces == ["A short one.", "A, b, c, d, e."])
+        // No chunk ends on a clause comma when a sentence-boundary split was available.
+        #expect(pieces.allSatisfy { !$0.hasSuffix(",") })
+    }
+
+    @Test func overlongSentencePrefersClauseBoundaryBeforeWordWrap() {
+        let text =
+            "The first clause has a natural pause, "
+            + "the second clause keeps moving with enough words to require another chunk before the final period."
+        let pieces = NarrationTextChunker.split(text, maxChars: 56)
+
+        #expect(pieces.count > 1)
+        #expect(pieces.allSatisfy { $0.count <= 56 })
+        #expect(pieces.first == "The first clause has a natural pause,")
+        #expect(pieces.joined(separator: " ") == text)
     }
 
     @Test func singleOverlongSentenceWrapsAtWordBoundaries() {
@@ -71,6 +113,12 @@ import Testing
         #expect(pieceWords == originalWords)
     }
 
+    @Test func closingQuoteStaysAttachedToSentenceBoundary() {
+        let text = "You reply, “Stop.” It was available."
+
+        #expect(NarrationTextChunker.split(text, maxChars: 200) == [text])
+    }
+
     @Test func decorativeSeparatorsYieldNoChunks() {
         // EPUB section breaks like "* * *" or "---" have no speakable
         // content — they should produce zero chunks instead of being
@@ -98,5 +146,231 @@ import Testing
             let hasContent = piece.contains { $0.isLetter || $0.isNumber }
             #expect(hasContent)
         }
+    }
+
+    @Test func pronunciationOverrideLinkIsNotSplitOnIPADots() {
+        // A pronunciation override rewrites a word as `[word](/ipa/)`, and an IPA
+        // syllable separator "." must NOT trigger a sentence split — otherwise the
+        // link is broken (spaces inserted inside it) and the override is lost.
+        let text = "He met [Computer](/kəm.pjuː.tər/) today. Then he left."
+        let pieces = NarrationTextChunker.split(text, maxChars: 200)
+        let joined = pieces.joined(separator: "")
+        // The link survives verbatim — no space injected between IPA syllables.
+        #expect(joined.contains("[Computer](/kəm.pjuː.tər/)"))
+        // Exactly one piece carries the whole link (it wasn't torn across chunks).
+        #expect(pieces.filter { $0.contains("kəm.pjuː.tər") }.count == 1)
+    }
+
+    @Test func phonemeBudgetAllowsLongerLowRiskChunks() {
+        let text = Array(repeating: "we go", count: 60).joined(separator: ". ") + "."
+        let pieces = NarrationTextChunker.splitResolved(
+            text,
+            maxPhonemes: 420,
+            phonemeCount: { $0.count / 2 })
+
+        #expect(pieces.count < NarrationTextChunker.split(text, maxChars: 200).count)
+        #expect(pieces.allSatisfy { ($0.count / 2) <= 420 })
+    }
+
+    @Test func phonemeBudgetDoesNotSplitPronunciationLinks() {
+        let text =
+            Array(repeating: "padding", count: 40).joined(separator: " ")
+            + " [Kubernetes](/kuːbərˈnɛtɪs/) "
+            + Array(repeating: "padding", count: 40).joined(separator: " ")
+
+        let pieces = NarrationTextChunker.splitResolved(
+            text,
+            maxPhonemes: 120,
+            phonemeCount: { $0.count })
+
+        #expect(pieces.joined(separator: " ").contains("[Kubernetes](/kuːbərˈnɛtɪs/)"))
+        #expect(!pieces.contains { $0.contains("[Kubernetes]") && !$0.contains("kuːbərˈnɛtɪs") })
+    }
+
+    @Test func resolvedSplitKeepsIPASpacesInsideOneLink() {
+        let source = "The [filesystem](/fˈIl sˌɪstəm/) stores the verified result."
+        let pieces = NarrationTextChunker.splitResolved(source, maxPhonemes: 14) { text in
+            text.count
+        }
+        #expect(pieces.count > 1)
+        #expect(pieces.joined(separator: " ").contains("[filesystem](/fˈIl sˌɪstəm/)"))
+        #expect(
+            pieces.allSatisfy {
+                !$0.contains("[filesystem](/fˈIl") || $0.contains("sˌɪstəm/)")
+            }
+        )
+    }
+
+    @Test func resolvedSplitDoesNotInsertWhitespaceIntoMarkdownURL() {
+        let source = "verified [site](https://example.com)"
+        let pieces = NarrationTextChunker.splitResolved(source, maxPhonemes: 420) {
+            $0.count
+        }
+
+        #expect(pieces == [source])
+    }
+
+    @Test func resolvedWordWrappingKeepsGenericMarkdownLinkAtomic() {
+        let link = "[the guide](https://example.com/a(b)c)"
+        let source = "See \(link) now."
+        let pieces = NarrationTextChunker.splitResolved(source, maxPhonemes: 10) {
+            $0.count
+        }
+
+        #expect(pieces.contains(link))
+        #expect(
+            pieces
+                .filter { $0.contains("[") || $0.contains("](") || $0.contains("https://") }
+                .allSatisfy { $0 == link })
+    }
+
+    @Test func markdownReferencesRemainAtomic() {
+        let nested = #"[ad-hoc [guide]](https://example.com/a(b)c)"#
+        let escaped = #"[ad-hoc \[guide\]](https://example.com/a(b)c)"#
+        let fullReference = "[display label][ad-hoc]"
+        let collapsedReference = "[ad-hoc][]"
+        let shortcutReference = "[ad-hoc]"
+        let source = """
+            [ad-hoc]: https://example.com/ad-hoc
+
+            See \(nested), \(escaped), \(fullReference), \(collapsedReference), and \(shortcutReference).
+            """
+        let pieces = NarrationTextChunker.splitResolved(source, maxPhonemes: 12) {
+            $0.count
+        }
+        let protected = NarrationTextChunker.markdownProtectedRanges(in: source)
+            .map { String(source[$0]) }
+
+        #expect(protected.contains(fullReference))
+        #expect(pieces.contains { $0.contains(nested) })
+        #expect(pieces.contains { $0.contains(escaped) })
+        #expect(pieces.contains { $0.contains(fullReference) })
+        #expect(pieces.contains { $0.contains(collapsedReference) })
+        #expect(pieces.contains { $0.contains(shortcutReference) })
+    }
+
+    @Test func markdownTitlesAndMultilineDefinitionsRemainAtomic() {
+        let doubleTitle = #"[guide](https://example.com "ad-hoc (")"#
+        let singleTitle = #"[guide](https://example.com 'ad-hoc (')"#
+        let parenthesizedTitle = #"[guide](https://example.com (ad-hoc\)))"#
+        let angleDestination = #"[guide](<https://example.com/a(b)c> "ad-hoc")"#
+        let escapedTitle = #"[guide](https://example.com "ad-hoc \"quoted\"")"#
+        let multilineDefinition = #"""
+            [multiline]: https://example.com
+              "ad-hoc ("
+            """#
+        let source = """
+            \(multilineDefinition)
+
+            \(doubleTitle) \(singleTitle) \(parenthesizedTitle)
+            \(angleDestination) \(escapedTitle) See [multiline].
+            """
+        let pieces = NarrationTextChunker.splitResolved(source, maxPhonemes: 12) {
+            $0.count
+        }
+        let definitionPieces = NarrationTextChunker.splitResolved(
+            multilineDefinition,
+            maxPhonemes: 12
+        ) { $0.count }
+        let protected = NarrationTextChunker.markdownProtectedRanges(in: source)
+            .map { String(source[$0]) }
+
+        #expect(protected.contains(multilineDefinition))
+        #expect(definitionPieces == [multilineDefinition])
+        #expect(pieces.first { $0.contains("[multiline]:") } == multilineDefinition)
+        #expect(pieces.contains { $0.contains(multilineDefinition) })
+        #expect(pieces.contains { $0.contains(doubleTitle) })
+        #expect(pieces.contains { $0.contains(singleTitle) })
+        #expect(pieces.contains { $0.contains(parenthesizedTitle) })
+        #expect(pieces.contains { $0.contains(angleDestination) })
+        #expect(pieces.contains { $0.contains(escapedTitle) })
+    }
+
+    @Test func crlfReferenceTitlesAndEscapesRemainAtomic() {
+        let definition =
+            #"[guide]: https://example.com"#
+            + "\r\n"
+            + #"  "ad-hoc \"quoted\"""#
+        let source = definition + "\r\nSee [guide]."
+        let protected = NarrationTextChunker.markdownProtectedRanges(in: source)
+            .map { String(source[$0]) }
+
+        #expect(protected.contains(definition))
+        #expect(protected.contains("[guide]"))
+    }
+
+    @Test func unmatchedMarkdownBracketsHaveBoundedInspectionWork() {
+        let source = String(repeating: "[", count: 20_000)
+        var inspectionCount = 0
+
+        let ranges = NarrationTextChunker.markdownProtectedRanges(
+            in: source,
+            inspectionCount: &inspectionCount)
+
+        #expect(ranges.isEmpty)
+        #expect(inspectionCount <= source.count * 20)
+    }
+
+    @Test func repeatedMatchedLabelsWithUnclosedDestinationsHaveBoundedInspectionWork() {
+        for fragment in ["[](", "[x]("] {
+            let source = String(repeating: fragment, count: 1_000)
+            var inspectionCount = 0
+
+            _ = NarrationTextChunker.markdownProtectedRanges(
+                in: source,
+                inspectionCount: &inspectionCount)
+
+            #expect(inspectionCount <= source.count * 20)
+        }
+    }
+
+    @Test func nestedBalancedLabelsIncludingReferenceNormalizationStayBounded() {
+        let depth = 2_000
+        let source =
+            String(repeating: "[", count: depth)
+            + "multi word reference"
+            + String(repeating: "]", count: depth)
+        var inspectionCount = 0
+
+        _ = NarrationTextChunker.markdownProtectedRanges(
+            in: source,
+            inspectionCount: &inspectionCount)
+
+        #expect(inspectionCount <= source.count * 20)
+    }
+
+    @Test func editorialSquareBracketsDoNotDisableSentenceSplitting() {
+        // `[sic]`/footnote brackets are not pronunciation links: sentence
+        // terminators after them must still split.
+        let text = "First note [sic] here. Second sentence here. Third sentence here."
+        let pieces = NarrationTextChunker.split(text, maxChars: 30)
+        #expect(
+            pieces == [
+                "First note [sic] here.",
+                "Second sentence here.",
+                "Third sentence here.",
+            ])
+    }
+
+    @Test func bareDecimalsStayInsideASentence() {
+        let text = "It was 98.6 degrees. Pi is 3.14159 exactly. The grant was $5.5 million."
+        let pieces = NarrationTextChunker.split(text, maxChars: 40)
+
+        #expect(
+            pieces == [
+                "It was 98.6 degrees.",
+                "Pi is 3.14159 exactly.",
+                "The grant was $5.5 million.",
+            ])
+    }
+
+    @Test func dottedIdentifiersRemainSingleAuthoredWords() {
+        let text = "Shared CLAUDE.md files coordinate work. Visit docs.anthropic.com next."
+        let pieces = NarrationTextChunker.splitResolved(text, maxPhonemes: 420) {
+            $0.count
+        }
+
+        #expect(pieces == [text])
+        #expect(WordTokenizer.words(in: pieces[0]).count == 8)
     }
 }

@@ -12,6 +12,7 @@ final class SettingsManager {
         static let appAppearance = "System"
         static let appFont = "Lexend"
         static let themeColor = "Artwork"
+        static let vividCoverAccent = false
         static let isRewindEnabled = false
         static let rewindPauseSecondsThreshold = 30
         static let rewindAmountAfterSeconds = 10
@@ -22,7 +23,8 @@ final class SettingsManager {
         static let rewindHoursToChapterStart = false
         static let playBookmarksInline = true
         static let crownAction = "volume"
-        static let crownVolumeSensitivity = 0.05
+        // Single source of truth shared with the watch's optimistic mirror.
+        static let crownVolumeSensitivity = WatchCrownVolume.defaultSensitivity
         static let crownScrubSensitivity = 0.5
         static let defaultPlaybackSpeed = 1.25
         static let speedPresets: [Float] = [1.0, 1.25, 1.5, 2.0, 3.0]
@@ -33,11 +35,11 @@ final class SettingsManager {
         static let watchPage3: [WatchAction] = [.empty, .empty, .empty, .empty, .empty]
         static let watchPage4: [WatchAction] = [.empty, .empty, .empty, .empty, .empty]
         static let watchPage5: [WatchAction] = [.empty, .empty, .empty, .empty, .empty]
-        static let linearBarMode = "total"
+        static let linearBarMode = "chapter"
         static let linearBarHidden = false
-        static let circularRingMode = "chapter"
+        static let circularRingMode = "total"
         static let circularRingHidden = false
-        static let watchArtworkLayout = "immersive"
+        static let watchArtworkLayout = "classic"
         static let watchBackgroundStyle = "artwork"
         static let watchTitleScrollEnabled = false
         static let watchTitleScrollSpeed = 30.0
@@ -56,12 +58,20 @@ final class SettingsManager {
         static let seekBackwardDuration = 30
         static let seekForwardDuration = 30
         static let playerLayoutStyle = "default"
+        static let experimentalNowPlayingLayout = false
+        static let experimentalPlayerLayoutData = Data()
         static let readerFontSize: Double = 17.0
         static let readerLineSpacing: Double = 1.4
         static let readerCardTint: String = "#F5F0E8"
+        static let studyGlobalNewChapterLimit = 12
+        static let studyNewCardsPerDayLimit = 20
+        static let studyAutoExportEnabled = false
+        static let reviewNotificationsEnabled = false
         static let autoAlignmentEnabled = true
         static let locationCaptureEnabled = false
+        static let debugLoggingEnabled = false
         static let autoAlignmentModelSize = "base.en"
+        static let narrationQAClassifier = "auto"
         static let autoAlignmentChapterSnapEnabled = true
         static let autoAlignmentDriftDetectionEnabled = true
         static let autoAlignmentDriftRepairEnabled = true
@@ -70,10 +80,22 @@ final class SettingsManager {
         static let chimeSound: String = ChimeSound.softChime.rawValue
         static let chimeVolume: Double = 0.3
         static let soundscapeVolume: Float = 0.5
+        static let checkpointTimeoutSeconds = 30
+        #if os(macOS)
+            // A Mac screen doesn't sleep mid-session the way a pocketed phone
+            // does; auto-Again fired at an empty desk chair would be dishonest
+            // data, so macOS defaults to Wait (no countdown).
+            static let checkpointTimeoutBehavior = CheckpointTimeoutBehavior.wait.rawValue
+        #else
+            static let checkpointTimeoutBehavior = CheckpointTimeoutBehavior.replay.rawValue
+        #endif
+        static let checkpointAutoAdvance = true
+        static let checkpointRemoteGrading = true
     }
 
     private enum Keys {
         static let appAppearance = "appAppearance"
+        static let vividCoverAccent = "vividCoverAccent"
         static let appFont = "appFont"
         static let themeColor = "themeColor"
         static let isRewindEnabled = "isRewindEnabled"
@@ -117,13 +139,21 @@ final class SettingsManager {
         static let watchPresets = "watchPresets"
         static let phonePresets = "phonePresets"
         static let playerLayoutStyle = "playerLayoutStyle"
+        static let experimentalNowPlayingLayout = "experimentalNowPlayingLayout"
+        static let experimentalPlayerLayoutData = "experimentalPlayerLayoutData"
         static let narrationVoiceID = "narrationVoiceID"
         static let readerFontSize = "readerFontSize"
         static let readerLineSpacing = "readerLineSpacing"
         static let readerCardTint = "readerCardTint"
+        static let studyGlobalNewChapterLimit = "studyGlobalNewChapterLimit"
+        static let studyNewCardsPerDayLimit = "studyNewCardsPerDayLimit"
+        static let studyAutoExportEnabled = "studyAutoExportEnabled"
+        static let reviewNotificationsEnabled = "reviewNotificationsEnabled"
         static let autoAlignmentEnabled = "autoAlignmentEnabled"
         static let locationCaptureEnabled = "locationCaptureEnabled"
+        static let debugLoggingEnabled = "debugLoggingEnabled"
         static let autoAlignmentModelSize = "autoAlignmentModelSize"
+        static let narrationQAClassifier = "narrationQAClassifier"
         static let autoAlignmentChapterSnapEnabled = "autoAlignmentChapterSnapEnabled"
         static let autoAlignmentDriftDetectionEnabled = "autoAlignmentDriftDetectionEnabled"
         static let autoAlignmentDriftRepairEnabled = "autoAlignmentDriftRepairEnabled"
@@ -132,6 +162,10 @@ final class SettingsManager {
         static let chimeSound = "chimeSound"
         static let chimeVolume = "chimeVolume"
         static let soundscapeVolume = "soundscapeVolume"
+        static let checkpointTimeoutSeconds = "checkpointTimeoutSeconds"
+        static let checkpointTimeoutBehavior = "checkpointTimeoutBehavior"
+        static let checkpointAutoAdvance = "checkpointAutoAdvance"
+        static let checkpointRemoteGrading = "checkpointRemoteGrading"
     }
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -150,8 +184,24 @@ final class SettingsManager {
     var appAppearance: String { didSet { defaults.set(appAppearance, forKey: Keys.appAppearance) } }
     var appFont: String { didSet { defaults.set(appFont, forKey: Keys.appFont) } }
     var themeColor: String { didSet { defaults.set(themeColor, forKey: Keys.themeColor) } }
+    /// Accent-promotion style for cover-derived themes: false judges hue
+    /// buckets by their means (classic), true prefers each bucket's vivid core
+    /// so small saturated elements like coloured title text can win the accent.
+    var vividCoverAccent: Bool {
+        didSet { defaults.set(vividCoverAccent, forKey: Keys.vividCoverAccent) }
+    }
     var playerLayoutStyle: String {
         didSet { defaults.set(playerLayoutStyle, forKey: Keys.playerLayoutStyle) }
+    }
+    var experimentalNowPlayingLayout: Bool {
+        didSet {
+            defaults.set(experimentalNowPlayingLayout, forKey: Keys.experimentalNowPlayingLayout)
+        }
+    }
+    var experimentalPlayerLayoutData: Data {
+        didSet {
+            defaults.set(experimentalPlayerLayoutData, forKey: Keys.experimentalPlayerLayoutData)
+        }
     }
     var narrationVoiceID: String {
         didSet { defaults.set(narrationVoiceID, forKey: Keys.narrationVoiceID) }
@@ -301,20 +351,64 @@ final class SettingsManager {
     // MARK: - Reader
 
     var readerFontSize: Double {
-        get { defaults.double(forKey: Keys.readerFontSize).nonZero ?? Defaults.readerFontSize }
-        set { defaults.set(newValue, forKey: Keys.readerFontSize) }
+        didSet { defaults.set(readerFontSize, forKey: Keys.readerFontSize) }
     }
 
     var readerLineSpacing: Double {
-        get {
-            defaults.double(forKey: Keys.readerLineSpacing).nonZero ?? Defaults.readerLineSpacing
-        }
-        set { defaults.set(newValue, forKey: Keys.readerLineSpacing) }
+        didSet { defaults.set(readerLineSpacing, forKey: Keys.readerLineSpacing) }
     }
 
     var readerCardTint: String {
-        get { defaults.string(forKey: Keys.readerCardTint) ?? Defaults.readerCardTint }
-        set { defaults.set(newValue, forKey: Keys.readerCardTint) }
+        didSet { defaults.set(readerCardTint, forKey: Keys.readerCardTint) }
+    }
+
+    // MARK: - Study
+
+    var studyGlobalNewChapterLimit: Int {
+        didSet {
+            let boundedValue = Self.boundedStudyGlobalNewChapterLimit(studyGlobalNewChapterLimit)
+            guard studyGlobalNewChapterLimit == boundedValue else {
+                studyGlobalNewChapterLimit = boundedValue
+                return
+            }
+            defaults.set(boundedValue, forKey: Keys.studyGlobalNewChapterLimit)
+        }
+    }
+    /// Caps how many new AI cards one queue build may offer; it has no cross-build memory.
+    var studyNewCardsPerDayLimit: Int {
+        didSet {
+            let boundedValue = Self.boundedStudyNewCardsPerDayLimit(studyNewCardsPerDayLimit)
+            guard studyNewCardsPerDayLimit == boundedValue else {
+                studyNewCardsPerDayLimit = boundedValue
+                return
+            }
+            defaults.set(boundedValue, forKey: Keys.studyNewCardsPerDayLimit)
+        }
+    }
+    var studyAutoExportEnabled: Bool {
+        didSet { defaults.set(studyAutoExportEnabled, forKey: Keys.studyAutoExportEnabled) }
+    }
+    var reviewNotificationsEnabled: Bool {
+        didSet { defaults.set(reviewNotificationsEnabled, forKey: Keys.reviewNotificationsEnabled) }
+    }
+    var checkpointTimeoutSeconds: Int {
+        didSet {
+            let snapped = StudyCheckpointSettings.snappedTimeoutSeconds(checkpointTimeoutSeconds)
+            guard checkpointTimeoutSeconds == snapped else {
+                checkpointTimeoutSeconds = snapped
+                return
+            }
+            defaults.set(snapped, forKey: Keys.checkpointTimeoutSeconds)
+        }
+    }
+    var checkpointTimeoutBehavior: String {
+        didSet { defaults.set(checkpointTimeoutBehavior, forKey: Keys.checkpointTimeoutBehavior) }
+    }
+    var checkpointAutoAdvance: Bool {
+        didSet { defaults.set(checkpointAutoAdvance, forKey: Keys.checkpointAutoAdvance) }
+    }
+    var checkpointRemoteGrading: Bool {
+        didSet { defaults.set(checkpointRemoteGrading, forKey: Keys.checkpointRemoteGrading) }
     }
 
     // MARK: - Auto-Alignment
@@ -325,8 +419,14 @@ final class SettingsManager {
     var locationCaptureEnabled: Bool {
         didSet { defaults.set(locationCaptureEnabled, forKey: Keys.locationCaptureEnabled) }
     }
+    var debugLoggingEnabled: Bool {
+        didSet { defaults.set(debugLoggingEnabled, forKey: Keys.debugLoggingEnabled) }
+    }
     var autoAlignmentModelSize: String {
         didSet { defaults.set(autoAlignmentModelSize, forKey: Keys.autoAlignmentModelSize) }
+    }
+    var narrationQAClassifier: String {
+        didSet { defaults.set(narrationQAClassifier, forKey: Keys.narrationQAClassifier) }
     }
     var autoAlignmentChapterSnapEnabled: Bool {
         didSet {
@@ -385,60 +485,129 @@ final class SettingsManager {
                 return UserDefaults(suiteName: "group.com.echo.audiobooks.fallback") ?? .standard
             }
             return d
-        }()
+        }(),
+        defaultsDomainName: String? = Bundle.main.bundleIdentifier,
+        appGroupDefaultsDomainName: String? = "group.com.echo.audiobooks"
     ) {
         self.defaults = defaults
         self.appGroupDefaults = appGroupDefaults
-        self.isAppGroupAvailable = appGroupDefaults != defaults
-
-        Self.registerDefaults(defaults: defaults, appGroupDefaults: appGroupDefaults)
+        self.isAppGroupAvailable = appGroupDefaults !== defaults
 
         // One-time migration: copy watch-facing settings from standard defaults
         // to the App Group suite so the Watch and Widget can read them directly.
-        if isAppGroupAvailable,
-            !appGroupDefaults.bool(forKey: "didMigrateWatchSettingsToAppGroup_v2")
-        {
-            let watchKeys: [(String, () -> Any?)] = [
-                (Keys.crownAction, { defaults.object(forKey: Keys.crownAction) }),
-                (Keys.watchPage1, { defaults.object(forKey: Keys.watchPage1) }),
-                (Keys.watchPage2, { defaults.object(forKey: Keys.watchPage2) }),
-                (Keys.watchPage3, { defaults.object(forKey: Keys.watchPage3) }),
-                (Keys.watchPage4, { defaults.object(forKey: Keys.watchPage4) }),
-                (Keys.watchPage5, { defaults.object(forKey: Keys.watchPage5) }),
-                (Keys.linearBarMode, { defaults.object(forKey: Keys.linearBarMode) }),
-                (Keys.linearBarHidden, { defaults.object(forKey: Keys.linearBarHidden) }),
-                (Keys.circularRingMode, { defaults.object(forKey: Keys.circularRingMode) }),
-                (Keys.circularRingHidden, { defaults.object(forKey: Keys.circularRingHidden) }),
-                (Keys.watchArtworkLayout, { defaults.object(forKey: Keys.watchArtworkLayout) }),
-                (Keys.watchBackgroundStyle, { defaults.object(forKey: Keys.watchBackgroundStyle) }),
+        let migrationKey = "didMigrateWatchSettingsToAppGroup_v2"
+        let sourceDomain = defaultsDomainName.flatMap { defaults.persistentDomain(forName: $0) }
+        let targetDomain = appGroupDefaultsDomainName.flatMap {
+            appGroupDefaults.persistentDomain(forName: $0)
+        }
+        func sourceValue(for key: String) -> Any? {
+            defaults.object(forKey: key) ?? sourceDomain?[key]
+        }
+
+        func appGroupValue(for key: String) -> Any? {
+            appGroupDefaults.object(forKey: key) ?? targetDomain?[key]
+        }
+
+        let didMigrate = (appGroupDefaults.object(forKey: migrationKey) as? Bool) ?? false
+        if isAppGroupAvailable, !didMigrate {
+            let watchKeys: [(key: String, read: () -> Any?, defaultValue: Any)] = [
+                (Keys.crownAction, { sourceValue(for: Keys.crownAction) }, Defaults.crownAction),
+                (
+                    Keys.watchPage1,
+                    { sourceValue(for: Keys.watchPage1) },
+                    (try? JSONEncoder().encode(Defaults.watchPage1)) ?? Data()
+                ),
+                (
+                    Keys.watchPage2,
+                    { sourceValue(for: Keys.watchPage2) },
+                    (try? JSONEncoder().encode(Defaults.watchPage2)) ?? Data()
+                ),
+                (
+                    Keys.watchPage3,
+                    { sourceValue(for: Keys.watchPage3) },
+                    (try? JSONEncoder().encode(Defaults.watchPage3)) ?? Data()
+                ),
+                (
+                    Keys.watchPage4,
+                    { sourceValue(for: Keys.watchPage4) },
+                    (try? JSONEncoder().encode(Defaults.watchPage4)) ?? Data()
+                ),
+                (
+                    Keys.watchPage5,
+                    { sourceValue(for: Keys.watchPage5) },
+                    (try? JSONEncoder().encode(Defaults.watchPage5)) ?? Data()
+                ),
+                (
+                    Keys.linearBarMode,
+                    { sourceValue(for: Keys.linearBarMode) },
+                    Defaults.linearBarMode
+                ),
+                (
+                    Keys.linearBarHidden,
+                    { sourceValue(for: Keys.linearBarHidden) },
+                    Defaults.linearBarHidden
+                ),
+                (
+                    Keys.circularRingMode,
+                    { sourceValue(for: Keys.circularRingMode) },
+                    Defaults.circularRingMode
+                ),
+                (
+                    Keys.circularRingHidden,
+                    { sourceValue(for: Keys.circularRingHidden) },
+                    Defaults.circularRingHidden
+                ),
+                (
+                    Keys.watchArtworkLayout,
+                    { sourceValue(for: Keys.watchArtworkLayout) },
+                    Defaults.watchArtworkLayout
+                ),
+                (
+                    Keys.watchBackgroundStyle,
+                    { sourceValue(for: Keys.watchBackgroundStyle) },
+                    Defaults.watchBackgroundStyle
+                ),
                 (
                     Keys.watchTitleScrollEnabled,
-                    { defaults.object(forKey: Keys.watchTitleScrollEnabled) }
+                    { sourceValue(for: Keys.watchTitleScrollEnabled) },
+                    Defaults.watchTitleScrollEnabled
                 ),
                 (
                     Keys.watchTitleScrollSpeed,
-                    { defaults.object(forKey: Keys.watchTitleScrollSpeed) }
+                    { sourceValue(for: Keys.watchTitleScrollSpeed) },
+                    Defaults.watchTitleScrollSpeed
                 ),
                 (
                     Keys.isHapticFeedbackEnabled,
-                    { defaults.object(forKey: Keys.isHapticFeedbackEnabled) }
+                    { sourceValue(for: Keys.isHapticFeedbackEnabled) },
+                    Defaults.isHapticFeedbackEnabled
                 ),
                 (
                     Keys.truncateChapterNamesEnabled,
-                    { defaults.object(forKey: Keys.truncateChapterNamesEnabled) }
+                    { sourceValue(for: Keys.truncateChapterNamesEnabled) },
+                    Defaults.truncateChapterNamesEnabled
                 ),
                 (
                     Keys.watchQuickBookmarkTimeoutSeconds,
-                    { defaults.object(forKey: Keys.watchQuickBookmarkTimeoutSeconds) }
+                    { sourceValue(for: Keys.watchQuickBookmarkTimeoutSeconds) },
+                    Defaults.watchQuickBookmarkTimeoutSeconds
                 ),
             ]
-            for (key, read) in watchKeys {
-                if appGroupDefaults.object(forKey: key) == nil, let value = read() {
+            for (key, read, defaultValue) in watchKeys {
+                if let value = read(),
+                    Self.shouldMigrateWatchValue(
+                        value,
+                        appGroupValue: appGroupValue(for: key),
+                        defaultValue: defaultValue
+                    )
+                {
                     appGroupDefaults.set(value, forKey: key)
                 }
             }
-            appGroupDefaults.set(true, forKey: "didMigrateWatchSettingsToAppGroup_v2")
+            appGroupDefaults.set(true, forKey: migrationKey)
         }
+
+        Self.registerDefaults(defaults: defaults, appGroupDefaults: appGroupDefaults)
 
         if defaults.object(forKey: "isDarkMode") != nil {
             let dark = defaults.bool(forKey: "isDarkMode")
@@ -462,8 +631,12 @@ final class SettingsManager {
             defaults.set(normalizedAppFont, forKey: Keys.appFont)
         }
         themeColor = defaults.string(forKey: Keys.themeColor) ?? Defaults.themeColor
+        vividCoverAccent = defaults.bool(forKey: Keys.vividCoverAccent)
         playerLayoutStyle =
             defaults.string(forKey: Keys.playerLayoutStyle) ?? Defaults.playerLayoutStyle
+        experimentalNowPlayingLayout = defaults.bool(forKey: Keys.experimentalNowPlayingLayout)
+        experimentalPlayerLayoutData =
+            defaults.data(forKey: Keys.experimentalPlayerLayoutData) ?? Data()
         narrationVoiceID =
             defaults.string(forKey: Keys.narrationVoiceID) ?? ""
         isRewindEnabled = defaults.bool(forKey: Keys.isRewindEnabled)
@@ -540,6 +713,13 @@ final class SettingsManager {
         seekForwardDuration =
             storedSeekForward == 0 ? Defaults.seekForwardDuration : storedSeekForward
 
+        readerFontSize =
+            defaults.double(forKey: Keys.readerFontSize).nonZero ?? Defaults.readerFontSize
+        readerLineSpacing =
+            defaults.double(forKey: Keys.readerLineSpacing).nonZero ?? Defaults.readerLineSpacing
+        readerCardTint =
+            defaults.string(forKey: Keys.readerCardTint) ?? Defaults.readerCardTint
+
         if let presetsData = defaults.data(forKey: Keys.watchPresets),
             let decoded = try? JSONDecoder().decode([WatchPreset].self, from: presetsData)
         {
@@ -556,14 +736,22 @@ final class SettingsManager {
             phonePresets = []
         }
 
+        reviewNotificationsEnabled =
+            defaults.object(forKey: Keys.reviewNotificationsEnabled) as? Bool
+            ?? Defaults.reviewNotificationsEnabled
         autoAlignmentEnabled =
             defaults.object(forKey: Keys.autoAlignmentEnabled) as? Bool
             ?? Defaults.autoAlignmentEnabled
         locationCaptureEnabled =
             defaults.object(forKey: Keys.locationCaptureEnabled) as? Bool
             ?? Defaults.locationCaptureEnabled
+        debugLoggingEnabled =
+            defaults.object(forKey: Keys.debugLoggingEnabled) as? Bool
+            ?? Defaults.debugLoggingEnabled
         autoAlignmentModelSize =
             defaults.string(forKey: Keys.autoAlignmentModelSize) ?? Defaults.autoAlignmentModelSize
+        narrationQAClassifier =
+            defaults.string(forKey: Keys.narrationQAClassifier) ?? Defaults.narrationQAClassifier
         autoAlignmentChapterSnapEnabled =
             defaults.object(forKey: Keys.autoAlignmentChapterSnapEnabled) as? Bool
             ?? Defaults.autoAlignmentChapterSnapEnabled
@@ -576,6 +764,30 @@ final class SettingsManager {
         continuousAutoAlignmentEnabled =
             defaults.object(forKey: Keys.continuousAutoAlignmentEnabled) as? Bool
             ?? Defaults.continuousAutoAlignmentEnabled
+        studyGlobalNewChapterLimit = Self.boundedStudyGlobalNewChapterLimit(
+            defaults.object(forKey: Keys.studyGlobalNewChapterLimit) as? Int
+                ?? Defaults.studyGlobalNewChapterLimit
+        )
+        studyNewCardsPerDayLimit = Self.boundedStudyNewCardsPerDayLimit(
+            defaults.object(forKey: Keys.studyNewCardsPerDayLimit) as? Int
+                ?? Defaults.studyNewCardsPerDayLimit
+        )
+        studyAutoExportEnabled =
+            defaults.object(forKey: Keys.studyAutoExportEnabled) as? Bool
+            ?? Defaults.studyAutoExportEnabled
+        checkpointTimeoutSeconds = StudyCheckpointSettings.snappedTimeoutSeconds(
+            defaults.object(forKey: Keys.checkpointTimeoutSeconds) as? Int
+                ?? Defaults.checkpointTimeoutSeconds
+        )
+        checkpointTimeoutBehavior =
+            defaults.string(forKey: Keys.checkpointTimeoutBehavior)
+            ?? Defaults.checkpointTimeoutBehavior
+        checkpointAutoAdvance =
+            defaults.object(forKey: Keys.checkpointAutoAdvance) as? Bool
+            ?? Defaults.checkpointAutoAdvance
+        checkpointRemoteGrading =
+            defaults.object(forKey: Keys.checkpointRemoteGrading) as? Bool
+            ?? Defaults.checkpointRemoteGrading
 
         chimeInterval =
             defaults.object(forKey: Keys.chimeInterval) as? TimeInterval ?? Defaults.chimeInterval
@@ -583,6 +795,29 @@ final class SettingsManager {
         chimeVolume = defaults.object(forKey: Keys.chimeVolume) as? Double ?? Defaults.chimeVolume
         soundscapeVolume =
             defaults.object(forKey: Keys.soundscapeVolume) as? Float ?? Defaults.soundscapeVolume
+    }
+
+    private static func shouldMigrateWatchValue(
+        _ value: Any,
+        appGroupValue: Any?,
+        defaultValue: Any
+    ) -> Bool {
+        guard !defaultsValue(value, equals: defaultValue) else { return false }
+        guard let appGroupValue else { return true }
+        return defaultsValue(appGroupValue, equals: defaultValue)
+    }
+
+    private static func defaultsValue(_ lhs: Any, equals rhs: Any) -> Bool {
+        switch (lhs, rhs) {
+        case (let lhs as Data, let rhs as Data):
+            lhs == rhs
+        case (let lhs as String, let rhs as String):
+            lhs == rhs
+        case (let lhs as NSNumber, let rhs as NSNumber):
+            lhs == rhs
+        default:
+            String(describing: lhs) == String(describing: rhs)
+        }
     }
 
     static func registerDefaults(
@@ -600,6 +835,7 @@ final class SettingsManager {
             Keys.appAppearance: Defaults.appAppearance,
             Keys.appFont: Defaults.appFont,
             Keys.themeColor: Defaults.themeColor,
+            Keys.vividCoverAccent: Defaults.vividCoverAccent,
             Keys.isRewindEnabled: Defaults.isRewindEnabled,
             Keys.rewindPauseSecondsThreshold: Defaults.rewindPauseSecondsThreshold,
             Keys.rewindAmountAfterSeconds: Defaults.rewindAmountAfterSeconds,
@@ -620,12 +856,24 @@ final class SettingsManager {
             Keys.seekBackwardDuration: Defaults.seekBackwardDuration,
             Keys.seekForwardDuration: Defaults.seekForwardDuration,
             Keys.playerLayoutStyle: Defaults.playerLayoutStyle,
+            Keys.experimentalNowPlayingLayout: Defaults.experimentalNowPlayingLayout,
+            Keys.experimentalPlayerLayoutData: ExperimentalPlayerLayout.defaultLayout.encoded(),
             Keys.readerFontSize: Defaults.readerFontSize,
             Keys.readerLineSpacing: Defaults.readerLineSpacing,
             Keys.readerCardTint: Defaults.readerCardTint,
+            Keys.studyGlobalNewChapterLimit: Defaults.studyGlobalNewChapterLimit,
+            Keys.studyNewCardsPerDayLimit: Defaults.studyNewCardsPerDayLimit,
+            Keys.studyAutoExportEnabled: Defaults.studyAutoExportEnabled,
+            Keys.reviewNotificationsEnabled: Defaults.reviewNotificationsEnabled,
+            Keys.checkpointTimeoutSeconds: Defaults.checkpointTimeoutSeconds,
+            Keys.checkpointTimeoutBehavior: Defaults.checkpointTimeoutBehavior,
+            Keys.checkpointAutoAdvance: Defaults.checkpointAutoAdvance,
+            Keys.checkpointRemoteGrading: Defaults.checkpointRemoteGrading,
             Keys.autoAlignmentEnabled: Defaults.autoAlignmentEnabled,
             Keys.locationCaptureEnabled: Defaults.locationCaptureEnabled,
+            Keys.debugLoggingEnabled: Defaults.debugLoggingEnabled,
             Keys.autoAlignmentModelSize: Defaults.autoAlignmentModelSize,
+            Keys.narrationQAClassifier: Defaults.narrationQAClassifier,
             Keys.autoAlignmentChapterSnapEnabled: Defaults.autoAlignmentChapterSnapEnabled,
             Keys.autoAlignmentDriftDetectionEnabled: Defaults.autoAlignmentDriftDetectionEnabled,
             Keys.autoAlignmentDriftRepairEnabled: Defaults.autoAlignmentDriftRepairEnabled,
@@ -683,6 +931,14 @@ final class SettingsManager {
 
     static func normalizedAppFont(_ appFont: String) -> String {
         appFont == legacySystemFontName ? systemFontName : appFont
+    }
+
+    private static func boundedStudyGlobalNewChapterLimit(_ value: Int) -> Int {
+        min(max(1, value), 12)
+    }
+
+    private static func boundedStudyNewCardsPerDayLimit(_ value: Int) -> Int {
+        min(max(1, value), 100)
     }
 }
 

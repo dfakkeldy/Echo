@@ -6,10 +6,23 @@ import Foundation
 /// `timeRange == nil` means "use the whole file" (narration cache files and
 /// multi-file imported books); a non-nil range slices one source file
 /// (a single-file m4b carved into its embedded chapters).
-struct ExportItem: Equatable {
+nonisolated struct ExportItem: Equatable {
     let title: String
     let url: URL
     let timeRange: CMTimeRange?
+    let emitsChapterMarker: Bool
+
+    init(
+        title: String,
+        url: URL,
+        timeRange: CMTimeRange?,
+        emitsChapterMarker: Bool = true
+    ) {
+        self.title = title
+        self.url = url
+        self.timeRange = timeRange
+        self.emitsChapterMarker = emitsChapterMarker
+    }
 }
 
 /// Where an export's ordered audio comes from. Narrated books read per-chapter

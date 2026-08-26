@@ -2,6 +2,10 @@
 import Foundation
 
 /// A chapter within an audiobook track, typically parsed from M4B chapter markers.
+// `nonisolated`: a pure `Sendable` value model. Under the iOS target's Swift 6
+// MainActor default isolation its members/synthesized conformances would otherwise
+// be `@MainActor`, blocking nonisolated callers (e.g. the parsing/grouping services
+// and their unit tests) from reading its fields.
 nonisolated struct Chapter: Identifiable, Equatable, Hashable, Sendable {
     var id: String { "\(index)-\(title ?? "unknown")" }
     /// Zero-based chapter index.

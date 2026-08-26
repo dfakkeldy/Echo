@@ -9,6 +9,11 @@ import Testing
 /// dependencies.
 @Suite struct NarrationRenderPolicyTests {
 
+    @Test("Narration keeps two playable segments rendered ahead")
+    func defaultLookAhead() {
+        #expect(NarrationRenderPolicy.lookAhead == 2)
+    }
+
     // MARK: - Offset zero (first chapter)
 
     @Test("Chapter 0 always renders regardless of index, playback, or gap state")

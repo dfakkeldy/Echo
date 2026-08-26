@@ -1,20 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import StoreKit
+import Foundation
 
 /// Pure, dependency-free entitlement rules — unit-testable without StoreKit.
 enum ProEntitlement {
-    static func isPro(lifetimeOwned: Bool, foundersOwned: Bool, subscriptionActive: Bool) -> Bool {
-        lifetimeOwned || foundersOwned || subscriptionActive
+    /// Echo Pro is a one-time, non-consumable unlock — there is no subscription path.
+    /// Pro is granted iff the user owns the lifetime unlock OR the Founders unlock
+    /// (or the temporary launch bypass is active).
+    static func isPro(
+        lifetimeOwned: Bool,
+        foundersOwned: Bool,
+        paywallDisabled: Bool = false
+    ) -> Bool {
+        paywallDisabled || lifetimeOwned || foundersOwned
     }
+}
 
-    /// A subscription state that should grant access (active, or Apple is still trying to bill).
-    static func isActive(_ state: Product.SubscriptionInfo.RenewalState) -> Bool {
-        switch state {
-        case .subscribed, .inGracePeriod, .inBillingRetryPeriod: return true
-        case .expired, .revoked: return false
-        default: return false
-        }
-    }
+enum StoreAccessPolicy {
+    /// Temporary launch/beta bypass while App Store products are being configured.
+    static let paywallDisabled = true
 }
 
 /// What gating code depends on — mockable in tests.

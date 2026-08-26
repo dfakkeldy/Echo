@@ -22,4 +22,42 @@ import Testing
         #expect(
             Set(stale) == Set(["book-ch0-bf_emma-v\(v).m4a", "book-ch0-af_heart.m4a"]))
     }
+
+    @Test func planAwareCleanupKeepsEveryExpectedStableFileAndBoundsPartialsToBook() {
+        let token = "0123456789abcdef0123456789abcdef"
+        let files = [
+            "book-ck\(token)-s0-hone-af_heart-v20.m4a",
+            "book-ck\(token)-s1-htwo-bf_emma-v20.m4a",
+            "book-ck\(token)-s1-hold-af_heart-v20.m4a",
+            "book-ck\(token)-s1-htwo-bf_emma-v19.m4a",
+            "book-ch1-s0-hlegacy-af_heart-v20.m4a",
+            ".book-ck\(token)-s1-hold-af_heart-v20.partial.m4a",
+            ".other-ck\(token)-s1-hold-af_heart-v20.partial.m4a",
+            "other-ck\(token)-s0-hone-af_heart-v20.m4a",
+        ]
+        let expected = Set([
+            "book-ck\(token)-s0-hone-af_heart-v20.m4a",
+            "book-ck\(token)-s1-htwo-bf_emma-v20.m4a",
+        ])
+
+        let stale = NarrationCacheStore.staleFiles(
+            files, bookPrefix: "book-", expectedDurableFileNames: expected)
+
+        #expect(
+            Set(stale) == Set([
+                "book-ck\(token)-s1-hold-af_heart-v20.m4a",
+                "book-ck\(token)-s1-htwo-bf_emma-v19.m4a",
+                "book-ch1-s0-hlegacy-af_heart-v20.m4a",
+                ".book-ck\(token)-s1-hold-af_heart-v20.partial.m4a",
+            ]))
+    }
+
+    @Test func planAwareCleanupRefusesToDeleteWhenPlanConstructionReturnedNoFiles() {
+        #expect(
+            NarrationCacheStore.staleFiles(
+                ["book-ch1-af_heart-v20.m4a"],
+                bookPrefix: "book-",
+                expectedDurableFileNames: [])
+                .isEmpty)
+    }
 }

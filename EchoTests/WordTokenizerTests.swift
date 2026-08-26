@@ -29,6 +29,13 @@ struct WordTokenizerTests {
         #expect(words == ["don't", "stop"])
     }
 
+    @Test func dictionaryLookupTermTrimsBoundaryPunctuationOnly() {
+        #expect(DictionaryLookupTerm.sanitized("world.") == "world")
+        #expect(DictionaryLookupTerm.sanitized("\u{201C}Hello\u{201D}") == "Hello")
+        #expect(DictionaryLookupTerm.sanitized("mother-in-law,") == "mother-in-law")
+        #expect(DictionaryLookupTerm.sanitized("don't.") == "don't")
+    }
+
     @Test func collapsesRunsOfMixedSeparators() {
         // Multiple/mixed separators (space, tab, newline) collapse; no empties.
         let words = WordTokenizer.words(in: "a  b\tc\nd").map(String.init)

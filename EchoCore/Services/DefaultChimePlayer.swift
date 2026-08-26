@@ -38,7 +38,7 @@ final class DefaultChimePlayer: ChimeScheduling {
 
         chimeTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+                try? await Task.sleep(for: .seconds(interval))
                 guard !Task.isCancelled else { break }
                 await self?.fireChime(sound: sound)
             }
@@ -62,10 +62,11 @@ final class DefaultChimePlayer: ChimeScheduling {
 
         do {
             let file = try AVAudioFile(forReading: chimeURL)
-            // Pass an explicit completion handler to select the non-blocking
-            // overload; the bare `scheduleFile(_:at:)` now resolves to the
-            // `async` variant that suspends until playback finishes.
-            playerNode.scheduleFile(file, at: nil, completionHandler: nil)
+            playerNode.scheduleFile(
+                file,
+                at: nil,
+                completionCallbackType: .dataPlayedBack
+            ) { _ in }
             startEngineIfNeeded()
             playerNode.play()
         } catch {
@@ -88,11 +89,16 @@ final class DefaultChimePlayer: ChimeScheduling {
         do {
             try engine.start()
         } catch {
-            os_log(.error, "ChimePlayer: engine start error: %{private}@", error.localizedDescription)
+            os_log(
+                .error, "ChimePlayer: engine start error: %{private}@", error.localizedDescription)
         }
     }
 
-    deinit {
+    // The class is inferred `@MainActor` under the project's MainActor default
+    // isolation, so a plain nonisolated `deinit` cannot call the MainActor
+    // `cancel()`. `isolated deinit` (SE-0371) runs the deinit on the actor,
+    // letting it tear down the schedule task safely.
+    isolated deinit {
         cancel()
     }
 }

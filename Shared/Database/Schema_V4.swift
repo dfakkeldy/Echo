@@ -28,28 +28,33 @@ enum Schema_V4 {
         }
 
         // Range query: "what's playing at position X?"
-        try db.create(index: "idx_timeline_time_range",
-                       on: "timeline_item",
-                       columns: ["audiobook_id", "audio_start_time", "audio_end_time"])
+        try db.create(
+            index: "idx_timeline_time_range",
+            on: "timeline_item",
+            columns: ["audiobook_id", "audio_start_time", "audio_end_time"])
 
         // EPUB structural order: survives alignment failures
-        try db.create(index: "idx_timeline_epub_order",
-                       on: "timeline_item",
-                       columns: ["audiobook_id", "epub_sequence_index"])
+        try db.create(
+            index: "idx_timeline_epub_order",
+            on: "timeline_item",
+            columns: ["audiobook_id", "epub_sequence_index"])
 
         // Granularity filtering: chapter-level for scrubbing, sentence-level for reading
-        try db.create(index: "idx_timeline_granularity",
-                       on: "timeline_item",
-                       columns: ["audiobook_id", "granularity_level"])
+        try db.create(
+            index: "idx_timeline_granularity",
+            on: "timeline_item",
+            columns: ["audiobook_id", "granularity_level"])
 
         // Playlist reorder + effective position sort
-        try db.create(index: "idx_timeline_playlist",
-                       on: "timeline_item",
-                       columns: ["audiobook_id", "playlist_position", "audio_start_time"])
+        try db.create(
+            index: "idx_timeline_playlist",
+            on: "timeline_item",
+            columns: ["audiobook_id", "playlist_position", "audio_start_time"])
 
         // Source table sync: find materialized row by backing row
-        try db.create(index: "idx_timeline_source",
-                       on: "timeline_item",
-                       columns: ["source_table", "source_rowid"])
+        try db.create(
+            index: "idx_timeline_source",
+            on: "timeline_item",
+            columns: ["source_table", "source_rowid"])
     }
 }

@@ -13,6 +13,13 @@ import Foundation
 struct TranscribedWord: Equatable, Sendable {
     let text: String
     let start: TimeInterval
+    let confidence: Double
+
+    init(text: String, start: TimeInterval, confidence: Double = 1.0) {
+        self.text = text
+        self.start = start
+        self.confidence = confidence
+    }
 }
 
 /// Flattens WhisperKit transcription output into a time-ordered word stream.
@@ -52,7 +59,8 @@ enum AlignmentTranscript {
                     guard !text.isEmpty else { continue }
                     collected.append(TranscribedWord(
                         text: text,
-                        start: captureStart + TimeInterval(timing.start)
+                        start: captureStart + TimeInterval(timing.start),
+                        confidence: Double(timing.probability)
                     ))
                 }
             } else {

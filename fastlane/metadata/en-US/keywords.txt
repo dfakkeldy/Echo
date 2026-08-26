@@ -1,1 +1,1 @@
-audiobookshelf,m4b,mp3,epub,pdf,anki,srs,spaced,repetition,offline,loop,ebook,carplay,tts,m4a,reader
+flashcards,adhd,dyslexia,epub,m4b,anki,fsrs,audiobookshelf,offline,tts,loop,bookmark,readalong

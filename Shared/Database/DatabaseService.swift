@@ -22,16 +22,24 @@ final class DatabaseService {
     let dbPath: String
     private let logger = Logger(category: "DatabaseService")
 
-    @ObservationIgnored private let migrationFlag = "sql_migration_done"
-    @ObservationIgnored private let appGroupIdentifier: String
-
-    init(appGroupIdentifier: String = AppGroupDefaults.suiteName) throws {
-        self.appGroupIdentifier = appGroupIdentifier
-        guard
-            let containerURL = FileManager.default.containerURL(
-                forSecurityApplicationGroupIdentifier: appGroupIdentifier
+    init(
+        appGroupIdentifier: String = AppGroupDefaults.suiteName,
+        appGroupFallbackDirectory: URL? = DatabaseServiceAppGroupFallback.defaultDirectory,
+        allowAppGroupFallback: Bool = DatabaseServiceAppGroupFallback.isAllowed
+    ) throws {
+        let containerURL: URL
+        if let appGroupURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupIdentifier
+        ) {
+            containerURL = appGroupURL
+        } else if DatabaseServiceAppGroupFallback.isAllowed, allowAppGroupFallback,
+            let appGroupFallbackDirectory
+        {
+            containerURL = appGroupFallbackDirectory
+            Logger(category: "DatabaseService").warning(
+                "Using debug simulator database fallback because App Group container is unavailable."
             )
-        else {
+        } else {
             throw DatabaseError.appGroupNotFound(appGroupIdentifier)
         }
 
@@ -54,8 +62,27 @@ final class DatabaseService {
         logger.info("Database opened at \(path)")
     }
 
+    init(databaseURL: URL) throws {
+        if let parent = databaseURL.parentDirectory {
+            try FileManager.default.createDirectory(
+                at: parent,
+                withIntermediateDirectories: true
+            )
+        }
+
+        var config = Configuration()
+        config.prepareDatabase { db in
+            try db.execute(sql: "PRAGMA journal_mode=WAL")
+            try db.execute(sql: "PRAGMA foreign_keys=ON")
+        }
+        let path = databaseURL.path
+        self.writer = try DatabasePool(path: path, configuration: config)
+        self.dbPath = path
+        try runMigrations(writer: writer)
+        logger.info("Database opened at \(path)")
+    }
+
     init(inMemory: Void) throws {
-        self.appGroupIdentifier = "inMemory"
         var config = Configuration()
         config.prepareDatabase { db in
             try db.execute(sql: "PRAGMA foreign_keys=ON")
@@ -71,7 +98,12 @@ final class DatabaseService {
         try writer.read(block)
     }
 
-    func readAsync<T>(_ block: @escaping @Sendable (Database) throws -> T) async throws -> T {
+    // `T: Sendable` because GRDB's async `read`/`write` return the value across the
+    // database access pool's executor boundary; Swift 6 requires the result to be
+    // Sendable for that hop. (The synchronous variants above stay on the caller.)
+    func readAsync<T: Sendable>(_ block: @escaping @Sendable (Database) throws -> T) async throws
+        -> T
+    {
         try await writer.read(block)
     }
 
@@ -79,53 +111,108 @@ final class DatabaseService {
         try writer.write(block)
     }
 
-    func writeAsync<T>(_ block: @escaping @Sendable (Database) throws -> T) async throws -> T {
+    func writeAsync<T: Sendable>(_ block: @escaping @Sendable (Database) throws -> T) async throws
+        -> T
+    {
         try await writer.write(block)
     }
 
     // MARK: - Migrations
 
     private nonisolated func runMigrations(writer: DatabaseWriter) throws {
+        try Self.makeMigrator().migrate(writer)
+    }
+
+    /// The app's migrator. Exposed so tests can run the real registration list
+    /// against a hand-built database shape (e.g. one stranded mid-upgrade)
+    /// without going through an initializer, which always migrates on open.
+    nonisolated static func makeMigrator() -> DatabaseMigrator {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("v1_create_schema") { db in try Schema_V1.migrate(db) }
-        migrator.registerMigration("v2_timeline_support") { db in try Schema_V2.migrate(db) }
-        migrator.registerMigration("v3_missing_indexes") { db in try Schema_V3.migrate(db) }
-        migrator.registerMigration("v4_materialized_timeline") { db in try Schema_V4.migrate(db) }
-        migrator.registerMigration("v5_epub_alignment") { db in try Schema_V5.migrate(db) }
-        migrator.registerMigration("v6_indexes_and_fixes") { db in try Schema_V6.migrate(db) }
-        migrator.registerMigration("v7_epub_reader_columns") { db in try Schema_V7.migrate(db) }
-        migrator.registerMigration("v8_epub_block_word_count") { db in try Schema_V8.migrate(db) }
-        migrator.registerMigration("v9_epub_block_markers") { db in try Schema_V9.migrate(db) }
-        migrator.registerMigration("v10_epub_block_chapter_theme") { db in
-            try Schema_V10.migrate(db)
+        migrator.registerMigration(
+            "v24_feed_note_position_voice_memo",
+            merging: Schema_V24.mergedMigrationIdentifiers
+        ) { db, appliedIdentifiers in
+            try Schema_V24.migrate(db, appliedIdentifiers: appliedIdentifiers)
         }
-        migrator.registerMigration("v11_bookmark_pdf_state") { db in try Schema_V11.migrate(db) }
-        migrator.registerMigration("v12_epub_block_front_matter") { db in try Schema_V12.migrate(db)
+        migrator.registerMigration("v25_study_plans") { db in
+            try Schema_V25.migrate(db)
         }
-        migrator.registerMigration("v13_epub_toc_entries") { db in try Schema_V13.migrate(db) }
-        migrator.registerMigration("v14_capture_and_context") { db in try Schema_V14.migrate(db) }
-        migrator.registerMigration("v15_anki_decks") { db in try Schema_V15.migrate(db) }
-        migrator.registerMigration("v16_fsrs_cloze_transcript") { db in try Schema_V16.migrate(db) }
-        migrator.registerMigration("v17_track_narration_voice") { db in try Schema_V17.migrate(db) }
-        migrator.registerMigration("v18_abs_server") { db in try Schema_V18.migrate(db) }
-        migrator.registerMigration("v19_word_timing") { db in try Schema_V19.migrate(db) }
-        migrator.registerMigration("v20_batch_queue") { db in try Schema_V20.migrate(db) }
-        migrator.registerMigration("v21_batch_kind") { db in try Schema_V21.migrate(db) }
-        migrator.registerMigration("v22_fsrs_seed") { db in try Schema_V22.migrate(db) }
-        migrator.registerMigration("v23_audiobook_abs_provenance") { db in
-            try Schema_V23.migrate(db)
+        migrator.registerMigration("v26_timeline_segment_key") { db in
+            try Schema_V26.migrate(db)
         }
-        try migrator.migrate(writer)
+        migrator.registerMigration("v27_library") { db in
+            try Schema_V27.migrate(db)
+        }
+        migrator.registerMigration("v28_pdf_block_page") { db in
+            try Schema_V28.migrate(db)
+        }
+        migrator.registerMigration("v29_audiobook_text_origin") { db in
+            try Schema_V29.migrate(db)
+        }
+        migrator.registerMigration("v30_narration_quality_issue") { db in
+            try Schema_V30.migrate(db)
+        }
+        migrator.registerMigration("v31_abs_server_multi") { db in
+            try Schema_V31.migrate(db)
+        }
+        migrator.registerMigration("v32_narration_text") { db in
+            try Schema_V32.migrate(db)
+        }
+        migrator.registerMigration("v33_study_plan_card_pacing") { db in
+            try Schema_V33.migrate(db)
+        }
+        migrator.registerMigration("v34_study_auto_export") { db in
+            try Schema_V34.migrate(db)
+        }
+        migrator.registerMigration("v35_library_edition_grouping") { db in
+            try Schema_V35.migrate(db)
+        }
+        migrator.registerMigration("v36_code_language") { db in
+            try Schema_V36.migrate(db)
+        }
+        migrator.registerMigration("v37_article_workshop") { db in
+            try Schema_V37.migrate(db)
+        }
+        migrator.registerMigration("v37_repair_anthology_build_attempt_receipts") { db in
+            try Schema_V37.repairBuildAttemptReceipts(db)
+        }
+        migrator.registerMigration("v38_generated_chapter_key") { db in
+            try Schema_V38.migrate(db)
+        }
+        migrator.registerMigration("v39_article_sync") { db in
+            try Schema_V39.migrate(db)
+        }
+        migrator.registerMigration("v40_narration_quality_issue_origin") { db in
+            try Schema_V40.migrate(db)
+        }
+        migrator.registerMigration("v41_repair_squashed_baseline_gap") { db in
+            try Schema_V41.migrate(db)
+        }
+        return migrator
     }
+}
 
-    // MARK: - UserDefaults migration flag
-
-    /// Uses the App Group's shared UserDefaults so that extensions (widget,
-    /// watch) see the same migration state as the main app. Storing the flag
-    /// in `UserDefaults.standard` would cause duplicate migration attempts
-    /// when an extension launches first.
-    var isMigrationDone: Bool {
-        get { UserDefaults(suiteName: appGroupIdentifier)?.bool(forKey: migrationFlag) ?? false }
-        set { UserDefaults(suiteName: appGroupIdentifier)?.set(newValue, forKey: migrationFlag) }
+extension URL {
+    fileprivate var parentDirectory: URL? {
+        guard !path.isEmpty else { return nil }
+        return deletingLastPathComponent()
     }
+}
+
+private enum DatabaseServiceAppGroupFallback {
+    #if DEBUG && targetEnvironment(simulator)
+        static var isAllowed: Bool { true }
+        static var defaultDirectory: URL? {
+            FileManager.default.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            ).first?
+            .appending(path: "Echo", directoryHint: .isDirectory)
+            .appending(path: "DebugAppGroupFallback", directoryHint: .isDirectory)
+        }
+    #else
+        static var isAllowed: Bool { false }
+        static var defaultDirectory: URL? { nil }
+    #endif
 }

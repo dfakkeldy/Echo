@@ -8,32 +8,9 @@ import Testing
 @MainActor
 struct StandaloneTranscriptionServiceTests {
 
-    /// Creates an in-memory database with all schema migrations applied.
+    /// Creates an in-memory database with the current baseline schema applied.
     private func makeTestDB() throws -> DatabaseWriter {
-        var config = Configuration()
-        config.prepareDatabase { db in
-            try db.execute(sql: "PRAGMA foreign_keys=ON")
-        }
-        let queue = try DatabaseQueue(path: ":memory:", configuration: config)
-        var migrator = DatabaseMigrator()
-        migrator.registerMigration("v1") { db in try Schema_V1.migrate(db) }
-        migrator.registerMigration("v2") { db in try Schema_V2.migrate(db) }
-        migrator.registerMigration("v3") { db in try Schema_V3.migrate(db) }
-        migrator.registerMigration("v4") { db in try Schema_V4.migrate(db) }
-        migrator.registerMigration("v5") { db in try Schema_V5.migrate(db) }
-        migrator.registerMigration("v6") { db in try Schema_V6.migrate(db) }
-        migrator.registerMigration("v7") { db in try Schema_V7.migrate(db) }
-        migrator.registerMigration("v8") { db in try Schema_V8.migrate(db) }
-        migrator.registerMigration("v9") { db in try Schema_V9.migrate(db) }
-        migrator.registerMigration("v10") { db in try Schema_V10.migrate(db) }
-        migrator.registerMigration("v11") { db in try Schema_V11.migrate(db) }
-        migrator.registerMigration("v12") { db in try Schema_V12.migrate(db) }
-        migrator.registerMigration("v13") { db in try Schema_V13.migrate(db) }
-        migrator.registerMigration("v14") { db in try Schema_V14.migrate(db) }
-        migrator.registerMigration("v15") { db in try Schema_V15.migrate(db) }
-        migrator.registerMigration("v16") { db in try Schema_V16.migrate(db) }
-        try migrator.migrate(queue)
-        return queue
+        try DatabaseService(inMemory: ()).writer
     }
 
     // MARK: - Record Persistence
@@ -43,7 +20,7 @@ struct StandaloneTranscriptionServiceTests {
 
         try db.write { db in
             // Seed the parent audiobook so standalone_transcript's NOT NULL
-            // audiobook_id foreign key (Schema_V16) is satisfied.
+            // audiobook_id foreign key is satisfied.
             try db.execute(
                 sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
             var record = StandaloneTranscriptRecord(
@@ -73,7 +50,7 @@ struct StandaloneTranscriptionServiceTests {
         let now = ISO8601DateFormatter().string(from: Date())
 
         try db.write { db in
-            // Parent audiobook for the standalone_transcript FK (Schema_V16).
+            // Parent audiobook for the standalone_transcript foreign key.
             try db.execute(
                 sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
             for i in 0..<5 {
@@ -173,7 +150,7 @@ struct StandaloneTranscriptionServiceTests {
         let wordsJSON = String(data: wordsData, encoding: .utf8)
 
         try db.write { db in
-            // Parent audiobook for the standalone_transcript FK (Schema_V16).
+            // Parent audiobook for the standalone_transcript foreign key.
             try db.execute(
                 sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-2', 'Test', 3600)")
             var record = StandaloneTranscriptRecord(
@@ -202,5 +179,90 @@ struct StandaloneTranscriptionServiceTests {
         )
         #expect(decodedWords.count == 1)
         #expect(decodedWords[0].word == "Test")
+    }
+
+    // MARK: - Canonical id (FK) — empty-chapters fast path keys nothing wrong
+
+    @Test func startWithNoChaptersDoesNotRunAndKeepsCanonicalIdSeam() async throws {
+        let db = try makeTestDB()
+        // Parent keyed by the canonical folder id, NOT the audio file id.
+        try await db.write { database in
+            try database.execute(
+                sql:
+                    "INSERT INTO audiobook (id, title, duration, added_at) VALUES ('file:///book/', 'Test', 60, '2026-06-29T00:00:00Z')"
+            )
+        }
+        let service = StandaloneTranscriptionService(db: db)
+        await service.start(
+            audiobookID: "file:///book/",
+            audioFileURL: URL(fileURLWithPath: "/tmp/book/audio.m4b"),
+            chapters: [])
+        #expect(service.progress.isRunning == false)
+        // No chapters → no rows, and crucially the call compiles against the new
+        // signature that carries the canonical id separately from the audio URL.
+        let count = try await db.read { database in
+            try StandaloneTranscriptRecord
+                .filter(Column("audiobook_id") == "file:///book/")
+                .fetchCount(database)
+        }
+        #expect(count == 0)
+    }
+
+    // MARK: - Resume skip-logic + clear
+
+    private func seedSegmentRow(
+        _ db: DatabaseWriter, audiobookID: String, chapterIndex: Int
+    ) throws {
+        try db.write { database in
+            var rec = StandaloneTranscriptRecord(
+                id: "seg-\(chapterIndex)", audiobookID: audiobookID,
+                chapterIndex: chapterIndex, segmentIndex: 0, text: "x",
+                startTime: 0, endTime: 1, wordsJSON: nil,
+                createdAt: "2026-06-29T00:00:00Z")
+            try rec.insert(database)
+        }
+    }
+
+    @Test func pauseDoesNotSetCancelled() throws {
+        let db = try makeTestDB()
+        let service = StandaloneTranscriptionService(db: db)
+        service.progress.isRunning = true
+        service.pause()
+        #expect(service.progress.isCancelled == false)
+    }
+
+    @Test func clearTranscriptRemovesRowsAndProjection() async throws {
+        let db = try makeTestDB()
+        let bookID = "file:///book/"
+        try await db.write { database in
+            try database.execute(
+                sql:
+                    "INSERT INTO audiobook (id, title, duration, added_at) VALUES (?, 'T', 60, '2026-06-29T00:00:00Z')",
+                arguments: [bookID])
+        }
+        // Seed one raw segment with a word so the projection has all three tables.
+        let words = [StandaloneTranscribedWord(word: "x", start: 0, end: 1, confidence: 0.9)]
+        let json = String(data: try JSONEncoder().encode(words), encoding: .utf8)
+        try await db.write { database in
+            var rec = StandaloneTranscriptRecord(
+                id: "seg-0", audiobookID: bookID, chapterIndex: 0, segmentIndex: 0,
+                text: "x", startTime: 0, endTime: 1, wordsJSON: json,
+                createdAt: "2026-06-29T00:00:00Z")
+            try rec.insert(database)
+        }
+        try await TranscriptMaterializer.materialize(audiobookID: bookID, writer: db)
+        #expect(try EPubBlockDAO(db: db).count(for: bookID) == 1)
+
+        let service = StandaloneTranscriptionService(db: db)
+        await service.clearTranscript(audiobookID: bookID)
+
+        let raw = try await db.read { database in
+            try StandaloneTranscriptRecord
+                .filter(Column("audiobook_id") == bookID).fetchCount(database)
+        }
+        #expect(raw == 0)
+        #expect(try EPubBlockDAO(db: db).count(for: bookID) == 0)
+        #expect(try TimelineDAO(db: db).items(for: bookID).isEmpty)
+        #expect(try WordTimingDAO(db: db).words(forAudiobook: bookID).isEmpty)
     }
 }

@@ -6,7 +6,7 @@ import GRDB
 /// to a specific audio timestamp. Anchors are the foundation of the manual
 /// alignment system — interpolation fills in timestamps between anchors.
 nonisolated struct AlignmentAnchorRecord: Identifiable, Equatable, Codable, FetchableRecord,
-    MutablePersistableRecord
+    MutablePersistableRecord, Sendable
 {
     var id: String
     var audiobookID: String
@@ -38,13 +38,13 @@ nonisolated struct AlignmentAnchorRecord: Identifiable, Equatable, Codable, Fetc
 // MARK: - Anchor Kind Constants
 
 extension AlignmentAnchorRecord {
-    enum AnchorKind: String {
+    enum AnchorKind: String, Sendable {
         case point = "point"
         case chapterStart = "chapterStart"
         case chapterEnd = "chapterEnd"
     }
 
-    enum Source: String {
+    enum Source: String, Sendable {
         case moveToNow = "moveToNow"
         case searchResult = "searchResult"
         case chapterBoundary = "chapterBoundary"
@@ -52,5 +52,25 @@ extension AlignmentAnchorRecord {
         case autoAlignment = "autoAlignment"
         case continuousBackground = "continuousBackground"
         case synthesized = "synthesized"  // TTS-generated narration anchors
+        case transcriptAlignment = "transcriptAlignment"  // ASR↔source-block alignment (M2)
+    }
+
+    /// The sources a person placed by hand. Every other source is a machine
+    /// measurement that a later alignment pass can recompute; these cannot be
+    /// recomputed from anything, so no automatic pass may discard one.
+    ///
+    /// Single definition on purpose — `DocumentImportFinalizer` (which refuses to
+    /// overwrite them with a fresh alignment) and `EPUBImportService` (which
+    /// restores them across a `.replaceAll` block rebuild) have to agree about
+    /// what "human" means, and a second copy would drift.
+    ///
+    /// `nonisolated` computed so the importer can read it from inside GRDB's
+    /// `@Sendable` write closure under this project's MainActor default isolation.
+    nonisolated static var humanAnchorSources: Set<String> {
+        [
+            Source.moveToNow.rawValue,
+            Source.searchResult.rawValue,
+            Source.chapterBoundary.rawValue,
+        ]
     }
 }

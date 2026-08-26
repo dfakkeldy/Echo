@@ -18,9 +18,12 @@ final class WatchConnectivityCoordinator: WatchCommandRoutingFacade {
     var durationSeconds: Double? { playerModel?.durationSeconds }
     var speed: Float { playerModel?.speed ?? 1.0 }
     var watchCommandOutputGain: Float { playerModel?.watchCommandOutputGain ?? 0 }
-    var watchThumbnailData: Data? { playerModel?.watchThumbnailData }
-    var crownScrubSensitivity: Double { playerModel?.crownScrubSensitivity ?? SettingsManager.Defaults.crownScrubSensitivity }
-    var crownVolumeSensitivity: Double { playerModel?.crownVolumeSensitivity ?? SettingsManager.Defaults.crownVolumeSensitivity }
+    var crownScrubSensitivity: Double {
+        playerModel?.crownScrubSensitivity ?? SettingsManager.Defaults.crownScrubSensitivity
+    }
+    var crownVolumeSensitivity: Double {
+        playerModel?.crownVolumeSensitivity ?? SettingsManager.Defaults.crownVolumeSensitivity
+    }
 
     func play() { playerModel?.play() }
     func pause() { playerModel?.pause() }
@@ -40,7 +43,17 @@ final class WatchConnectivityCoordinator: WatchCommandRoutingFacade {
     func cancelSleepTimer() { playerModel?.cancelSleepTimer() }
     func toggleSleepTimer() { playerModel?.toggleSleepTimer() }
     func addBookmarkFromWatchCommand() { playerModel?.addBookmarkFromWatchCommand() }
-    func addWatchBookmark(from payload: [String: Any]) { playerModel?.addWatchBookmark(from: payload) }
-    func gradeFlashcard(cardID: String, grade: Int) { playerModel?.gradeFlashcard(cardID: cardID, grade: grade) }
+    func addWatchBookmark(from payload: [String: Any]) {
+        playerModel?.addWatchBookmark(from: payload)
+    }
+    func markPassageFromWatchCommand() { playerModel?.markPassageAtCurrentTime() }
+    func gradeFlashcard(cardID: String, grade: Int) {
+        playerModel?.gradeFlashcard(cardID: cardID, grade: grade)
+    }
     func watchStateContext() -> [String: Any] { playerModel?.watchStateContext() ?? [:] }
+    func resendWatchThumbnail(watchHeldArtworkSequence: Double, currentArtworkSequence: Double?) {
+        playerModel?.watchSyncManager.resendThumbnailIfWatchBehind(
+            watchHeldArtworkSequence: watchHeldArtworkSequence,
+            currentArtworkSequence: currentArtworkSequence)
+    }
 }

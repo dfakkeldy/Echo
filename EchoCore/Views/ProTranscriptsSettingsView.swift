@@ -54,7 +54,9 @@ struct ProTranscriptsSettingsView: View {
                 }
                 .disabled(isPurchasingPro || isRestoringPurchases)
             } footer: {
-                Text("Unlock transcript overlays for audiobooks with transcript sidecars.")
+                Text(
+                    "Echo Pro includes transcript overlays, unlimited flashcards, study export, insights, Watch review, and Audiobookshelf offline sync."
+                )
             }
 
             if let lastStoreError = storeManager.lastStoreError {

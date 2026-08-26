@@ -2,7 +2,9 @@
 import XCTest
 @testable import Echo
 
-final class ChapterGroupingServiceTests: XCTestCase {
+// `nonisolated`: XCTestCase subclass under Swift 6 MainActor default isolation; nonisolated so the
+// init overrides match XCTestCase's nonisolated inits (pure synchronous value tests).
+nonisolated final class ChapterGroupingServiceTests: XCTestCase {
 
     // MARK: - Helpers
 

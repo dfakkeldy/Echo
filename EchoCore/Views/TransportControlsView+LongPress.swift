@@ -16,10 +16,14 @@ extension View {
             self.simultaneousGesture(
                 LongPressGesture(minimumDuration: 0.5)
                     .onEnded { _ in
-                        Haptic.play(.medium)
-                        executeAction(action, model: model)
+                        executeSecondaryAction(action, model: model)
                     }
             )
+            .accessibilityAction(
+                named: Text(secondaryAccessibilityActionName(for: action, model: model))
+            ) {
+                executeSecondaryAction(action, model: model)
+            }
         } else {
             self
         }
@@ -67,6 +71,8 @@ private func executeAction(_ action: WatchAction, model: PlayerModel) {
         if let draft = model.bookmarkDraftAtCurrentTime() {
             model.activeBookmarkDraft = draft
         }
+    case .markPassage:
+        model.markPassageAtCurrentTime()
     case .pomodoro:
         break
     case .empty:
@@ -84,15 +90,19 @@ struct TransportButton<Content: View>: View {
 
     var body: some View {
         if longPressAction != .empty {
-            Button(action: {}) {
+            Button(action: tapAction) {
                 content()
             }
             .buttonStyle(TransportPrimitiveButtonStyle(
-                tapAction: tapAction,
                 longPressAction: longPressAction,
                 model: model,
                 isPressed: $isPressed
             ))
+            .accessibilityAction(
+                named: Text(secondaryAccessibilityActionName(for: longPressAction, model: model))
+            ) {
+                executeSecondaryAction(longPressAction, model: model)
+            }
         } else {
             Button(action: tapAction) {
                 content()
@@ -102,33 +112,70 @@ struct TransportButton<Content: View>: View {
 }
 
 struct TransportPrimitiveButtonStyle: PrimitiveButtonStyle {
-    let tapAction: () -> Void
     let longPressAction: WatchAction
     let model: PlayerModel
     @Binding var isPressed: Bool
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
             .opacity(isPressed ? 0.5 : 1.0)
             .contentShape(Rectangle())
             .onTapGesture {
                 configuration.trigger()
-                tapAction()
                 isPressed = false
             }
             .onLongPressGesture(
                 minimumDuration: 0.5,
                 perform: {
-                    configuration.trigger()
-                    Haptic.play(.medium)
-                    executeAction(longPressAction, model: model)
+                    executeSecondaryAction(longPressAction, model: model)
                     isPressed = false
                 },
                 onPressingChanged: { pressing in
                     isPressed = pressing
                 }
             )
+    }
+}
+
+private func executeSecondaryAction(_ action: WatchAction, model: PlayerModel) {
+    guard action != .empty else { return }
+    Haptic.play(.medium)
+    executeAction(action, model: model)
+}
+
+private func secondaryAccessibilityActionName(for action: WatchAction, model: PlayerModel) -> String {
+    switch action {
+    case .playPause:
+        return model.isPlaying
+            ? String(localized: "Secondary action: Pause")
+            : String(localized: "Secondary action: Play")
+    case .skipBackward:
+        return String(localized: "Secondary action: Skip back")
+    case .skipForward:
+        return String(localized: "Secondary action: Skip forward")
+    case .previousTrack:
+        return String(localized: "Secondary action: Previous chapter or track")
+    case .nextTrack:
+        return String(localized: "Secondary action: Next chapter or track")
+    case .previousSection:
+        return String(localized: "Secondary action: Previous section")
+    case .nextSection:
+        return String(localized: "Secondary action: Next section")
+    case .loopMode:
+        return String(localized: "Secondary action: Change loop mode")
+    case .speed:
+        return String(localized: "Secondary action: Cycle playback speed")
+    case .sleepTimer:
+        return String(localized: "Secondary action: Cycle sleep timer")
+    case .bookmark:
+        return String(localized: "Secondary action: Add bookmark")
+    case .markPassage:
+        return String(localized: "Secondary action: Mark passage for later")
+    case .pomodoro:
+        return String(localized: "Secondary action: Pomodoro")
+    case .empty:
+        return String(localized: "Secondary action")
     }
 }
 

@@ -1,26 +1,35 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-import XCTest
 import SwiftUI
 import UIKit
+// SPDX-License-Identifier: GPL-3.0-or-later
+import XCTest
+
 @testable import Echo
 
-final class DominantColorExtractorTests: XCTestCase {
+// `nonisolated`: XCTestCase subclass under Swift 6 MainActor default isolation; nonisolated so the
+// init overrides match XCTestCase's nonisolated inits (pure synchronous value tests).
+nonisolated final class DominantColorExtractorTests: XCTestCase {
 
-    private func solidImage(_ color: UIColor, size: CGSize = CGSize(width: 16, height: 16)) -> UIImage {
+    private func solidImage(_ color: UIColor, size: CGSize = CGSize(width: 16, height: 16))
+        -> UIImage
+    {
         UIGraphicsImageRenderer(size: size).image { ctx in
             color.setFill()
             ctx.fill(CGRect(origin: .zero, size: size))
         }
     }
 
-    private func twoToneImage(left: UIColor, right: UIColor, leftFraction: CGFloat,
-                              size: CGSize = CGSize(width: 40, height: 40)) -> UIImage {
+    private func twoToneImage(
+        left: UIColor, right: UIColor, leftFraction: CGFloat,
+        size: CGSize = CGSize(width: 40, height: 40)
+    ) -> UIImage {
         UIGraphicsImageRenderer(size: size).image { ctx in
             left.setFill()
             ctx.fill(CGRect(x: 0, y: 0, width: size.width * leftFraction, height: size.height))
             right.setFill()
-            ctx.fill(CGRect(x: size.width * leftFraction, y: 0,
-                            width: size.width * (1 - leftFraction), height: size.height))
+            ctx.fill(
+                CGRect(
+                    x: size.width * leftFraction, y: 0,
+                    width: size.width * (1 - leftFraction), height: size.height))
         }
     }
 
@@ -50,6 +59,43 @@ final class DominantColorExtractorTests: XCTestCase {
         XCTAssertTrue(DominantColorExtractor.signature(from: image).isNeutral)
     }
 
+    func testVividCoreSurvivesAntialiasingHalo() throws {
+        // A teal field with thin red stripes, each flanked by the pale pink an
+        // antialiased edge produces. Red and pink share the hue-0 bucket with
+        // equal HSL saturation (equal weight), so the bucket MEAN washes out —
+        // but the vivid core (most-chromatic quartile) must stay saturated red.
+        // Drawn at scale 1 and exactly the extractor's 100×100 sample size so
+        // no resampling blurs the stripes.
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let size = CGSize(width: 100, height: 100)
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { ctx in
+            UIColor.systemTeal.setFill()
+            ctx.fill(CGRect(origin: .zero, size: size))
+            for x in stride(from: 60, to: 100, by: 4) {
+                UIColor(red: 1.0, green: 0.23, blue: 0.19, alpha: 1).setFill()
+                ctx.fill(CGRect(x: x, y: 0, width: 2, height: 100))
+                UIColor(red: 1.0, green: 0.75, blue: 0.75, alpha: 1).setFill()
+                ctx.fill(CGRect(x: x + 2, y: 0, width: 2, height: 100))
+            }
+        }
+
+        let sig = DominantColorExtractor.signature(from: image)
+        let red = try XCTUnwrap(
+            sig.candidates.first { abs($0.hue) < 40 || abs($0.hue - 360) < 40 },
+            "the red/pink family must produce a candidate")
+        let coreChroma = try XCTUnwrap(red.coreChroma)
+        let coreLightness = try XCTUnwrap(red.coreLightness)
+        let coreHue = try XCTUnwrap(red.coreHue)
+        XCTAssertGreaterThanOrEqual(
+            coreChroma, red.chroma + 0.04,
+            "the core must be clearly more chromatic than the halo-diluted mean")
+        XCTAssertLessThanOrEqual(
+            coreLightness, red.lightness - 0.04,
+            "the pale halo lifts the mean lightness; the core stays darker")
+        XCTAssertEqual(coreHue, 25, accuracy: 20, "the core stays in the red family")
+    }
+
     func testTwoToneCoverRanksLargerRegionFirst() {
         // 75% blue / 25% red → the blue family must rank first.
         let sig = DominantColorExtractor.signature(
@@ -64,11 +110,11 @@ final class DominantColorExtractorTests: XCTestCase {
         // Expect: not neutral, a warm primary (sat² favours the vivid gold), and
         // a navy-family candidate available for the secondary role.
         let image = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 40)).image { ctx in
-            UIColor(red: 0.96, green: 0.94, blue: 0.90, alpha: 1).setFill()   // cream
+            UIColor(red: 0.96, green: 0.94, blue: 0.90, alpha: 1).setFill()  // cream
             ctx.fill(CGRect(x: 0, y: 0, width: 40, height: 40))
-            UIColor(red: 0.91, green: 0.76, blue: 0.17, alpha: 1).setFill()   // gold band
+            UIColor(red: 0.91, green: 0.76, blue: 0.17, alpha: 1).setFill()  // gold band
             ctx.fill(CGRect(x: 0, y: 30, width: 40, height: 10))
-            UIColor(red: 0.16, green: 0.28, blue: 0.39, alpha: 1).setFill()   // navy shapes
+            UIColor(red: 0.16, green: 0.28, blue: 0.39, alpha: 1).setFill()  // navy shapes
             ctx.fill(CGRect(x: 0, y: 0, width: 12, height: 30))
         }
         let sig = DominantColorExtractor.signature(from: image)
@@ -78,5 +124,103 @@ final class DominantColorExtractorTests: XCTestCase {
             sig.candidates.contains { $0.hue > 230 && $0.hue < 290 },
             "expected a navy-family candidate for the secondary role"
         )
+    }
+
+    func testHighContrastCoverWithBoldAccentIsNotNeutral() {
+        // Models a high-contrast cover (à la "Everything But the Code"): a
+        // black/white field with a small but bold red accent. The red is < 2% of
+        // the whole canvas — so it would historically fall below the coverage
+        // floor — but it dominates the colourable (non-black/white) region, so the
+        // theme must derive from it rather than collapsing to neutral.
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 100, height: 100)).image { ctx in
+            UIColor.white.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+            UIColor.black.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 50, height: 100))  // left half black
+            UIColor.systemRed.setFill()
+            ctx.fill(CGRect(x: 70, y: 44, width: 12, height: 12))  // 144 px ≈ 1.44% of canvas
+        }
+        let sig = DominantColorExtractor.signature(from: image)
+        XCTAssertFalse(sig.isNeutral, "a bold accent on a black/white cover must not be neutral")
+        XCTAssertFalse(sig.candidates.isEmpty)
+        XCTAssertEqual(sig.candidates[0].hue, 29.0, accuracy: 20.0)  // red leads (OKLCH ~29°)
+    }
+
+    func testSingleSaturatedSpeckOnWhiteStaysNeutral() {
+        // Guards the absolute vivid-pixel floor: a speck on pure white would have
+        // ~100% colourable-share, so the relative gate alone would admit it — the
+        // absolute floor must still reject it as a stray pixel.
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 100, height: 100)).image { ctx in
+            UIColor.white.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+            UIColor.systemRed.setFill()
+            ctx.fill(CGRect(x: 10, y: 10, width: 4, height: 4))  // 16 px ≈ 0.16% < 0.4% floor
+        }
+        XCTAssertTrue(DominantColorExtractor.signature(from: image).isNeutral)
+    }
+
+    func testHighContrastCoverReportsBlackAndWhiteShares() {
+        // The black/white + red fixture should report large near-black AND
+        // near-white shares — the signal CoverThemeBuilder uses to switch to the
+        // neutral graphite/paper background ramp.
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 100, height: 100)).image { ctx in
+            UIColor.white.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+            UIColor.black.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 50, height: 100))  // left half black
+            UIColor.systemRed.setFill()
+            ctx.fill(CGRect(x: 70, y: 44, width: 12, height: 12))
+        }
+        let sig = DominantColorExtractor.signature(from: image)
+        XCTAssertGreaterThan(sig.nearBlackShare, 0.3, "left-half black → large near-black share")
+        XCTAssertGreaterThan(sig.nearWhiteShare, 0.3, "right-half white → large near-white share")
+        XCTAssertGreaterThan(
+            sig.nearBlackShare + sig.nearWhiteShare, 0.45, "cover reads as black/white-dominant")
+    }
+
+    // MARK: - Edge field
+
+    func testSolidBorderReportsEdgeField() throws {
+        // Blue field with a busy red centre: the ring is uniform blue.
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 100, height: 100)).image { ctx in
+            UIColor.systemBlue.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+            UIColor.systemRed.setFill()
+            ctx.fill(CGRect(x: 20, y: 20, width: 60, height: 60))
+        }
+        let edge = try XCTUnwrap(DominantColorExtractor.signature(from: image).edgeField)
+        XCTAssertEqual(edge.hue, 258, accuracy: 25)
+        XCTAssertGreaterThan(edge.chroma, 0.05)
+    }
+
+    func testSplitBorderReportsNoEdgeField() {
+        // Two fields meet at the border (half blue / half orange ring) — no
+        // single tone can continue such an edge.
+        let sig = DominantColorExtractor.signature(
+            from: twoToneImage(
+                left: .systemBlue, right: .systemOrange, leftFraction: 0.5,
+                size: CGSize(width: 100, height: 100)))
+        XCTAssertNil(sig.edgeField)
+    }
+
+    func testEdgeFieldSurvivesSmallIntrusion() throws {
+        // A figure crossing the bottom border (≈6% of the ring) must not defeat
+        // the consensus — this is Traction's running man clipping the edge.
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 100, height: 100)).image { ctx in
+            UIColor(red: 0.66, green: 0.83, blue: 0.92, alpha: 1).setFill()  // sky blue
+            ctx.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+            UIColor.black.setFill()
+            ctx.fill(CGRect(x: 70, y: 88, width: 22, height: 12))  // corner figure
+        }
+        let edge = try XCTUnwrap(DominantColorExtractor.signature(from: image).edgeField)
+        XCTAssertEqual(edge.lightness, 0.85, accuracy: 0.05, "consensus stays on the sky field")
+    }
+
+    func testColourfulCoverHasLowBlackWhiteShares() {
+        // A solid vivid cover has almost no near-black/near-white pixels, so it must
+        // NOT trip the neutral-ramp share gate.
+        let sig = DominantColorExtractor.signature(
+            from: solidImage(.systemRed, size: CGSize(width: 100, height: 100)))
+        XCTAssertLessThan(sig.nearBlackShare + sig.nearWhiteShare, 0.1)
     }
 }

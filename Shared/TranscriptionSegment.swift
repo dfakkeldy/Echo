@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
-public nonisolated struct TranscriptionSegment: Codable, Identifiable {
+public nonisolated struct TranscriptionSegment: Codable, Identifiable, Sendable {
     /// Stable ID derived from integer milliseconds, avoiding floating-point
     /// imprecision in the string representation (e.g. "0.1" vs "0.10000000000000001").
     public var id: String {

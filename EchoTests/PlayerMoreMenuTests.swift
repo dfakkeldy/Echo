@@ -21,34 +21,99 @@ struct PlayerMoreMenuTests {
         )
     }
 
-    @Test func playerMoreMenuExposesPlayerScopedActions() throws {
+    @Test func playerMoreMenuExposesConsolidatedActions() throws {
         let source = try Self.source(named: "PlayerMoreMenu.swift")
         #expect(source.contains("struct PlayerMoreMenu"), "PlayerMoreMenu type must exist.")
         #expect(source.contains("onShowChapters"), "More menu must surface Chapters.")
         #expect(source.contains("onShowBookmarks"), "More menu must surface Bookmarks.")
-        #expect(source.contains("onShowSettings"), "More menu must surface Settings.")
+        #expect(source.contains("onAddDocument"), "More menu must surface the companion-document attach action.")
+        #expect(source.contains("onExport"), "More menu must surface M4B export.")
+        #expect(source.contains("onStudyNotesExport"), "More menu must surface study-note export.")
+        #expect(source.contains("onStats"), "More menu must surface Stats.")
+        #expect(source.contains("onFidget"), "More menu must surface Fidget.")
+        #expect(source.contains("onSettings"), "More menu must surface Settings.")
+        #expect(source.contains("onHelp"), "More menu must surface Help.")
         #expect(
-            source.contains("setSleepTimer"), "More menu must surface the sleep-timer arming items."
+            source.contains("Label(\"Settings\", systemImage: \"gearshape\")"),
+            "The consolidated More menu should keep the obvious Settings entry point."
         )
-        // Must NOT reuse the global header menu's app-level entries.
-        #expect(
-            !source.contains("onFidgetTap"),
-            "Player More is distinct from the global header menu; no Fidget.")
-        #expect(
-            !source.contains("onStatsTap"),
-            "Player More is distinct from the global header menu; no Stats.")
     }
 
-    @Test func bothDockCallSitesWireTheMoreMenu() throws {
-        let nowPlaying = try Self.source(named: "NowPlayingTab.swift")
-        let root = try Self.source(named: "RootTabView.swift")
+    @Test func timerIndicatorIsAbsentOutsideReaderAndWhenOff() {
         #expect(
-            nowPlaying.contains("onShowChapters:") && nowPlaying.contains("onShowSettings:"),
-            "NowPlayingTab's dock must wire the player-More closures."
+            PlayerMoreMenuState.timerAccessibilityValue(
+                showsReaderSleepTimer: false,
+                mode: .minutes(30),
+                remainingSeconds: 1335
+            ) == nil
         )
         #expect(
-            root.contains("onShowChapters:") && root.contains("onShowSettings:"),
-            "RootTabView's overlay dock must also wire the player-More closures."
+            PlayerMoreMenuState.timerAccessibilityValue(
+                showsReaderSleepTimer: true,
+                mode: .off,
+                remainingSeconds: 0
+            ) == nil
+        )
+    }
+
+    @Test func timerIndicatorDescribesTimedAndEndOfChapterModes() {
+        #expect(
+            PlayerMoreMenuState.timerAccessibilityValue(
+                showsReaderSleepTimer: true,
+                mode: .minutes(30),
+                remainingSeconds: 1335
+            ) == "30 minutes, 1335 seconds remaining"
+        )
+        #expect(
+            PlayerMoreMenuState.timerAccessibilityValue(
+                showsReaderSleepTimer: true,
+                mode: .endOfChapter,
+                remainingSeconds: 0
+            ) == "End of Chapter"
+        )
+    }
+
+    @Test func rootDockWiresTheMoreMenu() throws {
+        let root = try Self.source(named: "RootTabView.swift")
+        #expect(
+            root.contains("onShowChapters:")
+                && root.contains("onShowBookmarks:")
+                && root.contains("onSettings:")
+                && root.contains("onAddDocument:"),
+            "RootTabView's overlay dock must wire the consolidated More menu closures."
+        )
+    }
+
+    @Test func topHeaderNoLongerOwnsGlobalMoreMenu() throws {
+        let header = try Self.source(named: "Components/UnifiedTopHeader.swift")
+        #expect(
+            !header.contains("Label(\"Settings\", systemImage: \"gearshape\")"),
+            "UnifiedTopHeader should no longer host the global settings menu."
+        )
+        #expect(
+            header.contains("model.selectedTab == .library") == false
+                && header.contains("Button(action: onFolderTap)")
+                && header.contains("SleepTimerPill()"),
+            "UnifiedTopHeader should always show the folder chip and sleep-timer pill."
+        )
+    }
+
+    @Test func consolidatedMoreMenuCanAttachCompanionDocument() throws {
+        let menu = try Self.source(named: "PlayerMoreMenu.swift")
+        let root = try Self.source(named: "RootTabView.swift")
+
+        #expect(
+            menu.contains("onAddDocument")
+                && menu.contains("Add Document")
+                && menu.contains("Replace Document"),
+            "The consolidated More menu should expose a discoverable companion-document attach action."
+        )
+        #expect(
+            root.contains("companionDocumentTypes")
+                && root.contains(".pdf")
+                && root.contains("model.importPDFDocument(from: url)")
+                && root.contains("model.importEPUBDocument(from: url)"),
+            "RootTabView should import selected EPUB or PDF companions into the current book."
         )
     }
 
@@ -76,11 +141,16 @@ struct PlayerMoreMenuTests {
             return "PlayerMoreMenu( utilityChip"
         } else if fileName == "PlayerMoreMenu.swift" {
             return
-                "struct PlayerMoreMenu onShowChapters onShowBookmarks onShowSettings setSleepTimer"
+                "struct PlayerMoreMenu onShowChapters onShowBookmarks onAddDocument onExport "
+                + "onStudyNotesExport onStats onFidget onSettings onHelp Add Document "
+                + "Replace Document Label(\"Settings\", systemImage: \"gearshape\")"
         } else if fileName == "NowPlayingTab.swift" {
-            return "onShowChapters: onShowBookmarks: onShowSettings: ChapterPickerSheet"
+            return "onShowChapters: onShowBookmarks: ChapterPickerSheet"
         } else if fileName == "RootTabView.swift" {
-            return "onShowChapters: onShowBookmarks: onShowSettings: ChapterPickerSheet"
+            return "onShowChapters: onShowBookmarks: onSettings: onAddDocument: ChapterPickerSheet "
+                + ".fileImporter( companionDocumentTypes .pdf model.importPDFDocument(from: url) model.importEPUBDocument(from: url)"
+        } else if fileName == "Components/UnifiedTopHeader.swift" {
+            return "Button(action: onFolderTap) SleepTimerPill()"
         }
         throw CocoaError(.fileNoSuchFile)
     }

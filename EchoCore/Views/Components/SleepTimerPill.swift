@@ -13,6 +13,98 @@ enum SleepTimerPillState {
         case .endOfChapter: return "EOC"
         }
     }
+
+    static func accessibilityValue(mode: SleepTimerMode, remainingSeconds: Int) -> String {
+        switch mode {
+        case .off:
+            return String(localized: "Off")
+        case .minutes(let minutes):
+            return String(
+                format: String(localized: "%lld minutes, %lld seconds remaining"),
+                minutes,
+                remainingSeconds
+            )
+        case .endOfChapter:
+            return String(localized: "End of Chapter")
+        }
+    }
+
+    static func activeStatusText(mode: SleepTimerMode, remainingSeconds: Int) -> String? {
+        switch mode {
+        case .off:
+            return nil
+        case .minutes:
+            let countdown = sleepTimerCountdownText(remainingSeconds)
+            return String(
+                localized: "Remaining: \(countdown)",
+                comment: "Sleep timer remaining countdown"
+            )
+        case .endOfChapter:
+            return String(localized: "End of Chapter")
+        }
+    }
+}
+
+struct SleepTimerMenuContent: View {
+    @Environment(PlayerModel.self) private var model
+    var showsActiveStatus = false
+
+    @ViewBuilder
+    var body: some View {
+        if showsActiveStatus,
+            let status = SleepTimerPillState.activeStatusText(
+                mode: model.sleepTimerMode,
+                remainingSeconds: model.sleepTimerRemainingSeconds
+            )
+        {
+            Button(action: {}) {
+                Label(status, systemImage: "moon.zzz.fill")
+            }
+            .disabled(true)
+            Divider()
+        }
+
+        Button {
+            model.setSleepTimer(.minutes(15))
+            Haptic.play(.light)
+        } label: {
+            Label("15 Minutes", systemImage: "15.circle")
+        }
+        Button {
+            model.setSleepTimer(.minutes(30))
+            Haptic.play(.light)
+        } label: {
+            Label("30 Minutes", systemImage: "30.circle")
+        }
+        Button {
+            model.setSleepTimer(.minutes(45))
+            Haptic.play(.light)
+        } label: {
+            Label("45 Minutes", systemImage: "45.circle")
+        }
+        Button {
+            model.setSleepTimer(.minutes(60))
+            Haptic.play(.light)
+        } label: {
+            Label("1 Hour", systemImage: "1.circle")
+        }
+        Divider()
+        Button {
+            model.setSleepTimer(.endOfChapter)
+            Haptic.play(.light)
+        } label: {
+            Label("End of Chapter", systemImage: "book.closed")
+        }
+        if model.sleepTimerMode.isActive {
+            Divider()
+            Button(role: .destructive) {
+                model.cancelSleepTimer()
+                Haptic.play(.light)
+            } label: {
+                Label("Off", systemImage: "xmark.circle")
+            }
+        }
+    }
 }
 
 /// The single timer home: a bare moon glyph when no timer is armed
@@ -23,9 +115,11 @@ struct SleepTimerPill: View {
 
     var body: some View {
         Menu {
-            menuItems
+            SleepTimerMenuContent()
         } label: {
-            if let label = SleepTimerPillState.labelText(mode: model.sleepTimerMode, remainingSeconds: model.sleepTimerRemainingSeconds) {
+            if let label = SleepTimerPillState.labelText(
+                mode: model.sleepTimerMode, remainingSeconds: model.sleepTimerRemainingSeconds)
+            {
                 HStack(spacing: 6) {
                     Image(systemName: "moon.zzz.fill")
                         .font(.subheadline.bold())
@@ -39,57 +133,24 @@ struct SleepTimerPill: View {
                         .fill(model.coverTheme.chip)
                         .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
                 }
-                .foregroundStyle(model.artworkAccentColor ?? Color.accentColor)
+                .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
             } else {
                 Image(systemName: "moon.zzz")
                     .font(.body.bold())
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
-                    .foregroundStyle(.secondary)
+                    // Cover accent like the sibling header chips (was .secondary).
+                    .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
             }
         }
         .accessibilityLabel(Text("Sleep Timer"))
-        .accessibilityValue(Text(accessibilityValue))
-    }
-
-    @ViewBuilder
-    private var menuItems: some View {
-        Button {
-            model.setSleepTimer(.minutes(15))
-            Haptic.play(.light)
-        } label: { Label("15 Minutes", systemImage: "15.circle") }
-        Button {
-            model.setSleepTimer(.minutes(30))
-            Haptic.play(.light)
-        } label: { Label("30 Minutes", systemImage: "30.circle") }
-        Button {
-            model.setSleepTimer(.minutes(45))
-            Haptic.play(.light)
-        } label: { Label("45 Minutes", systemImage: "45.circle") }
-        Button {
-            model.setSleepTimer(.minutes(60))
-            Haptic.play(.light)
-        } label: { Label("1 Hour", systemImage: "1.circle") }
-        Divider()
-        Button {
-            model.setSleepTimer(.endOfChapter)
-            Haptic.play(.light)
-        } label: { Label("End of Chapter", systemImage: "book.closed") }
-        if model.sleepTimerMode.isActive {
-            Divider()
-            Button(role: .destructive) {
-                model.cancelSleepTimer()
-                Haptic.play(.light)
-            } label: { Label("Off", systemImage: "xmark.circle") }
-        }
-    }
-
-    private var accessibilityValue: String {
-        switch model.sleepTimerMode {
-        case .off: return String(localized: "Off")
-        case .minutes(let m):
-            return String(localized: "\(m) minutes, \(model.sleepTimerRemainingSeconds) seconds remaining")
-        case .endOfChapter: return String(localized: "End of Chapter")
-        }
+        .accessibilityValue(
+            Text(
+                SleepTimerPillState.accessibilityValue(
+                    mode: model.sleepTimerMode,
+                    remainingSeconds: model.sleepTimerRemainingSeconds
+                )
+            )
+        )
     }
 }

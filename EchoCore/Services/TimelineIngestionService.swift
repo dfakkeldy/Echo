@@ -21,23 +21,46 @@ nonisolated struct TimelineIngestionService {
         duration: TimeInterval?
     ) {
         let audiobookID = folderURL.absoluteString
-        let title = folderURL.deletingPathExtension().lastPathComponent
+        let folderTitle = folderURL.deletingPathExtension().lastPathComponent
         do {
             let existing = try? AudiobookDAO(db: db.writer).get(audiobookID)
             let isABS = existing?.sourceType == "audiobookshelf"
-            let audiobook = AudiobookRecord(
-                id: audiobookID,
-                title: isABS ? (existing?.title ?? title) : title,
-                author: isABS ? existing?.author : nil,
-                duration: duration ?? 0,
-                fileCount: tracks.count,
-                addedAt: existing?.addedAt ?? Date().ISO8601Format(),
-                sourceType: existing?.sourceType,
-                serverID: existing?.serverID,
-                remoteItemID: existing?.remoteItemID,
-                topicsJSON: existing?.topicsJSON
-            )
-            try AudiobookDAO(db: db.writer).save(audiobook)
+            let resolvedDuration = duration.flatMap(Self.validDuration) ?? existing?.duration ?? 0
+            // Start from the existing row so enrichment written by the Library
+            // rescan or ABS import survives a normal folder re-open. This loader
+            // only owns duration, fileCount, availability, and — for local books
+            // WITH audio — title (the folder is the stable identity there, and a
+            // rescan re-reads audio tags anyway). Audio-less text books keep
+            // their persisted title after the first insert: Library OPF
+            // enrichment replaces the folder-name placeholder, and resetting it
+            // on every open would undo edition grouping. Everything else —
+            // coverArtPath, narrator, author, authorSort, sourceRootID,
+            // topicsJSON, source*, addedAt, lastSeenAt, indexState, textOrigin —
+            // belongs to the enrichment paths. The previous full-record REPLACE
+            // silently wiped them on EVERY play, so the Library shelf lost its
+            // covers and books lost the link to their rescannable root.
+            // (LibraryService.rescan coalesces for exactly this reason.)
+            var audiobook =
+                existing
+                ?? AudiobookRecord(
+                    id: audiobookID,
+                    title: folderTitle,
+                    author: nil,
+                    duration: resolvedDuration,
+                    fileCount: tracks.count,
+                    addedAt: Date().ISO8601Format())
+            if !isABS, !tracks.isEmpty { audiobook.title = folderTitle }
+            audiobook.duration = resolvedDuration
+            audiobook.fileCount = tracks.count
+            audiobook.isAvailable = true
+            if audiobook.coverArtPath == nil,
+                let coverData = EpubCoverResolver.coverData(forAudiobookID: audiobookID)
+            {
+                audiobook.coverArtPath = LibraryCoverStore.writeCover(
+                    coverData,
+                    id: audiobookID,
+                    coversDir: FileLocations.libraryCoversDirectory)
+            }
             let records = tracks.enumerated().map { (i, track) in
                 TrackRecord(
                     id: track.id,
@@ -50,11 +73,64 @@ nonisolated struct TimelineIngestionService {
                     playlistPosition: nil
                 )
             }
-            try TrackDAO(db: db.writer).deleteAll(for: audiobookID)
-            try TrackDAO(db: db.writer).insertAll(records, audiobookID: audiobookID)
+            let trackDAO = TrackDAO(db: db.writer)
+            try db.writer.write { database in
+                var audiobookRecord = audiobook
+                try audiobookRecord.save(database)
+                try trackDAO.refreshAll(records, audiobookID: audiobookID, in: database)
+            }
         } catch {
             logger.error("Failed to persist audiobook to SQL: \(error.localizedDescription)")
         }
+    }
+
+    static func updateAudiobookDuration(
+        db: DatabaseService,
+        audiobookID: String,
+        duration: TimeInterval
+    ) {
+        guard let duration = validDuration(duration) else { return }
+        do {
+            guard var audiobook = try AudiobookDAO(db: db.writer).get(audiobookID) else { return }
+            audiobook.duration = duration
+            try AudiobookDAO(db: db.writer).save(audiobook)
+        } catch {
+            logger.error("Failed to update audiobook duration: \(error.localizedDescription)")
+        }
+    }
+
+    static func persistChapters(
+        db: DatabaseService,
+        audiobookID: String,
+        chapters: [Chapter]
+    ) {
+        let records = chapterRecords(from: chapters, audiobookID: audiobookID)
+        do {
+            try ChapterDAO(db: db.writer).deleteAll(for: audiobookID)
+            try ChapterDAO(db: db.writer).insertAll(records, audiobookID: audiobookID)
+        } catch {
+            logger.error("Failed to persist chapters: \(error.localizedDescription)")
+        }
+    }
+
+    static func chapterRecords(from chapters: [Chapter], audiobookID: String) -> [ChapterRecord] {
+        chapters.enumerated().map { (i, ch) in
+            ChapterRecord(
+                id: nil,
+                audiobookID: audiobookID,
+                title: ch.title ?? "Chapter \(i + 1)",
+                startSeconds: ch.startSeconds,
+                endSeconds: ch.endSeconds,
+                isEnabled: ch.isEnabled,
+                sortOrder: i,
+                playlistPosition: nil
+            )
+        }
+    }
+
+    private static func validDuration(_ duration: TimeInterval) -> TimeInterval? {
+        guard duration.isFinite, duration > 0 else { return nil }
+        return duration
     }
 
     // MARK: - Transcript persistence

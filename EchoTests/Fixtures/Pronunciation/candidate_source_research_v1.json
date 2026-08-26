@@ -1,0 +1,45 @@
+{
+  "status": "candidate-research-only",
+  "acceptedCorpusEvidence": false,
+  "redistributionStatus": "unresolved",
+  "sources": [
+    {
+      "sourceID": "WikipediaHomographData",
+      "repositoryURL": "https://github.com/google-research-datasets/WikipediaHomographData",
+      "repositoryStatus": "official archived repository",
+      "repositoryLicenseLabel": "Apache-2.0",
+      "annotationProcess": "Three annotators labelled examples and a fourth person adjudicated disagreements.",
+      "targetSpellingCounts": {
+        "content": 100,
+        "read": 125,
+        "live": 98,
+        "lives": 101,
+        "record": 100
+      },
+      "thresholdAssessment": "Insufficient alone for the approved family and per-sense thresholds.",
+      "redistributionConcern": "Wikipedia-derived sentence redistribution, attribution, and share-alike implications require explicit review before any sentence is committed.",
+      "sentencesCommitted": false,
+      "acceptedCorpusEvidence": false
+    },
+    {
+      "sourceID": "CMUdict",
+      "researchFinding": "Human-maintained pronunciation data, not contextual sense labels.",
+      "acceptedCorpusEvidence": false
+    },
+    {
+      "sourceID": "WordNet",
+      "researchFinding": "Permissively licensed sense inventory, not the held-out labelled corpus.",
+      "acceptedCorpusEvidence": false
+    },
+    {
+      "sourceID": "CommonVoice",
+      "researchFinding": "Licensed audio and transcripts, not contextual sense labels.",
+      "acceptedCorpusEvidence": false
+    },
+    {
+      "sourceID": "LibriSpeech",
+      "researchFinding": "Licensed audio and transcripts, not contextual sense labels.",
+      "acceptedCorpusEvidence": false
+    }
+  ]
+}

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
-import WatchKit
 
 /// Hands-free flashcard review view for Apple Watch. Uses Double Tap gesture
 /// (handGestureShortcut) for Reveal/Good actions so the user can review cards
 /// without touching the screen.
 struct WatchReviewView: View {
     @Bindable var viewModel: WatchViewModel
+    let isPrimaryActionEnabled: Bool
 
     @State private var currentIndex = 0
     @State private var isRevealed = false
@@ -28,31 +28,32 @@ struct WatchReviewView: View {
                             .padding(.horizontal)
 
                         if isRevealed {
+                            // Canonical ReviewGrade scale (again=1, good=3, easy=4).
+                            // The old 0/3/5 (SM-2) values persisted an invalid
+                            // lastGrade that ReviewGrade(rawValue:) can't represent.
                             HStack(spacing: 8) {
-                                gradeButton("Again", grade: 0, color: .red)
-                                Button {
-                                    gradeAndAdvance(grade: 3)
-                                } label: {
-                                    Label("Good", systemImage: "hand.thumbsup.fill")
-                                        .font(.caption)
-                                        .frame(maxWidth: .infinity)
+                                gradeButton("Again", grade: ReviewGrade.again.rawValue, color: .red)
+                                WatchReviewPrimaryActionButton(
+                                    title: "Good",
+                                    systemImage: "hand.thumbsup.fill",
+                                    isPrimaryActionEnabled: isPrimaryActionEnabled
+                                ) {
+                                    gradeAndAdvance(grade: ReviewGrade.good.rawValue)
                                 }
-                                .handGestureShortcut(.primaryAction)
-                                gradeButton("Easy", grade: 5, color: .blue)
+                                gradeButton("Easy", grade: ReviewGrade.easy.rawValue, color: .blue)
                             }
                             .padding(.horizontal)
                         } else {
-                            Button {
-                                WKInterfaceDevice.current().play(.click)
+                            WatchReviewPrimaryActionButton(
+                                title: "Reveal",
+                                systemImage: "eye",
+                                isPrimaryActionEnabled: isPrimaryActionEnabled
+                            ) {
+                                viewModel.playReviewRevealHaptic()
                                 withAnimation {
                                     isRevealed = true
                                 }
-                            } label: {
-                                Label("Reveal", systemImage: "eye")
-                                    .font(.caption)
-                                    .frame(maxWidth: .infinity)
                             }
-                            .handGestureShortcut(.primaryAction)
                             .padding(.horizontal)
                         }
                     }
@@ -72,7 +73,6 @@ struct WatchReviewView: View {
     }
 
     private func gradeAndAdvance(grade: Int) {
-        WKInterfaceDevice.current().play(.notification)
         guard currentIndex < viewModel.dueCards.count else { return }
         let cardID = viewModel.dueCards[currentIndex].id
         viewModel.gradeFlashcard(cardID: cardID, grade: grade)
@@ -94,5 +94,21 @@ struct WatchReviewView: View {
                 .frame(maxWidth: .infinity)
         }
         .tint(color)
+    }
+}
+
+private struct WatchReviewPrimaryActionButton: View {
+    let title: LocalizedStringKey
+    let systemImage: String
+    let isPrimaryActionEnabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.caption)
+                .frame(maxWidth: .infinity)
+        }
+        .handGestureShortcut(.primaryAction, isEnabled: isPrimaryActionEnabled)
     }
 }

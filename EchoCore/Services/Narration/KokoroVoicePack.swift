@@ -21,7 +21,7 @@ import Foundation
 /// verbatim to `EchoCore/Resources/af_heart.f32`. The row count lives in a
 /// sidecar `af_heart.rows` text file so the loader is self-describing.
 /// sha256(af_heart.f32) = d583ccff3cdca2f7fae535cb998ac07e9fcb90f09737b9a41fa2734ec44a8f0b
-struct KokoroVoicePack {
+nonisolated struct KokoroVoicePack {
     static let embeddingDim = 256
 
     private let values: [Float]
@@ -30,14 +30,15 @@ struct KokoroVoicePack {
     /// Loads `<name>.f32` (+ `<name>.rows`) from the app bundle.
     init(named name: String) throws {
         guard
-            let f32URL = Bundle.main.url(forResource: name, withExtension: "f32"),
-            let rowsURL = Bundle.main.url(forResource: name, withExtension: "rows")
+            let f32URL = NarrationResources.url(forResource: name, withExtension: "f32"),
+            let rowsURL = NarrationResources.url(forResource: name, withExtension: "rows")
         else {
             throw NarrationError.modelDownloadFailed(name: name, underlying: nil)
         }
         let data = try Data(contentsOf: f32URL)
         let rowCountText = try String(contentsOf: rowsURL, encoding: .utf8)
-        guard let rowCount = Int(rowCountText.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+        guard let rowCount = Int(rowCountText.trimmingCharacters(in: .whitespacesAndNewlines))
+        else {
             throw NarrationError.modelDownloadFailed(name: "\(name).rows", underlying: nil)
         }
         // Reinterpret raw little-endian Float32 bytes as [Float]. iOS/macOS are

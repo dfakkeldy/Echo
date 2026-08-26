@@ -12,7 +12,8 @@ Scripts/capture_screenshots.sh          # assisted: you navigate, it captures
 ```
 
 The five shots we want (from MARKETING.md, captioned by *benefit*, not feature):
-① Player ② synced Reader ③ study / flashcards ④ Watch remote ⑤ "all on-device" privacy.
+① Turn Listening Into Learning ② Read Along Word By Word ③ Make Audio
+Flashcards ④ Review On Your Wrist ⑤ Your Books Stay Yours.
 
 ---
 
@@ -37,23 +38,44 @@ status bar (9:41, full bars, 100% battery). No App Store Connect key needed.
   `snapshot()`).
 - `EchoUITests/EchoScreenshots.swift` — the test that launches the app and walks
   Player → Timeline → Reader → Stats → Settings, calling `snapshot(...)` at each.
+  Treat those raw captures as source material: the final App Store images should
+  be framed and captioned with the benefit-led lines above, not uploaded as plain
+  UI captures.
 
 ### ⚠️ Content seeding (read this — it's why shots may come out empty)
 
 The screens are content-gated: the Reader needs an EPUB, the player needs an
 audiobook, etc. In **DEBUG simulator** builds the app auto-seeds a sample on
-launch (`EchoCoreApp.init` → `MockMediaProvider.seedSampleAudiobookIfNeeded`,
-then `PlayerModel.restoreLastSelectionIfPossible`), **but only if `BIFF.m4b` is
-bundled into the Echo app target.** `*.m4b` is git-ignored, so:
+launch (`EchoCoreApp.init` → `MockMediaProvider.seedSampleMediaIfNeeded`,
+then `PlayerModel.restoreLastSelectionIfPossible`). The automated
+`EchoScreenshots` run passes `--echo-screenshot-fixture-gatsby` and
+`--echo-screenshot-appearance-dark`, so App Store captures always open the
+bundled Standard Ebooks copy of *The Great Gatsby* with Echo's internal
+appearance preference set to Dark, even if a local audio sample is present.
 
-1. Add a short sample `BIFF.m4b` to the Echo app target's "Copy Bundle
-   Resources" (a bundled EPUB sample already lives in
-   `EchoCore/Development Assets/`).
-2. Then `fastlane screenshots` will have real content on screen.
+For ad-hoc/manual audio-backed captures, you can still bundle a local,
+rights-cleared `EchoScreenshotSample.m4b`. `*.m4b` is git-ignored, so the
+optional audio path is:
 
-Without it, the run still succeeds but content-gated screens show their empty
-states — fine for a privacy/settings shot, not for the player. The UI test is
-defensive: a missing screen is skipped, never a hard failure.
+1. Add a short public-domain or otherwise rights-cleared sample named
+   `EchoScreenshotSample.m4b` to the Echo app target's "Copy Bundle Resources"
+   (bundled EPUB samples already live in `EchoCore/Development Assets/`).
+2. Launch the app manually or remove the Gatsby fixture argument if you
+   intentionally want audio-backed player content instead of the canonical
+   Gatsby EPUB run.
+
+The UI test fails if any expected automated category is missing, so a screenshot
+run cannot silently pass with a partial set.
+
+Recommended local fixture path:
+
+```
+fastlane/fixtures/EchoScreenshotSample.m4b
+```
+
+Keep fixture media out of git unless it is sanitized and licensed for
+redistribution; add it to the Echo target's Copy Bundle Resources locally before
+running `fastlane screenshots`.
 
 The test navigates by accessibility **labels** (the app ships no accessibility
 identifiers). If you restyle the bottom dock / top header, keep the labels
@@ -64,8 +86,8 @@ identifiers). If you restyle the bottom dock / top header, keep the labels
 ## Route B — `Scripts/capture_screenshots.sh` (assisted, no app changes)
 
 ```sh
-Scripts/capture_screenshots.sh                      # iPhone 16 Pro Max, en-US
-Scripts/capture_screenshots.sh "iPad Pro 13-inch (M4)"
+Scripts/capture_screenshots.sh                      # iPhone 17 Pro Max, en-US
+Scripts/capture_screenshots.sh "iPad Pro 13-inch (M5)"
 ```
 
 Boots the simulator with the same clean marketing status bar, then captures
@@ -77,6 +99,18 @@ first (Cmd-R in Xcode). Captures are named and sized correctly automatically.
 For **watchOS** and **Mac**, capture by hand for now (watch snapshot automation
 is a separate setup): Simulator → File ▸ Save Screen (⌘S), or `xcrun simctl io
 booted screenshot`, into this folder using the naming convention below.
+
+Manual release checklist:
+
+- iPhone set includes the first three search-result shots: Player/listening,
+  synced EPUB reader, and flashcard/study.
+- iPad set includes the same first three search-result shots, adapted to the
+  larger layout.
+- Watch remote shot is captured manually and named with `_Watch`.
+- Mac app shot is captured manually and named with `_Mac`.
+- Privacy is shown as a visual local-first/on-device frame where possible;
+  Settings is supporting evidence, not the preferred final conversion image.
+- Any intentionally omitted category is noted in the release notes before upload.
 
 ---
 
@@ -104,9 +138,9 @@ you want native (non-scaled) art.
 
 | Device | Resolution | Required |
 |---|---|---|
-| iPhone 16 Pro Max (6.9") | 1320 × 2868 | ✅ |
+| iPhone 17 Pro Max (6.9") | 1320 × 2868 | ✅ |
 | iPad Pro 13" | 2064 × 2752 | ✅ |
-| iPhone 16 Pro (6.3") | 1206 × 2622 | optional |
+| iPhone 17 Pro (6.3") | 1206 × 2622 | optional |
 | Mac | 2880 × 1800 | for the Mac app |
 | Apple Watch Ultra | 410 × 502 | for the Watch app |
 
@@ -117,7 +151,12 @@ bundle exec fastlane upload_screenshots   # screenshots + metadata, no binary
 ```
 
 (Requires `fastlane/api_key.json`.) Add device frames first with
-`bundle exec fastlane frame_screenshots` (needs `brew install imagemagick`).
+`bundle exec fastlane frame_app_store_screenshots` (needs `brew install imagemagick`).
+
+The weekly release train also runs
+`bundle exec fastlane upload_screenshots_if_available` after a successful
+TestFlight upload. It uploads reviewed PNG/JPG assets when they exist and skips
+without failing while this folder contains only docs.
 
 ## Notes
 

@@ -1,13 +1,42 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
+/// Identity for one narration run. Unlike cooperative task cancellation, this
+/// remains checkable from unstructured callbacks created by a cancelled task.
+nonisolated struct NarrationOperationToken: Equatable, Sendable {
+    private let value = UUID()
+}
+
 /// Pure policy decisions for the narration render loop — no SwiftUI,
 /// AVFoundation, or database dependencies. Unit-testable in isolation.
 ///
 /// Extracted from the inline logic in `PlayerModel+Narration.swift` so the
 /// look-ahead backpressure, pause-awareness, at-gap deadlock prevention,
 /// and book-switch guard are testable without constructing a full `PlayerModel`.
-enum NarrationRenderPolicy {
+nonisolated enum NarrationRenderPolicy {
+    static let lookAhead = 2
+
+    /// Throws when a cooperative render task was cancelled or its captured book
+    /// is no longer active. Call immediately after suspension before side effects.
+    static func checkTaskIsActive(
+        currentFolderURL: String?,
+        audiobookID: String
+    ) throws {
+        try Task.checkCancellation()
+        guard !bookWasSwitched(currentFolderURL: currentFolderURL, audiobookID: audiobookID) else {
+            throw CancellationError()
+        }
+    }
+
+    static func callbackIsCurrent(
+        operation: NarrationOperationToken,
+        currentOperation: NarrationOperationToken,
+        currentFolderURL: String?,
+        audiobookID: String
+    ) -> Bool {
+        operation == currentOperation
+            && !bookWasSwitched(currentFolderURL: currentFolderURL, audiobookID: audiobookID)
+    }
 
     /// Whether the render loop should wait before synthesising the next chapter.
     ///

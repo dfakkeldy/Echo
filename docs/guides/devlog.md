@@ -6,6 +6,27 @@ It's all open source. You can audit every claim below: [github.com/dfakkeldy/Ech
 
 ---
 
+<!-- AUTO-DEVLOG:START -->
+## Automated update - Aug 17-23, 2026
+
+*Generated from 8 commits merged during the week.*
+
+### Shipped
+- Distribute weekly mac builds externally ([c8024c7](https://github.com/dfakkeldy/Echo/commit/c8024c7))
+
+### Fixed
+- Retag sentence-initial imperative heteronyms as verbs (#588) ([516a9f3](https://github.com/dfakkeldy/Echo/commit/516a9f3))
+- Keep complication playback current (#587) ([a8d6d84](https://github.com/dfakkeldy/Echo/commit/a8d6d84))
+- Stop audio engine when playback pauses (#586) ([69b0b37](https://github.com/dfakkeldy/Echo/commit/69b0b37))
+- Reclaim compact top chrome (#585) ([7959ef9](https://github.com/dfakkeldy/Echo/commit/7959ef9))
+- Add document type handler ranks (#584) ([22e7497](https://github.com/dfakkeldy/Echo/commit/22e7497))
+
+### Build, docs, and housekeeping
+- Run doc contracts without Xcode and skip the build gate for docs-only PRs (#583) ([9106a2c](https://github.com/dfakkeldy/Echo/commit/9106a2c))
+- Weekly automated update (#582) ([a21b1f4](https://github.com/dfakkeldy/Echo/commit/a21b1f4))
+
+<!-- AUTO-DEVLOG:END -->
+
 ## Now — June 2026 · *The road to 1.0* (in progress)
 
 Most of the 1.0 program has now landed, build by build: the **listening capture layer** and the **Insights screen** (real listening time, streaks, chapter coverage, retention curves), opt-in **Context Memory** (place-tagged bookmarks and sessions), the full **Anki workflow** (decks, a card editor, the mark-later Card Inbox, Markdown and JSON export), and — the headline of the last two weeks — **on-device AI narration** that reads a text-only EPUB aloud in a neural voice, entirely offline. Echo also went **GPL-3.0**. What's left for 1.0: **Brain Dump notes** with watch dictation, deeper **Markdown second-brain export**, **Audiobookshelf sync**, and **iCloud study sync** — planned the same way everything else here was built: in public.
@@ -50,7 +71,7 @@ The busiest week of the project's opening stretch, and it reads like a different
 - **The Anki system.** SM-2 daily review, inline flashcard recall during playback, audio snippet cards, JSON deck import, and hands-free **flashcard review on the watch**.
 - **The EPUB alignment pipeline** — a Swift CLI that unpacks an EPUB, parses the spine, and fuzzy-aligns transcribed audio to text with Levenshtein matching. The hardest problem in the app, started properly, with tests.
 - **V1 EPUB timeline core** — `epub_block` and `alignment_anchor` tables, an import service, manual anchors with interpolation: the seed of the Read tab.
-- Plus: tab navigation, multi-file **M4B support**, **CarPlay**, a portable playlist manifest, a Twitter-style unified timeline feed — and this very **GitHub Pages site** with the privacy policy.
+- Plus: tab navigation, multi-file **M4B support**, a CarPlay prototype now deferred for entitlement approval, a portable playlist manifest, a Twitter-style unified timeline feed — and this very **GitHub Pages site** with the privacy policy.
 
 ---
 
@@ -92,7 +113,7 @@ Around the headline, a lot else shipped. The **macOS app** got a BookPlayer-styl
 
 ## The shape of the thing
 
-Nine working weeks. Four platforms (iOS, watchOS, macOS, widgets — plus CarPlay). A SQL database, an on-device ML alignment pipeline, an on-device neural text-to-speech narrator, a spaced-repetition system, and an EPUB/PDF reader — built nights-and-weekends around a mail route, by someone whose previous programming experience was "some Python scripts for GIS and a Visual Basic call logger in high school."
+Nine working weeks. Four platforms (iOS, watchOS, macOS, widgets). A SQL database, an on-device ML alignment pipeline, an on-device neural text-to-speech narrator, a spaced-repetition system, and an EPUB/PDF reader — built nights-and-weekends around a mail route, by someone whose previous programming experience was "some Python scripts for GIS and a Visual Basic call logger in high school."
 
 The point of publishing this log isn't bragging rights. It's the same as open-sourcing the code: you should be able to see exactly what you're trusting with your books and your attention — and maybe, if you've been wondering whether you could build *your* app, this page is the nudge.
 

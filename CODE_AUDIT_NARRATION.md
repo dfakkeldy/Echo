@@ -1,6 +1,8 @@
-# Narration Feature — Code Audit (current state)
+# Narration Feature - Archived Code Audit
 
 **Re-audited:** 2026-06-15 · **Branch:** `claude/audit-phase7-api` · **Method:** read-only. Background upstream research (FluidAudio releases/issues + HuggingFace model variants) + git archaeology of the engine config + symbolicated crash logs (`/tmp/echo-crash2/*.ips`, via `xcsym`) + 3 focused code-reading passes over the current root tree. Every High/Critical was personally re-verified against the cited lines.
+
+> Archive notice (2026-07-02): this is a CoreML/FluidAudio-era audit retained for historical references only. It references deleted engine files and local crash logs that are intentionally not tracked. For the current ONNX narration audit, read `NARRATION_AUDIT.md`; for completed/pending remediation status, read `docs/superpowers/reports/2026-07-02-narration-audit-remediation-map.md`.
 
 **Scope:** `EchoCore/Services/Narration/*`, `EchoCore/ViewModels/PlayerModel+Narration.swift`, `EchoCore/Views/Narration/*` + the narration entry points in `NowPlayingTab` / `TransportControlsView` / `PlaybackController`, `AlignmentService.recalculateTimeline` (read-along), `CloudKitSyncService.uploadAnchors` (sync leak), and the narration test suites. **Excluded:** `.claude/worktrees/*` (scratch copies from concurrent automation) and `build/` (dependency checkouts).
 

@@ -37,7 +37,12 @@ func voiceMemoGain(for url: URL) -> Float {
     return min(targetPeak / peak, maxGain)
 }
 
-struct Bookmark: Identifiable, Codable, Equatable, Hashable {
+// `nonisolated`: a pure value model (no main-actor state — just value fields and
+// file-path/string helpers). Under the iOS target's Swift 6 MainActor default
+// isolation its init would otherwise be inferred `@MainActor`, which the GRDB
+// record decode path (`BookmarkRecord.toModel()`, run on a nonisolated DB read)
+// cannot call. Relaxing isolation is safe on every target.
+nonisolated struct Bookmark: Identifiable, Codable, Equatable, Hashable {
     var id: UUID
     var title: String
     var folderKey: String?
@@ -91,6 +96,12 @@ struct Bookmark: Identifiable, Codable, Equatable, Hashable {
         bookmarkImageFileName = try? c.decode(String.self, forKey: .bookmarkImageFileName)
         pdfViewState = try? c.decode(PDFViewState.self, forKey: .pdfViewState)
         isEnabled = (try? c.decode(Bool.self, forKey: .isEnabled)) ?? true
+        // The synthesized encoder writes these (they are in CodingKeys); the
+        // hand-written decoder must read them too or located bookmarks lose
+        // their coordinates on every JSON sidecar round-trip.
+        latitude = try? c.decode(Double.self, forKey: .latitude)
+        longitude = try? c.decode(Double.self, forKey: .longitude)
+        placeName = try? c.decode(String.self, forKey: .placeName)
     }
 
     func voiceMemoURL(in folderURL: URL?) -> URL? {
@@ -154,10 +165,10 @@ struct Bookmark: Identifiable, Codable, Equatable, Hashable {
     static func markdownExport(for bookmarks: [Bookmark]) -> String {
         var output = "# Audiobook Bookmarks\n\n"
         for bookmark in bookmarks {
-            let timestamp = Int(bookmark.timestamp)
-            let mins = (timestamp % 3600) / 60
-            let secs = timestamp % 60
-            let timeString = String(format: "%02d:%02d", mins, secs)
+            // Use the canonical H:MM:SS formatter; the previous hand-rolled
+            // `(ts % 3600)/60` dropped the hours component, collapsing distinct
+            // timestamps an hour apart onto the same header.
+            let timeString = formatHMS(bookmark.timestamp)
             output += "## \(timeString)\n"
             if let note = bookmark.note { output += "\(note)\n\n" }
             if let memo = bookmark.voiceMemoFileName { output += "- [Voice Memo](\(memo))\n" }

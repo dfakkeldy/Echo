@@ -57,7 +57,7 @@ struct WordTimingDAOTests {
         #expect(try dao.words(forAudiobook: "other").count == 1)
     }
 
-    /// Regression for the V19 cascade FK: AudiobookDAO.delete relies SOLELY on the
+    /// Regression for the cascade FK: AudiobookDAO.delete relies SOLELY on the
     /// database cascade to purge per-book rows, so deleting the audiobook must take
     /// its word_timing rows with it (and leave other books untouched).
     @Test func deletingAudiobookCascadesWordTimings() throws {
