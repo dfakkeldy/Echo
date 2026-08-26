@@ -7,45 +7,23 @@ It's all open source. You can audit every claim below: [github.com/dfakkeldy/Ech
 ---
 
 <!-- AUTO-DEVLOG:START -->
-## Automated update - Aug 10-16, 2026
+## Automated update - Aug 17-23, 2026
 
-*Generated from 47 commits merged during the week.*
+*Generated from 8 commits merged during the week.*
 
 ### Shipped
-- Derive the app accent and player wash from the book cover (#575) ([4b64dbe](https://github.com/dfakkeldy/Echo/commit/4b64dbe))
-- Real progress, an alignment verdict, and a hideable notes pane (#573) ([eb1ed64](https://github.com/dfakkeldy/Echo/commit/eb1ed64))
-- Narrate PDFs from the batch queue (#565) ([8bf7678](https://github.com/dfakkeldy/Echo/commit/8bf7678))
-- Make Echo Pro a one-time unlock — remove the subscription path (#551) ([b0f8a50](https://github.com/dfakkeldy/Echo/commit/b0f8a50))
-- Improve browsing and import reliability (#545) ([137946c](https://github.com/dfakkeldy/Echo/commit/137946c))
-- Weekly external launch prep — What to Test rewrite + public link (#549) ([e97bcca](https://github.com/dfakkeldy/Echo/commit/e97bcca))
-- Add Vivid Cover Accent setting with core-first promotion (#544) ([0864cc0](https://github.com/dfakkeldy/Echo/commit/0864cc0))
-- Expose end-to-end status visibility (#540) ([bfde4a4](https://github.com/dfakkeldy/Echo/commit/bfde4a4))
-- ...and 4 more shipped items.
+- Distribute weekly mac builds externally ([c8024c7](https://github.com/dfakkeldy/Echo/commit/c8024c7))
 
 ### Fixed
-- Recover read-along when the book text stops matching the sidecar (#581) ([dc5294e](https://github.com/dfakkeldy/Echo/commit/dc5294e))
-- Fail the cert bootstrap early on a mismatched Ruby (#576) ([667de79](https://github.com/dfakkeldy/Echo/commit/667de79))
-- Sign the macOS .pkg and actually ship it to TestFlight (#574) ([f3fa205](https://github.com/dfakkeldy/Echo/commit/f3fa205))
-- Follow the route when an output device connects mid-book (#572) ([8c3273e](https://github.com/dfakkeldy/Echo/commit/8c3273e))
-- Keep contextual evidence for title-case live before an adjective follower (#571) ([0eeb02f](https://github.com/dfakkeldy/Echo/commit/0eeb02f))
-- Reset the Listen tab to its root when a Library tap opens a book (#570) ([f62218a](https://github.com/dfakkeldy/Echo/commit/f62218a))
-- Show unassigned flashcards in Decks and count today's reviews (#569) ([83b25e7](https://github.com/dfakkeldy/Echo/commit/83b25e7))
-- Translate between manifest file names and track identities (#568) ([c9e8d41](https://github.com/dfakkeldy/Echo/commit/c9e8d41))
-- ...and 17 more fixed items.
-
-### Improved
-- Decode each library cover once, through a shared cache (#580) ([4b0d916](https://github.com/dfakkeldy/Echo/commit/4b0d916))
+- Retag sentence-initial imperative heteronyms as verbs (#588) ([516a9f3](https://github.com/dfakkeldy/Echo/commit/516a9f3))
+- Keep complication playback current (#587) ([a8d6d84](https://github.com/dfakkeldy/Echo/commit/a8d6d84))
+- Stop audio engine when playback pauses (#586) ([69b0b37](https://github.com/dfakkeldy/Echo/commit/69b0b37))
+- Reclaim compact top chrome (#585) ([7959ef9](https://github.com/dfakkeldy/Echo/commit/7959ef9))
+- Add document type handler ranks (#584) ([22e7497](https://github.com/dfakkeldy/Echo/commit/22e7497))
 
 ### Build, docs, and housekeeping
-- Regenerate the source tree from `make architecture` (#579) ([33e41ff](https://github.com/dfakkeldy/Echo/commit/33e41ff))
-- Give each ABS stub test its own URLProtocolStub scope (#578) ([27b0f89](https://github.com/dfakkeldy/Echo/commit/27b0f89))
-- Bound the ABS browse waits in time, not in yields (#577) ([80f0466](https://github.com/dfakkeldy/Echo/commit/80f0466))
-- Land the nightly renderer auto-tracker design, refreshed (#564) ([30e2fc3](https://github.com/dfakkeldy/Echo/commit/30e2fc3))
-- Remove 13 stale handoff files from the repository root (#562) ([700eb1e](https://github.com/dfakkeldy/Echo/commit/700eb1e))
-- Describe the real capture flow (bookmark-button menu) (#556) ([e0b5001](https://github.com/dfakkeldy/Echo/commit/e0b5001))
-- Refresh test plans for post-June features (#555) ([983b00b](https://github.com/dfakkeldy/Echo/commit/983b00b))
-- Make EchoTests failures diagnosable again (#554) ([73681fa](https://github.com/dfakkeldy/Echo/commit/73681fa))
-- ...and 1 more housekeeping item.
+- Run doc contracts without Xcode and skip the build gate for docs-only PRs (#583) ([9106a2c](https://github.com/dfakkeldy/Echo/commit/9106a2c))
+- Weekly automated update (#582) ([a21b1f4](https://github.com/dfakkeldy/Echo/commit/a21b1f4))
 
 <!-- AUTO-DEVLOG:END -->
 
