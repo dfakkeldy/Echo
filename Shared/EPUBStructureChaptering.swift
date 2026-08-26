@@ -13,7 +13,7 @@ import Foundation
 /// `chapterIndex` stays `nil`.
 ///
 /// Pure / Foundation-only so iOS, macOS, and the CLI import paths can all share it.
-enum EPUBStructureChaptering {
+nonisolated enum EPUBStructureChaptering {
     /// 0-based chapter index per `blockID`. Absent keys mean "no chapter" (front
     /// matter → `chapterIndex` stays `nil`).
     static func chapterIndices(

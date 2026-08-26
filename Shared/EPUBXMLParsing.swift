@@ -253,7 +253,7 @@ nonisolated final class OPFParserDelegate: NSObject, XMLParserDelegate {
 /// metadata text (`Eating & Diet`). That is malformed XML, but the spine and
 /// manifest are still usable, so repair bare ampersands before parsing package
 /// metadata.
-private func opfDataEscapingBareAmpersands(_ data: Data) -> Data {
+private nonisolated func opfDataEscapingBareAmpersands(_ data: Data) -> Data {
     guard let string = String(data: data, encoding: .utf8), string.contains("&") else {
         return data
     }
@@ -281,7 +281,7 @@ private func opfDataEscapingBareAmpersands(_ data: Data) -> Data {
     return Data(repaired.utf8)
 }
 
-private func isXMLReference(in string: String, startingAt start: String.Index) -> Bool {
+private nonisolated func isXMLReference(in string: String, startingAt start: String.Index) -> Bool {
     guard start < string.endIndex else { return false }
 
     if string[start] == "#" {
@@ -304,7 +304,7 @@ private func isXMLReference(in string: String, startingAt start: String.Index) -
     return false
 }
 
-private func isXMLCharacterReference(in string: String, startingAt start: String.Index) -> Bool {
+private nonisolated func isXMLCharacterReference(in string: String, startingAt start: String.Index) -> Bool {
     guard start < string.endIndex else { return false }
 
     var index = start
@@ -324,19 +324,19 @@ private func isXMLCharacterReference(in string: String, startingAt start: String
     return index > digitStart && index < string.endIndex && string[index] == ";"
 }
 
-private func isXMLNameStart(_ scalar: Unicode.Scalar) -> Bool {
+private nonisolated func isXMLNameStart(_ scalar: Unicode.Scalar) -> Bool {
     scalar == ":" || scalar == "_"
         || ("A"..."Z").contains(Character(scalar))
         || ("a"..."z").contains(Character(scalar))
 }
 
-private func isXMLNameCharacter(_ scalar: Unicode.Scalar) -> Bool {
+private nonisolated func isXMLNameCharacter(_ scalar: Unicode.Scalar) -> Bool {
     isXMLNameStart(scalar)
         || ("0"..."9").contains(Character(scalar))
         || scalar == "-" || scalar == "."
 }
 
-private func isHexDigit(_ character: Character) -> Bool {
+private nonisolated func isHexDigit(_ character: Character) -> Bool {
     ("0"..."9").contains(character)
         || ("A"..."F").contains(character)
         || ("a"..."f").contains(character)

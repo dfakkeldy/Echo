@@ -42,7 +42,7 @@ nonisolated enum ReaderCardItem {
     }
 }
 
-extension ReaderCardItem: Hashable {
+nonisolated extension ReaderCardItem: Hashable {
     nonisolated static func == (lhs: ReaderCardItem, rhs: ReaderCardItem) -> Bool {
         switch (lhs, rhs) {
         case (.chapterHeader(let a1, let a2), .chapterHeader(let b1, let b2)):
@@ -89,4 +89,4 @@ extension ReaderCardItem: Hashable {
     }
 }
 
-extension ReaderCardItem: Sendable {}
+nonisolated extension ReaderCardItem: Sendable {}

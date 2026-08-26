@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
-extension String {
+nonisolated extension String {
     func levenshteinDistance(to target: String) -> Int {
         let source = Array(self)
         let targetChars = Array(target)

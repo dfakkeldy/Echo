@@ -3,6 +3,13 @@ import Foundation
 import ZIPFoundation
 import os.log
 
+/// `UserDefaults` is documented thread-safe ("the UserDefaults class is
+/// thread-safe"), but Foundation has not annotated it `Sendable`. The
+/// stale-source `recoveryStore` crosses into the `@concurrent` import body,
+/// so state that documented guarantee here rather than weakening the hop or
+/// changing the recovery API's signature.
+extension UserDefaults: @unchecked @retroactive Sendable {}
+
 /// The revision pair one stale-source recovery attempt was made against.
 ///
 /// Recovery re-extracts and re-parses the whole document, so it must not run on
