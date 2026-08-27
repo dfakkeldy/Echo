@@ -59,6 +59,7 @@ final class DatabaseService {
         writer = try DatabasePool(path: path, configuration: config)
 
         try runMigrations(writer: writer)
+        ContainerPathRepair.runIfNeeded(writer: writer)
         logger.info("Database opened at \(path)")
     }
 
@@ -79,6 +80,7 @@ final class DatabaseService {
         self.writer = try DatabasePool(path: path, configuration: config)
         self.dbPath = path
         try runMigrations(writer: writer)
+        ContainerPathRepair.runIfNeeded(writer: writer)
         logger.info("Database opened at \(path)")
     }
 
