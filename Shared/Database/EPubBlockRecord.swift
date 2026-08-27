@@ -5,8 +5,8 @@ import os.log
 
 /// A parsed EPUB block — heading, paragraph, sentence, image, or code — extracted
 /// from XHTML spine items and stored in structural reading order.
-struct EPubBlockRecord: Identifiable, Equatable, Hashable, Sendable, Codable, FetchableRecord,
-    MutablePersistableRecord
+nonisolated struct EPubBlockRecord: Identifiable, Equatable, Hashable, Sendable, Codable,
+    FetchableRecord, MutablePersistableRecord
 {
     var id: String
     var audiobookID: String

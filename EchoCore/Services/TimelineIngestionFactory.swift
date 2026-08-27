@@ -23,7 +23,7 @@ enum IngestionError: Error, LocalizedError {
 
 // MARK: - Ingestion Strategy
 
-protocol TimelineIngestionStrategy {
+nonisolated protocol TimelineIngestionStrategy {
     func ingest(
         audiobookID: String,
         audioURL: URL,
@@ -39,7 +39,7 @@ protocol TimelineIngestionStrategy {
 
 // MARK: - Factory
 
-struct TimelineIngestionFactory {
+nonisolated struct TimelineIngestionFactory {
     let strategy: TimelineIngestionStrategy
 
     static func strategy(
@@ -59,7 +59,7 @@ struct TimelineIngestionFactory {
 
 // MARK: - EPUB Block Strategy (V1 Primary Path)
 
-struct EPUBBlockIngestionStrategy: TimelineIngestionStrategy {
+nonisolated struct EPUBBlockIngestionStrategy: TimelineIngestionStrategy {
     func ingest(
         audiobookID: String,
         audioURL: URL,
@@ -158,7 +158,7 @@ struct EPUBBlockIngestionStrategy: TimelineIngestionStrategy {
 
 // MARK: - Rich Strategy (Transcript)
 
-struct RichIngestionStrategy: TimelineIngestionStrategy {
+nonisolated struct RichIngestionStrategy: TimelineIngestionStrategy {
     func ingest(
         audiobookID: String,
         audioURL: URL,
@@ -320,7 +320,7 @@ struct RichIngestionStrategy: TimelineIngestionStrategy {
 
 // MARK: - Sparse Strategy (Audio-Only)
 
-struct SparseIngestionStrategy: TimelineIngestionStrategy {
+nonisolated struct SparseIngestionStrategy: TimelineIngestionStrategy {
     func ingest(
         audiobookID: String,
         audioURL: URL,

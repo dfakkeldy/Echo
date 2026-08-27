@@ -19,7 +19,7 @@ import Foundation
 /// returns `nil` when it cannot, leaving the caller's estimate in place.
 ///
 /// Pure / Foundation-only so iOS, macOS, and the CLI import paths can share it.
-enum AudioChapterTOCAlignment {
+nonisolated enum AudioChapterTOCAlignment {
     /// One audio chapter mark, as much of it as alignment needs.
     struct AudioChapter: Equatable, Sendable {
         /// The index stored in `epub_block.chapter_index` for this chapter.

@@ -3,7 +3,7 @@ import Foundation
 
 // MARK: - Whitespace Normalization
 
-extension StringProtocol {
+nonisolated extension StringProtocol {
     /// Collapses every run of whitespace (spaces, newlines, tabs, NBSP) into a
     /// single space and trims the ends. Publisher XHTML is pretty-printed, so
     /// without this extracted titles and text keep source-file line breaks.
@@ -15,7 +15,7 @@ extension StringProtocol {
 // MARK: - Models
 
 /// Describes a spine item from the OPF manifest (reading-order metadata).
-struct SpineItemDescriptor: Sendable {
+nonisolated struct SpineItemDescriptor: Sendable {
     let id: String
     let href: String
     let mediaType: String
@@ -36,7 +36,7 @@ struct SpineItemDescriptor: Sendable {
 ///
 /// `type` values follow the specs: "cover", "toc", "copyright-page",
 /// "text" (guide, EPUB 2) or "cover", "toc", "bodymatter" (landmarks, EPUB 3).
-struct GuideReference: Sendable {
+nonisolated struct GuideReference: Sendable {
     let type: String
     let href: String
 }
@@ -44,7 +44,7 @@ struct GuideReference: Sendable {
 /// A node in the publisher-declared TOC tree (NCX `navPoint` nesting or
 /// EPUB 3 nav `ol` nesting). `href` is the spine-relative file (decoded, no
 /// fragment); `fragment` is the anchor id within that file, when present.
-struct TOCEntryNode: Sendable, Equatable {
+nonisolated struct TOCEntryNode: Sendable, Equatable {
     var title: String
     var href: String
     var fragment: String?
@@ -59,7 +59,7 @@ struct TOCEntryNode: Sendable, Equatable {
 }
 
 /// Result of parsing an OPF package document.
-struct OPFParseResult: Sendable {
+nonisolated struct OPFParseResult: Sendable {
     let spine: [SpineItemDescriptor]
     let tocHref: String?
     let guideReferences: [GuideReference]
@@ -68,7 +68,7 @@ struct OPFParseResult: Sendable {
 }
 
 /// A parsed block from XHTML content — a paragraph, heading, image, or code.
-struct TextBlockDescriptor: Sendable {
+nonisolated struct TextBlockDescriptor: Sendable {
     let kind: EPubBlockRecord.Kind
     var text: String?
     let imagePath: String?
@@ -121,7 +121,7 @@ struct TextBlockDescriptor: Sendable {
 // MARK: - Container XML Parser
 
 /// Parses `META-INF/container.xml` to locate the OPF package document path.
-final class ContainerXMLParser: NSObject, XMLParserDelegate {
+nonisolated final class ContainerXMLParser: NSObject, XMLParserDelegate {
     var rootfilePath: String?
 
     func parse(_ data: Data) {
@@ -151,7 +151,7 @@ final class ContainerXMLParser: NSObject, XMLParserDelegate {
 ///
 /// Reads `<manifest>` items and cross-references them with `<spine>` itemref
 /// elements to produce `SpineItemDescriptor` values in reading order.
-final class OPFParserDelegate: NSObject, XMLParserDelegate {
+nonisolated final class OPFParserDelegate: NSObject, XMLParserDelegate {
     var spineItems: [SpineItemDescriptor] = []
     /// Preferred TOC source: the EPUB 3 nav document when present (labels are
     /// usually cleaner), otherwise the legacy NCX.
@@ -253,7 +253,7 @@ final class OPFParserDelegate: NSObject, XMLParserDelegate {
 /// metadata text (`Eating & Diet`). That is malformed XML, but the spine and
 /// manifest are still usable, so repair bare ampersands before parsing package
 /// metadata.
-private func opfDataEscapingBareAmpersands(_ data: Data) -> Data {
+private nonisolated func opfDataEscapingBareAmpersands(_ data: Data) -> Data {
     guard let string = String(data: data, encoding: .utf8), string.contains("&") else {
         return data
     }
@@ -281,7 +281,7 @@ private func opfDataEscapingBareAmpersands(_ data: Data) -> Data {
     return Data(repaired.utf8)
 }
 
-private func isXMLReference(in string: String, startingAt start: String.Index) -> Bool {
+private nonisolated func isXMLReference(in string: String, startingAt start: String.Index) -> Bool {
     guard start < string.endIndex else { return false }
 
     if string[start] == "#" {
@@ -304,7 +304,7 @@ private func isXMLReference(in string: String, startingAt start: String.Index) -
     return false
 }
 
-private func isXMLCharacterReference(in string: String, startingAt start: String.Index) -> Bool {
+private nonisolated func isXMLCharacterReference(in string: String, startingAt start: String.Index) -> Bool {
     guard start < string.endIndex else { return false }
 
     var index = start
@@ -324,19 +324,19 @@ private func isXMLCharacterReference(in string: String, startingAt start: String
     return index > digitStart && index < string.endIndex && string[index] == ";"
 }
 
-private func isXMLNameStart(_ scalar: Unicode.Scalar) -> Bool {
+private nonisolated func isXMLNameStart(_ scalar: Unicode.Scalar) -> Bool {
     scalar == ":" || scalar == "_"
         || ("A"..."Z").contains(Character(scalar))
         || ("a"..."z").contains(Character(scalar))
 }
 
-private func isXMLNameCharacter(_ scalar: Unicode.Scalar) -> Bool {
+private nonisolated func isXMLNameCharacter(_ scalar: Unicode.Scalar) -> Bool {
     isXMLNameStart(scalar)
         || ("0"..."9").contains(Character(scalar))
         || scalar == "-" || scalar == "."
 }
 
-private func isHexDigit(_ character: Character) -> Bool {
+private nonisolated func isHexDigit(_ character: Character) -> Bool {
     ("0"..."9").contains(character)
         || ("A"..."F").contains(character)
         || ("a"..."f").contains(character)
@@ -345,7 +345,7 @@ private func isHexDigit(_ character: Character) -> Bool {
 // MARK: - TOC Parser
 
 /// Parses `toc.ncx` (EPUB 2) or `nav.xhtml` (EPUB 3) to extract a mapping from `href` to TOC title.
-final class TOCParserDelegate: NSObject, XMLParserDelegate {
+nonisolated final class TOCParserDelegate: NSObject, XMLParserDelegate {
     var tocMap: [String: String] = [:]
     /// Publisher-declared TOC tree (NCX navPoint / EPUB 3 nav ol nesting).
     var tocEntries: [TOCEntryNode] = []
@@ -526,7 +526,7 @@ final class TOCParserDelegate: NSObject, XMLParserDelegate {
 /// - Splits text on paragraph-level tags (`p`, `div`, `h1`–`h6`, `blockquote`, `li`, `section`).
 /// - Captures heading content and inline HTML for rich display.
 /// - Extracts image blocks from `<img src="...">` elements.
-final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
+nonisolated final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
     var textBlocks: [TextBlockDescriptor] = []
     var documentTitle: String?
     private var currentText = ""
@@ -1167,7 +1167,7 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
 // MARK: - Convenience Helpers
 
 /// Parse `META-INF/container.xml` data and return the OPF path, or `nil`.
-func parseContainerXML(from data: Data) -> String? {
+nonisolated func parseContainerXML(from data: Data) -> String? {
     let parser = ContainerXMLParser()
     parser.parse(data)
     return parser.rootfilePath
@@ -1175,7 +1175,7 @@ func parseContainerXML(from data: Data) -> String? {
 
 /// Parse OPF data and return spine items in EPUB reading order, the optional
 /// TOC href, and any `<guide>` references.
-func parseOPF(from data: Data) -> OPFParseResult {
+nonisolated func parseOPF(from data: Data) -> OPFParseResult {
     let parser = OPFParserDelegate()
     parser.parse(data)
     return OPFParseResult(
@@ -1188,7 +1188,7 @@ func parseOPF(from data: Data) -> OPFParseResult {
 }
 
 /// Parse XHTML data into an array of text / image block descriptors and the document title if available.
-func parseXHTML(
+nonisolated func parseXHTML(
     from data: Data,
     captureEchoMetadata: Bool = false
 ) -> (blocks: [TextBlockDescriptor], title: String?) {
@@ -1206,7 +1206,7 @@ func parseXHTML(
 /// - Parameter blocks: Ordered `TextBlockDescriptor` values from one spine item.
 /// - Returns: A tuple of concatenated raw text, offset-adjusted markers,
 ///   and offset-adjusted text formats.
-func concatenateBlocks(
+nonisolated func concatenateBlocks(
     _ blocks: [TextBlockDescriptor]
 ) -> (rawText: String, markers: [SyncMarker], formats: [TextFormat]) {
     var rawText = ""

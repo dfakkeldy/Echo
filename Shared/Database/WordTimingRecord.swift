@@ -6,7 +6,7 @@ import GRDB
 /// Materialized by `WordTimingMaterializer` on every (re)alignment. Rendered-word
 /// granularity (whitespace split of the block's plain text), not normalized DTW
 /// tokens — so the reader can index it directly by word position.
-struct WordTimingRecord: Identifiable, Equatable, Codable, FetchableRecord,
+nonisolated struct WordTimingRecord: Identifiable, Equatable, Codable, FetchableRecord,
     MutablePersistableRecord, Sendable
 {
     var id: Int64?

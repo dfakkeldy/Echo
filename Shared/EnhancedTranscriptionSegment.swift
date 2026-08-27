@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
-public struct EnhancedTranscriptionSegment: Codable, Identifiable {
+public nonisolated struct EnhancedTranscriptionSegment: Codable, Identifiable, Sendable {
     public var id: String { "\(sequenceIndex)" }
 
     /// Monotonic ordering index within the full EPUB spine.
@@ -40,7 +40,7 @@ public struct EnhancedTranscriptionSegment: Codable, Identifiable {
     }
 }
 
-public struct TextFormat: Codable, Equatable, Sendable {
+public nonisolated struct TextFormat: Codable, Equatable, Sendable {
     public let type: FormatType
     public let range: ClosedRange<Int>
 

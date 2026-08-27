@@ -3,6 +3,13 @@ import Foundation
 import ZIPFoundation
 import os.log
 
+/// `UserDefaults` is documented thread-safe ("the UserDefaults class is
+/// thread-safe"), but Foundation has not annotated it `Sendable`. The
+/// stale-source `recoveryStore` crosses into the `@concurrent` import body,
+/// so state that documented guarantee here rather than weakening the hop or
+/// changing the recovery API's signature.
+extension UserDefaults: @unchecked @retroactive Sendable {}
+
 /// The revision pair one stale-source recovery attempt was made against.
 ///
 /// Recovery re-extracts and re-parses the whole document, so it must not run on
@@ -50,7 +57,7 @@ nonisolated struct StaleSourceRecoveryAttempt: Codable, Equatable, Sendable {
     }
 }
 
-enum EPUBAutoImportScanner {
+nonisolated enum EPUBAutoImportScanner {
     private static let logger = Logger(category: "EPUBAutoImport")
 
     enum ImportOutcome {
@@ -180,7 +187,12 @@ enum EPUBAutoImportScanner {
         return outcome.didImportBlocks
     }
 
-    static func importEPUBFileOutcome(
+    /// `@concurrent`: the extraction, XHTML parse, and block import below are
+    /// the multi-second cost of a first open — running them on the main actor
+    /// froze the playback controls on older phones. Finalizer/recovery calls
+    /// inside remain main-actor and hop back as designed.
+    @concurrent
+    nonisolated static func importEPUBFileOutcome(
         epubURL: URL,
         audiobookID: String,
         databaseService: DatabaseService,
@@ -198,18 +210,22 @@ enum EPUBAutoImportScanner {
         // Security-scoped access is managed by SecurityScopeManager in loadFolder.
         // Don't start/stop here — duplicate cycles break file-provider access.
 
+        // `DatabaseService` is main-actor-isolated; grab its Sendable GRDB
+        // writer once so this off-main body never touches the service itself.
+        let writer = await MainActor.run { databaseService.writer }
+
         // Check if EPUB blocks are already imported for this audiobook.
         if !force {
-            // `allBlocks`, not `visibleBlocks`: the question is "has this
+            // `hasBlocks`, not `visibleBlocks`: the question is "has this
             // document ever been imported", and a re-import now carries
             // `is_hidden` across. A user who excluded every chapter from the
             // narration outline has zero VISIBLE blocks, so a `visibleBlocks`
             // guard would answer "not imported" forever and re-run the full
             // destructive rebuild on every single open. (It used to self-heal
             // only because the old `deleteAll` + insert reset `is_hidden`.)
+            // An EXISTS query — decoding every block row here stalled large books.
             let alreadyImported =
-                (try? EPubBlockDAO(db: databaseService.writer).allBlocks(for: audiobookID)
-                    .isEmpty) == false
+                (try? EPubBlockDAO(db: writer).hasBlocks(for: audiobookID)) == true
             if alreadyImported {
                 logger.debug(
                     "EPUB blocks already exist for \(sanitizedPath(audiobookID)); skipping auto-import."
@@ -284,7 +300,7 @@ enum EPUBAutoImportScanner {
 
         // Import extracted EPUB blocks.
         do {
-            let assetStorage = EPUBAssetStorage(databaseService: databaseService)
+            let assetStorage = EPUBAssetStorage(writer: writer)
             let importer = EPUBImportService(assetStorage: assetStorage)
             let blocks = try await importer.import(
                 audiobookID: audiobookID,

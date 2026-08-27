@@ -19,7 +19,7 @@ import GRDB
 /// chapter's heading block. Testing only the heading would report a fully-aligned
 /// chapter as "no audio". So we test whether ANY block whose `chapter_index` equals
 /// `chapterIndex` carries a real timestamp.
-struct ChapterAudioStatusResolver {
+nonisolated struct ChapterAudioStatusResolver {
     let db: DatabaseWriter
 
     /// True if any block in `chapterIndex` (for `audiobookID`) has a real audio

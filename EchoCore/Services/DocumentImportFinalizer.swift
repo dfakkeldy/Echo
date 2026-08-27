@@ -663,7 +663,7 @@ enum DocumentImportFinalizer {
     /// `.Foo.alignment.json.icloud`; this maps any such shadow back to its
     /// logical URL. Enumerates WITHOUT `.skipsHiddenFiles` precisely because the
     /// shadow is hidden.
-    private static func ubiquitousPlaceholderSidecarURL(
+    private nonisolated static func ubiquitousPlaceholderSidecarURL(
         near fileURL: URL,
         fileManager: FileManager = .default
     ) -> URL? {
@@ -687,7 +687,7 @@ enum DocumentImportFinalizer {
         return placeholders.first.map { directory.appending(path: $0) }
     }
 
-    static func alignmentSidecarURL(
+    nonisolated static func alignmentSidecarURL(
         for fileURL: URL,
         fileManager: FileManager = .default
     ) -> URL? {

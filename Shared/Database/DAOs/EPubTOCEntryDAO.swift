@@ -4,7 +4,7 @@ import GRDB
 
 /// DAO for persisted TOC entries — the publisher-declared chapter tree
 /// resolved to imported EPUB blocks.
-struct EPubTOCEntryDAO {
+nonisolated struct EPubTOCEntryDAO {
     let db: DatabaseWriter
 
     func insertAll(_ entries: [EPubTOCEntryRecord]) throws {

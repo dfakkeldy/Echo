@@ -14,7 +14,7 @@ import Foundation
 /// metadata is the fallback, then the caller's own.
 ///
 /// Pure / Foundation-only so every reader surface can share it.
-enum ChapterTitleResolver {
+nonisolated enum ChapterTitleResolver {
     /// Display title per chapter index. Absent keys mean "no better title than
     /// the caller's fallback" — the caller supplies "Chapter N" or a heading.
     ///

@@ -691,10 +691,12 @@ struct ReaderTab: View {
     }
 
     private func scheduleReaderReload(receivedNotification: Bool = false) {
-        guard readerIngestionReloadTracker.requestReload(
-            generation: model.documentIngestionTrigger,
-            receivedNotification: receivedNotification
-        ) else { return }
+        guard
+            readerIngestionReloadTracker.requestReload(
+                generation: model.documentIngestionTrigger,
+                receivedNotification: receivedNotification
+            )
+        else { return }
         readerReloadToken &+= 1
     }
 
@@ -706,7 +708,9 @@ struct ReaderTab: View {
         }
         guard Task.isCancelled == false else { return }
         guard let ticket = readerIngestionReloadTracker.nextPendingReload() else { return }
-        viewModel?.reloadAndResolveActiveBlock(
+        // Off-main: ingestion posts once per rendered chapter and each reload
+        // re-reads the whole book; the rebuild must not stall the main actor.
+        viewModel?.reloadOffMainAndResolveActiveBlock(
             time: model.currentPlaybackTime,
             currentTrackSegmentKey: currentTrackSegmentKey,
             currentTrackChapterIndices: currentTrackChapterIndices,
@@ -923,7 +927,9 @@ struct ReaderTab: View {
             audiobookID: audiobookID,
             db: db.writer,
             playlistFolderURL: model.persistenceFolderURL)
-        vm.reloadAndResolveActiveBlock(
+        // Off-main: the first build of a large book decodes every block and
+        // word-timing row — on the main actor it froze the play controls.
+        vm.reloadOffMainAndResolveActiveBlock(
             time: model.currentPlaybackTime,
             currentTrackSegmentKey: currentTrackSegmentKey,
             currentTrackChapterIndices: currentTrackChapterIndices,

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import GRDB
 import os.log
 
 enum EPUBAssetError: LocalizedError {
@@ -14,13 +15,26 @@ enum EPUBAssetError: LocalizedError {
 /// All image paths stored in the database must be real local file paths
 /// usable by `UIImage(contentsOfFile:)`. Raw EPUB hrefs are never stored
 /// in `timeline_item.image_path` or `epub_block.image_path`.
-struct EPUBAssetStorage {
+/// `@unchecked` only for the stored `FileManager` reference: all properties
+/// are immutable, and Apple documents the shared file manager as safe to call
+/// from multiple threads. The GRDB writer is Sendable in its own right.
+nonisolated struct EPUBAssetStorage: @unchecked Sendable {
     private let logger = Logger(category: "EPUBAssets")
     private let fileManager = FileManager.default
-    let databaseService: DatabaseService?
+    /// Database handle for the import's block/TOC writes. Held as the Sendable
+    /// GRDB writer (not `DatabaseService`) so the EPUB import can run off the
+    /// main actor without touching main-actor-isolated state.
+    let writer: DatabaseWriter?
 
-    init(databaseService: DatabaseService? = nil) {
-        self.databaseService = databaseService
+    init(writer: DatabaseWriter? = nil) {
+        self.writer = writer
+    }
+
+    /// Convenience for main-actor callers (tests, coordinators) that hold a
+    /// `DatabaseService` rather than its writer.
+    @MainActor
+    init(databaseService: DatabaseService?) {
+        self.writer = databaseService?.writer
     }
 
     /// The root directory for EPUB assets, or nil if Application Support is unavailable.

@@ -8,7 +8,7 @@ import GRDB
 /// Rows form a tree via `parentID` and sort in reading order via `orderIndex`
 /// (preorder position). `blockID` is the resolved navigation target — nil when
 /// the entry's spine file produced no blocks.
-struct EPubTOCEntryRecord: Identifiable, Equatable, Hashable, Sendable, Codable, FetchableRecord, MutablePersistableRecord {
+nonisolated struct EPubTOCEntryRecord: Identifiable, Equatable, Hashable, Sendable, Codable, FetchableRecord, MutablePersistableRecord {
     var id: String
     var audiobookID: String
     var parentID: String?
