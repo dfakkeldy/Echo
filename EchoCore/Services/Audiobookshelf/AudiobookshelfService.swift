@@ -75,7 +75,8 @@ final class AudiobookshelfService {
     func signOut() async -> ABSSignOutResult {
         guard let refresh = tokens.refreshToken else {
             tokens.clear()
-            logger.info("ABS sign-out cleared local credentials; no remote refresh token was present.")
+            logger.info(
+                "ABS sign-out cleared local credentials; no remote refresh token was present.")
             return .noRemoteToken
         }
 
@@ -86,7 +87,8 @@ final class AudiobookshelfService {
         do {
             _ = try await Self.sendDataStatic(request, session: session)
             tokens.clear()
-            logger.info("ABS sign-out revoked the remote refresh token and cleared local credentials.")
+            logger.info(
+                "ABS sign-out revoked the remote refresh token and cleared local credentials.")
             return .remoteRevoked
         } catch let error as ABSError {
             tokens.clear()
@@ -111,7 +113,9 @@ final class AudiobookshelfService {
         return try await authorized(request, decode: ABSLibrariesResponse.self).libraries
     }
 
-    func items(libraryID: String, query: ABSLibraryItemsQuery) async throws -> ABSLibraryItemsResponse {
+    func items(libraryID: String, query: ABSLibraryItemsQuery) async throws
+        -> ABSLibraryItemsResponse
+    {
         let request = URLRequest(url: endpoints.items(libraryID: libraryID, query: query))
         return try await authorized(request, decode: ABSLibraryItemsResponse.self)
     }
@@ -376,17 +380,19 @@ final class AudiobookshelfService {
     ) async throws -> ABSDownloadAttempt {
         let delegate = ABSDownloadDelegate()
         onProgress(ABSDownloadProgress(bytesReceived: 0, totalBytes: nil))
-        let task = Task { [session] in
-            try await session.download(for: request, delegate: delegate)
-        }
+        // A classic download task, not `session.download(for:delegate:)`: the async
+        // convenience never delivers `didWriteData` to its task delegate over a live
+        // connection (URLProtocol test doubles synthesize the callback, real transfers
+        // don't), which left download progress frozen at zero on device.
+        let task = session.downloadTask(with: request)
+        task.delegate = delegate
 
         return try await withTaskCancellationHandler {
             async let reportProgress: Void = Self.forwardDownloadProgress(
                 from: delegate.updates,
                 to: onProgress)
             do {
-                let (temporaryURL, response) = try await task.value
-                delegate.finish()
+                let (temporaryURL, response) = try await delegate.start(task)
                 await reportProgress
                 return ABSDownloadAttempt(
                     temporaryURL: temporaryURL,
@@ -502,6 +508,10 @@ private struct ABSDownloadAttempt: Sendable {
 
 /// The URLSession callback queue is not actor-isolated. This delegate protects its stream
 /// continuation and latest value with a lock, then hands immutable progress to the service.
+///
+/// It is attached as a classic download task's per-task delegate; `start(_:)` resumes the
+/// task and suspends until `didCompleteWithError`, the single completion point for both
+/// success and failure.
 nonisolated private final class ABSDownloadDelegate: NSObject, URLSessionDownloadDelegate,
     @unchecked Sendable
 {
@@ -511,6 +521,11 @@ nonisolated private final class ABSDownloadDelegate: NSObject, URLSessionDownloa
     private var continuation: AsyncStream<ABSDownloadProgress>.Continuation?
     private var didFinish = false
     private var latest: ABSDownloadProgress?
+    private var completion: CheckedContinuation<(URL, URLResponse), any Error>?
+    private var downloadedFile: URL?
+    private var moveError: (any Error)?
+    private let holdingURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("abs-download-\(UUID().uuidString).tmp")
 
     override init() {
         let stream = AsyncStream<ABSDownloadProgress>.makeStream(
@@ -524,14 +539,29 @@ nonisolated private final class ABSDownloadDelegate: NSObject, URLSessionDownloa
         lock.withLock { latest }
     }
 
+    /// Resumes `task` and suspends until it completes, returning the downloaded file
+    /// (moved to a temporary location this delegate owns) and the task's response.
+    func start(_ task: URLSessionDownloadTask) async throws -> (URL, URLResponse) {
+        try await withCheckedThrowingContinuation { checked in
+            lock.withLock { completion = checked }
+            task.resume()
+        }
+    }
+
     func urlSession(
         _ session: URLSession,
         downloadTask: URLSessionDownloadTask,
         didFinishDownloadingTo location: URL
     ) {
-        // `URLSession.download(for:delegate:)` owns this temporary location until it returns
-        // it to the caller. Keep the progress stream open for `didCompleteWithError`, which
-        // is the single completion point for both success and failure.
+        // The system deletes `location` when this method returns, so claim the file
+        // synchronously here; `didCompleteWithError` then resolves the awaiting caller.
+        do {
+            try? FileManager.default.removeItem(at: holdingURL)
+            try FileManager.default.moveItem(at: location, to: holdingURL)
+            lock.withLock { downloadedFile = holdingURL }
+        } catch {
+            lock.withLock { moveError = error }
+        }
     }
 
     func urlSession(
@@ -557,6 +587,29 @@ nonisolated private final class ABSDownloadDelegate: NSObject, URLSessionDownloa
         didCompleteWithError error: (any Error)?
     ) {
         finish()
+        let (checked, result) = lock.withLock {
+            () -> (
+                CheckedContinuation<(URL, URLResponse), any Error>?,
+                Result<(URL, URLResponse), any Error>
+            ) in
+            let checked = completion
+            completion = nil
+            if let error { return (checked, .failure(error)) }
+            if let moveError { return (checked, .failure(moveError)) }
+            guard let downloadedFile, let response = task.response else {
+                return (checked, .failure(URLError(.badServerResponse)))
+            }
+            return (checked, .success((downloadedFile, response)))
+        }
+        switch result {
+        case .success(let value):
+            checked?.resume(returning: value)
+        case .failure(let failure):
+            if let orphan = lock.withLock({ downloadedFile }) {
+                try? FileManager.default.removeItem(at: orphan)
+            }
+            checked?.resume(throwing: failure)
+        }
     }
 
     func finish() {
