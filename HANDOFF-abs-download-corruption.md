@@ -22,3 +22,17 @@ cd /Users/dfakkeldy/Developer/Echo/.claude/worktrees/old-worktrees-salvage-d4912
 # branch claude/audiobookshelf-download-corruption-4abdf2
 # next: check test results, commit, push, open PR to nightly
 ```
+
+## 2026-08-27 — CI green on PR #596
+
+Done: PR https://github.com/dfakkeldy/Echo/pull/596 (base nightly) — Build
+gate + tests PASSED; `Test — EchoTests` step concluded success (new
+ContainerPathRepairTests compiled + ran). Local build still queued behind the
+memory-pressure gate (bocdrrqab), belt-and-braces only.
+Next: user merges #596; on first launch after install, stranded ABS books
+re-key automatically. Delete this handoff in the PR that closes the task.
+Resume:
+```
+cd /Users/dfakkeldy/Developer/Echo/.claude/worktrees/old-worktrees-salvage-d4912c
+gh pr view 596   # merge when ready; repair runs on next app launch
+```
