@@ -17,9 +17,14 @@ Plenty of apps now read your ebook aloud, or sync an audiobook to the text. Echo
 
 ## Documentation & Website
 
+Echo's **marketing home** is **[KinNoKi Labs](https://kinnokilabs.com/apps/echo)**. App Store marketing, privacy, and support URLs have pointed there since 2026-06-10 (`kinnokilabs.com/apps/echo`, `/echo-privacy`, `/echo-help`).
+
+The public **GitHub Pages** documentation site remains live at [dfakkeldy.github.io/Echo](https://dfakkeldy.github.io/Echo/). It hosts the open glossary, guides, manual, and devlog for the open-source audience. It is the docs site, not the marketing home.
+
 | Resource | What it covers |
 |---|---|
-| 🌐 [Website](https://dfakkeldy.github.io/Echo/) | Marketing home: the story, the features, the science |
+| 🌐 [Marketing home — KinNoKi Labs](https://kinnokilabs.com/apps/echo) | Product story for App Store visitors |
+| 📖 [Docs site (GitHub Pages)](https://dfakkeldy.github.io/Echo/) | Public documentation: glossary, guides, manual, devlog |
 | 📚 [Glossary](https://dfakkeldy.github.io/Echo/glossary.html) | Plain-language definitions for every term below — hover any dotted-underlined word on the site |
 | 🧠 [Getting the Most Out of Echo](https://dfakkeldy.github.io/Echo/learn.html) ([md](docs/guides/getting-the-most-out-of-echo.md)) | Every feature + the memory science behind it (context-dependent memory, spaced repetition, the testing effect, cognitive offloading…) |
 | ♾️ [The Focus Field Guide](https://dfakkeldy.github.io/Echo/focus.html) ([md](docs/guides/focus-field-guide.md)) | ADHD/AuDHD strategies — task initiation, time blindness, organization, motivation, hyperfocus, distractibility — with sources |
@@ -81,7 +86,7 @@ For EPUB-backed books, Echo can create a Study Plan from Book Settings. A plan g
 - **AI-Generated Cards.** 🚧 Turn a book's text into question/answer and cloze flashcards with either **your own** Anthropic API key (stored in your Keychain; no Echo account or servers) or, when Apple's Foundation Models runtime is available, an on-device provider that keeps the book text private. It's opt-in and off by default, anchored to the source passage, and drops straight into the same FSRS review flow. The book's text is sent to Anthropic only when you choose the cloud provider.
 - **Brain Dump / Book Notes.** 🚧 A frictionless mental inbox: park any thought — text or voice, even dictated from the watch — without pausing the book, then promote keepers to bookmarks or flashcards. Built for leaky working memory.
 - **Context Memory (opt-in).** 🚧 Echo can tag new bookmarks with an approximate place name — context-dependent memory, automated. Off by default, reduced accuracy, and deletable in one tap; session and chapter-start tagging are the remaining 1.0 scope decision.
-- **Insights.** 🚧 A dedicated stats screen computed entirely on-device: listening time by day/week/month/year, streaks, playback-speed trends, time-of-day patterns, Study review charts with retention curves and grade distributions, a 30-day review forecast, plus upcoming per-chapter coverage heatmaps ("Ch 7 — 86%, listened 3×") and session-length views.
+- **Insights.** A dedicated stats screen computed entirely on-device: listening time by day/week/month/year, streaks, playback-speed trends, time-of-day patterns, Study review charts with retention curves and grade distributions, a 30-day review forecast, plus per-chapter coverage ("Ch 7 — 86%, listened 3×") and session-length views.
 - **Second-Brain Export.** Per-book Markdown `.zip` bundles from the iOS More menu, plus full-library study-notes export from Settings — bookmarks, notes, flashcards, chapters, voice memos, photos, and imported card media — that drop straight into Obsidian, Logseq, or Notion. Echo Pro can also auto-export a text-only Markdown mirror to a folder you pick (for example iCloud Drive), keeping one deterministic file per book updated for Mac-side tools. Plain files, relative links, no accounts, no lock-in.
 - **iCloud Study Sync.** 🚧 Flashcards, decks, bookmarks, and playback position across iPhone, Mac, and Watch via your personal iCloud — Echo runs no servers.
 - **On-Device EPUB Alignment (+ PDF companion).** Seamlessly scroll through the EPUB text and view diagrams exactly when the audio reaches that section. On-device auto-alignment ([WhisperKit](https://dfakkeldy.github.io/Echo/glossary.html#whisperkit) + [CoreML](https://dfakkeldy.github.io/Echo/glossary.html#coreml)) maps every paragraph of the **EPUB** to the narration — no cloud API calls, no privacy concerns. **PDF** companions get page-level alignment (pin a page to a timestamp) and per-page screenshot bookmarks — and, for PDFs parsed into text, a **read-along reading surface** you can flip between the original page and a reflowed text feed (iOS), with the narration auto-following the page and the current word highlighted.
