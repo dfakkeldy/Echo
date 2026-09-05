@@ -20,68 +20,89 @@ enum DatabaseError: LocalizedError {
 final class DatabaseService {
     let writer: DatabaseWriter
     let dbPath: String
-    private let logger = Logger(category: "DatabaseService")
 
-    init(
+    private nonisolated static let openingQueue = DispatchQueue(
+        label: "com.echo.database-opening", qos: .userInitiated)
+
+    private nonisolated struct Connection: Sendable {
+        let writer: DatabasePool
+        let path: String
+
+        init(databaseURL: URL) throws {
+            try FileManager.default.createDirectory(
+                at: databaseURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let path = databaseURL.path
+            self.path = path
+            var config = Configuration()
+            config.prepareDatabase { db in
+                try db.execute(sql: "PRAGMA journal_mode=WAL")
+                try db.execute(sql: "PRAGMA foreign_keys=ON")
+            }
+            writer = try DatabasePool(path: path, configuration: config)
+            try DatabaseService.makeMigrator().migrate(writer)
+            ContainerPathRepair.runIfNeeded(writer: writer)
+            Logger(category: "DatabaseService").info(
+                "Database opened at \(path, privacy: .private)")
+        }
+    }
+
+    private init(connection: Connection) {
+        writer = connection.writer
+        dbPath = connection.path
+    }
+
+    convenience init(
         appGroupIdentifier: String = AppGroupDefaults.suiteName,
         appGroupFallbackDirectory: URL? = DatabaseServiceAppGroupFallback.defaultDirectory,
         allowAppGroupFallback: Bool = DatabaseServiceAppGroupFallback.isAllowed
     ) throws {
-        let containerURL: URL
-        if let appGroupURL = FileManager.default.containerURL(
+        let url = try Self.databaseURL(
+            appGroupIdentifier: appGroupIdentifier,
+            appGroupFallbackDirectory: appGroupFallbackDirectory,
+            allowAppGroupFallback: allowAppGroupFallback)
+        try self.init(databaseURL: url)
+    }
+
+    convenience init(databaseURL: URL) throws {
+        try self.init(connection: Connection(databaseURL: databaseURL))
+    }
+
+    /// Opens and repairs the database without blocking the UI or a cooperative
+    /// executor thread. Callers must wait for this before exposing library views.
+    static func openForLaunch(databaseURL: URL? = nil) async throws -> DatabaseService {
+        try Task.checkCancellation()
+        let url = try databaseURL ?? Self.databaseURL()
+        let connection = try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<Connection, Error>) in
+            openingQueue.async {
+                continuation.resume(with: Result { try Connection(databaseURL: url) })
+            }
+        }
+        // Let an in-flight SQLite transaction finish safely, but do not install
+        // its result into a view whose launch task has been cancelled.
+        try Task.checkCancellation()
+        return DatabaseService(connection: connection)
+    }
+
+    private static func databaseURL(
+        appGroupIdentifier: String = AppGroupDefaults.suiteName,
+        appGroupFallbackDirectory: URL? = DatabaseServiceAppGroupFallback.defaultDirectory,
+        allowAppGroupFallback: Bool = DatabaseServiceAppGroupFallback.isAllowed
+    ) throws -> URL {
+        if let container = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: appGroupIdentifier
         ) {
-            containerURL = appGroupURL
-        } else if DatabaseServiceAppGroupFallback.isAllowed, allowAppGroupFallback,
+            return container.appendingPathComponent("echo.sqlite")
+        }
+        if DatabaseServiceAppGroupFallback.isAllowed, allowAppGroupFallback,
             let appGroupFallbackDirectory
         {
-            containerURL = appGroupFallbackDirectory
             Logger(category: "DatabaseService").warning(
                 "Using debug simulator database fallback because App Group container is unavailable."
             )
-        } else {
-            throw DatabaseError.appGroupNotFound(appGroupIdentifier)
+            return appGroupFallbackDirectory.appendingPathComponent("echo.sqlite")
         }
-
-        try FileManager.default.createDirectory(
-            at: containerURL,
-            withIntermediateDirectories: true
-        )
-
-        let path = containerURL.appendingPathComponent("echo.sqlite").path
-        self.dbPath = path
-
-        var config = Configuration()
-        config.prepareDatabase { db in
-            try db.execute(sql: "PRAGMA journal_mode=WAL")
-            try db.execute(sql: "PRAGMA foreign_keys=ON")
-        }
-        writer = try DatabasePool(path: path, configuration: config)
-
-        try runMigrations(writer: writer)
-        ContainerPathRepair.runIfNeeded(writer: writer)
-        logger.info("Database opened at \(path)")
-    }
-
-    init(databaseURL: URL) throws {
-        if let parent = databaseURL.parentDirectory {
-            try FileManager.default.createDirectory(
-                at: parent,
-                withIntermediateDirectories: true
-            )
-        }
-
-        var config = Configuration()
-        config.prepareDatabase { db in
-            try db.execute(sql: "PRAGMA journal_mode=WAL")
-            try db.execute(sql: "PRAGMA foreign_keys=ON")
-        }
-        let path = databaseURL.path
-        self.writer = try DatabasePool(path: path, configuration: config)
-        self.dbPath = path
-        try runMigrations(writer: writer)
-        ContainerPathRepair.runIfNeeded(writer: writer)
-        logger.info("Database opened at \(path)")
+        throw DatabaseError.appGroupNotFound(appGroupIdentifier)
     }
 
     init(inMemory: Void) throws {
@@ -191,14 +212,14 @@ final class DatabaseService {
         migrator.registerMigration("v41_repair_squashed_baseline_gap") { db in
             try Schema_V41.migrate(db)
         }
+        // Block re-keying checks this foreign key for each block. The existing
+        // book-first compound index otherwise forces a full anchor scan per row.
+        migrator.registerMigration("v42_alignment_anchor_foreign_key_index") { db in
+            try db.create(
+                index: "idx_alignment_anchor_epub_block", on: "alignment_anchor",
+                columns: ["epub_block_id"], ifNotExists: true)
+        }
         return migrator
-    }
-}
-
-extension URL {
-    fileprivate var parentDirectory: URL? {
-        guard !path.isEmpty else { return nil }
-        return deletingLastPathComponent()
     }
 }
 
