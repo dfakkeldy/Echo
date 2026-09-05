@@ -51,6 +51,30 @@ import Testing
         return appSupport.absoluteString + "ABSLibrary/\(item)/"
     }
 
+    @Test func existingDatabaseGetsAnIndexForBlockForeignKeyChecks() throws {
+        let writer = try DatabaseQueue()
+        let migrator = DatabaseService.makeMigrator()
+        try migrator.migrate(writer, upTo: "v41_repair_squashed_baseline_gap")
+        let previousIndexes = try writer.read { db in try db.indexes(on: "alignment_anchor") }
+        #expect(!previousIndexes.contains { $0.columns.first == "epub_block_id" })
+
+        try migrator.migrate(writer)
+        let plan = try writer.read { db in
+            try Row.fetchAll(
+                db,
+                sql: """
+                    EXPLAIN QUERY PLAN
+                    UPDATE epub_block SET id = 'replacement' WHERE id = 'original'
+                    """
+            )
+            .map { (row: Row) -> String in row["detail"] }
+        }
+        // SQLite checks child rows for every changed block ID. The old
+        // (audiobook_id, epub_block_id) index cannot seek by block ID alone.
+        #expect(plan.contains { $0.contains("idx_alignment_anchor_epub_block") })
+        #expect(!plan.contains { $0.contains("SCAN alignment_anchor") })
+    }
+
     @Test func rebasedIDRebasesOntoCurrentAnchorRoot() throws {
         let (container, appSupport) = try makeScratchRoot()
         defer { try? FileManager.default.removeItem(at: container) }
