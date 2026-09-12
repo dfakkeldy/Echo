@@ -686,6 +686,7 @@ struct CenterTransportButton: View {
                     viewModel: viewModel,
                     controlSize: controlSize,
                     ringSize: ringSize,
+                    isPrimaryActionEnabled: isPrimaryActionEnabled,
                     onLongPress: onPomodoroLongPress
                 )
             } else {
@@ -722,7 +723,7 @@ struct CenterTransportButton: View {
                 }
                 .buttonStyle(PlainButtonStyle())
                 .accessibilityLabel(centerAccessibilityLabel)
-                .handGestureShortcut(.primaryAction, isEnabled: isPrimaryActionEnabled)
+                .modifier(WatchPrimaryActionModifier(isActive: isPrimaryActionEnabled))
             }
         }
     }

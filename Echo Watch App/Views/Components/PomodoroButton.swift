@@ -5,6 +5,7 @@ struct PomodoroButton: View {
     let viewModel: WatchViewModel
     let controlSize: CGFloat
     var ringSize: CGFloat? = nil
+    var isPrimaryActionEnabled = false
     let onLongPress: () -> Void
 
     private var activeRingSize: CGFloat {
@@ -84,6 +85,7 @@ struct PomodoroButton: View {
                     onLongPress()
                 }
         )
+        .modifier(WatchPrimaryActionModifier(isActive: isPrimaryActionEnabled))
     }
 }
 
