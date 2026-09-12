@@ -41,7 +41,7 @@ struct DocumentImportFinalizerTests {
         #expect(completed)
         #expect(foregroundWaits == 1)
         #expect(successfulFinalizations == 1)
-        let count = try databaseService.writer.read { db in
+        let count = try await databaseService.writer.read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM word_timing WHERE audiobook_id = ?", arguments: [audiobookID]) ?? 0
         }
         #expect(count > 0)
@@ -97,7 +97,7 @@ struct DocumentImportFinalizerTests {
             audiobookID: audiobookID, fileURL: fileURL, duration: 100,
             databaseService: databaseService, networkPolicy: .localOnly)
         #expect(outcome == .completed)
-        let wordCount = try databaseService.writer.read { db in
+        let wordCount = try await databaseService.writer.read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM word_timing WHERE audiobook_id = ?", arguments: [audiobookID])
         }
         #expect((wordCount ?? 0) > 0)
