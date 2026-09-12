@@ -51,6 +51,9 @@ final class DatabaseService {
                 try db.execute(sql: "PRAGMA foreign_keys=ON")
             }
             writer = try DatabasePool(path: path, configuration: config)
+            // The pool now observes suspension itself. Remove the per-opcode
+            // startup guard before potentially large migrations and repairs.
+            opening.finish()
             // Notifications are not sticky: expiration may have occurred while
             // the pool was creating its first connection and observers.
             try token?.check()
