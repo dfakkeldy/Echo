@@ -508,7 +508,7 @@ enum DocumentImportFinalizer {
         alignmentService: AlignmentService
     ) async throws {
         try Task.checkCancellation()
-        try writer.write { db in
+        try await writer.write { db in
             try AlignmentAnchorRecord
                 .filter(Column("audiobook_id") == audiobookID)
                 .filter(!humanAnchorSources.contains(Column("source")))
@@ -649,7 +649,7 @@ enum DocumentImportFinalizer {
         do {
             try Task.checkCancellation()
             if !hasSidecar {
-                let hasWords = try databaseService.writer.read { db in
+                let hasWords = try await databaseService.writer.read { db in
                     try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM word_timing WHERE audiobook_id = ?)", arguments: [audiobookID]) ?? false
                 }
                 if hasWords { return .completed }

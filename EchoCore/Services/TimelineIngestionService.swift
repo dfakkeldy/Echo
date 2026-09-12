@@ -272,7 +272,7 @@ nonisolated struct TimelineIngestionService {
             )
             guard !items.isEmpty else { return }
             try Task.checkCancellation()
-            try writer.write { db in
+            try await writer.write { db in
                 try TimelineItem.filter(Column("audiobook_id") == audiobookID).deleteAll(db)
                 for var item in items { try item.insert(db) }
             }
