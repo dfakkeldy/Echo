@@ -19,6 +19,8 @@ struct PlaybackSessionRecorderTests {
     }
 
     @Test func deferredAdmissionRetainsQueuedSegmentUntilForeground() async throws {
+        await DatabaseSuspensionTestGate.acquire()
+        defer { DatabaseSuspensionTestGate.release() }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         var denyNextSegment = true

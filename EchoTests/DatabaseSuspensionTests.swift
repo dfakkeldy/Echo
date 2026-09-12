@@ -13,6 +13,8 @@ import Testing
     }
 
     @Test func suspendedWriterRejectsMutationsAndResumesWithoutLosingRows() async throws {
+        await DatabaseSuspensionTestGate.acquire()
+        defer { DatabaseSuspensionTestGate.release() }
         let url = location()
         defer {
             NotificationCenter.default.post(name: Database.resumeNotification, object: nil)
@@ -45,6 +47,8 @@ import Testing
     }
 
     @Test func suspensionRollsBackAnInFlightDiskTransaction() async throws {
+        await DatabaseSuspensionTestGate.acquire()
+        defer { DatabaseSuspensionTestGate.release() }
         let url = location()
         defer {
             NotificationCenter.default.post(name: Database.resumeNotification, object: nil)
@@ -102,6 +106,8 @@ import Testing
     }
 
     @Test func cancelledOpeningTokenDoesNotCreateDatabase() async throws {
+        await DatabaseSuspensionTestGate.acquire()
+        defer { DatabaseSuspensionTestGate.release() }
         let url = location()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let token = DatabaseWorkToken()
@@ -115,6 +121,8 @@ import Testing
     }
 
     @Test func expirationBeforePoolObserversAbortsWALSetupAndAllowsReopen() async throws {
+        await DatabaseSuspensionTestGate.acquire()
+        defer { DatabaseSuspensionTestGate.release() }
         let url = location()
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

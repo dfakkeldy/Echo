@@ -127,7 +127,7 @@ actor PlaybackSessionRecorder {
         while !Task.isCancelled {
             do {
                 if let database {
-                    try await database.withBackgroundOperation(name: "playback segment") {
+                    try await database.withBackgroundOperation(name: "playback segment") { @MainActor in
                         try await self.performAction(action)
                     }
                 } else {

@@ -8,6 +8,8 @@ import Testing
 @MainActor
 struct DocumentImportFinalizerTests {
     @Test func deferredDiskFinalizationResumesOnceAfterForeground() async throws {
+        await DatabaseSuspensionTestGate.acquire()
+        defer { DatabaseSuspensionTestGate.release() }
         let fileURL = try makeDocumentURL()
         defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
         var denyWork = false
