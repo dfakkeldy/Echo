@@ -53,8 +53,28 @@ widget, command-line, and Python transcript-tooling surfaces.
 - Never push directly to `main`, `weekly`, or `nightly`.
 - Before editing, inspect the branch, upstream, and working tree. Preserve
   unrelated changes and do not rewrite user-owned history.
-- Use coherent Conventional Commits. Publish only when the task type and user
-  request call for it; do not auto-rebase or force-push as a standing rule.
+- Use coherent Conventional Commits; do not auto-rebase or force-push as a
+  standing rule.
+- Requested repository changes finish with a ready PR and auto-merge on green
+  required CI, using the supported merge method and respecting branch protections.
+  If native auto-merge is unavailable, merge the verified PR head normally after
+  reported checks pass. If CI is absent or blocked, leave the ready PR and report
+  that limitation once. Do not ask for another merge approval for ordinary work.
 - After opening or updating a PR, report hosted CI as passing, failing, pending,
   or blocked. CI, merge, deployment, installation, and device acceptance are
   separate states.
+
+## Device testing and nightly delivery
+
+Routine native changes finish with the PR and green-CI merge; the established
+nightly pipeline handles delivery to the Nightly TestFlight group. The user relies
+on automatic updates and tests when convenient, possibly days or weeks later.
+Do not request device verification, append manual acceptance checklists, send
+reminders, or block subsequent changes because earlier builds remain untested.
+Run proportionate automated/simulator checks and fix device issues when reported.
+Overnight iPhone testing is optional, only when the user offers it for that session.
+
+Do not claim device behavior or installation was verified without evidence.
+Explicitly requested device investigations may need specific device evidence;
+ordinary uncertainty is not a completion gate. Weekly/stable promotion and public
+release remain separate, explicitly requested work.
