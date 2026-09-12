@@ -23,7 +23,7 @@ extension PlayerModel {
         baseURL: URL, username: String, password: String,
         trustingCertificate pinnedSHA256: String? = nil
     ) async throws -> ABSServerRecord {
-        guard let dao = absServerDAO else { throw ABSError.notConnected }
+        guard let dao = absServerDAO, let database = databaseService else { throw ABSError.notConnected }
         let serverID = UUID().uuidString
         let host = baseURL.host?.lowercased() ?? ""
         let tokens = ABSTokenStore(serverID: serverID)
@@ -51,8 +51,10 @@ extension PlayerModel {
             defaultLibraryId: defaultLib,
             addedAt: ISO8601DateFormatter().string(from: Date()))
         do {
-            try dao.upsert(record)
-            try dao.setActive(serverID)
+            try await database.withBackgroundOperation(name: "audiobookshelf connection") {
+                try dao.upsert(record)
+                try dao.setActive(serverID)
+            }
         } catch {
             // Symmetric with the login-failure rollback above: don't leave access/refresh tokens,
             // Keychain trust pins, or a live delegate session behind when the DB record is absent.
@@ -96,13 +98,15 @@ extension PlayerModel {
         absService = nil
         absServiceServerID = nil
 
-        guard let dao = absServerDAO else {
+        guard let dao = absServerDAO, let database = databaseService else {
             Self.absLogger.error(
                 "ABS local server delete failed because the database is unavailable.")
             throw ABSError.notConnected
         }
         do {
-            try dao.delete(server.id)
+            try await database.withBackgroundOperation(name: "audiobookshelf disconnect") {
+                try dao.delete(server.id)
+            }
         } catch {
             Self.absLogger.error("ABS local server delete failed after credentials were cleared.")
             throw error
@@ -301,14 +305,9 @@ extension PlayerModel {
             throw ABSError.notConnected
         }
         let importer = ABSImportService(service: service, db: db, serverID: serverID)
-        // Background-task grace window: if the user backgrounds the app mid-import, the OS
-        // grants ~30s–3min so an in-flight download can finish rather than being suspended
-        // immediately. Full background-`URLSession` resumption is a future enhancement — the
-        // ABS whole-item zip has no Content-Length / byte-range support, so it can't truly
-        // resume; this covers the common "switch apps while it downloads" case.
-        let bgTask = UIApplication.shared.beginBackgroundTask(withName: "abs-import")
-        defer { if bgTask != .invalid { UIApplication.shared.endBackgroundTask(bgTask) } }
-        let book = try await importer.prepareLocalFolder(for: item)
+        let book = try await db.withBackgroundOperation(name: "audiobookshelf import") {
+            try await importer.prepareLocalFolder(for: item)
+        }
         loadFolder(book.folderURL, autoplay: false)
     }
 }

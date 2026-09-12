@@ -8,7 +8,7 @@ import GRDB
 /// (re)alignment converges (mirrors `AlignmentAnchorDAO.deleteAutoPipelineAnchors`).
 nonisolated enum WordTimingMaterializer {
     /// One aligned block: its text and start time, ordered by start.
-    private struct Block {
+    private struct Block: Equatable {
         let id: String
         let text: String
         let start: TimeInterval
@@ -20,11 +20,18 @@ nonisolated enum WordTimingMaterializer {
     /// rebuild per user action). Do NOT call this once per chapter in a render
     /// loop — that is O(chapters²); use `materializeChapter` instead.
     static func materialize(audiobookID: String, writer: DatabaseWriter) throws {
-        let dao = WordTimingDAO(db: writer)
-        try dao.deleteAll(forAudiobook: audiobookID)
-        let blocks = try alignedBlocks(audiobookID: audiobookID, blockIDs: nil, writer: writer)
-        guard !blocks.isEmpty else { return }
-        try dao.insert(records(from: blocks, audiobookID: audiobookID))
+        let (blocks, priorWords) = try writer.read { db in
+            (try alignedBlocks(audiobookID: audiobookID, blockIDs: nil, db: db),
+             try storedWords(audiobookID: audiobookID, blockIDs: nil, db: db))
+        }
+        let replacement = try records(from: blocks, audiobookID: audiobookID)
+        try writer.write { db in
+            guard try alignedBlocks(audiobookID: audiobookID, blockIDs: nil, db: db) == blocks,
+                try storedWords(audiobookID: audiobookID, blockIDs: nil, db: db) == priorWords else {
+                throw AlignmentService.RecalculationError.staleSnapshot
+            }
+            try WordTimingDAO.replace(replacement, forAudiobook: audiobookID, in: db)
+        }
     }
 
     /// Per-chapter rebuild for the narration render loop: deletes & re-materializes
@@ -39,11 +46,18 @@ nonisolated enum WordTimingMaterializer {
         audiobookID: String, blockIDs: [String], writer: DatabaseWriter
     ) throws {
         guard !blockIDs.isEmpty else { return }
-        let dao = WordTimingDAO(db: writer)
-        try dao.deleteAll(forAudiobook: audiobookID, blockIDs: blockIDs)
-        let blocks = try alignedBlocks(audiobookID: audiobookID, blockIDs: blockIDs, writer: writer)
-        guard !blocks.isEmpty else { return }
-        try dao.insert(records(from: blocks, audiobookID: audiobookID))
+        let (blocks, priorWords) = try writer.read { db in
+            (try alignedBlocks(audiobookID: audiobookID, blockIDs: blockIDs, db: db),
+             try storedWords(audiobookID: audiobookID, blockIDs: blockIDs, db: db))
+        }
+        let replacement = try records(from: blocks, audiobookID: audiobookID)
+        try writer.write { db in
+            guard try alignedBlocks(audiobookID: audiobookID, blockIDs: blockIDs, db: db) == blocks,
+                try storedWords(audiobookID: audiobookID, blockIDs: blockIDs, db: db) == priorWords else {
+                throw AlignmentService.RecalculationError.staleSnapshot
+            }
+            try WordTimingDAO.replace(replacement, forAudiobook: audiobookID, blockIDs: blockIDs, in: db)
+        }
     }
 
     /// Materializes the narration render loop's word rows for one chapter.
@@ -68,11 +82,10 @@ nonisolated enum WordTimingMaterializer {
         let blockIDs = Array(speechRangesByBlock.keys)
         guard !blockIDs.isEmpty else { return [:] }
 
-        let sourceTextByBlockID = try narratedSourceText(
-            audiobookID: audiobookID, blockIDs: blockIDs, writer: writer)
-
-        let dao = WordTimingDAO(db: writer)
-        try dao.deleteAll(forAudiobook: audiobookID, blockIDs: blockIDs)
+        let (sourceTextByBlockID, priorWords) = try writer.read { db in
+            (try narratedSourceText(audiobookID: audiobookID, blockIDs: blockIDs, db: db),
+             try storedWords(audiobookID: audiobookID, blockIDs: blockIDs, db: db))
+        }
 
         var records: [WordTimingRecord] = []
         var expansionCountsByBlock: [String: [Int]] = [:]
@@ -141,94 +154,124 @@ nonisolated enum WordTimingMaterializer {
                         source: "synthesized"))
             }
         }
-        try dao.insert(records)
+        try writer.write { db in
+            guard try narratedSourceText(audiobookID: audiobookID, blockIDs: blockIDs, db: db)
+                == sourceTextByBlockID,
+                try storedWords(audiobookID: audiobookID, blockIDs: blockIDs, db: db) == priorWords
+            else { throw AlignmentService.RecalculationError.staleSnapshot }
+            try WordTimingDAO.replace(records, forAudiobook: audiobookID, blockIDs: blockIDs, in: db)
+        }
         return expansionCountsByBlock
     }
 
     /// The source text each block's word rows must be keyed to — the same
     /// policy the sidecar export and import validate against.
     private static func narratedSourceText(
-        audiobookID: String, blockIDs: [String], writer: DatabaseWriter
+        audiobookID: String, blockIDs: [String], db: Database
     ) throws -> [String: String] {
-        try writer.read { db in
-            let sql = """
-                SELECT id, text, block_kind, narration_text
-                FROM epub_block
-                WHERE audiobook_id = ?
-                  AND id IN (\(databaseQuestionMarks(count: blockIDs.count)))
-                """
-            let rows = try Row.fetchAll(
-                db, sql: sql, arguments: StatementArguments([audiobookID] + blockIDs))
-            var textByID: [String: String] = [:]
-            for row in rows {
-                guard
-                    let text = NarratedBlockText.text(
-                        blockKind: row["block_kind"],
-                        sourceText: row["text"],
-                        narrationText: row["narration_text"]
-                    ),
-                    !text.isEmpty
-                else { continue }
-                textByID[row["id"]] = text
-            }
-            return textByID
+        let sql = """
+            SELECT id, text, block_kind, narration_text
+            FROM epub_block
+            WHERE audiobook_id = ?
+              AND id IN (\(databaseQuestionMarks(count: blockIDs.count)))
+            """
+        let rows = try Row.fetchAll(
+            db, sql: sql, arguments: StatementArguments([audiobookID] + blockIDs))
+        var textByID: [String: String] = [:]
+        for row in rows {
+            guard
+                let text = NarratedBlockText.text(
+                    blockKind: row["block_kind"],
+                    sourceText: row["text"],
+                    narrationText: row["narration_text"]
+                ),
+                !text.isEmpty
+            else { continue }
+            textByID[row["id"]] = text
         }
+        return textByID
     }
 
     // MARK: - Shared
+
+    private static func storedWords(
+        audiobookID: String, blockIDs: [String]?, db: Database
+    ) throws -> [WordTimingRecord] {
+        var query = WordTimingRecord.filter(Column("audiobook_id") == audiobookID)
+        if let blockIDs { query = query.filter(blockIDs.contains(Column("epub_block_id"))) }
+        return try query.order(Column("id")).fetchAll(db)
+    }
 
     /// Aligned, text-bearing blocks ordered by audio time. `audio_start_time < 0`
     /// is the "unaligned" sentinel — skipped. `blockIDs == nil` fetches the whole
     /// book; a non-empty list scopes to those blocks.
     private static func alignedBlocks(
-        audiobookID: String, blockIDs: [String]?, writer: DatabaseWriter
+        audiobookID: String, blockIDs: [String]?, db: Database
     ) throws -> [Block] {
-        try writer.read { db in
-            var sql = """
-                SELECT ti.epub_block_id AS id,
-                       eb.text AS text,
-                       eb.block_kind AS block_kind,
-                       eb.narration_text AS narration_text,
-                       ti.audio_start_time AS start,
-                       ti.audio_end_time AS end
-                FROM timeline_item ti
-                JOIN epub_block eb ON eb.id = ti.epub_block_id
-                WHERE ti.audiobook_id = ?
-                  AND ti.epub_block_id IS NOT NULL
-                  AND ti.audio_start_time >= 0
-                  AND eb.text IS NOT NULL AND eb.text <> ''
-                """
-            var args: [String] = [audiobookID]
-            if let blockIDs, !blockIDs.isEmpty {
-                sql += " AND ti.epub_block_id IN (\(databaseQuestionMarks(count: blockIDs.count)))"
-                args += blockIDs
-            }
-            sql += " ORDER BY ti.audio_start_time"
-            return try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args)).compactMap {
-                row in
-                guard
-                    let text = NarratedBlockText.text(
-                        blockKind: row["block_kind"],
-                        sourceText: row["text"],
-                        narrationText: row["narration_text"]
-                    ),
-                    !text.isEmpty
-                else { return nil }
-                return Block(
-                    id: row["id"], text: text,
-                    start: row["start"], end: row["end"])
-            }
+        var sql = """
+            SELECT ti.epub_block_id AS id,
+                   eb.text AS text,
+                   eb.block_kind AS block_kind,
+                   eb.narration_text AS narration_text,
+                   ti.audio_start_time AS start,
+                   ti.audio_end_time AS end
+            FROM timeline_item ti
+            JOIN epub_block eb ON eb.id = ti.epub_block_id
+            WHERE ti.audiobook_id = ?
+              AND ti.epub_block_id IS NOT NULL
+              AND ti.audio_start_time >= 0
+              AND eb.text IS NOT NULL AND eb.text <> ''
+            """
+        var args: [String] = [audiobookID]
+        if let blockIDs, !blockIDs.isEmpty {
+            sql += " AND ti.epub_block_id IN (\(databaseQuestionMarks(count: blockIDs.count)))"
+            args += blockIDs
         }
+        sql += " ORDER BY ti.audio_start_time"
+        return try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args)).compactMap {
+            row in
+            guard
+                let text = NarratedBlockText.text(
+                    blockKind: row["block_kind"],
+                    sourceText: row["text"],
+                    narrationText: row["narration_text"]
+                ),
+                !text.isEmpty
+            else { return nil }
+            return Block(
+                id: row["id"], text: text,
+                start: row["start"], end: row["end"])
+        }
+    }
+
+    /// Data-only preparation used by alignment before its atomic commit.
+    static func preparedRecords(
+        audiobookID: String, blocks: [EPubBlockRecord], timelineItems: [TimelineItem],
+        checkCancellation: () throws -> Void = {}
+    ) throws -> [WordTimingRecord] {
+        let blockByID = Dictionary(uniqueKeysWithValues: blocks.map { ($0.id, $0) })
+        let aligned: [Block] = timelineItems.compactMap { item in
+            guard item.audiobookID == audiobookID, item.audioStartTime >= 0,
+                let id = item.epubBlockID, let block = blockByID[id],
+                let source = block.text, !source.isEmpty,
+                let text = NarratedBlockText.text(
+                    blockKind: block.blockKind, sourceText: source, narrationText: block.narrationText),
+                !text.isEmpty else { return nil }
+            return Block(id: id, text: text, start: item.audioStartTime, end: item.audioEndTime)
+        }.sorted { $0.start < $1.start }
+        return try records(from: aligned, audiobookID: audiobookID, checkCancellation: checkCancellation)
     }
 
     /// Interpolates per-word rows for a run of aligned blocks. Each block's end
     /// bound is its explicit end, else the next block's start, else a ~15 cps
     /// estimate so the last block still gets ranges.
     private static func records(
-        from blocks: [Block], audiobookID: String
-    ) -> [WordTimingRecord] {
+        from blocks: [Block], audiobookID: String,
+        checkCancellation: () throws -> Void = {}
+    ) throws -> [WordTimingRecord] {
         var records: [WordTimingRecord] = []
         for (i, block) in blocks.enumerated() {
+            try checkCancellation()
             let blockEnd: TimeInterval
             if let end = block.end, end > block.start {
                 blockEnd = end
@@ -370,7 +413,7 @@ nonisolated enum WordTimingMaterializer {
     /// The outcome of an `applySidecarWords` pass, so callers can log which
     /// blocks took sidecar timings and which fell back — partial application
     /// is otherwise invisible (the J-Space QA "755 blocks, 0 rows" blind spot).
-    struct SidecarWordApplication: Equatable {
+    struct SidecarWordApplication: Equatable, Sendable {
         /// Blocks whose interpolated rows were overridden with sidecar timings.
         var blocksApplied = 0
         /// Total sidecar word rows written across `blocksApplied`.
@@ -382,12 +425,25 @@ nonisolated enum WordTimingMaterializer {
         /// override (block unaligned / never made it into the timeline).
         var blocksWithoutRows = 0
 
-        struct Mismatch: Equatable {
+        struct Mismatch: Equatable, Sendable {
             let blockID: String
             /// Rows the block was materialized with (its tokenized-text count).
             let blockRows: Int
             /// Words the sidecar carried for the block.
             let sidecarWords: Int
+        }
+    }
+
+    static func applySidecarWordsAsync(
+        audiobookID: String,
+        sidecarWordsByBlock: [String: [AlignmentSidecar.Anchor.Word]],
+        writer: DatabaseWriter
+    ) async throws -> SidecarWordApplication {
+        try await AlignmentService.performInBackground { checkCancellation in
+            try checkCancellation()
+            return try applySidecarWords(
+                audiobookID: audiobookID, sidecarWordsByBlock: sidecarWordsByBlock, writer: writer,
+                checkCancellation: checkCancellation)
         }
     }
 
@@ -412,16 +468,23 @@ nonisolated enum WordTimingMaterializer {
     static func applySidecarWords(
         audiobookID: String,
         sidecarWordsByBlock: [String: [AlignmentSidecar.Anchor.Word]],
-        writer: DatabaseWriter
+        writer: DatabaseWriter,
+        checkCancellation: () throws -> Void = {}
     ) throws -> SidecarWordApplication {
         var result = SidecarWordApplication()
         guard !sidecarWordsByBlock.isEmpty else { return result }
-        let dao = WordTimingDAO(db: writer)
+        try checkCancellation()
+        let blockIDs = Array(sidecarWordsByBlock.keys)
+        let priorWords = try writer.read {
+            try storedWords(audiobookID: audiobookID, blockIDs: blockIDs, db: $0)
+        }
+        let rowsByBlock = Dictionary(grouping: priorWords, by: \.epubBlockID)
         var updates: [WordTimingRecord] = []
         for (blockID, words) in sidecarWordsByBlock {
             // Rows arrive ordered by word_index — the same reading order as the
             // sidecar's words array (array position == wordIndex).
-            let rows = try dao.words(forAudiobook: audiobookID, blockID: blockID)
+            try checkCancellation()
+            let rows = (rowsByBlock[blockID] ?? []).sorted { $0.wordIndex < $1.wordIndex }
             guard !rows.isEmpty else {
                 result.blocksWithoutRows += 1
                 continue
@@ -442,7 +505,16 @@ nonisolated enum WordTimingMaterializer {
             result.blocksApplied += 1
             result.wordsApplied += words.count
         }
-        try dao.update(updates)
+        try writer.write { db in
+            try checkCancellation()
+            guard try storedWords(audiobookID: audiobookID, blockIDs: blockIDs, db: db) == priorWords
+            else { throw AlignmentService.RecalculationError.staleSnapshot }
+            for row in updates {
+                try checkCancellation()
+                try row.update(db)
+            }
+            try checkCancellation()
+        }
         return result
     }
 }

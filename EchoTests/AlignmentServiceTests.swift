@@ -403,4 +403,104 @@ struct AlignmentServiceTests {
             readerVisible.count > 1,
             "default path interpolates/projects beyond the single anchored block")
     }
+    @Test func wordInsertionFailureRollsBackBlockAlignmentAsWell() throws {
+        let (db, bookID) = try setupAlignmentDB()
+        let service = AlignmentService(db: db.writer, audiobookID: bookID)
+        try service.recalculateTimeline()
+        let words = try WordTimingDAO(db: db.writer).words(forAudiobook: bookID)
+        let timeline = try db.read {
+            try TimelineItem.filter(Column("audiobook_id") == bookID).order(Column("id")).fetchAll($0)
+        }
+        try db.write { db in
+            try db.execute(sql: """
+                UPDATE epub_block SET text = 'changed input words' WHERE id = 'b0';
+                CREATE TRIGGER fail_word BEFORE INSERT ON word_timing
+                WHEN NEW.word_index = 1
+                BEGIN SELECT RAISE(ABORT, 'injected insertion failure'); END;
+                """)
+        }
+        #expect(throws: DatabaseError.self) { try service.recalculateTimeline() }
+        #expect(try WordTimingDAO(db: db.writer).words(forAudiobook: bookID) == words)
+        let after = try db.read {
+            try TimelineItem.filter(Column("audiobook_id") == bookID).order(Column("id")).fetchAll($0)
+        }
+        #expect(after == timeline)
+    }
+
+    @Test func newerSourceRejectsPreparedRecalculation() throws {
+        let (db, bookID) = try setupAlignmentDB()
+        let service = AlignmentService(db: db.writer, audiobookID: bookID)
+        try service.recalculateTimeline()
+        let words = try WordTimingDAO(db: db.writer).words(forAudiobook: bookID)
+        #expect(throws: AlignmentService.RecalculationError.self) {
+            try service.recalculateTimeline(beforeCommit: {
+                try db.write {
+                    try $0.execute(sql: "UPDATE epub_block SET text = 'newer import' WHERE id = 'b0'")
+                }
+            })
+        }
+        #expect(try WordTimingDAO(db: db.writer).words(forAudiobook: bookID) == words)
+    }
+
+    @Test func cancellationBeforeCommitPreservesWords() throws {
+        let (db, bookID) = try setupAlignmentDB()
+        let service = AlignmentService(db: db.writer, audiobookID: bookID)
+        try service.recalculateTimeline()
+        let words = try WordTimingDAO(db: db.writer).words(forAudiobook: bookID)
+        #expect(throws: CancellationError.self) {
+            try service.recalculateTimeline(beforeCommit: { throw CancellationError() })
+        }
+        #expect(try WordTimingDAO(db: db.writer).words(forAudiobook: bookID) == words)
+    }
+
+    @Test func alignmentWorkerLeavesMainActorResponsiveAndPropagatesCancellation() async throws {
+        let started = AsyncStream<Void>.makeStream()
+        let release = DispatchSemaphore(value: 0)
+        let task = Task {
+            try await AlignmentService.performInBackground { checkCancellation in
+                started.continuation.yield(())
+                started.continuation.finish()
+                // Only the dedicated SQLite worker blocks. The test's main actor
+                // must remain runnable to release it and cancel pending work.
+                release.wait()
+                try checkCancellation()
+                return Thread.isMainThread
+            }
+        }
+        for await _ in started.stream { break }
+        task.cancel()
+        release.signal()
+        do {
+            _ = try await task.value
+            Issue.record("Cancelled alignment worker unexpectedly succeeded")
+        } catch is CancellationError {
+            // Expected: cancellation reaches the worker before it can commit.
+        }
+    }
+
+    @Test func expiredLifecycleGenerationCannotCommitAfterWorkerHop() async throws {
+        let started = AsyncStream<Void>.makeStream()
+        let release = DispatchSemaphore(value: 0)
+        let token = DatabaseWorkToken()
+        let task = Task {
+            try await DatabaseWorkContext.$token.withValue(token) {
+                try await AlignmentService.performInBackground { checkCancellation in
+                    started.continuation.yield(())
+                    started.continuation.finish()
+                    release.wait()
+                    try checkCancellation()
+                }
+            }
+        }
+        for await _ in started.stream { break }
+        token.cancel()
+        release.signal()
+        do {
+            try await task.value
+            Issue.record("Expired lifecycle generation unexpectedly succeeded")
+        } catch is DatabaseWorkDeferred {
+            // A later process resume cannot renew this operation's token.
+        }
+    }
+
 }

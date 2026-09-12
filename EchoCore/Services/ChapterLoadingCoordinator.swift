@@ -135,16 +135,14 @@ final class ChapterLoadingCoordinator {
                 let enhanced = state.enhancedTranscription
                 let fURL = state.folderURL
                 let timelinePersistence = self.timelinePersistence
-                Task {
-                    await timelinePersistence?.ingestTimelineItems(
-                        audiobookID: audiobookID,
-                        audioURL: trackURL,
-                        chapters: built,
-                        transcription: transcription,
-                        enhancedTranscription: enhanced,
-                        folderURL: fURL
-                    )
-                }
+                await timelinePersistence?.ingestTimelineItems(
+                    audiobookID: audiobookID,
+                    audioURL: trackURL,
+                    chapters: built,
+                    transcription: transcription,
+                    enhancedTranscription: enhanced,
+                    folderURL: fURL
+                )
             }
         }
         onComputeWordClouds?()

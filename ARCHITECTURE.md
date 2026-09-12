@@ -889,6 +889,29 @@ Views/Echo_WidgetControl.swift
 
 ## Tools & Pipeline
 
+### iOS database suspension and recovery
+
+`DatabaseLifecycleCoordinator` is installed at the iOS app root before database
+opening. It grants finite background execution to launch, imports, alignment,
+and persistence operations through `DatabaseWorkProtection`. When execution
+expires, it cancels the operation tokens and posts GRDB's suspension notification
+before ending the assertion. Foreground entry or a newly granted background
+operation resumes the writer. Inactive UI transitions alone do not suspend it.
+macOS, CLI, widgets, and in-memory databases do not implicitly adopt this policy.
+
+The opening queue also installs a temporary SQLite progress handler: GRDB's pool
+observers are registered after connection preparation and WAL setup, so that
+earlier interval needs its own cancellation check. Interrupted launch and
+container repair are retried on foreground without substituting an empty database.
+
+Alignment prepares a consistent snapshot on a dedicated worker queue, checks
+that the inputs are still current, and commits block alignment and interpolated
+words together. Whole-book and chapter timing replacements delete and insert in
+one transaction. Deferred finalization unwinds its expired operation before
+waiting for foreground, and cancelled book loads cannot retry old work. Playback
+segments, bookmark replacement, Watch reviews, and export have bounded scopes of
+their own so playback can continue while optional read-along work is deferred.
+
 ### EPUB-Audio Alignment (In-App)
 
 > **Note:** The earlier `EchoTranscriptionCLI` tool (Swift CLI + Python/Whisper pipeline) has been **abandoned and removed**. It is not part of the current user workflow.

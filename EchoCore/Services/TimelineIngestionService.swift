@@ -177,15 +177,32 @@ nonisolated struct TimelineIngestionService {
         enhancedTranscription: [EnhancedTranscriptionSegment],
         folderURL: URL?
     ) async {
-        await ingestItems(
-            writer: db.writer,
-            audiobookID: audiobookID,
-            audioURL: audioURL,
-            chapters: chapters,
-            transcription: transcription,
-            enhancedTranscription: enhancedTranscription,
-            folderURL: folderURL
-        )
+        var staleRetries = 0
+        while !Task.isCancelled {
+            do {
+                try await db.withBackgroundOperation(name: "timeline-ingestion") {
+                    try await ingestItemsOperation(
+                        writer: db.writer, audiobookID: audiobookID, audioURL: audioURL,
+                        chapters: chapters, transcription: transcription,
+                        enhancedTranscription: enhancedTranscription, folderURL: folderURL)
+                }
+                return
+            } catch {
+                if error is AlignmentService.RecalculationError, staleRetries < 2 {
+                    staleRetries += 1
+                    continue
+                }
+                guard db.isWorkDeferred(error), !Task.isCancelled else {
+                    if !(error is CancellationError) {
+                        logger.error("Failed to ingest timeline items: \(error.localizedDescription)")
+                    }
+                    return
+                }
+                if DatabaseWorkContext.token != nil { return }
+                do { try await db.waitUntilForeground() }
+                catch { return }
+            }
+        }
     }
 
     /// Off-main ingestion body. GRDB's `DatabaseWriter` is Sendable and runs
@@ -201,10 +218,30 @@ nonisolated struct TimelineIngestionService {
         enhancedTranscription: [EnhancedTranscriptionSegment],
         folderURL: URL?
     ) async {
+        do {
+            try await ingestItemsOperation(
+                writer: writer, audiobookID: audiobookID, audioURL: audioURL,
+                chapters: chapters, transcription: transcription,
+                enhancedTranscription: enhancedTranscription, folderURL: folderURL)
+        } catch {
+            logger.error("Failed to ingest timeline items: \(error.localizedDescription)")
+        }
+    }
+
+    @concurrent
+    private static func ingestItemsOperation(
+        writer: DatabaseWriter,
+        audiobookID: String,
+        audioURL: URL,
+        chapters: [Chapter],
+        transcription: [TranscriptionSegment],
+        enhancedTranscription: [EnhancedTranscriptionSegment],
+        folderURL: URL?
+    ) async throws {
         let hasTranscript = !transcription.isEmpty
         let hasEnhancedTranscript = !enhancedTranscription.isEmpty
-        let hasEPUB =
-            (try? EPubBlockDAO(db: writer).hasVisibleBlocks(for: audiobookID)) == true
+        try Task.checkCancellation()
+        let hasEPUB = try EPubBlockDAO(db: writer).hasVisibleBlocks(for: audiobookID)
         let strategy = TimelineIngestionFactory.strategy(
             hasTranscript: hasTranscript,
             hasEnhancedTranscript: hasEnhancedTranscript,
@@ -212,13 +249,13 @@ nonisolated struct TimelineIngestionService {
         )
 
         // Load EPUB blocks and anchors if available.
-        let epubBlocks: [EPubBlockRecord]? = {
+        let epubBlocks: [EPubBlockRecord]? = try {
             guard hasEPUB, let folderURL else { return nil }
-            return try? EPubBlockDAO(db: writer).visibleBlocks(for: folderURL.absoluteString)
+            return try EPubBlockDAO(db: writer).visibleBlocks(for: folderURL.absoluteString)
         }()
-        let alignmentAnchors: [AlignmentAnchorRecord]? = {
+        let alignmentAnchors: [AlignmentAnchorRecord]? = try {
             guard hasEPUB, let folderURL else { return nil }
-            return try? AlignmentAnchorDAO(db: writer).anchors(for: folderURL.absoluteString)
+            return try AlignmentAnchorDAO(db: writer).anchors(for: folderURL.absoluteString)
         }()
 
         do {
@@ -234,12 +271,15 @@ nonisolated struct TimelineIngestionService {
                 flashcards: nil
             )
             guard !items.isEmpty else { return }
-            try TimelineDAO(db: writer).deleteAll(for: audiobookID)
-            try TimelineDAO(db: writer).ingest(items)
+            try Task.checkCancellation()
+            try writer.write { db in
+                try TimelineItem.filter(Column("audiobook_id") == audiobookID).deleteAll(db)
+                for var item in items { try item.insert(db) }
+            }
 
             if hasEPUB {
                 // Re-apply interpolations that TimelineIngestionFactory dropped
-                try AlignmentService(db: writer, audiobookID: audiobookID).recalculateTimeline()
+                try await AlignmentService(db: writer, audiobookID: audiobookID).recalculateTimelineAsync()
             }
 
             await MainActor.run {
@@ -250,7 +290,7 @@ nonisolated struct TimelineIngestionService {
                 )
             }
         } catch {
-            logger.error("Failed to ingest timeline items: \(error.localizedDescription)")
+            throw error
         }
     }
 }

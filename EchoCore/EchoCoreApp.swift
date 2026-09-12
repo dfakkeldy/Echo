@@ -31,6 +31,7 @@ struct EchoCoreApp: App {
     @MainActor static weak var playerModel: PlayerModel?
 
     init() {
+        DatabaseLifecycleCoordinator.shared.start()
         #if DEBUG && targetEnvironment(simulator)
             MockMediaProvider.seedSampleMediaIfNeeded()
         #endif
@@ -108,14 +109,23 @@ struct EchoCoreApp: App {
         guard autoExport == nil, !isOpeningDatabase else { return }
         isOpeningDatabase = true
         defer { isOpeningDatabase = false }
-        do {
-            let database = try await DatabaseService.openForLaunch()
-            installDatabase(database)
-            databaseError = nil
-        } catch is CancellationError {
-            // A later appearance can resume startup after this task disappears.
-        } catch {
-            databaseError = error
+        while !Task.isCancelled {
+            do {
+                let database = try await DatabaseService.openForLaunch(
+                    protection: DatabaseService.workProtection)
+                installDatabase(database)
+                databaseError = nil
+                return
+            } catch is DatabaseWorkDeferred {
+                do { try await DatabaseLifecycleCoordinator.shared.waitUntilForeground() } catch {
+                    return
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                databaseError = error
+                return
+            }
         }
     }
 

@@ -18,8 +18,10 @@ enum DatabaseError: LocalizedError {
 /// Owns a GRDB database in WAL mode (DatabasePool for disk, DatabaseQueue for in-memory).
 @MainActor @Observable
 final class DatabaseService {
+    static var workProtection: DatabaseWorkProtection?
     let writer: DatabaseWriter
     let dbPath: String
+    private let protection: DatabaseWorkProtection?
 
     private nonisolated static let openingQueue = DispatchQueue(
         label: "com.echo.database-opening", qos: .userInitiated)
@@ -28,27 +30,47 @@ final class DatabaseService {
         let writer: DatabasePool
         let path: String
 
-        init(databaseURL: URL) throws {
+        init(databaseURL: URL, token: DatabaseWorkToken? = nil) throws {
+            try token?.check()
             try FileManager.default.createDirectory(
                 at: databaseURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             let path = databaseURL.path
             self.path = path
+            let opening = DatabaseOpeningCheck(token)
+            defer { opening.finish() }
             var config = Configuration()
+            config.observesSuspensionNotifications = token != nil
+            // GRDB's automatic iOS cleanup can synchronously wait for this
+            // writer when UIKit denies its independent background assertion.
+            #if os(iOS)
+                config.automaticMemoryManagement = token == nil
+            #endif
             config.prepareDatabase { db in
+                try opening.prepare(db)
                 try db.execute(sql: "PRAGMA journal_mode=WAL")
                 try db.execute(sql: "PRAGMA foreign_keys=ON")
             }
             writer = try DatabasePool(path: path, configuration: config)
+            // Notifications are not sticky: expiration may have occurred while
+            // the pool was creating its first connection and observers.
+            try token?.check()
             try DatabaseService.makeMigrator().migrate(writer)
-            ContainerPathRepair.runIfNeeded(writer: writer)
+            try token?.check()
+            if token != nil {
+                try ContainerPathRepair.runForLaunch(writer: writer)
+            } else {
+                ContainerPathRepair.runIfNeeded(writer: writer)
+            }
+            try token?.check()
             Logger(category: "DatabaseService").info(
                 "Database opened at \(path, privacy: .private)")
         }
     }
 
-    private init(connection: Connection) {
+    private init(connection: Connection, protection: DatabaseWorkProtection? = nil) {
         writer = connection.writer
         dbPath = connection.path
+        self.protection = protection
     }
 
     convenience init(
@@ -69,19 +91,35 @@ final class DatabaseService {
 
     /// Opens and repairs the database without blocking the UI or a cooperative
     /// executor thread. Callers must wait for this before exposing library views.
-    static func openForLaunch(databaseURL: URL? = nil) async throws -> DatabaseService {
+    static func openForLaunch(
+        databaseURL: URL? = nil,
+        protection: DatabaseWorkProtection? = nil
+    ) async throws -> DatabaseService {
+        if let protection {
+            return try await protection.run(name: "database launch") {
+                try await openConnection(databaseURL: databaseURL, protection: protection)
+            }
+        }
+        return try await openConnection(databaseURL: databaseURL, protection: nil)
+    }
+
+    private static func openConnection(
+        databaseURL: URL?, protection: DatabaseWorkProtection?
+    ) async throws -> DatabaseService {
         try Task.checkCancellation()
         let url = try databaseURL ?? Self.databaseURL()
+        let token = DatabaseWorkContext.token
         let connection = try await withCheckedThrowingContinuation {
             (continuation: CheckedContinuation<Connection, Error>) in
             openingQueue.async {
-                continuation.resume(with: Result { try Connection(databaseURL: url) })
+                continuation.resume(with: Result { try Connection(databaseURL: url, token: token) })
             }
         }
         // Let an in-flight SQLite transaction finish safely, but do not install
         // its result into a view whose launch task has been cancelled.
         try Task.checkCancellation()
-        return DatabaseService(connection: connection)
+        try token?.check()
+        return DatabaseService(connection: connection, protection: protection)
     }
 
     private static func databaseURL(
@@ -106,6 +144,7 @@ final class DatabaseService {
     }
 
     init(inMemory: Void) throws {
+        self.protection = nil
         var config = Configuration()
         config.prepareDatabase { db in
             try db.execute(sql: "PRAGMA foreign_keys=ON")
@@ -116,6 +155,31 @@ final class DatabaseService {
     }
 
     // MARK: - Accessors
+
+    func withBackgroundOperation<T>(
+        name: String, operation: () async throws -> T
+    ) async throws -> T {
+        if let protection { return try await protection.run(name: name, operation: operation) }
+        return try await operation()
+    }
+
+    func waitUntilForeground() async throws {
+        try Task.checkCancellation()
+        try await protection?.waitUntilForeground()
+    }
+
+    nonisolated static func isWorkDeferred(_ error: any Error) -> Bool {
+        if error is DatabaseWorkDeferred { return true }
+        return DatabaseWorkContext.token?.isCancelled == true
+    }
+
+    nonisolated func isWorkDeferred(_ error: any Error) -> Bool {
+        Self.isWorkDeferred(error)
+    }
+
+    nonisolated func throwIfWorkDeferred(_ error: any Error) throws {
+        if Self.isWorkDeferred(error) { throw DatabaseWorkDeferred() }
+    }
 
     func read<T>(_ block: @escaping (Database) throws -> T) throws -> T {
         try writer.read(block)

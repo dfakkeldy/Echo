@@ -60,6 +60,66 @@ enum DocumentImportFinalizer {
         networkRequestObserver:
             (@Sendable (DocumentImportNetworkRequest) -> Void)? = nil
     ) async -> Bool {
+        while !Task.isCancelled {
+            let outcome = await finalizeOutcome(
+                audiobookID: audiobookID, blocks: blocks, fileURL: fileURL,
+                duration: duration, databaseService: databaseService,
+                networkPolicy: networkPolicy, networkRequestObserver: networkRequestObserver)
+            guard outcome == .deferred else { return outcome == .completed }
+            // An enclosing import owns this lease and must unwind before retrying.
+            if DatabaseWorkContext.token != nil { return false }
+            do { try await databaseService.waitUntilForeground() }
+            catch { return false }
+        }
+        return false
+    }
+
+    enum Outcome: Equatable, Sendable {
+        case completed, deferred, failed
+    }
+
+    static func finalizeOutcome(
+        audiobookID: String,
+        blocks: [EPubBlockRecord],
+        fileURL: URL,
+        duration: TimeInterval?,
+        databaseService: DatabaseService,
+        networkPolicy: DocumentImportNetworkPolicy = .standard,
+        networkRequestObserver:
+            (@Sendable (DocumentImportNetworkRequest) -> Void)? = nil
+    ) async -> Outcome {
+        // A competing chapter ingestion may invalidate one prepared snapshot.
+        // Retry from a fresh snapshot, but never reinterpret that race as a bad sidecar.
+        for attempt in 0..<3 {
+            do {
+                return try await databaseService.withBackgroundOperation(name: "document-finalization") {
+                    try Task.checkCancellation()
+                    let completed = try await finalizeOperation(
+                        audiobookID: audiobookID, blocks: blocks, fileURL: fileURL,
+                        duration: duration, databaseService: databaseService,
+                        networkPolicy: networkPolicy, networkRequestObserver: networkRequestObserver)
+                    return completed ? .completed : .failed
+                }
+            } catch {
+                if databaseService.isWorkDeferred(error) || error is CancellationError { return .deferred }
+                if error is AlignmentService.RecalculationError, attempt < 2 { continue }
+                logger.error("Document finalization failed: \(error.localizedDescription)")
+                return .failed
+            }
+        }
+        return .failed
+    }
+
+    private static func finalizeOperation(
+        audiobookID: String,
+        blocks: [EPubBlockRecord],
+        fileURL: URL,
+        duration: TimeInterval?,
+        databaseService: DatabaseService,
+        networkPolicy: DocumentImportNetworkPolicy = .standard,
+        networkRequestObserver:
+            (@Sendable (DocumentImportNetworkRequest) -> Void)? = nil
+    ) async throws -> Bool {
         // Create initial system anchors (first block → 0, last block → duration)
         // so every block gets an interpolated timestamp from the start.
         let alignmentService = AlignmentService(
@@ -94,8 +154,7 @@ enum DocumentImportFinalizer {
         if case .available(let alignmentSidecarURL) = resolution {
             summary.sidecarFound = true
             do {
-                let data = try Data(contentsOf: alignmentSidecarURL)
-                let exports = try AlignmentSidecar.decode(data)
+                let exports = try await decodeSidecar(at: alignmentSidecarURL)
                 if AlignmentSidecar.sourceValidation(for: exports, blocks: blocks) != .current {
                     summary.status = .staleSource
                     logger.info(
@@ -147,11 +206,11 @@ enum DocumentImportFinalizer {
                                 logger.debug(
                                     "alignment.json sidecar already ingested for \(audiobookID); refreshing timeline and word timings without rewriting anchors"
                                 )
-                                try alignmentService.recalculateTimeline()
+                                try await alignmentService.recalculateTimelineAsync()
                             } else {
                                 logger.info(
                                     "Found alignment.json sidecar with \(exports.count) anchors.")
-                                try replaceMachineAnchors(
+                                try await replaceMachineAnchors(
                                     with: resolved,
                                     audiobookID: audiobookID,
                                     writer: databaseService.writer,
@@ -170,6 +229,8 @@ enum DocumentImportFinalizer {
                             appliedSidecarAnchors = true
                             summary.status = .applied
                         } catch {
+                            if databaseService.isWorkDeferred(error) || error is CancellationError
+                    || error is AlignmentService.RecalculationError { throw error }
                             logger.error(
                                 "Failed to persist alignment.json anchors: \(error.localizedDescription)"
                             )
@@ -178,6 +239,8 @@ enum DocumentImportFinalizer {
                     }
                 }
             } catch {
+                if databaseService.isWorkDeferred(error) || error is CancellationError
+                    || error is AlignmentService.RecalculationError { throw error }
                 summary.status = .decodeError
                 logger.error(
                     "Failed to ingest alignment.json sidecar (falling back to interpolation): \(error.localizedDescription)"
@@ -201,14 +264,16 @@ enum DocumentImportFinalizer {
         // established "reset replaceable machine anchors to the first/last floor,
         // preserving human anchors" behavior.
         if !appliedSidecarAnchors {
+            try Task.checkCancellation()
             let hasExistingAnchors =
-                ((try? AlignmentAnchorDAO(db: databaseService.writer).anchors(for: audiobookID))
-                ?? []).isEmpty == false
+                try !AlignmentAnchorDAO(db: databaseService.writer).anchors(for: audiobookID).isEmpty
             if summary.sidecarFound, hasExistingAnchors {
                 do {
-                    try alignmentService.recalculateTimeline()
+                    try await alignmentService.recalculateTimelineAsync()
                     didRecalculateTimeline = true
                 } catch {
+                    if databaseService.isWorkDeferred(error) || error is CancellationError
+                    || error is AlignmentService.RecalculationError { throw error }
                     logger.error(
                         "Failed to recalculate timeline for \(audiobookID): \(error.localizedDescription)"
                     )
@@ -217,7 +282,7 @@ enum DocumentImportFinalizer {
             } else if let duration {
                 var downloadedAnchors: [AlignmentAnchorRecord] = []
                 let folderURL = fileURL.deletingLastPathComponent()
-                let record = try? AudiobookDAO(db: databaseService.writer).get(audiobookID)
+                let record = try AudiobookDAO(db: databaseService.writer).get(audiobookID)
                 let (title, author) = EPUBAutoImportScanner.anchorLookupMetadata(
                     folderURL: folderURL, record: record)
 
@@ -234,6 +299,8 @@ enum DocumentImportFinalizer {
                             duration: duration
                         )
                     } catch {
+                        if databaseService.isWorkDeferred(error) || error is CancellationError
+                    || error is AlignmentService.RecalculationError { throw error }
                         logger.error(
                             "CloudKit anchor lookup failed; falling back to local anchors: \(error.localizedDescription)"
                         )
@@ -250,7 +317,7 @@ enum DocumentImportFinalizer {
 
                 if !downloadedAnchors.isEmpty {
                     do {
-                        try replaceMachineAnchors(
+                        try await replaceMachineAnchors(
                             with: downloadedAnchors,
                             audiobookID: audiobookID,
                             writer: databaseService.writer,
@@ -259,6 +326,8 @@ enum DocumentImportFinalizer {
                         didRecalculateTimeline = true
                         logger.info("Ingested \(downloadedAnchors.count) anchors from CloudKit")
                     } catch {
+                        if databaseService.isWorkDeferred(error) || error is CancellationError
+                    || error is AlignmentService.RecalculationError { throw error }
                         logger.error(
                             "Failed to ingest CloudKit anchors: \(error.localizedDescription)")
                         return false
@@ -291,7 +360,7 @@ enum DocumentImportFinalizer {
                         modifiedAt: nil
                     )
                     do {
-                        try replaceMachineAnchors(
+                        try await replaceMachineAnchors(
                             with: [firstAnchor, lastAnchor],
                             audiobookID: audiobookID,
                             writer: databaseService.writer,
@@ -300,6 +369,8 @@ enum DocumentImportFinalizer {
                         didRecalculateTimeline = true
                         logger.info("Created initial alignment anchors for \(audiobookID)")
                     } catch {
+                        if databaseService.isWorkDeferred(error) || error is CancellationError
+                    || error is AlignmentService.RecalculationError { throw error }
                         logger.error(
                             "Failed to create initial alignment anchors for \(audiobookID): \(error.localizedDescription)"
                         )
@@ -315,11 +386,13 @@ enum DocumentImportFinalizer {
         // is a no-op on an empty book, so this is always safe.
         if !didRecalculateTimeline {
             do {
-                try alignmentService.recalculateTimeline()
+                try await alignmentService.recalculateTimelineAsync()
                 didRecalculateTimeline = true
                 logger.info(
                     "Recalculated timeline (interpolation floor) for \(audiobookID)")
             } catch {
+                if databaseService.isWorkDeferred(error) || error is CancellationError
+                    || error is AlignmentService.RecalculationError { throw error }
                 logger.error(
                     "Failed to recalculate timeline for \(audiobookID): \(error.localizedDescription)"
                 )
@@ -331,7 +404,7 @@ enum DocumentImportFinalizer {
         // whichever `recalculateTimeline` ran LAST. No-op for word-less or
         // un-ingested sidecars.
         if let ingestedSidecar {
-            let application = applySidecarWordTimings(
+            let application = try await applySidecarWordTimings(
                 exports: ingestedSidecar.exports,
                 audiobookID: audiobookID,
                 localBlockIDs: ingestedSidecar.localBlockIDs,
@@ -358,6 +431,8 @@ enum DocumentImportFinalizer {
 
         // Persist the observability snapshot BEFORE notifying, so a UI refresh
         // triggered by the notification reads the up-to-date summary.
+        try Task.checkCancellation()
+        try DatabaseWorkContext.token?.check()
         summary.updatedAt = AlignmentService.isoFormatter.string(from: Date())
         BookPreferencesService.saveSidecarSummary(summary, for: audiobookID)
 
@@ -378,8 +453,8 @@ enum DocumentImportFinalizer {
     /// word-less sidecar contributes nothing. Word-count mismatches are skipped
     /// inside `WordTimingMaterializer.applySidecarWords` (the rows were
     /// materialized from the block's tokenized text, so row count == token
-    /// count). Best-effort: a word-timing failure must never fail the import —
-    /// the anchors are already ingested and read-along works via interpolation.
+    /// count). Database failures propagate so an interrupted sidecar does not
+    /// publish a successful summary before its matching word stage commits.
     /// Returns the per-pass application so the caller can record how many blocks
     /// took sidecar timings (fix 6) and log which blocks fell back (fix 5).
     @discardableResult
@@ -388,7 +463,7 @@ enum DocumentImportFinalizer {
         audiobookID: String,
         localBlockIDs: Set<String>,
         writer: DatabaseWriter
-    ) -> WordTimingMaterializer.SidecarWordApplication {
+    ) async throws -> WordTimingMaterializer.SidecarWordApplication {
         var wordsByBlock: [String: [AlignmentSidecar.Anchor.Word]] = [:]
         for export in exports {
             guard let words = export.words, !words.isEmpty else { continue }
@@ -399,7 +474,7 @@ enum DocumentImportFinalizer {
         }
         guard !wordsByBlock.isEmpty else { return .init() }
         do {
-            let application = try WordTimingMaterializer.applySidecarWords(
+            let application = try await WordTimingMaterializer.applySidecarWordsAsync(
                 audiobookID: audiobookID,
                 sidecarWordsByBlock: wordsByBlock,
                 writer: writer
@@ -422,7 +497,7 @@ enum DocumentImportFinalizer {
             logger.error(
                 "Failed to apply sidecar word timings (read-along falls back to interpolation): \(error.localizedDescription)"
             )
-            return .init()
+            throw error
         }
     }
 
@@ -431,7 +506,8 @@ enum DocumentImportFinalizer {
         audiobookID: String,
         writer: DatabaseWriter,
         alignmentService: AlignmentService
-    ) throws {
+    ) async throws {
+        try Task.checkCancellation()
         try writer.write { db in
             try AlignmentAnchorRecord
                 .filter(Column("audiobook_id") == audiobookID)
@@ -443,7 +519,7 @@ enum DocumentImportFinalizer {
                 try mutable.upsert(db)
             }
         }
-        try alignmentService.recalculateTimeline()
+        try await alignmentService.recalculateTimelineAsync()
     }
 
     private static func machineAnchorsMatch(
@@ -515,22 +591,80 @@ enum DocumentImportFinalizer {
         networkRequestObserver:
             (@Sendable (DocumentImportNetworkRequest) -> Void)? = nil
     ) async -> Bool {
+        while !Task.isCancelled {
+            let outcome = await finalizeExistingImportOutcome(
+                audiobookID: audiobookID, fileURL: fileURL, duration: duration,
+                databaseService: databaseService, networkPolicy: networkPolicy,
+                networkRequestObserver: networkRequestObserver)
+            guard outcome == .deferred else { return outcome == .completed }
+            // An enclosing import owns this lease and must unwind before retrying.
+            if DatabaseWorkContext.token != nil { return false }
+            do { try await databaseService.waitUntilForeground() }
+            catch { return false }
+        }
+        return false
+    }
+
+    @discardableResult
+    static func finalizeExistingImportOutcome(
+        audiobookID: String,
+        fileURL: URL,
+        duration: TimeInterval?,
+        databaseService: DatabaseService,
+        networkPolicy: DocumentImportNetworkPolicy = .standard,
+        networkRequestObserver:
+            (@Sendable (DocumentImportNetworkRequest) -> Void)? = nil
+    ) async -> Outcome {
+        do {
+            return try await databaseService.withBackgroundOperation(name: "document-reopen") {
+                let outcome = await finalizeExistingImportOperation(
+                    audiobookID: audiobookID, fileURL: fileURL, duration: duration,
+                    databaseService: databaseService, networkPolicy: networkPolicy,
+                    networkRequestObserver: networkRequestObserver)
+                if outcome == .deferred { throw DatabaseWorkDeferred() }
+                return outcome
+            }
+        } catch {
+            return databaseService.isWorkDeferred(error) || error is CancellationError ? .deferred : .failed
+        }
+    }
+
+    @discardableResult
+    private static func finalizeExistingImportOperation(
+        audiobookID: String,
+        fileURL: URL,
+        duration: TimeInterval?,
+        databaseService: DatabaseService,
+        networkPolicy: DocumentImportNetworkPolicy = .standard,
+        networkRequestObserver:
+            (@Sendable (DocumentImportNetworkRequest) -> Void)? = nil
+    ) async -> Outcome {
         // Cheap presence check (no download) so the common "no sidecar" reopen
         // stays fast; `finalize` does the actual dataless download once.
-        guard hasSidecarOrPlaceholder(for: fileURL) else { return false }
+        // An interrupted first import can leave blocks without word timings.
+        // Retry that stage on a later open even when there is no sidecar.
+        let hasSidecar = hasSidecarOrPlaceholder(for: fileURL)
 
         let blocks: [EPubBlockRecord]
         do {
+            try Task.checkCancellation()
+            if !hasSidecar {
+                let hasWords = try databaseService.writer.read { db in
+                    try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM word_timing WHERE audiobook_id = ?)", arguments: [audiobookID]) ?? false
+                }
+                if hasWords { return .completed }
+            }
             blocks = try EPubBlockDAO(db: databaseService.writer).allBlocks(for: audiobookID)
         } catch {
+            if databaseService.isWorkDeferred(error) || error is CancellationError { return .deferred }
             logger.error(
                 "Failed to load existing document blocks for sidecar finalization: \(error.localizedDescription)"
             )
-            return false
+            return .failed
         }
 
-        guard !blocks.isEmpty else { return false }
-        return await finalize(
+        guard !blocks.isEmpty else { return .completed }
+        return await finalizeOutcome(
             audiobookID: audiobookID,
             blocks: blocks,
             fileURL: fileURL,
@@ -539,6 +673,14 @@ enum DocumentImportFinalizer {
             networkPolicy: networkPolicy,
             networkRequestObserver: networkRequestObserver
         )
+    }
+
+    @concurrent
+    private nonisolated static func decodeSidecar(at url: URL) async throws -> [AlignmentSidecar.Anchor] {
+        try Task.checkCancellation()
+        let exports = try AlignmentSidecar.decode(Data(contentsOf: url))
+        try Task.checkCancellation()
+        return exports
     }
 
     // MARK: - Sidecar discovery (incl. dataless iCloud)
@@ -646,7 +788,9 @@ enum DocumentImportFinalizer {
         }
         // ~8s: 40 × 200 ms. Sidecars are small; this rarely runs to the deadline.
         for _ in 0..<40 {
-            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return false }
+            do { try await Task.sleep(for: .milliseconds(200)) }
+            catch { return false }
             let status = try? url.resourceValues(
                 forKeys: [.ubiquitousItemDownloadingStatusKey]
             ).ubiquitousItemDownloadingStatus

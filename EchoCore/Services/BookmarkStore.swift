@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import GRDB
 @preconcurrency import AVFoundation
 import os.log
 
@@ -20,6 +21,8 @@ final class BookmarkStore {
     private(set) var isPlayingVoiceMemo: Bool = false
     /// 0...1 progress of the currently playing voice memo.
     private(set) var voiceMemoProgress: Double = 0.0
+
+    @ObservationIgnored private var persistenceTask: Task<Void, Never>?
 
     @ObservationIgnored private var voiceMemoEngine: AVAudioEngine?
     @ObservationIgnored private var voiceMemoPlayerNode: AVAudioPlayerNode?
@@ -350,14 +353,41 @@ final class BookmarkStore {
     func configureSQLPersistence(database: DatabaseService) {
         onPersist = { [weak self] bookmarks in
             guard let self, let key = self.storageKeyProvider?() else { return }
-            let dao = BookmarkDAO(db: database.writer)
-            do {
-                try dao.deleteAll(for: key)
-                for bm in bookmarks {
-                    try dao.insert(BookmarkRecord(from: bm))
+            let previous = self.persistenceTask
+            self.persistenceTask = Task {
+                // Preserve edit ordering, including edits queued while suspended.
+                await previous?.value
+                while !Task.isCancelled {
+                    do {
+                        try await database.withBackgroundOperation(name: "bookmark persistence") {
+                            try Self.replaceBookmarks(bookmarks, for: key, database: database)
+                        }
+                        return
+                    } catch {
+                        if database.isWorkDeferred(error) {
+                            do { try await database.waitUntilForeground() }
+                            catch { return }
+                            continue
+                        }
+                        self.logger.error("Failed to persist bookmarks to SQL: \(error.localizedDescription)")
+                        return
+                    }
                 }
-            } catch {
-                self.logger.error("Failed to persist bookmarks to SQL: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Replacement and its timeline mirror share one rollback boundary.
+    static func replaceBookmarks(_ bookmarks: [Bookmark], for key: String, database: DatabaseService) throws {
+        let dao = BookmarkDAO(db: database.writer)
+        try database.writer.write { db in
+            try BookmarkRecord.filter(Column("audiobook_id") == key).deleteAll(db)
+            try TimelineItem
+                .filter(Column("audiobook_id") == key)
+                .filter(Column("source_table") == "bookmark")
+                .deleteAll(db)
+            for bookmark in bookmarks {
+                try dao.insert(BookmarkRecord(from: bookmark), in: db)
             }
         }
     }

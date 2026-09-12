@@ -40,6 +40,8 @@ actor PlaybackSessionRecorder {
     static let heartbeatInterval: TimeInterval = 30
 
     private let writer: any DatabaseWriter
+    private let database: DatabaseService?
+    private var actionCommitted = false
     private let logger: Logger
     private let pendingCount: SafeCounter
 
@@ -52,7 +54,8 @@ actor PlaybackSessionRecorder {
     private var consumerTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
 
-    init(writer: any DatabaseWriter) {
+    init(writer: any DatabaseWriter, database: DatabaseService? = nil) {
+        self.database = database
         self.writer = writer
         self.logger = Logger(category: "PlaybackSessionRecorder")
         self.pendingCount = SafeCounter()
@@ -89,6 +92,8 @@ actor PlaybackSessionRecorder {
         heartbeatTask = Task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(Self.heartbeatInterval))
+                guard !Task.isCancelled else { break }
+                self.pendingCount.increment()
                 continuation.yield(.heartbeat(at: Date()))
             }
         }
@@ -118,44 +123,72 @@ actor PlaybackSessionRecorder {
     }
 
     private func perform(_ action: SegmentAction) async {
-        do {
-            switch action {
-            case .begin(let segment):
-                try await ensureAudiobookRow(id: segment.audiobookID)
-                openRowID = try await insertOpen(segment)
-            case .extendOpen(let endedAt, let endPosition),
-                .finalize(let endedAt, let endPosition):
-                guard let id = openRowID else { return }
-                try await writer.write { db in
-                    try db.execute(
-                        sql:
-                            "UPDATE playback_event SET ended_at = ?, end_position = ? WHERE id = ?",
-                        arguments: [endedAt.ISO8601Format(), endPosition, id]
-                    )
+        actionCommitted = false
+        while !Task.isCancelled {
+            do {
+                if let database {
+                    try await database.withBackgroundOperation(name: "playback segment") {
+                        try await self.performAction(action)
+                    }
+                } else {
+                    try await performAction(action)
                 }
-                if case .finalize = action { openRowID = nil }
-            case .discard:
-                guard let id = openRowID else { return }
-                openRowID = nil
-                try await writer.write { db in
-                    try db.execute(sql: "DELETE FROM playback_event WHERE id = ?", arguments: [id])
+                return
+            } catch {
+                // A transaction may have committed just before assertion expiry.
+                // Its acknowledgement belongs to this action, not to the assertion.
+                if actionCommitted { return }
+                if let database, DatabaseService.isWorkDeferred(error) {
+                    do { try await database.waitUntilForeground() }
+                    catch { return }
+                    continue
                 }
+                logger.error("Segment action failed: \(error.localizedDescription)")
+                return
             }
-        } catch {
-            logger.error("Segment action failed: \(error.localizedDescription)")
         }
+    }
+
+    private func performAction(_ action: SegmentAction) async throws {
+        switch action {
+        case .begin(let segment):
+            try await ensureAudiobookRow(id: segment.audiobookID)
+            openRowID = try await insertOpen(segment)
+        case .extendOpen(let endedAt, let endPosition),
+            .finalize(let endedAt, let endPosition):
+            guard let id = openRowID else { return }
+            try await writer.write { db in
+                try db.execute(
+                    sql:
+                        "UPDATE playback_event SET ended_at = ?, end_position = ? WHERE id = ?",
+                    arguments: [endedAt.ISO8601Format(), endPosition, id]
+                )
+            }
+            if case .finalize = action { openRowID = nil }
+        case .discard:
+            guard let id = openRowID else { return }
+            try await writer.write { db in
+                try db.execute(sql: "DELETE FROM playback_event WHERE id = ?", arguments: [id])
+            }
+            openRowID = nil
+        }
+        actionCommitted = true
     }
 
     private func insertOpen(_ segment: OpenSegment) async throws -> Int64 {
         do {
             return try await insertOpenRow(segment, trackID: segment.trackID)
         } catch {
+            if DatabaseService.isWorkDeferred(error) { throw DatabaseWorkDeferred() }
+            try Task.checkCancellation()
             // track_id FK can fail if ingestion hasn't written track rows yet
             // (or for narration-only books where no audiobook/track row exists).
             logger.warning("insertOpen retrying without track_id: \(error.localizedDescription)")
             do {
                 return try await insertOpenRow(segment, trackID: nil)
             } catch {
+                if DatabaseService.isWorkDeferred(error) { throw DatabaseWorkDeferred() }
+                try Task.checkCancellation()
                 // Both attempts failed — e.g., narration-only EPUB where no
                 // audiobook row exists at all. The segment is valid analytics
                 // data but can't be persisted without the FK target. Log and
