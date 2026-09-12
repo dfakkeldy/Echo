@@ -508,10 +508,11 @@ enum DocumentImportFinalizer {
         alignmentService: AlignmentService
     ) async throws {
         try Task.checkCancellation()
+        let preservedSources = humanAnchorSources
         try await writer.write { db in
             try AlignmentAnchorRecord
                 .filter(Column("audiobook_id") == audiobookID)
-                .filter(!humanAnchorSources.contains(Column("source")))
+                .filter(!preservedSources.contains(Column("source")))
                 .deleteAll(db)
 
             for anchor in anchors {

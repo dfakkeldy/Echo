@@ -219,6 +219,7 @@ nonisolated enum EPUBAutoImportScanner {
                         networkPolicy: networkPolicy, allowStaleSourceRecovery: allowStaleSourceRecovery,
                         recoveryStore: recoveryStore, preExtractedDirectory: preExtractedDirectory,
                         networkRequestObserver: networkRequestObserver)
+                    importedDuringAttempt = importedDuringAttempt || outcome.didImportBlocks
                     if case .failed(_, let error) = outcome {
                         try databaseService.throwIfWorkDeferred(error)
                     }
