@@ -74,7 +74,7 @@ enum DocumentImportFinalizer {
         return false
     }
 
-    enum Outcome: Equatable, Sendable {
+    nonisolated enum Outcome: Equatable, Sendable {
         case completed, deferred, failed
     }
 
