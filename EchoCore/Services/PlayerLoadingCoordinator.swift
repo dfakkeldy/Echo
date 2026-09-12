@@ -93,7 +93,7 @@ final class PlayerLoadingCoordinator {
 
         playbackController.stop()
         state.durationSeconds = nil
-        timelinePersistence?.cancelPendingIngestion()
+        timelinePersistence.cancelPendingIngestion()
         chapterIngestionTask?.cancel()
         chapterIngestionTask = nil
         postLoadTask?.cancel()
