@@ -137,12 +137,13 @@ final class DatabaseLifecycleCoordinator {
                 UIApplication.willEnterForegroundNotification,
                 UIApplication.didEnterBackgroundNotification,
             ] {
+                let isBackground = name == UIApplication.didEnterBackgroundNotification
                 lifecycleObservers.append(
                     NotificationCenter.default.addObserver(
                         forName: name, object: nil, queue: .main
-                    ) { [weak self] notification in
+                    ) { [weak self] _ in
                         MainActor.assumeIsolated {
-                            if notification.name == UIApplication.didEnterBackgroundNotification {
+                            if isBackground {
                                 self?.enterBackground()
                             } else {
                                 self?.enterForeground()
