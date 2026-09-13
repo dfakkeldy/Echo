@@ -240,7 +240,7 @@ struct WordTimingMaterializerTests {
                 BEGIN SELECT RAISE(ABORT, 'injected insertion failure'); END
                 """)
         }
-        #expect(throws: DatabaseError.self) {
+        #expect(throws: GRDB.DatabaseError.self) {
             switch scope {
             case "chapter":
                 try WordTimingMaterializer.materializeChapter(

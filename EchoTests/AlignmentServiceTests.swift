@@ -419,7 +419,7 @@ struct AlignmentServiceTests {
                 BEGIN SELECT RAISE(ABORT, 'injected insertion failure'); END;
                 """)
         }
-        #expect(throws: DatabaseError.self) { try service.recalculateTimeline() }
+        #expect(throws: GRDB.DatabaseError.self) { try service.recalculateTimeline() }
         #expect(try WordTimingDAO(db: db.writer).words(forAudiobook: bookID) == words)
         let after = try db.read {
             try TimelineItem.filter(Column("audiobook_id") == bookID).order(Column("id")).fetchAll($0)
