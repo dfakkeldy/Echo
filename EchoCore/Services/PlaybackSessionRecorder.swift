@@ -89,11 +89,12 @@ actor PlaybackSessionRecorder {
                 await handle(event)
             }
         }
+        let heartbeatCounter = pendingCount
         heartbeatTask = Task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(Self.heartbeatInterval))
                 guard !Task.isCancelled else { break }
-                self.pendingCount.increment()
+                heartbeatCounter.increment()
                 continuation.yield(.heartbeat(at: Date()))
             }
         }
