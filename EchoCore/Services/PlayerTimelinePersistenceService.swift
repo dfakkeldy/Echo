@@ -9,6 +9,12 @@ final class PlayerTimelinePersistenceService {
     private static let logger = Logger(category: "PlayerTimelinePersistence")
 
     var databaseService: DatabaseService?
+    private var ingestionTasks: [String: (id: UUID, task: Task<Void, Never>)] = [:]
+
+    func cancelPendingIngestion() {
+        for pending in ingestionTasks.values { pending.task.cancel() }
+        ingestionTasks.removeAll()
+    }
 
     // MARK: - EPUB lookup
 
@@ -40,15 +46,28 @@ final class PlayerTimelinePersistenceService {
         folderURL: URL?
     ) async {
         guard let db = databaseService else { return }
-        await TimelineIngestionService.ingestItems(
-            db: db,
-            audiobookID: audiobookID,
-            audioURL: audioURL,
-            chapters: chapters,
-            transcription: transcription,
-            enhancedTranscription: enhancedTranscription,
-            folderURL: folderURL
-        )
+        ingestionTasks[audiobookID]?.task.cancel()
+        let requestID = UUID()
+        let task = Task {
+            await TimelineIngestionService.ingestItems(
+                db: db,
+                audiobookID: audiobookID,
+                audioURL: audioURL,
+                chapters: chapters,
+                transcription: transcription,
+                enhancedTranscription: enhancedTranscription,
+                folderURL: folderURL
+            )
+        }
+        ingestionTasks[audiobookID] = (requestID, task)
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        if ingestionTasks[audiobookID]?.id == requestID {
+            ingestionTasks[audiobookID] = nil
+        }
     }
 
     // MARK: - Re-ingestion

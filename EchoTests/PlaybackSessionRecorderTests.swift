@@ -18,6 +18,37 @@ struct PlaybackSessionRecorderTests {
         }
     }
 
+    @Test func deferredAdmissionRetainsQueuedSegmentUntilForeground() async throws {
+        await DatabaseSuspensionTestGate.acquire()
+        defer { DatabaseSuspensionTestGate.release() }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var denyNextSegment = true
+        var resumed = 0
+        let protection = DatabaseWorkProtection(
+            begin: { name in
+                if name == "playback segment", denyNextSegment {
+                    denyNextSegment = false
+                    throw DatabaseWorkDeferred()
+                }
+                return DatabaseWorkToken()
+            },
+            end: { _ in },
+            waitUntilForeground: { resumed += 1 }
+        )
+        let db = try await DatabaseService.openForLaunch(
+            databaseURL: directory.appendingPathComponent("test.sqlite"), protection: protection)
+        let recorder = PlaybackSessionRecorder(writer: db.writer, database: db)
+        recorder.yield(.opened(audiobookID: "b", trackID: nil, position: 10, speed: 1, source: "user", at: t0))
+        recorder.yield(.closed(position: 70, at: t0.addingTimeInterval(60)))
+        await recorder.drain()
+        await recorder.shutdown()
+        #expect(resumed == 1)
+        let segments = try rows(db)
+        #expect(segments.count == 1)
+        #expect(segments.first?["end_position"] == 70.0)
+    }
+
     @Test func playPauseProducesOneSegmentAndStubsAudiobook() async throws {
         let db = try makeDB()
         let recorder = PlaybackSessionRecorder(writer: db.writer)

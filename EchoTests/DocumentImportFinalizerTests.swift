@@ -7,6 +7,105 @@ import Testing
 
 @MainActor
 struct DocumentImportFinalizerTests {
+    @Test func deferredDiskFinalizationResumesOnceAfterForeground() async throws {
+        await DatabaseSuspensionTestGate.acquire()
+        defer { DatabaseSuspensionTestGate.release() }
+        let fileURL = try makeDocumentURL()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        var denyWork = false
+        var foregroundWaits = 0
+        var successfulFinalizations = 0
+        let protection = DatabaseWorkProtection(
+            begin: { name in
+                if denyWork { throw DatabaseWorkDeferred() }
+                if name == "document-finalization" { successfulFinalizations += 1 }
+                return DatabaseWorkToken()
+            },
+            end: { _ in },
+            waitUntilForeground: {
+                foregroundWaits += 1
+                denyWork = false
+            })
+        let databaseService = try await DatabaseService.openForLaunch(
+            databaseURL: fileURL.deletingLastPathComponent().appendingPathComponent("recovery.sqlite"),
+            protection: protection)
+        let audiobookID = "disk-recovery"
+        try insertAudiobook(audiobookID, databaseService: databaseService)
+        let blocks = [
+            block(id: "disk-recovery-s0-b0", audiobookID: audiobookID, sequenceIndex: 0),
+            block(id: "disk-recovery-s0-b1", audiobookID: audiobookID, sequenceIndex: 1),
+        ]
+        try EPubBlockDAO(db: databaseService.writer).insertAll(blocks)
+        denyWork = true
+        let completed = await DocumentImportFinalizer.finalize(
+            audiobookID: audiobookID, blocks: blocks, fileURL: fileURL,
+            duration: 100, databaseService: databaseService, networkPolicy: .localOnly)
+        #expect(completed)
+        #expect(foregroundWaits == 1)
+        #expect(successfulFinalizations == 1)
+        let count = try await databaseService.writer.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM word_timing WHERE audiobook_id = ?", arguments: [audiobookID]) ?? 0
+        }
+        #expect(count > 0)
+    }
+
+    @Test func nestedExpiredLeaseUnwindsWithoutWaitingInsideParent() async throws {
+        let databaseService = try DatabaseService(inMemory: ())
+        let token = DatabaseWorkToken()
+        token.cancel()
+        let result = await DatabaseWorkContext.$token.withValue(token) {
+            await DocumentImportFinalizer.finalize(
+                audiobookID: "expired", blocks: [], fileURL: URL(fileURLWithPath: "/missing.epub"),
+                duration: nil, databaseService: databaseService, networkPolicy: .localOnly)
+        }
+        #expect(!result)
+    }
+
+    @Test func cancelledFinalizationDefersWithoutReplacingAnchors() async throws {
+        let audiobookID = "cancelled-finalization"
+        let databaseService = try DatabaseService(inMemory: ())
+        try insertAudiobook(audiobookID, databaseService: databaseService)
+        let blocks = [block(id: "cancelled-finalization-s0-b0", audiobookID: audiobookID, sequenceIndex: 0)]
+        try EPubBlockDAO(db: databaseService.writer).insertAll(blocks)
+        let existing = anchor(id: "existing", audiobookID: audiobookID, blockID: blocks[0].id,
+                              source: .autoAlignment, audioTime: 15)
+        try AlignmentAnchorDAO(db: databaseService.writer).insert(existing)
+        let fileURL = try makeDocumentURL()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        let task = Task { @MainActor in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await DocumentImportFinalizer.finalizeOutcome(
+                audiobookID: audiobookID, blocks: blocks, fileURL: fileURL,
+                duration: 100, databaseService: databaseService, networkPolicy: .localOnly)
+        }
+        #expect(await task.value == .deferred)
+        let anchors = try AlignmentAnchorDAO(db: databaseService.writer).anchors(for: audiobookID)
+        #expect(anchors.map(\.id) == [existing.id])
+        #expect(anchors.first?.audioTime == 15)
+    }
+
+    @Test func reopenCompletesInterruptedImportWithoutSidecar() async throws {
+        let audiobookID = "incomplete-finalization"
+        let databaseService = try DatabaseService(inMemory: ())
+        try insertAudiobook(audiobookID, databaseService: databaseService)
+        let blocks = [
+            block(id: "incomplete-finalization-s0-b0", audiobookID: audiobookID, sequenceIndex: 0),
+            block(id: "incomplete-finalization-s0-b1", audiobookID: audiobookID, sequenceIndex: 1),
+        ]
+        try EPubBlockDAO(db: databaseService.writer).insertAll(blocks)
+        let fileURL = try makeDocumentURL()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        let outcome = await DocumentImportFinalizer.finalizeExistingImportOutcome(
+            audiobookID: audiobookID, fileURL: fileURL, duration: 100,
+            databaseService: databaseService, networkPolicy: .localOnly)
+        #expect(outcome == .completed)
+        let wordCount = try await databaseService.writer.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM word_timing WHERE audiobook_id = ?", arguments: [audiobookID])
+        }
+        #expect((wordCount ?? 0) > 0)
+        #expect(try EPubBlockDAO(db: databaseService.writer).allBlocks(for: audiobookID).map(\.id) == blocks.map(\.id))
+    }
+
     @Test func fallbackAnchorsPreserveHumanAnchorsAndReplaceMachineAnchors() async throws {
         let audiobookID = "book-1"
         let databaseService = try DatabaseService(inMemory: ())

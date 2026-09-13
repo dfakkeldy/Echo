@@ -94,6 +94,27 @@ nonisolated enum ContainerPathRepair {
         }
     }
 
+    /// Launch must retry an interrupted repair instead of installing a database
+    /// with only part of its container paths repaired. Other repair failures
+    /// retain the existing best-effort policy.
+    @discardableResult
+    static func runForLaunch(writer: DatabaseWriter) throws -> Int {
+        do {
+            return try repairStrandedBooks(
+                writer: writer, anchors: defaultAnchors(),
+                coversDirectory: FileLocations.libraryCoversDirectory)
+        } catch {
+            if error is DatabaseWorkDeferred { throw error }
+            if let sqlite = error as? GRDB.DatabaseError,
+                sqlite.resultCode == .SQLITE_INTERRUPT || sqlite.resultCode == .SQLITE_ABORT
+            {
+                throw error
+            }
+            logger.error("Container path repair failed during launch")
+            return 0
+        }
+    }
+
     /// Rebases a stored audiobook id onto the current container. Returns nil
     /// when no anchor marker occurs in the id or the id is already current.
     static func rebasedID(_ id: String, anchors: [Anchor]) -> String? {

@@ -774,7 +774,7 @@ final class PlayerModel {
 
     /// Background task claim held during pause to reduce the chance of eviction
     /// from the system Now Playing slot.
-    private var pauseBackgroundTask: UIBackgroundTaskIdentifier = .invalid
+    private var pauseBackgroundTask: DatabaseWorkToken?
 
     /// Task driving the joystick scrubbing loop in ManualAlignmentSheet.
     /// Fires every 0.1 s, relaying the current playback time to the view's
@@ -820,16 +820,29 @@ final class PlayerModel {
     }
 
     func gradeFlashcard(cardID: String, grade: Int) {
-        guard let writer = databaseService?.writer else {
+        guard let database = databaseService else {
             os_log(.error, "gradeFlashcard: no database writer available")
             return
         }
-        do {
-            try FlashcardDAO(db: writer).grade(cardID: cardID, grade: grade)
-        } catch {
-            os_log(
-                .error, "gradeFlashcard failed for %{public}@: %{public}@", cardID,
-                error.localizedDescription)
+        Task {
+            var committed = false
+            while !Task.isCancelled {
+                do {
+                    try await database.withBackgroundOperation(name: "watch review") {
+                        try FlashcardDAO(db: database.writer).grade(cardID: cardID, grade: grade)
+                        committed = true
+                    }
+                    return
+                } catch {
+                    guard !committed else { return }
+                    guard database.isWorkDeferred(error) else {
+                        os_log(.error, "Could not save watch review")
+                        return
+                    }
+                    do { try await database.waitUntilForeground() }
+                    catch { return }
+                }
+            }
         }
     }
 
@@ -842,7 +855,7 @@ final class PlayerModel {
             configureContinuousAlignment()
             configureStudyCheckpoint()
             if let db = newValue {
-                sessionRecorder = PlaybackSessionRecorder(writer: db.writer)
+                sessionRecorder = PlaybackSessionRecorder(writer: db.writer, database: db)
             } else {
                 sessionRecorder = nil
             }
@@ -1416,8 +1429,8 @@ final class PlayerModel {
             sessionRecorder?.yield(.closed(position: nil, at: Date()))
             audioEngine.cleanup()
             bookmarkStore.stopVoiceMemo()
-            if pauseBackgroundTask != .invalid {
-                UIApplication.shared.endBackgroundTask(pauseBackgroundTask)
+            if let pauseBackgroundTask {
+                DatabaseLifecycleCoordinator.shared.endOperation(pauseBackgroundTask)
             }
             stopAllSecurityScope()
             // Stop the opt-in continuous-alignment service: its 15s repeating
@@ -1724,16 +1737,14 @@ final class PlayerModel {
     }
 
     private func startPauseBackgroundTask() {
-        guard pauseBackgroundTask == .invalid else { return }
-        pauseBackgroundTask = UIApplication.shared.beginBackgroundTask { [weak self] in
-            self?.endBackgroundTask()
-        }
+        guard pauseBackgroundTask == nil || pauseBackgroundTask?.isCancelled == true else { return }
+        pauseBackgroundTask = try? DatabaseLifecycleCoordinator.shared.beginOperation(name: "playback pause")
     }
 
     private func endBackgroundTask() {
-        guard pauseBackgroundTask != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(pauseBackgroundTask)
-        pauseBackgroundTask = .invalid
+        guard let token = pauseBackgroundTask else { return }
+        DatabaseLifecycleCoordinator.shared.endOperation(token)
+        pauseBackgroundTask = nil
     }
 
     func nextTrack() {

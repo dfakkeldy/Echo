@@ -120,6 +120,13 @@ enum EPUBImportCoordinator {
         switch importOutcome {
         case .imported, .alreadyImported:
             break
+        case .deferred(let didImportBlocks):
+            // Keep staged source data if the block import committed before
+            // cancellation. It remains available for read-along recovery.
+            if shouldCopy, !didImportBlocks {
+                try? FileManager.default.removeItem(at: importURL)
+            }
+            throw DatabaseWorkDeferred()
         case .failed(let url, let underlying):
             if shouldCopy {
                 try? FileManager.default.removeItem(at: importURL)
