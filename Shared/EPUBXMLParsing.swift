@@ -1026,7 +1026,9 @@ nonisolated final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
                         markers: headingMarkers,
                         textFormats: [],
                         rawClasses: currentBlockClasses,
-                        rawTags: currentBlockTags,
+                        // An inline image may flush and reset the current block
+                        // tag before the explicit heading closes.
+                        rawTags: elementName,
                         anchorIDs: pendingAnchorIDs,
                         echoMetadataPresent: currentEchoMetadataPresent,
                         echoStableSlot: currentEchoStableSlot,
