@@ -350,7 +350,6 @@ Services/SmartRewindPolicy.swift
 Services/SnippetPlayer.swift
 Services/SourceBackedAlignmentCoordinator.swift
 Services/StandaloneTranscriptionService.swift
-Services/Store/FoundersWindow.swift
 Services/Store/FreeTierGate.swift
 Services/Store/ProEntitlement.swift
 Services/Store/ProductIDs.swift

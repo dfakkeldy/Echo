@@ -4,6 +4,17 @@ All notable changes to Echo: Audiobook Study Player.
 
 ## [Unreleased]
 
+- Echo Pro is offered only as the standard one-time `com.echo.pro.unlock`
+  purchase. The Founders offer and window are removed, the beta paywall bypass
+  is off, and prior standard or Founders ownership still restores. Both purchase
+  screens show StoreKit prices plus unavailable, retry, pending, and error states.
+  Core import, playback, and reading stay free.
+- Narration cache files for books imported from long folder paths no longer
+  fail with a file-name-too-long error: long book prefixes now use a stable hash.
+  Existing long-prefix cache files are kept but need regeneration to be found.
+- Playback now finishes a track that was waiting on narration resume backfill
+  instead of stalling after rendering completes.
+
 - Narration improves satisfied-versus-material “content” handling, marks exact
   contextual word occurrences, and supplies adjacent paragraph context for
   explicit shadow audits. Ordinary rendering no longer waits for shadow model

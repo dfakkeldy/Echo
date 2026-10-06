@@ -29,7 +29,7 @@ WHAT TO FOCUS ON
 • Play from the wrist. The crown adjusts volume, and progress and cover should stay in sync when the watch app reopens mid-playback.
 
 ECHO PRO IN THIS BETA
-Every Echo Pro feature is unlocked for beta testers: there is no paywall in this build and nothing to buy. When Echo Pro does arrive it will be a one-time unlock — never a subscription. Judge the features themselves; pricing feedback comes later.
+This build includes the Echo Pro paywall. Echo Pro is a one-time unlock, never a subscription. Free use covers import, playback, reading, one narrated chapter per book, and up to 20 flashcards. TestFlight purchases go through Apple's sandbox, so you aren't charged. Try buying and restoring Echo Pro (Settings > Echo Pro), and report any price that won't load, a stuck pending purchase, a restore that doesn't unlock, or a feature that stays locked after purchase.
 
 REPORTING
 Use TestFlight's Send Beta Feedback (a screenshot attaches automatically). For narration or alignment bugs, include the book title, narrator, and where the EPUB came from. Books that behave badly are gold — we want them.

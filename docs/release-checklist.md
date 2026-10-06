@@ -55,9 +55,11 @@ private book content out of this public repository.
   export-compliance determination and applicable territory obligations remains
   separate. Review Content Rights, current age and social-media questionnaires,
   territory availability, DSA trader status and current agreements in ASC.
-- Weekly/nightly configure only `com.echo.pro.unlock` and
-  `com.echo.pro.founders` as non-consumables and currently enable a temporary
-  `paywallDisabled` bypass. Verify the selected branch, reachable UI, live product
+- Nightly offers only the non-consumable `com.echo.pro.unlock` for new
+  purchase. `com.echo.pro.founders` is still recognized so prior Founders
+  ownership and restore keep working, but it is not offered, and
+  `StoreAccessPolicy.paywallDisabled` is `false`. Weekly keeps the temporary
+  bypass until nightly is promoted. Verify the selected branch, reachable UI, live product
   states and commercial intent before describing Pro as purchasable. Source
   purchase/restore code is not a sandbox transaction receipt. Do not create
   subscriptions or enable charging from an older plan without authorization.
