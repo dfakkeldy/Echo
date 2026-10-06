@@ -85,3 +85,20 @@ builds. Present the owner's remaining decisions in one consolidated handoff.
 - [Export compliance](https://developer.apple.com/help/app-store-connect/manage-app-information/overview-of-export-compliance/)
 - [DSA trader requirements](https://developer.apple.com/help/app-store-connect/manage-compliance-information/manage-european-union-digital-services-act-trader-requirements/)
 - [App and submission statuses](https://developer.apple.com/help/app-store-connect/reference/app-information/app-and-submission-statuses)
+
+## October 6 preparation evidence
+
+A text-only book imported from a long folder URL reached model-ready and first
+synthesis, then failed to create its cache audio file in an isolated iOS
+simulator. The URL-derived cache prefix exceeded the filesystem's 255-byte
+component limit. A real partial-file creation regression failed with file-name-
+too-long before the repair. Long UTF-8 prefixes now use a stable hash of the
+original identity; ordinary short cache names, audio format, render version,
+track identity and pronunciation policy are unchanged.
+
+All 46 focused naming, actual lossless writer, streaming, cache-cleanup and
+export tests passed locally. Existing long-prefix caches that previously fit
+remain on disk but need regeneration for new-prefix discovery; no cache wipe
+or destructive migration occurs. Verify the same input's actual render and
+playback completion separately, then the selected signed device. This simulator
+finding does not establish the cause of a physical-phone completion report.

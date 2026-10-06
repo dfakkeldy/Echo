@@ -5,6 +5,48 @@ import Testing
 @testable import Echo
 
 @Suite struct NarrationFileNamingTests {
+    @Test func longBookIdentityProducesWritablePartialCacheFile() throws {
+        let bookID = "file:///" + String(repeating: "release-fixture/", count: 20)
+        let name = NarrationFileNaming.segmentFileName(
+            audiobookID: bookID, chapterIndex: 0, segmentIndex: 0,
+            voice: VoiceID("af_heart"), contentSignature: "0123456789abcdef")
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("narration-name-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let finalURL = directory.appendingPathComponent(name)
+        let partialURL = directory.appendingPathComponent(
+            ".\(finalURL.deletingPathExtension().lastPathComponent).partial.m4a")
+
+        #expect(partialURL.lastPathComponent.utf8.count <= 255)
+        try Data([0]).write(to: partialURL)
+        try FileManager.default.moveItem(at: partialURL, to: finalURL)
+        #expect(FileManager.default.fileExists(atPath: finalURL.path))
+        #expect(NarrationFileNaming.location(fromFileName: name)?.segmentIndex == 0)
+    }
+
+    @Test func longUnicodeIdentityLeavesRoomForStableChapterAndPartialSuffixes() {
+        let name = NarrationFileNaming.segmentFileName(
+            audiobookID: "file:///" + String(repeating: "書", count: 100),
+            chapterIndex: Int.max, sourceChapterKey: "fixture-chapter",
+            segmentIndex: Int.max, voice: VoiceID("bf_isabella"),
+            contentSignature: "0123456789abcdef")
+        let stem = URL(fileURLWithPath: name).deletingPathExtension().lastPathComponent
+        #expect(".\(stem).partial.m4a".utf8.count <= 255)
+        #expect(NarrationFileNaming.location(fromFileName: name)?.segmentIndex == Int.max)
+        #expect(NarrationFileNaming.location(fromFileName: name)?.stableChapterToken
+            == NarrationFileNaming.stableChapterToken(for: "fixture-chapter"))
+    }
+
+    @Test func longIdentitiesThatSanitizeAlikeRemainDistinctAndStable() {
+        let base = String(repeating: "release-fixture", count: 20)
+        let first = NarrationFileNaming.safeToken(base + "/book")
+        let second = NarrationFileNaming.safeToken(base + "_book")
+        #expect(first != second)
+        #expect(first == NarrationFileNaming.safeToken(base + "/book"))
+        #expect(first.utf8.count <= 128)
+    }
+
     @Test func renderVersionRegeneratesCachesForUnicodePronunciationSpans() {
         // v26 fixes explicit Unicode pronunciation spans; v25 may have voiced
         // a possessive suffix twice and its audio/evidence must not be reused.
