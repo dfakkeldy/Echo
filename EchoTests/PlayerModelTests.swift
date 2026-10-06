@@ -1008,6 +1008,58 @@ struct PlayerModelTests {
                 == "render complete")
     }
 
+    @Test func completingResumeBackfillSettlesTheExhaustedPlaybackQueue() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.state.tracks = [
+            Track(url: URL(fileURLWithPath: "/tmp/book-ch3-s0-af_heart-v22.m4a"), title: "Chapter 4")
+        ]
+        model.state.currentIndex = 0
+        model.state.narrationRenderInFlight = true
+
+        // The final forward segment ends while earlier chapters still render.
+        model.playbackController.nextTrack(naturalEnd: true)
+        #expect(model.state.awaitingNarrationChapter)
+        #expect(
+            model.narrationPlaybackState.snapshot.playback
+                == .waitingForRender(chapterDisplayNumber: nil))
+
+        // Backfill inserts only behind the audible track, preserving its index.
+        model.state.tracks.insert(
+            Track(url: URL(fileURLWithPath: "/tmp/book-ch0-s0-af_heart-v22.m4a"), title: "Chapter 1"),
+            at: 0)
+        model.state.currentIndex += 1
+        model.state.narrationRenderInFlight = false
+        model.completeNarrationRendering()
+
+        #expect(model.narrationPlaybackState.snapshot.render == .complete)
+        #expect(!model.state.awaitingNarrationChapter)
+        #expect(model.state.currentIndex == 1)
+        #expect(model.narrationPlaybackState.snapshot.playback == .completed)
+        #expect(model.narrationPlaybackState.events.last?.message == "Narration playback complete")
+    }
+
+    @Test func completingResumeBackfillPreservesAnExplicitUserPause() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.state.tracks = [
+            Track(url: URL(fileURLWithPath: "/tmp/book-ch3-s0-af_heart-v22.m4a"), title: "Chapter 4")
+        ]
+        model.state.currentIndex = 0
+        model.state.narrationRenderInFlight = true
+        model.playbackController.nextTrack(naturalEnd: true)
+        model.playbackController.pause()
+        #expect(!model.state.awaitingNarrationChapter)
+        let pausedPlayback = model.narrationPlaybackState.snapshot.playback
+
+        model.state.narrationRenderInFlight = false
+        model.completeNarrationRendering()
+
+        #expect(model.narrationPlaybackState.snapshot.render == .complete)
+        #expect(model.narrationPlaybackState.snapshot.playback == pausedPlayback)
+        #expect(model.state.currentIndex == 0)
+    }
+
     @Test func narrationWithNoPlannedChaptersStopsWithVisibleTerminalState() async throws {
         let (model, root) = try makeNarrationModel(tts: MockTTSEngine(), text: nil)
         defer {
