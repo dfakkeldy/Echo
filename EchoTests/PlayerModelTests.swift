@@ -1060,6 +1060,144 @@ struct PlayerModelTests {
         #expect(model.state.currentIndex == 0)
     }
 
+    @Test func completingManualNextQueueWaitStaysPaused() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.state.tracks = [
+            Track(url: URL(fileURLWithPath: "/tmp/book-ch3-s0-af_heart-v22.m4a"), title: "Chapter 4")
+        ]
+        model.state.currentIndex = 0
+        model.state.narrationRenderInFlight = true
+        model.playbackController.nextTrack()
+        #expect(model.state.awaitingNarrationChapter)
+
+        model.state.narrationRenderInFlight = false
+        model.completeNarrationRendering()
+
+        #expect(!model.state.awaitingNarrationChapter)
+        #expect(model.narrationPlaybackState.snapshot.playback == .paused(chapterDisplayNumber: 4))
+        #expect(!model.narrationPlaybackState.events.contains {
+            $0.message == "Narration playback complete"
+        })
+    }
+
+    @Test func completingQueueWaitLoadsAnEnabledSuccessorOnce() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.state.tracks = [
+            Track(url: URL(fileURLWithPath: "/tmp/book-ch3-s0-af_heart-v22.m4a"), title: "Chapter 4")
+        ]
+        model.state.currentIndex = 0
+        model.state.narrationRenderInFlight = true
+        model.playbackController.nextTrack(naturalEnd: true)
+        #expect(model.state.awaitingNarrationChapter)
+
+        var loadedIndices: [Int] = []
+        model.playbackController.coordinator_loadTrack = { index, autoplay in
+            #expect(autoplay)
+            loadedIndices.append(index)
+        }
+        model.state.tracks.append(
+            Track(url: URL(fileURLWithPath: "/tmp/book-ch4-s0-af_heart-v22.m4a"), title: "Chapter 5"))
+        model.state.narrationRenderInFlight = false
+        model.completeNarrationRendering()
+        model.completeNarrationRendering()
+
+        #expect(!model.state.awaitingNarrationChapter)
+        #expect(loadedIndices == [1])
+        #expect(model.narrationPlaybackState.snapshot.playback != .completed)
+    }
+
+    @Test func completingQueueWaitPublishesNaturalCompletionOnlyOnce() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.state.tracks = [
+            Track(url: URL(fileURLWithPath: "/tmp/book-ch3-s0-af_heart-v22.m4a"), title: "Chapter 4")
+        ]
+        model.state.currentIndex = 0
+        model.state.narrationRenderInFlight = true
+        model.playbackController.nextTrack(naturalEnd: true)
+        model.state.narrationRenderInFlight = false
+
+        model.completeNarrationRendering()
+        model.completeNarrationRendering()
+
+        #expect(model.narrationPlaybackState.snapshot.playback == .completed)
+        #expect(model.narrationPlaybackState.events.filter {
+            $0.message == "Narration playback complete"
+        }.count == 1)
+    }
+
+    @Test func completingQueueWaitPreservesAnExplicitStop() {
+        let model = PlayerModel()
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.state.tracks = [
+            Track(url: URL(fileURLWithPath: "/tmp/book-ch3-s0-af_heart-v22.m4a"), title: "Chapter 4")
+        ]
+        model.state.currentIndex = 0
+        model.state.narrationRenderInFlight = true
+        model.playbackController.nextTrack(naturalEnd: true)
+        model.stop()
+        #expect(!model.state.awaitingNarrationChapter)
+        #expect(model.narrationPlaybackState.snapshot.playback == .stopped)
+
+        model.state.narrationRenderInFlight = false
+        model.completeNarrationRendering()
+
+        #expect(model.narrationPlaybackState.snapshot.playback == .stopped)
+        #expect(!model.narrationPlaybackState.events.contains {
+            $0.message == "Narration playback complete"
+        })
+    }
+
+    @Test(arguments: ["seconds", "direct", "restart", "backward", "forward", "chapter"])
+    func completingQueueWaitAfterUserNavigationStaysPaused(_ navigation: String) async throws {
+        let audioURL = try await SilentAudioFixture.makeSilentM4A(seconds: 3)
+        defer { try? FileManager.default.removeItem(at: audioURL) }
+        let model = PlayerModel()
+        defer { model.playbackController.audioEngine.cleanup() }
+        model.playbackController.audioEngine.configureAudioSession()
+        if case .failure = model.playbackController.replaceCurrentItem(with: audioURL) {
+            Issue.record("The isolated silent audio fixture must load successfully")
+            return
+        }
+        #expect(model.playbackController.audioEngine.isItemLoaded)
+        model.narrationPlaybackState.beginSession(defaultVoiceID: VoiceID("af_heart"))
+        model.state.tracks = [Track(url: audioURL, title: "Fixture")]
+        model.state.currentIndex = 0
+        model.state.chapters = [
+            Chapter(index: 0, title: "Fixture", startSeconds: 0, endSeconds: 3)
+        ]
+        model.state.currentChapterIndex = 0
+        model.state.narrationRenderInFlight = true
+        model.playbackController.nextTrack(naturalEnd: true)
+        #expect(model.state.awaitingNarrationChapter)
+
+        switch navigation {
+        case "seconds": model.playbackController.seek(toSeconds: 1)
+        case "direct": model.playbackController.seek(to: 1)
+        case "restart": model.playbackController.previousTrackOrRestart()
+        case "backward": model.playbackController.skipBackward30()
+        case "forward": model.playbackController.skipForward30()
+        case "chapter": model.playbackController.seekToChapter(at: 0)
+        default: Issue.record("Unexpected navigation fixture")
+        }
+        #expect(!model.state.awaitingNarrationChapter)
+        let pausedPlayback = model.narrationPlaybackState.snapshot.playback
+        guard case .paused = pausedPlayback else {
+            Issue.record("User navigation must cancel the queue wait with paused activity")
+            return
+        }
+
+        model.state.narrationRenderInFlight = false
+        model.completeNarrationRendering()
+
+        #expect(model.narrationPlaybackState.snapshot.playback == pausedPlayback)
+        #expect(!model.narrationPlaybackState.events.contains {
+            $0.message == "Narration playback complete"
+        })
+    }
+
     @Test func narrationWithNoPlannedChaptersStopsWithVisibleTerminalState() async throws {
         let (model, root) = try makeNarrationModel(tts: MockTTSEngine(), text: nil)
         defer {
