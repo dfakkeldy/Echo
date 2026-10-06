@@ -57,7 +57,7 @@ private book content out of this public repository.
   export-compliance determination and applicable territory obligations remains
   separate. Review Content Rights, current age and social-media questionnaires,
   territory availability, DSA trader status and current agreements in ASC.
-- Nightly offers only the non-consumable `com.echo.pro.unlock` for new
+- On iPhone/iPad, nightly offers only the non-consumable `com.echo.pro.unlock` for new
   purchase. `com.echo.pro.founders` is still recognized so prior Founders
   ownership and restore keep working, but it is not offered, and
   `StoreAccessPolicy.paywallDisabled` is `false`. Weekly keeps the temporary
@@ -65,6 +65,9 @@ private book content out of this public repository.
   states and commercial intent before describing Pro as purchasable. Source
   purchase/restore code is not a sandbox transaction receipt. Do not create
   subscriptions or enable charging from an older plan without authorization.
+  The current Mac candidate has no Echo Pro purchase/restore UI and does
+  not apply the iPhone/iPad narration or flashcard caps. Review Mac behavior
+  separately; shared product IDs do not establish a reachable Mac paywall.
 - When account creation is introduced, provide in-app account deletion. An
   Apple-managed iCloud identity alone is not an Echo-created account; audit any
   future registration paths before treating deletion as not applicable.

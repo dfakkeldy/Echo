@@ -28,8 +28,8 @@ WHAT TO FOCUS ON
 6) APPLE WATCH
 • Play from the wrist. The crown adjusts volume, and progress and cover should stay in sync when the watch app reopens mid-playback.
 
-ECHO PRO IN THIS BETA
-This build includes the Echo Pro paywall. Echo Pro is a one-time unlock, never a subscription. Free use covers import, playback, reading, one narrated chapter per book, and up to 20 flashcards. TestFlight purchases go through Apple's sandbox, so you aren't charged. Try buying and restoring Echo Pro (Settings > Echo Pro), and report any price that won't load, a stuck pending purchase, a restore that doesn't unlock, or a feature that stays locked after purchase.
+ECHO PRO IN THIS BETA (IPHONE/IPAD ONLY)
+On iPhone/iPad, this build includes the Echo Pro paywall. Echo Pro is a one-time unlock, never a subscription. Free use covers import, playback, reading, one narrated chapter per book, and up to 20 flashcards. TestFlight purchases go through Apple's sandbox, so you aren't charged. Try buying and restoring Echo Pro (Settings > Echo Pro), and report any price that won't load, a stuck pending purchase, a restore that doesn't unlock, or a feature that stays locked after purchase. The current Mac candidate has no Echo Pro purchase/restore UI and does not apply the iPhone/iPad narration or flashcard caps. On Mac, use Batch > Narrate Documents… for narration and skip these purchase/restore steps.
 
 REPORTING
 Use TestFlight's Send Beta Feedback (a screenshot attaches automatically). For narration or alignment bugs, include the book title, narrator, and where the EPUB came from. Books that behave badly are gold — we want them.

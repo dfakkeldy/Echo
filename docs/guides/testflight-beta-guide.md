@@ -115,7 +115,7 @@ Echo's flagship new surface. Works on every device Echo supports — no special 
 5. Switch the narrator voice — then give just **one chapter** a different voice (an appendix, an interview) and confirm only that chapter re-renders.
 6. Open the playlist: the full chapter outline should be there up front. Tap a chapter to **exclude** it from narration (greyed, speaker-slash), then re-include it — instant, no re-render.
 7. In **Book Settings**, check the **pronunciation report**: odd names and abbreviations flagged? Fix one and confirm the affected chapters re-render. If your build has the listen-back QA pass, run it and see what it flags.
-8. Free narration covers one chapter per book; narrating more opens the Echo Pro prompt (Plan K). Report anything else that stops you.
+8. On iPhone/iPad, free narration covers one chapter per book; narrating more opens the Echo Pro prompt (Plan K). Mac batch narration does not apply this cap. Report anything else that stops you.
 
 ### Plan I — The PDF Companion
 1. Import a **PDF** — as a book's companion (slides, a scanned textbook, sheet music) or on its own. The import button takes EPUB and PDF and routes automatically.
@@ -131,8 +131,8 @@ Echo's flagship new surface. Works on every device Echo supports — no special 
 4. **Anki import:** bring a real .apkg deck. Counts right? Scheduling sensible (mature cards not reset)? Cloze cards reported in the summary?
 5. Anki **.apkg** deck *export* lives in the Mac app only — skip that one if you are testing on iPhone.
 
-### Plan K — Echo Pro *(one-time unlock, sandbox purchase)*
-Echo Pro is a **one-time unlock, never a subscription**. Core import, playback, and reading are free; free narration covers one chapter per book and flashcards stop at 20. TestFlight purchases go through Apple's sandbox, so you aren't charged.
+### Plan K — Echo Pro *(iPhone/iPad only; one-time unlock, sandbox purchase)*
+On iPhone/iPad, Echo Pro is a **one-time unlock, never a subscription**. Core import, playback, and reading are free; free narration covers one chapter per book and flashcards stop at 20. TestFlight purchases go through Apple's sandbox, so you aren't charged. Skip these purchase/restore steps on Mac: the current Mac candidate has no Echo Pro purchase/restore UI and does not apply these iPhone/iPad caps.
 
 1. Hit a Pro prompt (narrate a second chapter, or open **Settings ▸ Echo Pro**). Does the price load, or do you get a clear retry?
 2. Buy Echo Pro, then try **Restore Purchases**. Does everything unlock, and does a pending or failed purchase explain itself?
@@ -140,7 +140,7 @@ Echo Pro is a **one-time unlock, never a subscription**. Core import, playback, 
 
 ### Plan L — The Mac *(if you test on macOS)*
 1. Import a book — or a whole folder of EPUBs.
-2. Use **Narrate EPUB(s)…** from the menu; if you queued several, watch the batch queue chew through them (overnight is the intended use), then export the results.
+2. Use **Batch ▸ Narrate Documents…** from the menu; if you queued several, watch the batch queue chew through them (overnight is the intended use), then export the results.
 3. Read along in the reader — live word highlighting included. Do the media keys and the system Now Playing widget behave?
 4. Try the **Article Workshop**: capture a page, or paste a list of links into an anthology; assign a voice per piece; publish and confirm it lands as a normal book.
 5. Export an audiobook, a video, or a deck. Known honest gaps — AI card generation currently starts from iPhone/iPad (the Mac sets preferences), and the Mac PDF reader is reflow-only for now. Anything *else* Mac-only broken, or different from the phone?

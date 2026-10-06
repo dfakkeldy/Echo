@@ -2100,6 +2100,13 @@ feature/* ──▶ nightly ──▶ weekly ──▶ main (stable)
 fix, merge to `main`, then merge `main` back *down* into `weekly` and `nightly`
 so the fix is not lost at the next promotion.
 
+**Current platform behavior:** Echo Pro purchase/restore screens and the
+one-chapter-per-book narration / 20-flashcard free limits are wired in the
+iPhone/iPad app. The current Mac candidate has no Pro purchase/restore UI
+and does not apply those iPhone/iPad caps: Mac batch narration calls the
+shared `NarrationService` without `FreeTierGate`. Standard and legacy
+StoreKit product identifiers remain unchanged.
+
 ### CI wiring
 
 - **`.github/workflows/ci.yml`** — the existing gate runs on every push and PR
