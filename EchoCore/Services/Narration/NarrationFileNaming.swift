@@ -82,7 +82,13 @@ nonisolated enum NarrationFileNaming {
     /// A filesystem-safe token for an audiobook id (which may be a folder-URL string).
     static func safeToken(_ audiobookID: String) -> String {
         let token = String(audiobookID.map { $0.isLetter || $0.isNumber ? $0 : "_" })
-        return token.isEmpty ? "book" : token
+        guard !token.isEmpty else { return "book" }
+        // Folder URLs can exceed a filesystem's 255-byte component limit once
+        // chapter, signature, voice and hidden-partial suffixes are appended.
+        // Keep ordinary legacy cache names; bound long UTF-8 prefixes and hash
+        // the original identity so differently sanitized URLs cannot alias.
+        guard token.utf8.count > 128 else { return token }
+        return "book_\(stableChapterToken(for: audiobookID))"
     }
 
     /// A compact, stable identity for an anthology source chapter. The source key

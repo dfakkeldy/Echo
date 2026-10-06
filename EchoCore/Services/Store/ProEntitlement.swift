@@ -16,8 +16,8 @@ enum ProEntitlement {
 }
 
 enum StoreAccessPolicy {
-    /// Temporary launch/beta bypass while App Store products are being configured.
-    static let paywallDisabled = true
+    /// The approved paid candidate requires verified one-time ownership.
+    static let paywallDisabled = false
 }
 
 /// What gating code depends on — mockable in tests.

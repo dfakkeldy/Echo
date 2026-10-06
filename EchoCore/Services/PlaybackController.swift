@@ -73,6 +73,17 @@ final class PlaybackController {
     @ObservationIgnored var coordinator_pauseRequested: (() -> Void)?
     @ObservationIgnored var coordinator_seekBackwardDuration: (() -> Double)?
     @ObservationIgnored var coordinator_seekForwardDuration: (() -> Double)?
+    @ObservationIgnored private var narrationQueueWait: (trackID: String, naturalEnd: Bool)?
+
+    private func clearNarrationQueueWait() {
+        narrationQueueWait = nil
+        state.awaitingNarrationChapter = false
+    }
+
+    private func cancelNarrationQueueWaitForUserNavigation() {
+        guard state.awaitingNarrationChapter else { return }
+        pause()
+    }
 
     init() {
         audioEngine.delegate = self
@@ -193,6 +204,7 @@ final class PlaybackController {
     // MARK: - Playback Commands
 
     func play() {
+        clearNarrationQueueWait()
         // Apply smart rewind if resuming after a pause.
         applySmartRewindIfNeeded()
         state.pauseTimestamp = nil
@@ -306,7 +318,7 @@ final class PlaybackController {
         state.isPlaying = false
 
         // Any explicit/system pause cancels a pending narration at-gap auto-resume so the render loop does not fight the user (see nextTrack() gap branch). The gap branch is the ONLY site that re-sets this true, and it does so AFTER calling pause() — do not reorder.
-        state.awaitingNarrationChapter = false
+        clearNarrationQueueWait()
 
         if state.pauseTimestamp == nil {
             state.pauseTimestamp = Date()
@@ -335,6 +347,7 @@ final class PlaybackController {
     }
 
     func seek(to time: TimeInterval, completion: ((Bool) -> Void)? = nil) {
+        cancelNarrationQueueWaitForUserNavigation()
         audioEngine.seek(to: time, completion: completion)
     }
 
@@ -373,6 +386,7 @@ final class PlaybackController {
     }
 
     func stop() {
+        clearNarrationQueueWait()
         state.isPlaying = false
         state.currentTitle = String(localized: "No track selected")
         state.progressFraction = 0
@@ -391,10 +405,12 @@ final class PlaybackController {
     func replaceCurrentItem(
         with url: URL, startTime: TimeInterval? = nil
     ) -> Result<Void, AudioItemLoadFailure> {
-        audioEngine.replaceCurrentItem(with: url, startTime: startTime)
+        clearNarrationQueueWait()
+        return audioEngine.replaceCurrentItem(with: url, startTime: startTime)
     }
 
     func reportTrackLoading() {
+        clearNarrationQueueWait()
         state.isPlaying = false
         coordinator_playStateChanged?(.loading)
     }
@@ -426,6 +442,7 @@ final class PlaybackController {
             assert(
                 coordinator_loadTrack != nil,
                 "coordinator_loadTrack must be wired — track navigation required")
+            clearNarrationQueueWait()
             coordinator_loadTrack?(newIndex, true)
         } else if state.narrationRenderInFlight {
             // A narration book whose next chapter hasn't finished rendering: wait
@@ -437,11 +454,43 @@ final class PlaybackController {
             // waiting for an auto-advance that never fires.
             pause(reason: .narrationQueueWait)
             state.awaitingNarrationChapter = true
+            if state.tracks.indices.contains(state.currentIndex) {
+                narrationQueueWait = (state.tracks[state.currentIndex].id, naturalEnd)
+            }
         } else if naturalEnd {
             markNaturalEndReached()
         }
         // End of book: stay put (§5.2). Do NOT wrap to the first enabled track —
         // that would auto-restart a finished book with loopMode == .off.
+    }
+
+    /// Rendering can finish after the last forward track ended while earlier
+    /// tracks were still being prepended. Settle only the wait for that same
+    /// track; a manual Next must not be reported as natural playback completion.
+    func resolveCompletedNarrationQueueWait() {
+        guard !state.narrationRenderInFlight,
+            state.awaitingNarrationChapter,
+            let wait = narrationQueueWait
+        else { return }
+        // Consume before coordinator callbacks so repeated completion is inert.
+        narrationQueueWait = nil
+        guard !state.isPlaying, !audioEngine.isPlaying,
+            state.tracks.indices.contains(state.currentIndex),
+            state.tracks[state.currentIndex].id == wait.trackID
+        else { return }
+        state.awaitingNarrationChapter = false
+        if let nextIndex = findNextEnabledTrackIndex(
+            in: state.tracks, currentIndex: state.currentIndex)
+        {
+            assert(
+                coordinator_loadTrack != nil,
+                "coordinator_loadTrack must be wired — narration queue continuation required")
+            coordinator_loadTrack?(nextIndex, true)
+        } else if wait.naturalEnd {
+            markNaturalEndReached()
+        } else {
+            pause()
+        }
     }
 
     /// The engine played the book to its end and stopped on its own. Fold
@@ -468,6 +517,7 @@ final class PlaybackController {
     }
 
     func previousTrackOrRestart() {
+        cancelNarrationQueueWaitForUserNavigation()
         if state.chapters.count >= 2 {
             previousChapterOrRestart()
             return
@@ -645,6 +695,7 @@ final class PlaybackController {
     }
 
     private func seekToSection(_ section: Chapter) {
+        cancelNarrationQueueWaitForUserNavigation()
         let targetSeconds = section.startSeconds + 0.05
         state.isManualSeeking = true
         audioEngine.seek(to: targetSeconds) { [weak self] _ in
@@ -661,6 +712,7 @@ final class PlaybackController {
 
     func seekToChapter(at index: Int) {
         guard state.chapters.indices.contains(index), audioEngine.isItemLoaded else { return }
+        cancelNarrationQueueWaitForUserNavigation()
         let c = state.chapters[index]
         let targetSeconds = c.startSeconds + 0.05
 
@@ -694,6 +746,7 @@ final class PlaybackController {
     }
 
     private func seekToAggregatedChapter(_ agg: AggregatedChapter) {
+        cancelNarrationQueueWaitForUserNavigation()
         let bookOffset: TimeInterval = {
             guard state.m4bBooks.indices.contains(agg.bookIndex) else { return 0 }
             return state.m4bBooks[agg.bookIndex].cumulativeStartOffset
@@ -744,6 +797,7 @@ final class PlaybackController {
 
     @discardableResult
     func skipBackwardNavigation() -> Bool {
+        cancelNarrationQueueWaitForUserNavigation()
         if loopMode == .bookmark,
             audioEngine.currentTime.isFinite,
             jumpToPreviousBookmark(from: audioEngine.currentTime)
@@ -761,6 +815,7 @@ final class PlaybackController {
 
     @discardableResult
     func skipForwardNavigation() -> Bool {
+        cancelNarrationQueueWaitForUserNavigation()
         if loopMode == .bookmark,
             audioEngine.currentTime.isFinite,
             jumpToNextBookmark(from: audioEngine.currentTime)
@@ -781,6 +836,7 @@ final class PlaybackController {
         guard audioEngine.isItemLoaded else { return false }
         let current = audioEngine.currentTime
         guard current.isFinite else { return false }
+        cancelNarrationQueueWaitForUserNavigation()
 
         if loopMode == .bookmark {
             if jumpToPreviousBookmark(from: current) {
@@ -829,6 +885,7 @@ final class PlaybackController {
         guard audioEngine.isItemLoaded else { return false }
         let current = audioEngine.currentTime
         guard current.isFinite else { return false }
+        cancelNarrationQueueWaitForUserNavigation()
 
         if loopMode == .bookmark {
             if jumpToNextBookmark(from: current) {
@@ -856,6 +913,7 @@ final class PlaybackController {
 
     func seek(toSeconds targetSeconds: Double) {
         guard audioEngine.isItemLoaded else { return }
+        cancelNarrationQueueWaitForUserNavigation()
         state.isManualSeeking = true
         audioEngine.seek(to: targetSeconds) { [weak self] _ in
             guard let self else { return }
