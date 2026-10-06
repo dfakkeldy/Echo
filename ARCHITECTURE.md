@@ -350,7 +350,6 @@ Services/SmartRewindPolicy.swift
 Services/SnippetPlayer.swift
 Services/SourceBackedAlignmentCoordinator.swift
 Services/StandaloneTranscriptionService.swift
-Services/Store/FoundersWindow.swift
 Services/Store/FreeTierGate.swift
 Services/Store/ProEntitlement.swift
 Services/Store/ProductIDs.swift
@@ -2100,6 +2099,13 @@ feature/* ──▶ nightly ──▶ weekly ──▶ main (stable)
 **Hotfixes** are the one exception to the downhill flow: branch from `main`,
 fix, merge to `main`, then merge `main` back *down* into `weekly` and `nightly`
 so the fix is not lost at the next promotion.
+
+**Current platform behavior:** Echo Pro purchase/restore screens and the
+one-chapter-per-book narration / 20-flashcard free limits are wired in the
+iPhone/iPad app. The current Mac candidate has no Pro purchase/restore UI
+and does not apply those iPhone/iPad caps: Mac batch narration calls the
+shared `NarrationService` without `FreeTierGate`. Standard and legacy
+StoreKit product identifiers remain unchanged.
 
 ### CI wiring
 

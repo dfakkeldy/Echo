@@ -8,8 +8,10 @@ private book content out of this public repository.
 ## Candidate and promotion gates
 
 - Record exact SHA and version/build for iOS with embedded Watch/widget and the
-  separately packaged Mac app. The checked-in `0.6` / build `9` is configuration;
-  `beta` overrides the build number at archive time.
+  separately packaged Mac app. The checked-in `1.0` / build `9` is configuration;
+  `beta` overrides the build number at archive time. The editable iOS and Mac ASC
+  records are `1.0`; uploaded `0.6` (build `109`) is historical. No signed release
+  candidate is selected yet; record the actual future signed candidate separately.
 - Keep internal nightly → external weekly → main App Store promotion. Verify
   current branch protection and actual completed CI jobs at the selected head.
   A docs-only check can skip Xcode, and a green release run can omit Mac after a
@@ -55,12 +57,17 @@ private book content out of this public repository.
   export-compliance determination and applicable territory obligations remains
   separate. Review Content Rights, current age and social-media questionnaires,
   territory availability, DSA trader status and current agreements in ASC.
-- Weekly/nightly configure only `com.echo.pro.unlock` and
-  `com.echo.pro.founders` as non-consumables and currently enable a temporary
-  `paywallDisabled` bypass. Verify the selected branch, reachable UI, live product
+- On iPhone/iPad, nightly offers only the non-consumable `com.echo.pro.unlock` for new
+  purchase. `com.echo.pro.founders` is still recognized so prior Founders
+  ownership and restore keep working, but it is not offered, and
+  `StoreAccessPolicy.paywallDisabled` is `false`. Weekly keeps the temporary
+  bypass until nightly is promoted. Verify the selected branch, reachable UI, live product
   states and commercial intent before describing Pro as purchasable. Source
   purchase/restore code is not a sandbox transaction receipt. Do not create
   subscriptions or enable charging from an older plan without authorization.
+  The current Mac candidate has no Echo Pro purchase/restore UI and does
+  not apply the iPhone/iPad narration or flashcard caps. Review Mac behavior
+  separately; shared product IDs do not establish a reachable Mac paywall.
 - When account creation is introduced, provide in-app account deletion. An
   Apple-managed iCloud identity alone is not an Echo-created account; audit any
   future registration paths before treating deletion as not applicable.
