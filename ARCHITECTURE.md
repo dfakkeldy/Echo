@@ -2075,7 +2075,7 @@ WatchConnectivity reliability fixes across the phone (`WatchSyncManager`) and wa
 - **`SecurityScopeManager` URL reuse**: `startSelection(url:)` and `startFile(url:)` now correctly stop the previous access grant when the URL changes (previously the `guard !hasAccess else { return }` early-exit leaked the old grant). When the same URL is requested, the call is a no-op.
 - **`TokenDTW` gap-cost initialization**: The DTW cost matrix boundary row and column are now initialized with cumulative gap costs (`Int32(i) * 2` for deletions, `Int32(j) * 2` for insertions) so the DP can correctly skip leading tokens that have no match in the other sequence. Previously all boundary cells were zero, causing incorrect alignment when audio or EPUB sequences had unmatched prefixes.
 
-## Release Engineering — Promotion Ladder (June 2026)
+## Release Engineering — Promotion Ladder
 
 Echo ships on a **release-train** model. The three long-lived branches are
 promotion *stages*, not parallel forks, and code only ever flows one way:
@@ -2086,13 +2086,16 @@ feature/* ──▶ nightly ──▶ weekly ──▶ main (stable)
 ```
 
 - **`nightly`** — the integration branch. Every feature PR merges here; it is
-  allowed to be briefly rough. A nightly TestFlight build goes out daily.
+  allowed to be briefly rough. The daily train targets internal TestFlight testers;
+  successful upload and Apple processing must be verified from that run.
 - **`weekly`** — promoted from `nightly` once a week. The beta channel: more
-  soak time, fewer surprises. A weekly TestFlight build goes out on Mondays.
-- **`main`** — stable. Only ever fast-forwarded from a proven `weekly`. This is
-  what cuts App Store releases; tagging a commit here (`vX.Y.Z`) is the release
-  signal. Because promotion is one-way, anything in `main` is a strict subset of
-  what has already been exercised in `weekly` and `nightly`.
+  soak time, fewer surprises. The Monday train targets external TestFlight testers;
+  external eligibility and Beta App Review state are separate gates.
+- **`main`** — stable. Promote a proven `weekly` through a PR before preparing
+  an App Store release. The current workflows have no tag-triggered App Store
+  submission and the Fastfile has no `release` lane: a `vX.Y.Z` tag alone does
+  not upload, submit, approve, or publish a build. Record the selected source,
+  archive, test, upload, review, and availability evidence separately.
 
 **Hotfixes** are the one exception to the downhill flow: branch from `main`,
 fix, merge to `main`, then merge `main` back *down* into `weekly` and `nightly`
@@ -2101,7 +2104,8 @@ so the fix is not lost at the next promotion.
 ### CI wiring
 
 - **`.github/workflows/ci.yml`** — the existing gate runs on every push and PR
-  to `main`, `weekly`, and `nightly`: it resolves a pinned iOS 26.4 simulator,
+  to `main`, `weekly`, and `nightly`: it selects the newest available iOS 26.x
+  iPhone simulator and records the runtime and Xcode version,
   runs `build-for-testing` for the iOS app + widget + watch + tests, executes
   `EchoTests` with `test-without-building`, then smoke-builds the macOS target.
   The required status check is named **`Build gate + tests`**; branch protection
@@ -2126,19 +2130,34 @@ so the fix is not lost at the next promotion.
 
 ### Branch protection (configured in repo Settings, not in code)
 
-| Branch | Requires PR | Required check | Merges from |
-|---|---|---|---|
-| `main` | ✅ | `Build gate + tests` | promotion PR from `weekly` only |
-| `weekly` | ✅ | `Build gate + tests` | promotion PR from `nightly` |
-| `nightly` | optional | `Build gate + tests` | feature PRs land here |
+Repository policy requires `feature/* → nightly → weekly → main` PRs. Check
+live server rules before each promotion; policy is stronger than branch
+protection and must still be followed when the server permits more.
+
+Re-checked 2026-10-06 through GitHub's branch-protection API: all three branches
+require `Build gate + tests`; strict/up-to-date checks are disabled, required PR
+reviews are unset, and admin enforcement is disabled. Force pushes and deletions
+are disabled. These settings do not enforce the permitted source branch or prove
+that the current head passed the check. No protection setting was changed.
+
+| Destination | Required check | Policy source and acceptance gate |
+|---|---|---|
+| `nightly` | `Build gate + tests` | feature PR; internal testing |
+| `weekly` | `Build gate + tests` | authorized promotion PR from `nightly`; external eligibility and beta review |
+| `main` | `Build gate + tests` | authorized promotion PR from proven `weekly`; device acceptance and complete store packet |
 
 ### The rhythm
 
-1. **Daily:** feature PRs merge into `nightly`; nightly TestFlight build auto-ships.
-2. **Weekly:** open a `nightly → weekly` PR, let CI pass, merge; weekly build auto-ships.
-3. **Release:** when a weekly build is solid, open a `weekly → main` PR, merge,
-   then bump the version (see `.clinerules/workflows/release.md`) and tag
-   `vX.Y.Z` — the tag is what the App Store `fastlane` lane keys off.
+1. **Daily:** feature PRs merge into `nightly`; the scheduled train attempts an
+   internal TestFlight upload when credentials are available.
+2. **Weekly:** when authorized, open a `nightly → weekly` PR, verify its actual
+   checks and device acceptance, then merge. The scheduled weekly train attempts
+   external distribution; verify processing, eligibility, and beta review.
+3. **Release:** when authorized and the weekly candidate is accepted, promote
+   `weekly → main` and prepare the exact App Store build. Follow
+   `.clinerules/workflows/release.md` and `docs/release-checklist.md`. Upload,
+   submission, release, pricing, and legal declarations require their own
+   authorization; do not bypass the ladder just to obtain green CI.
 
 ### Getting builds & testers into TestFlight
 
@@ -2147,15 +2166,15 @@ routes each channel to its group (see `fastlane/Fastfile`):
 
 | Channel | TestFlight group | Type | Beta App Review? | How testers join |
 |---|---|---|---|---|
-| `nightly` | **Nightly** | Internal | No — builds appear instantly | Added as App Store Connect users (Users and Access), then to the group. Max 100. |
-| `weekly`  | **Weekly**  | External | Yes — first build of each version | Email invite **or a public link**. Max 10,000. |
+| `nightly` | **Nightly** | Internal | No external beta review; wait for processing | Eligible App Store Connect users with app access, then the group. Max 100. |
+| `weekly`  | **Weekly**  | External | First external build; later builds may need review | Email invite **or a public link**. Max 10,000. |
 
 **Internal vs external — the practical difference.** Internal testers must be
-members of the App Store Connect team (any role), so they're for *you and a
-handful of trusted people*. Builds reach them within minutes of upload, no
-review. External testers are the general public; the **first build of a given
-marketing version** must clear Beta App Review (a lighter, faster pass than full
-App Store review — usually hours) before any external tester can install it.
+members of the App Store Connect team with an eligible role and app access,
+so they're for *you and a handful of trusted people*. Builds need to finish
+processing before installation. External testers are the general public; the
+first external build needs Beta App Review, and later builds may also need review. Confirm each selected build's external eligibility and review state
+before claiming testers can install it.
 
 **Beta App Review details.** Weekly external submissions are automated in
 `fastlane beta channel:weekly`: the lane reads contact, notes, and optional demo
@@ -2168,10 +2187,12 @@ future build needs reviewer credentials.
 **The shareable link.** "Send me a link" = a TestFlight **public link**
 (`https://testflight.apple.com/join/XXXXXXXX`). It is a property of an *external*
 group (Weekly), not internal, and it only goes live once that group has a build
-that has passed Beta App Review. There is no fastlane/MCP action for it — enable
-it once, by hand, in **App Store Connect ▸ Echo ▸ TestFlight ▸ Weekly ▸ Public
-Link ▸ Enable**, then share the URL anywhere. Testers must install Apple's
-**TestFlight** app first; the link opens the app to a one-tap *Install*.
+that is available for external testing. The weekly `beta` lane attempts to enable
+the group's public link after upload and reports a warning on failure. Verify the
+link and approved build in **App Store Connect ▸ Echo ▸ TestFlight ▸ Weekly**;
+manual enablement is a fallback. A logged URL alone does not prove installation.
+Testers must install Apple's **TestFlight** app first; the link opens the app
+to a one-tap *Install*.
 
 **Per-build "What to Test" copy** lives in version control, not the ASC web UI:
 `fastlane/testflight/what_to_test.txt` (the changelog) and
@@ -2181,10 +2202,11 @@ dashboard — the lane reads them on every upload.
 **App Store screenshots.** Capture and review screenshots with
 `bundle exec fastlane screenshots` or the assisted script described in
 `fastlane/screenshots/en-US/README_SCREENSHOTS.md`. The weekly release-train
-workflow runs `bundle exec fastlane upload_screenshots_if_available` after a
-successful TestFlight upload; it uploads screenshots plus metadata when PNG/JPG
-files are present and logs a skip while the folder contains only documentation,
-so missing screenshots never block external TestFlight iteration.
+workflow currently does not call a screenshot or metadata upload lane. The
+`upload_screenshots_if_available` lane exists for a separately authorized
+invocation: it uploads screenshots plus metadata when PNG/JPG files are present
+and skips an empty folder. File presence is not evidence that captures were
+reviewed or accepted by App Store Connect.
 
 **Nightly "What to Test" auto-draft.** On the `nightly` channel only, the
 `fastlane beta` lane regenerates `what_to_test.txt` in the working tree (never
