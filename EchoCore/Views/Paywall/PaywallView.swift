@@ -8,6 +8,7 @@ struct PaywallView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var purchasing = false
     @State private var loadingProducts = false
+    @State private var restoring = false
 
     private func product(_ id: String) -> Product? {
         store.products.first { $0.id == id }
@@ -47,10 +48,13 @@ struct PaywallView: View {
 
                     Button("Restore Purchases") {
                         Task {
+                            restoring = true
+                            defer { restoring = false }
                             await store.restorePurchases()
                             if store.isPro { dismiss() }
                         }
                     }
+                    .disabled(purchasing || restoring)
                     .font(.footnote)
 
                     HStack(spacing: 16) {
@@ -71,6 +75,9 @@ struct PaywallView: View {
                     Text("Open source — you can build it yourself.")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
+                    if let notice = store.lastStoreNotice {
+                        Text(notice).font(.caption).foregroundStyle(.secondary)
+                    }
                     if let err = store.lastStoreError {
                         Text(err).font(.caption).foregroundStyle(.red)
                     }
@@ -84,6 +91,9 @@ struct PaywallView: View {
             }
             .task {
                 if store.products.isEmpty { await loadProducts() }
+            }
+            .onChange(of: store.isPro) { _, isPro in
+                if isPro { dismiss() }
             }
         }
     }
@@ -141,6 +151,6 @@ struct PaywallView: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
-        .disabled(purchasing)
+        .disabled(purchasing || restoring)
     }
 }

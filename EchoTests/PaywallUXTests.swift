@@ -53,6 +53,15 @@ struct PaywallUXTests {
         #expect(!source.contains("No Echo account or servers"))
     }
 
+    @Test func paywallSerializesPurchasesAndRestoresAndObservesApproval() throws {
+        let source = try Self.source(path: "EchoCore/Views/Paywall/PaywallView.swift")
+        let manager = try Self.source(path: "EchoCore/Services/StoreManager.swift")
+        #expect(source.contains("restoring"))
+        #expect(source.contains("purchasing || restoring"))
+        #expect(source.contains("onChange(of: store.isPro)"))
+        #expect(manager.contains("Purchase pending approval."))
+    }
+
     @Test func paywallUsesStoreKitDisplayPricesForEveryUnlock() throws {
         let source = try Self.source(path: "EchoCore/Views/Paywall/PaywallView.swift")
         let productIDs = try Self.source(path: "EchoCore/Services/Store/ProductIDs.swift")

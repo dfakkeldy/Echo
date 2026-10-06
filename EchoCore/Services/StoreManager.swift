@@ -12,6 +12,7 @@ final class StoreManager: ProEntitlementProviding {
     private(set) var proUnlockProduct: Product?
     private(set) var isPro = StoreAccessPolicy.paywallDisabled
     private(set) var lastStoreError: String?
+    private(set) var lastStoreNotice: String?
 
     @ObservationIgnored private var lifetimeOwned = false
     @ObservationIgnored private var foundersOwned = false
@@ -54,6 +55,8 @@ final class StoreManager: ProEntitlementProviding {
     /// Purchase a non-consumable product (the Pro unlock or the Founders unlock).
     @discardableResult
     func purchase(_ product: Product) async throws -> Bool {
+        lastStoreError = nil
+        lastStoreNotice = nil
         let result = try await product.purchase()
         switch result {
         case .success(let verification):
@@ -61,7 +64,10 @@ final class StoreManager: ProEntitlementProviding {
             await updateProUnlockState(from: txn)
             await txn.finish()
             return true
-        case .userCancelled, .pending:
+        case .pending:
+            lastStoreNotice = "Purchase pending approval."
+            return false
+        case .userCancelled:
             return false
         @unknown default:
             return false
@@ -75,17 +81,7 @@ final class StoreManager: ProEntitlementProviding {
 
         guard let proUnlockProduct else { return }
 
-        let result = try await proUnlockProduct.purchase()
-        switch result {
-        case .success(let verificationResult):
-            let transaction = try checkVerified(verificationResult)
-            await updateProUnlockState(from: transaction)
-            await transaction.finish()
-        case .userCancelled, .pending:
-            break
-        @unknown default:
-            break
-        }
+        _ = try await purchase(proUnlockProduct)
     }
 
     func restorePurchases() async {
@@ -135,6 +131,7 @@ final class StoreManager: ProEntitlementProviding {
             lifetimeOwned: lifetimeOwned,
             foundersOwned: foundersOwned,
             paywallDisabled: StoreAccessPolicy.paywallDisabled)
+        if isPro { lastStoreNotice = nil }
     }
 
     private func updateProUnlockState(from transaction: Transaction) async {
