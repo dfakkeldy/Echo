@@ -1452,6 +1452,11 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 9;
+				EXCLUDED_SOURCE_FILE_NAMES = (
+					"$(inherited)",
+					"Alice's Adventures in Wonderland.epub",
+					"f-scott-fitzgerald_the-great-gatsby.epub",
+				);
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 8AXNA5B37R;
 				ENABLE_APP_SANDBOX = YES;
@@ -1757,6 +1762,11 @@
 				CODE_SIGN_ENTITLEMENTS = EchoCore/EchoCore.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 9;
+				EXCLUDED_SOURCE_FILE_NAMES = (
+					"$(inherited)",
+					"Alice's Adventures in Wonderland.epub",
+					"f-scott-fitzgerald_the-great-gatsby.epub",
+				);
 				DEVELOPMENT_ASSET_PATHS = "EchoCore/Development\\ Assets";
 				DEVELOPMENT_TEAM = 8AXNA5B37R;
 				ENABLE_PREVIEWS = YES;
