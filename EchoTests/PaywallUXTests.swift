@@ -46,6 +46,13 @@ struct PaywallUXTests {
         #expect(!source.localizedStandardContains(retiredLibraryClaim))
     }
 
+    @Test func onlyStandardProIsOfferedAndOptionalServicesAreAcknowledged() throws {
+        let source = try Self.source(path: "EchoCore/Views/Paywall/PaywallView.swift")
+        #expect(!source.contains("FoundersWindow"))
+        #expect(!source.contains("product(ProductIDs.founders)"))
+        #expect(!source.contains("No Echo account or servers"))
+    }
+
     @Test func paywallUsesStoreKitDisplayPricesForEveryUnlock() throws {
         let source = try Self.source(path: "EchoCore/Views/Paywall/PaywallView.swift")
         let productIDs = try Self.source(path: "EchoCore/Services/Store/ProductIDs.swift")
