@@ -7,6 +7,7 @@ struct PaywallView: View {
     @Environment(StoreManager.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var purchasing = false
+    @State private var loadingProducts = false
 
     private func product(_ id: String) -> Product? {
         store.products.first { $0.id == id }
@@ -29,8 +30,14 @@ struct PaywallView: View {
                     if let lifetime = product(ProductIDs.lifetime) {
                         planButton(lifetime, oneTime: true, badge: "One-time — no subscription")
                     }
-                    if FoundersWindow.isOpen, let founders = product(ProductIDs.founders) {
-                        planButton(founders, oneTime: true, badge: "Founders — limited time")
+                    if product(ProductIDs.lifetime) == nil {
+                        if loadingProducts {
+                            ProgressView("Loading Echo Pro…")
+                        } else {
+                            Button("Retry Loading Echo Pro") {
+                                Task { await loadProducts() }
+                            }
+                        }
                     }
 
                     Text("Pay once, unlock forever. No subscription, no account.")
@@ -76,9 +83,15 @@ struct PaywallView: View {
                 }
             }
             .task {
-                if store.products.isEmpty { await store.requestProducts() }
+                if store.products.isEmpty { await loadProducts() }
             }
         }
+    }
+
+    private func loadProducts() async {
+        loadingProducts = true
+        defer { loadingProducts = false }
+        await store.requestProducts()
     }
 
     private var benefits: some View {
@@ -88,7 +101,7 @@ struct PaywallView: View {
             benefitLabel("📊", "Insights for listening and study streaks")
             benefitLabel("📤", "Study export: Markdown, Anki decks, and chaptered .m4b")
             benefitLabel("⬇️", "Audiobookshelf offline downloads and background sync")
-            benefitLabel("🔒", "No Echo account or servers, no tracking")
+            benefitLabel("🔒", "Your library, with optional connected services")
         }
     }
 
@@ -107,7 +120,11 @@ struct PaywallView: View {
             Task {
                 purchasing = true
                 defer { purchasing = false }
-                if (try? await store.purchase(product)) == true, store.isPro { dismiss() }
+                do {
+                    if try await store.purchase(product), store.isPro { dismiss() }
+                } catch {
+                    store.recordStoreError(error)
+                }
             }
         } label: {
             HStack {

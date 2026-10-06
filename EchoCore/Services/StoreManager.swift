@@ -37,10 +37,11 @@ final class StoreManager: ProEntitlementProviding {
 
     func requestProducts() async {
         do {
-            let requestedProducts = try await Product.products(for: ProductIDs.all)
+            let requestedProducts = try await Product.products(for: ProductIDs.offered)
             products = requestedProducts
             proUnlockProduct = requestedProducts.first { $0.id == ProductIDs.lifetime }
-            lastStoreError = nil
+            lastStoreError = proUnlockProduct == nil
+                ? "Echo Pro is currently unavailable. Please try again." : nil
         } catch {
             products = []
             proUnlockProduct = nil

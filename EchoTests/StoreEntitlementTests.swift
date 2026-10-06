@@ -15,6 +15,12 @@ struct StoreEntitlementTests {
         ))
     }
 
+    @Test func newPurchasesOfferStandardProAndLegacyFoundersRemainRecognized() {
+        #expect(ProductIDs.offered == [ProductIDs.lifetime])
+        #expect(ProductIDs.nonConsumables.contains(ProductIDs.founders))
+        #expect(ProEntitlement.isPro(lifetimeOwned: false, foundersOwned: true))
+    }
+
     @Test func lifetimeOwnerIsPro() {
         #expect(ProEntitlement.isPro(lifetimeOwned: true, foundersOwned: false))
     }
