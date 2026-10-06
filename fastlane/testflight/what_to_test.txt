@@ -1,4 +1,4 @@
-Welcome to the Echo beta! Echo is an audiobook STUDY player: it lines audio up with the book text word by word, narrates text-only books entirely on-device, and turns what you hear into notes and flashcards. No account, no cloud, no tracking — everything runs on your device.
+Welcome to the Echo beta! Echo is an audiobook STUDY player: it lines audio up with the book text word by word, narrates text-only books entirely on-device, and turns what you hear into notes and flashcards. Core book import, local playback, reading, and voice synthesis run on-device without an Echo account. AI-provider and Audiobookshelf features, iCloud sync, community alignment discovery and sharing, and model downloads use network services.
 
 FIRST FIVE MINUTES
 • Add a DRM-free EPUB and tap Narrate. Echo synthesizes the voice on-device — the first run downloads the voice model once, so note how long the first spoken words take on your device.

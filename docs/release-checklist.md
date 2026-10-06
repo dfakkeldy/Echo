@@ -8,8 +8,10 @@ private book content out of this public repository.
 ## Candidate and promotion gates
 
 - Record exact SHA and version/build for iOS with embedded Watch/widget and the
-  separately packaged Mac app. The checked-in `0.6` / build `9` is configuration;
-  `beta` overrides the build number at archive time.
+  separately packaged Mac app. The checked-in `1.0` / build `9` is configuration;
+  `beta` overrides the build number at archive time. The editable iOS and Mac ASC
+  records are `1.0`; uploaded `0.6` (build `109`) is historical. No signed release
+  candidate is selected yet; record the actual future signed candidate separately.
 - Keep internal nightly → external weekly → main App Store promotion. Verify
   current branch protection and actual completed CI jobs at the selected head.
   A docs-only check can skip Xcode, and a green release run can omit Mac after a
