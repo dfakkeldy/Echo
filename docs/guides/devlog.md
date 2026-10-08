@@ -1,5 +1,6 @@
 # Building Echo — The Devlog
 
+<!-- TODO(Dan): AI disclosure. Same claim as the devlog.html hero line; update it to match your rewrite. -->
 Echo went from "I wonder if I could make an iOS app" to a four-platform audiobook study system — with on-device AI narration — in about nine weeks. This is the week-by-week story, reconstructed from the actual git history — **956 commits** between April 19 and June 19, 2026, written by a mail carrier with no prior Swift experience, in the hours around a full-time delivery route.
 
 It's all open source. You can audit every claim below: [github.com/dfakkeldy/Echo](https://github.com/dfakkeldy/Echo).
@@ -117,4 +118,4 @@ Nine working weeks. Four platforms (iOS, watchOS, macOS, widgets). A SQL databas
 
 The point of publishing this log isn't bragging rights. It's the same as open-sourcing the code: you should be able to see exactly what you're trusting with your books and your attention — and maybe, if you've been wondering whether you could build *your* app, this page is the nudge.
 
-*The devlog updates roughly weekly, generated from the real commit history.*
+*Last updated August 24, 2026.*
