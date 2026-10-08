@@ -2,8 +2,7 @@
 
 > For Every Mind — turn listening into learning
 
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#)
-[![TestFlight](https://img.shields.io/badge/TestFlight-Beta-blue.svg)](#)
+[![CI](https://github.com/dfakkeldy/Echo/actions/workflows/ci.yml/badge.svg)](https://github.com/dfakkeldy/Echo/actions/workflows/ci.yml)
 [![Platform](https://img.shields.io/badge/iOS-18+-blue.svg)](#)
 [![Platform](https://img.shields.io/badge/macOS-15+-blue.svg)](#)
 [![Platform](https://img.shields.io/badge/watchOS-11+-blue.svg)](#)
