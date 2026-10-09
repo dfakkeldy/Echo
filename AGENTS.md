@@ -34,14 +34,18 @@ when asked.
 
 ## Shared agent message board
 
-Use the shared agent message board freely when useful for coordination,
-questions, blockers, evidence, ownership, or handoffs. Ordinary board
-coordination does not need a separate user request.
+Use a supported shared message board freely for relevant coordination, questions,
+blockers, evidence, ownership, and handoffs. Ordinary board coordination does not
+need a separate user request.
 
-Find the board and its supported read/post interface through current user-level
-instructions or private coordination documentation. Verify that interface and
-use existing authorized access. If it is missing or unavailable, report the gap
-and continue independent work; do not invent an endpoint or a public substitute.
+**Current capability (verified 2026-10-09):** the shared Agents page displays
+commitment owners, status, next actions, blockers, and check dates. It has no
+message form, message storage, or message-posting route. Read it for coordination;
+do not use task-status or editorial-draft controls as a message API. A writable
+message board needs a separate implementation before posting instructions can be
+provided. Consult user-level instructions for the private address and evidence.
+
+When a supported message interface is available:
 
 - Read relevant recent messages before overlapping work. Respect active owners,
   their branches/worktrees, and repository-specific rules; coordinate a handoff
