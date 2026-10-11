@@ -118,6 +118,16 @@ final class AudioEngine {
     private var audioSessionConfigured = false
     private var seekGeneration = 0
 
+    init() {}
+
+    /// Accept an already connected graph, including one configured for offline rendering.
+    init(engine: AVAudioEngine, playerNode: AVAudioPlayerNode) {
+        precondition(playerNode.engine === engine, "Player node must belong to the supplied engine")
+        self.engine = engine
+        self.playerNode = playerNode
+        setupConfigurationChangeObserver(for: engine)
+    }
+
     deinit {
         MainActor.assumeIsolated {
             cleanup()
@@ -267,6 +277,17 @@ final class AudioEngine {
         #endif
     }
 
+    /// Stop detection may arrive before the configuration notification. Preserve
+    /// route recovery, including the built-in-output pause rule, in either order.
+    func handleStoppedPlayback() {
+        guard isPlaying else { return }
+        if engine?.isRunning == false {
+            handleConfigurationChange()
+        } else {
+            reportUnexpectedStop()
+        }
+    }
+
     /// Settle into a truthful paused transport after the engine stopped on us.
     private func reportUnexpectedStop() {
         isPlaying = false
@@ -277,12 +298,17 @@ final class AudioEngine {
     // MARK: - Playback Controls
 
     func play() {
-        guard let playerNode, engine != nil, isItemLoaded, !isPlaying else { return }
+        guard let playerNode, let engine, isItemLoaded else { return }
+        guard !isPlaying || !engine.isRunning || !playerNode.isPlaying else { return }
         // stop() removed the route/interruption observers and cleared the
         // session-configured flag; re-arm before resuming so unplugging
         // headphones or an interruption still pauses playback (§5.9).
         if !audioSessionConfigured { configureAudioSession() }
-        startEngineIfNeeded()
+        guard rescheduleForResume() else { return }
+        guard startEngineIfNeeded() else {
+            reportUnexpectedStop()
+            return
+        }
         applyPlaybackRate(speed)
         playerNode.play()
         isPlaying = true
@@ -293,7 +319,14 @@ final class AudioEngine {
         setSpeed(rate)
         guard let playerNode, engine != nil, isItemLoaded else { return }
         if !audioSessionConfigured { configureAudioSession() }  // re-arm after stop() (§5.9)
-        startEngineIfNeeded()
+        // A speed update while playing must not rebase or replace the active segment.
+        if !isPlaying || engine?.isRunning != true || !playerNode.isPlaying {
+            guard rescheduleForResume() else { return }
+        }
+        guard startEngineIfNeeded() else {
+            reportUnexpectedStop()
+            return
+        }
         applyPlaybackRate(rate)
         playerNode.play()
         isPlaying = true
@@ -301,12 +334,22 @@ final class AudioEngine {
     }
 
     func pause() {
+        updateCurrentTime(notifyDelegate: false)
+        // A completion already queued for the main actor must not undo this pause.
+        seekGeneration += 1
         playerNode?.pause()
         isPlaying = false
         stopTimeTimer()
         if soundscapeMixer?.isActive != true {
             engine?.pause()
         }
+    }
+
+    /// Rebuild even a loaded item's queue: node/engine resets can discard scheduled audio.
+    private func rescheduleForResume() -> Bool {
+        var rescheduled = false
+        seek(to: currentTime) { rescheduled = $0 }
+        return rescheduled
     }
 
     func seek(to targetSeconds: Double, completion: ((Bool) -> Void)? = nil) {
@@ -337,7 +380,11 @@ final class AudioEngine {
         scheduleSegment(file: audioFile, from: startFrame, frames: framesToPlay)
 
         if wasPlaying {
-            startEngineIfNeeded()
+            guard startEngineIfNeeded() else {
+                reportUnexpectedStop()
+                completion?(false)
+                return
+            }
             playerNode.play()
             isPlaying = true
             startTimeTimer()
@@ -369,7 +416,10 @@ final class AudioEngine {
         scheduleSegment(file: audioFile, from: startFrame, frames: framesToPlay)
 
         if wasPlaying {
-            startEngineIfNeeded()
+            guard startEngineIfNeeded() else {
+                reportUnexpectedStop()
+                return false
+            }
             playerNode.play()
             isPlaying = true
             startTimeTimer()
@@ -503,7 +553,10 @@ final class AudioEngine {
             scheduleSegment(file: file, from: startFrame, frames: framesToPlay)
 
             if wasPlaying {
-                startEngineIfNeeded()
+                guard startEngineIfNeeded() else {
+                    reportUnexpectedStop()
+                    return .failure(AudioItemLoadFailure(privateDetail: "Audio engine could not start"))
+                }
                 applyPlaybackRate(speed)
                 playerNode.play()
                 isPlaying = true
@@ -525,6 +578,7 @@ final class AudioEngine {
 
     /// Stops playback and tears down the engine.
     func stop() {
+        seekGeneration += 1
         prebufferedFile = nil
         isPlaying = false
         playerNode?.pause()
@@ -580,13 +634,16 @@ final class AudioEngine {
 
     // MARK: - Private Helpers
 
-    private func startEngineIfNeeded() {
-        guard let engine, !engine.isRunning else { return }
+    private func startEngineIfNeeded() -> Bool {
+        guard let engine else { return false }
+        if engine.isRunning { return true }
         do {
             try engine.start()
+            return engine.isRunning
         } catch {
             os_log(
                 .error, "AudioEngine: engine start error: %{private}@", error.localizedDescription)
+            return false
         }
     }
 
@@ -600,10 +657,19 @@ final class AudioEngine {
             file,
             startingFrame: startFrame,
             frameCount: frames,
-            at: nil
-        ) {
+            at: nil,
+            completionCallbackType: .dataPlayedBack
+        ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, generation == self.seekGeneration else { return }
+                // Typed completion can also be delivered on stop. A cancelled/reset
+                // graph is not EOF; retain the last genuine clock for rescheduling.
+                guard self.isPlaying, self.engine?.isRunning == true,
+                    self.playerNode?.isPlaying == true
+                else {
+                    if self.isPlaying { self.handleStoppedPlayback() }
+                    return
+                }
                 self.isPlaying = false
                 self.stopTimeTimer()
                 self.currentTime = self.duration ?? self.currentTime
@@ -634,23 +700,39 @@ final class AudioEngine {
         timeTimer = nil
     }
 
-    private func updateCurrentTime() {
-        guard let playerNode, isPlaying else { return }
+    private func updateCurrentTime(notifyDelegate: Bool = true) {
+        guard isPlaying, let playerNode else { return }
+        guard engine?.isRunning == true, playerNode.isPlaying else {
+            if notifyDelegate { handleStoppedPlayback() }
+            return
+        }
         guard let nodeTime = playerNode.lastRenderTime,
             let playerTime = playerNode.playerTime(forNodeTime: nodeTime)
         else { return }
 
         let position = Double(playerTime.sampleTime) / playerTime.sampleRate
         let time = seekOffset + position
+        // A node reset rewinds its sample clock. Only a seek/replacement may move
+        // the book clock backwards; never overwrite the saved resume position here.
         guard time.isFinite else { return }
+        guard time >= currentTime else {
+            if notifyDelegate { handleStoppedPlayback() }
+            return
+        }
 
         currentTime = time
-        delegate?.audioEngineDidUpdateTime(self, currentTime: time)
+        if notifyDelegate { delegate?.audioEngineDidUpdateTime(self, currentTime: time) }
     }
 
     // MARK: - Interruption Observers
 
     #if os(iOS)
+        func handleInterruptionBegan() {
+            audioSessionConfigured = false
+            pause()
+            delegate?.audioEngineInterruptionBegan(self)
+        }
+
         private func setupInterruptionObserver() {
             guard interruptionObserver == nil else { return }
             interruptionObserver = NotificationCenter.default.addObserver(
@@ -667,10 +749,7 @@ final class AudioEngine {
                 switch type {
                 case .began:
                     MainActor.assumeIsolated {
-                        self.audioSessionConfigured = false
-                        self.isPlaying = false
-                        self.stopTimeTimer()
-                        self.delegate?.audioEngineInterruptionBegan(self)
+                        self.handleInterruptionBegan()
                     }
                 case .ended:
                     let optionsValue = (userInfo[AVAudioSessionInterruptionOptionKey] as? UInt) ?? 0
@@ -736,9 +815,7 @@ final class AudioEngine {
             ) { [weak self] _ in
                 guard let self else { return }
                 MainActor.assumeIsolated {
-                    self.isPlaying = false
-                    self.stopTimeTimer()
-                    self.delegate?.audioEngineInterruptionBegan(self)
+                    self.handleInterruptionBegan()
                 }
             }
 

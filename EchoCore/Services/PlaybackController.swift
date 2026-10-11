@@ -31,7 +31,7 @@ nonisolated enum PlaybackPauseReason: Equatable, Sendable {
 
 @MainActor @Observable
 final class PlaybackController {
-    let audioEngine = AudioEngine()
+    let audioEngine: AudioEngine
     let state = PlaybackState()
     weak var delegate: PlaybackControllerDelegate?
 
@@ -85,7 +85,8 @@ final class PlaybackController {
         pause()
     }
 
-    init() {
+    init(audioEngine: AudioEngine = AudioEngine()) {
+        self.audioEngine = audioEngine
         audioEngine.delegate = self
     }
 
@@ -316,6 +317,7 @@ final class PlaybackController {
         }
         audioEngine.pause()
         state.isPlaying = false
+        coordinator_refreshProgress?()
 
         // Any explicit/system pause cancels a pending narration at-gap auto-resume so the render loop does not fight the user (see nextTrack() gap branch). The gap branch is the ONLY site that re-sets this true, and it does so AFTER calling pause() — do not reorder.
         clearNarrationQueueWait()
@@ -1155,6 +1157,10 @@ extension PlaybackController: AudioEngineDelegate {
     }
 
     func audioEngineDidPlayToEnd(_ engine: AudioEngine) {
+        // Synchronize cached chapter labels with the accepted EOF clock before
+        // checkpoint/sleep/advance decisions. Ordinary time updates also run loop
+        // navigation, so use the narrower progress coordinator here.
+        coordinator_refreshProgress?()
         delegate?.playbackControllerDidPlayToEnd(self)
     }
 
