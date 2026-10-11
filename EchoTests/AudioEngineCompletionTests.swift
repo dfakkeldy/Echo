@@ -211,6 +211,35 @@ struct AudioEngineCompletionTests {
         #expect(state.currentSubtitle == "Final")
     }
 
+    @Test func eofProgressRefreshRecalculatesChapterWithinBoundaryTolerance() async throws {
+        let f = try CompletionAudioFixture(seconds: 0.25, offline: false)
+        defer { f.close() }
+        let state = PlaybackState()
+        state.tracks = [Track(url: f.url, title: "Synthetic")]
+        state.durationSeconds = 0.25
+        state.chapters = [
+            Chapter(index: 0, title: "First", startSeconds: 0, endSeconds: 0.2),
+            Chapter(index: 1, title: "Final", startSeconds: 0.2, endSeconds: 0.25),
+        ]
+        state.currentChapterIndex = 0
+        let coordinator = ChapterLoadingCoordinator()
+        coordinator.state = state
+        coordinator.audioEngine = f.audio
+        let presenter = PlaybackProgressPresenter()
+        presenter.state = state
+        presenter.audioEngine = f.audio
+        presenter.speedProvider = { 1 }
+        presenter.onChapterOutOfBounds = { coordinator.updateCurrentChapterFromPlayerTime() }
+        f.audio.playImmediately(atRate: 1)
+        try await f.waitForEnd()
+        // This is the narrow coordinator_refreshProgress path used before end decisions.
+        presenter.updateProgress()
+        #expect(state.currentChapterIndex == 1)
+        #expect(state.currentSubtitle == "Final")
+        #expect(state.progressFraction == 1)
+        #expect(state.bookProgressPercent == 100)
+    }
+
     @Test func completionRefreshesProgressBeforeSleepOrCheckpointHandling() throws {
         let f = try CompletionAudioFixture()
         defer { f.close() }
