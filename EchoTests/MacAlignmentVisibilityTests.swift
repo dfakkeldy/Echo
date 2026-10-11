@@ -178,23 +178,23 @@ struct MacAlignmentVisibilityTests {
     /// `NavigationSplitViewVisibility` only governs the *leading* columns: in a
     /// three-column split view no value hides the detail column. ⌘T used to set
     /// `.detailOnly`, which hid the library and the reader and left the notes
-    /// pane — the exact opposite of what was asked for. Two columns plus a real
-    /// inspector is the layout where both sides hide independently.
-    @Test func trailingPaneIsAnInspectorNotADetailColumn() throws {
+    /// pane — the exact opposite of what was asked for. Keep the reader in the
+    /// navigation detail and control Notes separately from leading visibility.
+    /// Flexible width behavior is covered by MacNotesPaneWidthPolicyTests.
+    @Test func trailingPaneDoesNotReplaceNavigationDetail() throws {
         let source = try MacSource.read("Views/MacTriPaneView.swift")
         #expect(
             source.contains(
                 "NavigationSplitView(columnVisibility: $columnVisibility) { sidebarPane } detail: { centerPane }"
             ))
-        #expect(source.contains(".inspector(isPresented: $showsNotesInspector)"))
+        #expect(source.contains("MacReaderNotesSplit(isNotesShown: showsNotesInspector)"))
         #expect(source.contains("MacNotesPane()"))
-        #expect(source.contains(".inspectorColumnWidth(min: 220, ideal: 320, max: 520)"))
         // The old toggle, which hid the wrong panes.
         #expect(!source.contains("columnVisibility == .detailOnly"))
     }
 
     /// Two ways in — ⌘T and a toolbar button — and the choice survives relaunch.
-    @Test func inspectorTogglesFromMenuAndToolbarAndPersists() throws {
+    @Test func notesTogglesFromMenuAndToolbarAndPersists() throws {
         let source = try MacSource.read("Views/MacTriPaneView.swift")
         #expect(source.contains("@AppStorage(\"mac.showsNotesInspector\")"))
         #expect(source.contains("withAnimation { showsNotesInspector.toggle() }"))

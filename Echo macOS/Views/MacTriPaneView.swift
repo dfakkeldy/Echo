@@ -12,14 +12,15 @@ import UniformTypeIdentifiers
 /// A thin player bar at the bottom of the center pane shows playback controls,
 /// and a batch-activity strip appears below it while the queue is working.
 ///
-/// The trailing pane is an **inspector**, not a `NavigationSplitView` detail
+/// The trailing Notes pane is not a `NavigationSplitView` detail
 /// column, because `NavigationSplitViewVisibility` only governs the *leading*
 /// columns: in a three-column split view there is no value that hides the
 /// detail column. This layout previously was three columns, and "Toggle Review
 /// Pane" set `.detailOnly` — which hid the library and the reader and left only
 /// the notes pane, the exact opposite of hiding it. As a two-column split view
-/// with an inspector, both side panes hide independently: the standard sidebar
-/// toggle for the leading one, ⌘T or the toolbar button for the trailing one.
+/// whose detail hosts reader and Notes in `MacReaderNotesSplit`, both side
+/// panes hide independently: the standard sidebar toggle for the leading one,
+/// ⌘T or the toolbar button for the trailing one.
 struct MacTriPaneView: View {
     @Environment(MacPlayerModel.self) private var player
     @Environment(DatabaseService.self) private var dbService
@@ -205,6 +206,20 @@ struct MacTriPaneView: View {
     }
 
     private var centerPane: some View {
+        // Keep the measured reader/Notes boundary in SwiftUI, outside the
+        // native inspector split that aborts during a Notes-visible resize.
+        MacReaderNotesSplit(isNotesShown: showsNotesInspector) {
+            readerPane
+        } notes: {
+            MacNotesPane()
+        }
+        // Advertise both usable minima while Notes is shown. This is derived
+        // from stable policy constants, never from changing measured geometry.
+        .frame(minWidth: MacNotesPaneWidthPolicy.standard.minimumContainerWidth(
+            isNotesShown: showsNotesInspector))
+    }
+
+    private var readerPane: some View {
         VStack(spacing: 0) {
             if player.hasMedia {
                 transcriptQAToolbar
@@ -249,14 +264,7 @@ struct MacTriPaneView: View {
                 }
             }
         }
-        // The reader is the detail column now rather than the middle one, so it
-        // sizes from the window instead of a fixed column width.
-        .frame(minWidth: 320)
         .animation(.default, value: batchService.activity == nil)
-        .inspector(isPresented: $showsNotesInspector) {
-            MacNotesPane()
-                .inspectorColumnWidth(min: 220, ideal: 320, max: 520)
-        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
