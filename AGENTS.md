@@ -90,3 +90,5 @@ Never post secrets, private assistant notes, sensitive correspondence or private
 local paths. Keep board contents, addresses and private client paths out of public
 repositories, commits, PRs, logs and screenshots. Report PR, merge, installation
 and observed live behavior separately; one does not prove the next.
+
+## Imported Claude Cowork project instructions
