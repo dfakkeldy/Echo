@@ -16,6 +16,12 @@ All notable changes to Echo: Audiobook Study Player.
   Existing long-prefix cache files are kept but need regeneration to be found.
 - Playback now finishes a track that was waiting on narration resume backfill
   instead of stalling after rendering completes.
+- When an audio interruption or output change resets the audio engine mid-book,
+  Echo no longer marks the book finished or restarts an empty queue on the next
+  Play. It keeps the last real playback position and schedules the remaining
+  audio before reporting playback as resumed. Pauses, seeks, speed changes, and
+  book replacement no longer let a stale completion callback end the book, and
+  finishing a book on a very short final chapter now selects that chapter.
 - On Mac, resizing the window with Notes visible no longer risks a crash from
   repeated inspector layout updates. Notes now sits in a resizable split beside
   the reader, 220 to 520 points wide, with a draggable divider that VoiceOver
