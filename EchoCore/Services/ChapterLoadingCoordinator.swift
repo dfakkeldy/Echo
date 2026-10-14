@@ -135,16 +135,14 @@ final class ChapterLoadingCoordinator {
                 let enhanced = state.enhancedTranscription
                 let fURL = state.folderURL
                 let timelinePersistence = self.timelinePersistence
-                Task {
-                    await timelinePersistence?.ingestTimelineItems(
-                        audiobookID: audiobookID,
-                        audioURL: trackURL,
-                        chapters: built,
-                        transcription: transcription,
-                        enhancedTranscription: enhanced,
-                        folderURL: fURL
-                    )
-                }
+                await timelinePersistence?.ingestTimelineItems(
+                    audiobookID: audiobookID,
+                    audioURL: trackURL,
+                    chapters: built,
+                    transcription: transcription,
+                    enhancedTranscription: enhanced,
+                    folderURL: fURL
+                )
             }
         }
         onComputeWordClouds?()
@@ -181,8 +179,18 @@ final class ChapterLoadingCoordinator {
     func updateCurrentChapterFromPlayerTime() {
         guard let state, let audioEngine else { return }
         guard state.chapters.count >= 2, audioEngine.isItemLoaded else { return }
-        let t = audioEngine.currentTime
-        guard t.isFinite else { return }
+        let currentTime = audioEngine.currentTime
+        guard currentTime.isFinite else { return }
+        // At accepted EOF, the half-open final chapter must still be selected.
+        // Otherwise a short last chapter can leave the prior checkpoint/index active.
+        let t: TimeInterval
+        if let duration = audioEngine.duration, duration.isFinite, duration > 0,
+            currentTime >= duration
+        {
+            t = duration.nextDown
+        } else {
+            t = currentTime
+        }
 
         // Find all chapters that contain the current time
         let matching = state.chapters.filter { t >= $0.startSeconds && t < $0.endSeconds }

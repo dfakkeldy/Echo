@@ -3,6 +3,13 @@ import Foundation
 import ZIPFoundation
 import os.log
 
+/// `UserDefaults` is documented thread-safe ("the UserDefaults class is
+/// thread-safe"), but Foundation has not annotated it `Sendable`. The
+/// stale-source `recoveryStore` crosses into the `@concurrent` import body,
+/// so state that documented guarantee here rather than weakening the hop or
+/// changing the recovery API's signature.
+extension UserDefaults: @unchecked @retroactive Sendable {}
+
 /// The revision pair one stale-source recovery attempt was made against.
 ///
 /// Recovery re-extracts and re-parses the whole document, so it must not run on
@@ -50,12 +57,13 @@ nonisolated struct StaleSourceRecoveryAttempt: Codable, Equatable, Sendable {
     }
 }
 
-enum EPUBAutoImportScanner {
+nonisolated enum EPUBAutoImportScanner {
     private static let logger = Logger(category: "EPUBAutoImport")
 
     enum ImportOutcome {
         case imported
         case alreadyImported
+        case deferred(didImportBlocks: Bool)
         case failed(URL, underlying: Error)
 
         var didImportBlocks: Bool {
@@ -180,7 +188,64 @@ enum EPUBAutoImportScanner {
         return outcome.didImportBlocks
     }
 
-    static func importEPUBFileOutcome(
+    /// `@concurrent`: the extraction, XHTML parse, and block import below are
+    /// the multi-second cost of a first open — running them on the main actor
+    /// froze the playback controls on older phones. Finalizer/recovery calls
+    /// inside remain main-actor and hop back as designed.
+    @MainActor static func importEPUBFileOutcome(
+        epubURL: URL,
+        audiobookID: String,
+        databaseService: DatabaseService,
+        chapters: [Chapter],
+        duration: TimeInterval?,
+        force: Bool = false,
+        finalizerFileURL: URL? = nil,
+        networkPolicy: DocumentImportNetworkPolicy = .standard,
+        allowStaleSourceRecovery: Bool = true,
+        recoveryStore: UserDefaults = .standard,
+        preExtractedDirectory: URL? = nil,
+        networkRequestObserver:
+            (@Sendable (DocumentImportNetworkRequest) -> Void)? = nil
+    ) async -> ImportOutcome {
+        var importedDuringAttempt = false
+        while !Task.isCancelled {
+            do {
+                return try await databaseService.withBackgroundOperation(name: "epub-import") {
+                    try Task.checkCancellation()
+                    let outcome = await importEPUBFileOperation(
+                        epubURL: epubURL, audiobookID: audiobookID,
+                        databaseService: databaseService, chapters: chapters, duration: duration,
+                        force: force, finalizerFileURL: finalizerFileURL,
+                        networkPolicy: networkPolicy, allowStaleSourceRecovery: allowStaleSourceRecovery,
+                        recoveryStore: recoveryStore, preExtractedDirectory: preExtractedDirectory,
+                        networkRequestObserver: networkRequestObserver)
+                    importedDuringAttempt = importedDuringAttempt || outcome.didImportBlocks
+                    if case .failed(_, let error) = outcome {
+                        try databaseService.throwIfWorkDeferred(error)
+                    }
+                    if case .deferred(let didImport) = outcome {
+                        importedDuringAttempt = importedDuringAttempt || didImport
+                        throw DatabaseWorkDeferred()
+                    }
+                    if case .alreadyImported = outcome, importedDuringAttempt { return .imported }
+                    return outcome
+                }
+            } catch {
+                guard databaseService.isWorkDeferred(error), !Task.isCancelled else {
+                    return Task.isCancelled ? .deferred(didImportBlocks: importedDuringAttempt) : .failed(epubURL, underlying: error)
+                }
+                if DatabaseWorkContext.token != nil {
+                    return .deferred(didImportBlocks: importedDuringAttempt)
+                }
+                do { try await databaseService.waitUntilForeground() }
+                catch { return .deferred(didImportBlocks: importedDuringAttempt) }
+            }
+        }
+        return .deferred(didImportBlocks: importedDuringAttempt)
+    }
+
+    @concurrent
+    nonisolated static func importEPUBFileOperation(
         epubURL: URL,
         audiobookID: String,
         databaseService: DatabaseService,
@@ -198,18 +263,25 @@ enum EPUBAutoImportScanner {
         // Security-scoped access is managed by SecurityScopeManager in loadFolder.
         // Don't start/stop here — duplicate cycles break file-provider access.
 
+        // `DatabaseService` is main-actor-isolated; grab its Sendable GRDB
+        // writer once so this off-main body never touches the service itself.
+        let writer = await MainActor.run { databaseService.writer }
+
         // Check if EPUB blocks are already imported for this audiobook.
         if !force {
-            // `allBlocks`, not `visibleBlocks`: the question is "has this
+            // `hasBlocks`, not `visibleBlocks`: the question is "has this
             // document ever been imported", and a re-import now carries
             // `is_hidden` across. A user who excluded every chapter from the
             // narration outline has zero VISIBLE blocks, so a `visibleBlocks`
             // guard would answer "not imported" forever and re-run the full
             // destructive rebuild on every single open. (It used to self-heal
             // only because the old `deleteAll` + insert reset `is_hidden`.)
-            let alreadyImported =
-                (try? EPubBlockDAO(db: databaseService.writer).allBlocks(for: audiobookID)
-                    .isEmpty) == false
+            // An EXISTS query — decoding every block row here stalled large books.
+            let alreadyImported: Bool
+            do {
+                try Task.checkCancellation()
+                alreadyImported = try EPubBlockDAO(db: writer).hasBlocks(for: audiobookID)
+            } catch { return .failed(epubURL, underlying: error) }
             if alreadyImported {
                 logger.debug(
                     "EPUB blocks already exist for \(sanitizedPath(audiobookID)); skipping auto-import."
@@ -217,7 +289,7 @@ enum EPUBAutoImportScanner {
                 // The finalizer re-runs the sidecar branch and rewrites the
                 // per-book summary, so the verdict read immediately below is
                 // this open's verdict, not a stale one.
-                _ = await DocumentImportFinalizer.finalizeExistingImportIfAlignmentSidecarPresent(
+                let existingOutcome = await DocumentImportFinalizer.finalizeExistingImportOutcome(
                     audiobookID: audiobookID,
                     fileURL: finalizerFileURL ?? epubURL,
                     duration: duration,
@@ -225,6 +297,10 @@ enum EPUBAutoImportScanner {
                     networkPolicy: networkPolicy,
                     networkRequestObserver: networkRequestObserver
                 )
+                if existingOutcome == .deferred { return .deferred(didImportBlocks: false) }
+                if existingOutcome == .failed {
+                    return .failed(epubURL, underlying: ScannerError.finalizationFailed(url: epubURL))
+                }
                 if allowStaleSourceRecovery,
                     let recovered = await recoverStaleSourceIfPossible(
                         epubURL: epubURL,
@@ -284,7 +360,8 @@ enum EPUBAutoImportScanner {
 
         // Import extracted EPUB blocks.
         do {
-            let assetStorage = EPUBAssetStorage(databaseService: databaseService)
+            try Task.checkCancellation()
+            let assetStorage = EPUBAssetStorage(writer: writer)
             let importer = EPUBImportService(assetStorage: assetStorage)
             let blocks = try await importer.import(
                 audiobookID: audiobookID,
@@ -296,12 +373,13 @@ enum EPUBAutoImportScanner {
                 "Auto-imported \(blocks.count) EPUB blocks for \(sanitizedPath(epubURL.lastPathComponent))"
             )
 
-            let finalized = await DocumentImportFinalizer.finalize(
+            let finalized = await DocumentImportFinalizer.finalizeOutcome(
                 audiobookID: audiobookID, blocks: blocks, fileURL: finalizerFileURL ?? epubURL,
                 duration: duration, databaseService: databaseService,
                 networkPolicy: networkPolicy,
                 networkRequestObserver: networkRequestObserver)
-            if finalized {
+            if finalized == .deferred { return .deferred(didImportBlocks: true) }
+            if finalized == .completed {
                 return .imported
             }
             return .failed(epubURL, underlying: ScannerError.finalizationFailed(url: epubURL))
@@ -455,7 +533,7 @@ enum EPUBAutoImportScanner {
             "Stale-source recovery: the document on disk matches the alignment file — re-importing to restore read-along"
         )
         handedOffToImport = true
-        let outcome = await importEPUBFileOutcome(
+        let outcome = await importEPUBFileOperation(
             epubURL: epubURL,
             audiobookID: audiobookID,
             databaseService: databaseService,
@@ -469,6 +547,10 @@ enum EPUBAutoImportScanner {
             preExtractedDirectory: probeDir,
             networkRequestObserver: networkRequestObserver
         )
+        if case .deferred = outcome {
+            BookPreferencesService.saveStaleSourceRecoveryAttempt(
+                nil, for: audiobookID, store: recoveryStore)
+        }
         if case .failed(_, let underlying) = outcome {
             // `EPUBImportService` committed the block rebuild in its own
             // transaction before the finalizer ran, so a failure here leaves the

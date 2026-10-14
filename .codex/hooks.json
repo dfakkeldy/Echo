@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/dfakkeldy/Developer/Echo/.codex/hooks/guard-xcodebuild.sh'",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/dfakkeldy/Developer/Echo/.codex/hooks/swift-format-on-edit.sh'",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}

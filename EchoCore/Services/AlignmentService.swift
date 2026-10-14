@@ -30,6 +30,67 @@ nonisolated struct AlignmentService {
         self.audiobookID = audiobookID
     }
 
+    enum RecalculationError: Error { case staleSnapshot }
+
+    private static let workQueue = DispatchQueue(
+        label: "com.echo.alignment", qos: .userInitiated, attributes: .concurrent)
+
+    /// SQLite work runs on a dedicated queue, never a cooperative executor or UI actor.
+    static func performInBackground<T: Sendable>(
+        _ operation: @escaping @Sendable (@Sendable () throws -> Void) throws -> T
+    ) async throws -> T {
+        let cancelled = OSAllocatedUnfairLock(initialState: false)
+        let lifecycleToken = DatabaseWorkContext.token
+        try lifecycleToken?.check()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                workQueue.async {
+                    continuation.resume(with: Result {
+                        try operation {
+                            try lifecycleToken?.check()
+                            if cancelled.withLock({ $0 }) { throw CancellationError() }
+                        }
+                    })
+                }
+            }
+        } onCancel: {
+            cancelled.withLock { $0 = true }
+        }
+    }
+
+    func recalculateTimelineAsync(
+        anchoredOnly: Bool = false, materializeWordTimings: Bool = true
+    ) async throws {
+        let writer = timelineDAO.db
+        let bookID = audiobookID
+        try await Self.performInBackground { checkCancellation in
+            try AlignmentService(db: writer, audiobookID: bookID).recalculateTimeline(
+                anchoredOnly: anchoredOnly, materializeWordTimings: materializeWordTimings,
+                checkCancellation: checkCancellation)
+        }
+    }
+
+    /// Include existing words so a newer refinement cannot be overwritten by an
+    /// older prepared recalculation. All inputs come from the same read snapshot.
+    private struct Snapshot: Equatable {
+        let blocks: [EPubBlockRecord]
+        let anchors: [AlignmentAnchorRecord]
+        let timeline: [TimelineItem]
+        let words: [WordTimingRecord]
+
+        static func read(_ db: Database, audiobookID: String) throws -> Self {
+            Self(
+                blocks: try EPubBlockRecord.filter(Column("audiobook_id") == audiobookID)
+                    .order(Column("sequence_index"), Column("id")).fetchAll(db),
+                anchors: try AlignmentAnchorRecord.filter(Column("audiobook_id") == audiobookID)
+                    .order(Column("audio_time"), Column("id")).fetchAll(db),
+                timeline: try TimelineItem.filter(Column("audiobook_id") == audiobookID)
+                    .order(Column("id")).fetchAll(db),
+                words: try WordTimingRecord.filter(Column("audiobook_id") == audiobookID)
+                    .order(Column("id")).fetchAll(db))
+        }
+    }
+
     // MARK: - Anchor Operations
 
     /// Moves a block to the given playback time, creating or updating a locked anchor.
@@ -178,10 +239,14 @@ nonisolated struct AlignmentService {
     ///   the end of its pipeline, avoiding O(chapters) full-book rebuilds.
     func recalculateTimeline(
         anchoredOnly: Bool = false,
-        materializeWordTimings: Bool = true
+        materializeWordTimings: Bool = true,
+        checkCancellation: () throws -> Void = {},
+        beforeCommit: () throws -> Void = {}
     ) throws {
-        let blocks = try blockDAO.blocks(for: audiobookID)
-        let anchors = try anchorDAO.anchors(for: audiobookID)
+        try checkCancellation()
+        let snapshot = try timelineDAO.db.read { try Snapshot.read($0, audiobookID: audiobookID) }
+        let blocks = snapshot.blocks
+        let anchors = snapshot.anchors
 
         guard !blocks.isEmpty else { return }
 
@@ -198,6 +263,7 @@ nonisolated struct AlignmentService {
         var wordPositionByBlockID: [String: Double] = [:]
         var cumulativeWordCount: Double = 0
         for block in sortedAllBlocks {
+            try checkCancellation()
             let kind = EPubBlockRecord.Kind(rawValue: block.blockKind)
             let weight: Double
             if block.isHidden || kind == .image || kind == .code {
@@ -209,198 +275,212 @@ nonisolated struct AlignmentService {
             cumulativeWordCount += weight
         }
 
-        let maxEndTime = try? timelineDAO.db.read { db in
-            try Double.fetchOne(
-                db,
-                sql: """
-                    SELECT MAX(audio_end_time)
-                    FROM timeline_item
-                    WHERE audiobook_id = ? AND item_type = 'chapterMarker'
-                    """, arguments: [audiobookID])
+        let totalDuration = snapshot.timeline
+            .filter { $0.itemType == .chapterMarker }
+            .compactMap(\.audioEndTime).max()
+
+        // ── Global flat interpolation ──
+        var anchoredBlocks = blocks.filter { anchorTimeByBlockID[$0.id] != nil }
+            .sorted { $0.sequenceIndex < $1.sequenceIndex }
+
+        var syntheticAnchorTimes = anchorTimeByBlockID
+
+        // Calculate dynamic CPS for projections (fallback to 15 CPS = ~155 WPM)
+        var averageCPS: Double = 15.0
+        if anchoredBlocks.count >= 2 {
+            var totalChars = 0.0
+            var totalTime = 0.0
+            for i in 0..<(anchoredBlocks.count - 1) {
+                let prev = anchoredBlocks[i]
+                let next = anchoredBlocks[i + 1]
+                let chars =
+                    (wordPositionByBlockID[next.id] ?? 0)
+                    - (wordPositionByBlockID[prev.id] ?? 0)
+                let time = anchorTimeByBlockID[next.id]! - anchorTimeByBlockID[prev.id]!
+                if time > 0 && chars > 0 {
+                    totalChars += chars
+                    totalTime += time
+                }
+            }
+            if totalTime > 0 {
+                averageCPS = totalChars / totalTime
+            }
         }
-        // Optional: nil until chapter-marker rows materialize. Do NOT fall back
-        // to 1.0 — that collapses the whole tail of the book into the first
-        // second on an early recalc (§5.7).
-        let totalDuration = maxEndTime
 
-        // Single transaction: all alignment writes batched together.
+        // Synthetic boundary anchors (first/last block) + un-anchored
+        // interpolation are skipped for synthesized narration (`anchoredOnly`)
+        // so un-narrated blocks keep `audio_start_time = -1` instead of being
+        // pinned to a near-zero projected time. See `recalculateTimeline`'s doc.
+        if !anchoredOnly, let first = sortedAllBlocks.first,
+            syntheticAnchorTimes[first.id] == nil
+        {
+            anchoredBlocks.insert(first, at: 0)
+            if let firstAnchored = sortedAllBlocks.first(where: {
+                anchorTimeByBlockID[$0.id] != nil
+            }) {
+                let distance =
+                    (wordPositionByBlockID[firstAnchored.id] ?? 0)
+                    - (wordPositionByBlockID[first.id] ?? 0)
+                let projected = anchorTimeByBlockID[firstAnchored.id]! - (distance / averageCPS)
+                syntheticAnchorTimes[first.id] = max(0.0, projected)
+            } else {
+                syntheticAnchorTimes[first.id] = 0.0
+            }
+        }
+        if !anchoredOnly, let last = sortedAllBlocks.last, syntheticAnchorTimes[last.id] == nil
+        {
+            if let lastAnchored = sortedAllBlocks.last(where: {
+                anchorTimeByBlockID[$0.id] != nil
+            }) {
+                anchoredBlocks.append(last)
+                let distance =
+                    (wordPositionByBlockID[last.id] ?? 0)
+                    - (wordPositionByBlockID[lastAnchored.id] ?? 0)
+                let projected = anchorTimeByBlockID[lastAnchored.id]! + (distance / averageCPS)
+                let clampMin =
+                    sortedAllBlocks.first.flatMap { syntheticAnchorTimes[$0.id] } ?? 0.0
+                let bounded = max(clampMin, projected)
+                // Clamp to the book's known end only once it's known; before
+                // then leave the projection unbounded rather than clamping to
+                // a bogus 1.0s (§5.7).
+                syntheticAnchorTimes[last.id] =
+                    totalDuration.map { min($0, bounded) } ?? bounded
+            } else if let totalDuration {
+                // Only synthesize a book-end boundary when the duration is
+                // actually known; otherwise leave the tail unanchored for a
+                // later recalc instead of pinning it to 1.0s (§5.7).
+                anchoredBlocks.append(last)
+                syntheticAnchorTimes[last.id] = totalDuration
+            }
+        }
+
+        struct ComputedAlignment {
+            let audioStart: TimeInterval
+            let timestampSource: String
+            let alignmentStatus: String
+            let isEnabled: Bool
+        }
+
+        var computedByBlockID: [String: ComputedAlignment] = [:]
+
+        for block in blocks {
+            try checkCancellation()
+            let audioStart: TimeInterval
+            let timestampSrc: String
+            let alignStatus: String
+
+            if block.isHidden {
+                audioStart = -1
+                timestampSrc = TimestampSource.none.rawValue
+                alignStatus = AlignmentStatus.omitted.rawValue
+            } else if let lockedTime = syntheticAnchorTimes[block.id],
+                anchorTimeByBlockID[block.id] != nil
+            {
+                audioStart = lockedTime
+                timestampSrc = TimestampSource.lockedAnchor.rawValue
+                alignStatus = AlignmentStatus.lockedAnchor.rawValue
+            } else if let lockedTime = syntheticAnchorTimes[block.id] {
+                audioStart = lockedTime
+                timestampSrc = TimestampSource.interpolated.rawValue
+                alignStatus = AlignmentStatus.interpolated.rawValue
+            } else if !anchoredOnly, anchoredBlocks.count >= 2,
+                let (prev, next) = findBracketingAnchors(
+                    block: block,
+                    anchoredBlocks: anchoredBlocks,
+                    anchorTimes: syntheticAnchorTimes
+                )
+            {
+                let prevPos = wordPositionByBlockID[prev.id] ?? 0
+                let nextPos = wordPositionByBlockID[next.id] ?? 0
+                let blockPos = wordPositionByBlockID[block.id] ?? 0
+                guard let prevTime = syntheticAnchorTimes[prev.id],
+                    let nextTime = syntheticAnchorTimes[next.id]
+                else {
+                    continue
+                }
+                let fraction =
+                    (nextPos > prevPos) ? (blockPos - prevPos) / (nextPos - prevPos) : 0
+                audioStart = prevTime + fraction * (nextTime - prevTime)
+                timestampSrc = TimestampSource.interpolated.rawValue
+                alignStatus = AlignmentStatus.interpolated.rawValue
+            } else {
+                audioStart = -1
+                timestampSrc = TimestampSource.none.rawValue
+                alignStatus = AlignmentStatus.unaligned.rawValue
+            }
+
+            computedByBlockID[block.id] = ComputedAlignment(
+                audioStart: audioStart,
+                timestampSource: timestampSrc,
+                alignmentStatus: alignStatus,
+                isEnabled: !block.isHidden
+            )
+        }
+
+        let enabledBlocks = sortedAllBlocks.filter { block in
+            computedByBlockID[block.id]?.isEnabled == true
+                && (computedByBlockID[block.id]?.audioStart ?? -1) >= 0
+        }
+        var audioEndByBlockID: [String: TimeInterval] = [:]
+        for (index, block) in enabledBlocks.enumerated() {
+            if enabledBlocks.indices.contains(index + 1),
+                let nextStart = computedByBlockID[enabledBlocks[index + 1].id]?.audioStart
+            {
+                audioEndByBlockID[block.id] = nextStart
+            }
+        }
+
+        var preparedTimeline = snapshot.timeline
+        var timelineIndicesByBlockID: [String: [Int]] = [:]
+        for index in preparedTimeline.indices {
+            if let blockID = preparedTimeline[index].epubBlockID {
+                timelineIndicesByBlockID[blockID, default: []].append(index)
+            }
+        }
+        var updatedItems: [TimelineItem] = []
         var healedRowCount = 0
+        for block in blocks {
+            try checkCancellation()
+            guard let computed = computedByBlockID[block.id] else { continue }
+            var indices = timelineIndicesByBlockID[block.id] ?? []
+            if indices.isEmpty {
+                indices = [preparedTimeline.count]
+                preparedTimeline.append(TimelineItem.fromEPubBlock(block, audiobookID: audiobookID))
+                healedRowCount += 1
+            }
+            for index in indices {
+                var item = preparedTimeline[index]
+                item.audioStartTime = computed.audioStart
+                item.audioEndTime = audioEndByBlockID[block.id]
+                item.timestampSource = computed.timestampSource
+                item.alignmentStatus = computed.alignmentStatus
+                item.isEnabled = computed.isEnabled
+                item.modifiedAt = Date().ISO8601Format()
+                updatedItems.append(item)
+                preparedTimeline[index] = item
+            }
+        }
+        let replacement = materializeWordTimings
+            ? try WordTimingMaterializer.preparedRecords(
+                audiobookID: audiobookID, blocks: blocks, timelineItems: preparedTimeline,
+                checkCancellation: checkCancellation) : []
+        try checkCancellation()
+        try beforeCommit()
         try timelineDAO.db.write { db in
-
-            // ── Global flat interpolation ──
-            var anchoredBlocks = blocks.filter { anchorTimeByBlockID[$0.id] != nil }
-                .sorted { $0.sequenceIndex < $1.sequenceIndex }
-
-            var syntheticAnchorTimes = anchorTimeByBlockID
-
-            // Calculate dynamic CPS for projections (fallback to 15 CPS = ~155 WPM)
-            var averageCPS: Double = 15.0
-            if anchoredBlocks.count >= 2 {
-                var totalChars = 0.0
-                var totalTime = 0.0
-                for i in 0..<(anchoredBlocks.count - 1) {
-                    let prev = anchoredBlocks[i]
-                    let next = anchoredBlocks[i + 1]
-                    let chars =
-                        (wordPositionByBlockID[next.id] ?? 0)
-                        - (wordPositionByBlockID[prev.id] ?? 0)
-                    let time = anchorTimeByBlockID[next.id]! - anchorTimeByBlockID[prev.id]!
-                    if time > 0 && chars > 0 {
-                        totalChars += chars
-                        totalTime += time
-                    }
-                }
-                if totalTime > 0 {
-                    averageCPS = totalChars / totalTime
-                }
+            try checkCancellation()
+            guard try Snapshot.read(db, audiobookID: audiobookID) == snapshot else {
+                throw RecalculationError.staleSnapshot
             }
-
-            // Synthetic boundary anchors (first/last block) + un-anchored
-            // interpolation are skipped for synthesized narration (`anchoredOnly`)
-            // so un-narrated blocks keep `audio_start_time = -1` instead of being
-            // pinned to a near-zero projected time. See `recalculateTimeline`'s doc.
-            if !anchoredOnly, let first = sortedAllBlocks.first,
-                syntheticAnchorTimes[first.id] == nil
-            {
-                anchoredBlocks.insert(first, at: 0)
-                if let firstAnchored = sortedAllBlocks.first(where: {
-                    anchorTimeByBlockID[$0.id] != nil
-                }) {
-                    let distance =
-                        (wordPositionByBlockID[firstAnchored.id] ?? 0)
-                        - (wordPositionByBlockID[first.id] ?? 0)
-                    let projected = anchorTimeByBlockID[firstAnchored.id]! - (distance / averageCPS)
-                    syntheticAnchorTimes[first.id] = max(0.0, projected)
-                } else {
-                    syntheticAnchorTimes[first.id] = 0.0
-                }
+            for var item in updatedItems {
+                try checkCancellation()
+                try item.upsert(db)
             }
-            if !anchoredOnly, let last = sortedAllBlocks.last, syntheticAnchorTimes[last.id] == nil
-            {
-                if let lastAnchored = sortedAllBlocks.last(where: {
-                    anchorTimeByBlockID[$0.id] != nil
-                }) {
-                    anchoredBlocks.append(last)
-                    let distance =
-                        (wordPositionByBlockID[last.id] ?? 0)
-                        - (wordPositionByBlockID[lastAnchored.id] ?? 0)
-                    let projected = anchorTimeByBlockID[lastAnchored.id]! + (distance / averageCPS)
-                    let clampMin =
-                        sortedAllBlocks.first.flatMap { syntheticAnchorTimes[$0.id] } ?? 0.0
-                    let bounded = max(clampMin, projected)
-                    // Clamp to the book's known end only once it's known; before
-                    // then leave the projection unbounded rather than clamping to
-                    // a bogus 1.0s (§5.7).
-                    syntheticAnchorTimes[last.id] =
-                        totalDuration.map { min($0, bounded) } ?? bounded
-                } else if let totalDuration {
-                    // Only synthesize a book-end boundary when the duration is
-                    // actually known; otherwise leave the tail unanchored for a
-                    // later recalc instead of pinning it to 1.0s (§5.7).
-                    anchoredBlocks.append(last)
-                    syntheticAnchorTimes[last.id] = totalDuration
-                }
+            if materializeWordTimings {
+                try WordTimingDAO.replace(
+                    replacement, forAudiobook: audiobookID, in: db,
+                    checkCancellation: checkCancellation)
             }
-
-            struct ComputedAlignment {
-                let audioStart: TimeInterval
-                let timestampSource: String
-                let alignmentStatus: String
-                let isEnabled: Bool
-            }
-
-            var computedByBlockID: [String: ComputedAlignment] = [:]
-
-            for block in blocks {
-                let audioStart: TimeInterval
-                let timestampSrc: String
-                let alignStatus: String
-
-                if block.isHidden {
-                    audioStart = -1
-                    timestampSrc = TimestampSource.none.rawValue
-                    alignStatus = AlignmentStatus.omitted.rawValue
-                } else if let lockedTime = syntheticAnchorTimes[block.id],
-                    anchorTimeByBlockID[block.id] != nil
-                {
-                    audioStart = lockedTime
-                    timestampSrc = TimestampSource.lockedAnchor.rawValue
-                    alignStatus = AlignmentStatus.lockedAnchor.rawValue
-                } else if let lockedTime = syntheticAnchorTimes[block.id] {
-                    audioStart = lockedTime
-                    timestampSrc = TimestampSource.interpolated.rawValue
-                    alignStatus = AlignmentStatus.interpolated.rawValue
-                } else if !anchoredOnly, anchoredBlocks.count >= 2,
-                    let (prev, next) = findBracketingAnchors(
-                        block: block,
-                        anchoredBlocks: anchoredBlocks,
-                        anchorTimes: syntheticAnchorTimes
-                    )
-                {
-                    let prevPos = wordPositionByBlockID[prev.id] ?? 0
-                    let nextPos = wordPositionByBlockID[next.id] ?? 0
-                    let blockPos = wordPositionByBlockID[block.id] ?? 0
-                    guard let prevTime = syntheticAnchorTimes[prev.id],
-                        let nextTime = syntheticAnchorTimes[next.id]
-                    else {
-                        continue
-                    }
-                    let fraction =
-                        (nextPos > prevPos) ? (blockPos - prevPos) / (nextPos - prevPos) : 0
-                    audioStart = prevTime + fraction * (nextTime - prevTime)
-                    timestampSrc = TimestampSource.interpolated.rawValue
-                    alignStatus = AlignmentStatus.interpolated.rawValue
-                } else {
-                    audioStart = -1
-                    timestampSrc = TimestampSource.none.rawValue
-                    alignStatus = AlignmentStatus.unaligned.rawValue
-                }
-
-                computedByBlockID[block.id] = ComputedAlignment(
-                    audioStart: audioStart,
-                    timestampSource: timestampSrc,
-                    alignmentStatus: alignStatus,
-                    isEnabled: !block.isHidden
-                )
-            }
-
-            let enabledBlocks = sortedAllBlocks.filter { block in
-                computedByBlockID[block.id]?.isEnabled == true
-                    && (computedByBlockID[block.id]?.audioStart ?? -1) >= 0
-            }
-            var audioEndByBlockID: [String: TimeInterval] = [:]
-            for (index, block) in enabledBlocks.enumerated() {
-                if enabledBlocks.indices.contains(index + 1),
-                    let nextStart = computedByBlockID[enabledBlocks[index + 1].id]?.audioStart
-                {
-                    audioEndByBlockID[block.id] = nextStart
-                }
-            }
-
-            for block in blocks {
-                guard let computed = computedByBlockID[block.id] else { continue }
-                let updatedExistingRow = try TimelineDAO.writeAlignment(
-                    db: db,
-                    epubBlockID: block.id,
-                    audiobookID: audiobookID,
-                    audioStartTime: computed.audioStart,
-                    audioEndTime: audioEndByBlockID[block.id],
-                    timestampSource: computed.timestampSource,
-                    alignmentStatus: computed.alignmentStatus,
-                    isEnabled: computed.isEnabled
-                )
-                if !updatedExistingRow {
-                    var item = TimelineItem.fromEPubBlock(block, audiobookID: audiobookID)
-                    item.audioStartTime = computed.audioStart
-                    item.audioEndTime = audioEndByBlockID[block.id]
-                    item.timestampSource = computed.timestampSource
-                    item.alignmentStatus = computed.alignmentStatus
-                    item.isEnabled = computed.isEnabled
-                    item.modifiedAt = Date().ISO8601Format()
-                    try item.insert(db)
-                    healedRowCount += 1
-                }
-            }
+            try checkCancellation()
         }
 
         if healedRowCount > 0 {
@@ -411,15 +491,6 @@ nonisolated struct AlignmentService {
         logger.info(
             "Recalculated timeline for \(audiobookID): \(blocks.count) blocks, \(anchors.count) anchors"
         )
-
-        // Rebuild per-word read-along timings from the freshly-written block
-        // times. Runs once at the end of a successful recalculation (not per
-        // block); auto-alignment opts out here and materializes once after its
-        // whole pipeline to avoid re-running this for every chapter.
-        if materializeWordTimings {
-            try WordTimingMaterializer.materialize(
-                audiobookID: audiobookID, writer: timelineDAO.db)
-        }
     }
 
     /// Finds the anchored blocks immediately before and after the given block

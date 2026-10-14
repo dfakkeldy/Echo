@@ -5,8 +5,8 @@ import os.log
 
 /// A parsed EPUB block — heading, paragraph, sentence, image, or code — extracted
 /// from XHTML spine items and stored in structural reading order.
-struct EPubBlockRecord: Identifiable, Equatable, Hashable, Sendable, Codable, FetchableRecord,
-    MutablePersistableRecord
+nonisolated struct EPubBlockRecord: Identifiable, Equatable, Hashable, Sendable, Codable,
+    FetchableRecord, MutablePersistableRecord
 {
     var id: String
     var audiobookID: String
@@ -37,6 +37,7 @@ struct EPubBlockRecord: Identifiable, Equatable, Hashable, Sendable, Codable, Fe
     /// Trusted source chapter identity for generated anthologies. Generic EPUB
     /// imports leave this nil and retain their order-based identity.
     var sourceChapterKey: String? = nil
+    var pronunciationAnnotations: String? = nil
     var createdAt: String?
     var modifiedAt: String?
 
@@ -65,6 +66,7 @@ struct EPubBlockRecord: Identifiable, Equatable, Hashable, Sendable, Codable, Fe
         case narrationText = "narration_text"
         case codeLanguage = "code_language"
         case sourceChapterKey = "source_chapter_key"
+        case pronunciationAnnotations = "pronunciation_annotations"
         case createdAt = "created_at"
         case modifiedAt = "modified_at"
     }

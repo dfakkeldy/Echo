@@ -289,6 +289,7 @@
                     message: String(localized: "All narration rendered"),
                     developerMessage: "render complete"),
                 at: date)
+            playbackController.resolveCompletedNarrationQueueWait()
             publishNarrationStatusToNowPlaying()
         }
 

@@ -16,6 +16,38 @@ nonisolated struct WordTimingDAO {
         }
     }
 
+    /// Replaces a book (nil blockIDs) or explicit block set atomically. Empty
+    /// records deliberately clear the requested scope; an empty block set is a no-op.
+    func replace(
+        _ records: [WordTimingRecord], forAudiobook audiobookID: String,
+        blockIDs: [String]? = nil
+    ) throws {
+        try db.write { db in
+            try Self.replace(records, forAudiobook: audiobookID, blockIDs: blockIDs, in: db)
+        }
+    }
+
+    /// Composes with an existing writer transaction; never opens a nested write.
+    static func replace(
+        _ records: [WordTimingRecord], forAudiobook audiobookID: String,
+        blockIDs: [String]? = nil, in db: Database,
+        checkCancellation: () throws -> Void = {}
+    ) throws {
+        if let blockIDs, blockIDs.isEmpty { return }
+        precondition(records.allSatisfy {
+            $0.audiobookID == audiobookID && (blockIDs?.contains($0.epubBlockID) ?? true)
+        }, "Replacement records must belong to the requested scope")
+        var query = WordTimingRecord.filter(Column("audiobook_id") == audiobookID)
+        if let blockIDs { query = query.filter(blockIDs.contains(Column("epub_block_id"))) }
+        try checkCancellation()
+        try query.deleteAll(db)
+        for var record in records {
+            try checkCancellation()
+            try record.insert(db)
+        }
+        try checkCancellation()
+    }
+
     /// Updates existing rows in place (matched by primary key). Used by the
     /// DTW refinement pass to retime already-materialized interpolated words.
     func update(_ records: [WordTimingRecord]) throws {

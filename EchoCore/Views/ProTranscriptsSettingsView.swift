@@ -59,6 +59,13 @@ struct ProTranscriptsSettingsView: View {
                 )
             }
 
+            if let notice = storeManager.lastStoreNotice {
+                Section {
+                    Text(notice)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             if let lastStoreError = storeManager.lastStoreError {
                 Section {
                     Text(lastStoreError)

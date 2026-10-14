@@ -9,24 +9,32 @@ final class PlayerTimelinePersistenceService {
     private static let logger = Logger(category: "PlayerTimelinePersistence")
 
     var databaseService: DatabaseService?
+    private var ingestionTasks: [String: (id: UUID, task: Task<Void, Never>)] = [:]
+
+    func cancelPendingIngestion() {
+        for pending in ingestionTasks.values { pending.task.cancel() }
+        ingestionTasks.removeAll()
+    }
 
     // MARK: - EPUB lookup
 
     func hasEPUB(for audiobookID: String?) -> Bool {
         guard let db = databaseService, let audiobookID else { return false }
-        return (try? EPubBlockDAO(db: db.writer).visibleBlocks(for: audiobookID).isEmpty) == false
+        return (try? EPubBlockDAO(db: db.writer).hasVisibleBlocks(for: audiobookID)) == true
     }
 
     // MARK: - SQL persistence
 
     func persistAudiobookToSQL(folderURL: URL, tracks: [Track], duration: TimeInterval?) {
         guard let db = databaseService else { return }
-        TimelineIngestionService.persistAudiobook(db: db, folderURL: folderURL, tracks: tracks, duration: duration)
+        TimelineIngestionService.persistAudiobook(
+            db: db, folderURL: folderURL, tracks: tracks, duration: duration)
     }
 
     func persistTranscriptToSQL(audiobookID: String, transcription: [TranscriptionSegment]) {
         guard let db = databaseService else { return }
-        TimelineIngestionService.persistTranscript(db: db, audiobookID: audiobookID, transcription: transcription)
+        TimelineIngestionService.persistTranscript(
+            db: db, audiobookID: audiobookID, transcription: transcription)
     }
 
     func ingestTimelineItems(
@@ -38,15 +46,28 @@ final class PlayerTimelinePersistenceService {
         folderURL: URL?
     ) async {
         guard let db = databaseService else { return }
-        await TimelineIngestionService.ingestItems(
-            db: db,
-            audiobookID: audiobookID,
-            audioURL: audioURL,
-            chapters: chapters,
-            transcription: transcription,
-            enhancedTranscription: enhancedTranscription,
-            folderURL: folderURL
-        )
+        ingestionTasks[audiobookID]?.task.cancel()
+        let requestID = UUID()
+        let task = Task {
+            await TimelineIngestionService.ingestItems(
+                db: db,
+                audiobookID: audiobookID,
+                audioURL: audioURL,
+                chapters: chapters,
+                transcription: transcription,
+                enhancedTranscription: enhancedTranscription,
+                folderURL: folderURL
+            )
+        }
+        ingestionTasks[audiobookID] = (requestID, task)
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        if ingestionTasks[audiobookID]?.id == requestID {
+            ingestionTasks[audiobookID] = nil
+        }
     }
 
     // MARK: - Re-ingestion

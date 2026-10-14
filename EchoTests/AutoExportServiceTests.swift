@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import GRDB
 import Testing
 
 @testable import Echo
@@ -54,6 +55,29 @@ struct AutoExportServiceTests {
                 path: AutoExportMarkdown.fileName(bookID: bookID, title: title),
                 directoryHint: .notDirectory
             )
+    }
+
+    @Test func expiredPassPreservesExistingMirrorAndPendingDeletion() async throws {
+        let database = try DatabaseService(inMemory: ())
+        let destination = try makeTempDestination()
+        defer { try? FileManager.default.removeItem(at: destination) }
+        try saveDestination(database, at: destination)
+        try seedBookWithNote(database)
+        try AutoExportService.markCapturedBooksDirty(writer: database.writer)
+        _ = await AutoExportService.runPass(writer: database.writer)
+        let original = try Data(contentsOf: mirrorURL(in: destination))
+        try database.write { db in
+            try db.execute(sql: "DELETE FROM note")
+        }
+        try AutoExportService.markCapturedBooksDirty(writer: database.writer)
+        let token = DatabaseWorkToken()
+        token.cancel()
+        let outcome = await DatabaseWorkContext.$token.withValue(token) {
+            await AutoExportService.runPass(writer: database.writer)
+        }
+        #expect(outcome.exported == 0)
+        #expect(try Data(contentsOf: mirrorURL(in: destination)) == original)
+        #expect(try StudyAutoExportDAO(db: database.writer).dirtyStates().count == 1)
     }
 
     @Test func passExportsDirtyBooksAndClearsDirty() async throws {

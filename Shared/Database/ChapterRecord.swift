@@ -3,7 +3,7 @@ import Foundation
 import GRDB
 
 /// GRDB record for the `chapter` table.
-struct ChapterRecord: Codable, FetchableRecord, MutablePersistableRecord {
+nonisolated struct ChapterRecord: Codable, FetchableRecord, MutablePersistableRecord {
     var id: Int64?
     var audiobookID: String
     var title: String

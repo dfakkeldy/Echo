@@ -160,6 +160,9 @@ final class ReaderFeedViewModel {
         didSet { reload() }
     }
 
+    /// In-flight `reloadOffMain()` rebuild; superseded by each newer call.
+    private var reloadTask: Task<Void, Never>?
+
     var showsNoResults: Bool {
         hasActiveFeedConstraint && !displaySections.contains { !$0.items.isEmpty }
     }
@@ -184,30 +187,95 @@ final class ReaderFeedViewModel {
         self.db = db
     }
 
-    /// Load blocks from the database and build the card array.
-    func reload() {
-        do {
-            // Captured in the browse branch; used after timeline is loaded to
-            // rebuild chapterGroups with spliced extras (C1 fix).
-            var capturedTitlesByKey: [Int: String] = [:]
-            var capturedWithAudio: Set<Int> = []
+    /// Everything `reload()` derives from the database, built in one pass
+    /// and applied in one shot. Kept instance-independent so the build can
+    /// run off the main actor.
+    private nonisolated struct FeedState {
+        var isSearch = false
+        var sections: [ReaderCardSection] = []
+        var tocEntries: [EPubTOCEntryRecord] = []
+        var chapterGroups: [ReaderChapterGroup] = []
+        var chapterHasAudio: [Int: Bool] = [:]
+        var chapterThemeColorByKey: [Int: String] = [:]
+        var capturedTitlesByKey: [Int: String] = [:]
+        var capturedWithAudio: Set<Int> = []
+        var cardIndexByBlockID: [String: IndexPath] = [:]
+        var timelineCache: [ReaderActiveBlockResolver.TimelineRow] = []
+        var wordCache: [ReaderActiveBlockResolver.WordRow] = []
+        var wordIndex = ReaderActiveBlockResolver.WordIndex(rows: [])
+        var allAlignmentStatusByBlockID: [String: String] = [:]
+        var allAudioStartTimeByBlockID: [String: TimeInterval] = [:]
+        var chapterIndexByBlockID: [String: Int?] = [:]
+    }
 
+    /// Load blocks from the database and build the card array, synchronously.
+    /// Internal mutations and tests rely on the state being current on
+    /// return. For the book-open / post-ingest paths use `reloadOffMain()`,
+    /// which runs the same builder on the concurrent executor instead of
+    /// stalling the main actor for the whole-book rebuild.
+    func reload() {
+        guard
+            let state = Self.buildFeedState(
+                audiobookID: audiobookID, searchQuery: searchQuery, db: db)
+        else { return }
+        apply(state)
+    }
+
+    /// Alias kept for callers ported before `reload()` regained synchronous
+    /// semantics; identical behavior.
+    func reloadSync() {
+        reload()
+    }
+
+    /// Rebuild the feed without blocking the main actor: the whole-book block
+    /// decode, word-timing decode, and section build run on the concurrent
+    /// executor, and the result is applied here in one shot. A newer call
+    /// supersedes an in-flight one.
+    func reloadOffMain() {
+        let query = searchQuery
+        reloadTask?.cancel()
+        reloadTask = Task {
+            guard
+                let state = await Self.buildFeedStateOffMain(
+                    audiobookID: self.audiobookID, searchQuery: query, db: self.db)
+            else { return }
+            guard !Task.isCancelled else { return }
+            self.apply(state)
+        }
+    }
+
+    /// Off-main wrapper (plain `nonisolated async` would stay on the caller).
+    @concurrent
+    private nonisolated static func buildFeedStateOffMain(
+        audiobookID: String, searchQuery: String?, db: DatabaseWriter
+    ) async -> FeedState? {
+        buildFeedState(audiobookID: audiobookID, searchQuery: searchQuery, db: db)
+    }
+
+    /// Builds everything a reload derives from the database — pure with
+    /// respect to the view model, so `reloadOffMain()` can run it on the
+    /// concurrent executor. Returns nil when the read fails (previous state
+    /// stays up). `reload()` runs the same builder synchronously on main.
+    private nonisolated static func buildFeedState(
+        audiobookID: String, searchQuery: String?, db: DatabaseWriter
+    ) -> FeedState? {
+        let logger = Logger(category: "ReaderFeed")
+        let blockDAO = EPubBlockDAO(db: db)
+        let chapterDAO = ChapterDAO(db: db)
+        var state = FeedState()
+        do {
             let blocks: [EPubBlockRecord]
             if let query = searchQuery, !query.isEmpty {
                 blocks = try blockDAO.searchBlocks(for: audiobookID, query: query)
-                sections = [
+                state.isSearch = true
+                state.sections = [
                     ReaderCardSection(
                         id: "search", headingStack: ["Search Results"],
                         items: blocks.map { .block($0) })
                 ]
-                chapterGroups = []
-                chapterHasAudio = [:]
-                chapterThemeColorByKey = [:]
-                openChapterKey = nil
-                displaySections = sections
             } else {
                 let grouped = try blockDAO.blocksByChapter(for: audiobookID)
-                tocEntries = (try? EPubTOCEntryDAO(db: db).entries(for: audiobookID)) ?? []
+                state.tocEntries = (try? EPubTOCEntryDAO(db: db).entries(for: audiobookID)) ?? []
 
                 // Map TOC entries to block sequence positions: the breadcrumb
                 // for any block is the path of the last entry at or before it.
@@ -218,7 +286,7 @@ final class ReaderFeedViewModel {
                 var tocPaths: [(seq: Int, path: [String])] = []
                 var tocTargetBlockIDs: Set<String> = []
                 var entryPathStack: [String] = []
-                for entry in tocEntries {  // DAO returns preorder
+                for entry in state.tocEntries {  // DAO returns preorder
                     entryPathStack =
                         Array(entryPathStack.prefix(max(0, entry.depth))) + [entry.title]
                     guard let blockID = entry.blockID,
@@ -264,7 +332,7 @@ final class ReaderFeedViewModel {
                 }
                 let resolvedTitles = ChapterTitleResolver.titles(
                     firstBlockIDByChapter: firstBlockIDByChapter,
-                    tocEntries: tocEntries,
+                    tocEntries: state.tocEntries,
                     audioChapterTitles: Dictionary(
                         audioChapters.enumerated().map { ($0.offset, $0.element.title) },
                         uniquingKeysWith: { first, _ in first }))
@@ -343,7 +411,7 @@ final class ReaderFeedViewModel {
                                 items: currentItems))
                     }
                 }
-                sections = parsedSections
+                state.sections = parsedSections
                 let withAudio =
                     (try? ChapterAudioStatusResolver(db: db).chaptersWithAudio(
                         audiobookID: audiobookID)) ?? []
@@ -351,17 +419,17 @@ final class ReaderFeedViewModel {
                 // will be rebuilt from the spliced sections after chapterIndexByBlockID
                 // is populated, so placement() hits the in-memory cache instead of
                 // doing redundant DB reads — I2 fix).
-                capturedTitlesByKey = titlesByKey
-                capturedWithAudio = withAudio
-                chapterGroups = ReaderFeedDisplayBuilder.groups(
+                state.capturedTitlesByKey = titlesByKey
+                state.capturedWithAudio = withAudio
+                state.chapterGroups = ReaderFeedDisplayBuilder.groups(
                     from: parsedSections, titlesByKey: titlesByKey, chaptersWithAudio: withAudio)
-                chapterHasAudio = Dictionary(
-                    chapterGroups.map { ($0.chapterKey, $0.hasAudio) },
+                state.chapterHasAudio = Dictionary(
+                    state.chapterGroups.map { ($0.chapterKey, $0.hasAudio) },
                     uniquingKeysWith: { a, _ in a })
                 // Denormalized per-chapter theme color (first themed block wins) so
                 // the sticky background resolves over collapsed header rows.
                 var themeByKey: [Int: String] = [:]
-                for group in chapterGroups {
+                for group in state.chapterGroups {
                     outer: for section in group.sections {
                         for item in section.items {
                             if case .block(let b) = item, let theme = b.chapterThemeColor {
@@ -371,23 +439,17 @@ final class ReaderFeedViewModel {
                         }
                     }
                 }
-                chapterThemeColorByKey = themeByKey
-                // Keep the open chapter only if it still exists after the reload.
-                if let open = openChapterKey,
-                    !chapterGroups.contains(where: { $0.chapterKey == open })
-                {
-                    openChapterKey = nil
-                }
+                state.chapterThemeColorByKey = themeByKey
                 // NOTE: Phase-2 splice is deferred to after chapterIndexByBlockID
-                // is populated (see below), so placement() cache hits are live (C1+I2 fix).
+                // is populated (apply()), so placement() cache hits are live (C1+I2 fix).
             }
 
             // Rebuild block ID index.
-            cardIndexByBlockID = [:]
-            for (sectionIdx, section) in sections.enumerated() {
+            for (sectionIdx, section) in state.sections.enumerated() {
                 for (itemIdx, card) in section.items.enumerated() {
                     if case .block(let block) = card {
-                        cardIndexByBlockID[block.id] = IndexPath(item: itemIdx, section: sectionIdx)
+                        state.cardIndexByBlockID[block.id] = IndexPath(
+                            item: itemIdx, section: sectionIdx)
                     }
                 }
             }
@@ -438,88 +500,127 @@ final class ReaderFeedViewModel {
                     newAlignmentStatus[blockID] = status
                 }
             }
-            timelineCache = newTimeline
+            state.timelineCache = newTimeline
 
             // Load per-word read-along timings for karaoke highlighting. Uses
             // the same writer the timeline query above runs on.
             let words = try WordTimingDAO(db: db).words(forAudiobook: audiobookID)
-            wordCache = words.map {
+            state.wordCache = words.map {
                 (
                     start: $0.audioStartTime, end: $0.audioEndTime,
                     blockID: $0.epubBlockID, wordIndex: $0.wordIndex
                 )
             }
-            wordIndex = ReaderActiveBlockResolver.WordIndex(rows: wordCache)
+            state.wordIndex = ReaderActiveBlockResolver.WordIndex(rows: state.wordCache)
 
-            allAlignmentStatusByBlockID = newAlignmentStatus
-            allAudioStartTimeByBlockID = newAudioStartTime
-            chapterIndexByBlockID = newChapterIndex
-
-            // --- Phase 2 (browse branch only): splice bookmarks + cards now that
-            // chapterIndexByBlockID is populated so placement() hits the cache (I2 fix).
-            // Rebuild chapterGroups from the spliced sections so displaySections
-            // actually includes the extras (C1 fix). ---
-            if searchQuery == nil || searchQuery?.isEmpty == true {
-                // C2 fix: bucket by section id (not chapter key) so each extra lands
-                // in exactly one section. Multi-section chapters no longer receive the
-                // same extras array in every section, preventing duplicate snapshot ids.
-                let extrasBySection = buildExtrasBySection()
-                if !extrasBySection.isEmpty {
-                    sections = sections.map { section in
-                        guard let extras = extrasBySection[section.id], !extras.isEmpty
-                        else { return section }
-                        let merged = ReaderFeedDisplayBuilder.spliceExtras(
-                            into: section.items, extras: extras)
-                        return ReaderCardSection(
-                            id: section.id, headingStack: section.headingStack, items: merged)
-                    }
-                    // Rebuild chapterGroups from the now-spliced sections so
-                    // rebuildDisplaySections() surfaces extras in the accordion.
-                    chapterGroups = ReaderFeedDisplayBuilder.groups(
-                        from: sections,
-                        titlesByKey: capturedTitlesByKey,
-                        chaptersWithAudio: capturedWithAudio)
-                    // Re-derive per-chapter audio flag and theme color from rebuilt groups.
-                    chapterHasAudio = Dictionary(
-                        chapterGroups.map { ($0.chapterKey, $0.hasAudio) },
-                        uniquingKeysWith: { a, _ in a })
-                    var themeByKey: [Int: String] = [:]
-                    for group in chapterGroups {
-                        outer: for section in group.sections {
-                            for item in section.items {
-                                if case .block(let b) = item, let theme = b.chapterThemeColor {
-                                    themeByKey[group.chapterKey] = theme
-                                    break outer
-                                }
-                            }
-                        }
-                    }
-                    chapterThemeColorByKey = themeByKey
-                }
-                // Recompute reconciled off-state per chapter.
-                refreshOffState()
-                // Populate note/memo caches for FeedItemInjector (Phase 4).
-                let notes = (try? noteDAO.notes(for: audiobookID)) ?? []
-                let memos = (try? voiceMemoDAO.memos(for: audiobookID)) ?? []
-                notesByBlockID = Dictionary(
-                    grouping: notes.filter { $0.epubBlockID != nil },
-                    by: { $0.epubBlockID! })
-                memosByBlockID = Dictionary(
-                    grouping: memos.filter { $0.epubBlockID != nil },
-                    by: { $0.epubBlockID! })
-                rebuildDisplaySections()
-                // Phase 3: re-resolve scope after a reload (covered range depends on freshly
-                // loaded blocks; whole-book is a no-op).
-                if filter.scope != .wholeBook {
-                    resolveScope()
-                }
-            }
-
-            // Re-publish the track-gated badge dictionaries for the existing scope
-            // (whole-book until the first scoped updateActiveBlock call).
-            applyTrackScope(currentTrackScope)
+            state.allAlignmentStatusByBlockID = newAlignmentStatus
+            state.allAudioStartTimeByBlockID = newAudioStartTime
+            state.chapterIndexByBlockID = newChapterIndex
+            return state
         } catch {
             logger.error("Failed to load reader blocks: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Publishes a freshly built state, then runs the instance-coupled
+    /// phase-2 work (extras splice, off-state, note/memo caches, accordion
+    /// rebuild, scope) exactly as the former monolithic reload did.
+    private func apply(_ state: FeedState) {
+        sections = state.sections
+        cardIndexByBlockID = state.cardIndexByBlockID
+        timelineCache = state.timelineCache
+        wordCache = state.wordCache
+        wordIndex = state.wordIndex
+        allAlignmentStatusByBlockID = state.allAlignmentStatusByBlockID
+        allAudioStartTimeByBlockID = state.allAudioStartTimeByBlockID
+        chapterIndexByBlockID = state.chapterIndexByBlockID
+        if state.isSearch {
+            chapterGroups = []
+            chapterHasAudio = [:]
+            chapterThemeColorByKey = [:]
+            openChapterKey = nil
+            displaySections = sections
+        } else {
+            tocEntries = state.tocEntries
+            chapterGroups = state.chapterGroups
+            chapterHasAudio = state.chapterHasAudio
+            chapterThemeColorByKey = state.chapterThemeColorByKey
+            // Keep the open chapter only if it still exists after the reload.
+            if let open = openChapterKey,
+                !chapterGroups.contains(where: { $0.chapterKey == open })
+            {
+                openChapterKey = nil
+            }
+            applyBrowsePhase2(
+                capturedTitlesByKey: state.capturedTitlesByKey,
+                capturedWithAudio: state.capturedWithAudio)
+        }
+
+        // Re-publish the track-gated badge dictionaries for the existing scope
+        // (whole-book until the first scoped updateActiveBlock call).
+        applyTrackScope(currentTrackScope)
+    }
+
+    /// Phase 2 (browse branch only): splice bookmarks + cards now that
+    /// chapterIndexByBlockID is populated so placement() hits the cache (I2 fix).
+    /// Rebuild chapterGroups from the spliced sections so displaySections
+    /// actually includes the extras (C1 fix).
+    private func applyBrowsePhase2(
+        capturedTitlesByKey: [Int: String], capturedWithAudio: Set<Int>
+    ) {
+        // C2 fix: bucket by section id (not chapter key) so each extra lands
+        // in exactly one section. Multi-section chapters no longer receive the
+        // same extras array in every section, preventing duplicate snapshot ids.
+        let extrasBySection = buildExtrasBySection()
+        if !extrasBySection.isEmpty {
+            sections = sections.map { section in
+                guard let extras = extrasBySection[section.id], !extras.isEmpty
+                else { return section }
+                let merged = ReaderFeedDisplayBuilder.spliceExtras(
+                    into: section.items, extras: extras)
+                return ReaderCardSection(
+                    id: section.id, headingStack: section.headingStack, items: merged)
+            }
+            // Rebuild chapterGroups from the now-spliced sections so
+            // rebuildDisplaySections() surfaces extras in the accordion.
+            chapterGroups = ReaderFeedDisplayBuilder.groups(
+                from: sections,
+                titlesByKey: capturedTitlesByKey,
+                chaptersWithAudio: capturedWithAudio)
+            // Re-derive per-chapter audio flag and theme color from rebuilt groups.
+            chapterHasAudio = Dictionary(
+                chapterGroups.map { ($0.chapterKey, $0.hasAudio) },
+                uniquingKeysWith: { a, _ in a })
+            var themeByKey: [Int: String] = [:]
+            for group in chapterGroups {
+                outer: for section in group.sections {
+                    for item in section.items {
+                        if case .block(let b) = item, let theme = b.chapterThemeColor {
+                            themeByKey[group.chapterKey] = theme
+                            break outer
+                        }
+                    }
+                }
+            }
+            chapterThemeColorByKey = themeByKey
+        }
+        // Recompute reconciled off-state per chapter.
+        refreshOffState()
+        // Populate note/memo caches for FeedItemInjector (Phase 4).
+        let notes = (try? noteDAO.notes(for: audiobookID)) ?? []
+        let memos = (try? voiceMemoDAO.memos(for: audiobookID)) ?? []
+        notesByBlockID = Dictionary(
+            grouping: notes.filter { $0.epubBlockID != nil },
+            by: { $0.epubBlockID! })
+        memosByBlockID = Dictionary(
+            grouping: memos.filter { $0.epubBlockID != nil },
+            by: { $0.epubBlockID! })
+        rebuildDisplaySections()
+        // Phase 3: re-resolve scope after a reload (covered range depends on freshly
+        // loaded blocks; whole-book is a no-op).
+        if filter.scope != .wholeBook {
+            resolveScope()
         }
     }
 
@@ -1011,6 +1112,39 @@ final class ReaderFeedViewModel {
         restoreOpenChapter(restoringOpenChapterKey)
     }
 
+    /// Off-main variant of `reloadAndResolveActiveBlock` for the book-open and
+    /// post-ingest paths: the whole-book rebuild runs on the concurrent
+    /// executor so the play controls stay responsive, then the active-block
+    /// resolve and open-chapter restore run here once the state lands. Any
+    /// slight staleness in `time` self-corrects on the next playback tick.
+    func reloadOffMainAndResolveActiveBlock(
+        time: TimeInterval,
+        currentTrackSegmentKey: String? = nil,
+        currentTrackChapterIndices: Set<Int>?,
+        isPlaying: Bool = false,
+        allowsPlaybackFollowing: Bool = true,
+        restoringOpenChapterKey: Int? = nil
+    ) {
+        let query = searchQuery
+        reloadTask?.cancel()
+        reloadTask = Task {
+            guard
+                let state = await Self.buildFeedStateOffMain(
+                    audiobookID: self.audiobookID, searchQuery: query, db: self.db)
+            else { return }
+            guard !Task.isCancelled else { return }
+            self.apply(state)
+            self.updateActiveBlock(
+                time: time,
+                currentTrackSegmentKey: currentTrackSegmentKey,
+                currentTrackChapterIndices: currentTrackChapterIndices,
+                isPlaying: isPlaying,
+                allowsPlaybackFollowing: allowsPlaybackFollowing
+            )
+            self.restoreOpenChapter(restoringOpenChapterKey)
+        }
+    }
+
     private func restoreOpenChapter(_ chapterKey: Int?) {
         guard let chapterKey,
             chapterGroups.contains(where: { $0.chapterKey == chapterKey })
@@ -1109,7 +1243,7 @@ final class ReaderFeedViewModel {
     /// Heading-level breadcrumb inference for books without a publisher TOC:
     /// h-tag levels (with part/chapter/section text overrides) cascade into a
     /// six-slot stack, demoting repeat headings within one audio chapter.
-    private static func applyLegacyHeadingCascade(
+    private nonisolated static func applyLegacyHeadingCascade(
         text: String,
         block: EPubBlockRecord,
         audioChapterKey: Int,

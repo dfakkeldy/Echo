@@ -99,6 +99,13 @@ final class PlaybackProgressPresenter {
         }
 
         if state.chapters.count >= 2 {
+            // Accepted EOF must recalculate the chapter even when the final
+            // chapter is shorter than the ordinary boundary tolerance below.
+            if let duration = audioEngine.duration, duration.isFinite, duration > 0,
+                elapsed.isFinite, elapsed >= duration
+            {
+                onChapterOutOfBounds?()
+            }
             if let idx = state.currentChapterIndex {
                 let c = state.chapters[idx]
                 if elapsed.isFinite, elapsed < c.startSeconds - 0.1 || elapsed >= c.endSeconds + 0.1

@@ -85,4 +85,47 @@ struct WordTimingDAOTests {
         #expect(try dao.words(forAudiobook: "bk").isEmpty)
         #expect(try dao.words(forAudiobook: "other").count == 1)
     }
+    @Test func emptyReplacementClearsOnlyExplicitScope() throws {
+        let db = try DatabaseService(inMemory: ())
+        try seedBooks(db, ids: "bk", "other")
+        let dao = WordTimingDAO(db: db.writer)
+        try dao.insert([("bk", "a"), ("bk", "b"), ("other", "a")].map { book, block in
+            WordTimingRecord(audiobookID: book, epubBlockID: block, wordIndex: 0,
+                word: "old", audioStartTime: 0, audioEndTime: 1, confidence: 0.5, source: "interpolated")
+        })
+        try dao.replace([], forAudiobook: "bk", blockIDs: [])
+        #expect(try dao.words(forAudiobook: "bk").count == 2)
+        try dao.replace([], forAudiobook: "bk", blockIDs: ["a"])
+        #expect(try dao.words(forAudiobook: "bk").map(\.epubBlockID) == ["b"])
+        try dao.replace([], forAudiobook: "bk")
+        #expect(try dao.words(forAudiobook: "bk").isEmpty)
+        #expect(try dao.words(forAudiobook: "other").count == 1)
+    }
+
+    @Test func cancellationDuringComposedReplacementRollsBackDeletionAndFirstInsert() throws {
+        let db = try DatabaseService(inMemory: ())
+        try seedBooks(db, ids: "bk")
+        let dao = WordTimingDAO(db: db.writer)
+        let original = WordTimingRecord(audiobookID: "bk", epubBlockID: "a", wordIndex: 0,
+            word: "old", audioStartTime: 0, audioEndTime: 1, confidence: 0.5, source: "interpolated")
+        try dao.insert([original])
+        let before = try dao.words(forAudiobook: "bk")
+        let replacement = (0..<3).map { index in
+            WordTimingRecord(audiobookID: "bk", epubBlockID: "a", wordIndex: index,
+                word: "new", audioStartTime: Double(index), audioEndTime: Double(index + 1),
+                confidence: 0.5, source: "interpolated")
+        }
+        #expect(throws: CancellationError.self) {
+            try db.write { db in
+                var checks = 0
+                try WordTimingDAO.replace(replacement, forAudiobook: "bk", in: db,
+                    checkCancellation: {
+                        checks += 1
+                        if checks == 3 { throw CancellationError() }
+                    })
+            }
+        }
+        #expect(try dao.words(forAudiobook: "bk") == before)
+    }
+
 }
