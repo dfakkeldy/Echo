@@ -368,8 +368,8 @@ struct MacReaderFeedView: View {
     private func loadTimelineCache(audiobookID: String) async throws
         -> [ReaderActiveBlockResolver.TimelineRow]
     {
-        let rows: [Row] = try dbService.writer.read { db in
-            return try Row.fetchAll(
+        try await dbService.writer.read { db in
+            let rows = try Row.fetchAll(
                 db,
                 sql: """
                     SELECT ti.audio_start_time, ti.audio_end_time, ti.epub_block_id,
@@ -381,28 +381,28 @@ struct MacReaderFeedView: View {
                     """,
                 arguments: [audiobookID]
             )
-        }
 
-        var cache: [ReaderActiveBlockResolver.TimelineRow] = []
-        for (i, row) in rows.enumerated() {
-            guard let start: TimeInterval = row["audio_start_time"],
-                let blockID: String = row["epub_block_id"]
-            else { continue }
-            let end: TimeInterval
-            if let explicitEnd: TimeInterval = row["audio_end_time"] {
-                end = explicitEnd
-            } else if i + 1 < rows.count,
-                let nextStart: TimeInterval = rows[i + 1]["audio_start_time"]
-            {
-                end = nextStart
-            } else {
-                end = start + 3600  // Large fallback for the last item
+            var cache: [ReaderActiveBlockResolver.TimelineRow] = []
+            for (i, row) in rows.enumerated() {
+                guard let start: TimeInterval = row["audio_start_time"],
+                    let blockID: String = row["epub_block_id"]
+                else { continue }
+                let end: TimeInterval
+                if let explicitEnd: TimeInterval = row["audio_end_time"] {
+                    end = explicitEnd
+                } else if i + 1 < rows.count,
+                    let nextStart: TimeInterval = rows[i + 1]["audio_start_time"]
+                {
+                    end = nextStart
+                } else {
+                    end = start + 3600  // Large fallback for the last item
+                }
+                let chapterIndex: Int? = row["chapter_index"]
+                let segmentKey: String? = row["segment_key"]
+                cache.append((start, end, blockID, chapterIndex, segmentKey))
             }
-            let chapterIndex: Int? = row["chapter_index"]
-            let segmentKey: String? = row["segment_key"]
-            cache.append((start, end, blockID, chapterIndex, segmentKey))
+            return cache
         }
-        return cache
     }
 
     /// EPUB chapter indices in the currently-playing track. macOS has no narration

@@ -8,7 +8,7 @@ import Foundation
 /// The macOS aligner consumes only `blocks`; both the iOS importer and the
 /// macOS alignment pipeline call the one `parseEPUBBlocks` driver, so the two
 /// can never emit divergent block sets or IDs (CODE_AUDIT.md §5.1 / Phase A1).
-struct EPUBBlockParse {
+nonisolated struct EPUBBlockParse {
     /// Flat, reading-order block records carrying final
     /// `epub-<audiobookID>-s<i>-b<j>` IDs.
     let blocks: [EPubBlockRecord]
@@ -46,7 +46,7 @@ struct EPUBBlockParse {
 ///     use the same value for the resulting IDs to match.
 ///   - epubURL: An expanded EPUB directory (callers extract `.epub` archives
 ///     first, mirroring the iOS import path).
-func parseEPUBBlocks(
+nonisolated func parseEPUBBlocks(
     audiobookID: String,
     epubURL: URL,
     generatedIdentity: GeneratedAnthologyImportIdentity? = nil
@@ -69,6 +69,12 @@ func parseEPUBBlocks(
     try generatedIdentity?.validatePackage(
         identifier: opfResult.packageIdentifier,
         manifestSHA256: opfResult.echoManifestSHA256)
+    let lexiconManifest = OPFParserDelegate()
+    lexiconManifest.parse(opfData)
+    let declaredLexicons = try Set(
+        lexiconManifest.pronunciationLexiconHrefs.map {
+            try EPUBPronunciationImport.localURL($0, relativeTo: opfDir, root: epubURL)
+        })
     let spine = opfResult.spine
     guard !spine.isEmpty else {
         throw EPUBImportError.spineEmpty
@@ -131,10 +137,16 @@ func parseEPUBBlocks(
         }
 
         let xhtmlData = try Data(contentsOf: xhtmlURL)
-        let parsedXHTML = parseXHTML(
-            from: xhtmlData,
-            captureEchoMetadata: generatedChapter != nil)
-        parsedSpines.append((blocks: parsedXHTML.blocks, title: parsedXHTML.title))
+        let parser = XHTMLBlockDelegate(captureEchoMetadata: generatedChapter != nil)
+        parser.parse(xhtmlData)
+        if let error = parser.pronunciation.error {
+            throw EPUBPronunciationError(detail: "\(href): \(error.detail)")
+        }
+        var textBlocks = parser.textBlocks
+        try EPUBPronunciationImport.applyLexicons(
+            parser.pronunciation.links, to: &textBlocks,
+            xhtmlURL: xhtmlURL, root: epubURL, declaredURLs: declaredLexicons)
+        parsedSpines.append((blocks: textBlocks, title: parser.documentTitle))
     }
     if let generatedIdentity,
         seenGeneratedHrefs != Set(generatedIdentity.chaptersByHref.keys)
@@ -165,6 +177,7 @@ func parseEPUBBlocks(
         // generic publisher heuristics would invalidate that identity.
         if generatedChapterBySpineIndex[i] == nil {
             for j in 0..<textBlocks.count {
+                let spans = textBlocks[j].pronunciationSpans
                 let newKind = engine.score(block: textBlocks[j])
                 // Create a new struct to update the kind
                 textBlocks[j] = TextBlockDescriptor(
@@ -185,6 +198,7 @@ func parseEPUBBlocks(
                     echoNarration: textBlocks[j].echoNarration,
                     echoLinkNarrationValues: textBlocks[j].echoLinkNarrationValues
                 )
+                textBlocks[j].pronunciationSpans = spans
             }
         }
         let stableBlockIndices: [Int]?
@@ -279,6 +293,8 @@ func parseEPUBBlocks(
                 narrationText: textBlock.narrationCue,
                 codeLanguage: textBlock.codeLanguage,
                 sourceChapterKey: generatedChapter?.sourceChapterKey,
+                pronunciationAnnotations: try EPUBPronunciationStorage.encode(
+                    textBlock.pronunciationSpans),
                 createdAt: createdAt,
                 modifiedAt: nil
             )
@@ -303,7 +319,7 @@ func parseEPUBBlocks(
 /// Pure helpers for classifying EPUB spine structure. Shared so the one block
 /// driver (and the iOS importer's TOC resolution) agree on href normalization
 /// and body-matter detection.
-enum EPUBStructure {
+nonisolated enum EPUBStructure {
 
     /// Spine/heading titles that are front matter even when the file carries a
     /// real heading. Deliberately excludes foreword, preface, and introduction:
@@ -386,7 +402,7 @@ enum EPUBStructure {
 
 // MARK: - Errors
 
-enum EPUBImportError: LocalizedError, Equatable {
+nonisolated enum EPUBImportError: LocalizedError, Equatable {
     case notAnEPUB(url: URL)
     case missingOPF
     case spineEmpty

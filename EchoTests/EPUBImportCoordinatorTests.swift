@@ -8,6 +8,29 @@ private final class EPUBCoordinatorFixtureLocator {}
 
 @MainActor
 struct EPUBImportCoordinatorTests {
+    @Test func cancelledImportPreservesExistingCompanionAndRemovesUnusedStage() async throws {
+        let database = try DatabaseService(inMemory: ())
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let target = root.appendingPathComponent("book")
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("new.epub")
+        let existing = target.appendingPathComponent("old.epub")
+        try Data("source".utf8).write(to: source)
+        try Data("existing".utf8).write(to: existing)
+
+        let task = Task { @MainActor in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await EPUBImportCoordinator.importEPUB(
+                from: source, to: target, databaseService: database,
+                chapters: [], duration: nil, networkPolicy: .localOnly)
+        }
+        await #expect(throws: DatabaseWorkDeferred.self) { _ = try await task.value }
+        #expect(try Data(contentsOf: existing) == Data("existing".utf8))
+        #expect(try Data(contentsOf: source) == Data("source".utf8))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: target.path) == ["old.epub"])
+    }
+
     private var fixtureChapters: [Chapter] {
         [
             Chapter(

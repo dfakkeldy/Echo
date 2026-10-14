@@ -107,9 +107,12 @@ final class NarrationService {
     private let advisoryReportWriter: (([NarrationQualityIssueRecord], [String]) throws -> Void)?
     /// Test seam for computing the fallback portion of an atomic report
     /// snapshot. Production uses `PronunciationFallbackDiscovery.records`.
-    private let fallbackDiscoveryRecordBuilder: ((
-        [RenderedPronunciationFallbackHit], String
-    ) throws -> [NarrationQualityIssueRecord])?
+    private let fallbackDiscoveryRecordBuilder:
+        (
+            (
+                [RenderedPronunciationFallbackHit], String
+            ) throws -> [NarrationQualityIssueRecord]
+        )?
 
     init(
         db: DatabaseWriter, audiobookID: String, tts: TTSEngine,
@@ -123,12 +126,14 @@ final class NarrationService {
         pronunciationPack: EnglishPronunciationPack = .empty,
         pronunciationAuditPack: EnglishPronunciationAuditPack = .empty,
         contextualPronunciationEvaluator: @escaping ContextualPronunciationBatchEvaluator =
-            FoundationModelsContextualPronunciationEvaluator.makeBatchEvaluator(),
+            FoundationModelsContextualPronunciationEvaluator.notRequestedEvaluator(),
         neuralEvaluator: NeuralEvaluator? = nil,
         advisoryReportWriter: (([NarrationQualityIssueRecord], [String]) throws -> Void)? = nil,
-        fallbackDiscoveryRecordBuilder: ((
-            [RenderedPronunciationFallbackHit], String
-        ) throws -> [NarrationQualityIssueRecord])? = nil,
+        fallbackDiscoveryRecordBuilder: (
+            (
+                [RenderedPronunciationFallbackHit], String
+            ) throws -> [NarrationQualityIssueRecord]
+        )? = nil,
         fmEnabled: @escaping () -> Bool = {
             UserDefaults.standard.string(forKey: "narrationQAClassifier") ?? "auto" == "auto"
         }
@@ -328,7 +333,9 @@ final class NarrationService {
                 renderedTexts.append(cueText)
                 continue
             }
-            let normalized = TextNormalizer.normalize(block.text ?? "")
+            let normalized =
+                (block.pronunciationAnnotations == nil
+                    ? TextNormalizer.normalize(block.text ?? "") : (block.text ?? ""))
             renderedTexts.append(
                 Self.renderedText(
                     fromNormalized: normalized,
@@ -393,7 +400,8 @@ final class NarrationService {
             guard let text = block.text, !text.isEmpty, !block.isHidden,
                 NarrationCodeBlockCue.spokenText(for: block) == nil
             else { continue }
-            result[block.id] = TextNormalizer.normalize(text)
+            result[block.id] =
+                block.pronunciationAnnotations == nil ? TextNormalizer.normalize(text) : text
         }
         return result
     }
@@ -593,14 +601,16 @@ final class NarrationService {
             segmentIndex: segmentIndex)
         let sortOrder = segmentIndex.map { chapterIndex * 1000 + $0 } ?? chapterIndex
 
-        guard let duration = try await Self.validatedDurationOrRemoveInvalidCache(
-            ofCachedFile: fileURL)
+        guard
+            let duration = try await Self.validatedDurationOrRemoveInvalidCache(
+                ofCachedFile: fileURL)
         else {
             return false
         }
         try Task.checkCancellation()
         try await db.write { db in
-            let existing = try TrackRecord
+            let existing =
+                try TrackRecord
                 .filter(Column("id") == trackID && Column("audiobook_id") == audiobookID)
                 .fetchOne(db)
             var track = TrackRecord(
@@ -1171,26 +1181,41 @@ final class NarrationService {
             blocks,
             occurrenceOverrides: occurrenceOverrides,
             fmEnabled: fmEnabled)
-        let contextualOccurrences = preparedBlocks.flatMap { preparedBlock in
-            let block = preparedBlock.block
-            guard let text = block.text,
-                !text.isEmpty,
-                !block.isHidden,
-                EPubBlockRecord.Kind(rawValue: block.blockKind) != .code
-            else {
-                return [ContextualPronunciationOccurrence]()
-            }
+        return try await Self.planPreparedBlocks(
+            preparedBlocks, overrides: overrides, pronunciationPack: pronunciationPack,
+            pronunciationAuditPack: pronunciationAuditPack,
+            contextualPronunciationEvaluator: contextualPronunciationEvaluator,
+            neuralEvaluator: neuralEvaluator)
+    }
 
-            // Dictionary links are applied only to this discovery copy. The
-            // production planner below still owns the actual synthesis rewrite.
-            let discoveryText = overrides.rewrite(
-                to: text,
-                blockID: block.id
-            ).text
-            return ContextualPronunciationDiscovery.discover(
-                text: discoveryText,
-                blockID: block.id)
+    #if DEBUG
+        nonisolated static let debugRenderPlanningRanOnMainThread = Mutex<Bool?>(nil)
+    #endif
+
+    /// A render unit owns its planner and mutable G2P cache entirely on the
+    /// cooperative executor. Only immutable Sendable inputs cross from the UI.
+    @concurrent
+    private nonisolated static func planPreparedBlocks(
+        _ preparedBlocks: [NarrationPreparedBlock],
+        overrides: PronunciationOverrides,
+        pronunciationPack: EnglishPronunciationPack,
+        pronunciationAuditPack: EnglishPronunciationAuditPack,
+        contextualPronunciationEvaluator: ContextualPronunciationBatchEvaluator,
+        neuralEvaluator: NeuralEvaluator?
+    ) async throws -> NarrationRenderPlan {
+        try Task.checkCancellation()
+        #if DEBUG
+            let isMain = Self.debugIsMainThread()
+            debugRenderPlanningRanOnMainThread.withLock { $0 = isMain }
+        #endif
+        let discoveryBlocks = try preparedBlocks.map { prepared in
+            var block = prepared.block
+            let userText = overrides.explicitUserEntries.apply(to: block.text ?? "")
+            block.text = try EPUBPronunciationRewriter.rewrite(userText, block: block).text
+            return block
         }
+        let contextualOccurrences = ContextualPronunciationDiscovery.discover(
+            blocks: discoveryBlocks, overrides: overrides)
         let contextualEvidence = try await ContextualPronunciationPreflight.run(
             occurrences: contextualOccurrences,
             evaluator: contextualPronunciationEvaluator,
@@ -1284,9 +1309,13 @@ final class NarrationService {
                 continue
             }
 
-            let normalized = normalizedByID[block.id] ?? TextNormalizer.normalize(block.text ?? "")
+            let normalized =
+                normalizedByID[block.id]
+                ?? (block.pronunciationAnnotations == nil
+                    ? TextNormalizer.normalize(block.text ?? "") : (block.text ?? ""))
             let refined =
-                fmEnabled ? await FMNormalizer.refine(normalized, cache: fmCache) : normalized
+                fmEnabled && block.pronunciationAnnotations == nil
+                ? await FMNormalizer.refine(normalized, cache: fmCache) : normalized
             if refined != normalized {
                 do {
                     try await db.write { db in

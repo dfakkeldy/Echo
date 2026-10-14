@@ -109,6 +109,6 @@ private struct WatchReviewPrimaryActionButton: View {
                 .font(.caption)
                 .frame(maxWidth: .infinity)
         }
-        .handGestureShortcut(.primaryAction, isEnabled: isPrimaryActionEnabled)
+        .modifier(WatchPrimaryActionModifier(isActive: isPrimaryActionEnabled))
     }
 }

@@ -3,7 +3,7 @@ import Foundation
 
 /// One audio chapter as a collapsible unit in the unified feed: a header row
 /// plus the reader sub-sections (`ch{key}-s{n}`) that belong to it.
-struct ReaderChapterGroup: Identifiable, Sendable {
+nonisolated struct ReaderChapterGroup: Identifiable, Sendable {
     /// Audio chapter index (`epub_block.chapter_index`); -1 for front matter.
     let chapterKey: Int
     /// Display title for the collapsed header row.
@@ -18,7 +18,7 @@ struct ReaderChapterGroup: Identifiable, Sendable {
 
 /// Pure transforms from the per-section feed to the collapsible chapter feed.
 /// No UIKit / no DB so a future macOS feed can reuse it.
-enum ReaderFeedDisplayBuilder {
+nonisolated enum ReaderFeedDisplayBuilder {
     /// Recover the audio chapter key from a section id of the form
     /// `"ch{key}-s{n}"` (e.g. `"ch0-s1"` → 0, `"ch-1-s0"` → -1). Returns `nil`
     /// for non-chapter sections such as `"search"`.

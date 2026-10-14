@@ -66,7 +66,7 @@ struct ReaderBreadcrumbTests {
         ])
 
         let vm = ReaderFeedViewModel(audiobookID: "book-1", db: db.writer)
-        vm.reload()
+        vm.reloadSync()
 
         // #require so a wrong section count fails the test instead of
         // trapping on the subscripts below.
@@ -101,7 +101,7 @@ struct ReaderBreadcrumbTests {
         ])
 
         let vm = ReaderFeedViewModel(audiobookID: "book-1", db: db.writer)
-        vm.reload()
+        vm.reloadSync()
 
         let chapterSection = try #require(
             vm.sections.first { $0.items.contains { item in
@@ -121,7 +121,7 @@ struct ReaderBreadcrumbTests {
         ])
 
         let vm = ReaderFeedViewModel(audiobookID: "book-1", db: db.writer)
-        vm.reload()
+        vm.reloadSync()
 
         #expect(!vm.sections.isEmpty)
         #expect(vm.sections.first?.headingStack.contains("Chapter One") == true)

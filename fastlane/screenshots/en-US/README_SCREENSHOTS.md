@@ -1,7 +1,9 @@
 # App Store Screenshots
 
-Two ways to produce the App Store screenshots — both land PNGs in this folder,
-ready for `fastlane upload_screenshots` (or any `deliver` run).
+Two ways to produce raw App Store screenshots — both land PNGs in this folder.
+Review actual UI/content, current Apple dimensions and rights before a separately
+authorized `fastlane upload_screenshots` invocation. File presence is not review
+acceptance. The fresh repository contained no PNG/JPG finals on 2026-10-06.
 
 ## TL;DR
 
@@ -11,9 +13,12 @@ bundle exec fastlane screenshots        # automated: UI test drives the app
 Scripts/capture_screenshots.sh          # assisted: you navigate, it captures
 ```
 
-The five shots we want (from MARKETING.md, captioned by *benefit*, not feature):
-① Turn Listening Into Learning ② Read Along Word By Word ③ Make Audio
-Flashcards ④ Review On Your Wrist ⑤ Your Books Stay Yours.
+Prepare benefit captions for features verified on the selected candidate:
+① Turn Listening Into Learning ② Read Along With Your Book ③ Capture What
+Matters ④ Control Listening On Your Wrist ⑤ Your Books, Your Library.
+The study and Watch-review shots need their own acceptance before stronger
+flashcard/review claims. Privacy captions must disclose optional external AI,
+iCloud and Audiobookshelf connections accurately.
 
 ---
 
@@ -64,8 +69,9 @@ optional audio path is:
    intentionally want audio-backed player content instead of the canonical
    Gatsby EPUB run.
 
-The UI test fails if any expected automated category is missing, so a screenshot
-run cannot silently pass with a partial set.
+The UI test checks that its five capture names were produced. It does not prove
+that the intended screen, populated content or study interaction is visible;
+inspect every image and recapture incorrect screens before upload.
 
 Recommended local fixture path:
 
@@ -86,7 +92,7 @@ identifiers). If you restyle the bottom dock / top header, keep the labels
 ## Route B — `Scripts/capture_screenshots.sh` (assisted, no app changes)
 
 ```sh
-Scripts/capture_screenshots.sh                      # iPhone 17 Pro Max, en-US
+Scripts/capture_screenshots.sh "iPhone 17 Pro"         # medium Dynamic Island class
 Scripts/capture_screenshots.sh "iPad Pro 13-inch (M5)"
 ```
 
@@ -132,17 +138,27 @@ to the right device by image dimensions regardless of the slug.
 
 ## Required Sizes
 
-Apple now requires only the **6.9" iPhone** and **13" iPad** for new
-submissions; smaller sizes are derived automatically. Capture the others only if
-you want native (non-scaled) art.
+Re-checked 2026-10-06 against Apple's current
+[screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications).
+The required iPhone category is **medium Dynamic Island**, rather than the old
+6.9-inch-only claim. The 13-inch iPad category applies because Echo supports iPad;
+Watch and Mac need their own sets. PNG/JPG/JPEG must have no alpha/transparency.
+One to ten images per category are allowed; use one consistent Watch size across
+localizations. Confirm the accepted category in ASC before declaring a set ready.
 
-| Device | Resolution | Required |
+| Category | Accepted dimensions | Echo capture plan |
 |---|---|---|
-| iPhone 17 Pro Max (6.9") | 1320 × 2868 | ✅ |
-| iPad Pro 13" | 2064 × 2752 | ✅ |
-| iPhone 17 Pro (6.3") | 1206 × 2622 | optional |
-| Mac | 2880 × 1800 | for the Mac app |
-| Apple Watch Ultra | 410 × 502 | for the Watch app |
+| Medium Dynamic Island iPhone | 1179 × 2556 or 1206 × 2622 | Capture a medium device such as iPhone 17 Pro explicitly |
+| 13-inch iPad | 2064 × 2752 or 2048 × 2732 | iPad Pro 13-inch |
+| Mac, 16:10 | 1280 × 800, 1440 × 900, 2560 × 1600 or 2880 × 1800 | Manual current Mac UI capture |
+| Watch | 422 × 514, 410 × 502, 416 × 496, 396 × 484, 368 × 448 or 312 × 390 | Manual paired Watch UI capture |
+
+Landscape reversals apply to iPhone/iPad. Mac requires the listed landscape
+16:10 dimensions. The existing Snapfile still prefers
+an iPhone Pro Max; it has not been changed by this documentation preparation.
+Use the assisted medium-device capture or update the automated capture choice in
+a separately reviewed change. Larger assets may use Apple's scaling fallbacks,
+but they do not establish acceptance in the required medium category.
 
 ## Uploading
 
@@ -153,10 +169,11 @@ bundle exec fastlane upload_screenshots   # screenshots + metadata, no binary
 (Requires `fastlane/api_key.json`.) Add device frames first with
 `bundle exec fastlane frame_app_store_screenshots` (needs `brew install imagemagick`).
 
-The weekly release train also runs
-`bundle exec fastlane upload_screenshots_if_available` after a successful
-TestFlight upload. It uploads reviewed PNG/JPG assets when they exist and skips
-without failing while this folder contains only docs.
+The current release-train workflow does not invoke screenshot or metadata upload.
+The `upload_screenshots_if_available` lane can be called separately after review
+and authorization. It only checks file presence; it cannot establish that the
+images are accurate or rights-cleared. Screenshot capture itself needs no ASC
+sign-in.
 
 ## Notes
 

@@ -19,6 +19,7 @@ final class AutoExportService {
     @ObservationIgnored private let isEnabled: () -> Bool
     @ObservationIgnored private let debounce: Duration
     @ObservationIgnored private var debounceTask: Task<Void, Never>?
+    @ObservationIgnored private var exportTask: Task<Void, Never>?
     @ObservationIgnored private var observationCancellable: AnyDatabaseCancellable?
 
     init(
@@ -125,34 +126,48 @@ final class AutoExportService {
     }
 
     func retryPendingIfAny() async {
-        guard isEnabled() else {
-            refreshStatus()
-            return
-        }
-
-        let writer = database.writer
-        let hasPending = (try? StudyAutoExportDAO(db: writer).dirtyStates().isEmpty == false) ?? false
-        guard hasPending else {
-            refreshStatus()
-            return
-        }
-
-        let outcome = await Self.runPass(writer: writer)
-        apply(outcome: outcome)
-        refreshStatus()
+        guard isEnabled() else { return }
+        await performExport(markDirty: false)
     }
 
     private func markDirtyAndExport() async {
-        let writer = database.writer
-        do {
-            try Self.markCapturedBooksDirty(writer: writer)
-        } catch {
-            lastErrorSummary = "Couldn't queue study notes for export."
-            Self.logger.error("markCapturedBooksDirty failed: \(error.localizedDescription)")
-        }
+        await performExport(markDirty: true)
+    }
 
-        let outcome = await Self.runPass(writer: writer)
-        apply(outcome: outcome)
+    private func performExport(markDirty: Bool) async {
+        let previous = exportTask
+        let task = Task {
+            await previous?.value
+            await performExportPass(markDirty: markDirty)
+        }
+        exportTask = task
+        await task.value
+    }
+
+    private func performExportPass(markDirty: Bool) async {
+        while !Task.isCancelled {
+            do {
+                let outcome = try await database.withBackgroundOperation(name: "study notes export") {
+                    if markDirty { try Self.markCapturedBooksDirty(writer: database.writer) }
+                    let result = try await Self.runPassChecked(writer: database.writer)
+                    try DatabaseWorkContext.token?.check()
+                    refreshStatus()
+                    return result
+                }
+                apply(outcome: outcome)
+                return
+            } catch {
+                if database.isWorkDeferred(error) {
+                    do { try await database.waitUntilForeground() }
+                    catch { return }
+                    continue
+                }
+                if error is CancellationError { return }
+                lastErrorSummary = "Last export failed - will retry."
+                Self.logger.error("Study notes export failed: \(error.localizedDescription)")
+                return
+            }
+        }
     }
 
     private func apply(outcome: PassOutcome) {
@@ -198,19 +213,25 @@ extension AutoExportService {
     }
 
     static func runPass(writer: DatabaseWriter) async -> PassOutcome {
+        do { return try await runPassChecked(writer: writer) }
+        catch { return PassOutcome(failed: 1) }
+    }
+
+    private static func runPassChecked(writer: DatabaseWriter) async throws -> PassOutcome {
+        try Task.checkCancellation()
         var outcome = PassOutcome()
         let dao = StudyAutoExportDAO(db: writer)
 
-        guard let destination = try? dao.destination() else {
+        guard let destination = try dao.destination() else {
             return outcome
         }
         guard let resolved = LibraryAccess.resolveURL(from: destination.bookmark) else {
-            try? dao.setNeedsRepick(true)
+            try dao.setNeedsRepick(true)
             outcome.needsRepick = true
             return outcome
         }
         if resolved.isStale, let refreshed = LibraryAccess.makeBookmark(for: resolved.url) {
-            try? dao.saveDestination(bookmark: refreshed, displayPath: resolved.url.path)
+            try dao.saveDestination(bookmark: refreshed, displayPath: resolved.url.path)
         }
 
         let didStart = resolved.url.startAccessingSecurityScopedResource()
@@ -230,14 +251,14 @@ extension AutoExportService {
         }
 
         let source = StudyNotesExportDatabaseSource(databaseWriter: writer)
-        guard let books = try? source.books(), let dirtyStates = try? dao.dirtyStates() else {
-            outcome.failed += 1
-            return outcome
-        }
+        let books = try source.books()
+        let dirtyStates = try dao.dirtyStates()
         let booksByID = Dictionary(uniqueKeysWithValues: books.map { ($0.id, $0) })
 
         for state in dirtyStates {
             do {
+                try Task.checkCancellation()
+                try DatabaseWorkContext.token?.check()
                 switch try await exportOne(
                     state: state,
                     booksByID: booksByID,
@@ -253,6 +274,8 @@ extension AutoExportService {
                     break
                 }
             } catch {
+                if DatabaseService.isWorkDeferred(error) { throw DatabaseWorkDeferred() }
+                try Task.checkCancellation()
                 try? dao.recordFailure(bookID: state.bookId, error: error.localizedDescription)
                 outcome.failed += 1
                 logger.error("Export failed for \(state.bookId): \(error.localizedDescription)")
@@ -311,6 +334,8 @@ extension AutoExportService {
             return .skipped
         }
 
+        try Task.checkCancellation()
+        try DatabaseWorkContext.token?.check()
         try await writeOffMain(
             Data(markdown.utf8),
             to: root.appending(path: fileName, directoryHint: .notDirectory)
@@ -332,6 +357,8 @@ extension AutoExportService {
         dao: StudyAutoExportDAO,
         root: URL
     ) async throws -> ExportResult {
+        try Task.checkCancellation()
+        try DatabaseWorkContext.token?.check()
         if let fileName = state.fileName {
             try? await deleteOffMain(root.appending(path: fileName, directoryHint: .notDirectory))
         }
@@ -340,13 +367,17 @@ extension AutoExportService {
     }
 
     private static func writeOffMain(_ data: Data, to fileURL: URL) async throws {
+        let token = DatabaseWorkContext.token
         try await Task.detached(priority: .utility) {
+            try token?.check()
             try AutoExportService.coordinatedWrite(data, to: fileURL)
         }.value
     }
 
     private static func deleteOffMain(_ fileURL: URL) async throws {
+        let token = DatabaseWorkContext.token
         try await Task.detached(priority: .utility) {
+            try token?.check()
             try AutoExportService.coordinatedDelete(fileURL)
         }.value
     }

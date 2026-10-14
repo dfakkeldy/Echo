@@ -1,5 +1,10 @@
 # Xcode Archive Privacy Report
 
+> Historical evidence from the June 27 archive only. Its manifest inventory and
+> API reasons do not validate a later source revision or release archive. Current
+> app manifests also declare file-timestamp and disk-space reasons; reconcile the
+> selected archive and dependency report using [the release checklist](../../release-checklist.md).
+
 Date: 2026-06-27
 
 Archive: `/tmp/EchoPrivacyArchive.xcarchive`

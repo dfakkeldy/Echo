@@ -70,7 +70,10 @@ nonisolated enum NarrationFileNaming {
     /// ("Permit me", "Close the door", "Project the image") is retagged as a
     /// verb before lexicon lookup, changing narration bytes for the same
     /// source text.
-    static let renderVersion = 24
+    /// v25 = linking-verb content disambiguation and validated identifier splits.
+    /// v26 = explicit pronunciation spans bind to final Unicode string indices,
+    /// preventing an already-instructed possessive suffix from being voiced twice.
+    static let renderVersion = 26
     /// Stable renderer-family identity persisted beside headless captures. The
     /// cache render version tracks byte-affecting revisions within this family;
     /// this value prevents a different engine/G2P stack from inheriting them.
@@ -79,7 +82,13 @@ nonisolated enum NarrationFileNaming {
     /// A filesystem-safe token for an audiobook id (which may be a folder-URL string).
     static func safeToken(_ audiobookID: String) -> String {
         let token = String(audiobookID.map { $0.isLetter || $0.isNumber ? $0 : "_" })
-        return token.isEmpty ? "book" : token
+        guard !token.isEmpty else { return "book" }
+        // Folder URLs can exceed a filesystem's 255-byte component limit once
+        // chapter, signature, voice and hidden-partial suffixes are appended.
+        // Keep ordinary legacy cache names; bound long UTF-8 prefixes and hash
+        // the original identity so differently sanitized URLs cannot alias.
+        guard token.utf8.count > 128 else { return token }
+        return "book_\(stableChapterToken(for: audiobookID))"
     }
 
     /// A compact, stable identity for an anthology source chapter. The source key
@@ -221,6 +230,9 @@ nonisolated enum NarrationFileNaming {
         components.reserveCapacity(components.count + spokenBlocks.count * 3)
         for (offset, block) in spokenBlocks.enumerated() {
             components.append("blockID:\(block.id.count):\(block.id)")
+            if let annotations = block.pronunciationAnnotations {
+                components.append("epubPronunciationV1:\(annotations.utf8.count):\(annotations)")
+            }
             components.append("blockKind:\(block.blockKind.count):\(block.blockKind)")
             let text = offset < renderedTexts.count ? renderedTexts[offset] : ""
             components.append("text:\(text.count):\(text)")

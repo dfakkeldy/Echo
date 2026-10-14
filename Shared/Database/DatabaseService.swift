@@ -18,71 +18,136 @@ enum DatabaseError: LocalizedError {
 /// Owns a GRDB database in WAL mode (DatabasePool for disk, DatabaseQueue for in-memory).
 @MainActor @Observable
 final class DatabaseService {
+    static var workProtection: DatabaseWorkProtection?
     let writer: DatabaseWriter
     let dbPath: String
-    private let logger = Logger(category: "DatabaseService")
+    private let protection: DatabaseWorkProtection?
 
-    init(
+    private nonisolated static let openingQueue = DispatchQueue(
+        label: "com.echo.database-opening", qos: .userInitiated)
+
+    private nonisolated struct Connection: Sendable {
+        let writer: DatabasePool
+        let path: String
+
+        init(databaseURL: URL, token: DatabaseWorkToken? = nil) throws {
+            try token?.check()
+            try FileManager.default.createDirectory(
+                at: databaseURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let path = databaseURL.path
+            self.path = path
+            let opening = DatabaseOpeningCheck(token)
+            defer { opening.finish() }
+            var config = Configuration()
+            config.observesSuspensionNotifications = token != nil
+            // GRDB's automatic iOS cleanup can synchronously wait for this
+            // writer when UIKit denies its independent background assertion.
+            #if os(iOS)
+                config.automaticMemoryManagement = token == nil
+            #endif
+            config.prepareDatabase { db in
+                try opening.prepare(db)
+                try db.execute(sql: "PRAGMA journal_mode=WAL")
+                try db.execute(sql: "PRAGMA foreign_keys=ON")
+            }
+            writer = try DatabasePool(path: path, configuration: config)
+            // The pool now observes suspension itself. Remove the per-opcode
+            // startup guard before potentially large migrations and repairs.
+            opening.finish()
+            // Notifications are not sticky: expiration may have occurred while
+            // the pool was creating its first connection and observers.
+            try token?.check()
+            try DatabaseService.makeMigrator().migrate(writer)
+            try token?.check()
+            if token != nil {
+                try ContainerPathRepair.runForLaunch(writer: writer)
+            } else {
+                ContainerPathRepair.runIfNeeded(writer: writer)
+            }
+            try token?.check()
+            Logger(category: "DatabaseService").info(
+                "Database opened at \(path, privacy: .private)")
+        }
+    }
+
+    private init(connection: Connection, protection: DatabaseWorkProtection? = nil) {
+        writer = connection.writer
+        dbPath = connection.path
+        self.protection = protection
+    }
+
+    convenience init(
         appGroupIdentifier: String = AppGroupDefaults.suiteName,
         appGroupFallbackDirectory: URL? = DatabaseServiceAppGroupFallback.defaultDirectory,
         allowAppGroupFallback: Bool = DatabaseServiceAppGroupFallback.isAllowed
     ) throws {
-        let containerURL: URL
-        if let appGroupURL = FileManager.default.containerURL(
+        let url = try Self.databaseURL(
+            appGroupIdentifier: appGroupIdentifier,
+            appGroupFallbackDirectory: appGroupFallbackDirectory,
+            allowAppGroupFallback: allowAppGroupFallback)
+        try self.init(databaseURL: url)
+    }
+
+    convenience init(databaseURL: URL) throws {
+        try self.init(connection: Connection(databaseURL: databaseURL))
+    }
+
+    /// Opens and repairs the database without blocking the UI or a cooperative
+    /// executor thread. Callers must wait for this before exposing library views.
+    static func openForLaunch(
+        databaseURL: URL? = nil,
+        protection: DatabaseWorkProtection? = nil
+    ) async throws -> DatabaseService {
+        if let protection {
+            return try await protection.run(name: "database launch") {
+                try await openConnection(databaseURL: databaseURL, protection: protection)
+            }
+        }
+        return try await openConnection(databaseURL: databaseURL, protection: nil)
+    }
+
+    private static func openConnection(
+        databaseURL: URL?, protection: DatabaseWorkProtection?
+    ) async throws -> DatabaseService {
+        try Task.checkCancellation()
+        let url = try databaseURL ?? Self.databaseURL()
+        let token = DatabaseWorkContext.token
+        let connection = try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<Connection, Error>) in
+            openingQueue.async {
+                continuation.resume(with: Result { try Connection(databaseURL: url, token: token) })
+            }
+        }
+        // Let an in-flight SQLite transaction finish safely, but do not install
+        // its result into a view whose launch task has been cancelled.
+        try Task.checkCancellation()
+        try token?.check()
+        return DatabaseService(connection: connection, protection: protection)
+    }
+
+    private static func databaseURL(
+        appGroupIdentifier: String = AppGroupDefaults.suiteName,
+        appGroupFallbackDirectory: URL? = DatabaseServiceAppGroupFallback.defaultDirectory,
+        allowAppGroupFallback: Bool = DatabaseServiceAppGroupFallback.isAllowed
+    ) throws -> URL {
+        if let container = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: appGroupIdentifier
         ) {
-            containerURL = appGroupURL
-        } else if DatabaseServiceAppGroupFallback.isAllowed, allowAppGroupFallback,
+            return container.appendingPathComponent("echo.sqlite")
+        }
+        if DatabaseServiceAppGroupFallback.isAllowed, allowAppGroupFallback,
             let appGroupFallbackDirectory
         {
-            containerURL = appGroupFallbackDirectory
             Logger(category: "DatabaseService").warning(
                 "Using debug simulator database fallback because App Group container is unavailable."
             )
-        } else {
-            throw DatabaseError.appGroupNotFound(appGroupIdentifier)
+            return appGroupFallbackDirectory.appendingPathComponent("echo.sqlite")
         }
-
-        try FileManager.default.createDirectory(
-            at: containerURL,
-            withIntermediateDirectories: true
-        )
-
-        let path = containerURL.appendingPathComponent("echo.sqlite").path
-        self.dbPath = path
-
-        var config = Configuration()
-        config.prepareDatabase { db in
-            try db.execute(sql: "PRAGMA journal_mode=WAL")
-            try db.execute(sql: "PRAGMA foreign_keys=ON")
-        }
-        writer = try DatabasePool(path: path, configuration: config)
-
-        try runMigrations(writer: writer)
-        logger.info("Database opened at \(path)")
-    }
-
-    init(databaseURL: URL) throws {
-        if let parent = databaseURL.parentDirectory {
-            try FileManager.default.createDirectory(
-                at: parent,
-                withIntermediateDirectories: true
-            )
-        }
-
-        var config = Configuration()
-        config.prepareDatabase { db in
-            try db.execute(sql: "PRAGMA journal_mode=WAL")
-            try db.execute(sql: "PRAGMA foreign_keys=ON")
-        }
-        let path = databaseURL.path
-        self.writer = try DatabasePool(path: path, configuration: config)
-        self.dbPath = path
-        try runMigrations(writer: writer)
-        logger.info("Database opened at \(path)")
+        throw DatabaseError.appGroupNotFound(appGroupIdentifier)
     }
 
     init(inMemory: Void) throws {
+        self.protection = nil
         var config = Configuration()
         config.prepareDatabase { db in
             try db.execute(sql: "PRAGMA foreign_keys=ON")
@@ -93,6 +158,31 @@ final class DatabaseService {
     }
 
     // MARK: - Accessors
+
+    func withBackgroundOperation<T>(
+        name: String, operation: () async throws -> T
+    ) async throws -> T {
+        if let protection { return try await protection.run(name: name, operation: operation) }
+        return try await operation()
+    }
+
+    func waitUntilForeground() async throws {
+        try Task.checkCancellation()
+        try await protection?.waitUntilForeground()
+    }
+
+    nonisolated static func isWorkDeferred(_ error: any Error) -> Bool {
+        if error is DatabaseWorkDeferred { return true }
+        return DatabaseWorkContext.token?.isCancelled == true
+    }
+
+    nonisolated func isWorkDeferred(_ error: any Error) -> Bool {
+        Self.isWorkDeferred(error)
+    }
+
+    nonisolated func throwIfWorkDeferred(_ error: any Error) throws {
+        if Self.isWorkDeferred(error) { throw DatabaseWorkDeferred() }
+    }
 
     func read<T>(_ block: @escaping (Database) throws -> T) throws -> T {
         try writer.read(block)
@@ -189,14 +279,19 @@ final class DatabaseService {
         migrator.registerMigration("v41_repair_squashed_baseline_gap") { db in
             try Schema_V41.migrate(db)
         }
+        // Block re-keying checks this foreign key for each block. The existing
+        // book-first compound index otherwise forces a full anchor scan per row.
+        migrator.registerMigration("v42_alignment_anchor_foreign_key_index") { db in
+            try db.create(
+                index: "idx_alignment_anchor_epub_block", on: "alignment_anchor",
+                columns: ["epub_block_id"], ifNotExists: true)
+        }
+        migrator.registerMigration("v43_epub_pronunciation_annotations") { db in
+            try db.alter(table: "epub_block") { table in
+                table.add(column: "pronunciation_annotations", .text)
+            }
+        }
         return migrator
-    }
-}
-
-extension URL {
-    fileprivate var parentDirectory: URL? {
-        guard !path.isEmpty else { return nil }
-        return deletingLastPathComponent()
     }
 }
 

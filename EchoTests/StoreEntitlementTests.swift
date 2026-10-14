@@ -7,6 +7,20 @@ struct StoreEntitlementTests {
     // Echo Pro is a one-time, non-consumable unlock — there is no subscription path.
     // Pro is granted iff the user owns the lifetime unlock OR the Founders unlock.
 
+    @Test func paidReleaseRequiresExistingOwnership() {
+        #expect(!ProEntitlement.isPro(
+            lifetimeOwned: false,
+            foundersOwned: false,
+            paywallDisabled: StoreAccessPolicy.paywallDisabled
+        ))
+    }
+
+    @Test func newPurchasesOfferStandardProAndLegacyFoundersRemainRecognized() {
+        #expect(ProductIDs.offered == [ProductIDs.lifetime])
+        #expect(ProductIDs.nonConsumables.contains(ProductIDs.founders))
+        #expect(ProEntitlement.isPro(lifetimeOwned: false, foundersOwned: true))
+    }
+
     @Test func lifetimeOwnerIsPro() {
         #expect(ProEntitlement.isPro(lifetimeOwned: true, foundersOwned: false))
     }
