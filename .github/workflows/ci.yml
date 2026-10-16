@@ -38,6 +38,9 @@ jobs:
       # "Build gate + tests" context at all, and because that context is a
       # required status check on main/weekly/nightly, the PR would then wait
       # forever for a check that never arrives.
+      - name: Test change-aware delivery guard
+        run: python3 -m unittest discover -s .github/scripts/tests -p test_release_delivery.py -v
+
       - name: Classify change scope
         id: scope
         env:

@@ -5,6 +5,7 @@ default_platform(:ios)
 # ── Helpers ────────────────────────────────────────────────────────
 
 require_relative "lib/echo_release_scheme"
+require_relative "lib/echo_release_delivery"
 
 # Returns true if the named *shared* scheme is committed in the project.
 #
@@ -208,6 +209,9 @@ platform :ios do
       Scripts/import_mac_installer_cert.sh.
   DESC
   lane :beta do |options|
+    build_ios = EchoReleaseDelivery.requested?("ios")
+    build_macos = EchoReleaseDelivery.requested?("macos")
+    UI.user_error!("No platform requested by the delivery plan") unless build_ios || build_macos
     require_api_key!
 
     # ── CI: non-interactive code-signing keychain ─────────────────────
@@ -261,11 +265,16 @@ platform :ios do
     # bump that only for real releases. Query TestFlight's latest build and add
     # one (starts at 1 when the app has no builds). Applied via xcargs so
     # CURRENT_PROJECT_VERSION is overridden without mutating the project.
-    next_build = latest_testflight_build_number(
-      api_key: @api_key,
-      app_identifier: "com.echo.audiobooks",
-      initial_build_number: 0
-    ) + 1
+    # A Mac-only retry must advance beyond the Mac build too. The workflow
+    # serializes both channels while these two platform counters are read.
+    next_build = %w[ios osx].map do |platform|
+      latest_testflight_build_number(
+        api_key: @api_key,
+        app_identifier: "com.echo.audiobooks",
+        platform: platform,
+        initial_build_number: 0
+      )
+    end.max + 1
     UI.message("Build number for this run: #{next_build}")
 
     # ── iOS: sync → (CI) manual-sign → archive ────────────────────────────
@@ -276,42 +285,44 @@ platform :ios do
     # Building iOS first keeps the live mapping correct for the iOS archive/export.
     # (On CI the project's Automatic signing can't mint profiles headlessly, so we
     # switch each target to the match profile manually; local dev keeps Automatic.)
-    sync_code_signing(
-      api_key: @api_key,
-      type: "appstore",
-      app_identifier: [
-        "com.echo.audiobooks",                   # main iOS app
-        "com.echo.audiobooks.watchkitapp",         # bundled watchOS app
-        "com.echo.audiobooks.watchkitapp.widget"   # widget extension
-      ],
-      readonly: is_ci
-    )
-    if is_ci
-      mapping = lane_context[SharedValues::MATCH_PROVISIONING_PROFILE_MAPPING] || {}
-      {
-        "Echo"                 => "com.echo.audiobooks",
-        "Echo Watch App"       => "com.echo.audiobooks.watchkitapp",
-        "Echo WidgetExtension" => "com.echo.audiobooks.watchkitapp.widget"
-      }.each do |target, bundle_id|
-        profile = mapping[bundle_id]
-        next if profile.nil?
-        update_code_signing_settings(
-          path: "Echo.xcodeproj",
-          use_automatic_signing: false,
-          targets: [target],
-          team_id: "8AXNA5B37R",
-          code_sign_identity: "Apple Distribution",
-          profile_name: profile
-        )
+    if build_ios
+      sync_code_signing(
+        api_key: @api_key,
+        type: "appstore",
+        app_identifier: [
+          "com.echo.audiobooks",                   # main iOS app
+          "com.echo.audiobooks.watchkitapp",         # bundled watchOS app
+          "com.echo.audiobooks.watchkitapp.widget"   # widget extension
+        ],
+        readonly: is_ci
+      )
+      if is_ci
+        mapping = lane_context[SharedValues::MATCH_PROVISIONING_PROFILE_MAPPING] || {}
+        {
+          "Echo"                 => "com.echo.audiobooks",
+          "Echo Watch App"       => "com.echo.audiobooks.watchkitapp",
+          "Echo WidgetExtension" => "com.echo.audiobooks.watchkitapp.widget"
+        }.each do |target, bundle_id|
+          profile = mapping[bundle_id]
+          next if profile.nil?
+          update_code_signing_settings(
+            path: "Echo.xcodeproj",
+            use_automatic_signing: false,
+            targets: [target],
+            team_id: "8AXNA5B37R",
+            code_sign_identity: "Apple Distribution",
+            profile_name: profile
+          )
+        end
       end
+      build_app(
+        project: "Echo.xcodeproj",
+        scheme: "Echo",
+        export_method: "app-store",
+        output_directory: "build",
+        xcargs: release_archive_xcargs(next_build)
+      )
     end
-    build_app(
-      project: "Echo.xcodeproj",
-      scheme: "Echo",
-      export_method: "app-store",
-      output_directory: "build",
-      xcargs: release_archive_xcargs(next_build)
-    )
 
     # ── macOS: sync → (CI) manual-sign → archive ──────────────────────────
     # Universal app: the Mac App Store profile is under the SAME bundle id
@@ -323,7 +334,7 @@ platform :ios do
     # Stays nil unless the macOS archive AND its .pkg export both succeed, which
     # is what gates the macOS TestFlight upload further down.
     macos_pkg_path = nil
-    if scheme_exists?("Echo macOS")
+    if build_macos && scheme_exists?("Echo macOS")
       begin
         macos_signing = {
           api_key: @api_key,
@@ -410,7 +421,7 @@ platform :ios do
         github_warning("#{message}. Continuing the iOS upload; fix the macOS target and re-run.")
         github_warning(MAC_INSTALLER_CERT_REMEDIATION) if mac_installer_identity_missing?
       end
-    else
+    elsif build_macos
       UI.important("No shared 'Echo macOS' scheme found — skipping macOS build. Mark the scheme Shared in Xcode (Product ▸ Scheme ▸ Manage Schemes) and commit it to include the Mac archive.")
     end
 
@@ -446,7 +457,10 @@ platform :ios do
     # testers automatically receive every processed build, and assigning their
     # group explicitly makes pilot treat the upload as external distribution.
     tf_options.merge!(distribution_options)
-    upload_to_testflight(tf_options)
+    if build_ios
+      upload_to_testflight(tf_options)
+      EchoReleaseDelivery.record("ios")
+    end
 
     # ── Second upload: the macOS .pkg ─────────────────────────────────────
     # Until the Mac Installer Distribution certificate existed this could not
@@ -490,13 +504,14 @@ platform :ios do
         }
         macos_tf_options.merge!(distribution_options)
         upload_to_testflight(macos_tf_options)
+        EchoReleaseDelivery.record("macos")
       rescue => e
         # Same reasoning as the archive rescue: the iOS build has already
         # uploaded successfully by this point, and a macOS-side problem must not
         # retroactively fail the run that shipped it.
         github_warning("macOS .pkg upload failed: #{e.message}. The iOS build shipped normally.")
       end
-    elsif scheme_exists?("Echo macOS")
+    elsif build_macos && scheme_exists?("Echo macOS")
       github_warning("No macOS .pkg was produced, so no Mac build was uploaded to TestFlight.")
     end
 
