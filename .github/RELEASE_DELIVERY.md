@@ -27,7 +27,9 @@ after its real delivery operation returns successfully, including configured
 processing/distribution waits. Compile-only, missing-secret and dry-run paths
 emit none. The next comparison accepts a receipt only from this workflow's
 successful completed attempt on an established channel/controller ref. Failed,
-cancelled and in-progress attempts cannot advance the baseline. A successful
+cancelled and in-progress attempts cannot advance the baseline. A completed
+successful earlier attempt remains valid when the same run is retried; its exact
+attempt outcome is checked independently. A successful
 partial Echo run can acknowledge iOS independently while Mac remains retryable.
 This records completion of the configured delivery operation, not external beta
 approval, App Review approval, installation or Dan's acceptance.

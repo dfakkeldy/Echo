@@ -6,6 +6,7 @@ cache hit: their originating workflow attempt must also have succeeded.
 """
 
 import argparse
+import functools
 import hashlib
 import json
 import os
@@ -116,29 +117,42 @@ def allowed_run(run, workflow_path):
                 and run["event"] == "push" and run["head_branch"].startswith("v")))
 
 
-def baseline(repository, channel, platform, history, workflow_path, current_run, api=github_api):
+def baseline(repository, channel, platform, history, workflow_path, current_run, api=github_api,
+             current_attempt=1):
     pattern = re.compile(rf"release-delivery-v1-{re.escape(channel)}-{re.escape(platform)}-(\d+)-([0-9a-f]{{64}})")
     for artifact in sorted(history, key=lambda row: (row["created_at"], row["id"]), reverse=True):
         match = pattern.fullmatch(artifact["name"])
         run_id = artifact.get("workflow_run", {}).get("id")
-        if not match or not run_id or str(run_id) == str(current_run):
+        if not match or not run_id:
+            continue
+        attempt = int(match[1])
+        if str(run_id) == str(current_run) and attempt >= current_attempt:
             continue
         run = api(f"repos/{repository}/actions/runs/{run_id}")
+        if run["run_attempt"] < attempt:
+            continue
+        if run["run_attempt"] != attempt or str(run_id) == str(current_run):
+            # A successful platform remains delivered when the same workflow
+            # is retried. Validate its exact completed attempt, rather than
+            # treating a later failed/in-progress attempt as its outcome.
+            run = api(f"repos/{repository}/actions/runs/{run_id}/attempts/{attempt}")
         if (run["status"] == "completed" and run["conclusion"] == "success"
-                and run["run_attempt"] == int(match[1])
+                and run["run_attempt"] == attempt
                 and run["path"].split("@")[0] == workflow_path
                 and allowed_run(run, workflow_path)):
             if artifact["expired"]:
                 return None
             return {"fingerprint": match[2], "run_id": run_id, "artifact_id": artifact["id"],
-                    "created_at": artifact["created_at"]}
+                    "run_attempt": attempt, "created_at": artifact["created_at"]}
     return None
 
 
-def successful_runs(repository, workflow_path, api=github_api):
+def workflow_runs(repository, workflow_path, api=github_api):
     result, page = [], 1
     while True:
-        rows = api(f"repos/{repository}/actions/workflows/{workflow_path.rsplit('/', 1)[1]}/runs?status=success&per_page=100&page={page}")["workflow_runs"]
+        # Filter locally. GitHub caps filtered run searches at 1,000 results;
+        # unfiltered pagination must also find older runs retried recently.
+        rows = api(f"repos/{repository}/actions/workflows/{workflow_path.rsplit('/', 1)[1]}/runs?per_page=100&page={page}")["workflow_runs"]
         result.extend(rows)
         if len(rows) < 100:
             return result
@@ -151,21 +165,29 @@ def receipt_is_latest(repository, previous, channel, platform, runs, api=github_
     if previous is None:
         return False
     witness = f"Retain successful {channel} {platform} delivery receipt"
-    for run in runs:
-        if (run["id"] == previous["run_id"] or run["updated_at"] <= previous["created_at"]
-                or not allowed_run(run, workflow_path)):
+    for latest in runs:
+        if latest["updated_at"] < previous["created_at"] or not allowed_run(latest, workflow_path):
             continue
-        # Read all jobs in the latest attempt, including a matrix or future
-        # split into more than 100 jobs. Run-list rows are successful only.
-        page = 1
-        while True:
-            jobs = api(f"repos/{repository}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100&page={page}")["jobs"]
-            if any(step.get("name") == witness and step.get("conclusion") == "success"
-                   for job in jobs for step in job.get("steps", [])):
-                return False
-            if len(jobs) < 100:
+        first = previous["run_attempt"] + 1 if latest["id"] == previous["run_id"] else 1
+        for attempt in range(latest["run_attempt"], first - 1, -1):
+            run = latest if attempt == latest["run_attempt"] else api(
+                f"repos/{repository}/actions/runs/{latest['id']}/attempts/{attempt}")
+            if run["updated_at"] < previous["created_at"]:
                 break
-            page += 1
+            if run["status"] != "completed" or run["conclusion"] != "success":
+                continue
+            # A later failed/in-progress attempt must not hide an intermediate
+            # successful delivery whose artifact was removed. Inspect each
+            # successful historical attempt, not only the latest job view.
+            page = 1
+            while True:
+                jobs = api(f"repos/{repository}/actions/runs/{latest['id']}/attempts/{attempt}/jobs?per_page=100&page={page}")["jobs"]
+                if any(step.get("name") == witness and step.get("conclusion") == "success"
+                       for job in jobs for step in job.get("steps", [])):
+                    return False
+                if len(jobs) < 100:
+                    break
+                page += 1
     return True
 
 
@@ -195,14 +217,16 @@ def plan(args):
     source, controller = git_tree(root), git_tree(control)
     # Force is a recovery path for missing history as well as an intentional
     # rebuild. It skips only baseline lookup, never build-input validation.
-    history = [] if args.force == "true" else artifacts(os.environ["GITHUB_REPOSITORY"])
-    runs = successful_runs(os.environ["GITHUB_REPOSITORY"], workflow_path) if history else []
+    read_api = functools.cache(github_api)
+    history = [] if args.force == "true" else artifacts(os.environ["GITHUB_REPOSITORY"], read_api)
+    runs = workflow_runs(os.environ["GITHUB_REPOSITORY"], workflow_path, read_api) if history else []
     result = {"schema": 1, "source_sha": source_sha, "channel": args.channel, "platforms": {}}
     for platform in config["platform_excludes"]:
         current = fingerprint(source, controller, config, platform, recipe)
         previous = baseline(os.environ["GITHUB_REPOSITORY"], args.channel, platform, history,
-                            workflow_path, os.environ["GITHUB_RUN_ID"])
-        if previous and not receipt_is_latest(os.environ["GITHUB_REPOSITORY"], previous, args.channel, platform, runs, workflow_path=workflow_path):
+                            workflow_path, os.environ["GITHUB_RUN_ID"], api=read_api,
+                            current_attempt=int(os.environ.get("GITHUB_RUN_ATTEMPT", "1")))
+        if previous and not receipt_is_latest(os.environ["GITHUB_REPOSITORY"], previous, args.channel, platform, runs, api=read_api, workflow_path=workflow_path):
             previous = None
         build, reason = decision(current, previous, args.force == "true")
         result["platforms"][platform] = {"fingerprint": current, "build": build, "reason": reason, "baseline": previous}

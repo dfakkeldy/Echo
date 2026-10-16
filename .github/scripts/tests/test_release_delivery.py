@@ -24,15 +24,16 @@ def artifact(identifier, fingerprint=HASH_A, channel="nightly", platform="ios", 
 
 
 def run(**extra):
-    return dict(status="completed", conclusion="success", run_attempt=1,
-                path=".github/workflows/release-trains.yml", event="schedule", head_branch="main", **extra)
+    return dict(dict(id=1, status="completed", conclusion="success", run_attempt=1,
+                     updated_at="2026-10-01T01:00:00Z", path=".github/workflows/release-trains.yml",
+                     event="schedule", head_branch="main"), **extra)
 
 
 class DeliveryHistoryTests(unittest.TestCase):
     def previous(self, history, runs=None, **args):
         return guard.baseline("owner/repo", args.get("channel", "nightly"), args.get("platform", "ios"),
                               history, ".github/workflows/release-trains.yml", 999,
-                              lambda endpoint: (runs or {}).get(int(endpoint.rsplit("/", 1)[1]), run()))
+                              lambda endpoint: (runs or {}).get(int(endpoint.split("/actions/runs/")[1].split("/")[0]), run()))
 
     def test_first_run_builds(self):
         self.assertEqual(guard.decision(HASH_A, self.previous([]))[0], True)
@@ -86,24 +87,71 @@ class DeliveryHistoryTests(unittest.TestCase):
 
     def test_deleted_latest_receipt_is_detected_from_successful_job_history(self):
         previous = self.previous([artifact(1)])
-        history = [{"id": 2, "updated_at": "2026-10-02T01:00:00Z", "event": "schedule", "head_branch": "main"}]
+        history = [run(id=2, updated_at="2026-10-02T01:00:00Z")]
         api = lambda endpoint: {"jobs": [{"steps": [{"name": "Retain successful nightly ios delivery receipt", "conclusion": "success"}]}]}
         self.assertFalse(guard.receipt_is_latest("owner/repo", previous, "nightly", "ios", history, api))
         # A newer Mac success does not advance the iOS delivery baseline.
         self.assertTrue(guard.receipt_is_latest("owner/repo", previous, "nightly", "macos", history, api))
 
-    def test_successful_run_history_is_paginated(self):
+    def test_run_history_is_paginated_without_filtering_out_retrying_runs(self):
         pages = []
         def api(endpoint):
             pages.append(endpoint)
-            return {"workflow_runs": [{"id": 1}] * 100 if len(pages) == 1 else []}
-        self.assertEqual(len(guard.successful_runs("owner/repo", ".github/workflows/release-trains.yml", api)), 100)
+            return {"workflow_runs": [{"id": 1, "status": "completed", "conclusion": "success"}] * 100 if len(pages) == 1 else []}
+        self.assertEqual(len(guard.workflow_runs("owner/repo", ".github/workflows/release-trains.yml", api)), 100)
         self.assertTrue(pages[-1].endswith("page=2"))
+        self.assertNotIn("status=", pages[-1])
 
-    def test_receipt_from_previous_attempt_does_not_skip(self):
+    def test_deleted_receipt_in_later_attempt_of_same_run_is_detected(self):
+        previous = self.previous([artifact(1)])
+        history = [run(run_attempt=2, updated_at="2026-10-02T01:00:00Z")]
+        api = lambda endpoint: {"jobs": [{"steps": [{"name": "Retain successful nightly ios delivery receipt", "conclusion": "success"}]}]}
+        self.assertFalse(guard.receipt_is_latest("owner/repo", previous, "nightly", "ios", history, api))
+
+    def test_hidden_successful_intermediate_attempt_prevents_stale_fallback(self):
+        previous = self.previous([artifact(1)])
+        for latest_status, latest_conclusion in [("in_progress", None), ("completed", "failure"), ("completed", "success")]:
+            with self.subTest(latest=latest_conclusion):
+                history = [run(run_attempt=3, status=latest_status, conclusion=latest_conclusion,
+                               updated_at="2026-10-03T01:00:00Z")]
+                def api(endpoint):
+                    if endpoint.endswith("/attempts/2"):
+                        return run(run_attempt=2, updated_at="2026-10-02T01:00:00Z")
+                    if "/attempts/2/jobs?" in endpoint:
+                        return {"jobs": [{"steps": [{"name": "Retain successful nightly ios delivery receipt", "conclusion": "success"}]}]}
+                    return {"jobs": []}
+                self.assertFalse(guard.receipt_is_latest("owner/repo", previous, "nightly", "ios", history, api))
+
+    def test_unverifiable_prior_attempt_does_not_skip(self):
         rerun = run()
         rerun["run_attempt"] = 2
         self.assertIsNone(self.previous([artifact(1)], {1: rerun}))
+
+    def test_successful_prior_attempt_is_kept_when_retrying_same_run(self):
+        # Echo can have a successful iOS receipt and a retryable Mac warning.
+        # Re-running that workflow must retain iOS's completed prior attempt.
+        endpoints = []
+        def api(endpoint):
+            endpoints.append(endpoint)
+            result = run()
+            if "/attempts/" not in endpoint:
+                result.update(status="in_progress", conclusion=None, run_attempt=2)
+            return result
+        previous = guard.baseline("owner/repo", "nightly", "ios", [artifact(1)],
+                                  ".github/workflows/release-trains.yml", 1, api, current_attempt=2)
+        self.assertIsNotNone(previous)
+        self.assertFalse(guard.decision(HASH_A, previous)[0])
+        self.assertTrue(any(endpoint.endswith("/attempts/1") for endpoint in endpoints))
+
+    def test_failed_later_attempt_does_not_erase_successful_delivery(self):
+        def api(endpoint):
+            result = run()
+            if "/attempts/" not in endpoint:
+                result.update(conclusion="failure", run_attempt=2)
+            return result
+        previous = guard.baseline("owner/repo", "nightly", "ios", [artifact(1)],
+                                  ".github/workflows/release-trains.yml", 999, api)
+        self.assertFalse(guard.decision(HASH_A, previous)[0])
 
     def test_receipt_from_untrusted_workflow_or_feature_branch_does_not_skip(self):
         for field, value in [("path", ".github/workflows/ci.yml"), ("head_branch", "feature/test"), ("event", "pull_request")]:
