@@ -2128,9 +2128,12 @@ StoreKit product identifiers remain unchanged.
   copy of a workflow on the **default branch**, so this file lives on `main` and
   *checks out* the train branch it was asked to build. Nightly cron builds
   `nightly`; weekly cron builds `weekly`; `workflow_dispatch` takes a `channel`
-  input. Each run always compiles the branch (no secrets needed) and, when the
-  App Store Connect + match secrets are present, runs the `fastlane beta` lane to
-  upload to TestFlight. Missing secrets degrade to compile-only (no red-X
+  input. A read-only Ubuntu comparison skips macOS delivery work when the
+  effective build inputs match the last successful platform/channel receipt.
+  Changed or intentionally forced deliveries compile the pinned source and,
+  when App Store Connect + match secrets are present, run `fastlane beta`.
+  See [change-aware delivery](.github/RELEASE_DELIVERY.md) for baseline recovery,
+  platform retries and rollout through the normal promotion ladder. Missing secrets degrade to compile-only (no red-X
   nightlies). Required secrets: `APP_STORE_CONNECT_API_KEY_JSON`,
   `MATCH_PASSWORD`, `MATCH_GIT_SSH_KEY`.
 
