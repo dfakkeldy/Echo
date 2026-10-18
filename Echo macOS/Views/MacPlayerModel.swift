@@ -541,7 +541,10 @@ final class MacPlayerModel {
 
         let audioFiles =
             contents
-            .filter { Self.audioExtensions.contains($0.pathExtension.lowercased()) }
+            .filter {
+                Self.audioExtensions.contains($0.pathExtension.lowercased())
+                    && !PlaylistManager.isAuxiliaryNarrationArtifact($0)
+            }
             .sorted {
                 $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
                     == .orderedAscending

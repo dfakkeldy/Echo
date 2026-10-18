@@ -66,7 +66,10 @@ struct M4BParser {
             includingPropertiesForKeys: [.isRegularFileKey],
             options: .skipsHiddenFiles
         ) else { return [] }
-        return contents.filter { $0.pathExtension.lowercased() == "m4b" }
+        return contents.filter {
+            $0.pathExtension.lowercased() == "m4b"
+                && !PlaylistManager.isAuxiliaryNarrationArtifact($0)
+        }
     }
 
     private static func book(from url: URL) async -> M4BBook? {

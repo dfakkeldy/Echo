@@ -170,6 +170,7 @@ struct LibraryBookOpenDispatcher {
             if contents.contains(where: {
                 (try? files.kind($0)) == .regularFile
                     && audioExtensions.contains($0.pathExtension.lowercased())
+                    && !PlaylistManager.isAuxiliaryNarrationArtifact($0)
                     && files.isReadable($0)
             }) {
                 return .audioFolder(url)

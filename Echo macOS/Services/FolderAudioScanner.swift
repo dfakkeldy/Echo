@@ -102,7 +102,9 @@ enum FolderAudioScanner {
         )
 
         while let url = enumerator?.nextObject() as? URL {
-            if audioExtensions.contains(url.pathExtension.lowercased()) {
+            if audioExtensions.contains(url.pathExtension.lowercased()),
+                !PlaylistManager.isAuxiliaryNarrationArtifact(url)
+            {
                 results.append(url)
             }
         }

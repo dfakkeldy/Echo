@@ -36,6 +36,7 @@ enum LibraryScanner {
         var audioByFolder: [URL: [URL]] = [:]
         while let url = enumerator?.nextObject() as? URL {
             guard audioExtensions.contains(url.pathExtension.lowercased()) else { continue }
+            guard !PlaylistManager.isAuxiliaryNarrationArtifact(url) else { continue }
             let folder = url.deletingLastPathComponent().standardizedFileURL
             audioByFolder[folder, default: []].append(url)
         }
@@ -144,7 +145,10 @@ extension LibraryScanner {
             )) ?? []
         return
             files
-            .filter { audioExtensions.contains($0.pathExtension.lowercased()) }
+            .filter {
+                audioExtensions.contains($0.pathExtension.lowercased())
+                    && !PlaylistManager.isAuxiliaryNarrationArtifact($0)
+            }
             .sorted { $0.path < $1.path }
             .first
     }
