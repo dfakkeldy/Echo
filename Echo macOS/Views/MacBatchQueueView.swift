@@ -34,16 +34,22 @@ struct MacBatchQueueView: View {
                     List(service.items) { item in
                         MacBatchQueueRow(
                             item: item,
+                            // Only the row the runner is actually working gets
+                            // the live phase; every other row renders from its
+                            // persisted snapshot.
+                            activity: service.activity?.itemID == item.id
+                                ? service.activity : nil,
                             onOpen: (item.kind == .narrate
-                                && (item.status == .completed || item.status == .failed)
+                                && item.status.isFinished
                                 && service.hasRenderedTracks(for: item.audiobookID))
                                 ? {
                                     player.loadNarratedBook(audiobookID: item.audiobookID)
                                     dismiss()
                                 }
                                 : nil,
-                            // Only a not-yet-started item can be pulled from the queue.
-                            onRemove: item.status == .queued ? { service.removeQueued(item) } : nil)
+                            // Every item is removable, whatever its status. Removing
+                            // the one being processed cancels the render too.
+                            onRemove: { service.remove(item) })
                     }
                 }
             }
@@ -54,14 +60,17 @@ struct MacBatchQueueView: View {
     }
 
     /// Inline header bar standing in for the absent sheet titlebar: title,
-    /// "Clear Completed", and a cancel-role "Done" (also fired by Escape).
+    /// "Clear Finished", and a cancel-role "Done" (also fired by Escape).
     private var header: some View {
         HStack {
             Text("Batch Queue")
                 .font(.headline)
             Spacer()
-            Button("Clear Completed") { service.clearCompleted() }
-                .disabled(!service.items.contains { $0.status == .completed })
+            // Clears failed rows as well as completed ones — a failed book used to
+            // have no way out of the queue at all.
+            Button("Clear Finished") { service.clearFinished() }
+                .disabled(!service.items.contains { $0.status.isFinished })
+                .help("Remove every finished and failed book from the queue")
             Button("Done") { dismiss() }
                 .keyboardShortcut(.cancelAction)
         }
@@ -72,9 +81,13 @@ struct MacBatchQueueView: View {
 
 private struct MacBatchQueueRow: View {
     let item: BatchQueueRecord
+    /// The live phase, when this is the row the runner is currently working.
+    /// Carries what the persisted record cannot: whether the current phase has
+    /// a meaningful fraction, and when the book started.
+    var activity: MacBatchProcessingService.Activity? = nil
     /// Non-nil for a completed narrated book: opens it in the player.
     var onOpen: (() -> Void)? = nil
-    /// Non-nil for a queued item: removes it from the queue.
+    /// Removes the item from the queue — offered for every status.
     var onRemove: (() -> Void)? = nil
 
     var body: some View {
@@ -82,13 +95,14 @@ private struct MacBatchQueueRow: View {
             icon
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.displayName).font(.headline)
-                if let msg = item.statusMessage ?? item.errorMessage {
-                    Text(msg).font(.caption).foregroundStyle(.secondary)
+                if let detail {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(item.status == .failed ? .red : .secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                if item.status != .queued && item.status != .completed
-                    && item.status != .failed
-                {
-                    ProgressView(value: item.progress)
+                if item.status.isInFlight {
+                    progressBar
                 }
             }
             if let onOpen {
@@ -99,20 +113,88 @@ private struct MacBatchQueueRow: View {
             if let onRemove {
                 Spacer()
                 Button(role: .destructive, action: onRemove) {
-                    Image(systemName: "minus.circle")
+                    Image(systemName: item.status.isInFlight ? "stop.circle" : "minus.circle")
                 }
                 .buttonStyle(.borderless)
-                .help("Remove from Queue")
+                .help(removeHelp)
+                .accessibilityLabel(removeLabel)
             }
         }
         .padding(.vertical, 4)
         .contextMenu {
             if let onRemove {
                 Button(
-                    "Remove from Queue", systemImage: "minus.circle", role: .destructive,
+                    removeLabel,
+                    systemImage: item.status.isInFlight ? "stop.circle" : "minus.circle",
+                    role: .destructive,
                     action: onRemove)
             }
         }
+    }
+
+    /// The progress readout for an in-flight book.
+    ///
+    /// A determinate bar is only honest while the phase can say how far along
+    /// it is. Transcription can, and it is the long pole; the DTW match, the
+    /// model download, and the timeline rebuild cannot, and a bar frozen at one
+    /// number through those is indistinguishable from a hang. Those phases get
+    /// the indeterminate bar instead, and a live elapsed clock runs beside both
+    /// so there is always something visibly moving.
+    private var progressBar: some View {
+        HStack(spacing: 8) {
+            if let activity, activity.fraction == nil {
+                ProgressView()
+                    .progressViewStyle(.linear)
+                    .frame(maxWidth: .infinity)
+            } else {
+                ProgressView(value: activity?.fraction ?? item.progress)
+                    .frame(maxWidth: .infinity)
+            }
+
+            if let activity {
+                // Re-evaluates once a second purely so the clock ticks; the
+                // work itself pushes updates through `activity`.
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text(activity.elapsedLabel(at: context.date))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityLabel(Text("Time elapsed"))
+            }
+
+            if let fraction = activity?.fraction ?? (item.progress > 0 ? item.progress : nil) {
+                Text("\(Int((fraction * 100).rounded()))%")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 38, alignment: .trailing)
+            }
+        }
+    }
+
+    /// A failed row shows the error. Without this it kept showing the last
+    /// *progress* message (`updateStatus` only overwrites `statusMessage` when a
+    /// new one is passed), so a book that died on a malformed EPUB still read
+    /// "Loading voice models… 3 of 19" and the real reason was never visible.
+    ///
+    /// An in-flight row prefers the live phase message: `statusMessage` is only
+    /// rewritten when the persisted percentage moves, so it can lag a phase
+    /// change by a chunk.
+    private var detail: String? {
+        if item.status == .failed { return item.errorMessage ?? item.statusMessage }
+        if let message = activity?.message, !message.isEmpty { return message }
+        return item.statusMessage ?? item.errorMessage
+    }
+
+    private var removeLabel: String {
+        item.status.isInFlight
+            ? String(localized: "Stop and Remove")
+            : String(localized: "Remove from Queue")
+    }
+
+    private var removeHelp: String {
+        item.status.isInFlight
+            ? String(localized: "Stop processing this book and remove it from the queue")
+            : String(localized: "Remove from Queue")
     }
 
     private var icon: some View {

@@ -70,4 +70,22 @@ struct ChapterServiceNavigationTests {
         #expect(chapters[1].startSeconds == 10)
         #expect(chapters[2].startSeconds == 20)
     }
+
+    @Test func normalizedMetadataTitleRepairsMacRomanMojibake() {
+        let title = "Chapter 0 ‚Äî Why Apple Sweats the Details"
+
+        #expect(
+            ChapterService.normalizedMetadataTitle(title)
+                == "Chapter 0 — Why Apple Sweats the Details")
+    }
+
+    @Test func normalizedMetadataTitleRepairsWindows1252Mojibake() {
+        let title = "Chapter 1 â€” Itâ€™s Organized"
+
+        #expect(ChapterService.normalizedMetadataTitle(title) == "Chapter 1 — It’s Organized")
+    }
+
+    @Test func normalizedMetadataTitleLeavesValidAccentsAlone() {
+        #expect(ChapterService.normalizedMetadataTitle("Café Society") == "Café Society")
+    }
 }

@@ -33,9 +33,9 @@ struct TimelinePlumbingTests {
         #expect(result == "simple-audiobook-id")
     }
 
-    // MARK: - Database schema evolution readiness
+    // MARK: - Baseline timeline schema
 
-    @Test func v4SchemaHasRequiredTimelineColumns() throws {
+    @Test func baselineSchemaHasRequiredTimelineColumns() throws {
         let db = try DatabaseService(inMemory: ())
 
         let columnNames = try db.read { db in
@@ -54,9 +54,9 @@ struct TimelinePlumbingTests {
         #expect(nameSet.contains("source_table"))
     }
 
-    // MARK: - EPUB block schema (V5 — table exists after full migration)
+    // MARK: - Baseline EPUB block schema
 
-    @Test func v5SchemaHasEPUBBlockTable() throws {
+    @Test func baselineSchemaHasEPUBBlockTable() throws {
         let db = try DatabaseService(inMemory: ())
 
         let tables = try db.read { db in

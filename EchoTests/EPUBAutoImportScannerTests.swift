@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import Testing
+
 import Foundation
 import GRDB
+import Testing
+
 @testable import Echo
 
 /// Bundle anchor: Swift Testing suites are structs, so locating the test
@@ -21,14 +23,19 @@ struct EPUBAutoImportScannerTests {
     /// Two chapters matching the fixture EPUB's spine, for chapter-index assignment.
     private var fixtureChapters: [Chapter] {
         [
-            Chapter(index: 0, title: "Chapter One", startSeconds: 0, endSeconds: 1800, isEnabled: true),
-            Chapter(index: 1, title: "Chapter Two", startSeconds: 1800, endSeconds: 3600, isEnabled: true),
+            Chapter(
+                index: 0, title: "Chapter One", startSeconds: 0, endSeconds: 1800, isEnabled: true),
+            Chapter(
+                index: 1, title: "Chapter Two", startSeconds: 1800, endSeconds: 3600,
+                isEnabled: true),
         ]
     }
 
     /// Stages the fixture EPUB (plus empty alignment sidecar) in a unique
     /// audiobook folder backed by an in-memory database.
-    private func makeAudiobookFolder() throws -> (db: DatabaseService, folderURL: URL, epubURL: URL, audiobookID: String) {
+    private func makeAudiobookFolder() throws -> (
+        db: DatabaseService, folderURL: URL, epubURL: URL, audiobookID: String
+    ) {
         let db = try DatabaseService(inMemory: ())
         let folderURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -41,7 +48,8 @@ struct EPUBAutoImportScannerTests {
         )
         let epubURL = folderURL.appendingPathComponent("minimal-book.epub")
         try FileManager.default.copyItem(at: fixtureURL, to: epubURL)
-        try Data("[]".utf8).write(to: folderURL.appendingPathComponent("minimal-book.alignment.json"))
+        try Data("[]".utf8).write(
+            to: folderURL.appendingPathComponent("minimal-book.alignment.json"))
 
         let audiobookID = folderURL.absoluteString
         try db.write { db in
@@ -60,14 +68,18 @@ struct EPUBAutoImportScannerTests {
         let safeID = SafeFileName.fromAudiobookID(audiobookID)
         if let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
             try? FileManager.default.removeItem(
-                at: caches
+                at:
+                    caches
                     .appendingPathComponent("EPUBUnpacked", isDirectory: true)
                     .appendingPathComponent(safeID, isDirectory: true)
             )
         }
-        if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+        if let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first {
             try? FileManager.default.removeItem(
-                at: appSupport
+                at:
+                    appSupport
                     .appendingPathComponent("EPUBAssets", isDirectory: true)
                     .appendingPathComponent(safeID, isDirectory: true)
             )
@@ -108,7 +120,50 @@ struct EPUBAutoImportScannerTests {
         )
 
         #expect(first == true)
-        #expect(second == false, "already-imported guard must report no import so callers skip timeline re-ingestion")
+        #expect(
+            second == false,
+            "already-imported guard must report no import so callers skip timeline re-ingestion")
+    }
+
+    @Test func alreadyImportedDocumentStillIngestsNewAlignmentSidecar() async throws {
+        let (db, folderURL, epubURL, audiobookID) = try makeAudiobookFolder()
+        defer { cleanup(folderURL: folderURL, audiobookID: audiobookID) }
+
+        let first = await EPUBAutoImportScanner.importEPUBFile(
+            epubURL: epubURL,
+            audiobookID: audiobookID,
+            databaseService: db,
+            chapters: fixtureChapters,
+            duration: 3600
+        )
+        #expect(first == true)
+
+        let firstBlockID = try #require(
+            EPubBlockDAO(db: db.writer).visibleBlocks(for: audiobookID).first?.id)
+        let portableSuffix = AlignmentSidecar.portableSuffix(of: firstBlockID)
+        let sidecar = [
+            AlignmentSidecar.Anchor(blockId: portableSuffix, timestamp: 321.25, confidence: 1.0)
+        ]
+        try JSONEncoder().encode(sidecar).write(
+            to: folderURL.appendingPathComponent("minimal-book.alignment.json"))
+
+        let second = await EPUBAutoImportScanner.importEPUBFile(
+            epubURL: epubURL,
+            audiobookID: audiobookID,
+            databaseService: db,
+            chapters: fixtureChapters,
+            duration: 3600
+        )
+
+        #expect(
+            second == false,
+            "existing EPUB blocks should not be re-imported just to consume a sidecar")
+        let anchors = try AlignmentAnchorDAO(db: db.writer).anchors(for: audiobookID)
+        #expect(
+            anchors.contains {
+                $0.epubBlockID == firstBlockID && abs($0.audioTime - 321.25) < 0.001
+            },
+            "already-imported companion documents must still consume a newly available alignment sidecar")
     }
 
     @Test func ingestAfterImportCreatesEPUBLinkedTimelineRows() async throws {
@@ -143,5 +198,51 @@ struct EPUBAutoImportScannerTests {
         for block in blocks {
             #expect(linkedIDs.contains(block.id), "missing timeline row for block \(block.id)")
         }
+    }
+
+    /// The cross-device handoff: a sidecar carrying the content-stable `s<i>-b<j>`
+    /// suffix (as a Mac would write) must re-prefix to the importing device's own
+    /// `audiobookID` and resolve, while a foreign/stale suffix is dropped (no
+    /// orphan anchor). Folder A discovers a real suffix; folder B (a different
+    /// "device", different audiobookID) ingests it.
+    @Test func sidecarSuffixesReprefixAcrossDevicesAndForeignIDsAreDropped() async throws {
+        // Folder A — normal import to learn a real, content-stable block suffix.
+        let (dbA, folderA, epubA, abA) = try makeAudiobookFolder()
+        defer { cleanup(folderURL: folderA, audiobookID: abA) }
+        _ = await EPUBAutoImportScanner.importEPUBFile(
+            epubURL: epubA, audiobookID: abA, databaseService: dbA,
+            chapters: fixtureChapters, duration: 3600)
+        let firstID = try #require(
+            EPubBlockDAO(db: dbA.writer).visibleBlocks(for: abA).first?.id)
+        let suffix = AlignmentSidecar.portableSuffix(of: firstID)
+        #expect(suffix.range(of: "s[0-9]+-b[0-9]+", options: .regularExpression) != nil)
+
+        // Folder B — a different device/audiobookID. Stage a sidecar with the
+        // portable suffix (sentinel time) plus a foreign suffix that must drop.
+        let (dbB, folderB, epubB, abB) = try makeAudiobookFolder()
+        defer { cleanup(folderURL: folderB, audiobookID: abB) }
+        #expect(abA != abB)
+        let sidecar = [
+            AlignmentSidecar.Anchor(blockId: suffix, timestamp: 123.5, confidence: 1.0),
+            AlignmentSidecar.Anchor(blockId: "s999-b999", timestamp: 50.0, confidence: 1.0),
+        ]
+        try JSONEncoder().encode(sidecar).write(
+            to: folderB.appendingPathComponent("minimal-book.alignment.json"))
+
+        let didImport = await EPUBAutoImportScanner.importEPUBFile(
+            epubURL: epubB, audiobookID: abB, databaseService: dbB,
+            chapters: fixtureChapters, duration: 3600)
+        #expect(didImport == true)
+
+        let anchors = try AlignmentAnchorDAO(db: dbB.writer).anchors(for: abB)
+        let expectedLocalID = AlignmentSidecar.localBlockID(suffix, audiobookID: abB)
+        // The valid suffix resolved to THIS device's local block id…
+        #expect(
+            anchors.contains {
+                $0.epubBlockID == expectedLocalID && abs($0.audioTime - 123.5) < 0.001
+            })
+        // …and the foreign suffix produced no orphan anchor.
+        #expect(!anchors.contains { $0.epubBlockID.contains("s999-b999") })
+        #expect(anchors.count == 1)
     }
 }

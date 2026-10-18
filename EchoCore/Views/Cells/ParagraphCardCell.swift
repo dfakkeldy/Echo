@@ -5,11 +5,20 @@ import UIKit
 final class ParagraphCardCell: UICollectionViewCell {
     static let reuseIdentifier = "ParagraphCardCell"
 
-    private let label: UILabel = {
-        let label = UILabel()
-        label.numberOfLines = 0
-        label.translatesAutoresizingMaskIntoConstraints = false
-        return label
+    // Read-only, NON-selectable UITextView: gives TextKit hit-testing for
+    // per-word interaction without installing selection gestures that would
+    // intercept the collection view's block tap / context menu.
+    private let label: UITextView = {
+        let tv = UITextView()
+        tv.isEditable = false
+        tv.isSelectable = false
+        tv.isScrollEnabled = false
+        tv.backgroundColor = .clear
+        tv.textContainerInset = .zero
+        tv.textContainer.lineFragmentPadding = 0
+        tv.adjustsFontForContentSizeCategory = true
+        tv.translatesAutoresizingMaskIntoConstraints = false
+        return tv
     }()
 
     private let activeBar: UIView = {
@@ -30,6 +39,14 @@ final class ParagraphCardCell: UICollectionViewCell {
     }()
 
     private var hasAnchorText = false
+    private struct TextConfiguration {
+        var block: EPubBlockRecord
+        var settings: ReaderSettings
+        var tint: UIColor
+        var isExplicitHighlight: Bool
+        var searchQuery: String?
+        var highlightedWordIndex: Int?
+    }
 
     // Karaoke word-highlight state. Word ranges are computed once at configure
     // time so repeated words don't break a naive substring search; the highlight
@@ -37,7 +54,7 @@ final class ParagraphCardCell: UICollectionViewCell {
     private var wordRanges: [NSRange] = []
     private var baseAttributed: NSMutableAttributedString?
     private var highlightTint: UIColor = .systemBlue
-    private var lastHighlightFont: UIFont = .systemFont(ofSize: 16)
+    private var textConfiguration: TextConfiguration?
 
     var isActiveBlock: Bool = false {
         didSet {
@@ -69,29 +86,69 @@ final class ParagraphCardCell: UICollectionViewCell {
             label.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
             label.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
         ])
+
+        _ = registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) {
+            (cell: ParagraphCardCell, _: UITraitCollection) in
+            cell.rebuildAttributedTextForCurrentTraits()
+            cell.invalidateCollectionLayoutForTraitChange()
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
+    func configureAccessibility(
+        label accessibilityLabel: String,
+        hint accessibilityHint: String,
+        actions: [UIAccessibilityCustomAction]
+    ) {
+        isAccessibilityElement = true
+        self.accessibilityLabel = accessibilityLabel
+        self.accessibilityHint = accessibilityHint
+        accessibilityTraits = [.button]
+        accessibilityCustomActions = actions
+        label.isAccessibilityElement = false
+        activeBar.isAccessibilityElement = false
+        anchorLabel.isAccessibilityElement = false
+    }
+
     func configure(
-        with block: EPubBlockRecord, font: UIFont, tint: UIColor, lineSpacing: CGFloat,
+        with block: EPubBlockRecord, settings: ReaderSettings, tint: UIColor,
         isExplicitHighlight: Bool, searchQuery: String? = nil,
         highlightedWordIndex: Int? = nil
     ) {
-        let plainText = (block.text ?? "")
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
+        textConfiguration = TextConfiguration(
+            block: block,
+            settings: settings,
+            tint: tint,
+            isExplicitHighlight: isExplicitHighlight,
+            searchQuery: searchQuery,
+            highlightedWordIndex: highlightedWordIndex
+        )
+        rebuildAttributedTextForCurrentTraits()
+    }
+
+    private func rebuildAttributedTextForCurrentTraits() {
+        guard let configuration = textConfiguration else { return }
+
+        let block = configuration.block
+        let plainText = Self.normalizedText(for: block)
+        let font = configuration.settings.uiFont(
+            forTextStyle: .body,
+            weight: .regular,
+            compatibleWith: traitCollection)
+        let boldFont = configuration.settings.uiFont(
+            forTextStyle: .body,
+            weight: .bold,
+            compatibleWith: traitCollection)
 
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = lineSpacing
+        paragraphStyle.lineSpacing = configuration.settings.scaledLineSpacing(
+            compatibleWith: traitCollection)
 
-        let hasThemeOrCardColor = block.cardColor != nil || block.chapterThemeColor != nil
         let textColor =
-            hasThemeOrCardColor
-            ? tint.contrastingTextColor
-            : (UITraitCollection.current.userInterfaceStyle == .dark
+            configuration.isExplicitHighlight
+            ? configuration.tint.contrastingTextColor
+            : (traitCollection.userInterfaceStyle == .dark
                 ? UIColor.white : UIColor.label)
         let baseAttributes: [NSAttributedString.Key: Any] = [
             .font: font,
@@ -101,7 +158,7 @@ final class ParagraphCardCell: UICollectionViewCell {
 
         let attributed = NSMutableAttributedString(string: plainText, attributes: baseAttributes)
 
-        if let query = searchQuery, !query.isEmpty {
+        if let query = configuration.searchQuery, !query.isEmpty {
             let lowerText = plainText.lowercased()
             let lowerQuery = query.lowercased()
             var searchRange = lowerText.startIndex..<lowerText.endIndex
@@ -112,9 +169,7 @@ final class ParagraphCardCell: UICollectionViewCell {
                 attributed.addAttribute(
                     .backgroundColor, value: UIColor.systemYellow.withAlphaComponent(0.4),
                     range: nsRange)
-                attributed.addAttribute(
-                    .font, value: UIFont.systemFont(ofSize: font.pointSize, weight: .bold),
-                    range: nsRange)
+                attributed.addAttribute(.font, value: boldFont, range: nsRange)
                 searchRange = range.upperBound..<lowerText.endIndex
             }
         }
@@ -123,18 +178,21 @@ final class ParagraphCardCell: UICollectionViewCell {
         // apply the highlight against this base text instead of mutating it in place.
         wordRanges = Self.wordRanges(in: plainText)
         baseAttributed = attributed
-        highlightTint = tint
-        applyWordHighlight(highlightedWordIndex, baseFont: font)
+        highlightTint = configuration.tint
+        label.font = font
+        renderWordHighlight(configuration.highlightedWordIndex)
 
         if block.cardColor != nil {
-            contentView.backgroundColor = tint
+            contentView.backgroundColor = configuration.tint
         } else if block.chapterThemeColor != nil {
             contentView.backgroundColor =
-                UITraitCollection.current.userInterfaceStyle == .dark
+                traitCollection.userInterfaceStyle == .dark
                 ? UIColor.black.withAlphaComponent(0.2) : UIColor.white.withAlphaComponent(0.4)
         } else {
-            contentView.backgroundColor = tint.withAlphaComponent(0.08)
+            contentView.backgroundColor = configuration.tint.withAlphaComponent(0.08)
         }
+
+        setNeedsLayout()
     }
 
     // Alignment debugging aid: every card shows its timestamp —
@@ -158,19 +216,98 @@ final class ParagraphCardCell: UICollectionViewCell {
     }
 
     /// Applies (or clears) the karaoke highlight without rebuilding base text.
-    func applyWordHighlight(_ wordIndex: Int?, baseFont: UIFont) {
+    func applyWordHighlight(_ wordIndex: Int?) {
+        textConfiguration?.highlightedWordIndex = wordIndex
+        renderWordHighlight(wordIndex)
+    }
+
+    /// Word glyph rect in `contentView` coordinates, used by the collection view
+    /// to keep the spoken word visible inside long paragraph cards.
+    func rectForWord(at wordIndex: Int) -> CGRect? {
+        guard wordIndex >= 0, wordIndex < wordRanges.count else { return nil }
+        label.layoutIfNeeded()
+        label.layoutManager.ensureLayout(for: label.textContainer)
+        let characterRange = wordRanges[wordIndex]
+        let glyphRange = label.layoutManager.glyphRange(
+            forCharacterRange: characterRange,
+            actualCharacterRange: nil
+        )
+        var rect = label.layoutManager.boundingRect(
+            forGlyphRange: glyphRange,
+            in: label.textContainer
+        )
+        rect.origin.x += label.textContainerInset.left
+        rect.origin.y += label.textContainerInset.top
+        return label.convert(rect.insetBy(dx: -4, dy: -4), to: contentView)
+    }
+
+    /// Rendered line rect in `contentView` coordinates for the indexed word.
+    /// This deliberately uses the line fragment rather than the word's glyph
+    /// bounds so the reader can keep the spoken line magnetically centered.
+    func lineRectForWord(at wordIndex: Int) -> CGRect? {
+        guard wordIndex >= 0, wordIndex < wordRanges.count else { return nil }
+        label.layoutIfNeeded()
+        label.layoutManager.ensureLayout(for: label.textContainer)
+        let glyphRange = label.layoutManager.glyphRange(
+            forCharacterRange: wordRanges[wordIndex],
+            actualCharacterRange: nil
+        )
+        guard glyphRange.length > 0 else { return nil }
+        var rect = label.layoutManager.lineFragmentUsedRect(
+            forGlyphAt: glyphRange.location,
+            effectiveRange: nil
+        )
+        rect.origin.x += label.textContainerInset.left
+        rect.origin.y += label.textContainerInset.top
+        return label.convert(rect, to: contentView)
+    }
+
+    /// Maps a point in `contentView` coordinates to the index of the word under
+    /// it (over `wordRanges`), or nil if the point is outside any word glyph.
+    func wordIndex(at point: CGPoint) -> Int? {
+        let local = contentView.convert(point, to: label)
+        guard label.bounds.contains(local) else { return nil }
+        // Character index nearest the touch via the text view's layout manager.
+        // Touching .layoutManager on an iOS 18 TextKit-2 UITextView transparently
+        // falls back to TextKit 1, which is fine for this static read-only view.
+        let charIndex = label.layoutManager.characterIndex(
+            for: local, in: label.textContainer,
+            fractionOfDistanceBetweenInsertionPoints: nil)
+        guard charIndex < (label.attributedText?.length ?? 0) else { return nil }
+        return wordRanges.firstIndex { NSLocationInRange(charIndex, $0) }
+    }
+
+    private static func normalizedText(for block: EPubBlockRecord) -> String {
+        (block.text ?? "")
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
+    private func renderWordHighlight(_ wordIndex: Int?) {
         guard let base = baseAttributed?.mutableCopy() as? NSMutableAttributedString else { return }
         if let wordIndex, wordIndex >= 0, wordIndex < wordRanges.count {
             let range = wordRanges[wordIndex]
+            // Color/background only — NO font-weight change. A weight swap
+            // (regular→semibold) changes glyph metrics and reflows the line on
+            // every word step, which is the jarring "font changes" the user saw.
             base.addAttribute(
                 .backgroundColor,
                 value: highlightTint.withAlphaComponent(0.25), range: range)
-            base.addAttribute(
-                .font,
-                value: UIFont.systemFont(ofSize: baseFont.pointSize, weight: .semibold),
-                range: range)
         }
         label.attributedText = base
-        lastHighlightFont = baseFont
+    }
+
+    private func invalidateCollectionLayoutForTraitChange() {
+        (superview as? UICollectionView)?.collectionViewLayout.invalidateLayout()
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        textConfiguration = nil
+        wordRanges = []
+        baseAttributed = nil
+        label.attributedText = nil
     }
 }

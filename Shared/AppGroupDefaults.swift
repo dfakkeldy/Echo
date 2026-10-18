@@ -4,11 +4,11 @@ import Foundation
 /// Shared app-group UserDefaults accessor for iOS, watchOS, macOS, and Widget targets.
 /// Provides a single source of truth for the suite name and migration logic.
 public enum AppGroupDefaults {
-    public static let suiteName = "group.com.echo.audiobooks"
+    public nonisolated static let suiteName = "group.com.echo.audiobooks"
 
     private static let migrationKey = "didMigrateWidgetDefaultsToAppGroup"
 
-    public static var shared: UserDefaults {
+    public nonisolated static var shared: UserDefaults {
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             #if DEBUG
             assertionFailure("Unable to open app-group UserDefaults suite: \(suiteName)")

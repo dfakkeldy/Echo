@@ -7,4 +7,10 @@ extension Notification.Name {
 
     /// Posted when new timeline items have been ingested (e.g., after EPUB auto-import or manual import).
     static let timelineItemsIngested = Notification.Name("TimelineItemsIngested")
+
+    /// Posted after a study plan is created or its settings/items change.
+    static let studyPlanDidChange = Notification.Name("StudyPlanDidChange")
+
+    /// Posted after the daily study queue or review counts change.
+    static let studyQueueDidChange = Notification.Name("StudyQueueDidChange")
 }

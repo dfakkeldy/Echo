@@ -1,6 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
+#if os(iOS)
+    /// Produces strictly increasing recency tokens for phone-to-watch snapshots.
+    /// The last token is persisted, and wall time is only a lower bound, so a
+    /// clock correction or phone-app relaunch cannot make new snapshots look old.
+    struct WatchStateSequenceGenerator {
+        private static let storageKey = "watchStateSequence"
+
+        private let defaults: UserDefaults
+        private var lastValue: Double
+
+        init(defaults: UserDefaults = AppGroupDefaults.shared) {
+            self.defaults = defaults
+            let stored = (defaults.object(forKey: Self.storageKey) as? NSNumber)?.doubleValue ?? 0
+            lastValue = stored.isFinite && stored > 0 ? stored : 0
+        }
+
+        mutating func next(now: Date = .now) -> Double {
+            let wallTime = now.timeIntervalSinceReferenceDate
+            let nextValue = max(lastValue.nextUp, wallTime.isFinite ? wallTime : 0)
+            lastValue = nextValue
+            defaults.set(nextValue, forKey: Self.storageKey)
+            return nextValue
+        }
+    }
+#endif
+
 // MARK: - Watch State Snapshot
 
 /// A value-type snapshot of all state needed to build the watch context dictionary.
@@ -8,6 +34,15 @@ import Foundation
 struct WatchStateSnapshot {
     // MARK: Playback state
     var isPlaying: Bool = false
+    /// Persisted, strictly increasing recency token. WatchConnectivity gives no
+    /// ordering between live messages, durable application context, and replies;
+    /// the watch uses this token to reject stale or duplicate snapshots wholesale.
+    var contextSeq: Double = 0
+    /// Stable while the displayed artwork is unchanged. Generated from the same
+    /// persisted monotonic clock as `contextSeq`, but only advances when artwork
+    /// changes or clears so delayed thumbnail transfers remain valid across
+    /// unrelated playback-state updates.
+    var artworkSeq: Double = 0
     var progressFraction: Double = 0
     var currentPlaybackTime: TimeInterval = 0
     var currentIndex: Int = 0
@@ -29,7 +64,8 @@ struct WatchStateSnapshot {
     // MARK: Settings values (pre-resolved from SettingsManager)
     var crownAction: String = SettingsManager.Defaults.crownAction
     var isHapticFeedbackEnabled: Bool = SettingsManager.Defaults.isHapticFeedbackEnabled
-    var watchQuickBookmarkTimeoutSeconds: Int = SettingsManager.Defaults.watchQuickBookmarkTimeoutSeconds
+    var watchQuickBookmarkTimeoutSeconds: Int = SettingsManager.Defaults
+        .watchQuickBookmarkTimeoutSeconds
     var seekBackwardDuration: Int = SettingsManager.Defaults.seekBackwardDuration
     var seekForwardDuration: Int = SettingsManager.Defaults.seekForwardDuration
     var loopModeRawValue: String = LoopMode.off.rawValue
@@ -50,9 +86,22 @@ struct WatchStateSnapshot {
     var watchDateEnabled: Bool = SettingsManager.Defaults.watchDateEnabled
     var watchDateFormat: String = SettingsManager.Defaults.watchDateFormat
 
+    // MARK: Whole-book boundaries + crown volume
+    /// Interior chapter/track boundaries as fractions of the whole-book
+    /// duration, for the watch's segmented progress indicators.
+    var bookBoundaryFractions: [Double] = []
+    /// Current app-level output gain in dB (the value crown volume adjusts).
+    var outputGainDB: Double = 0
+    var crownVolumeSensitivity: Double = SettingsManager.Defaults.crownVolumeSensitivity
+
     // MARK: Thumbnail availability
     var hasThumbnail: Bool = false
     var artworkAccentColorHex: String?
+    /// Ends of the cover's background ramp, dark recipe. Two short strings, so
+    /// the Watch can paint the book's room even when the artwork itself never
+    /// made the trip.
+    var coverRampTopHex: String?
+    var coverRampBottomHex: String?
 
     // MARK: Sleep timer state
     var sleepTimerMode: SleepTimerMode = .off
@@ -75,6 +124,8 @@ enum WatchStateContextBuilder {
 
         // Playback state
         context["isPlaying"] = s.isPlaying
+        context["stateSeq"] = s.contextSeq
+        context["artworkSeq"] = s.artworkSeq
         context["progressFraction"] = s.progressFraction
         context["currentTime"] = s.currentPlaybackTime
         context["bookmarkStorageKey"] = s.bookmarkStorageKey ?? ""
@@ -87,23 +138,26 @@ enum WatchStateContextBuilder {
         }
 
         // Title
-        let title: String = if s.chapterCount >= 2 {
-            s.currentSubtitle.isEmpty
-                ? String(localized: "Ch \((s.currentChapterIndex ?? 0) + 1)")
-                : s.currentSubtitle
-        } else {
-            s.currentTitle
-        }
+        let title: String =
+            if s.chapterCount >= 2 {
+                s.currentSubtitle.isEmpty
+                    ? String(localized: "Ch \((s.currentChapterIndex ?? 0) + 1)")
+                    : s.currentSubtitle
+            } else {
+                s.currentTitle
+            }
         context["title"] = title
 
         // Total progress
         if let duration = s.durationSeconds, duration.isFinite, duration > 0 {
-            let totalElapsed = s.currentPlaybackTime
-            context["totalProgressFraction"] = min(1, max(0, totalElapsed / duration))
+            let bookElapsed = s.currentPlaybackTime
+            let bookDuration = duration
+            context["totalProgressFraction"] = min(1, max(0, bookElapsed / bookDuration))
             context["totalBookDuration"] = duration
         } else {
             let totalCount = Double(s.trackCount)
-            context["totalProgressFraction"] = totalCount > 0
+            context["totalProgressFraction"] =
+                totalCount > 0
                 ? (Double(s.currentIndex) + s.progressFraction) / totalCount : 0.0
         }
 
@@ -131,9 +185,23 @@ enum WatchStateContextBuilder {
         context["watchDateEnabled"] = s.watchDateEnabled
         context["watchDateFormat"] = s.watchDateFormat
         context["hasThumbnail"] = s.hasThumbnail
-        if let hex = s.artworkAccentColorHex {
-            context["artworkAccentColorHex"] = hex
-        }
+        // An empty value is an explicit clear. Omitting this key would leave a
+        // same-track bookmark's old color cached when the new artwork is neutral.
+        context["artworkAccentColorHex"] = s.artworkAccentColorHex ?? ""
+        context["coverRampTopHex"] = s.coverRampTopHex ?? ""
+        context["coverRampBottomHex"] = s.coverRampBottomHex ?? ""
+
+        // Whole-book boundaries for segmented progress indicators. Always
+        // present so a book change clears stale segments on the watch; capped
+        // because boundaries beyond the render limit are dead payload in every
+        // message.
+        context["bookBoundaryFractions"] = BookProgressSegmentMetrics.transportBoundaries(
+            s.bookBoundaryFractions)
+
+        // Crown volume: current gain plus the sensitivity the watch needs to
+        // mirror the iPhone's delta math for its optimistic indicator.
+        context["outputGainDB"] = s.outputGainDB
+        context["crownVolumeSensitivity"] = s.crownVolumeSensitivity
 
         // Sleep timer
         switch s.sleepTimerMode {
@@ -152,15 +220,15 @@ enum WatchStateContextBuilder {
         // Word cloud (top 10)
         let cloud = s.wordCloud.prefix(10)
         if !cloud.isEmpty, let jsonData = try? JSONEncoder().encode(Array(cloud)),
-           let jsonString = String(data: jsonData, encoding: .utf8) {
+            let jsonString = String(data: jsonData, encoding: .utf8)
+        {
             context["wordCloudJSON"] = jsonString
             context["wordCloudChapterIndex"] = s.currentChapterIndex ?? 0
         }
 
-        // Due flashcards
-        if !s.dueFlashcards.isEmpty,
-           let data = try? JSONEncoder().encode(s.dueFlashcards),
-           let json = String(data: data, encoding: .utf8) {
+        // Due flashcards. Always include this key so the watch can distinguish
+        // "queue is empty" from "this context came from an older phone build."
+        if let json = WatchReviewQueueStore.encode(s.dueFlashcards) {
             context["dueCardsJSON"] = json
         }
 

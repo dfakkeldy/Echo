@@ -5,8 +5,8 @@ import Testing
 @testable import Echo
 
 @MainActor
-@Suite struct SchemaV17Tests {
-    @Test func v17AddsNarrationVoiceColumnToTrack() throws {
+@Suite struct NarrationTrackSchemaBaselineTests {
+    @Test func baselineIncludesNarrationVoiceColumnOnTrack() throws {
         let db = try DatabaseService(inMemory: ())
         let names = Set(
             try db.read { db in
@@ -17,7 +17,7 @@ import Testing
         #expect(names.contains("narration_voice"))
     }
 
-    @Test func v17NarrationVoiceIsNullable() throws {
+    @Test func narrationVoiceIsNullable() throws {
         let db = try DatabaseService(inMemory: ())
         try db.write { db in
             try db.execute(

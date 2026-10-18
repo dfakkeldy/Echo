@@ -1,33 +1,58 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
-/// The player-scoped overflow menu, hosted in the Now Playing utility dock
-/// (BottomToolbarView). Distinct from the app-level ellipsis menu in
-/// `UnifiedTopHeader` (Stats / Fidget / Settings / Help): this one carries
-/// *playback-context* actions — Chapters, Bookmarks, Sleep timer, Settings.
-/// It uses a filled `ellipsis.circle.fill` glyph inside the dock's utility chip
-/// to read as a clearly different overflow affordance than the global header's
-/// bare `ellipsis`.
+enum PlayerMoreMenuState {
+    static func timerAccessibilityValue(
+        showsReaderSleepTimer: Bool,
+        mode: SleepTimerMode,
+        remainingSeconds: Int
+    ) -> String? {
+        guard showsReaderSleepTimer, mode.isActive else { return nil }
+        return SleepTimerPillState.accessibilityValue(
+            mode: mode,
+            remainingSeconds: remainingSeconds
+        )
+    }
+}
+
+/// The single overflow menu, hosted in the root-owned utility dock
+/// (`BottomToolbarView`). It carries playback-context actions and app-level
+/// actions that used to live in `UnifiedTopHeader`, keeping one predictable
+/// "More" surface for the player UI.
 ///
 /// Sheet ownership note: this view raises sheets/tab-switches purely through
 /// injected closures so the actual `.sheet` bindings live on the parent
-/// (`NowPlayingTab`), never here — avoiding competing `.sheet(isPresented:)` bindings.
+/// (`RootTabView`), never here — avoiding competing `.sheet(isPresented:)` bindings.
 struct PlayerMoreMenu: View {
     @Environment(PlayerModel.self) private var model
 
     /// Present the chapter-navigation picker (parent owns the sheet binding).
     var onShowChapters: () -> Void
-    /// Reveal the bookmarks list (parent switches to the Study/Timeline tab).
+    /// Reveal the bookmarks list (parent switches tab).
     var onShowBookmarks: () -> Void
-    /// Raise the unified Settings sheet (parent owns the binding).
-    var onShowSettings: () -> Void
-
-    /// Active state mirrors the dock's other chips: filled when a sleep timer
-    /// is armed, so the overflow chip carries a subtle "something is on" signal.
-    private var isActive: Bool { model.sleepTimerMode.isActive }
+    // App-level actions relocated from the deleted UnifiedTopHeader ellipsis
+    // menu (2026-07-05 chrome consolidation): one overflow menu for the app.
+    var onStats: () -> Void
+    var onFidget: () -> Void
+    var onSettings: () -> Void
+    var onHelp: () -> Void
+    /// `nil` when no book is loaded or narration is rendering (item hidden).
+    var onAddDocument: (() -> Void)?
+    var onExport: (() -> Void)?
+    var onVideoExport: (() -> Void)?
+    var onStudyNotesExport: (() -> Void)?
+    var onOpenBookOrFolder: (() -> Void)? = nil
+    var showsReaderSleepTimer = false
+    /// Experimental player only: enter edit-button mode. `nil` outside the player.
+    var onEditLayout: (() -> Void)? = nil
 
     var body: some View {
         Menu {
+            if let onEditLayout {
+                Button("Edit Buttons…", systemImage: "slider.horizontal.3", action: onEditLayout)
+                Divider()
+            }
+            // Playback context
             Button(action: onShowChapters) {
                 Label("Chapters", systemImage: "list.bullet.indent")
             }
@@ -40,76 +65,103 @@ struct PlayerMoreMenu: View {
 
             Divider()
 
-            Menu {
-                Button {
-                    model.setSleepTimer(.minutes(15))
-                    Haptic.play(.light)
+            // Current book
+            if let onAddDocument {
+                Button(action: onAddDocument) {
+                    Label(
+                        model.hasEPUB || model.hasPDF
+                            ? "Replace Document…" : "Add Document…",
+                        systemImage: "book.pages"
+                    )
+                }
+            }
+            if let onOpenBookOrFolder {
+                Button(action: onOpenBookOrFolder) {
+                    Label("Open Book or Folder…", systemImage: "folder")
+                }
+            }
+            if showsReaderSleepTimer {
+                Menu {
+                    SleepTimerMenuContent(showsActiveStatus: true)
                 } label: {
-                    Label("15 Minutes", systemImage: "15.circle")
+                    Label(
+                        "Sleep Timer",
+                        systemImage: model.sleepTimerMode.isActive ? "moon.zzz.fill" : "moon.zzz"
+                    )
                 }
-                Button {
-                    model.setSleepTimer(.minutes(30))
-                    Haptic.play(.light)
-                } label: {
-                    Label("30 Minutes", systemImage: "30.circle")
+            }
+            if let onExport {
+                Button(action: onExport) {
+                    Label("Export Audiobook (.m4b)…", systemImage: "square.and.arrow.up")
                 }
-                Button {
-                    model.setSleepTimer(.minutes(45))
-                    Haptic.play(.light)
-                } label: {
-                    Label("45 Minutes", systemImage: "45.circle")
+            }
+            if let onVideoExport {
+                Button(action: onVideoExport) {
+                    Label(.videoExportMenuTitle, systemImage: "film")
                 }
-                Button {
-                    model.setSleepTimer(.minutes(60))
-                    Haptic.play(.light)
-                } label: {
-                    Label("1 Hour", systemImage: "1.circle")
+            }
+            if let onStudyNotesExport {
+                Button(action: onStudyNotesExport) {
+                    Label("Export Study Notes…", systemImage: "doc.text")
                 }
-                Divider()
-                Button {
-                    model.setSleepTimer(.endOfChapter)
-                    Haptic.play(.light)
-                } label: {
-                    Label("End of Chapter", systemImage: "book.closed")
-                }
-                if model.sleepTimerMode.isActive {
-                    Divider()
-                    Button(role: .destructive) {
-                        model.cancelSleepTimer()
-                        Haptic.play(.light)
-                    } label: {
-                        Label("Off", systemImage: "xmark.circle")
-                    }
-                }
-            } label: {
-                Label("Sleep Timer", systemImage: "moon.zzz")
             }
 
             Divider()
 
-            Button(action: onShowSettings) {
+            // App level
+            Button(action: onStats) {
+                Label("Stats", systemImage: "chart.bar.fill")
+            }
+            Button(action: onFidget) {
+                Label("Fidget", systemImage: "circle.hexagongrid.fill")
+            }
+            .disabled(model.tracks.isEmpty)
+            Button(action: onSettings) {
                 Label("Settings", systemImage: "gearshape")
+            }
+            Button(action: onHelp) {
+                Label("Help", systemImage: "questionmark.circle")
             }
         } label: {
             chip
         }
-        .accessibilityLabel(Text("More playback options"))
     }
 
-    /// The dock utility chip — a filled `ellipsis.circle.fill` to read as a
-    /// clearly different overflow affordance than the global header's bare `ellipsis`.
+    @ViewBuilder
     private var chip: some View {
-        Image(systemName: "ellipsis.circle.fill")
-            .font(.title2)
-            .frame(width: 44, height: 44)
-            .background(
-                isActive ? AnyShapeStyle(model.coverTheme.chip) : AnyShapeStyle(.clear),
-                in: Circle()
-            )
-            .contentShape(Rectangle())
-            .foregroundStyle(
-                isActive
-                    ? AnyShapeStyle(model.artworkAccentColor ?? .accentColor)
-                    : AnyShapeStyle(.secondary))
+        if let timerValue = timerAccessibilityValue {
+            chipContent
+                .accessibilityLabel(Text("More options"))
+                .accessibilityValue(Text(timerValue))
+        } else {
+            chipContent
+                .accessibilityLabel(Text("More options"))
+        }
+    }
+
+    private var chipContent: some View {
+        ZStack(alignment: .topTrailing) {
+            Image(systemName: "ellipsis.circle.fill")
+                .font(.title2)
+            if timerAccessibilityValue != nil {
+                Image(systemName: "moon.fill")
+                    .font(.system(size: 8, weight: .bold))
+                    .padding(3)
+                    .background(model.coverTheme.chip, in: Circle())
+                    .offset(x: 2, y: -2)
+                    .accessibilityHidden(true)
+            }
+        }
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
+        .foregroundStyle(model.resolvedThemeTint ?? .accentColor)
+    }
+
+    private var timerAccessibilityValue: String? {
+        PlayerMoreMenuState.timerAccessibilityValue(
+            showsReaderSleepTimer: showsReaderSleepTimer,
+            mode: model.sleepTimerMode,
+            remainingSeconds: model.sleepTimerRemainingSeconds
+        )
     }
 }

@@ -12,7 +12,7 @@ import Foundation
 /// definition makes the non-whitespace token sequence invariant under any
 /// whitespace normalization, so collapsed (`collapsedWhitespace()`,
 /// `CharacterSet.newlines`) and raw callers produce identical word indices.
-enum WordTokenizer {
+nonisolated enum WordTokenizer {
     /// Character ranges of each whitespace-delimited word, in reading order.
     static func wordRanges(in text: String) -> [Range<String.Index>] {
         var ranges: [Range<String.Index>] = []

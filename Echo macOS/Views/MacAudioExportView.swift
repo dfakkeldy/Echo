@@ -8,6 +8,10 @@ struct MacAudioExportView: View {
     let audiobookID: String
     let bookTitle: String
     let databaseWriter: DatabaseWriter
+    /// Injected, not read from `@Environment` — see `MacArticleWorkshopView`:
+    /// sheet content does not see the `.environment(...)` writes applied to the
+    /// window root, so an environment read here trapped on open.
+    let settings: SettingsManager
 
     @Environment(\.dismiss) private var dismiss
     @State private var isExporting = false
@@ -52,6 +56,9 @@ struct MacAudioExportView: View {
     /// Resolves the source, items, and metadata up front, then either exports
     /// silently (complete metadata) or shows the confirm sheet first.
     private func startExport() {
+        let preferredVoice =
+            settings.narrationVoiceID.isEmpty
+            ? VoiceCatalog.default.id : VoiceID(settings.narrationVoiceID)
         errorText = nil
         isExporting = true
         Task {
@@ -60,7 +67,8 @@ struct MacAudioExportView: View {
                 let source = ExportSourceResolver.resolve(
                     audiobookID: audiobookID,
                     databaseWriter: databaseWriter,
-                    cacheDirectory: NarrationCache.directory())
+                    cacheDirectory: NarrationCache.directory(),
+                    preferredVoice: preferredVoice)
                 let items = try await source.items()
                 let meta = await ExportMetadataResolver.resolve(
                     audiobookID: audiobookID, fallbackTitle: bookTitle,

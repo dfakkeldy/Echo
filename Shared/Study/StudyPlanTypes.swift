@@ -1,0 +1,150 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+import Foundation
+
+enum StudyPlanCadenceUnit: String, Codable, Sendable, CaseIterable {
+    case day
+    case week
+}
+
+enum StudyPlanQueueMode: String, Codable, Sendable, CaseIterable {
+    case bookByBook = "book_by_book"
+    case mixed
+
+    var title: String {
+        switch self {
+        case .bookByBook: "Book by Book"
+        case .mixed: "Mixed"
+        }
+    }
+}
+
+enum StudyPlanCatchUpPolicy: String, Codable, Sendable, CaseIterable {
+    case gentle
+    case strict
+}
+
+enum StudyPlanChapterPacing: String, Codable, Sendable, CaseIterable {
+    case cardDrain = "card_drain"
+    case cadence
+
+    var title: String {
+        switch self {
+        case .cardDrain: "After each chapter's cards"
+        case .cadence: "On a schedule"
+        }
+    }
+}
+
+enum StudyPlanItemKind: String, Codable, Sendable, CaseIterable {
+    case chapter
+    case image
+    case card
+}
+
+enum StudyFlashcardType {
+    nonisolated static let normal = "normal"
+    nonisolated static let listeningAssignment = "listening_assignment"
+    nonisolated static let imageAssignment = "image_assignment"
+    nonisolated static let vocabulary = "vocabulary"
+    nonisolated static let cloze = "cloze"
+}
+
+enum StudyAssignmentGradePolicy {
+    static func choices(for cardType: String?) -> [ReviewGrade] {
+        cardType == StudyFlashcardType.listeningAssignment
+            ? [.again, .good]
+            : ReviewGrade.allCases
+    }
+}
+
+struct StudyCardMedia: Codable, Equatable, Sendable {
+    let imagePath: String?
+    let retirePromptShownAt: String?
+
+    init(imagePath: String?, retirePromptShownAt: String? = nil) {
+        self.imagePath = imagePath
+        self.retirePromptShownAt = retirePromptShownAt
+    }
+
+    /// Decode a `flashcard.media_json` string into its image path, if any.
+    /// Returns nil when the JSON is absent, malformed, or has no image.
+    static func imagePath(fromMediaJSON json: String?) -> String? {
+        guard let json, let data = json.data(using: .utf8),
+            let media = try? JSONDecoder().decode(StudyCardMedia.self, from: data)
+        else { return nil }
+        return media.imagePath
+    }
+}
+
+struct StudyPlanCandidate: Identifiable, Equatable, Sendable {
+    let id: String
+    let kind: StudyPlanItemKind
+    let sourceBlockID: String
+    let chapterIndex: Int?
+    let ordinal: Int
+    let title: String
+    let defaultIncluded: Bool
+    let imagePath: String?
+    let mediaTimestamp: TimeInterval
+    let endTimestamp: TimeInterval?
+    let playlistPosition: TimeInterval?
+}
+
+struct StudyPlanPreview: Equatable, Sendable {
+    let audiobookID: String
+    let bookTitle: String
+    let candidates: [StudyPlanCandidate]
+
+    var includedByDefault: [StudyPlanCandidate] {
+        candidates.filter(\.defaultIncluded)
+    }
+}
+
+enum StudyQueueCategory: Int, Codable, Sendable, CaseIterable {
+    case dueReview = 0
+    case inProgressAssignment = 1
+    case newAssignment = 2
+    case newCard = 3
+}
+
+struct StudyQueueEntry: Identifiable, Equatable, Sendable {
+    let id: String
+    let category: StudyQueueCategory
+    let plan: StudyPlan?
+    let item: StudyPlanItem?
+    let flashcard: Flashcard
+
+    static func == (lhs: StudyQueueEntry, rhs: StudyQueueEntry) -> Bool {
+        lhs.id == rhs.id
+            && lhs.category == rhs.category
+            && lhs.plan == rhs.plan
+            && lhs.item == rhs.item
+            && lhs.flashcard.id == rhs.flashcard.id
+    }
+}
+
+struct StudyQueue: Equatable, Sendable {
+    var entries: [StudyQueueEntry]
+
+    static let empty = StudyQueue(entries: [])
+
+    var dueReviewCount: Int {
+        entries.filter { $0.category == .dueReview }.count
+    }
+
+    var inProgressAssignmentCount: Int {
+        entries.filter { $0.category == .inProgressAssignment }.count
+    }
+
+    var newAssignmentCount: Int {
+        entries.filter { $0.category == .newAssignment }.count
+    }
+
+    var newCardCount: Int {
+        entries.filter { $0.category == .newCard }.count
+    }
+
+    var totalCount: Int {
+        entries.count
+    }
+}

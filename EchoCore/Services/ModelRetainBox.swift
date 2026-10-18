@@ -26,11 +26,22 @@ final class ModelRetainBox<Model> {
     private let load: (String) async throws -> Model
     private let unload: (Model) async -> Void
 
-    init(load: @escaping (String) async throws -> Model,
-         unload: @escaping (Model) async -> Void) {
+    init(
+        load: @escaping (String) async throws -> Model,
+        unload: @escaping (Model) async -> Void
+    ) {
         self.load = load
         self.unload = unload
     }
+
+    // Workaround for a Swift optimizer crash: the EarlyPerfInliner pass (-O,
+    // Release/device archive) crashes generating the *synthesized* deinit of
+    // this generic @MainActor class (it holds async closures + a Task). An
+    // explicit deinit marked @_optimize(none) keeps that pass off it. Behavior
+    // is unchanged — Debug (-Onone) always compiled fine; this only unblocks the
+    // optimized archive build.
+    @_optimize(none)
+    deinit {}
 
     /// The currently loaded model, if any. For inspection/testing.
     var currentModel: Model? { cached }

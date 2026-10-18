@@ -6,7 +6,7 @@ import Foundation
 /// Import, the reader feed, and the TOC sheet must agree on what counts as a
 /// real content heading. These rules previously existed as three divergent
 /// copies, so junk filtered from one surface still appeared on another.
-enum HeadingClassifier {
+nonisolated enum HeadingClassifier {
 
     /// Utility callout boxes ("Tip", "Warning", …) that publishers mark up
     /// with heading tags.

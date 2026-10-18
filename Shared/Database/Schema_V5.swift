@@ -25,15 +25,18 @@ enum Schema_V5 {
             t.column("modified_at", .text)
         }
 
-        try db.create(index: "idx_epub_block_sequence",
-                       on: "epub_block",
-                       columns: ["audiobook_id", "sequence_index"])
-        try db.create(index: "idx_epub_block_chapter",
-                       on: "epub_block",
-                       columns: ["audiobook_id", "chapter_index"])
-        try db.create(index: "idx_epub_block_hidden",
-                       on: "epub_block",
-                       columns: ["audiobook_id", "is_hidden"])
+        try db.create(
+            index: "idx_epub_block_sequence",
+            on: "epub_block",
+            columns: ["audiobook_id", "sequence_index"])
+        try db.create(
+            index: "idx_epub_block_chapter",
+            on: "epub_block",
+            columns: ["audiobook_id", "chapter_index"])
+        try db.create(
+            index: "idx_epub_block_hidden",
+            on: "epub_block",
+            columns: ["audiobook_id", "is_hidden"])
 
         // ── Manual alignment anchors ──
         try db.create(table: "alignment_anchor") { t in
@@ -51,12 +54,14 @@ enum Schema_V5 {
             t.column("modified_at", .text)
         }
 
-        try db.create(index: "idx_alignment_anchor_time",
-                       on: "alignment_anchor",
-                       columns: ["audiobook_id", "audio_time"])
-        try db.create(index: "idx_alignment_anchor_block",
-                       on: "alignment_anchor",
-                       columns: ["audiobook_id", "epub_block_id"])
+        try db.create(
+            index: "idx_alignment_anchor_time",
+            on: "alignment_anchor",
+            columns: ["audiobook_id", "audio_time"])
+        try db.create(
+            index: "idx_alignment_anchor_block",
+            on: "alignment_anchor",
+            columns: ["audiobook_id", "epub_block_id"])
 
         // ── Extend timeline_item with alignment columns ──
         try db.alter(table: "timeline_item") { t in

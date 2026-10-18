@@ -10,7 +10,7 @@ import Foundation
 /// start/end times (which the alignment pipeline already produces), not any
 /// per-word audio data. `WordTimingRefiner` (Task A4) optionally overrides
 /// individual word times with DTW-derived audio timestamps.
-enum WordTimingInterpolator {
+nonisolated enum WordTimingInterpolator {
     struct Word: Equatable {
         let index: Int
         let word: String

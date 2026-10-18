@@ -24,14 +24,18 @@ struct FlashcardReviewSession: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 8)
 
-                    ProgressView(value: Double(viewModel.progress.current), total: Double(viewModel.progress.total))
-                        .padding(.horizontal, 20)
+                    ProgressView(
+                        value: Double(viewModel.progress.current),
+                        total: Double(viewModel.progress.total)
+                    )
+                    .padding(.horizontal, 20)
 
                     Spacer()
 
                     FlashcardReviewCard(
                         frontText: card.frontText,
                         backText: card.backText,
+                        imagePath: StudyCardMedia.imagePath(fromMediaJSON: card.mediaJSON),
                         onGrade: { grade in
                             viewModel.gradeCard(grade)
                         }

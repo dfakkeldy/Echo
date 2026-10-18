@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "framing": {
+    "fileDigest": "sha256-raw-32-bytes",
+    "pathEncoding": "utf-8",
+    "pathLength": "uint64-big-endian",
+    "sort": "normalized-posix-relative-path"
+  },
+  "cases": [
+    {
+      "name": "empty",
+      "files": [],
+      "expected": {
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "regularFileCount": 0
+      }
+    },
+    {
+      "name": "nested",
+      "files": [
+        {
+          "path": "voices/en/voice.bin",
+          "contentHex": "000102ff"
+        }
+      ],
+      "expected": {
+        "sha256": "cd81727b18638cdde672c3dc5bb0526179f9a82db8ce07d19842aa4d6d364622",
+        "regularFileCount": 1
+      }
+    },
+    {
+      "name": "unicode",
+      "files": [
+        {
+          "path": "café/雪.txt",
+          "contentHex": "4772c3bcc39f652c20e4b896e7958c0a"
+        }
+      ],
+      "expected": {
+        "sha256": "8ad38787765469b35abf116d7c1bb8c827eda214a1b30a0ac78d9a93947b196f",
+        "regularFileCount": 1
+      }
+    },
+    {
+      "name": "path-order",
+      "files": [
+        {
+          "path": "zeta.txt",
+          "contentHex": "7a"
+        },
+        {
+          "path": "a/last.txt",
+          "contentHex": "6c617374"
+        },
+        {
+          "path": "a/first.txt",
+          "contentHex": "6669727374"
+        }
+      ],
+      "expected": {
+        "sha256": "3b959cc61d5123462effec9b4d7c5cd44231a02504cf999ca11f9a1ae83404f2",
+        "regularFileCount": 3
+      }
+    }
+  ]
+}

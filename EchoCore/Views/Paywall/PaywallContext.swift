@@ -14,7 +14,7 @@ enum PaywallContext {
         case .flashcardCap:
             "You've filled your 20 free cards — Echo Pro makes them unlimited."
         case .narrationCap:
-            "Free narration covers one chapter per book. Echo Pro unlocks the whole library."
+            "Free narration covers one chapter per book. Echo Pro adds expanded narration beta access while audio QA continues on real devices."
         case .transcripts:
             "Transcript overlays are part of Echo Pro."
         case .insights:

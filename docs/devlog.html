@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Building Echo — The Devlog</title>
+    <!-- TODO(Dan): AI disclosure. Same claim as the devlog hero line; update it to match your rewrite. -->
     <meta name="description" content="How Echo was built: week-by-week summaries of 956 commits in nine weeks, by a mail carrier with no prior Swift experience. Open source, fully auditable.">
     <meta property="og:title" content="Building Echo — The Devlog">
     <meta property="og:description" content="From 'I wonder if I could make an iOS app' to a four-platform audiobook study system — with on-device AI narration — in nine weeks. The week-by-week story, from the real git history.">
@@ -38,6 +39,7 @@
         <div class="page-hero">
             <p class="section-label">Build in Public</p>
             <h1>Building Echo — The Devlog</h1>
+            <!-- TODO(Dan): AI disclosure. This line should also say the work was done by directing AI coding agents (the commit Co-Authored-By trailers show it). Rewrite it in your own words; the PR that added this marker lists supporting facts. -->
             <p>
                 Echo went from "I wonder if I could make an iOS app" to a four-platform audiobook study system in
                 about nine weeks. This is the week-by-week story, reconstructed from the actual git history —
@@ -51,6 +53,30 @@
         </div>
 
         <div class="devlog-timeline">
+            <!-- AUTO-DEVLOG:START -->
+            <article class="week-entry automated-devlog">
+                <p class="week-meta">Automated · Aug 17-23, 2026 · 8 commits</p>
+                <h2>Weekly build digest</h2>
+                <h3>Shipped</h3>
+                <ul>
+                    <li>Distribute weekly mac builds externally <a href="https://github.com/dfakkeldy/Echo/commit/c8024c7" target="_blank" rel="noopener noreferrer">c8024c7</a></li>
+                </ul>
+                <h3>Fixed</h3>
+                <ul>
+                    <li>Retag sentence-initial imperative heteronyms as verbs (#588) <a href="https://github.com/dfakkeldy/Echo/commit/516a9f3" target="_blank" rel="noopener noreferrer">516a9f3</a></li>
+                    <li>Keep complication playback current (#587) <a href="https://github.com/dfakkeldy/Echo/commit/a8d6d84" target="_blank" rel="noopener noreferrer">a8d6d84</a></li>
+                    <li>Stop audio engine when playback pauses (#586) <a href="https://github.com/dfakkeldy/Echo/commit/69b0b37" target="_blank" rel="noopener noreferrer">69b0b37</a></li>
+                    <li>Reclaim compact top chrome (#585) <a href="https://github.com/dfakkeldy/Echo/commit/7959ef9" target="_blank" rel="noopener noreferrer">7959ef9</a></li>
+                    <li>Add document type handler ranks (#584) <a href="https://github.com/dfakkeldy/Echo/commit/22e7497" target="_blank" rel="noopener noreferrer">22e7497</a></li>
+                </ul>
+                <h3>Build, docs, and housekeeping</h3>
+                <ul>
+                    <li>Run doc contracts without Xcode and skip the build gate for docs-only PRs (#583) <a href="https://github.com/dfakkeldy/Echo/commit/9106a2c" target="_blank" rel="noopener noreferrer">9106a2c</a></li>
+                    <li>Weekly automated update (#582) <a href="https://github.com/dfakkeldy/Echo/commit/a21b1f4" target="_blank" rel="noopener noreferrer">a21b1f4</a></li>
+                </ul>
+            </article>
+            <!-- AUTO-DEVLOG:END -->
+
             <article class="week-entry">
                 <p class="week-meta">Now · June 2026 · in progress</p>
                 <h2>The road to 1.0</h2>
@@ -60,7 +86,7 @@
             <article class="week-entry">
                 <p class="week-meta">June 14 · positioning</p>
                 <h2>A realization: it's a player first</h2>
-                <p>Writing the 1.0 marketing made something obvious that the feature list had been hiding: most of Echo is useful even if you never make a single flashcard. The sleep timer, CarPlay, the Apple Watch remote, soundscapes, pitch-corrected speed, chapter and bookmark looping, your own DRM-free library — that's a complete, private audiobook player on its own. The study system is the <em>reason</em> Echo exists, but it shouldn't be the toll booth you have to pass to enjoy the thing. So the sites now say it plainly: <em>just here to listen? Echo's got you.</em> Same app, wider door.</p>
+                <p>Writing the 1.0 marketing made something obvious that the feature list had been hiding: most of Echo is useful even if you never make a single flashcard. The sleep timer, Apple Watch remote, soundscapes, pitch-corrected speed, chapter and bookmark looping, your own DRM-free library — that's a complete, private audiobook player on its own. The study system is the <em>reason</em> Echo exists, but it shouldn't be the toll booth you have to pass to enjoy the thing. So the sites now say it plainly: <em>just here to listen? Echo's got you.</em> Same app, wider door.</p>
             </article>
 
             <article class="week-entry">
@@ -99,7 +125,7 @@
                     <li><strong>The Anki system.</strong> SM-2 daily review, inline flashcard recall during playback, audio snippet cards, JSON deck import, and hands-free <strong>flashcard review on the watch</strong>.</li>
                     <li><strong>The EPUB alignment pipeline</strong> — a Swift CLI that unpacks an EPUB, parses the spine, and fuzzy-aligns transcribed audio to text. The hardest problem in the app, started properly, with tests.</li>
                     <li><strong>V1 EPUB timeline core</strong> — block and anchor tables, an import service, manual anchors with interpolation: the seed of the Read tab.</li>
-                    <li>Plus: tab navigation, multi-file <strong>M4B support</strong>, <strong>CarPlay</strong>, a portable playlist manifest, a unified timeline feed — and this very <strong>website</strong> with the privacy policy.</li>
+                    <li>Plus: tab navigation, multi-file <strong>M4B support</strong>, a CarPlay prototype now deferred for entitlement approval, a portable playlist manifest, a unified timeline feed — and this very <strong>website</strong> with the privacy policy.</li>
                 </ul>
             </article>
 
@@ -137,7 +163,7 @@
         <section class="band" style="max-width: 72ch;">
             <h2 class="section-title">The shape of the thing</h2>
             <p style="color: var(--text-secondary); margin-bottom: 1rem;">
-                Nine working weeks. Four platforms (iOS, watchOS, macOS, widgets — plus CarPlay). A SQL database,
+                Nine working weeks. Four platforms (iOS, watchOS, macOS, widgets). A SQL database,
                 an on-device ML alignment pipeline, an on-device neural text-to-speech narrator, a spaced-repetition
                 system, and an EPUB/PDF reader — built nights-and-weekends around a mail route, by someone whose
                 previous programming experience was "some Python scripts for GIS and a Visual Basic call logger in
@@ -148,7 +174,7 @@
                 you should be able to see exactly what you're trusting with your books and your attention — and maybe,
                 if you've been wondering whether you could build <em>your</em> app, this page is the nudge.
             </p>
-            <p style="color: var(--text-secondary); margin-top: 1rem;"><em>The devlog updates roughly weekly, generated from the real commit history.</em></p>
+            <p style="color: var(--text-secondary); margin-top: 1rem;"><em>Last updated <time datetime="2026-08-24">August 24, 2026</time>.</em></p>
         </section>
     </main>
 

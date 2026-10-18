@@ -11,7 +11,7 @@ extension PlayerModel {
         eventLogger.startPlaybackSessionLogging(
             id: id,
             databaseService: databaseService,
-            folderURL: folderURL,
+            folderURL: bookIdentityURL,
             currentTime: audioEngine.currentTime,
             currentTitle: currentTitle,
             currentSubtitle: currentSubtitle
@@ -35,7 +35,7 @@ extension PlayerModel {
         eventLogger.logRealTimeEvent(
             type: type,
             databaseService: databaseService,
-            folderURL: folderURL,
+            folderURL: bookIdentityURL,
             title: title ?? currentTitle,
             subtitle: subtitle,
             timestamp: timestamp,

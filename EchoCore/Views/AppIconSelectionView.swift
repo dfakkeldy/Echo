@@ -6,6 +6,7 @@ import os.log
     struct AppIconSelectionView: View {
         let icons: [(name: String, id: String?)] = [
             ("Default (Original)", nil),
+            ("Circuit Brain", "AppIcon-CircuitBrain"),
             ("Complex Waves", "AppIcon-ComplexWaves"),
             ("Gold & Silver", "AppIcon-GoldSilver"),
             ("Silver & Gold", "AppIcon-SilverGold"),

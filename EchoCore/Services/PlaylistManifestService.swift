@@ -111,10 +111,16 @@ struct PlaylistManifestService {
         write(manifest, to: folderURL)
     }
 
+    /// `states` is keyed by `Track.id`, the track's absolute URL string, while
+    /// the manifest stores a portable relative `file` name. Rebuild the track
+    /// URL per entry so the two key spaces line up, and still accept a bare
+    /// file name so a manifest-relative caller resolves too.
     static func updateEnabledStates(folderURL: URL, states: [String: Bool]) {
         guard var manifest = read(from: folderURL) else { return }
         for i in manifest.tracks.indices {
-            if let enabled = states[manifest.tracks[i].file] {
+            let file = manifest.tracks[i].file
+            let trackID = folderURL.appending(path: file).absoluteString
+            if let enabled = states[trackID] ?? states[file] {
                 manifest.tracks[i].enabled = enabled
             }
         }

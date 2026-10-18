@@ -18,7 +18,7 @@ struct TranscriptService {
     /// capturing a `@MainActor` type in a detached closure, which would be a formal
     /// Sendable violation under Swift 6 strict concurrency.
     func loadTranscript(for url: URL) async {
-        guard state.isTranscriptProcessingEnabled else { return }
+        guard state.isTranscriptProcessingEnabled, isCurrentTrack(url) else { return }
 
         // 1. Load plain transcript sidecar
         let plainFileName = url.deletingPathExtension().lastPathComponent + ".transcript.json"
@@ -28,6 +28,7 @@ struct TranscriptService {
             let plainData = await Task.detached {
                 try? Data(contentsOf: plainURL)
             }.value
+            guard isCurrentTrack(url) else { return }
 
             if let data = plainData {
                 do {
@@ -54,6 +55,7 @@ struct TranscriptService {
             let enhancedData = await Task.detached {
                 try? Data(contentsOf: enhancedURL)
             }.value
+            guard isCurrentTrack(url) else { return }
 
             if let data = enhancedData {
                 do {
@@ -73,7 +75,14 @@ struct TranscriptService {
             state.enhancedTranscription = []
         }
 
+        guard isCurrentTrack(url) else { return }
         computeWordClouds()
+    }
+
+    private func isCurrentTrack(_ url: URL) -> Bool {
+        !Task.isCancelled
+            && state.tracks.indices.contains(state.currentIndex)
+            && state.tracks[state.currentIndex].url == url
     }
 
     /// Loads the enhanced transcript sidecar (`<audio>.enhanced.json`) if present.

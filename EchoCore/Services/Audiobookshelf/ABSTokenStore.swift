@@ -31,8 +31,26 @@ final class ABSTokenStore {
         }
     }
 
+    /// Pinned self-signed leaf-cert SHA-256 (lowercase hex) for this server, or nil when the server
+    /// uses a CA-trusted cert or plaintext http. Not secret, but stored in this server's Keychain
+    /// namespace so trust survives relaunch without a DB schema migration. Cleared on sign-out.
+    var pinnedCertificateSHA256: String? {
+        get {
+            KeychainStore.data(for: .absPinnedCertificate, service: service)
+                .flatMap { String(data: $0, encoding: .utf8) }
+        }
+        set {
+            if let value = newValue, let data = value.data(using: .utf8) {
+                KeychainStore.set(data, for: .absPinnedCertificate, service: service)
+            } else {
+                KeychainStore.remove(.absPinnedCertificate, service: service)
+            }
+        }
+    }
+
     func clear() {
         accessToken = nil
         KeychainStore.remove(.absRefreshToken, service: service)
+        KeychainStore.remove(.absPinnedCertificate, service: service)
     }
 }

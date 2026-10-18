@@ -9,7 +9,8 @@ import GRDB
 enum Schema_V14 {
     nonisolated static func migrate(_ db: Database) throws {
         // ── Stats: fast time-range scans over listening segments ──
-        try db.create(index: "idx_playback_event_started_at", on: "playback_event", columns: ["started_at"])
+        try db.create(
+            index: "idx_playback_event_started_at", on: "playback_event", columns: ["started_at"])
 
         // ── Context-dependent memory: per-session location (WS5) ──
         try db.create(table: "session_location") { t in
@@ -44,18 +45,20 @@ enum Schema_V14 {
     ///    them targets of the (now removed) push-forward rewrite.
     /// playback_session rows are genuinely durational and stay untouched.
     nonisolated static func backfillEventIntegrity(_ db: Database) throws {
-        try db.execute(sql: """
-            UPDATE real_time_event
-            SET event_type = 'flashcard_reviewed'
-            WHERE event_type = 'flashcardReviewed'
-            """)
-        try db.execute(sql: """
-            UPDATE real_time_event
-            SET ended_at = started_at
-            WHERE ended_at IS NULL
-              AND event_type IN ('bookmark_created', 'flashcard_reviewed',
-                                 'note_created', 'voice_memo_recorded',
-                                 'chapter_transition', 'planned_session_completed')
-            """)
+        try db.execute(
+            sql: """
+                UPDATE real_time_event
+                SET event_type = 'flashcard_reviewed'
+                WHERE event_type = 'flashcardReviewed'
+                """)
+        try db.execute(
+            sql: """
+                UPDATE real_time_event
+                SET ended_at = started_at
+                WHERE ended_at IS NULL
+                  AND event_type IN ('bookmark_created', 'flashcard_reviewed',
+                                     'note_created', 'voice_memo_recorded',
+                                     'chapter_transition', 'planned_session_completed')
+                """)
     }
 }

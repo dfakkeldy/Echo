@@ -1,0 +1,103 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+import Foundation
+import Testing
+
+struct WatchAppDesignerAccessibilityTests {
+    @Test func watchDesignerOffersNonDragSlotPickers() throws {
+        let source = try Self.source(named: "WatchAppSettingsView.swift")
+        #expect(
+            source.contains("WatchSlotPickerGrid("),
+            "Watch App Designer must offer a non-drag picker path for configuring slots."
+        )
+        #expect(
+            source.contains("choices: watchSlotChoices"),
+            "Watch slot pickers must use the shared watch action set."
+        )
+        #expect(
+            source.contains("Choose actions for this page using the menus below."),
+            "Watch App Designer copy must point to the picker menus as the configuration path."
+        )
+        #expect(!source.contains("PaletteItem("))
+        #expect(!source.contains("private struct PaletteItem"))
+        #expect(!source.contains(".onDrag"))
+        #expect(!source.contains(".onDrop"))
+        #expect(!source.contains("import UniformTypeIdentifiers"))
+
+        let pickerSlice = try Self.slice(
+            of: source,
+            after: "private struct WatchSlotPickerGrid",
+            until: "private struct WatchPreviewCanvas"
+        )
+        #expect(
+            pickerSlice.contains("ForEach(0..<5"),
+            "Watch slot pickers must cover all five slots on the selected page."
+        )
+        #expect(
+            pickerSlice.contains("Picker("),
+            "Watch slot controls must use standard Picker controls instead of drag-only interaction."
+        )
+        #expect(
+            pickerSlice.contains("slotBinding(for: slot)"),
+            "Each Watch slot picker must bind directly to the corresponding slot."
+        )
+        #expect(
+            pickerSlice.contains("onChange()"),
+            "Watch slot picker changes must persist and sync through the existing save path."
+        )
+        #expect(
+            source.contains("action.displayName"),
+            "Watch slot labels must use the shared WatchAction display names."
+        )
+    }
+
+    @Test func watchSettingsUsesFormSectionsAndSegmentedProgressControls() throws {
+        let source = try Self.source(named: "WatchAppSettingsView.swift")
+        #expect(source.contains("Form {"))
+        #expect(source.contains("Section(\"Face\")"))
+        #expect(source.contains("Section(\"Progress\")"))
+        #expect(source.contains("Section(\"Controls\")"))
+        #expect(source.contains("Section(\"Layout Designer\")"))
+        #expect(!source.contains("Section(\"Available Actions\")"))
+        #expect(source.contains("Section(\"Presets\")"))
+        #expect(!source.contains("ScrollView {"))
+
+        let progressSlice = try Self.slice(
+            of: source,
+            after: "Section(\"Progress\")",
+            until: "Section(\"Controls\")"
+        )
+        #expect(progressSlice.contains("Picker(\"Circular Ring\""))
+        #expect(progressSlice.contains("Text(\"Book\").tag(\"total\")"))
+        #expect(progressSlice.contains("Text(\"Chapter\").tag(\"chapter\")"))
+        #expect(progressSlice.contains("Picker(\"Linear Bar\""))
+        #expect(progressSlice.contains(".pickerStyle(.segmented)"))
+        #expect(!progressSlice.contains(".pickerStyle(.menu)"))
+    }
+
+    private static func source(named fileName: String) throws -> String {
+        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        while directory.path != "/" {
+            let candidate =
+                directory
+                .deletingLastPathComponent()
+                .appending(path: "EchoCore/Views")
+                .appending(path: fileName)
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return try String(contentsOf: candidate, encoding: .utf8)
+            }
+            directory.deleteLastPathComponent()
+        }
+        throw CocoaError(.fileNoSuchFile)
+    }
+
+    private static func slice(of source: String, after: String, until: String) throws -> String {
+        guard let startRange = source.range(of: after) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        let tail = source[startRange.upperBound...]
+        guard let endRange = tail.range(of: until) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        return String(tail[..<endRange.lowerBound])
+    }
+}

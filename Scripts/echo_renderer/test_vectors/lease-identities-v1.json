@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "canonicalResource": "resolved-absolute-path-utf8",
+  "digest": "sha256",
+  "suffix": ".lock",
+  "cases": [
+    {
+      "resource": "/Users/example/Developer/Echo/.build/cli",
+      "sha256": "bb2117eeba18620ed917b2d06cc78a4014507008e4687d33d2bb3f4b6c968e09",
+      "lockFileName": "bb2117eeba18620ed917b2d06cc78a4014507008e4687d33d2bb3f4b6c968e09.lock"
+    },
+    {
+      "resource": "/Users/example/Developer/Echo/.build/cli/Build/Products/Release/echo-cli",
+      "sha256": "65fff1d75850435832a57851c423c1ce20635f91830bfc0501ece4b2f8a42142",
+      "lockFileName": "65fff1d75850435832a57851c423c1ce20635f91830bfc0501ece4b2f8a42142.lock"
+    },
+    {
+      "resource": "/private/tmp/echo renderer/资源",
+      "sha256": "8bf7c543c0d6c98693f1d3bdc7df17c3e9a3830937e4f3b6d2f126c6864c9220",
+      "lockFileName": "8bf7c543c0d6c98693f1d3bdc7df17c3e9a3830937e4f3b6d2f126c6864c9220.lock"
+    }
+  ]
+}

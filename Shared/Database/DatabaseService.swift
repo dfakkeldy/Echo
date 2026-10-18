@@ -18,44 +18,136 @@ enum DatabaseError: LocalizedError {
 /// Owns a GRDB database in WAL mode (DatabasePool for disk, DatabaseQueue for in-memory).
 @MainActor @Observable
 final class DatabaseService {
+    static var workProtection: DatabaseWorkProtection?
     let writer: DatabaseWriter
     let dbPath: String
-    private let logger = Logger(category: "DatabaseService")
+    private let protection: DatabaseWorkProtection?
 
-    @ObservationIgnored private let migrationFlag = "sql_migration_done"
-    @ObservationIgnored private let appGroupIdentifier: String
+    private nonisolated static let openingQueue = DispatchQueue(
+        label: "com.echo.database-opening", qos: .userInitiated)
 
-    init(appGroupIdentifier: String = AppGroupDefaults.suiteName) throws {
-        self.appGroupIdentifier = appGroupIdentifier
-        guard
-            let containerURL = FileManager.default.containerURL(
-                forSecurityApplicationGroupIdentifier: appGroupIdentifier
+    private nonisolated struct Connection: Sendable {
+        let writer: DatabasePool
+        let path: String
+
+        init(databaseURL: URL, token: DatabaseWorkToken? = nil) throws {
+            try token?.check()
+            try FileManager.default.createDirectory(
+                at: databaseURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let path = databaseURL.path
+            self.path = path
+            let opening = DatabaseOpeningCheck(token)
+            defer { opening.finish() }
+            var config = Configuration()
+            config.observesSuspensionNotifications = token != nil
+            // GRDB's automatic iOS cleanup can synchronously wait for this
+            // writer when UIKit denies its independent background assertion.
+            #if os(iOS)
+                config.automaticMemoryManagement = token == nil
+            #endif
+            config.prepareDatabase { db in
+                try opening.prepare(db)
+                try db.execute(sql: "PRAGMA journal_mode=WAL")
+                try db.execute(sql: "PRAGMA foreign_keys=ON")
+            }
+            writer = try DatabasePool(path: path, configuration: config)
+            // The pool now observes suspension itself. Remove the per-opcode
+            // startup guard before potentially large migrations and repairs.
+            opening.finish()
+            // Notifications are not sticky: expiration may have occurred while
+            // the pool was creating its first connection and observers.
+            try token?.check()
+            try DatabaseService.makeMigrator().migrate(writer)
+            try token?.check()
+            if token != nil {
+                try ContainerPathRepair.runForLaunch(writer: writer)
+            } else {
+                ContainerPathRepair.runIfNeeded(writer: writer)
+            }
+            try token?.check()
+            Logger(category: "DatabaseService").info(
+                "Database opened at \(path, privacy: .private)")
+        }
+    }
+
+    private init(connection: Connection, protection: DatabaseWorkProtection? = nil) {
+        writer = connection.writer
+        dbPath = connection.path
+        self.protection = protection
+    }
+
+    convenience init(
+        appGroupIdentifier: String = AppGroupDefaults.suiteName,
+        appGroupFallbackDirectory: URL? = DatabaseServiceAppGroupFallback.defaultDirectory,
+        allowAppGroupFallback: Bool = DatabaseServiceAppGroupFallback.isAllowed
+    ) throws {
+        let url = try Self.databaseURL(
+            appGroupIdentifier: appGroupIdentifier,
+            appGroupFallbackDirectory: appGroupFallbackDirectory,
+            allowAppGroupFallback: allowAppGroupFallback)
+        try self.init(databaseURL: url)
+    }
+
+    convenience init(databaseURL: URL) throws {
+        try self.init(connection: Connection(databaseURL: databaseURL))
+    }
+
+    /// Opens and repairs the database without blocking the UI or a cooperative
+    /// executor thread. Callers must wait for this before exposing library views.
+    static func openForLaunch(
+        databaseURL: URL? = nil,
+        protection: DatabaseWorkProtection? = nil
+    ) async throws -> DatabaseService {
+        if let protection {
+            return try await protection.run(name: "database launch") {
+                try await openConnection(databaseURL: databaseURL, protection: protection)
+            }
+        }
+        return try await openConnection(databaseURL: databaseURL, protection: nil)
+    }
+
+    private static func openConnection(
+        databaseURL: URL?, protection: DatabaseWorkProtection?
+    ) async throws -> DatabaseService {
+        try Task.checkCancellation()
+        let url = try databaseURL ?? Self.databaseURL()
+        let token = DatabaseWorkContext.token
+        let connection = try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<Connection, Error>) in
+            openingQueue.async {
+                continuation.resume(with: Result { try Connection(databaseURL: url, token: token) })
+            }
+        }
+        // Let an in-flight SQLite transaction finish safely, but do not install
+        // its result into a view whose launch task has been cancelled.
+        try Task.checkCancellation()
+        try token?.check()
+        return DatabaseService(connection: connection, protection: protection)
+    }
+
+    private static func databaseURL(
+        appGroupIdentifier: String = AppGroupDefaults.suiteName,
+        appGroupFallbackDirectory: URL? = DatabaseServiceAppGroupFallback.defaultDirectory,
+        allowAppGroupFallback: Bool = DatabaseServiceAppGroupFallback.isAllowed
+    ) throws -> URL {
+        if let container = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupIdentifier
+        ) {
+            return container.appendingPathComponent("echo.sqlite")
+        }
+        if DatabaseServiceAppGroupFallback.isAllowed, allowAppGroupFallback,
+            let appGroupFallbackDirectory
+        {
+            Logger(category: "DatabaseService").warning(
+                "Using debug simulator database fallback because App Group container is unavailable."
             )
-        else {
-            throw DatabaseError.appGroupNotFound(appGroupIdentifier)
+            return appGroupFallbackDirectory.appendingPathComponent("echo.sqlite")
         }
-
-        try FileManager.default.createDirectory(
-            at: containerURL,
-            withIntermediateDirectories: true
-        )
-
-        let path = containerURL.appendingPathComponent("echo.sqlite").path
-        self.dbPath = path
-
-        var config = Configuration()
-        config.prepareDatabase { db in
-            try db.execute(sql: "PRAGMA journal_mode=WAL")
-            try db.execute(sql: "PRAGMA foreign_keys=ON")
-        }
-        writer = try DatabasePool(path: path, configuration: config)
-
-        try runMigrations(writer: writer)
-        logger.info("Database opened at \(path)")
+        throw DatabaseError.appGroupNotFound(appGroupIdentifier)
     }
 
     init(inMemory: Void) throws {
-        self.appGroupIdentifier = "inMemory"
+        self.protection = nil
         var config = Configuration()
         config.prepareDatabase { db in
             try db.execute(sql: "PRAGMA foreign_keys=ON")
@@ -67,11 +159,41 @@ final class DatabaseService {
 
     // MARK: - Accessors
 
+    func withBackgroundOperation<T>(
+        name: String, operation: () async throws -> T
+    ) async throws -> T {
+        if let protection { return try await protection.run(name: name, operation: operation) }
+        return try await operation()
+    }
+
+    func waitUntilForeground() async throws {
+        try Task.checkCancellation()
+        try await protection?.waitUntilForeground()
+    }
+
+    nonisolated static func isWorkDeferred(_ error: any Error) -> Bool {
+        if error is DatabaseWorkDeferred { return true }
+        return DatabaseWorkContext.token?.isCancelled == true
+    }
+
+    nonisolated func isWorkDeferred(_ error: any Error) -> Bool {
+        Self.isWorkDeferred(error)
+    }
+
+    nonisolated func throwIfWorkDeferred(_ error: any Error) throws {
+        if Self.isWorkDeferred(error) { throw DatabaseWorkDeferred() }
+    }
+
     func read<T>(_ block: @escaping (Database) throws -> T) throws -> T {
         try writer.read(block)
     }
 
-    func readAsync<T>(_ block: @escaping @Sendable (Database) throws -> T) async throws -> T {
+    // `T: Sendable` because GRDB's async `read`/`write` return the value across the
+    // database access pool's executor boundary; Swift 6 requires the result to be
+    // Sendable for that hop. (The synchronous variants above stay on the caller.)
+    func readAsync<T: Sendable>(_ block: @escaping @Sendable (Database) throws -> T) async throws
+        -> T
+    {
         try await writer.read(block)
     }
 
@@ -79,53 +201,113 @@ final class DatabaseService {
         try writer.write(block)
     }
 
-    func writeAsync<T>(_ block: @escaping @Sendable (Database) throws -> T) async throws -> T {
+    func writeAsync<T: Sendable>(_ block: @escaping @Sendable (Database) throws -> T) async throws
+        -> T
+    {
         try await writer.write(block)
     }
 
     // MARK: - Migrations
 
     private nonisolated func runMigrations(writer: DatabaseWriter) throws {
+        try Self.makeMigrator().migrate(writer)
+    }
+
+    /// The app's migrator. Exposed so tests can run the real registration list
+    /// against a hand-built database shape (e.g. one stranded mid-upgrade)
+    /// without going through an initializer, which always migrates on open.
+    nonisolated static func makeMigrator() -> DatabaseMigrator {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("v1_create_schema") { db in try Schema_V1.migrate(db) }
-        migrator.registerMigration("v2_timeline_support") { db in try Schema_V2.migrate(db) }
-        migrator.registerMigration("v3_missing_indexes") { db in try Schema_V3.migrate(db) }
-        migrator.registerMigration("v4_materialized_timeline") { db in try Schema_V4.migrate(db) }
-        migrator.registerMigration("v5_epub_alignment") { db in try Schema_V5.migrate(db) }
-        migrator.registerMigration("v6_indexes_and_fixes") { db in try Schema_V6.migrate(db) }
-        migrator.registerMigration("v7_epub_reader_columns") { db in try Schema_V7.migrate(db) }
-        migrator.registerMigration("v8_epub_block_word_count") { db in try Schema_V8.migrate(db) }
-        migrator.registerMigration("v9_epub_block_markers") { db in try Schema_V9.migrate(db) }
-        migrator.registerMigration("v10_epub_block_chapter_theme") { db in
-            try Schema_V10.migrate(db)
+        migrator.registerMigration(
+            "v24_feed_note_position_voice_memo",
+            merging: Schema_V24.mergedMigrationIdentifiers
+        ) { db, appliedIdentifiers in
+            try Schema_V24.migrate(db, appliedIdentifiers: appliedIdentifiers)
         }
-        migrator.registerMigration("v11_bookmark_pdf_state") { db in try Schema_V11.migrate(db) }
-        migrator.registerMigration("v12_epub_block_front_matter") { db in try Schema_V12.migrate(db)
+        migrator.registerMigration("v25_study_plans") { db in
+            try Schema_V25.migrate(db)
         }
-        migrator.registerMigration("v13_epub_toc_entries") { db in try Schema_V13.migrate(db) }
-        migrator.registerMigration("v14_capture_and_context") { db in try Schema_V14.migrate(db) }
-        migrator.registerMigration("v15_anki_decks") { db in try Schema_V15.migrate(db) }
-        migrator.registerMigration("v16_fsrs_cloze_transcript") { db in try Schema_V16.migrate(db) }
-        migrator.registerMigration("v17_track_narration_voice") { db in try Schema_V17.migrate(db) }
-        migrator.registerMigration("v18_abs_server") { db in try Schema_V18.migrate(db) }
-        migrator.registerMigration("v19_word_timing") { db in try Schema_V19.migrate(db) }
-        migrator.registerMigration("v20_batch_queue") { db in try Schema_V20.migrate(db) }
-        migrator.registerMigration("v21_batch_kind") { db in try Schema_V21.migrate(db) }
-        migrator.registerMigration("v22_fsrs_seed") { db in try Schema_V22.migrate(db) }
-        migrator.registerMigration("v23_audiobook_abs_provenance") { db in
-            try Schema_V23.migrate(db)
+        migrator.registerMigration("v26_timeline_segment_key") { db in
+            try Schema_V26.migrate(db)
         }
-        try migrator.migrate(writer)
+        migrator.registerMigration("v27_library") { db in
+            try Schema_V27.migrate(db)
+        }
+        migrator.registerMigration("v28_pdf_block_page") { db in
+            try Schema_V28.migrate(db)
+        }
+        migrator.registerMigration("v29_audiobook_text_origin") { db in
+            try Schema_V29.migrate(db)
+        }
+        migrator.registerMigration("v30_narration_quality_issue") { db in
+            try Schema_V30.migrate(db)
+        }
+        migrator.registerMigration("v31_abs_server_multi") { db in
+            try Schema_V31.migrate(db)
+        }
+        migrator.registerMigration("v32_narration_text") { db in
+            try Schema_V32.migrate(db)
+        }
+        migrator.registerMigration("v33_study_plan_card_pacing") { db in
+            try Schema_V33.migrate(db)
+        }
+        migrator.registerMigration("v34_study_auto_export") { db in
+            try Schema_V34.migrate(db)
+        }
+        migrator.registerMigration("v35_library_edition_grouping") { db in
+            try Schema_V35.migrate(db)
+        }
+        migrator.registerMigration("v36_code_language") { db in
+            try Schema_V36.migrate(db)
+        }
+        migrator.registerMigration("v37_article_workshop") { db in
+            try Schema_V37.migrate(db)
+        }
+        migrator.registerMigration("v37_repair_anthology_build_attempt_receipts") { db in
+            try Schema_V37.repairBuildAttemptReceipts(db)
+        }
+        migrator.registerMigration("v38_generated_chapter_key") { db in
+            try Schema_V38.migrate(db)
+        }
+        migrator.registerMigration("v39_article_sync") { db in
+            try Schema_V39.migrate(db)
+        }
+        migrator.registerMigration("v40_narration_quality_issue_origin") { db in
+            try Schema_V40.migrate(db)
+        }
+        migrator.registerMigration("v41_repair_squashed_baseline_gap") { db in
+            try Schema_V41.migrate(db)
+        }
+        // Block re-keying checks this foreign key for each block. The existing
+        // book-first compound index otherwise forces a full anchor scan per row.
+        migrator.registerMigration("v42_alignment_anchor_foreign_key_index") { db in
+            try db.create(
+                index: "idx_alignment_anchor_epub_block", on: "alignment_anchor",
+                columns: ["epub_block_id"], ifNotExists: true)
+        }
+        migrator.registerMigration("v43_epub_pronunciation_annotations") { db in
+            try db.alter(table: "epub_block") { table in
+                table.add(column: "pronunciation_annotations", .text)
+            }
+        }
+        return migrator
     }
+}
 
-    // MARK: - UserDefaults migration flag
-
-    /// Uses the App Group's shared UserDefaults so that extensions (widget,
-    /// watch) see the same migration state as the main app. Storing the flag
-    /// in `UserDefaults.standard` would cause duplicate migration attempts
-    /// when an extension launches first.
-    var isMigrationDone: Bool {
-        get { UserDefaults(suiteName: appGroupIdentifier)?.bool(forKey: migrationFlag) ?? false }
-        set { UserDefaults(suiteName: appGroupIdentifier)?.set(newValue, forKey: migrationFlag) }
-    }
+private enum DatabaseServiceAppGroupFallback {
+    #if DEBUG && targetEnvironment(simulator)
+        static var isAllowed: Bool { true }
+        static var defaultDirectory: URL? {
+            FileManager.default.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            ).first?
+            .appending(path: "Echo", directoryHint: .isDirectory)
+            .appending(path: "DebugAppGroupFallback", directoryHint: .isDirectory)
+        }
+    #else
+        static var isAllowed: Bool { false }
+        static var defaultDirectory: URL? { nil }
+    #endif
 }

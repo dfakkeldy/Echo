@@ -26,9 +26,28 @@ struct SettingsExtractionTests {
         #expect(source.contains("struct ThemeSelectionView"))
     }
 
+    @Test func readerDefaultsSubViewIsExtracted() throws {
+        let source = try Self.source(named: "ReaderDefaultsSettingsView.swift")
+        #expect(source.contains("struct ReaderDefaultsSettingsView"))
+        #expect(source.contains("readerFontSize"))
+        #expect(source.contains("readerLineSpacing"))
+        #expect(source.contains("readerCardTint"))
+        #expect(source.contains(".accessibilityLabel(\"Line Spacing\")"))
+        #expect(source.contains(".accessibilityValue(lineSpacingMultiplierText)"))
+    }
+
     @Test func proTranscriptsSubViewIsExtracted() throws {
         let source = try Self.source(named: "ProTranscriptsSettingsView.swift")
         #expect(source.contains("struct ProTranscriptsSettingsView"))
+    }
+
+    @Test func nowPlayingSubViewIsExtracted() throws {
+        let source = try Self.source(named: "SettingsNowPlayingView.swift")
+        #expect(source.contains("struct SettingsNowPlayingView"))
+        #expect(source.contains("Default Speed"))
+        #expect(source.contains("seekDurationOptions"))
+        #expect(source.contains("SmartRewindSettingsView()"))
+        #expect(source.contains("playBookmarksInline"))
     }
 
     @Test func appIconSubViewIsExtracted() throws {
@@ -42,6 +61,7 @@ struct SettingsExtractionTests {
         #expect(!source.contains("private struct SettingsAppearanceView"))
         #expect(!source.contains("private struct FontSelectionView"))
         #expect(!source.contains("private struct ThemeSelectionView"))
+        #expect(!source.contains("private struct ReaderDefaultsSettingsView"))
         #expect(!source.contains("private struct ProTranscriptsSettingsView"))
         #expect(!source.contains("private struct AppIconSelectionView"))
     }
@@ -56,26 +76,106 @@ struct SettingsExtractionTests {
         #expect(!source.contains("Seek Forward"))
     }
 
-    /// Auto-alignment + bookmarks-inline preferences moved into the Advanced
-    /// subscreen, which preserves the configureContinuousAlignment side-effect.
-    @Test func advancedSubViewOwnsAutoAlignmentAndBookmarks() throws {
+    /// Auto-alignment and diagnostics live in the Advanced subscreen, which
+    /// preserves the configureContinuousAlignment side-effect.
+    @Test func advancedSubViewOwnsAutoAlignmentAndDiagnostics() throws {
         let source = try Self.source(named: "SettingsAdvancedView.swift")
         #expect(source.contains("struct SettingsAdvancedView"))
         #expect(source.contains("configureContinuousAlignment()"))
-        #expect(source.contains("playBookmarksInline"))
+        #expect(source.contains("debugLoggingEnabled"))
+        #expect(source.contains("Verbose Diagnostic Logging"))
     }
 
-    /// The Settings shell links out to its subscreens and keeps only app-level
-    /// rows — no inline per-listen controls remain.
-    @Test func settingsShellExposesSubscreenLinksOnly() throws {
+    @Test func advancedSubViewOwnsContextMemoryPrivacyControls() throws {
+        let source = try Self.source(named: "SettingsAdvancedView.swift")
+        #expect(source.contains("locationCaptureEnabled"))
+        #expect(source.contains("LocationCaptureAuthorizationService.requestAuthorization()"))
+        #expect(source.contains("ContextMemoryDAO"))
+        #expect(source.contains("Delete Context Memory"))
+    }
+
+    @Test func settingsShellUsesApprovedInformationArchitecture() throws {
         let source = try Self.source(named: "SettingsView.swift")
+
+        #expect(source.contains("Section(\"Now Playing\")"))
+        #expect(source.contains("SettingsNowPlayingView()"))
+        #expect(source.contains("Section(\"Appearance\")"))
         #expect(source.contains("SettingsAppearanceView()"))
-        #expect(source.contains("ProTranscriptsSettingsView()"))
+        #expect(source.contains("Section(\"Controls\")"))
         #expect(source.contains("PhonePlayerSettingsView()"))
         #expect(source.contains("WatchAppSettingsView()"))
+        #expect(source.contains("Section(\"Library & Accounts\")"))
+        #expect(source.contains("ABSConnectionsSettingsView()"))
+        #expect(source.contains("ProTranscriptsSettingsView()"))
+        #expect(source.contains("Section(\"Study & Notes\")"))
+        #expect(source.contains("SettingsStudyRows()"))
+        #expect(source.contains("AutoExportSettingsRows()"))
+        #expect(source.contains("AllStudyNotesExportView"))
+        #expect(source.contains("Section(\"Advanced & Privacy\")"))
+        #expect(source.contains("PronunciationDictionaryView(store: .shared)"))
         #expect(source.contains("SettingsAdvancedView()"))
-        // The Volume Boost toggle moved to the Playback Options sheet (WS-B).
+        #expect(source.contains("SettingsSupportAboutSection("))
+
+        #expect(!source.contains("Section(\"Display\")"))
+        #expect(!source.contains("Section(\"Store\")"))
+        #expect(!source.contains("Section(\"Library Sources\")"))
+        #expect(!source.contains("Section(\"Customization\")"))
+        #expect(!source.contains("Section(\"Flashcards\")"))
+        #expect(!source.contains("Section(\"Data\")"))
+        #expect(!source.contains("Section(\"Support\")"))
         #expect(!source.contains("Toggle(\"Volume Boost\""))
+    }
+
+    @Test func settingsShellExposesStudyGlobalChapterCap() throws {
+        let source = try Self.source(named: "SettingsView.swift")
+        #expect(source.contains("SettingsStudyRows()"))
+        #expect(source.contains("$settings.studyGlobalNewChapterLimit"))
+        #expect(source.contains("Global New Chapters"))
+    }
+
+    @Test func settingsShellExposesDailyReviewReminderOptIn() throws {
+        let source = try Self.source(named: "SettingsView.swift")
+        #expect(source.contains("Daily Review Reminder"))
+        #expect(source.contains("reviewNotificationsEnabled"))
+        #expect(source.contains("ReviewNotificationService.requestAuthorization()"))
+    }
+
+    @Test func studySettingsExposeAutoExportRows() throws {
+        let rows = try Self.source(named: "AutoExportSettingsRows.swift")
+        #expect(rows.contains("Auto-Export Study Notes"))
+        #expect(rows.contains(".fileImporter"))
+        #expect(rows.contains("allowedContentTypes: [.folder]"))
+        #expect(rows.contains("store.isPro"))
+        #expect(rows.contains("PaywallView(context: .export)"))
+        #expect(!rows.contains("Section {"))
+
+        let shell = try Self.source(named: "SettingsView.swift")
+        let studySlice = try Self.slice(
+            of: shell,
+            after: "Section(\"Study & Notes\")",
+            until: "Section(\"Advanced & Privacy\")"
+        )
+        #expect(studySlice.contains("AutoExportSettingsRows()"))
+    }
+
+    @Test func studyNotesExportSheetExposesAutoExportRows() throws {
+        let source = try Self.source(named: "StudyNotesExportView.swift")
+        #expect(source.contains("Section(\"Auto-Export Study Notes\")"))
+        #expect(source.contains("AutoExportSettingsRows()"))
+    }
+
+    @Test func bookmarksInlineLivesInNowPlayingSettings() throws {
+        let nowPlaying = try Self.source(named: "SettingsNowPlayingView.swift")
+        #expect(nowPlaying.contains("playBookmarksInline"))
+
+        let advanced = try Self.source(named: "SettingsAdvancedView.swift")
+        #expect(!advanced.contains("playBookmarksInline"))
+    }
+
+    @Test func rootTabViewFlushesAutoExportOnBackground() throws {
+        let source = try Self.source(named: "RootTabView.swift")
+        #expect(source.contains("autoExport.flushNow()"))
+        #expect(source.contains("autoExport.retryPendingIfAny()"))
     }
 
     private static func source(named fileName: String) throws -> String {
@@ -97,5 +197,16 @@ struct SettingsExtractionTests {
             directory.deleteLastPathComponent()
         }
         throw CocoaError(.fileNoSuchFile)
+    }
+
+    private static func slice(of source: String, after: String, until: String) throws -> String {
+        guard let startRange = source.range(of: after) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        let tail = source[startRange.upperBound...]
+        guard let endRange = tail.range(of: until) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        return String(tail[..<endRange.lowerBound])
     }
 }

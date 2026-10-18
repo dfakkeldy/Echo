@@ -190,11 +190,11 @@ orbit.sqlite in App Group container
 
 ## Migration
 
-1. On first launch after SQL update, check `sql_migration_done` flag
+1. On first launch after SQL update, check the legacy one-shot import flag
 2. Read bookmarks from JSON sidecar files (primary) → UserDefaults blob (fallback)
 3. Read per-book progress and speed from `Persistence`
 4. Insert all into SQL tables
-5. Set `sql_migration_done = true`
+5. Mark the legacy one-shot import as complete
 6. Keep UserDefaults data as read-only backup for one release cycle
 
 Per-book migration — if one book fails, skip and continue. Never block on one corrupt record.

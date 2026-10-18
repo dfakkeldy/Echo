@@ -1,0 +1,624 @@
+# Nightly Code Audit Remediation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` for independent slices, or `superpowers:executing-plans` for single-agent execution. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Remediate the June 26 nightly audit findings from `CODE_AUDIT.md` while preserving the current release ladder (`feature/* -> nightly -> weekly -> main`) and current deployment targets unless the deployment-target decision task explicitly changes them.
+
+**Audit Baseline:** `origin/nightly` at `d18af0394b0ca9d61ca56c7b3bd0e8c0fdd1ca36`, audited in `codex/nightly-code-audit-20260626`.
+
+**Tech Stack:** Swift 6, SwiftUI, GRDB, Swift Testing/XCTest, Xcode project targets for iOS/macOS/watchOS/widget/CLI, GitHub Actions, Fastlane.
+
+## Global Constraints
+
+- Open implementation PRs against `nightly`, not `main`.
+- Preserve current deployment targets until Task 1.5 is explicitly decided: iOS 18.0, macOS 15.0, watchOS 11.0.
+- Preserve current Swift settings: `SWIFT_VERSION = 6.0`, `SWIFT_STRICT_CONCURRENCY = complete`, `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`.
+- Do not introduce third-party frameworks.
+- Do not run concurrent `xcodebuild` jobs. Use `-parallel-testing-enabled NO` and bounded `-jobs`.
+- Prefer tests before code changes for data integrity, import behavior, and export ID allocation.
+- For UI/accessibility work, verify Dynamic Type, VoiceOver/custom actions, and keyboard/Switch Control reachability where feasible.
+- Keep unrelated refactors out of remediation PRs.
+
+---
+
+## Phase 0: Verification and Dependency Determinism
+
+### Task 0.1: Repair the local build/test gate
+
+**Findings:** V1, V2
+
+**Files:** none expected unless Makefile destinations need updating after environment repair.
+
+- [x] Install or repair the Xcode/macOS simulator components so CoreSimulator matches Xcode 26.6 (`1051.55.0` or newer).
+- [x] Install the Metal Toolchain locally with `xcodebuild -downloadComponent MetalToolchain`, or document that local Metal compilation is intentionally CI-only.
+- [x] Verify a valid iOS simulator destination exists for the Makefile's configured `IOS_DESTINATION`.
+- [x] Run `make build-tests`.
+- [x] Run `make test`.
+- [x] Run generic iOS build:
+
+```bash
+xcodebuild build \
+  -project Echo.xcodeproj \
+  -scheme Echo \
+  -destination 'generic/platform=iOS' \
+  CODE_SIGNING_ALLOWED=NO \
+  -jobs 5
+```
+
+**Verification note:** 2026-06-26 local pass: Xcode 26.6 (`17F113`) now has an available `iPhone 17` simulator destination on iOS 26.5. `make build-tests` passed with `TEST BUILD SUCCEEDED`; `make test` passed with `TEST SUCCEEDED`. While restoring the full test gate, fixed existing fragile tests in `ABSAuthLifecycleSourceTests`, `PlayerModelTests`, and `ReaderFeedAccessibilityTests` that failed under the repaired simulator/toolchain.
+
+**Acceptance criteria:** simulator test build and test commands no longer fail because of host toolchain mismatch; any remaining failures are actionable source/test failures.
+
+### Task 0.2: Track SwiftPM dependency resolution
+
+**Finding:** H8
+
+**Files:**
+- Modify: `.gitignore`
+- Add: `Echo.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`
+- Modify: `.github/workflows/ci.yml`
+- Modify: `.github/workflows/release-trains.yml`
+
+- [x] Replace the blanket `.gitignore` rule for `Package.resolved` with a scoped exception for the Xcode workspace lockfile.
+- [x] Resolve packages once with Xcode 26.6 and commit the generated workspace `Package.resolved`.
+- [x] Confirm `git check-ignore` no longer ignores the committed lockfile.
+- [x] Consider adding `-onlyUsePackageVersionsFromResolvedFile` to CI/release package resolution after the lockfile is tracked.
+
+**Verification:**
+
+```bash
+git check-ignore -v Echo.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+xcodebuild -resolvePackageDependencies -project Echo.xcodeproj -scheme Echo
+```
+
+**Acceptance criteria:** package versions used in local, CI, and release trains are reproducible from source control.
+
+---
+
+## Phase 1: Release, Signing, and App Store Metadata
+
+### Task 1.1: Add macOS privacy manifest coverage
+
+**Finding:** H6
+
+**Files:**
+- Add: `Echo macOS/PrivacyInfo.xcprivacy`
+- Modify: `Echo.xcodeproj/project.pbxproj` if target membership is not automatic through synchronized groups
+- Modify: `EchoTests/PrivacyManifestTests.swift`
+
+- [x] Add a macOS privacy manifest declaring `NSPrivacyAccessedAPICategoryUserDefaults` with reasons matching standard/app-group usage.
+- [x] Ensure the file is included in the `Echo macOS` target.
+- [x] Extend privacy-manifest tests so every shipping target with required-reason API use is enumerated.
+- [x] Add a test assertion that the macOS manifest exists and declares UserDefaults reasons.
+
+**Verification:** `make test` or targeted privacy manifest tests after Phase 0 is unblocked.
+
+**Acceptance criteria:** iOS, macOS, watch, and widget manifests are present and tested.
+
+### Task 1.2: Fix release-train signing readiness
+
+**Finding:** H9
+
+**Files:**
+- Modify: `.github/workflows/release-trains.yml`
+- Review: `fastlane/Matchfile`
+
+- [x] Require `MATCH_GIT_SSH_KEY` in the `ready=true` gate when `Matchfile` uses SSH.
+- [x] Update the skipped-upload notice to list all missing signing inputs.
+- [x] Keep the deploy-key load conditional aligned with the readiness output.
+- [x] Keep SSH match auth; no `Matchfile` HTTPS/token switch is needed.
+
+**Acceptance criteria:** scheduled runs without the deploy key compile only and do not start a doomed Fastlane upload.
+
+### Task 1.3: Mirror capped CI build flags in release trains
+
+**Finding:** M16
+
+**Files:**
+- Modify: `.github/workflows/release-trains.yml`
+- Modify: `fastlane/Fastfile`
+
+- [x] Add `-parallel-testing-enabled NO` and `-jobs 5` to the release-train `xcodebuild build-for-testing` command.
+- [x] Keep flags consistent with `.github/workflows/ci.yml`.
+- [x] Pass `-jobs 5` through Fastlane archive `build_app` invocations used by credentialed release-train uploads.
+
+**Acceptance criteria:** scheduled release-train build behavior matches PR build-gate resource limits.
+
+### Task 1.4: Resolve CarPlay entitlement and metadata mismatch
+
+**Finding:** H7
+
+**Files if enabling CarPlay:**
+- Modify: `EchoCore/EchoCore.entitlements`
+- Update provisioning/App ID outside repo
+- Verify: `EchoCore/Info.plist`, `EchoCore/CarPlay/*`, `fastlane/metadata/en-US/keywords.txt`, `fastlane/testflight/what_to_test.txt`, `EchoCore/Views/HelpContent.swift`
+
+**Files if deferring CarPlay:**
+- Modify: `EchoCore/Info.plist`
+- Modify: `fastlane/metadata/en-US/keywords.txt`
+- Modify: `fastlane/testflight/what_to_test.txt`
+- Modify: `EchoCore/Views/HelpContent.swift`
+- Optionally conditionally compile or remove exposed CarPlay scene code
+
+- [x] Decide whether CarPlay ships in the next nightly/weekly train: deferred until a future nightly/weekly train because the entitlement/profile approval is outside the repo.
+- [x] Shipping path not selected; no CarPlay entitlement was added and no provisioning profile change is assumed.
+- [x] If deferring, remove the scene declaration and all user/tester marketing claims until entitlement approval exists.
+- [x] Add a release checklist item that validates CarPlay entitlement/profile state against metadata.
+
+**Acceptance criteria:** plist, entitlements, provisioning, help, keywords, and TestFlight copy all describe the same shipped feature set.
+
+**Verification note:** 2026-06-26 pass: `plutil -lint EchoCore/Info.plist EchoCore/EchoCore.entitlements` returned OK for both files; a case-insensitive targeted `rg` found no active user/tester surface advertising shipped CarPlay; generic iOS build passed with `CODE_SIGNING_ALLOWED=NO`; `git diff --check` passed.
+
+### Task 1.5: Decide deployment-target source of truth
+
+**Finding:** M11
+
+**Files:**
+- Modify one side of the mismatch:
+  - Project/package targets: `Echo.xcodeproj/project.pbxproj`, `ThirdParty/MisakiSwift/Package.swift`
+  - Or docs/guidance: `AGENTS.md`, `README.md`, `ARCHITECTURE.md` if applicable
+
+- [x] Product call: preserve iOS 18/macOS 15/watchOS 11.
+- [x] Raising targets path not selected; no app/test/package deployment targets were changed.
+- [x] Preserving current targets: corrected README badges and agent guidance so contributors do not use newer APIs accidentally.
+
+**Acceptance criteria:** project settings and docs agree on supported OS floors.
+
+**Verification note:** 2026-06-26 pass: targeted stale-floor search found no remaining current root docs/guidance claims for iOS 19/macOS 16/watchOS 12; project and package deployment settings remain iOS 18.0, macOS 15.0, watchOS 11.0 (`ThirdParty/MisakiSwift` platforms remain `.iOS(.v18)` and `.macOS(.v15)`); `git diff --check` passed.
+
+### Task 1.6: Fix `echo-cli` Cocoa framework SDK reference
+
+**Finding:** M12
+
+**Files:**
+- Modify: `Echo.xcodeproj/project.pbxproj`
+- Consider: `.github/workflows/ci.yml`
+
+- [x] Replace the `MacOSX15.0.sdk` hardcoded framework path with an SDKROOT-relative Cocoa framework reference, or remove the link if unused.
+- [x] Build the `echo-cli` scheme locally.
+- [x] If `echo-cli` is supported, add it to CI as a serial build job.
+
+**Verification:**
+
+```bash
+xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO -jobs 5
+```
+
+**Acceptance criteria:** `echo-cli` builds under Xcode 26.6 without stale SDK paths.
+
+---
+
+## Phase 2: Data Integrity and Persistence Correctness
+
+### Task 2.1: Replace track delete/reinsert refresh
+
+**Finding:** H2
+
+**Files:**
+- Modify: `EchoCore/Services/TimelineIngestionService.swift`
+- Modify: `Shared/Database/DAOs/TrackDAO.swift`
+- Possibly add migration: `Shared/Database/Migrations/Schema_V27.swift`
+- Modify migration registry as needed
+- Add/modify tests under `EchoTests`
+
+- [x] Write a regression test that creates an audiobook with tracks, a bookmark with `track_id`, and a playback event with `track_id`, then refreshes/reingests the book.
+- [x] Replace `deleteAll(for:)` before insert with transactional upsert-by-track-ID.
+- [x] Delete obsolete tracks only after dependents are remapped or nulled.
+- [x] Confirm no schema change is needed; obsolete dependent `track_id` values are nulled in the refresh transaction before track deletion.
+- [x] Ensure failed refresh cannot leave metadata updated while tracks remain stale.
+
+**Verification:** `git diff --check`; focused iOS `build-for-testing` for `EchoTests/TimelineIngestionTrackRefreshTests` with signing disabled; macOS app build with signing disabled. Runtime test execution remains blocked by CoreSimulator `1051.54.0` vs Xcode-required `1051.55.0`.
+
+**Acceptance criteria:** reingesting a book after bookmarks/playback events succeeds without FK failure and preserves dependent history.
+
+### Task 2.2: Port APKG monotonic ID allocation to macOS
+
+**Finding:** H1
+
+**Files:**
+- Modify: `Echo macOS/Services/MacApkgExportService.swift`
+- Add/modify tests under `EchoTests` or a macOS-capable test target
+
+- [x] Extract or mirror the iOS monotonic ID allocation used in `ApkgExportService`.
+- [x] Remove `hashValue % 1000` and wall-clock-per-card ID derivation from macOS export.
+- [x] Add a regression test that exports enough cards to exercise same-millisecond allocation.
+- [x] Confirm note IDs and card IDs are unique and non-overlapping.
+
+**Acceptance criteria:** macOS APKG export never derives note/card IDs from randomized hash fragments.
+
+### Task 2.3: Preserve diagnostics for DB JSON/Codable failures
+
+**Finding:** M9
+
+**Files:**
+- Modify: `Shared/Database/EPubBlockRecord.swift`
+- Modify: `Shared/Database/BookmarkRecord.swift`
+- Add/modify tests under `EchoTests`
+
+- [x] Add tests for malformed marker/format JSON and malformed PDF bookmark state.
+- [x] Introduce throwing decode helpers or structured diagnostics that include row context.
+- [x] Return empty arrays only for absent optional values, not corrupt persisted values.
+- [x] Log privacy-safe corruption details and avoid silently replacing identity/state with empty defaults.
+
+**Acceptance criteria:** corrupt persisted JSON is observable in logs/tests and not treated as intentionally empty data.
+
+### Task 2.4: Tighten security-scoped bookmark persistence
+
+**Finding:** M3
+
+**Files:**
+- Modify: `EchoCore/Services/Persistence.swift`
+- Add/modify tests around Keychain failure behavior
+
+- [x] Remove release-build fallback that writes security-scoped bookmark data to `UserDefaults`.
+- [x] On Keychain save failure, fail closed and surface a reselect-folder requirement.
+- [x] During legacy migration, delete plaintext bookmark data only after successful Keychain write.
+- [x] If migration fails, do not continue using plaintext legacy bookmark data indefinitely.
+
+**Acceptance criteria:** security-scoped bookmark grants are not newly written to plaintext defaults and legacy plaintext data has a bounded migration path.
+
+---
+
+## Phase 3: Concurrency and Performance Isolation
+
+### Task 3.1: Move auto-alignment tokenization/DTW off MainActor
+
+**Finding:** H3
+
+**Files:**
+- Modify: `EchoCore/Services/AutoAlignmentService.swift`
+- Modify: `EchoCore/Services/TokenDTW.swift`
+- Review: `EchoCore/Services/WordTimingMaterializer.swift` or related pure helpers
+- Add/modify tests under `EchoTests`
+
+- [x] Identify pure value types used by DTW/tokenization and mark them `nonisolated` where appropriate.
+- [x] Make DTOs crossing isolation boundaries conform to `Sendable`.
+- [x] Extract per-chapter tokenization and DTW into a background worker boundary.
+- [x] Keep UI progress updates, model state, and DB commits on MainActor.
+- [x] Add cancellation checks around long-running per-chapter work.
+- [x] Add signposts or a long-chapter performance test to confirm MainActor remains responsive.
+
+**Acceptance criteria:** long auto-alignment work no longer runs under MainActor isolation, and strict concurrency remains clean.
+
+**Verification:** focused iOS `build-for-testing` passed for `EchoTests/AutoAlignmentWorkerTests`, `EchoTests/TokenDTWTests`, and `EchoTests/TokenDTWWordMatchTests` with `CODE_SIGNING_ALLOWED=NO`, including the cancellation-aware DTW leaf test; macOS app build passed for `Echo macOS` with `CODE_SIGNING_ALLOWED=NO`. Runtime simulator tests remain blocked by the environment CoreSimulator mismatch (`1051.54.0` installed, Xcode requires `1051.55.0`). SwiftLint is not installed in this shell.
+
+### Task 3.2: Tie PDF loading to SwiftUI task lifetime
+
+**Finding:** M10
+
+**Files:**
+- Modify: `EchoCore/Views/PDFDocumentView.swift`
+
+- [x] Replace `Task.detached` launched from `makeUIView` with `.task(id: folderURL)` from the SwiftUI owner, or store/cancel an owned task in the representable coordinator.
+- [x] Do background file discovery using Sendable values.
+- [x] Construct and assign `PDFDocument` on MainActor unless PDFKit sendability is documented and validated.
+- [x] Prevent stale folder loads from overwriting current state.
+
+**Acceptance criteria:** PDF loading cancels or becomes stale-safe when `folderURL` or view identity changes.
+
+### Task 3.3: Replace legacy sleeps and non-cancellable GCD delays
+
+**Findings:** Low concurrency findings
+
+**Files:**
+- Modify: `Echo macOS/Services/MacAlignmentService.swift`
+- Modify: `EchoCore/Services/DefaultChimePlayer.swift`
+- Modify: `EchoCore/Views/ReaderTab+Alignment.swift`
+
+- [x] Replace `Task.sleep(nanoseconds:)` with `Task.sleep(for:)`.
+- [x] Replace `DispatchQueue.main.asyncAfter` pulse reset with an owned cancellable `Task`.
+- [x] Ensure view/model lifetime cancels delayed work where appropriate.
+
+**Acceptance criteria:** no production `Task.sleep(nanoseconds:)` remains, and manual alignment pulse reset is structured/cancellable.
+
+---
+
+## Phase 4: Accessibility, UX Feedback, and Localization
+
+### Task 4.1: Make reader body text Dynamic Type compliant
+
+**Finding:** H4
+
+**Files:**
+- Modify: `Shared/ReaderSettings.swift`
+- Modify: `EchoCore/Views/ReaderFeedCollectionView.swift`
+- Modify: `EchoCore/Views/Cells/ParagraphCardCell.swift`
+- Review: `EchoCore/Views/Cells/HeadingCardCell.swift`
+
+- [x] Scale reader fonts through `UIFontMetrics(forTextStyle:)`.
+- [x] Enable `adjustsFontForContentSizeCategory` for paragraph labels.
+- [x] Rebuild attributed text when content-size category changes.
+- [x] Verify line spacing and attributed bold/highlight runs preserve scaled base fonts.
+- [x] Test at accessibility Dynamic Type sizes and ensure reader cells do not clip body text.
+
+**Acceptance criteria:** reader body and heading text scale with system Larger Text without clipping core content.
+
+**Verification:** 2026-06-26 Task 4.1 implementation scales `ReaderSettings.uiFont` and paragraph line spacing via `UIFontMetrics`, rebuilds paragraph/heading attributed text on preferred content-size category trait changes, invalidates the collection layout after trait-driven text rebuilds, and reconfigures reader feed items when reader settings change. Added a behavior-level iOS test that hosts paragraph/heading cells under `.accessibilityExtraExtraExtraLarge`, measures self-sizing height against the rendered label height, and checks scaled base/search fonts. Ran `git diff --check` and `xcodebuild build-for-testing -project Echo.xcodeproj -scheme Echo -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/EchoTask41DerivedData -only-testing:EchoTests/ReaderFeedAccessibilityTests -jobs 5 -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO` (succeeded; runtime simulator execution remains blocked by CoreSimulator `1051.54.0` vs Xcode-required `1051.55.0`).
+
+### Task 4.2: Surface EPUB/PDF import loading and errors
+
+**Finding:** H5
+
+**Files:**
+- Modify: `EchoCore/Views/RootTabView.swift`
+- Modify: `EchoCore/ViewModels/PlayerModel+Bookmarks.swift`
+- Modify: `EchoCore/Services/EPUBImportCoordinator.swift`
+- Modify: `EchoCore/Services/PDFImportCoordinator.swift`
+- Add/modify tests under `EchoTests`
+
+- [x] Make import coordinators return a typed success/failure result or throw typed errors.
+- [x] Preserve the underlying cause for permission, copy, parse, and scanner failures.
+- [x] Add loading and error presentation in `RootTabView`.
+- [x] Refresh reader state only after successful import.
+- [x] Add tests for failed coordinator paths and unsupported/denied file imports.
+
+**Acceptance criteria:** users get visible feedback for document import progress and failure.
+
+**Verification:** 2026-06-26 Task 4.2 implementation adds typed import results/errors for EPUB/PDF coordinators, surfaces an import progress overlay and failure alert in `RootTabView`, ignores picker cancellation, prevents concurrent imports, and refreshes reader state only after successful coordinator return. Outside-folder imports now stage incoming documents so scanner failures preserve existing companion files; EPUB/PDF scanner outcomes carry underlying failures; EPUB block/TOC replacement is transactional; readable textless PDFs attach successfully while clearing stale EPUB blocks. Added focused tests for missing/invalid sources, failed staged EPUB imports preserving old files, textless PDF attach, final-name alignment sidecar ingestion through staged import, unsupported selection, and file-importer failure preservation. Ran `git diff --check` and `xcodebuild -quiet build-for-testing -project Echo.xcodeproj -scheme Echo -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/EchoTask42DerivedData -only-testing:EchoTests/EPUBImportCoordinatorTests -only-testing:EchoTests/PDFImportCoordinatorTests -only-testing:EchoTests/CompanionDocumentImportRequestTests -only-testing:EchoTests/PlayerMoreMenuTests -only-testing:EchoTests/PDFAutoImportScannerTests -only-testing:EchoTests/EPUBAutoImportScannerTests -jobs 5 -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO` (succeeded; runtime simulator execution remains blocked by CoreSimulator `1051.54.0` vs Xcode-required `1051.55.0`). Code review/re-review found no remaining blockers.
+
+### Task 4.3: Add accessible alternatives for PDF, transport, and scrubber actions
+
+**Findings:** M5, M6, M7
+
+**Files:**
+- Modify: `EchoCore/Views/PDFDocumentView.swift`
+- Modify: `EchoCore/Views/TransportControlsView+LongPress.swift`
+- Modify: `EchoCore/Views/ScrubberJoystick.swift`
+
+- [x] Add visible toolbar/menu actions for PDF align/bookmark operations.
+- [x] Add `UIAccessibilityCustomAction` or SwiftUI `.accessibilityAction` equivalents for PDF operations.
+- [x] Add named accessibility actions for transport secondary actions.
+- [x] Add `.accessibilityAdjustableAction` and named step actions for the scrubber joystick.
+- [x] Verify VoiceOver can discover and perform every action without custom gestures.
+
+**Acceptance criteria:** no primary reader/PDF/transport/alignment action is available only through long press or drag.
+
+### Task 4.4: Replace gesture-only selectable rows with semantic controls
+
+**Finding:** M8
+
+**Files:**
+- Modify: `EchoCore/Views/SoundscapePickerView.swift`
+- Modify: `EchoCore/Views/ChimeSettingsView.swift`
+- Modify: `Echo macOS/Views/MacTOCTreeView.swift`
+- Modify: `Echo macOS/Views/MacReaderFeedView.swift`
+
+- [x] Convert row taps to `Button`, `NavigationLink`, or selection controls.
+- [x] Use plain styles to preserve visual design without losing semantics.
+- [x] Add keyboard shortcuts/focus behavior where macOS usage warrants it.
+
+**Acceptance criteria:** selectable rows are announced as actionable controls and remain keyboard reachable.
+
+### Task 4.5: Fix watch primary action semantics
+
+**Finding:** Low watch accessibility
+
+**Files:**
+- Modify: `Echo Watch App/Views/PlayerPage.swift`
+
+- [x] Replace the hidden blank `Button("")` primary-action bridge with a visible/tappable primary action where possible.
+- [x] If a hidden bridge is unavoidable, give it a proper accessibility label or hide it from accessibility while preserving Double Tap behavior.
+- [x] Ensure there is only one `handGestureShortcut(.primaryAction)` per watch surface.
+
+**Acceptance criteria:** Double Tap remains an accelerator, not the only path, and VoiceOver does not encounter a blank hidden button.
+
+### Task 4.6: Localize action/error strings and modernize formatting
+
+**Findings:** M17, M18
+
+**Files:**
+- Modify: `Localizable.xcstrings` if present in the target structure
+- Modify: `EchoCore/Views/ReaderTab+Alignment.swift`
+- Modify: `EchoCore/Views/PDFDocumentView.swift`
+- Modify: `EchoCore/Views/ABSConnectionsSettingsView.swift`
+- Modify: `EchoCore/Models/SpeedSuggestion.swift`
+- Modify: `EchoCore/Views/SessionsListView.swift`
+- Modify: `EchoCore/Views/SessionDetailFeedView.swift`
+- Modify: `EchoCore/Views/ReaderSettingsSheet.swift`
+
+- [x] Add catalog keys for user-visible UIKit/accessibility action names and ABS errors.
+- [x] Use `String(localized:)` or generated symbol keys for non-SwiftUI strings.
+- [x] Replace `DateFormatter`, `String(format:)`, and ad hoc measurement strings with `FormatStyle` and localized placeholders/plurals.
+- [x] Test with a non-US locale.
+
+**Acceptance criteria:** user-visible action/error/formatting strings are localizable and locale-aware.
+
+---
+
+## Phase 5: ABS Security, Privacy, and CloudKit Trust
+
+### Task 5.1: Make plaintext ABS connections explicit and safer
+
+**Finding:** M1
+
+**Files:**
+- Modify: `EchoCore/Services/Audiobookshelf/ABSEndpoints.swift`
+- Modify: `EchoCore/Views/ABSConnectionsSettingsView.swift`
+- Review: `EchoCore/Info.plist`, `Echo macOS/Info.plist`, `ARCHITECTURE.md`
+
+- [x] Default bare hosts to HTTPS or require the user to choose HTTP explicitly.
+- [x] Add an explicit confirmation before sending credentials over HTTP.
+- [x] Show persistent insecure-server state after connection.
+- [x] Keep self-signed HTTPS trust-on-first-use as the recommended local path.
+- [x] Document the ATS exception rationale and App Review notes.
+
+**Acceptance criteria:** the app no longer silently sends ABS credentials over plaintext because a user omitted the scheme.
+
+**Verification note:** 2026-06-26 pass: `git diff --check`, string catalog JSON validation, and plist lint all passed; stale HTTP-default scan found only explicit-HTTP tests and the updated architecture rationale; focused iOS `build-for-testing` for `EchoTests/ABSEndpointsTests` and `EchoTests/ABSPlainHTTPConnectionViewTests` passed with signing disabled; macOS app build passed with signing disabled. Runtime simulator test execution remains blocked by CoreSimulator `1051.54.0` vs Xcode-required `1051.55.0`.
+
+### Task 5.2: Remove token-bearing ABS URLs where headers can be used
+
+**Finding:** M2
+
+**Files:**
+- Modify: `EchoCore/Services/Audiobookshelf/ABSEndpoints.swift`
+- Modify: `EchoCore/Services/Audiobookshelf/AudiobookshelfService.swift`
+- Modify cover/image UI that currently needs self-contained URLs
+
+- [x] Build an authenticated image/download loader that uses `Authorization` headers.
+- [x] Stop app-owned downloads from using `?token=` URLs.
+- [x] Keep query-token support only behind a narrow helper for ABS endpoints that cannot accept headers.
+- [x] Ensure token-bearing URLs are not logged or cached.
+
+**Acceptance criteria:** access tokens are not embedded in URLs for normal app-owned cover/download flows.
+
+**Verification note:** 2026-06-26 pass: `git diff --check` passed; targeted token-bearing ABS URL scan found only the deliberately named compatibility helper plus unrelated local cover fixtures/source-guard assertions; focused iOS `build-for-testing` for ABS service cover/download tests and the ABS browse source guard passed with signing disabled; macOS app build passed with signing disabled. Runtime simulator test execution remains blocked by CoreSimulator `1051.54.0` vs Xcode-required `1051.55.0`.
+
+### Task 5.3: Make ABS token lifecycle failure states explicit
+
+**Finding:** M4
+
+**Files:**
+- Modify: `EchoCore/Services/Audiobookshelf/AudiobookshelfService.swift`
+- Modify: `EchoCore/ViewModels/PlayerModel+Audiobookshelf.swift`
+- Add/modify tests around failed connect and sign-out
+
+- [x] Roll back tokens on any server-record save failure, not only when a cert pin exists.
+- [x] Differentiate local token clearing from remote refresh-token revoke failure.
+- [x] Add retry/backoff or a user-visible "remote sign-out failed" state.
+- [x] Add privacy-safe logging for sync/auth health.
+
+**Acceptance criteria:** UI state and Keychain/server token state cannot diverge silently after failed connect/sign-out.
+
+**Verification note:** 2026-06-26 pass: `git diff --check` and string catalog JSON validation passed; focused iOS `build-for-testing` for ABS auth lifecycle tests passed with signing disabled; macOS app build passed with signing disabled. Runtime simulator test execution remains blocked by CoreSimulator `1051.54.0` vs Xcode-required `1051.55.0`.
+
+### Task 5.4: Decide and harden CloudKit anchor trust model
+
+**Finding:** M15
+
+**Files:**
+- Modify: `EchoCore/Services/CloudKitSyncService.swift`
+- Modify docs/architecture as needed
+- Add/modify CloudKit-related tests where feasible
+
+- [x] Decide whether shared anchors remain in public DB or move to private/shared DB.
+- [x] If public remains, add author attribution, payload size limits, upload rate limits, and abuse recovery.
+- [x] Keep local block-ID validation and synthesized-anchor filtering.
+- [x] Document the chosen trust model in `ARCHITECTURE.md`.
+
+**Acceptance criteria:** CloudKit anchor sync has an explicit abuse/control model, not only local merge validation.
+
+**Verification note:** 2026-06-26 pass: kept shared alignment anchors in the public CloudKit database, documented the untrusted-public-record trust model, added hashed uploader attribution, suffix-only public block IDs, deterministic-record downloads, shared persisted metadata lookup for manual uploads, upload/read payload bounds, local per-record upload throttling, semantic sanitization before download and conflict-merge re-upload, explicit skipped-upload results, and regression coverage for upload/download rejection helpers, public-payload identifier privacy, polluted remote payload recovery, deterministic fetch, and manual-share metadata guards. `git diff --check` passed; focused iOS `build-for-testing` for `CloudKitSyncMergeTests` and `CloudKitSyncSourceTests` passed with signing disabled; macOS app build passed with signing disabled. SwiftLint/SwiftFormat were unavailable in this worktree.
+
+### Task 5.5: Verify file metadata privacy-manifest category
+
+**Finding:** M14
+
+**Files:**
+- Modify: `EchoCore/Services/Narration/OnnxKokoroEngine.swift` or manifests/tests depending on decision
+- Modify: `EchoCore/PrivacyInfo.xcprivacy`
+- Modify: `EchoTests/PrivacyManifestTests.swift`
+
+- [x] Produce an archive privacy report under Xcode 26.6.
+- [x] Determine whether `attributesOfItem(atPath:)` for `.size` triggers a required-reason API category.
+- [x] Prefer replacing it with a non-flagged length read if practical.
+- [x] Because the broad API was replaced, add regression coverage that prevents reintroducing it.
+
+**Acceptance criteria:** privacy manifest coverage matches Xcode archive validation, not only hand-maintained expectations.
+
+**Verification note:** 2026-06-27 pass: produced `docs/superpowers/reports/2026-06-27-xcode-privacy-archive-report.md` from an Xcode 26.6 (`17F113`) iOS archive at `/tmp/EchoPrivacyArchive.xcarchive`. The archive completed with `ARCHIVE SUCCEEDED`, Xcode's archive log shows `-scanforprivacyfile` coverage for the app, watch app, widget extension, `onnxruntime.framework`, `GRDB_GRDB.bundle`, `ZIPFoundation_ZIPFoundation.bundle`, `swift-crypto_Crypto.bundle`, and `swift-transformers_Hub.bundle`, and the archived manifests match the source-manifest decision. Xcode 26.6 exposes no local `privacyreport` utility through `xcrun`, no `privacytool` utility, no privacy-report action or export option in `xcodebuild -help`, and no matching scriptable report generator under `/Applications/Xcode.app/Contents`, so the checked-in report records the archive-derived evidence instead of a GUI-only Organizer PDF.
+
+---
+
+## Phase 6: CI, Release Automation, and Coverage Expansion
+
+### Task 6.1: Add watch test coverage to CI or document manual status
+
+**Finding:** M13
+
+**Files:**
+- Modify: `.github/workflows/ci.yml`
+- Possibly modify: `README.md`
+
+- [x] Defer a serial watchOS unit-test job for `Echo Watch AppTests` until a pinned watch destination is reliable on GitHub runners.
+- [x] Keep UI tests manual unless simulator reliability and runtime cost are acceptable.
+- [x] If not adding CI coverage, update README/release checklist to state watch tests are manual and list the command.
+
+**Acceptance criteria:** watch test status is no longer ambiguous.
+
+### Task 6.2: Decide whether macOS archive failure should block beta lane
+
+**Finding:** Low release finding
+
+**Files:**
+- Modify: `fastlane/Fastfile`
+
+- [x] Decide whether weekly/release trains must block on macOS archive failures.
+- [x] If yes, remove or scope the rescue wrapper so nightly can continue only when intended but weekly/release fails.
+- [x] If no, emit a GitHub warning/summary that is visible in required checks.
+
+**Acceptance criteria:** macOS release failures are either blocking or clearly visible by release channel.
+
+**Verification note:** 2026-06-26 pass: scoped macOS archive failure handling so nightly continues with a GitHub warning and step-summary entry, while weekly/manual release trains fail via `UI.user_error!`. `ruby -c fastlane/Fastfile` and `git diff --check` passed.
+
+### Task 6.3: Make screenshot completeness observable
+
+**Finding:** Low screenshot finding
+
+**Files:**
+- Modify: `fastlane/Snapfile`
+- Modify: `EchoUITests/EchoScreenshots.swift`
+- Modify: `fastlane/screenshots/en-US/README_SCREENSHOTS.md`
+- Add sanitized fixture or generated sample if approved
+
+- [x] Add an assertion/report that expected screenshot categories are present.
+- [x] Provide a small sanitized/generated fixture path for repeatable screenshots if permitted.
+- [x] Track Watch/Mac/manual shots explicitly in the release checklist.
+
+**Acceptance criteria:** screenshot automation cannot silently pass with a materially incomplete marketing set.
+
+**Verification note:** 2026-06-26 pass: `EchoScreenshots` now records expected automated categories and fails the UI test if any are missing; `Snapfile` documents the expected category set; screenshot README documents the local fixture path plus manual Watch/Mac release checklist. Also fixed the committed `SnapshotHelper.swift` platform guard and UI-test `XCTestCase` isolation so the screenshot scheme builds under Swift 6. `git diff --check` passed; focused UI-test build-for-testing passed with signing disabled. Runtime simulator execution remains blocked by CoreSimulator `1051.54.0` vs Xcode-required `1051.55.0`.
+
+### Task 6.4: Clean stale Fastlane metadata/config TODOs
+
+**Finding:** Low config finding
+
+**Files:**
+- Modify: `fastlane/Fastfile`
+- Modify: `fastlane/Appfile`
+- Review: `fastlane/metadata/*`
+
+- [x] Remove stale `com.orbit.*` TODOs if all bundle IDs are already `com.echo.*`.
+- [x] Remove or document empty `apple_id("")` in version-controlled Fastlane config.
+- [x] Confirm no secret values are introduced.
+
+**Acceptance criteria:** release automation comments/config no longer imply unfinished rebrand or secret-management work that is already resolved.
+
+---
+
+## Cross-Phase Final Verification
+
+Run after each implementation PR if the phase touches source/build config, and after all phases before promotion:
+
+```bash
+git diff --check
+make build-tests
+make test
+xcodebuild build \
+  -project Echo.xcodeproj \
+  -scheme Echo \
+  -destination 'generic/platform=iOS' \
+  CODE_SIGNING_ALLOWED=NO \
+  -jobs 5
+xcodebuild build \
+  -project Echo.xcodeproj \
+  -scheme "Echo macOS" \
+  -destination 'platform=macOS' \
+  CODE_SIGNING_ALLOWED=NO \
+  -jobs 5
+```
+
+Additional targeted checks by phase:
+
+- Privacy: archive privacy report and `EchoTests/PrivacyManifestTests`.
+- Accessibility: VoiceOver pass, Dynamic Type at accessibility sizes, keyboard/Switch Control reachability for changed controls.
+- Release: dry-run or compile-only scheduled workflow path with missing signing secrets and with all signing secrets.
+- ABS: HTTP warning flow, self-signed HTTPS trust flow, token refresh/sign-out failure tests.
+- Data: migration tests and regression tests for track refresh, APKG export IDs, and corrupt JSON.
+
+## Stop Conditions
+
+- Do not raise deployment targets as a side effect of unrelated fixes.
+- Do not merge CarPlay marketing/plist changes unless entitlement/provisioning state matches.
+- Do not claim Larger Text, VoiceOver, or Reduced Motion App Store accessibility labels until those paths are tested.
+- Do not proceed with release upload if signing readiness is incomplete.

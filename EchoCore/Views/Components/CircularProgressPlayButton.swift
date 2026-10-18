@@ -43,7 +43,7 @@ struct CircularProgressPlayButton: View {
             Circle()
                 .trim(from: 0, to: CGFloat(min(max(currentProgress, 0), 1)))
                 .stroke(
-                    Color.accentColor,
+                    model.resolvedThemeTint ?? Color.accentColor,
                     style: StrokeStyle(lineWidth: 3, lineCap: .round)
                 )
                 .frame(width: 92, height: 92)
@@ -58,7 +58,7 @@ struct CircularProgressPlayButton: View {
             ) {
                 ZStack {
                     Circle()
-                        .fill(model.artworkAccentColor ?? .accentColor)
+                        .fill(model.resolvedThemeTint ?? .accentColor)
                         .frame(width: 78, height: 78)
 
                     Image(systemName: isPlaying ? "pause.fill" : "play.fill")

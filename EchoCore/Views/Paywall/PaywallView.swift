@@ -6,8 +6,9 @@ struct PaywallView: View {
     let context: PaywallContext
     @Environment(StoreManager.self) private var store
     @Environment(\.dismiss) private var dismiss
-    @State private var trialEligible = false
     @State private var purchasing = false
+    @State private var loadingProducts = false
+    @State private var restoring = false
 
     private func product(_ id: String) -> Product? {
         store.products.first { $0.id == id }
@@ -26,31 +27,34 @@ struct PaywallView: View {
                     benefits
 
                     // Plan options — ALWAYS render product.displayPrice (sale-safe), never hardcode.
-                    if let yearly = product(ProductIDs.yearly) {
-                        planButton(yearly, badge: "Best value")
-                    }
-                    if let monthly = product(ProductIDs.monthly) {
-                        planButton(monthly)
-                    }
+                    // Echo Pro is a one-time unlock — no subscription.
                     if let lifetime = product(ProductIDs.lifetime) {
-                        planButton(lifetime, oneTime: true)
+                        planButton(lifetime, oneTime: true, badge: "One-time — no subscription")
                     }
-                    if FoundersWindow.isOpen, let founders = product(ProductIDs.founders) {
-                        planButton(founders, oneTime: true, badge: "Founders — limited time")
+                    if product(ProductIDs.lifetime) == nil {
+                        if loadingProducts {
+                            ProgressView("Loading Echo Pro…")
+                        } else {
+                            Button("Retry Loading Echo Pro") {
+                                Task { await loadProducts() }
+                            }
+                        }
                     }
 
-                    if trialEligible {
-                        Text("7 days free, then renews. Cancel anytime in Settings.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
+                    Text("Pay once, unlock forever. No subscription, no account.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
 
                     Button("Restore Purchases") {
                         Task {
+                            restoring = true
+                            defer { restoring = false }
                             await store.restorePurchases()
                             if store.isPro { dismiss() }
                         }
                     }
+                    .disabled(purchasing || restoring)
                     .font(.footnote)
 
                     HStack(spacing: 16) {
@@ -62,8 +66,8 @@ struct PaywallView: View {
                             )!)
                         Link(
                             "Privacy",
-                            destination: URL(
-                                string: "https://kinnokilabs.com/apps/echo/privacy")!)
+                            destination: FeedbackSupport.privacyPolicyURL
+                        )
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -71,6 +75,9 @@ struct PaywallView: View {
                     Text("Open source — you can build it yourself.")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
+                    if let notice = store.lastStoreNotice {
+                        Text(notice).font(.caption).foregroundStyle(.secondary)
+                    }
                     if let err = store.lastStoreError {
                         Text(err).font(.caption).foregroundStyle(.red)
                     }
@@ -83,20 +90,28 @@ struct PaywallView: View {
                 }
             }
             .task {
-                if store.products.isEmpty { await store.requestProducts() }
-                trialEligible = await store.isEligibleForFreeTrial()
+                if store.products.isEmpty { await loadProducts() }
+            }
+            .onChange(of: store.isPro) { _, isPro in
+                if isPro { dismiss() }
             }
         }
     }
 
+    private func loadProducts() async {
+        loadingProducts = true
+        defer { loadingProducts = false }
+        await store.requestProducts()
+    }
+
     private var benefits: some View {
         VStack(alignment: .leading, spacing: 8) {
-            benefitLabel("♾️", "Unlimited flashcards with SM-2 spaced repetition")
-            benefitLabel("🗣️", "Unlimited on-device AI narration (coming in 1.0)")
-            benefitLabel("📊", "Insights — listening & study streaks")
-            benefitLabel("📤", "Study export — Markdown, Anki, JSON")
-            benefitLabel("🔗", "AudiobookShelf offline & sync")
-            benefitLabel("🔒", "No account, no servers, no tracking")
+            benefitLabel("♾️", "Unlimited flashcards with FSRS scheduling")
+            benefitLabel("⌚", "Apple Watch review sessions")
+            benefitLabel("📊", "Insights for listening and study streaks")
+            benefitLabel("📤", "Study export: Markdown, Anki decks, and chaptered .m4b")
+            benefitLabel("⬇️", "Audiobookshelf offline downloads and background sync")
+            benefitLabel("🔒", "Your library, with optional connected services")
         }
     }
 
@@ -115,7 +130,11 @@ struct PaywallView: View {
             Task {
                 purchasing = true
                 defer { purchasing = false }
-                if (try? await store.purchase(product)) == true, store.isPro { dismiss() }
+                do {
+                    if try await store.purchase(product), store.isPro { dismiss() }
+                } catch {
+                    store.recordStoreError(error)
+                }
             }
         } label: {
             HStack {
@@ -132,6 +151,6 @@ struct PaywallView: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
-        .disabled(purchasing)
+        .disabled(purchasing || restoring)
     }
 }

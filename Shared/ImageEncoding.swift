@@ -9,4 +9,6 @@ enum ImageEncoding {
     static let bookmarkJPEGQuality: CGFloat = 0.84
     /// Compression quality for watch transfer JPEG thumbnails.
     static let watchTransferJPEGQuality: CGFloat = 0.75
+    /// Leaves headroom below WatchConnectivity's message-size limit for metadata.
+    static let watchTransferMaxBytes = 60 * 1024
 }

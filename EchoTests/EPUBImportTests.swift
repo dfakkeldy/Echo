@@ -1,7 +1,8 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-import Testing
 import Foundation
 import GRDB
+// SPDX-License-Identifier: GPL-3.0-or-later
+import Testing
+
 @testable import Echo
 
 // MARK: - EPUB Container XML Parsing
@@ -25,7 +26,8 @@ struct EPUBImportTests {
             <rootfile full-path="content.opf" media-type="application/oebps-package+xml"/>
           </rootfiles>
         </container>
-        """.write(to: metaInf.appendingPathComponent("container.xml"), atomically: true, encoding: .utf8)
+        """.write(
+            to: metaInf.appendingPathComponent("container.xml"), atomically: true, encoding: .utf8)
 
         // content.opf
         try """
@@ -53,7 +55,8 @@ struct EPUBImportTests {
           <p>The rain fell in torrents.</p>
         </body>
         </html>
-        """.write(to: tmp.appendingPathComponent("chapter1.xhtml"), atomically: true, encoding: .utf8)
+        """.write(
+            to: tmp.appendingPathComponent("chapter1.xhtml"), atomically: true, encoding: .utf8)
 
         // chapter2.xhtml
         try """
@@ -64,7 +67,8 @@ struct EPUBImportTests {
           <p>The morning brought clear skies.</p>
         </body>
         </html>
-        """.write(to: tmp.appendingPathComponent("chapter2.xhtml"), atomically: true, encoding: .utf8)
+        """.write(
+            to: tmp.appendingPathComponent("chapter2.xhtml"), atomically: true, encoding: .utf8)
 
         return tmp
     }
@@ -79,7 +83,8 @@ struct EPUBImportTests {
 
         // Insert audiobook for FK constraint
         try db.write { db in
-            try db.execute(sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
         }
 
         let blocks = try await service.import(
@@ -109,7 +114,8 @@ struct EPUBImportTests {
         let service = EPUBImportService(assetStorage: assetStorage)
 
         try db.write { db in
-            try db.execute(sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
         }
 
         let blocks = try await service.import(
@@ -121,7 +127,65 @@ struct EPUBImportTests {
 
         let sequenceIndices = blocks.map(\.sequenceIndex)
         #expect(sequenceIndices == sequenceIndices.sorted())
-        #expect(Set(sequenceIndices).count == sequenceIndices.count) // no duplicates
+        #expect(Set(sequenceIndices).count == sequenceIndices.count)  // no duplicates
+    }
+
+    @Test func commercialAudioChapterAssignmentDoesNotCountLargeCodeListing() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let epubDir = try makeMinimalEPUB()
+        defer { try? FileManager.default.removeItem(at: epubDir) }
+
+        let listing = Array(repeating: "unspokenToken", count: 1_000)
+            .joined(separator: " ")
+        try """
+        <?xml version="1.0"?>
+        <html xmlns="http://www.w3.org/1999/xhtml"><body>
+          <h1>Chapter One</h1>
+          <p>Brief spoken introduction.</p>
+          <pre><code>\(listing)</code></pre>
+          <p>Spoken prose follows the listing.</p>
+        </body></html>
+        """.write(
+            to: epubDir.appendingPathComponent("chapter1.xhtml"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        <?xml version="1.0"?>
+        <html xmlns="http://www.w3.org/1999/xhtml"><body>
+          <h1>Chapter Two</h1>
+          <p>This deliberately longer spoken tail keeps the preceding prose well inside
+          the first eighty percent of the commercially narrated word stream.</p>
+        </body></html>
+        """.write(
+            to: epubDir.appendingPathComponent("chapter2.xhtml"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        try db.write { database in
+            try database.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES (?, ?, ?)",
+                arguments: ["code-book", "Code Book", 100]
+            )
+        }
+        let service = EPUBImportService(assetStorage: EPUBAssetStorage(databaseService: db))
+        let chapters = [
+            Chapter(index: 0, title: "First", startSeconds: 0, endSeconds: 80),
+            Chapter(index: 1, title: "Second", startSeconds: 80, endSeconds: 100),
+        ]
+
+        let blocks = try await service.import(
+            audiobookID: "code-book",
+            epubURL: epubDir,
+            chapters: chapters,
+            bookDuration: 100
+        )
+
+        let proseAfterListing = try #require(
+            blocks.first { $0.text == "Spoken prose follows the listing." }
+        )
+        #expect(proseAfterListing.chapterIndex == 0)
     }
 
     @Test func epubImportRejectsInvalidDirectory() async throws {
@@ -180,7 +244,8 @@ struct EPUBImportTests {
         try storage.prepare(for: testID)
         defer { try? storage.removeAll(for: testID) }
 
-        let localPath = storage.copyImage(from: sourceImage, audiobookID: testID, filename: "test-image.jpg")
+        let localPath = storage.copyImage(
+            from: sourceImage, audiobookID: testID, filename: "test-image.jpg")
         #expect(localPath != nil)
         #expect(FileManager.default.fileExists(atPath: localPath!))
         #expect(storage.imageExists(at: localPath!))

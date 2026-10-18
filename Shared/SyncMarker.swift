@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
-public struct SyncMarker: Codable, Equatable, Sendable {
+public nonisolated struct SyncMarker: Codable, Equatable, Sendable {
     public let type: MarkerType
     public let payload: String
     public let epubCharOffset: Int
@@ -13,7 +13,7 @@ public struct SyncMarker: Codable, Equatable, Sendable {
     }
 }
 
-public enum MarkerType: String, Codable, Equatable, Sendable {
+public nonisolated enum MarkerType: String, Codable, Equatable, Sendable {
     case chapterStart
     case image
     case hyperlink

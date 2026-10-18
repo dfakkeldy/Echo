@@ -136,14 +136,16 @@ final class CarPlayManager: NSObject {
             return
         }
 
-        let dao = AudiobookDAO(db: db.writer)
+        let service = LibraryService(db: db)
         // Read off the main actor so a large library doesn't block the CarPlay
-        // UI thread on connect (audit §7.3).
+        // UI thread on connect (audit §7.3). LibraryService applies the same
+        // availability filter and edition-group collapse as the in-app shelf,
+        // so an m4b + companion-epub pair is one row here too.
         Task { @MainActor [weak self] in
             guard let self else { return }
             let records: [AudiobookRecord]
             do {
-                records = try await dao.allAsync()
+                records = try await service.booksAsync(includeUnavailable: false)
             } catch {
                 self.logger.error("Failed to query audiobooks: \(error.localizedDescription)")
                 self.showEmptyLibrary()

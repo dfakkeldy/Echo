@@ -15,6 +15,10 @@ struct PronunciationDictionaryView: View {
     let store: PronunciationOverrideStore
     @State private var newWord: String = ""
     @State private var newIPA: String = ""
+    /// Set when saving a pronunciation fails validation (e.g. non-IPA characters),
+    /// driving an explanatory alert so the user fixes the entry instead of silently
+    /// losing it — the old `try?` swallowed the error.
+    @State private var saveError: String?
 
     /// Entries as a stably-ordered array so `ForEach`/`onDelete` indices map back
     /// to the right key (a `Dictionary` has no defined iteration order).
@@ -66,6 +70,16 @@ struct PronunciationDictionaryView: View {
             }
         }
         .navigationTitle("Pronunciation")
+        .alert(
+            "Can't save that pronunciation",
+            isPresented: Binding(
+                get: { saveError != nil },
+                set: { if !$0 { saveError = nil } })
+        ) {
+            Button("OK", role: .cancel) { saveError = nil }
+        } message: {
+            Text(saveError ?? "")
+        }
     }
 
     private var trimmedWord: String {
@@ -80,9 +94,14 @@ struct PronunciationDictionaryView: View {
         let word = trimmedWord
         let ipa = trimmedIPA
         guard !word.isEmpty, !ipa.isEmpty else { return }
-        try? store.set(word: word, ipa: ipa)
-        newWord = ""
-        newIPA = ""
+        do {
+            try store.set(word: word, ipa: ipa)
+            newWord = ""
+            newIPA = ""
+        } catch {
+            // Keep the fields populated so the user can fix the offending IPA.
+            saveError = error.localizedDescription
+        }
     }
 
     private func deleteEntries(at offsets: IndexSet) {

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import WidgetKit
 import AppIntents
+import WidgetKit
 
 struct TogglePlaybackIntent: AppIntent {
-    static var title: LocalizedStringResource = "Toggle Playback"
-    static var openAppWhenRun: Bool = true
+    static let title: LocalizedStringResource = "Toggle Playback"
+    static let openAppWhenRun: Bool = true
 
     // Runs on the main actor: `AppGroupDefaults.shared` (a non-Sendable
     // `UserDefaults`) is main-actor-isolated under the project's default
@@ -12,11 +12,22 @@ struct TogglePlaybackIntent: AppIntent {
     // An `async` requirement may be witnessed by a `@MainActor` method.
     @MainActor
     func perform() async throws -> some IntentResult {
-        // Widget extensions cannot import WatchConnectivity. The main app
-        // handles watch communication when openAppWhenRun opens it.
+        // Widget extensions cannot import WatchConnectivity, so this intent
+        // cannot toggle real playback itself. It records the desired state
+        // for the watch app (which `openAppWhenRun` opens) to consume in
+        // `refreshAfterWake` and forward to the phone as an absolute
+        // play/pause command. The flag flip below is only the optimistic
+        // card update; the app-group value is reconciled with the phone's
+        // authoritative state as soon as the app pulls it.
         let defaults = AppGroupDefaults.shared
-        let currentIsPlaying = defaults.bool(forKey: "isPlaying")
-        defaults.set(!currentIsPlaying, forKey: "isPlaying")
+        let now = Date()
+        let desiredIsPlaying = !defaults.bool(forKey: "isPlaying")
+        WidgetPlaybackToggleRequest.write(
+            desiredIsPlaying: desiredIsPlaying, at: now, to: defaults)
+        defaults.set(desiredIsPlaying, forKey: "isPlaying")
+        // Re-anchor the progress projection: when the flip starts playback,
+        // projecting from a stale anchor would jump the bar forward.
+        WatchWidgetProgressProjection.writeAnchor(now, to: defaults)
         WidgetCenter.shared.reloadTimelines(ofKind: "Echo_Widget")
 
         return .result()
@@ -24,9 +35,10 @@ struct TogglePlaybackIntent: AppIntent {
 }
 
 struct CreateBookmarkIntent: AppIntent {
-    static var title: LocalizedStringResource = "Create Bookmark"
-    static var description = IntentDescription("Creates a new bookmark for the current audiobook position.")
-    
+    static let title: LocalizedStringResource = "Create Bookmark"
+    static let description = IntentDescription(
+        "Creates a new bookmark for the current audiobook position.")
+
     @Parameter(title: "Note")
     var note: String?
 
@@ -37,25 +49,26 @@ struct CreateBookmarkIntent: AppIntent {
     func perform() async throws -> some IntentResult {
         let defaults = AppGroupDefaults.shared
 
-        guard let folderKey = defaults.string(forKey: "folderKey"),
-              let trackId = defaults.string(forKey: "trackId"),
-              let currentTime = defaults.object(forKey: "currentTime") as? TimeInterval else {
-            throw NSError(domain: "CreateBookmarkIntent", code: 1, userInfo: [NSLocalizedDescriptionKey: "No active audiobook found."])
+        // Read the PER-TRACK position the app publishes (`currentTrackTime`),
+        // not the cumulative whole-book `currentTime` the watch context carries.
+        // `Bookmark.timestamp` is a per-track offset, so on a multi-track book
+        // the cumulative value would land the bookmark in the wrong place.
+        guard let state = WidgetPlaybackStateStore.read(from: defaults) else {
+            throw NSError(
+                domain: "CreateBookmarkIntent", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "No active audiobook found."])
         }
 
-        let newBookmark = Bookmark(
-            id: UUID(),
-            title: "Bookmark \(Date().formatted(date: .omitted, time: .shortened))",
-            folderKey: folderKey,
-            trackId: trackId,
-            timestamp: currentTime,
-            note: note
-        )
+        let title = "Bookmark \(Date().formatted(date: .omitted, time: .shortened))"
+        let newBookmark = WidgetPlaybackStateStore.bookmark(
+            from: state, note: note, title: title)
 
-        let bookmarksKey = "bookmarks_\(folderKey)"
-        var bookmarks = (try? JSONDecoder().decode([Bookmark].self, from: defaults.data(forKey: bookmarksKey) ?? Data())) ?? []
+        let bookmarksKey = "bookmarks_\(state.folderKey)"
+        var bookmarks =
+            (try? JSONDecoder().decode(
+                [Bookmark].self, from: defaults.data(forKey: bookmarksKey) ?? Data())) ?? []
         bookmarks.append(newBookmark)
-        
+
         if let data = try? JSONEncoder().encode(bookmarks) {
             defaults.set(data, forKey: bookmarksKey)
         }

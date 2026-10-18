@@ -88,6 +88,55 @@ struct PhonePlayerPaletteTests {
         #expect(WatchAction(rawValue: "loopMode") == .loopMode)
     }
 
+    @Test func phoneDesignerOffersNonDragSlotPickers() throws {
+        let source = try Self.source(named: "PhonePlayerSettingsView.swift")
+        #expect(
+            source.contains("PhoneSlotPickerGrid("),
+            "Phone Player Designer must offer a non-drag picker path for configuring slots."
+        )
+        #expect(
+            source.contains("choices: phoneSlotChoices"),
+            "Phone slot pickers must use the same selectable action set as the drag palette plus Empty."
+        )
+
+        let pickerSlice = try Self.slice(
+            of: source,
+            after: "private struct PhoneSlotPickerGrid",
+            until: "private struct PaletteItem"
+        )
+        #expect(
+            pickerSlice.contains("ForEach(0..<5"),
+            "Phone slot pickers must cover all five preview slots."
+        )
+        #expect(
+            pickerSlice.contains("Picker("),
+            "Phone slot controls must use standard Picker controls instead of drag-only interaction."
+        )
+        #expect(
+            pickerSlice.contains("slotBinding(for: slot)"),
+            "Each slot picker must bind directly to the corresponding slot."
+        )
+        #expect(
+            pickerSlice.contains("onChange()"),
+            "Slot picker changes must persist through the same save path as drag-and-drop."
+        )
+    }
+
+    @Test func phoneSettingsUsesFormSectionsAndSharedDesignerTerms() throws {
+        let source = try Self.source(named: "PhonePlayerSettingsView.swift")
+        #expect(source.contains("Form {"))
+        #expect(source.contains("Section(\"Layout\")") || source.contains("Text(\"Layout\")"))
+        #expect(source.contains("Section(\"Mini-Player\")") || source.contains("Text(\"Mini-Player\")"))
+        #expect(source.contains("Section(\"Player Buttons\")"))
+        #expect(source.contains("Section(\"Focus Tools\")"))
+        #expect(source.contains("Section(\"Available Actions\")"))
+        #expect(source.contains("Section(\"Presets\")"))
+        #expect(source.contains("Reset to Defaults"))
+        #expect(!source.contains("ScrollView {"))
+        #expect(!source.contains("Phone App Designer Info"))
+        #expect(!source.contains("Layout Presets"))
+    }
+
     // MARK: - Source resolution
 
     private static func source(named fileName: String) throws -> String {
@@ -117,6 +166,33 @@ struct PhonePlayerPaletteTests {
                     .playPause, .skipBackward, .skipForward,
                     .previousSection, .nextSection, .speed, .bookmark, .empty
                 ]
+                private var phoneSlotChoices: [WatchAction] { palette + [.empty] }
+                PhoneSlotPickerGrid(
+                    slots: configMode == .tap ? $slots : $longPressSlots,
+                    choices: phoneSlotChoices,
+                    onChange: saveSlots
+                )
+                private struct PhoneSlotPickerGrid: View {
+                    var body: some View {
+                        ForEach(0..<5) { slot in
+                            Picker(
+                                "Slot",
+                                selection: slotBinding(for: slot)
+                            ) {
+                            }
+                        }
+                    }
+                    private func slotBinding(for slot: Int) -> Binding<WatchAction> {
+                        Binding(
+                            get: { slots[slot] },
+                            set: { newAction in
+                                slots[slot] = newAction
+                                onChange()
+                            }
+                        )
+                    }
+                }
+                private struct PaletteItem: View {}
                 slots = [.skipBackward, .empty, .playPause, .empty, .skipForward]
                 """
         }

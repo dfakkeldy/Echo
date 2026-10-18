@@ -16,9 +16,12 @@
 //      mlx-swift is no longer a dependency — it had an upstream iOS-Simulator
 //      link bug (ml-explore/mlx-swift#341) that blocked the whole sim test
 //      suite, and the BART fallback's value on Echo's nonfiction workload was
-//      low. OOV words now emit the ❓ unk glyph; user pronunciation overrides
-//      (PronunciationOverrides) are the supported way to give OOV words a real
-//      pronunciation. The one MLXUtilsLibrary symbol MisakiSwift actually used
+//      low. OOV words are now voiced by a deterministic, vocab-safe grapheme→IPA
+//      approximator (EnglishFallbackNetwork) so they are never silently dropped;
+//      EnglishG2P additionally enforces a never-voiceless guarantee on final
+//      assembly. User pronunciation overrides (PronunciationOverrides) remain the
+//      way to give an OOV word a precise pronunciation. The one MLXUtilsLibrary
+//      symbol MisakiSwift actually used
 //      (MToken) is now vendored at Sources/MisakiSwift/DataStructures/MToken.swift
 //      (148 lines, Foundation+NaturalLanguage only — Apache-2.0, mlalma/MLXUtilsLibrary).
 

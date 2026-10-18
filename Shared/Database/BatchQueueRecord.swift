@@ -4,6 +4,23 @@ import GRDB
 
 enum BatchItemStatus: String, Codable {
     case queued, importing, transcribing, aligning, completed, failed
+
+    /// Terminal states: the runner is done with the item either way. Both are
+    /// clearable in one action, so a book that failed weeks ago doesn't sit in
+    /// the queue forever next to the ones that succeeded.
+    var isFinished: Bool { self == .completed || self == .failed }
+
+    /// The runner is actively working this item, so removing it has to cancel
+    /// the in-flight work as well as delete the row.
+    var isInFlight: Bool {
+        switch self {
+        case .importing, .transcribing, .aligning: return true
+        case .queued, .completed, .failed: return false
+        }
+    }
+
+    /// Raw values of the terminal states, for SQL `IN` filters.
+    static let finishedRawValues: [String] = [completed.rawValue, failed.rawValue]
 }
 
 /// Discriminates audiobook-alignment queue items (`.align`: import → transcribe →
@@ -41,8 +58,7 @@ struct BatchQueueRecord: Identifiable, Equatable, Codable, FetchableRecord, Muta
     var status: BatchItemStatus
     var progress: Double
     /// Whether this item is a narrated-audiobook alignment (`.align`, default) or
-    /// a text-only EPUB narration synthesis (`.narrate`). Added in Schema V21;
-    /// defaults to `.align` so pre-V21 rows and existing call sites are unchanged.
+    /// a text-only EPUB narration synthesis (`.narrate`).
     var kind: BatchItemKind = .align
     var statusMessage: String?
     var errorMessage: String?
