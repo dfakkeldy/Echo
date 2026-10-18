@@ -4,6 +4,12 @@ All notable changes to Echo: Audiobook Study Player.
 
 ## [Unreleased]
 
+- Opening a folder-backed book no longer includes Echo-generated pronunciation
+  review or probe reels as audiobook tracks, and no longer folds those reels into
+  multi-M4B chapters. Folder discovery on iOS and macOS excludes the known reel
+  filenames, and stale reel entries are removed from existing playlist manifests
+  while ordinary tracks, metadata, and playback settings are kept. Opening a reel
+  directly still works, and intentional multi-volume folders keep their volumes.
 - Public alignment uploads are unavailable in Echo 1.0. The upload control is
   hidden; community alignment lookup and local import fallback are unchanged.
   Playback, reading, and local alignment remain available.
