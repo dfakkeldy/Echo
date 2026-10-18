@@ -14,6 +14,7 @@ struct BookOverridesSections: View {
 
     @State private var isUploading = false
     @State private var uploadAlert: (title: String, message: String)?
+    @State private var alignmentShareConfirmation: AlignmentShareConfirmation?
 
     var body: some View {
         Section {
@@ -75,7 +76,10 @@ struct BookOverridesSections: View {
             .padding(.vertical, 4)
 
             Button {
-                Task { await shareAlignment() }
+                let audiobookID = model.bookIdentityURL?.absoluteString
+                alignmentShareConfirmation = AlignmentShareConfirmation {
+                    await shareAlignment(for: audiobookID)
+                }
             } label: {
                 if isUploading {
                     ProgressView()
@@ -86,6 +90,28 @@ struct BookOverridesSections: View {
             .disabled(isUploading)
             // Presentation modifiers belong on a plain row view, not the
             // Section, so both Form homes present the alert reliably.
+            .confirmationDialog(
+                "Share Alignment Publicly?",
+                isPresented: Binding(
+                    get: { alignmentShareConfirmation != nil },
+                    set: { if !$0 { alignmentShareConfirmation = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: alignmentShareConfirmation
+            ) { confirmation in
+                Button("Share Publicly") {
+                    alignmentShareConfirmation = nil
+                    Task { await confirmation.confirm() }
+                }
+                Button("Cancel", role: .cancel) {
+                    confirmation.cancel()
+                    alignmentShareConfirmation = nil
+                }
+            } message: { _ in
+                Text(
+                    "Share this book's title, author, duration and alignment markers in Echo's public CloudKit database, along with a persistent identifier derived from your iCloud account. Other Echo users can use these alignments. This upload excludes audio, full book text and notes. Echo has no in-app control to delete a shared alignment."
+                )
+            }
             .alert(
                 uploadAlert?.title ?? "",
                 isPresented: Binding(
@@ -110,11 +136,17 @@ struct BookOverridesSections: View {
         }
     }
 
-    private func shareAlignment() async {
+    private func shareAlignment(for confirmedAudiobookID: String?) async {
         guard let db = model.databaseService?.writer,
             let audiobookID = model.bookIdentityURL?.absoluteString
         else {
             uploadAlert = ("Error", "No book loaded.")
+            return
+        }
+        guard audiobookID == confirmedAudiobookID else {
+            uploadAlert = (
+                "Book Changed", "The loaded book changed. Open its settings and try sharing again."
+            )
             return
         }
 

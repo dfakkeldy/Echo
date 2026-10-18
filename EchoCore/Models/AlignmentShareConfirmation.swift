@@ -2,15 +2,20 @@
 
 @MainActor
 final class AlignmentShareConfirmation {
-    private let upload: @MainActor () async -> Void
+    private var upload: (@MainActor () async -> Void)?
 
     init(upload: @escaping @MainActor () async -> Void) {
         self.upload = upload
     }
 
-    func cancel() {}
+    func cancel() {
+        upload = nil
+    }
 
     func confirm() async {
+        guard let upload else { return }
+        // Consume the request before suspension so repeated or reentrant taps cannot upload again.
+        self.upload = nil
         await upload()
     }
 }
