@@ -207,9 +207,9 @@ Honest list — these are known, so you don't need to report them (though opinio
 
 ## 5. Privacy during the beta
 
-Echo's promise is unchanged in beta: **no analytics, no tracking, no accounts, no Echo servers — alignment, narration, and transcription fully on-device.** The only features that touch the network are ones you opt into: your personal iCloud, your own Audiobookshelf server, Context Memory's approximate place lookup, and AI card generation with your own key (which sends the book's text to Anthropic only when you generate — Plan Q).
+Core book import, local playback, reading, and voice synthesis run on-device without an Echo account. You can connect Echo to your own Audiobookshelf server to browse and play your library. External AI features send text to the provider you configure. When network access is permitted, importing a book may look up matching public alignment markers, with local fallback for an ordinary lookup failure. Model downloads and files you choose in iCloud also use network services. This 1.0 release does not expose public-alignment uploads. These connections are optional; they are not needed for local playback and reading.
 
-One thing TestFlight itself adds: Apple's beta system shares **crash reports** and **the feedback you choose to send** with the developer, along with device/OS/build info. That's TestFlight's standard mechanism (it's how your reports reach us), not telemetry inside Echo. The full policy is at [dfakkeldy.github.io/Echo/privacy.html](https://dfakkeldy.github.io/Echo/privacy.html).
+One thing TestFlight itself adds: Apple's beta system shares **crash reports** and **the feedback you choose to send** with the developer, along with device/OS/build info. That's TestFlight's standard mechanism (it's how your reports reach us), not telemetry inside Echo. The full policy is at [kinnokilabs.com/echo-privacy](https://kinnokilabs.com/echo-privacy/).
 
 ---
 
