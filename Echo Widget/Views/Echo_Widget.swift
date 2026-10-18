@@ -1,55 +1,89 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import WidgetKit
-import SwiftUI
 import AppIntents
 import ImageIO
+import SwiftUI
+import WidgetKit
 
 struct Provider: TimelineProvider {
-    private static let refreshInterval: TimeInterval = 60
+    /// Safety-net re-run interval while paused (or unprojectable). Real
+    /// changes arrive as app-driven `reloadTimelines` calls from the watch
+    /// app; while playing, the timeline itself carries projected entries.
+    /// The previous 60 s ask was far over WidgetKit's daily refresh budget,
+    /// so the system silently throttled it — one root of the frozen card.
+    private static let idleRefreshInterval: TimeInterval = 30 * 60
 
     func placeholder(in context: Context) -> SimpleEntry {
-        SimpleEntry(date: Date(), title: "Book Title", isPlaying: false, progressFraction: 0.3, thumbnailData: nil)
+        SimpleEntry(
+            date: Date(), title: "Book Title", isPlaying: false, progressFraction: 0.3,
+            thumbnailData: nil, artworkAccentColorHex: "#FF8000",
+            coverRampTopHex: "#3A2A12", coverRampBottomHex: "#2C1F0D")
     }
 
     // Helper to ensure image data isn't too large for the widget
     private func safelyDownsampledData(_ data: Data?) -> Data? {
         guard let data = data, let image = UIImage(data: data) else { return nil }
-        
+
         let maxSize: CGFloat = 60
         if image.size.width > maxSize || image.size.height > maxSize {
             let options: [CFString: Any] = [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: maxSize * 2.0 // retina scale
+                kCGImageSourceThumbnailMaxPixelSize: maxSize * 2.0,  // retina scale
             ]
             if let source = CGImageSourceCreateWithData(data as CFData, nil),
-               let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) {
+                let cgImage = CGImageSourceCreateThumbnailAtIndex(
+                    source, 0, options as CFDictionary)
+            {
                 return UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.75)
             }
         }
-        
+
         return data
     }
 
-    private func currentEntry() -> SimpleEntry {
+    /// Timeline entries for `dates`, sharing one read of the app-group
+    /// snapshot. Each entry's progress is the wall-clock projection at that
+    /// entry's date (`WatchWidgetProgressProjection`), so the bar keeps
+    /// moving between data deliveries instead of freezing at the last write.
+    private func entries(at dates: [Date], projection: WatchWidgetProgressProjection)
+        -> [SimpleEntry]
+    {
         let defaults = AppGroupDefaults.shared
         let title = defaults.string(forKey: "title") ?? "No track"
-        let isPlaying = defaults.bool(forKey: "isPlaying")
-        let progressFraction = defaults.double(forKey: "totalProgressFraction")
         let thumbnailData = safelyDownsampledData(defaults.data(forKey: "thumbnailData"))
+        let artworkAccentColorHex = defaults.string(forKey: "artworkAccentColorHex")
+        let coverRampTopHex = defaults.string(forKey: "coverRampTopHex")
+        let coverRampBottomHex = defaults.string(forKey: "coverRampBottomHex")
 
-        return SimpleEntry(date: Date(), title: title, isPlaying: isPlaying, progressFraction: progressFraction, thumbnailData: thumbnailData)
+        return dates.map { date in
+            SimpleEntry(
+                date: date, title: title, isPlaying: projection.isPlaying,
+                progressFraction: projection.fraction(at: date),
+                thumbnailData: thumbnailData, artworkAccentColorHex: artworkAccentColorHex,
+                coverRampTopHex: coverRampTopHex,
+                coverRampBottomHex: coverRampBottomHex)
+        }
     }
 
-    func getSnapshot(in context: Context, completion: @escaping (SimpleEntry) -> ()) {
-        completion(currentEntry())
+    func getSnapshot(in context: Context, completion: @escaping (SimpleEntry) -> Void) {
+        let now = Date()
+        let projection = WatchWidgetProgressProjection.read(from: AppGroupDefaults.shared)
+        completion(entries(at: [now], projection: projection)[0])
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<SimpleEntry>) -> ()) {
-        let entry = currentEntry()
-        let nextUpdate = Date().addingTimeInterval(Self.refreshInterval)
-        let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
-        completion(timeline)
+    func getTimeline(in context: Context, completion: @escaping (Timeline<SimpleEntry>) -> Void) {
+        let now = Date()
+        let projection = WatchWidgetProgressProjection.read(from: AppGroupDefaults.shared)
+        let timelineEntries = entries(
+            at: projection.timelineDates(startingAt: now), projection: projection)
+        // Playing: re-run when the projected entries run out — the provider
+        // re-anchors from defaults and keeps going, freezing only past the
+        // projection's trust horizon. Paused (single entry): app-driven
+        // reloads deliver real changes; the long interval is a safety net.
+        let policy: TimelineReloadPolicy =
+            timelineEntries.count > 1
+            ? .atEnd : .after(now.addingTimeInterval(Self.idleRefreshInterval))
+        completion(Timeline(entries: timelineEntries, policy: policy))
     }
 }
 
@@ -59,49 +93,14 @@ struct SimpleEntry: TimelineEntry {
     let isPlaying: Bool
     let progressFraction: Double
     let thumbnailData: Data?
+    let artworkAccentColorHex: String?
+    /// Ends of the cover ramp, written into the app group by the Watch app when
+    /// a state reply lands. Nil for a neutral cover.
+    let coverRampTopHex: String?
+    let coverRampBottomHex: String?
+
     var relevance: TimelineEntryRelevance? {
         TimelineEntryRelevance(score: isPlaying ? 100.0 : 0.0)
-    }
-}
-
-struct Echo_WidgetEntryView : View {
-    @Environment(\.widgetFamily) var family
-    var entry: Provider.Entry
-
-    var body: some View {
-        ZStack {
-            if let data = entry.thumbnailData, let uiImage = UIImage(data: data) {
-                Image(uiImage: uiImage)
-                    .resizable()
-                    .scaledToFill()
-                    .clipShape(Circle())
-                    .padding(4)
-            } else {
-                Image(systemName: "music.note")
-            }
-
-            Circle()
-                .stroke(.secondary.opacity(0.3), lineWidth: 4)
-
-            Circle()
-                .trim(from: 0, to: entry.progressFraction)
-                .stroke(.tint, style: StrokeStyle(lineWidth: 4, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-
-            GeometryReader { geo in
-                let radius = geo.size.width / 2
-                let angle = entry.progressFraction * 2 * .pi - .pi / 2
-                Circle()
-                    .fill(.tint)
-                    .frame(width: 6, height: 6)
-                    .position(
-                        x: radius + radius * CGFloat(cos(angle)),
-                        y: radius + radius * CGFloat(sin(angle))
-                    )
-            }
-        }
-        .containerBackground(.fill.tertiary, for: .widget)
-        .widgetURL(URL(string: "echoaudio://play"))
     }
 }
 
@@ -113,7 +112,7 @@ struct Echo_Widget: Widget {
             Echo_WidgetEntryView(entry: entry)
         }
         .configurationDisplayName("Echo")
-        .description("Quick access to your current audiobook.")
-        .supportedFamilies([.accessoryCircular])
+        .description("Current audiobook and progress at a glance.")
+        .supportedFamilies([.accessoryCircular, .accessoryRectangular])
     }
 }

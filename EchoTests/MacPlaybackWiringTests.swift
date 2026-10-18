@@ -58,14 +58,17 @@ struct MacPlaybackWiringTests {
             "handleBookmarkLoop must no-op unless the bookmark loop is active.")
     }
 
-    @Test func popoverDemotesBookmarkLoopWhenNoBookmarks() throws {
+    @Test func popoverDemotesBookmarkLoopWhenUnavailable() throws {
         let src = try MacSource.read("Views/MacPlaybackOptionsSheet.swift")
         #expect(
-            src.contains("player.bookmarkStore.bookmarks.isEmpty"),
-            "The loop picker must demote .bookmark to .off when the book has no bookmarks.")
+            src.contains("!player.canBookmarkLoop"),
+            "The loop picker must demote .bookmark to .off when bookmark looping is unavailable.")
         #expect(
             src.contains("selection: loopSelection"),
             "The loop picker must route through the demotion binding, not bind loopMode directly.")
+        #expect(
+            src.contains(".disabled(bookmarkLoopUnavailable)"),
+            "The Bookmark segment must be disabled while bookmark looping is unavailable.")
     }
 
     @Test func tapInstallerExists() throws {
@@ -75,7 +78,26 @@ struct MacPlaybackWiringTests {
             "Boost must use an MTAudioProcessingTap for above-unity gain.")
         #expect(
             src.contains(
-                "func makeAudioMix(for item: AVPlayerItem, gainBox: MacVolumeBoostGainBox)"),
+            "func makeAudioMix(for item: AVPlayerItem, gainBox: MacVolumeBoostGainBox)"),
             "makeAudioMix signature must match the model's call site.")
+    }
+
+    @Test func macPlaybackResumeIsPersistedAndRestored() throws {
+        let src = try MacSource.read("Views/MacPlayerModel.swift")
+        #expect(
+            src.contains("MacPlaybackResumeState.storageKey"),
+            "MacPlayerModel must use the shared macOS resume-state storage key.")
+        #expect(
+            src.contains("persistResumeStateThrottled()"),
+            "The periodic time observer must persist resume progress while playback advances.")
+        #expect(
+            src.contains("persistResumeState()"),
+            "Pause/stop/deinit must flush resume progress before teardown.")
+        #expect(
+            src.contains("matchingTrackIndex("),
+            "Folder and narrated-book reopen must restore the saved track, not only track 0.")
+        #expect(
+            src.contains("restoreResumePositionIfNeeded()"),
+            "Opening a track must seek to the saved position when the resume state matches.")
     }
 }

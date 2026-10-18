@@ -1,0 +1,414 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+import Foundation
+import Testing
+
+@testable import Echo
+
+#if canImport(WebKit)
+import WebKit
+@MainActor
+@Suite struct ReadabilityWebExtractorPolicyTests {
+    @Test func blocksEveryDocumentAndSubresourceClassWithoutAllowingFollowupNavigation() {
+        let rule = ReadabilityWebExtractor.blockingRuleJSON
+
+        for resource in ["document", "image", "style-sheet", "script", "font", "media", "raw", "svg-document"] {
+            #expect(rule.contains("\"\(resource)\""))
+        }
+        #expect(ReadabilityWebExtractor.permitsNavigation(
+            isInitialNavigation: true, isMainFrame: true, hasPendingNavigation: true))
+        #expect(ReadabilityWebExtractor.permitsNavigation(
+            isInitialNavigation: false, isMainFrame: true, hasPendingNavigation: true) == false)
+        #expect(ReadabilityWebExtractor.permitsNavigation(
+            isInitialNavigation: true, isMainFrame: false, hasPendingNavigation: true) == false)
+    }
+
+    @Test func cancellationAndLateCallbackGatesAreOnceOnly() {
+        let active = UUID()
+
+        #expect(ReadabilityWebExtractor.shouldIssueCancellation(alreadyIssued: false))
+        #expect(ReadabilityWebExtractor.shouldIssueCancellation(alreadyIssued: true) == false)
+        #expect(ReadabilityWebExtractor.acceptsCallback(activeToken: active, callbackToken: active))
+        #expect(ReadabilityWebExtractor.acceptsCallback(activeToken: nil, callbackToken: active) == false)
+        #expect(ReadabilityWebExtractor.acceptsCallback(activeToken: UUID(), callbackToken: active) == false)
+    }
+
+    @Test func ruleCancellationAndStaleNavigationCannotResumeNewExtraction() {
+        let cancelled = UUID()
+        let replacement = UUID()
+
+        #expect(ReadabilityWebExtractor.acceptsRuleCallback(
+            activeExtractionID: cancelled, ruleToken: cancelled, callbackToken: cancelled))
+        #expect(ReadabilityWebExtractor.acceptsRuleCallback(
+            activeExtractionID: replacement, ruleToken: cancelled, callbackToken: cancelled) == false)
+        #expect(ReadabilityWebExtractor.acceptsNavigationCallback(
+            activeExtractionID: replacement, navigationToken: cancelled, isActiveWebView: true) == false)
+        #expect(ReadabilityWebExtractor.acceptsNavigationCallback(
+            activeExtractionID: replacement, navigationToken: replacement, isActiveWebView: false) == false)
+        #expect(ReadabilityWebExtractor.canBeginExtraction(activeExtractionID: nil))
+        #expect(ReadabilityWebExtractor.canBeginExtraction(activeExtractionID: replacement) == false)
+    }
+
+    @Test func ruleCompilerCancellationIgnoresLateCallbackAndReleasesSingleFlight() async throws {
+        var callbacks: [@MainActor (Result<WKContentRuleList, Swift.Error>) -> Void] = []
+        let extractor = ReadabilityWebExtractor(
+            sourceProvider: { "unused" },
+            ruleCompiler: { _, completion in callbacks.append(completion) })
+        let first = Task { try await extractor.extract(html: "<p>unused</p>", sourceURL: URL(string: "https://example.test/article")!) }
+        await Task.yield()
+        #expect(callbacks.count == 1)
+        first.cancel()
+        await #expect(throws: CancellationError.self) { try await first.value }
+        callbacks[0](.failure(ReadabilityWebExtractor.Error.ruleCompilationFailed))
+
+        let second = Task { try await extractor.extract(html: "<p>unused</p>", sourceURL: URL(string: "https://example.test/article")!) }
+        await Task.yield()
+        #expect(callbacks.count == 2)
+        second.cancel()
+        await #expect(throws: CancellationError.self) { try await second.value }
+    }
+
+    @Test func delayedCancellationFromPriorExtractionCannotCancelReplacement() async throws {
+        var rules: [@MainActor (Result<WKContentRuleList, Swift.Error>) -> Void] = []
+        var cancellations: [(UUID, @MainActor () -> Void)] = []
+        let extractor = ReadabilityWebExtractor(
+            sourceProvider: { "unused" },
+            ruleCompiler: { _, completion in rules.append(completion) },
+            cancellationScheduler: { id, operation in cancellations.append((id, operation)) })
+        let url = URL(string: "https://example.test/article")!
+        let first = Task { try await extractor.extract(html: "<p>A</p>", sourceURL: url) }
+        try await waitForExtractorCondition { rules.count == 1 }
+        first.cancel()
+        try await waitForExtractorCondition { cancellations.count == 1 }
+        rules[0](.failure(ReadabilityWebExtractor.Error.ruleCompilationFailed))
+        _ = try? await first.value
+
+        let second = Task { try await extractor.extract(html: "<p>B</p>", sourceURL: url) }
+        try await waitForExtractorCondition { rules.count == 2 }
+        cancellations[0].1()
+        #expect(rules.count == 2)
+        second.cancel()
+        try await waitForExtractorCondition { cancellations.count == 2 }
+        cancellations[1].1()
+        _ = try? await second.value
+        rules[1](.failure(ReadabilityWebExtractor.Error.ruleCompilationFailed))
+    }
+
+    private func waitForExtractorCondition(
+        _ predicate: @MainActor @escaping () -> Bool,
+        timeout: Duration = .seconds(1)
+    ) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now + timeout
+        while predicate() == false {
+            guard clock.now < deadline else { throw ExtractorTestError.timedOut }
+            await Task.yield()
+        }
+    }
+}
+
+private enum ExtractorTestError: Swift.Error {
+    case timedOut
+}
+#endif
+
+@Suite(.serialized) struct ArticleURLCaptureServiceTests {
+    @Test func followsAtMostFiveHTTPRedirects() async throws {
+        ArticleURLProtocol.install { request in
+            let hop = Int(request.url?.lastPathComponent ?? "0") ?? 0
+            let destination = URL(string: "https://example.test/redirect/\(hop + 1)")!
+            return .redirect(destination)
+        }
+        defer { ArticleURLProtocol.reset() }
+
+        let service = ArticleURLCaptureService(
+            sessionConfiguration: articleURLProtocolConfiguration(),
+            extractor: fixtureExtractor)
+
+        do {
+            _ = try await service.capture(url: URL(string: "https://example.test/redirect/0")!)
+            Issue.record("Expected redirect limit failure")
+        } catch let error as ArticleURLCaptureService.Error {
+            #expect(error == .tooManyRedirects)
+        }
+        #expect(ArticleURLProtocol.requestCount == ArticleWorkshopLimits.maxRedirects + 1)
+    }
+
+    @Test func rejectsNonHTTPURLAndNonHTMLResponse() async throws {
+        let service = ArticleURLCaptureService(
+            sessionConfiguration: articleURLProtocolConfiguration(),
+            extractor: fixtureExtractor)
+        do {
+            _ = try await service.capture(url: URL(string: "file:///private/article.html")!)
+            Issue.record("Expected URL scheme failure")
+        } catch let error as ArticleURLCaptureService.Error {
+            #expect(error == .unsupportedURL)
+        }
+
+        ArticleURLProtocol.install { _ in .response(status: 200, mimeType: "image/png", data: Data([0])) }
+        defer { ArticleURLProtocol.reset() }
+        do {
+            _ = try await service.capture(url: URL(string: "https://example.test/article")!)
+            Issue.record("Expected MIME failure")
+        } catch let error as ArticleURLCaptureService.Error {
+            #expect(error == .unsupportedContentType)
+        }
+    }
+
+    @Test func stopsReadingResponseAtTwelveMiB() async throws {
+        ArticleURLProtocol.install { _ in
+            .response(
+                status: 200,
+                mimeType: "text/html",
+                data: Data(count: ArticleWorkshopLimits.maxURLResponseBytes + 1))
+        }
+        defer { ArticleURLProtocol.reset() }
+        let service = ArticleURLCaptureService(
+            sessionConfiguration: articleURLProtocolConfiguration(),
+            extractor: fixtureExtractor)
+
+        do {
+            _ = try await service.capture(url: URL(string: "https://example.test/large")!)
+            Issue.record("Expected bounded-response failure")
+        } catch let error as ArticleURLCaptureService.Error {
+            #expect(error == .responseTooLarge)
+        }
+        // The loader's `task.cancel()` is deliberately not asserted here.
+        // `URLProtocol.startLoading()` hands its whole body to URLSession before
+        // the delegate sees a byte, so the transfer is always complete by the
+        // time the size limit trips: a URLProtocol double cannot observe an
+        // early stop. `stopLoading()` is only end-of-life teardown, delivered
+        // once per request whether or not it was cancelled, so counting it
+        // proved nothing while making this test sensitive to callbacks arriving
+        // from outside its own window.
+    }
+
+    @Test func classifiesLoginFormInsteadOfSavingItAsTheArticle() async throws {
+        ArticleURLProtocol.install { _ in
+            .response(
+                status: 200,
+                mimeType: "text/html",
+                data: Data("<html><h1>Sign in</h1><form><input type='password'></form></html>".utf8))
+        }
+        defer { ArticleURLProtocol.reset() }
+        let service = ArticleURLCaptureService(
+            sessionConfiguration: articleURLProtocolConfiguration(),
+            extractor: fixtureExtractor)
+
+        do {
+            _ = try await service.capture(url: URL(string: "https://example.test/article")!)
+            Issue.record("Expected authentication classification")
+        } catch let error as ArticleURLCaptureService.Error {
+            #expect(error == .authenticationRequired(
+                message: "Open this page in Safari to capture the signed-in version."))
+        }
+    }
+
+    @Test func classifiesFormLocalAuthenticationDespiteExplanatoryArticleMarkup() async throws {
+        ArticleURLProtocol.install { _ in
+            .response(status: 200, mimeType: "text/html", data: Data("<main><p>Help signing in.</p><form action='/login'><label>Sign in</label><input type='password'><button type='submit'>Log in</button></form><p>Support text.</p></main>".utf8))
+        }
+        defer { ArticleURLProtocol.reset() }
+        let service = ArticleURLCaptureService(sessionConfiguration: articleURLProtocolConfiguration(), extractor: fixtureExtractor)
+
+        do {
+            _ = try await service.capture(url: URL(string: "https://example.test/article")!)
+            Issue.record("Expected authentication classification")
+        } catch let error as ArticleURLCaptureService.Error {
+            #expect(error == .authenticationRequired(message: "Open this page in Safari to capture the signed-in version."))
+        }
+    }
+
+    @Test func passwordStrengthFormWithoutLoginActionRemainsCapturable() async throws {
+        ArticleURLProtocol.install { _ in
+            .response(status: 200, mimeType: "text/html", data: Data("<main><form><label>Password strength</label><input type='password'><button>Check strength</button></form><p>Educational article.</p></main>".utf8))
+        }
+        defer { ArticleURLProtocol.reset() }
+        let service = ArticleURLCaptureService(sessionConfiguration: articleURLProtocolConfiguration(), extractor: fixtureExtractor)
+        _ = try await service.capture(url: URL(string: "https://example.test/article")!)
+    }
+
+    @Test func passwordFormWithAuthActionClassifiesAuthenticationRequired() async throws {
+        ArticleURLProtocol.install { _ in
+            .response(status: 200, mimeType: "text/html", data: Data("<main><form action='/auth'><input type='password'><input type='submit' value='Continue'></form></main>".utf8))
+        }
+        defer { ArticleURLProtocol.reset() }
+        let service = ArticleURLCaptureService(sessionConfiguration: articleURLProtocolConfiguration(), extractor: fixtureExtractor)
+
+        await #expect(throws: ArticleURLCaptureService.Error.authenticationRequired(message: "Open this page in Safari to capture the signed-in version.")) {
+            _ = try await service.capture(url: URL(string: "https://example.test/article")!)
+        }
+    }
+
+    @Test func loginDemoClassWithoutSemanticControlRemainsCapturable() async throws {
+        ArticleURLProtocol.install { _ in
+            .response(status: 200, mimeType: "text/html", data: Data("<main><form class='login-demo'><label>Password strength</label><input type='password' class='login-demo'><input type='submit' value='Update password' class='login-demo'></form></main>".utf8))
+        }
+        defer { ArticleURLProtocol.reset() }
+        let service = ArticleURLCaptureService(sessionConfiguration: articleURLProtocolConfiguration(), extractor: fixtureExtractor)
+
+        _ = try await service.capture(url: URL(string: "https://example.test/article")!)
+    }
+
+    @Test func nestedLoginButtonClassifiesAuthenticationRequired() async throws {
+        ArticleURLProtocol.install { _ in
+            .response(status: 200, mimeType: "text/html", data: Data("<main><form><input type='password'><button><span>Log in</span></button></form></main>".utf8))
+        }
+        defer { ArticleURLProtocol.reset() }
+        let service = ArticleURLCaptureService(sessionConfiguration: articleURLProtocolConfiguration(), extractor: fixtureExtractor)
+
+        await #expect(throws: ArticleURLCaptureService.Error.authenticationRequired(message: "Open this page in Safari to capture the signed-in version.")) {
+            _ = try await service.capture(url: URL(string: "https://example.test/article")!)
+        }
+    }
+
+    @Test func passwordUpdateSubmitWithoutLoginSemanticsRemainsCapturable() async throws {
+        ArticleURLProtocol.install { _ in
+            .response(status: 200, mimeType: "text/html", data: Data("<main><form><label>Choose a password</label><input type='password'><input type='submit' value='Update password'></form><p>Password-security article.</p></main>".utf8))
+        }
+        defer { ArticleURLProtocol.reset() }
+        let service = ArticleURLCaptureService(sessionConfiguration: articleURLProtocolConfiguration(), extractor: fixtureExtractor)
+
+        _ = try await service.capture(url: URL(string: "https://example.test/article")!)
+    }
+
+    @Test func loginSemanticSubmitClassifiesAuthenticationRequired() async throws {
+        ArticleURLProtocol.install { _ in
+            .response(status: 200, mimeType: "text/html", data: Data("<main><form><input type='password'><input type='submit' value='Log in'></form><p>Article framing.</p></main>".utf8))
+        }
+        defer { ArticleURLProtocol.reset() }
+        let service = ArticleURLCaptureService(sessionConfiguration: articleURLProtocolConfiguration(), extractor: fixtureExtractor)
+
+        await #expect(throws: ArticleURLCaptureService.Error.authenticationRequired(message: "Open this page in Safari to capture the signed-in version.")) {
+            _ = try await service.capture(url: URL(string: "https://example.test/article")!)
+        }
+    }
+
+    @Test func neverRefetchesDuringLaterSnapshotLoad() async throws {
+        ArticleURLProtocol.install { _ in
+            .response(status: 200, mimeType: "text/html", data: Data("<article><p>Stored only once.</p></article>".utf8))
+        }
+        defer { ArticleURLProtocol.reset() }
+        let service = ArticleURLCaptureService(
+            sessionConfiguration: articleURLProtocolConfiguration(),
+            extractor: fixtureExtractor)
+        let payload = try await service.capture(url: URL(string: "https://example.test/article")!)
+        let envelope = ArticleCaptureEnvelope(
+            schemaVersion: 1,
+            captureID: UUID(),
+            capturedAt: .now,
+            method: .urlFetch,
+            sourceApplication: nil,
+            payload: payload)
+
+        _ = try ArticleBlockSanitizer().sanitize(envelope: envelope)
+        #expect(ArticleURLProtocol.requestCount == 1)
+    }
+
+    @Test func clearsInjectedCredentialHeadersAndKeepsReadableLoginMention() async throws {
+        var configuration = articleURLProtocolConfiguration()
+        configuration.httpAdditionalHeaders = ["Authorization": "Bearer secret", "Cookie": "session=secret", "X-Private": "secret"]
+        ArticleURLProtocol.install { request in
+            #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
+            #expect(request.value(forHTTPHeaderField: "Cookie") == nil)
+            #expect(request.value(forHTTPHeaderField: "X-Private") == nil)
+            return .response(
+                status: 200,
+                mimeType: "text/html",
+                data: Data("<article><h1>How sign in works</h1><p>Long readable text.</p><p>More readable text.</p><input type='password'></article>".utf8))
+        }
+        defer { ArticleURLProtocol.reset() }
+        let service = ArticleURLCaptureService(sessionConfiguration: configuration, extractor: fixtureExtractor)
+        _ = try await service.capture(url: URL(string: "https://example.test/author/article")!)
+        #expect(ArticleURLProtocol.requestCount == 1)
+    }
+
+    private var fixtureExtractor: ArticleURLCaptureService.Extractor {
+        { html, url in
+            ReadabilityCapturePayload(
+                sourceURL: url.absoluteString,
+                canonicalURL: url.absoluteString,
+                title: "Fixture",
+                byline: nil,
+                siteName: nil,
+                language: "en",
+                publishedTime: nil,
+                excerpt: nil,
+                contentXHTML: html,
+                textContent: "Stored only once.",
+                imageURLs: [])
+        }
+    }
+}
+
+func articleURLProtocolConfiguration() -> URLSessionConfiguration {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [ArticleURLProtocol.self]
+    return configuration
+}
+
+nonisolated final class ArticleURLProtocol: URLProtocol {
+    enum Reply {
+        case response(status: Int, mimeType: String, data: Data)
+        case redirect(URL)
+    }
+
+    nonisolated(unsafe) private static var handler: ((URLRequest) -> Reply)?
+    nonisolated(unsafe) private static var requests = 0
+    private static let lock = NSLock()
+
+    static var requestCount: Int {
+        lock.lock(); defer { lock.unlock() }
+        return requests
+    }
+
+    static func install(_ handler: @escaping (URLRequest) -> Reply) {
+        lock.lock(); defer { lock.unlock() }
+        self.handler = handler
+        requests = 0
+    }
+
+    static func reset() {
+        lock.lock(); defer { lock.unlock() }
+        handler = nil
+        requests = 0
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let reply: Reply?
+        Self.lock.lock()
+        Self.requests += 1
+        reply = Self.handler?(request)
+        Self.lock.unlock()
+        guard let reply, let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        switch reply {
+        case .redirect(let destination):
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: 302,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Location": destination.absoluteString])!
+            client?.urlProtocol(self, wasRedirectedTo: URLRequest(url: destination), redirectResponse: response)
+        case .response(let status, let mimeType, let data):
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: status,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": mimeType])!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+
+    // URLSession delivers this once per request as end-of-life teardown, for
+    // successful and cancelled transfers alike, on its own loading queue. It
+    // carries no cancellation signal, so — as in this suite's sibling doubles —
+    // there is nothing to record here.
+    override func stopLoading() {}
+}

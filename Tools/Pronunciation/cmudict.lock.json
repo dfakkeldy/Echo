@@ -1,0 +1,14 @@
+{
+  "commit": "74790861f652b15e4ac49015a90074ad62a27690",
+  "dialect": "en-US",
+  "dictionary": {
+    "path": "ThirdParty/CMUdict/cmudict.dict",
+    "sha256": "sha256:81917843c7f44ce2b094ac63873c2c7a4cf802040792c455ba3ca406891c3d22"
+  },
+  "license": {
+    "path": "ThirdParty/CMUdict/LICENSE",
+    "sha256": "sha256:bd4ce8e44170a5f9f481310ca85c51de3c4f851a65e679b40e603b143bd3542a"
+  },
+  "sourceID": "cmudict",
+  "upstreamURL": "https://github.com/cmusphinx/cmudict"
+}

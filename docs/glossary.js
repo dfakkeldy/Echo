@@ -29,7 +29,7 @@
       long: "A well-regarded Swift wrapper around SQLite. It's where Echo keeps bookmarks, flashcards, notes, and alignment data — all on your device, no server involved." },
     { slug: "schema-migration", term: "Schema migration", category: "Technical",
       short: "A versioned, automatic upgrade of the local database's structure when the app gains new features.",
-      long: "When a new Echo version needs a new column or table, a numbered migration (e.g. Schema_V11) updates your existing database in place on first launch, so an app update never loses your data." },
+      long: "When a new Echo version needs a new column or table after the TestFlight baseline, a numbered migration updates your existing database in place on first launch, so an app update never loses your data." },
     { slug: "security-scoped-bookmark", term: "Security-scoped bookmark", category: "Technical",
       short: "A token that lets Echo re-open a file you picked, across restarts, without copying it.",
       long: "An Apple security feature: when you grant Echo access to a file or folder, the app saves a 'security-scoped bookmark' so it can reopen exactly that location later without asking again — while the rest of your disk stays off-limits." },

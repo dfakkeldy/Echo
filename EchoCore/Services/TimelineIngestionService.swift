@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import GRDB
 import os.log
 
 /// Handles SQL persistence of audiobooks, tracks, transcripts, and timeline
 /// items — extracted from PlayerModel to keep it focused on playback orchestration.
-struct TimelineIngestionService {
+nonisolated struct TimelineIngestionService {
 
     private static let logger = Logger(category: "TimelineIngestion")
 
@@ -12,6 +13,7 @@ struct TimelineIngestionService {
 
     /// Saves the current audiobook and its tracks to SQL so the unified timeline
     /// VIEW returns content. Safe to call on every folder load — uses INSERT OR REPLACE.
+    @MainActor
     static func persistAudiobook(
         db: DatabaseService,
         folderURL: URL,
@@ -19,23 +21,46 @@ struct TimelineIngestionService {
         duration: TimeInterval?
     ) {
         let audiobookID = folderURL.absoluteString
-        let title = folderURL.deletingPathExtension().lastPathComponent
+        let folderTitle = folderURL.deletingPathExtension().lastPathComponent
         do {
             let existing = try? AudiobookDAO(db: db.writer).get(audiobookID)
             let isABS = existing?.sourceType == "audiobookshelf"
-            let audiobook = AudiobookRecord(
-                id: audiobookID,
-                title: isABS ? (existing?.title ?? title) : title,
-                author: isABS ? existing?.author : nil,
-                duration: duration ?? 0,
-                fileCount: tracks.count,
-                addedAt: existing?.addedAt ?? Date().ISO8601Format(),
-                sourceType: existing?.sourceType,
-                serverID: existing?.serverID,
-                remoteItemID: existing?.remoteItemID,
-                topicsJSON: existing?.topicsJSON
-            )
-            try AudiobookDAO(db: db.writer).save(audiobook)
+            let resolvedDuration = duration.flatMap(Self.validDuration) ?? existing?.duration ?? 0
+            // Start from the existing row so enrichment written by the Library
+            // rescan or ABS import survives a normal folder re-open. This loader
+            // only owns duration, fileCount, availability, and — for local books
+            // WITH audio — title (the folder is the stable identity there, and a
+            // rescan re-reads audio tags anyway). Audio-less text books keep
+            // their persisted title after the first insert: Library OPF
+            // enrichment replaces the folder-name placeholder, and resetting it
+            // on every open would undo edition grouping. Everything else —
+            // coverArtPath, narrator, author, authorSort, sourceRootID,
+            // topicsJSON, source*, addedAt, lastSeenAt, indexState, textOrigin —
+            // belongs to the enrichment paths. The previous full-record REPLACE
+            // silently wiped them on EVERY play, so the Library shelf lost its
+            // covers and books lost the link to their rescannable root.
+            // (LibraryService.rescan coalesces for exactly this reason.)
+            var audiobook =
+                existing
+                ?? AudiobookRecord(
+                    id: audiobookID,
+                    title: folderTitle,
+                    author: nil,
+                    duration: resolvedDuration,
+                    fileCount: tracks.count,
+                    addedAt: Date().ISO8601Format())
+            if !isABS, !tracks.isEmpty { audiobook.title = folderTitle }
+            audiobook.duration = resolvedDuration
+            audiobook.fileCount = tracks.count
+            audiobook.isAvailable = true
+            if audiobook.coverArtPath == nil,
+                let coverData = EpubCoverResolver.coverData(forAudiobookID: audiobookID)
+            {
+                audiobook.coverArtPath = LibraryCoverStore.writeCover(
+                    coverData,
+                    id: audiobookID,
+                    coversDir: FileLocations.libraryCoversDirectory)
+            }
             let records = tracks.enumerated().map { (i, track) in
                 TrackRecord(
                     id: track.id,
@@ -48,15 +73,69 @@ struct TimelineIngestionService {
                     playlistPosition: nil
                 )
             }
-            try TrackDAO(db: db.writer).deleteAll(for: audiobookID)
-            try TrackDAO(db: db.writer).insertAll(records, audiobookID: audiobookID)
+            let trackDAO = TrackDAO(db: db.writer)
+            try db.writer.write { database in
+                var audiobookRecord = audiobook
+                try audiobookRecord.save(database)
+                try trackDAO.refreshAll(records, audiobookID: audiobookID, in: database)
+            }
         } catch {
             logger.error("Failed to persist audiobook to SQL: \(error.localizedDescription)")
         }
     }
 
+    static func updateAudiobookDuration(
+        db: DatabaseService,
+        audiobookID: String,
+        duration: TimeInterval
+    ) {
+        guard let duration = validDuration(duration) else { return }
+        do {
+            guard var audiobook = try AudiobookDAO(db: db.writer).get(audiobookID) else { return }
+            audiobook.duration = duration
+            try AudiobookDAO(db: db.writer).save(audiobook)
+        } catch {
+            logger.error("Failed to update audiobook duration: \(error.localizedDescription)")
+        }
+    }
+
+    static func persistChapters(
+        db: DatabaseService,
+        audiobookID: String,
+        chapters: [Chapter]
+    ) {
+        let records = chapterRecords(from: chapters, audiobookID: audiobookID)
+        do {
+            try ChapterDAO(db: db.writer).deleteAll(for: audiobookID)
+            try ChapterDAO(db: db.writer).insertAll(records, audiobookID: audiobookID)
+        } catch {
+            logger.error("Failed to persist chapters: \(error.localizedDescription)")
+        }
+    }
+
+    static func chapterRecords(from chapters: [Chapter], audiobookID: String) -> [ChapterRecord] {
+        chapters.enumerated().map { (i, ch) in
+            ChapterRecord(
+                id: nil,
+                audiobookID: audiobookID,
+                title: ch.title ?? "Chapter \(i + 1)",
+                startSeconds: ch.startSeconds,
+                endSeconds: ch.endSeconds,
+                isEnabled: ch.isEnabled,
+                sortOrder: i,
+                playlistPosition: nil
+            )
+        }
+    }
+
+    private static func validDuration(_ duration: TimeInterval) -> TimeInterval? {
+        guard duration.isFinite, duration > 0 else { return nil }
+        return duration
+    }
+
     // MARK: - Transcript persistence
 
+    @MainActor
     static func persistTranscript(
         db: DatabaseService,
         audiobookID: String,
@@ -84,6 +163,11 @@ struct TimelineIngestionService {
 
     /// Ingests timeline items (chapter markers, text segments, etc.) into the
     /// timeline_item table so the unified dual-path feed has data to display.
+    ///
+    /// The entry point is `@MainActor` only to read `db.writer`; the actual
+    /// ingestion runs on the concurrent executor (`ingestItems(writer:...)`)
+    /// so a full-book rebuild never stalls the UI during book load.
+    @MainActor
     static func ingestItems(
         db: DatabaseService,
         audiobookID: String,
@@ -93,10 +177,71 @@ struct TimelineIngestionService {
         enhancedTranscription: [EnhancedTranscriptionSegment],
         folderURL: URL?
     ) async {
+        var staleRetries = 0
+        while !Task.isCancelled {
+            do {
+                try await db.withBackgroundOperation(name: "timeline-ingestion") {
+                    try await ingestItemsOperation(
+                        writer: db.writer, audiobookID: audiobookID, audioURL: audioURL,
+                        chapters: chapters, transcription: transcription,
+                        enhancedTranscription: enhancedTranscription, folderURL: folderURL)
+                }
+                return
+            } catch {
+                if error is AlignmentService.RecalculationError, staleRetries < 2 {
+                    staleRetries += 1
+                    continue
+                }
+                guard db.isWorkDeferred(error), !Task.isCancelled else {
+                    if !(error is CancellationError) {
+                        logger.error("Failed to ingest timeline items: \(error.localizedDescription)")
+                    }
+                    return
+                }
+                if DatabaseWorkContext.token != nil { return }
+                do { try await db.waitUntilForeground() }
+                catch { return }
+            }
+        }
+    }
+
+    /// Off-main ingestion body. GRDB's `DatabaseWriter` is Sendable and runs
+    /// its own serial queue, so every DAO call here is thread-safe; only the
+    /// UI-refresh notification hops back to the main actor.
+    @concurrent
+    static func ingestItems(
+        writer: DatabaseWriter,
+        audiobookID: String,
+        audioURL: URL,
+        chapters: [Chapter],
+        transcription: [TranscriptionSegment],
+        enhancedTranscription: [EnhancedTranscriptionSegment],
+        folderURL: URL?
+    ) async {
+        do {
+            try await ingestItemsOperation(
+                writer: writer, audiobookID: audiobookID, audioURL: audioURL,
+                chapters: chapters, transcription: transcription,
+                enhancedTranscription: enhancedTranscription, folderURL: folderURL)
+        } catch {
+            logger.error("Failed to ingest timeline items: \(error.localizedDescription)")
+        }
+    }
+
+    @concurrent
+    private static func ingestItemsOperation(
+        writer: DatabaseWriter,
+        audiobookID: String,
+        audioURL: URL,
+        chapters: [Chapter],
+        transcription: [TranscriptionSegment],
+        enhancedTranscription: [EnhancedTranscriptionSegment],
+        folderURL: URL?
+    ) async throws {
         let hasTranscript = !transcription.isEmpty
         let hasEnhancedTranscript = !enhancedTranscription.isEmpty
-        let hasEPUB =
-            (try? EPubBlockDAO(db: db.writer).visibleBlocks(for: audiobookID).isEmpty) == false
+        try Task.checkCancellation()
+        let hasEPUB = try EPubBlockDAO(db: writer).hasVisibleBlocks(for: audiobookID)
         let strategy = TimelineIngestionFactory.strategy(
             hasTranscript: hasTranscript,
             hasEnhancedTranscript: hasEnhancedTranscript,
@@ -104,13 +249,13 @@ struct TimelineIngestionService {
         )
 
         // Load EPUB blocks and anchors if available.
-        let epubBlocks: [EPubBlockRecord]? = {
+        let epubBlocks: [EPubBlockRecord]? = try {
             guard hasEPUB, let folderURL else { return nil }
-            return try? EPubBlockDAO(db: db.writer).visibleBlocks(for: folderURL.absoluteString)
+            return try EPubBlockDAO(db: writer).visibleBlocks(for: folderURL.absoluteString)
         }()
-        let alignmentAnchors: [AlignmentAnchorRecord]? = {
+        let alignmentAnchors: [AlignmentAnchorRecord]? = try {
             guard hasEPUB, let folderURL else { return nil }
-            return try? AlignmentAnchorDAO(db: db.writer).anchors(for: folderURL.absoluteString)
+            return try AlignmentAnchorDAO(db: writer).anchors(for: folderURL.absoluteString)
         }()
 
         do {
@@ -126,12 +271,15 @@ struct TimelineIngestionService {
                 flashcards: nil
             )
             guard !items.isEmpty else { return }
-            try TimelineDAO(db: db.writer).deleteAll(for: audiobookID)
-            try TimelineDAO(db: db.writer).ingest(items)
+            try Task.checkCancellation()
+            try await writer.write { db in
+                try TimelineItem.filter(Column("audiobook_id") == audiobookID).deleteAll(db)
+                for var item in items { try item.insert(db) }
+            }
 
             if hasEPUB {
                 // Re-apply interpolations that TimelineIngestionFactory dropped
-                try AlignmentService(db: db.writer, audiobookID: audiobookID).recalculateTimeline()
+                try await AlignmentService(db: writer, audiobookID: audiobookID).recalculateTimelineAsync()
             }
 
             await MainActor.run {
@@ -142,7 +290,7 @@ struct TimelineIngestionService {
                 )
             }
         } catch {
-            logger.error("Failed to ingest timeline items: \(error.localizedDescription)")
+            throw error
         }
     }
 }

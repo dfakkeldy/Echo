@@ -131,6 +131,68 @@ struct ApkgExportServiceTests {
         #expect(cardCount == 3)
     }
 
+    /// Extracts `collection.anki21` from an exported .apkg and returns the
+    /// `due` of its first card.
+    private func firstCardDue(in apkgURL: URL) throws -> Int {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("apkg_due_\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let archive = try Archive(url: apkgURL, accessMode: .read)
+        for entry in archive where entry.type == .file {
+            let dest = tmpDir.appendingPathComponent(entry.path)
+            try FileManager.default.createDirectory(
+                at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+            _ = try archive.extract(entry, to: dest)
+        }
+        var config = Configuration()
+        config.readonly = true
+        let queue = try DatabaseQueue(
+            path: tmpDir.appendingPathComponent("collection.anki21").path, configuration: config)
+        return try queue.read { db in
+            try Int.fetchOne(db, sql: "SELECT due FROM cards LIMIT 1") ?? -1
+        }
+    }
+
+    @Test func exportReviewCardDueReflectsScheduleNotInterval() throws {
+        let writer = try makeTestDB()
+        let deckID = UUID().uuidString
+        let audiobookID = "apkg-due-\(deckID.prefix(8))"
+        // Review card due in ~2 days but with a long previous interval. The bug
+        // exported `interval_days` (365) as the due day; the fix derives ~2 from
+        // `next_review_date`.
+        let twoDaysOut = Date().addingTimeInterval(2 * 86400).ISO8601Format()
+        try writer.write { db in
+            try db.execute(
+                sql:
+                    "INSERT INTO audiobook (id, title, author, duration, added_at) VALUES (?, 'B', 'A', 3600, ?)",
+                arguments: [audiobookID, Date().ISO8601Format()])
+            try db.execute(
+                sql:
+                    "INSERT INTO deck (id, name, source, created_at, modified_at) VALUES (?, 'Due Deck', 'manual', ?, ?)",
+                arguments: [deckID, Date().ISO8601Format(), Date().ISO8601Format()])
+            try db.execute(
+                sql: """
+                    INSERT INTO flashcard (id, audiobook_id, front_text, back_text,
+                        media_timestamp, trigger_timing, next_review_date,
+                        interval_days, ease_factor, repetitions, is_enabled, deck_id,
+                        created_at, modified_at, card_type)
+                    VALUES (?, ?, 'Q', 'A', 0, 'manualOnly', ?, 365, 2.5, 3, 1, ?, ?, ?, 'normal')
+                    """,
+                arguments: [
+                    UUID().uuidString, audiobookID, twoDaysOut, deckID,
+                    Date().ISO8601Format(), Date().ISO8601Format(),
+                ])
+        }
+
+        let apkgURL = try ApkgExportService().export(deckID: deckID, db: writer)
+        defer { try? FileManager.default.removeItem(at: apkgURL) }
+
+        let due = try firstCardDue(in: apkgURL)
+        #expect(due >= 1)
+        #expect(due < 30)
+    }
+
     @Test func exportThrowsForMissingDeck() throws {
         let writer = try makeTestDB()
 
@@ -191,7 +253,7 @@ struct ApkgExportServiceTests {
         )
 
         try writer.write { db in
-            var d = deck
+            let d = deck
             try d.insert(db)
         }
 
@@ -283,5 +345,93 @@ struct ApkgExportServiceTests {
             #expect(distinctCards == cardCount)
             #expect(overlap == 0)
         }
+    }
+
+    @Test func apkgIDAllocatorProducesUniqueNonOverlappingIDsAtSameTimestamp() {
+        let cardCount = 2_000
+        let allocator = ApkgIDAllocator(baseID: 1_780_000_000_000)
+
+        let pairs = (0..<cardCount).map { allocator.ids(forCardAt: $0) }
+        let noteIDs = Set(pairs.map(\.noteID))
+        let cardIDs = Set(pairs.map(\.cardID))
+
+        #expect(noteIDs.count == cardCount)
+        #expect(cardIDs.count == cardCount)
+        #expect(noteIDs.isDisjoint(with: cardIDs))
+    }
+
+    @Test func macApkgExportUsesSharedMonotonicIDAllocator() throws {
+        let source = try MacSource.read("Services/MacApkgExportService.swift")
+
+        #expect(source.contains("ApkgIDAllocator"))
+        #expect(!source.contains("hashValue % 1000"))
+        #expect(!source.contains("timeIntervalSince1970 * 1000) +"))
+    }
+
+    @Test func reviewCardsExportDueFromNextReviewDate() throws {
+        let writer = try makeTestDB()
+        let deckID = UUID().uuidString
+        let audiobookID = "apkg-due-\(deckID.prefix(8))"
+        // Keep the fixture inside due-day 3 instead of exactly on its lower boundary.
+        // Export work may cross a wall-clock second on a loaded CI runner.
+        let nextReviewDate = Date().addingTimeInterval((3 * 86_400) + 3_600).ISO8601Format()
+        try writer.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO audiobook (id, title, author, duration, added_at)
+                    VALUES (?, 'Due Book', 'Author', 3600, ?)
+                    """, arguments: [audiobookID, Date().ISO8601Format()])
+            try db.execute(
+                sql: """
+                    INSERT INTO deck (id, name, source, created_at, modified_at)
+                    VALUES (?, 'Due Deck', 'manual', ?, ?)
+                    """, arguments: [deckID, Date().ISO8601Format(), Date().ISO8601Format()])
+            try db.execute(
+                sql: """
+                    INSERT INTO flashcard (id, audiobook_id, front_text, back_text,
+                        media_timestamp, trigger_timing, next_review_date,
+                        interval_days, ease_factor, repetitions, is_enabled, deck_id,
+                        created_at, modified_at, card_type)
+                    VALUES (?, ?, 'Review', 'Back', 0, 'manualOnly', ?, 30, 2.5, 4, 1, ?, ?, ?, 'normal')
+                    """,
+                arguments: [
+                    UUID().uuidString, audiobookID, nextReviewDate, deckID,
+                    Date().ISO8601Format(), Date().ISO8601Format(),
+                ])
+        }
+
+        let apkgURL = try ApkgExportService().export(deckID: deckID, db: writer)
+        defer { try? FileManager.default.removeItem(at: apkgURL) }
+        let extracted = try extractApkg(apkgURL)
+        defer { try? FileManager.default.removeItem(at: extracted) }
+        var config = Configuration()
+        config.readonly = true
+        let queue = try DatabaseQueue(
+            path: extracted.appendingPathComponent("collection.anki21").path,
+            configuration: config
+        )
+
+        let due = try queue.read { db in
+            try Int.fetchOne(db, sql: "SELECT due FROM cards LIMIT 1")
+        }
+
+        #expect(due == 3)
+    }
+
+    private func extractApkg(_ apkgURL: URL) throws -> URL {
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("apkg_export_extract_\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+
+        let archive = try Archive(url: apkgURL, accessMode: .read)
+        for entry in archive where entry.type == .file {
+            let entryURL = destination.appendingPathComponent(entry.path)
+            try FileManager.default.createDirectory(
+                at: entryURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            _ = try archive.extract(entry, to: entryURL)
+        }
+        return destination
     }
 }

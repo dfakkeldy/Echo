@@ -15,6 +15,7 @@ final class DailyReviewViewModel {
     private let db: DatabaseWriter
     private let folderURL: URL?
     private let logger = Logger(category: "DailyReviewViewModel")
+    @ObservationIgnored private let reviewNotificationsEnabled: @MainActor () -> Bool
 
     @ObservationIgnored var snippetPlayer: SnippetPlayer?
     @ObservationIgnored var onRequestSnippetPlay: ((URL, TimeInterval, TimeInterval) -> Void)?
@@ -32,10 +33,16 @@ final class DailyReviewViewModel {
         currentIndex >= dueCards.count
     }
 
-    init(db: DatabaseWriter, folderURL: URL?, snippetPlayer: SnippetPlayer? = nil) {
+    init(
+        db: DatabaseWriter,
+        folderURL: URL?,
+        snippetPlayer: SnippetPlayer? = nil,
+        reviewNotificationsEnabled: @escaping @MainActor () -> Bool = { false }
+    ) {
         self.db = db
         self.folderURL = folderURL
         self.snippetPlayer = snippetPlayer
+        self.reviewNotificationsEnabled = reviewNotificationsEnabled
     }
 
     func loadDueCards() {
@@ -44,7 +51,10 @@ final class DailyReviewViewModel {
             dueCards = try dao.allDueCards()
             currentIndex = 0
             isRevealed = false
-            ReviewNotificationService.updateNotification(dueCount: dueCards.count)
+            ReviewNotificationService.updateNotification(
+                dueCount: dueCards.count,
+                isEnabled: reviewNotificationsEnabled()
+            )
         } catch {
             logger.error("Failed to load due cards: \(error.localizedDescription)")
             dueCards = []
@@ -69,8 +79,12 @@ final class DailyReviewViewModel {
             let dao = FlashcardDAO(db: db)
             try dao.grade(cardID: card.id, grade: grade, now: Date())  // FSRS (DAO default)
             logFlashcardReviewed(card: card, grade: grade)
+            ReviewPromptManager.shared.recordActivationEvent(.flashcardReviewed)
             let remaining = dueCards.count - (currentIndex + 1)
-            ReviewNotificationService.updateNotification(dueCount: remaining)
+            ReviewNotificationService.updateNotification(
+                dueCount: remaining,
+                isEnabled: reviewNotificationsEnabled()
+            )
         } catch {
             logger.error("Failed to grade card \(card.id): \(error.localizedDescription)")
         }
@@ -92,8 +106,7 @@ final class DailyReviewViewModel {
     private func logFlashcardReviewed(card: Flashcard, grade: Int) {
         let dao = RealTimeEventDAO(db: db)
         do {
-            let meta = try JSONSerialization.data(withJSONObject: ["cardId": card.id, "grade": grade])
-            let metaJSON = String(data: meta, encoding: .utf8)
+            let metaJSON = try FlashcardReviewMetadata(card: card, grade: grade).encodedJSONString()
             let now = Date()
             try dao.log(
                 id: UUID().uuidString,

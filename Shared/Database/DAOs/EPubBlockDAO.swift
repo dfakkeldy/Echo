@@ -4,9 +4,16 @@ import GRDB
 
 /// DAO for EPUB block records — headings, paragraphs, sentences, and images
 /// parsed from the EPUB spine and stored in structural reading order.
-struct EPubBlockDAO {
+///
+/// `nonisolated`: pure GRDB wrapper over a Sendable `DatabaseWriter`, so the
+/// book-load pipeline can call it off the main actor (the project default).
+nonisolated struct EPubBlockDAO {
     let db: DatabaseWriter
-    private static let isoFormatter = ISO8601DateFormatter()
+    // Computed rather than a cached `static let`: `ISO8601DateFormatter` is not
+    // Sendable, and this DAO is `nonisolated` so a shared static instance would be
+    // unsynchronized global mutable state. Construction is cheap; this keeps every
+    // call read-only-safe without an unsafe concurrency escape hatch.
+    private static var isoFormatter: ISO8601DateFormatter { ISO8601DateFormatter() }
 
     // MARK: - Insert
 
@@ -71,6 +78,30 @@ struct EPubBlockDAO {
         }
     }
 
+    /// Whether any visible block exists for an audiobook. Use this for
+    /// "already imported?" checks instead of `visibleBlocks(for:).isEmpty` —
+    /// the latter decodes every block row (full chapter text included) just to
+    /// test emptiness, which stalls the load path on large books.
+    /// Whether ANY block (hidden included) exists for an audiobook — the
+    /// "has this document ever been imported?" probe. Hidden blocks count:
+    /// a user who excluded every chapter still has an imported book.
+    func hasBlocks(for audiobookID: String) throws -> Bool {
+        try db.read { db in
+            try EPubBlockRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .isEmpty(db) == false
+        }
+    }
+
+    func hasVisibleBlocks(for audiobookID: String) throws -> Bool {
+        try db.read { db in
+            try EPubBlockRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .filter(Column("is_hidden") == false)
+                .isEmpty(db) == false
+        }
+    }
+
     /// Visible blocks for feed display (excludes hidden).
     func visibleBlocks(for audiobookID: String) throws -> [EPubBlockRecord] {
         try db.read { db in
@@ -103,6 +134,7 @@ struct EPubBlockDAO {
         return try db.read { db in
             try EPubBlockRecord
                 .filter(Column("audiobook_id") == audiobookID)
+                .filter(Column("is_hidden") == false)
                 .filter(Column("text").like("%\(escaped)%", escape: "\\"))
                 .order(Column("sequence_index"))
                 .fetchAll(db)

@@ -9,7 +9,6 @@ protocol WatchCommandRoutingFacade: AnyObject {
     var durationSeconds: Double? { get }
     var speed: Float { get }
     var watchCommandOutputGain: Float { get }
-    var watchThumbnailData: Data? { get }
     var crownScrubSensitivity: Double { get }
     var crownVolumeSensitivity: Double { get }
 
@@ -32,8 +31,10 @@ protocol WatchCommandRoutingFacade: AnyObject {
     func toggleSleepTimer()
     func addBookmarkFromWatchCommand()
     func addWatchBookmark(from payload: [String: Any])
+    func markPassageFromWatchCommand()
     func gradeFlashcard(cardID: String, grade: Int)
     func watchStateContext() -> [String: Any]
+    func resendWatchThumbnail(watchHeldArtworkSequence: Double, currentArtworkSequence: Double?)
 }
 
 @MainActor
@@ -73,17 +74,23 @@ final class WatchCommandRouter {
             case "scrubDelta":
                 if let delta = message["delta"] as? Double {
                     let sensitivity = facade.crownScrubSensitivity
-                    let multiplier = sensitivity > 0 ? sensitivity : SettingsManager.Defaults.crownScrubSensitivity
+                    let multiplier =
+                        sensitivity > 0
+                        ? sensitivity : SettingsManager.Defaults.crownScrubSensitivity
                     let duration = facade.durationSeconds ?? 0
-                    let target = max(0, min(duration, facade.currentPlaybackTime + (delta * 30.0 * multiplier)))
+                    let target = max(
+                        0, min(duration, facade.currentPlaybackTime + (delta * 30.0 * multiplier)))
                     facade.seek(toSeconds: target)
                 }
             case "volumeDelta":
                 if let delta = message["delta"] as? Double {
-                    let sensitivity = facade.crownVolumeSensitivity
-                    let multiplier = sensitivity > 0 ? sensitivity : SettingsManager.Defaults.crownVolumeSensitivity
-                    let newGain = max(-40, min(9, facade.watchCommandOutputGain + Float(delta * 6 * multiplier)))
-                    facade.setWatchCommandOutputGain(newGain)
+                    // Shared formula: the watch mirrors this exact computation for
+                    // its optimistic volume indicator and step haptics.
+                    let newGain = WatchCrownVolume.applying(
+                        delta: delta,
+                        sensitivity: facade.crownVolumeSensitivity,
+                        to: Double(facade.watchCommandOutputGain))
+                    facade.setWatchCommandOutputGain(Float(newGain))
                 }
             case "toggle":
                 facade.togglePlayPause()
@@ -118,13 +125,16 @@ final class WatchCommandRouter {
                 facade.toggleSleepTimer()
             case "addBookmark":
                 facade.addBookmarkFromWatchCommand()
+            case "markPassage":
+                facade.markPassageFromWatchCommand()
             case "addWatchTextBookmark":
                 facade.addWatchBookmark(from: message)
             case "addWatchVoiceBookmark":
                 addWatchVoiceBookmark(from: message)
             case "gradeFlashcard":
                 if let cardID = message["cardID"] as? String,
-                   let grade = message["grade"] as? Int {
+                    let grade = message["grade"] as? Int
+                {
                     facade.gradeFlashcard(cardID: cardID, grade: grade)
                 }
             case "requestState":
@@ -135,11 +145,17 @@ final class WatchCommandRouter {
         }
 
         var reply = facade.watchStateContext()
-        if let thumbnailData = facade.watchThumbnailData {
-            reply["thumbnailData"] = thumbnailData
-        }
         if let commandResult {
             reply["commandResult"] = commandResult
+        }
+        // The watch reports which artwork transfer it last applied (0 = none).
+        // Compare against the reply's artworkSeq — not a value captured before
+        // the reply was built — so a sequence stamped during context assembly
+        // can't orphan the re-sent thumbnail behind a newer state.
+        if let watchHeldArtworkSequence = (message["watchArtworkSeq"] as? NSNumber)?.doubleValue {
+            facade.resendWatchThumbnail(
+                watchHeldArtworkSequence: watchHeldArtworkSequence,
+                currentArtworkSequence: (reply["artworkSeq"] as? NSNumber)?.doubleValue)
         }
         replyHandler?(reply)
     }
@@ -149,7 +165,7 @@ final class WatchCommandRouter {
     /// after a delay still does the right thing. Everything else is transport,
     /// navigation, seek, speed or sleep-timer state that is only valid "right now".
     private static let deferredSafeCommands: Set<String> = [
-        "addBookmark", "addWatchTextBookmark", "addWatchVoiceBookmark", "gradeFlashcard"
+        "addBookmark", "addWatchTextBookmark", "addWatchVoiceBookmark", "gradeFlashcard",
     ]
 
     /// Routes a payload that arrived via the persistent background queue
@@ -161,20 +177,25 @@ final class WatchCommandRouter {
     /// flow through `route(message:replyHandler:)`.
     func route(queuedMessage message: [String: Any]) {
         guard let command = message[WatchMessageKey.command] as? String,
-              Self.deferredSafeCommands.contains(command) else {
+            Self.deferredSafeCommands.contains(command)
+        else {
             return
         }
         route(message: message)
     }
 
     func handleFile(_ file: WCSessionFile) {
-        guard let command = file.metadata?[WatchMessageKey.command] as? String, command == "addWatchVoiceBookmark" else {
+        guard let command = file.metadata?[WatchMessageKey.command] as? String,
+            command == "addWatchVoiceBookmark"
+        else {
             return
         }
 
-        let fileName = (file.metadata?["voiceMemoFileName"] as? String) ?? file.fileURL.lastPathComponent
+        let fileName =
+            (file.metadata?["voiceMemoFileName"] as? String) ?? file.fileURL.lastPathComponent
         let safeFileName = URL(fileURLWithPath: fileName).lastPathComponent
-        let destinationURL = Bookmark.legacyVoiceMemoDirectory().appendingPathComponent(safeFileName)
+        let destinationURL = Bookmark.legacyVoiceMemoDirectory().appendingPathComponent(
+            safeFileName)
 
         do {
             if FileManager.default.fileExists(atPath: destinationURL.path) {
@@ -182,7 +203,8 @@ final class WatchCommandRouter {
             }
             try FileManager.default.copyItem(at: file.fileURL, to: destinationURL)
         } catch {
-            os_log(.error, "Watch voice bookmark copy failed: %{private}@", error.localizedDescription)
+            os_log(
+                .error, "Watch voice bookmark copy failed: %{private}@", error.localizedDescription)
             return
         }
 
@@ -197,28 +219,45 @@ final class WatchCommandRouter {
             return
         }
 
-        let fileName = (payload["voiceMemoFileName"] as? String) ?? "watch-memo-\(UUID().uuidString).m4a"
+        let fileName =
+            (payload["voiceMemoFileName"] as? String) ?? "watch-memo-\(UUID().uuidString).m4a"
         let safeFileName = URL(fileURLWithPath: fileName).lastPathComponent
-        let destinationURL = Bookmark.legacyVoiceMemoDirectory().appendingPathComponent(safeFileName)
+        let destinationURL = Bookmark.legacyVoiceMemoDirectory().appendingPathComponent(
+            safeFileName)
         var metadata = payload
         metadata["voiceMemoFileName"] = safeFileName
         metadata.removeValue(forKey: "voiceMemoData")
 
+        // Stay on the main actor for the facade call: `facade` and `metadata` are
+        // non-Sendable and must not be captured into an off-actor task. Only the
+        // file write is offloaded (via the `@concurrent` helper below, which takes
+        // Sendable `Data`/`URL` and returns a Sendable `Bool`), then we resume here
+        // on the main actor to hand the bookmark to the facade.
         let routingFacade = facade
-        Task.detached(priority: .utility) {
-            do {
-                if FileManager.default.fileExists(atPath: destinationURL.path) {
-                    try FileManager.default.removeItem(at: destinationURL)
-                }
-                try voiceMemoData.write(to: destinationURL, options: .atomic)
-            } catch {
-                os_log(.error, "Watch voice bookmark write failed: %{private}@", error.localizedDescription)
-                return
-            }
+        Task { @MainActor in
+            guard await Self.writeVoiceMemo(voiceMemoData, to: destinationURL) else { return }
+            routingFacade.addWatchBookmark(from: metadata)
+        }
+    }
 
-            await MainActor.run {
-                routingFacade.addWatchBookmark(from: metadata)
+    /// Writes the voice-memo data off the main actor. Returns `true` on success.
+    /// `@concurrent` so the disk I/O runs on the global executor; all parameters and
+    /// the result are `Sendable`, so nothing crosses isolation unsafely.
+    @concurrent
+    private nonisolated static func writeVoiceMemo(_ data: Data, to destinationURL: URL) async
+        -> Bool
+    {
+        do {
+            if FileManager.default.fileExists(atPath: destinationURL.path) {
+                try FileManager.default.removeItem(at: destinationURL)
             }
+            try data.write(to: destinationURL, options: .atomic)
+            return true
+        } catch {
+            os_log(
+                .error, "Watch voice bookmark write failed: %{private}@",
+                error.localizedDescription)
+            return false
         }
     }
 }

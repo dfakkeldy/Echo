@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
-struct TokenDTW {
-    struct EPubToken {
+nonisolated struct TokenDTW {
+    struct EPubToken: Sendable {
         let text: String
         let blockID: String
     }
 
-    struct AudioToken {
+    struct AudioToken: Sendable {
         let text: String
         let time: TimeInterval
     }
@@ -19,7 +19,7 @@ struct TokenDTW {
     /// the block's first strong token match, back-projected by
     /// `firstMatchTokenIndex × local speech rate` when the match starts
     /// mid-block (e.g. the opening words were mistranscribed).
-    struct AnchorCandidate: Equatable {
+    struct AnchorCandidate: Equatable, Sendable {
         let blockID: String
         let time: TimeInterval
         /// Length of the contiguous strong-match run (exact or prefix token
@@ -101,11 +101,27 @@ struct TokenDTW {
         epub: [EPubToken],
         audio: [AudioToken]
     ) -> [AnchorCandidate] {
-        let n = epub.count
-        let m = audio.count
-        guard n > 0, m > 0 else { return [] }
+        guard !epub.isEmpty, !audio.isEmpty else { return [] }
 
         let matches = backtrackPath(epub: epub, audio: audio)
+        return anchorCandidates(from: matches, epub: epub, audio: audio)
+    }
+
+    static func alignCandidatesCancellable(
+        epub: [EPubToken],
+        audio: [AudioToken]
+    ) throws -> [AnchorCandidate] {
+        guard !epub.isEmpty, !audio.isEmpty else { return [] }
+
+        let matches = try backtrackPathCancellable(epub: epub, audio: audio)
+        return anchorCandidates(from: matches, epub: epub, audio: audio)
+    }
+
+    private static func anchorCandidates(
+        from matches: [PathMatch],
+        epub: [EPubToken],
+        audio: [AudioToken]
+    ) -> [AnchorCandidate] {
         let (runIDs, runs) = strongRuns(matches, audio: audio)
         let tokenIndexInBlock = tokenIndicesWithinBlocks(epub)
 
@@ -151,14 +167,14 @@ struct TokenDTW {
 
     /// One step of the alignment path: an EPUB token aligned diagonally with an
     /// audio token, flagged `strong` when it is an exact or prefix match.
-    private struct PathMatch {
+    private struct PathMatch: Sendable {
         let epubIndex: Int
         let audioIndex: Int
         let strong: Bool
     }
 
     /// A maximal run of path-adjacent strong matches and its time span.
-    private struct RunStats {
+    private struct RunStats: Sendable {
         var count: Int
         var firstTime: TimeInterval
         var lastTime: TimeInterval
@@ -168,9 +184,27 @@ struct TokenDTW {
     /// Extracted verbatim from `alignCandidates` so candidate emission is
     /// byte-for-byte unchanged; `wordMatches` reuses the same path.
     private static func backtrackPath(epub: [EPubToken], audio: [AudioToken]) -> [PathMatch] {
+        backtrackPathCore(epub: epub, audio: audio) {}
+    }
+
+    private static func backtrackPathCancellable(
+        epub: [EPubToken],
+        audio: [AudioToken]
+    ) throws -> [PathMatch] {
+        try backtrackPathCore(epub: epub, audio: audio) {
+            try Task.checkCancellation()
+        }
+    }
+
+    private static func backtrackPathCore(
+        epub: [EPubToken],
+        audio: [AudioToken],
+        checkCancellation: () throws -> Void
+    ) rethrows -> [PathMatch] {
         let n = epub.count
         let m = audio.count
         guard n > 0, m > 0 else { return [] }
+        try checkCancellation()
 
         // ── DP forward pass (two rolling cost rows, full direction matrix) ──
         var cost0 = [Int32](repeating: .max / 2, count: m + 1)
@@ -178,12 +212,28 @@ struct TokenDTW {
         var dir = [Int8](repeating: 0, count: (n + 1) * (m + 1))
 
         cost0[0] = 0
-        for j in 1...m { cost0[j] = Int32(j) * Cost.gap }
+        let cancellationCheckInterval = 4_096
+        var cellsUntilCancellationCheck = cancellationCheckInterval
+        for j in 1...m {
+            cellsUntilCancellationCheck -= 1
+            if cellsUntilCancellationCheck == 0 {
+                try checkCancellation()
+                cellsUntilCancellationCheck = cancellationCheckInterval
+            }
+            cost0[j] = Int32(j) * Cost.gap
+        }
 
         for i in 1...n {
+            try checkCancellation()
             cost1[0] = Int32(i) * Cost.gap
             let eToken = epub[i - 1].text
             for j in 1...m {
+                cellsUntilCancellationCheck -= 1
+                if cellsUntilCancellationCheck == 0 {
+                    try checkCancellation()
+                    cellsUntilCancellationCheck = cancellationCheckInterval
+                }
+
                 let aToken = audio[j - 1].text
                 let matchCost: Int32
                 if eToken == aToken {
@@ -217,7 +267,14 @@ struct TokenDTW {
         var matches: [PathMatch] = []
         var i = n
         var j = m
+        var stepsUntilCancellationCheck = cancellationCheckInterval
         while i > 0 && j > 0 {
+            stepsUntilCancellationCheck -= 1
+            if stepsUntilCancellationCheck == 0 {
+                try checkCancellation()
+                stepsUntilCancellationCheck = cancellationCheckInterval
+            }
+
             let idx = i * (m + 1) + j
             switch dir[idx] {
             case 0:
@@ -235,6 +292,7 @@ struct TokenDTW {
                 i -= 1
             }
         }
+        try checkCancellation()
         matches.reverse()
         return matches
     }
@@ -288,7 +346,7 @@ struct TokenDTW {
 
     /// One strong DTW token match mapped to its position within a block and to
     /// the audio time WhisperKit reported for the matching word.
-    struct WordMatch: Equatable {
+    struct WordMatch: Equatable, Sendable {
         let blockID: String
         let wordIndexInBlock: Int
         let token: String
@@ -307,6 +365,23 @@ struct TokenDTW {
     static func wordMatches(epub: [EPubToken], audio: [AudioToken]) -> [WordMatch] {
         guard !epub.isEmpty, !audio.isEmpty else { return [] }
         let matches = backtrackPath(epub: epub, audio: audio)
+        return wordMatches(from: matches, epub: epub, audio: audio)
+    }
+
+    static func wordMatchesCancellable(
+        epub: [EPubToken],
+        audio: [AudioToken]
+    ) throws -> [WordMatch] {
+        guard !epub.isEmpty, !audio.isEmpty else { return [] }
+        let matches = try backtrackPathCancellable(epub: epub, audio: audio)
+        return wordMatches(from: matches, epub: epub, audio: audio)
+    }
+
+    private static func wordMatches(
+        from matches: [PathMatch],
+        epub: [EPubToken],
+        audio: [AudioToken]
+    ) -> [WordMatch] {
         let (runIDs, runs) = strongRuns(matches, audio: audio)
         let tokenIndexInBlock = tokenIndicesWithinBlocks(epub)
         var result: [WordMatch] = []
@@ -321,6 +396,80 @@ struct TokenDTW {
                     runLength: runs[runIDs[k]].count))
         }
         return result
+    }
+
+    @concurrent
+    nonisolated static func wordMatchesWithBisectionCancellable(
+        epub: [EPubToken],
+        audio: [AudioToken],
+        maxCells: Int = 48_000_000,
+        slackBlocks: Int = 12
+    ) async throws -> [WordMatch] {
+        try Task.checkCancellation()
+        guard !epub.isEmpty, !audio.isEmpty else { return [] }
+        guard epub.count * audio.count > maxCells, audio.count >= 8 else {
+            return try wordMatchesCancellable(epub: epub, audio: audio)
+        }
+
+        let lower = audio.count / 3
+        let upper = (audio.count * 2) / 3
+        var splitIndex = audio.count / 2
+        var widestGap = -1.0
+        for k in lower..<max(lower + 1, upper) where k + 1 < audio.count {
+            let gap = audio[k + 1].time - audio[k].time
+            if gap > widestGap {
+                widestGap = gap
+                splitIndex = k + 1
+            }
+        }
+
+        let audioFirst = Array(audio[..<splitIndex])
+        let audioSecond = Array(audio[splitIndex...])
+
+        var blockStartIndices: [Int] = []
+        var lastBlockID: String?
+        for (index, token) in epub.enumerated() where token.blockID != lastBlockID {
+            blockStartIndices.append(index)
+            lastBlockID = token.blockID
+        }
+
+        try Task.checkCancellation()
+        let pivot = Int(Double(splitIndex) / Double(audio.count) * Double(epub.count))
+        let pivotOrdinal = blockStartIndices.lastIndex { $0 <= pivot } ?? 0
+        let firstCutOrdinal = pivotOrdinal + slackBlocks + 1
+        let epubFirstEnd =
+            firstCutOrdinal < blockStartIndices.count
+            ? blockStartIndices[firstCutOrdinal] : epub.count
+        let epubSecondStart = blockStartIndices[max(0, pivotOrdinal - slackBlocks)]
+
+        let first = try await wordMatchesWithBisectionCancellable(
+            epub: Array(epub[..<epubFirstEnd]), audio: audioFirst,
+            maxCells: maxCells, slackBlocks: slackBlocks
+        )
+        try Task.checkCancellation()
+        let second = try await wordMatchesWithBisectionCancellable(
+            epub: Array(epub[epubSecondStart...]), audio: audioSecond,
+            maxCells: maxCells, slackBlocks: slackBlocks
+        )
+
+        // Merge overlapping word matches: same (block, word position) keeps the
+        // longer run. Preserve first-seen order so block grouping downstream is
+        // stable.
+        var merged: [WordMatchKey: WordMatch] = [:]
+        var order: [WordMatchKey] = []
+        for match in first + second {
+            let key = WordMatchKey(blockID: match.blockID, wordIndex: match.wordIndexInBlock)
+            if let existing = merged[key] {
+                if match.runLength > existing.runLength {
+                    merged[key] = match
+                }
+            } else {
+                merged[key] = match
+                order.append(key)
+            }
+        }
+        try Task.checkCancellation()
+        return order.compactMap { merged[$0] }
     }
 
     /// Memory-guarded wrapper around `wordMatches`, mirroring
@@ -406,7 +555,7 @@ struct TokenDTW {
 
     /// Identity of a word match within a block, for de-duplicating the bisection
     /// overlap region.
-    private struct WordMatchKey: Hashable {
+    private struct WordMatchKey: Hashable, Sendable {
         let blockID: String
         let wordIndex: Int
     }
@@ -482,6 +631,76 @@ struct TokenDTW {
                 order.append(candidate.blockID)
             }
         }
+        return order.compactMap { merged[$0] }
+    }
+
+    @concurrent
+    nonisolated static func alignWithBisectionCancellable(
+        epub: [EPubToken],
+        audio: [AudioToken],
+        maxCells: Int = 48_000_000,
+        slackBlocks: Int = 12
+    ) async throws -> [AnchorCandidate] {
+        try Task.checkCancellation()
+        guard !epub.isEmpty, !audio.isEmpty else { return [] }
+        guard epub.count * audio.count > maxCells, audio.count >= 8 else {
+            return try alignCandidatesCancellable(epub: epub, audio: audio)
+        }
+
+        let lower = audio.count / 3
+        let upper = (audio.count * 2) / 3
+        var splitIndex = audio.count / 2
+        var widestGap = -1.0
+        for k in lower..<max(lower + 1, upper) where k + 1 < audio.count {
+            let gap = audio[k + 1].time - audio[k].time
+            if gap > widestGap {
+                widestGap = gap
+                splitIndex = k + 1
+            }
+        }
+
+        let audioFirst = Array(audio[..<splitIndex])
+        let audioSecond = Array(audio[splitIndex...])
+
+        var blockStartIndices: [Int] = []
+        var lastBlockID: String?
+        for (index, token) in epub.enumerated() where token.blockID != lastBlockID {
+            blockStartIndices.append(index)
+            lastBlockID = token.blockID
+        }
+
+        try Task.checkCancellation()
+        let pivot = Int(Double(splitIndex) / Double(audio.count) * Double(epub.count))
+        let pivotOrdinal = blockStartIndices.lastIndex { $0 <= pivot } ?? 0
+        let firstCutOrdinal = pivotOrdinal + slackBlocks + 1
+        let epubFirstEnd =
+            firstCutOrdinal < blockStartIndices.count
+            ? blockStartIndices[firstCutOrdinal] : epub.count
+        let epubSecondStart = blockStartIndices[max(0, pivotOrdinal - slackBlocks)]
+
+        let first = try await alignWithBisectionCancellable(
+            epub: Array(epub[..<epubFirstEnd]), audio: audioFirst,
+            maxCells: maxCells, slackBlocks: slackBlocks
+        )
+        try Task.checkCancellation()
+        let second = try await alignWithBisectionCancellable(
+            epub: Array(epub[epubSecondStart...]), audio: audioSecond,
+            maxCells: maxCells, slackBlocks: slackBlocks
+        )
+
+        var merged: [String: AnchorCandidate] = [:]
+        var order: [String] = []
+        for candidate in first + second {
+            if let existing = merged[candidate.blockID] {
+                if candidate.exactRunLength > existing.exactRunLength {
+                    merged[candidate.blockID] = candidate
+                }
+            } else {
+                merged[candidate.blockID] = candidate
+                order.append(candidate.blockID)
+            }
+        }
+        try Task.checkCancellation()
         return order.compactMap { merged[$0] }
     }
 }

@@ -13,7 +13,13 @@
 import AVFoundation
 import AppKit
 import Foundation
+import GRDB
+import ImageIO
+import LocalAuthentication
 import Observation
+import Security
+import SwiftUI
+import Synchronization
 import UniformTypeIdentifiers
 import os.log
 
@@ -50,6 +56,27 @@ final class MacPlayerModel {
     private(set) var isPlaying: Bool = false
     private(set) var currentTime: Double = 0
     private(set) var duration: Double = 0
+    /// Cover art for the current file, surfaced to the macOS Now Playing (Media
+    /// Center) info. Sourced from the audio file's embedded artwork with a
+    /// folder-cover fallback — the same embedded→folder priority iOS uses (see
+    /// `ArtworkCache`, which is UIKit-only and excluded from the macOS target).
+    /// `nil` until loaded, or when neither source has artwork.
+    private(set) var coverImage: NSImage?
+    /// Identity hues of `coverImage`, extracted on the same off-main pass that
+    /// decodes it (never on the UI actor). Drives the cover-derived app tint
+    /// via `MacCoverTint`. `nil` whenever `coverImage` is, and for artwork the
+    /// extractor judges to carry no usable hue.
+    private(set) var coverSignature: CoverSignature?
+    /// Memoized `coverTheme(vividAccent:scheme:)` result and the inputs it was
+    /// built from. `@ObservationIgnored` because these are a cache, not state:
+    /// publishing them would re-render every observer each time the cache
+    /// filled, from inside the very body evaluation that filled it.
+    @ObservationIgnored private var cachedCoverTheme: CoverTheme?
+    @ObservationIgnored private var cachedCoverThemeKey: CoverThemeKey?
+    /// Author/artist for the current book, surfaced as the Now Playing
+    /// album/subtitle line. Extracted from the audio file's metadata alongside
+    /// the cover art. `nil` when the file has no artist metadata.
+    private(set) var currentAuthor: String?
     /// The folder URL that contains the audiobook files. Used as the
     /// `audiobookID` for GRDB queries against the shared database.
     private(set) var folderURL: URL?
@@ -71,6 +98,11 @@ final class MacPlayerModel {
     /// skip commands. User-configurable via the macOS Playback Options sheet
     /// (default 15). The fixed ±30s "long skip" menu commands ignore this.
     var skipInterval: Int = 15
+    /// Seconds for the *backward* skip transport button / menu command, sourced
+    /// from `settings.seekBackwardDuration`. iOS keeps forward/backward intervals
+    /// independent; macOS previously reused `skipInterval` for both and silently
+    /// ignored the persisted Skip-Backward setting.
+    var skipBackInterval: Int = 15
     /// Injected once by `MacTriPaneView.task` (same pattern as `dbService`).
     /// On assignment we adopt the user's persisted skip interval and default
     /// speed so the macOS Settings → Playback pane (WS-J) actually drives playback.
@@ -79,12 +111,16 @@ final class MacPlayerModel {
     }
 
     private func applySettings() {
-        guard let seek = settings?.seekForwardDuration else { return }
-        skipInterval = seek
+        guard let settings else { return }
+        skipInterval = settings.seekForwardDuration
+        skipBackInterval = settings.seekBackwardDuration
+        // Drive the output-boost gain from settings (was hardcoded at +9 dB); the
+        // `volumeBoostGain` didSet re-applies the audio mix when boost is enabled.
+        volumeBoostGain = settings.volumeBoostGain
         // playbackRate's setter only touches `player.rate` while playing, so it is
         // safe to seed before play(); play() re-applies `playbackRate` on start.
-        if !isPlaying, let speed = settings?.defaultPlaybackSpeed {
-            playbackRate = Float(speed)
+        if !isPlaying {
+            playbackRate = Float(settings.defaultPlaybackSpeed)
         }
     }
     /// Whether the +N dB output boost is applied to the AVPlayer audio path.
@@ -107,18 +143,22 @@ final class MacPlayerModel {
     /// Shared bookmark store backed by the database.
     private(set) var bookmarkStore = BookmarkStore()
     /// Database service for bookmark persistence. Set by the app entry point.
-    var dbService: DatabaseService?
+    var dbService: DatabaseService? {
+        didSet { configureStudyCheckpoint() }
+    }
 
     // MARK: - Shared Services (Phase 3)
 
     /// Sleep timer with phase-based triggers (end-of-chapter, custom duration).
     let sleepTimer = SleepTimerManager()
-    /// Smart rewind policy — rewinds a few seconds on resume.
-    let smartRewind = SmartRewindPolicy(
-        secondsThreshold: 30, secondsAmount: 3,
-        minutesThreshold: 300, minutesAmount: 10,
-        hoursThreshold: 3600, hoursAmount: 30
-    )
+    /// Chapter-checkpoint state machine. Created when the database arrives; the
+    /// tri-pane panel observes its state.
+    private(set) var checkpointCoordinator: StudyCheckpointCoordinator?
+    @ObservationIgnored private let checkpointAnnouncer = StudyCheckpointAnnouncer()
+    // Smart rewind is built per-resume from `settings` and gated on
+    // `isRewindEnabled` (default OFF, matching iOS) — see `smartRewindAmount`.
+    // The previous hardcoded policy ran unconditionally and used seconds where the
+    // minute/hour tiers expect minutes/hours, so those tiers never fired.
     /// When playback was last paused (for smart-rewind calculation).
     private var pausedAt: Date?
     /// macOS Media Center / Now Playing metadata bridge.
@@ -148,6 +188,8 @@ final class MacPlayerModel {
     private(set) var currentChapterIndex: Int = 0
     /// Token guarding async chapter loads against a file swapped mid-load.
     private var chapterLoadToken = UUID()
+    /// Token guarding async cover-art loads against a file swapped mid-load.
+    private var artworkLoadToken = UUID()
     /// Title of the open file, captured before chapters override `currentTitle`.
     /// Restored when chapters are absent so the UI never shows a stale chapter name.
     private var fileTitle: String = "No audiobook loaded"
@@ -155,6 +197,10 @@ final class MacPlayerModel {
     /// True when the open file exposes navigable M4B chapters.
     /// When false, callers fall back to across-file track navigation.
     var hasChapters: Bool { chapters.count >= 2 }
+    /// True when bookmark looping has at least one enabled A/B segment.
+    var canBookmarkLoop: Bool {
+        bookmarkStore.bookmarks.filter { $0.isEnabled && $0.timestamp.isFinite }.count >= 2
+    }
     /// True when a previous chapter exists for in-file navigation.
     var hasPreviousChapter: Bool { hasChapters && currentChapterIndex > 0 }
     /// True when a next chapter exists for in-file navigation.
@@ -164,6 +210,31 @@ final class MacPlayerModel {
 
     var hasMedia: Bool { currentURL != nil }
     var hasMultipleTracks: Bool { tracks.count > 1 }
+
+    // MARK: Reader-source routing
+
+    /// Monotonically increasing counter bumped after transcript materialization
+    /// so `hasEPUB` (which observes it via SwiftUI's `@Observable` tracking)
+    /// re-evaluates and the reader pane switches from "no content" to "blocks
+    /// available".
+    var documentIngestionTrigger = 0
+
+    /// True when the loaded book has EPUB/PDF source text (visible blocks exist).
+    /// Accesses `documentIngestionTrigger` so the observation system tracks it
+    /// and SwiftUI views re-evaluate on bump.
+    var hasEPUB: Bool {
+        _ = documentIngestionTrigger
+        guard let db = dbService, let id = audiobookID else { return false }
+        return ((try? EPubBlockDAO(db: db.writer).count(for: id)) ?? 0) > 0
+    }
+
+    /// Call after transcript materialization or any other event that creates
+    /// `epub_block` rows for a previously audio-only book. Increments the trigger
+    /// counter so `hasEPUB` observers re-compute.
+    func bumpDocumentIngestionTrigger() {
+        documentIngestionTrigger += 1
+    }
+
     var progressFraction: Double {
         guard duration > 0 else { return 0 }
         return min(1, max(0, currentTime / duration))
@@ -175,15 +246,53 @@ final class MacPlayerModel {
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var currentScopedURL: URL?
+    private var libraryRootScopedURL: URL?
+    private var hasLibraryRootScope = false
     private let defaults = AppGroupDefaults.shared
     private let bookmarksKey = "mac.bookmarks.v1"
-    private let lastFileKey = "mac.lastFileBookmark.v1"
+    nonisolated private static let lastFileKey = "mac.lastFileBookmark.v1"
+    nonisolated private static let lastFileBookmarkAccount = "macLastFileBookmark"
+    private let resumeStateKey = MacPlaybackResumeState.storageKey
+    private let resumePersistInterval: TimeInterval = 5
+    private var lastResumePersistDate: Date?
+    private var didStartLastFileRestore = false
+    private var pendingCompanionDocumentImport: PendingCompanionDocumentImport?
+
+    private struct PendingCompanionDocumentImport: Sendable {
+        let folderURL: URL
+        let audioFiles: [URL]
+        let triggerAudioURL: URL
+        let audiobookID: String
+    }
+
+    private struct CompanionDocumentImportContext: Sendable {
+        let chapters: [Chapter]
+        let duration: TimeInterval?
+    }
+
+    // MARK: - Audiobookshelf two-way sync (see MacPlayerModel+Audiobookshelf.swift)
+    @ObservationIgnored var absService: AudiobookshelfService?
+    @ObservationIgnored var absServiceServerID: String?
+    @ObservationIgnored var absSyncRemoteItemID: String?
+    @ObservationIgnored var absLastPushAt: TimeInterval?
 
     init() {
         migrateFromStandardUserDefaults()
-        restoreLastFile()
         configureBookmarkStore()
         configureSleepTimer()
+    }
+
+    func restoreLastFileAfterLaunch() {
+        guard !didStartLastFileRestore else { return }
+        didStartLastFileRestore = true
+
+        Task { [weak self] in
+            let data = await Task.detached(priority: .utility) {
+                Self.lastFileBookmarkData()
+            }.value
+            guard let data else { return }
+            self?.restoreLastFile(from: data)
+        }
     }
 
     private func configureSleepTimer() {
@@ -203,13 +312,17 @@ final class MacPlayerModel {
     }
 
     /// One-time migration from `UserDefaults.standard` to the shared App Group
-    /// suite so bookmarks and last-file data are visible to iOS/watchOS/widgets.
+    /// suite so bookmark records are visible to iOS/watchOS/widgets.
+    ///
+    /// Security-scoped last-file bookmarks are migrated directly to Keychain in
+    /// `restoreLastFileAfterLaunch()` so they do not get copied into another plaintext
+    /// defaults store.
     private func migrateFromStandardUserDefaults() {
         let migrationFlag = "mac.migratedToAppGroup.v1"
         guard !defaults.bool(forKey: migrationFlag) else { return }
 
         let standard = UserDefaults.standard
-        for key in [bookmarksKey, lastFileKey] {
+        for key in [bookmarksKey] {
             if let data = standard.data(forKey: key) {
                 defaults.set(data, forKey: key)
             }
@@ -221,6 +334,7 @@ final class MacPlayerModel {
         // AVPlayer observer cleanup — assumes the main actor is still valid
         // during deinit (which holds for @MainActor classes).
         MainActor.assumeIsolated {
+            persistResumeState()
             if let timeObserver, let player {
                 player.removeTimeObserver(timeObserver)
             }
@@ -228,6 +342,7 @@ final class MacPlayerModel {
                 NotificationCenter.default.removeObserver(endObserver)
             }
             currentScopedURL?.stopAccessingSecurityScopedResource()
+            stopLibraryRootScope()
         }
     }
 
@@ -239,30 +354,29 @@ final class MacPlayerModel {
         guard let item = player?.currentItem else { return }
         if item.status == .readyToPlay, duration > 0 { return }
 
+        // The KVO status callback and the timeout below are two independent
+        // resumers of the same continuation — a CheckedContinuation traps on
+        // double resume. `ReadyToPlayGuard` is a Sendable Mutex-backed once-flag
+        // that owns the continuation + observer so a single resume (and observer
+        // invalidation) happens exactly once; KVO is not guaranteed to deliver on
+        // the main thread (audit §3.8). The guard is Sendable because both the
+        // @Sendable KVO closure and the timeout Task cross isolation to reach it
+        // (Swift 6 strict concurrency).
+        let guardBox = ReadyToPlayGuard()
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            var observer: NSKeyValueObservation?
-            var didResume = false
-            // The KVO status callback and the timeout below are two independent
-            // resumers of the same continuation — a CheckedContinuation traps on
-            // double resume. Funnel both through `finish()` on the main queue so a
-            // single flag resumes (and invalidates the observer) exactly once;
-            // KVO is not guaranteed to deliver on the main thread (audit §3.8).
-            func finish() {
-                guard !didResume else { return }
-                didResume = true
-                observer?.invalidate()
-                continuation.resume()
-            }
-            observer = item.observe(\.status, options: [.new]) { observedItem, _ in
+            let observer = item.observe(\.status, options: [.new]) { observedItem, _ in
                 guard observedItem.status == .readyToPlay || observedItem.status == .failed else {
                     return
                 }
-                DispatchQueue.main.async { finish() }
+                guardBox.resume()
             }
             // Safety timeout — resume after 10 s if status never settles.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
-                finish()
+            // Swift Concurrency (cancellable Task) instead of GCD asyncAfter.
+            let timeout = Task {
+                try? await Task.sleep(for: .seconds(10))
+                guardBox.resume()
             }
+            guardBox.arm(continuation: continuation, observer: observer, timeout: timeout)
         }
     }
 
@@ -274,7 +388,10 @@ final class MacPlayerModel {
         openFileRequestToken = UUID()
     }
 
-    func open(url: URL) {
+    func open(url: URL, preserveLibraryRoot: Bool = false) {
+        if !preserveLibraryRoot {
+            stopLibraryRootScope()
+        }
         // Stop any current playback before swapping files.
         stop()
 
@@ -286,10 +403,16 @@ final class MacPlayerModel {
         // chapters are loaded asynchronously just below.
         chapters = []
         currentChapterIndex = 0
+        // Drop stale cover art / author immediately so Now Playing never shows the
+        // previous book's art; the new file's art is loaded asynchronously below.
+        coverImage = nil
+        coverSignature = nil
+        currentAuthor = nil
         // Infer folder from the file's parent directory if not already set.
         if folderURL == nil {
             folderURL = url.deletingLastPathComponent()
         }
+        refreshABSSyncIdentity()
         // If tracks is empty (single-file open, not folder), populate with this file.
         if tracks.isEmpty {
             tracks = [url]
@@ -320,6 +443,9 @@ final class MacPlayerModel {
                 self.handleChapterBoundary()
                 self.handleBookmarkLoop()
                 self.refreshCurrentChapter()
+                self.updateNowPlayingElapsed()
+                self.persistResumeStateThrottled()
+                self.maybePushABSProgress()
             }
         }
 
@@ -332,21 +458,24 @@ final class MacPlayerModel {
                 guard let self = self else { return }
                 self.isPlaying = false
                 self.currentTime = self.duration
+                // Republish Now Playing (rate 0, playbackState .paused): the
+                // player stopped on its own, so without this the system keeps
+                // the last published "playing" rate and shows a silent book
+                // as playing forever — the macOS twin of
+                // PlaybackController.markNaturalEndReached().
+                self.updateNowPlaying()
+                self.persistResumeState()
             }
         }
 
-        // Persist a security-scoped bookmark so we can reopen on next launch.
-        if let bookmark = try? url.bookmarkData(
-            options: [.withSecurityScope],
-            includingResourceValuesForKeys: nil,
-            relativeTo: nil
-        ) {
-            defaults.set(bookmark, forKey: lastFileKey)
-        }
+        saveLastFileBookmark(for: url)
 
         loadBookmarksFromDB()
         migrateLegacyBookmarksIfNeeded()
         loadChapters(for: url)
+        loadCoverArt(for: url)
+        restoreResumePositionIfNeeded()
+        reconcileABSProgressOnLoad()
     }
 
     /// Asynchronously parses M4B chapter markers for `url` and installs them.
@@ -357,10 +486,16 @@ final class MacPlayerModel {
         Task { @MainActor [weak self] in
             let asset = AVURLAsset(url: url)
             let parsed = await ChapterService.parseChapters(from: asset)
+            let loadedDuration = try? await asset.load(.duration).seconds
             guard let self = self, self.chapterLoadToken == token else { return }
             self.chapters = parsed
+            if let loadedDuration, loadedDuration.isFinite, loadedDuration > 0 {
+                self.duration = loadedDuration
+            }
             // Re-derive the active chapter for the current playhead.
             self.refreshCurrentChapter()
+            self.importPendingCompanionDocumentsIfNeeded(
+                for: url, loadedChapters: parsed, loadedDuration: loadedDuration)
         }
     }
 
@@ -389,7 +524,10 @@ final class MacPlayerModel {
         }
     }
 
-    func loadFolder(url folderURL: URL) {
+    func loadFolder(url folderURL: URL, preserveLibraryRoot: Bool = false) {
+        if !preserveLibraryRoot {
+            stopLibraryRootScope()
+        }
         let didStart = folderURL.startAccessingSecurityScopedResource()
         defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
 
@@ -413,8 +551,311 @@ final class MacPlayerModel {
 
         self.folderURL = folderURL
         tracks = audioFiles
-        currentTrackIndex = 0
-        open(url: audioFiles[0])
+        persistFolderAudiobookToSQL(folderURL: folderURL, audioFiles: audioFiles)
+        currentTrackIndex =
+            loadResumeState()?
+            .matchingTrackIndex(in: audioFiles, audiobookID: folderURL.absoluteString) ?? 0
+        prepareCompanionDocumentImport(folderURL: folderURL, audioFiles: audioFiles)
+        open(url: audioFiles[currentTrackIndex], preserveLibraryRoot: preserveLibraryRoot)
+    }
+
+    /// Recreates the checkpoint coordinator when the database arrives. Remote
+    /// command reinterpretation does not apply on macOS, so remote grading stays
+    /// off even if the shared settings store has an iOS value.
+    private func configureStudyCheckpoint() {
+        guard let db = dbService else {
+            checkpointCoordinator = nil
+            return
+        }
+
+        let coordinator = StudyCheckpointCoordinator(
+            database: db,
+            settingsProvider: { [weak self] in
+                guard let settings = self?.settings else {
+                    return StudyCheckpointSettings(
+                        timeoutSeconds: SettingsManager.Defaults.checkpointTimeoutSeconds,
+                        timeoutBehavior: .wait,
+                        autoAdvance: SettingsManager.Defaults.checkpointAutoAdvance,
+                        remoteGrading: false
+                    )
+                }
+                return StudyCheckpointSettings(
+                    timeoutSeconds: settings.checkpointTimeoutSeconds,
+                    timeoutBehavior: CheckpointTimeoutBehavior(
+                        rawValue: settings.checkpointTimeoutBehavior
+                    ) ?? .wait,
+                    autoAdvance: settings.checkpointAutoAdvance,
+                    remoteGrading: false,
+                    globalNewChapterLimit: settings.studyGlobalNewChapterLimit,
+                    globalNewCardLimit: settings.studyNewCardsPerDayLimit
+                )
+            },
+            replayChapter: { [weak self] in
+                guard let self else { return }
+                self.seekToChapter(self.currentChapterIndex)
+                self.play()
+            },
+            advance: { [weak self] item in
+                self?.playCheckpointItem(item)
+            },
+            announce: { [weak self] cue in
+                self?.checkpointAnnouncer.announce(cue)
+            }
+        )
+        coordinator.pausePlayback = { [weak self] in self?.pause() }
+        coordinator.isSleepStopRequested = { [weak self] in
+            self?.sleepTimer.mode == .endOfChapter
+        }
+        coordinator.fireSleepStop = { [weak self] in
+            self?.sleepTimer.evaluateAtChapterEnd()
+        }
+        coordinator.isPlayable = { item in
+            guard let url = URL(string: item.audiobookID), url.isFileURL else { return true }
+            return (try? url.checkResourceIsReachable()) ?? false
+        }
+        coordinator.isScreenOn = { true }
+        checkpointCoordinator = coordinator
+    }
+
+    /// Advances to a playable study item, loading its book first if needed.
+    func playCheckpointItem(_ item: StudyPlayableItem) {
+        let bookURL = URL(string: item.audiobookID) ?? URL(fileURLWithPath: item.audiobookID)
+        if audiobookID != item.audiobookID {
+            loadFolder(url: bookURL)
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            self.seek(to: max(0, item.startTime + 0.05))
+            self.play()
+        }
+    }
+
+    private func persistFolderAudiobookToSQL(folderURL: URL, audioFiles: [URL]) {
+        guard let db = dbService else { return }
+
+        let audiobookID = folderURL.absoluteString
+        let title = folderURL.deletingPathExtension().lastPathComponent
+        do {
+            let existing = try? AudiobookDAO(db: db.writer).get(audiobookID)
+            let isABS = existing?.sourceType == "audiobookshelf"
+            var audiobook =
+                existing
+                ?? AudiobookRecord(
+                    id: audiobookID,
+                    title: title,
+                    author: nil,
+                    duration: 0,
+                    fileCount: audioFiles.count,
+                    addedAt: Date().ISO8601Format()
+                )
+            if !isABS {
+                audiobook.title = title
+            }
+            audiobook.fileCount = audioFiles.count
+            audiobook.isAvailable = true
+
+            let records = audioFiles.enumerated().map { index, audioURL in
+                TrackRecord(
+                    id: audioURL.absoluteString,
+                    audiobookID: audiobookID,
+                    title: audioURL.deletingPathExtension().lastPathComponent,
+                    duration: 0,
+                    filePath: audioURL.absoluteString,
+                    isEnabled: true,
+                    sortOrder: index,
+                    playlistPosition: nil
+                )
+            }
+            let trackDAO = TrackDAO(db: db.writer)
+            try db.writer.write { database in
+                var audiobookRecord = audiobook
+                try audiobookRecord.save(database)
+                try trackDAO.refreshAll(records, audiobookID: audiobookID, in: database)
+            }
+        } catch {
+            Logger(category: "MacPlayerModel").error(
+                "Failed to persist folder audiobook: \(error.localizedDescription)")
+        }
+    }
+
+    private func prepareCompanionDocumentImport(folderURL: URL, audioFiles: [URL]) {
+        guard dbService != nil else {
+            pendingCompanionDocumentImport = nil
+            return
+        }
+        guard audioFiles.indices.contains(currentTrackIndex) else {
+            pendingCompanionDocumentImport = nil
+            return
+        }
+        pendingCompanionDocumentImport = PendingCompanionDocumentImport(
+            folderURL: folderURL,
+            audioFiles: audioFiles,
+            triggerAudioURL: audioFiles[currentTrackIndex],
+            audiobookID: folderURL.absoluteString
+        )
+    }
+
+    private func importPendingCompanionDocumentsIfNeeded(
+        for audioURL: URL,
+        loadedChapters: [Chapter],
+        loadedDuration: TimeInterval?
+    ) {
+        guard let pending = pendingCompanionDocumentImport, pending.triggerAudioURL == audioURL
+        else {
+            return
+        }
+        pendingCompanionDocumentImport = nil
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let didStart = pending.folderURL.startAccessingSecurityScopedResource()
+            defer { if didStart { pending.folderURL.stopAccessingSecurityScopedResource() } }
+
+            let context = await self.companionDocumentImportContext(
+                audioFiles: pending.audioFiles,
+                loadedAudioURL: audioURL,
+                loadedChapters: loadedChapters,
+                loadedDuration: loadedDuration
+            )
+            await self.importCompanionDocumentsIfNeeded(
+                folderURL: pending.folderURL,
+                audiobookID: pending.audiobookID,
+                context: context
+            )
+        }
+    }
+
+    private func companionDocumentImportContext(
+        loadedChapters: [Chapter],
+        loadedDuration: TimeInterval?
+    ) -> CompanionDocumentImportContext {
+        let currentDuration = Self.finitePositiveDuration(duration)
+        let finiteLoadedDuration = Self.finitePositiveDuration(loadedDuration)
+        return CompanionDocumentImportContext(
+            chapters: loadedChapters,
+            duration: currentDuration ?? finiteLoadedDuration
+        )
+    }
+
+    private func companionDocumentImportContext(
+        audioFiles: [URL],
+        loadedAudioURL: URL,
+        loadedChapters: [Chapter],
+        loadedDuration: TimeInterval?
+    ) async -> CompanionDocumentImportContext {
+        if audioFiles.count <= 1 {
+            return companionDocumentImportContext(
+                loadedChapters: loadedChapters,
+                loadedDuration: loadedDuration
+            )
+        }
+
+        var wholeBookChapters: [Chapter] = []
+        var totalDuration: TimeInterval = 0
+
+        for audioFile in audioFiles {
+            let asset = AVURLAsset(url: audioFile)
+            let parsedChapters: [Chapter]
+            let measuredDuration: TimeInterval?
+            if audioFile == loadedAudioURL {
+                parsedChapters = loadedChapters
+                if let finiteLoadedDuration = Self.finitePositiveDuration(loadedDuration) {
+                    measuredDuration = finiteLoadedDuration
+                } else {
+                    measuredDuration = Self.finitePositiveDuration(
+                        try? await asset.load(.duration).seconds)
+                }
+            } else {
+                parsedChapters = await ChapterService.parseChapters(from: asset)
+                measuredDuration = Self.finitePositiveDuration(
+                    try? await asset.load(.duration).seconds)
+            }
+
+            let trackDuration = measuredDuration ?? parsedChapters.map(\.endSeconds).max() ?? 0
+            let cumulativeOffset = totalDuration
+            if parsedChapters.isEmpty {
+                wholeBookChapters.append(
+                    Chapter(
+                        index: wholeBookChapters.count,
+                        title: audioFile.deletingPathExtension().lastPathComponent,
+                        startSeconds: cumulativeOffset,
+                        endSeconds: cumulativeOffset + trackDuration,
+                        isEnabled: true
+                    )
+                )
+            } else {
+                for chapter in parsedChapters {
+                    wholeBookChapters.append(
+                        Chapter(
+                            index: wholeBookChapters.count,
+                            title: chapter.title,
+                            startSeconds: cumulativeOffset + chapter.startSeconds,
+                            endSeconds: cumulativeOffset + chapter.endSeconds,
+                            isEnabled: chapter.isEnabled
+                        )
+                    )
+                }
+            }
+            totalDuration += trackDuration
+        }
+
+        return CompanionDocumentImportContext(
+            chapters: wholeBookChapters,
+            duration: totalDuration > 0 ? totalDuration : nil
+        )
+    }
+
+    private static func finitePositiveDuration(_ duration: TimeInterval?) -> TimeInterval? {
+        guard let duration, duration.isFinite, duration > 0 else { return nil }
+        return duration
+    }
+
+    private func importCompanionDocumentsIfNeeded(
+        folderURL: URL,
+        audiobookID: String,
+        context: CompanionDocumentImportContext
+    ) async {
+        guard let db = dbService else { return }
+
+        let didImportEPUB = await EPUBAutoImportScanner.scanAndImportIfNeeded(
+            folderURL: folderURL,
+            databaseService: db,
+            chapters: context.chapters,
+            duration: context.duration
+        )
+        let didImportPDF =
+            didImportEPUB
+            ? false
+            : await PDFAutoImportScanner.scanAndImportIfNeeded(
+                folderURL: folderURL,
+                databaseService: db,
+                chapters: context.chapters,
+                duration: context.duration
+            )
+        if didImportEPUB || didImportPDF {
+            guard audiobookID == self.audiobookID else { return }
+            bumpDocumentIngestionTrigger()
+        }
+    }
+
+    func openLibraryBook(_ target: LibraryOpenTarget) throws {
+        try LibraryBookOpenDispatcher().open(
+            target,
+            retainSecurityScope: { [unowned self] root in
+                _ = startLibraryRootScope(url: root)
+            },
+            releaseSecurityScope: { [unowned self] in
+                stopLibraryRootScope()
+            },
+            openAudioFolder: { [unowned self] folder in
+                loadFolder(url: folder, preserveLibraryRoot: true)
+            },
+            openAudiolessDocument: { [unowned self] document, identity in
+                loadAudiolessDocument(
+                    url: document,
+                    audiobookIdentityURL: identity,
+                    preserveLibraryRoot: true)
+            })
     }
 
     /// Loads a completed narrated book for playback by reading its rendered
@@ -435,8 +876,77 @@ final class MacPlayerModel {
         // Set before `open(url:)`, which only fills these when still nil/empty.
         folderURL = URL(string: audiobookID)
         tracks = urls
+        currentTrackIndex =
+            loadResumeState()?
+            .matchingTrackIndex(in: urls, audiobookID: audiobookID) ?? 0
+        open(url: urls[currentTrackIndex])
+    }
+
+    /// Opens a document (EPUB / PDF / Markdown / plain text) as an audio-less
+    /// study book. Standalone files use their own identity; Library-owned
+    /// containers can supply a distinct durable identity for existing blocks.
+    /// Mirrors the iOS `PlayerLoadingCoordinator.importDocumentForAudiolessBook`
+    /// — the macOS open path was previously audio-only.
+    func loadAudiolessDocument(
+        url: URL,
+        audiobookIdentityURL: URL? = nil,
+        preserveLibraryRoot: Bool = false
+    ) {
+        guard let db = dbService else { return }
+
+        if !preserveLibraryRoot {
+            stopLibraryRootScope()
+        }
+
+        // Tear down any current audio playback, then install the audio-less book
+        // state. A generated anthology reads its child `book.epub` while retaining
+        // the containing edition directory as its durable audiobook identity.
+        stop()
+        let didStart = preserveLibraryRoot ? false : url.startAccessingSecurityScopedResource()
+
+        let identityURL = audiobookIdentityURL ?? url
+        let audiobookID = identityURL.absoluteString
+        let record = try? AudiobookDAO(db: db.writer).get(audiobookID)
+        currentURL = nil
+        folderURL = identityURL
+        let baseTitle = record?.title ?? url.deletingPathExtension().lastPathComponent
+        fileTitle = baseTitle
+        currentTitle = baseTitle
+        tracks = []
         currentTrackIndex = 0
-        open(url: urls[0])
+        chapters = []
+        currentChapterIndex = 0
+        coverImage = nil
+        coverSignature = nil
+        currentAuthor = record?.author
+        duration = record?.duration ?? 0
+        currentTime = 0
+        loadLibraryCover(path: record?.coverArtPath, author: record?.author)
+
+        let alreadyImported = ((try? EPubBlockDAO(db: db.writer).count(for: audiobookID)) ?? 0) > 0
+
+        let ext = url.pathExtension.lowercased()
+        Task { @MainActor [weak self] in
+            defer { if didStart { url.stopAccessingSecurityScopedResource() } }
+            if alreadyImported {
+                // Generated anthologies arrive with blocks already keyed to the
+                // containing edition directory. Opening is a state transition,
+                // not another import/finalization pass.
+            } else if ext == "epub" {
+                _ = await EPUBAutoImportScanner.importEPUBFile(
+                    epubURL: url, audiobookID: audiobookID, databaseService: db,
+                    chapters: [], duration: nil)
+            } else if ["md", "markdown", "txt", "text"].contains(ext) {
+                _ = await TextAutoImportScanner.importTextFile(
+                    textURL: url, audiobookID: audiobookID, databaseService: db)
+            } else if ext == "pdf" {
+                _ = await PDFAutoImportScanner.importPDFFile(
+                    pdfURL: url, audiobookID: audiobookID, databaseService: db,
+                    chapters: [], duration: nil)
+            }
+            // Surface the imported (or previously-imported) blocks in the reader.
+            self?.bumpDocumentIngestionTrigger()
+        }
     }
 
     func nextTrack() {
@@ -496,8 +1006,7 @@ final class MacPlayerModel {
         refreshCurrentChapter()
     }
 
-    private func restoreLastFile() {
-        guard let data = defaults.data(forKey: lastFileKey) else { return }
+    private func restoreLastFile(from data: Data) {
         var stale = false
         guard
             let url = try? URL(
@@ -515,6 +1024,90 @@ final class MacPlayerModel {
         open(url: url)
     }
 
+    private func saveLastFileBookmark(for url: URL) {
+        do {
+            let bookmark = try url.bookmarkData(
+                options: [.withSecurityScope],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            guard KeychainStore.set(bookmark, for: .macLastFileBookmark) else {
+                os_log(
+                    .error, "Mac last-file bookmark Keychain save failed; file must be reselected")
+                return
+            }
+            Self.removeLegacyLastFileBookmarkDefaults()
+        } catch {
+            os_log(
+                .error, "Mac last-file bookmark save failed: %{private}@",
+                error.localizedDescription)
+        }
+    }
+
+    nonisolated private static func lastFileBookmarkData() -> Data? {
+        if let data = keychainData(account: lastFileBookmarkAccount) {
+            return data
+        }
+        guard
+            let legacy = AppGroupDefaults.shared.data(forKey: lastFileKey)
+                ?? UserDefaults.standard.data(forKey: lastFileKey)
+        else {
+            return nil
+        }
+        guard setKeychainData(legacy, account: lastFileBookmarkAccount) else {
+            os_log(.error, "Mac last-file bookmark migration failed; file must be reselected")
+            return nil
+        }
+        removeLegacyLastFileBookmarkDefaults()
+        return legacy
+    }
+
+    nonisolated private static func keychainData(
+        account: String, service: String = "com.echo.audiobooks"
+    ) -> Data? {
+        let authenticationContext = LAContext()
+        authenticationContext.interactionNotAllowed = true
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: account,
+            kSecAttrService as String: service,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            // Restoring the last-opened file is a launch convenience. A bookmark
+            // created by a differently signed build must not summon a blocking
+            // Keychain authorization dialog during app startup.
+            kSecUseAuthenticationContext as String: authenticationContext,
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess else { return nil }
+        return result as? Data
+    }
+
+    nonisolated private static func setKeychainData(
+        _ data: Data, account: String, service: String = "com.echo.audiobooks"
+    ) -> Bool {
+        let baseQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: account,
+            kSecAttrService as String: service,
+        ]
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+        let updateStatus = SecItemUpdate(baseQuery as CFDictionary, attributes as CFDictionary)
+        if updateStatus == errSecSuccess { return true }
+        guard updateStatus == errSecItemNotFound else { return false }
+        let addQuery = baseQuery.merging(attributes) { _, new in new }
+        return SecItemAdd(addQuery as CFDictionary, nil) == errSecSuccess
+    }
+
+    nonisolated private static func removeLegacyLastFileBookmarkDefaults() {
+        AppGroupDefaults.shared.removeObject(forKey: lastFileKey)
+        UserDefaults.standard.removeObject(forKey: lastFileKey)
+    }
+
     // MARK: Playback controls
 
     func togglePlayPause() {
@@ -523,15 +1116,12 @@ final class MacPlayerModel {
 
     func play() {
         guard let player else { return }
+        configureRemoteCommandsIfNeeded()
 
-        // Smart rewind: on resume, rewind a few seconds.
-        if let pausedAt, currentTime > 0 {
-            let pauseDuration = Date().timeIntervalSince(pausedAt)
-            let rewind = Double(smartRewind.rewindAmount(forPausedDuration: pauseDuration))
-            if rewind > 0 {
-                let target = max(0, currentTime - rewind)
-                seek(to: target)
-            }
+        // Smart rewind on resume — gated on the user setting (default OFF, matching
+        // iOS) and built from the configured thresholds, not a hardcoded policy.
+        if isRewindEnabled, let pausedAt, currentTime > 0 {
+            applySmartRewind(forPausedDuration: Date().timeIntervalSince(pausedAt))
         }
         pausedAt = nil
 
@@ -545,10 +1135,14 @@ final class MacPlayerModel {
         if isPlaying { pausedAt = Date() }
         player?.pause()
         isPlaying = false
+        persistResumeState()
+        maybePushABSProgress(force: true)
         updateNowPlaying()
     }
 
     func stop() {
+        persistResumeState()
+        maybePushABSProgress(force: true)
         if let timeObserver, let player {
             player.removeTimeObserver(timeObserver)
         }
@@ -566,17 +1160,136 @@ final class MacPlayerModel {
         updateNowPlaying()
     }
 
+    @discardableResult
+    private func startLibraryRootScope(url: URL) -> Bool {
+        if hasLibraryRootScope {
+            if libraryRootScopedURL == url { return true }
+            stopLibraryRootScope()
+        }
+        libraryRootScopedURL = url
+        hasLibraryRootScope = url.startAccessingSecurityScopedResource()
+        return hasLibraryRootScope
+    }
+
+    private func stopLibraryRootScope() {
+        guard hasLibraryRootScope, let libraryRootScopedURL else {
+            self.libraryRootScopedURL = nil
+            hasLibraryRootScope = false
+            return
+        }
+        libraryRootScopedURL.stopAccessingSecurityScopedResource()
+        self.libraryRootScopedURL = nil
+        hasLibraryRootScope = false
+    }
+
     /// Updates the macOS Media Center (Now Playing) with current playback info.
+    /// `title` is the stable book/file title; for chaptered files the chapter
+    /// title and chapter-relative timing are supplied so the chapter branch in
+    /// `NowPlayingController` activates (Title = chapter, Album = book). For
+    /// non-chaptered files the author becomes the album line.
     private func updateNowPlaying() {
-        nowPlayingController.updateNowPlayingInfo(
-            .init(
-                title: currentTitle,
-                subtitle: "",
-                elapsed: currentTime,
-                duration: duration,
-                isPaused: !isPlaying,
-                playbackRate: playbackRate
-            ))
+        var params = NowPlayingController.NowPlayingParams()
+        params.title = fileTitle
+        params.elapsed = currentTime
+        params.duration = duration
+        params.isPaused = !isPlaying
+        params.playbackRate = playbackRate
+        params.artworkImage = coverImage
+
+        if hasChapters, chapters.indices.contains(currentChapterIndex) {
+            let chapter = chapters[currentChapterIndex]
+            params.subtitle = chapter.title ?? ""
+            params.chapterIndex = currentChapterIndex
+            params.chapterElapsed = max(0, currentTime - chapter.startSeconds)
+            params.chapterDuration = chapter.endSeconds - chapter.startSeconds
+        } else if let author = currentAuthor, !author.isEmpty {
+            params.albumTitle = author
+        }
+
+        nowPlayingController.updateNowPlayingInfo(params)
+    }
+
+    /// Pushes a lightweight elapsed-time update to Now Playing at the time
+    /// observer's tick rate (chapter-relative when chaptered) without rebuilding
+    /// the whole metadata dictionary.
+    private func updateNowPlayingElapsed() {
+        let offset: TimeInterval? =
+            hasChapters && chapters.indices.contains(currentChapterIndex)
+            ? chapters[currentChapterIndex].startSeconds : nil
+        nowPlayingController.updateElapsedTime(currentTime, chapterStartOffset: offset)
+    }
+
+    /// Wires Lock Screen / Control Center / media-key remote commands to the Mac
+    /// transport. Idempotent (`NowPlayingController` guards re-entry). Without it,
+    /// macOS published Now Playing metadata but registered no command targets, so
+    /// media keys and Control Center buttons could not drive playback.
+    private func configureRemoteCommandsIfNeeded() {
+        nowPlayingController.configureRemoteCommands(
+            play: { [weak self] in self?.play() },
+            pause: { [weak self] in self?.pause() },
+            togglePlayPause: { [weak self] in self?.togglePlayPause() },
+            nextTrack: { [weak self] in self?.nextChapter() },
+            skipBackward: { [weak self] in self?.skipBackward() },
+            skipForward: { [weak self] in self?.skipForward() },
+            previousTrack: { [weak self] in self?.previousChapter() },
+            seek: { [weak self] position in self?.seek(to: position) },
+            skipBackwardInterval: skipBackInterval,
+            skipForwardInterval: skipInterval
+        )
+    }
+
+    /// Whether resume-rewind is active, from settings (default OFF, matching iOS).
+    private var isRewindEnabled: Bool {
+        settings?.isRewindEnabled ?? SettingsManager.Defaults.isRewindEnabled
+    }
+
+    /// Rewinds the playhead on resume by the configured amount for `pausedDuration`,
+    /// jumping to the chapter start for very long (hours-level) pauses when the
+    /// user opted in — mirroring the iOS smart-rewind behavior. The plain rewind is
+    /// clamped to the current chapter start so it never crosses a chapter boundary.
+    private func applySmartRewind(forPausedDuration pausedDuration: TimeInterval) {
+        let chapterFloor =
+            hasChapters && chapters.indices.contains(currentChapterIndex)
+            ? chapters[currentChapterIndex].startSeconds : 0
+
+        if shouldJumpToChapterStartForHoursLevel(pausedDuration: pausedDuration),
+            hasChapters, chapters.indices.contains(currentChapterIndex)
+        {
+            seek(to: chapterFloor)
+            return
+        }
+
+        let rewind = smartRewindAmount(forPausedDuration: pausedDuration)
+        guard rewind > 0 else { return }
+        seek(to: max(chapterFloor, currentTime - rewind))
+    }
+
+    private func smartRewindAmount(forPausedDuration pausedDuration: TimeInterval) -> Double {
+        let policy = SmartRewindPolicy(
+            secondsThreshold: settings?.rewindPauseSecondsThreshold
+                ?? SettingsManager.Defaults.rewindPauseSecondsThreshold,
+            secondsAmount: settings?.rewindAmountAfterSeconds
+                ?? SettingsManager.Defaults.rewindAmountAfterSeconds,
+            minutesThreshold: settings?.rewindPauseMinutesThreshold
+                ?? SettingsManager.Defaults.rewindPauseMinutesThreshold,
+            minutesAmount: settings?.rewindAmountAfterMinutes
+                ?? SettingsManager.Defaults.rewindAmountAfterMinutes,
+            hoursThreshold: settings?.rewindPauseHoursThreshold
+                ?? SettingsManager.Defaults.rewindPauseHoursThreshold,
+            hoursAmount: settings?.rewindAmountAfterHours
+                ?? SettingsManager.Defaults.rewindAmountAfterHours
+        )
+        return Double(policy.rewindAmount(forPausedDuration: pausedDuration))
+    }
+
+    private func shouldJumpToChapterStartForHoursLevel(pausedDuration: TimeInterval) -> Bool {
+        let hoursThreshold =
+            settings?.rewindPauseHoursThreshold
+            ?? SettingsManager.Defaults.rewindPauseHoursThreshold
+        let toChapterStart =
+            settings?.rewindHoursToChapterStart
+            ?? SettingsManager.Defaults.rewindHoursToChapterStart
+        return toChapterStart && pausedDuration >= Double(hoursThreshold * 3600)
     }
 
     func skip(by seconds: Double) {
@@ -585,14 +1298,80 @@ final class MacPlayerModel {
         seek(to: target)
     }
 
+    /// Forward transport skip by the user's forward interval.
+    func skipForward() {
+        skip(by: Double(skipInterval))
+    }
+
+    /// Backward transport skip by the user's *backward* interval, clamped to the
+    /// current chapter's start so a back-skip never crosses into the prior chapter
+    /// (mirrors the iOS chapter-aware back-skip).
+    func skipBackward() {
+        guard player != nil else { return }
+        let floor =
+            hasChapters && chapters.indices.contains(currentChapterIndex)
+            ? chapters[currentChapterIndex].startSeconds : 0
+        seek(to: max(floor, currentTime - Double(skipBackInterval)))
+    }
+
     func seek(to seconds: Double) {
         guard let player = self.player else { return }
         let target = CMTime(seconds: seconds, preferredTimescale: 600)
         player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.currentTime = seconds
+                guard let self else { return }
+                self.currentTime = seconds
+                self.refreshCurrentChapter()
+                self.updateNowPlayingElapsed()
+                self.persistResumeState()
+                self.maybePushABSProgress()
             }
         }
+    }
+
+    private func persistResumeStateThrottled() {
+        let now = Date()
+        if let lastResumePersistDate,
+            now.timeIntervalSince(lastResumePersistDate) < resumePersistInterval
+        {
+            return
+        }
+        persistResumeState(updatedAt: now)
+    }
+
+    private func persistResumeState(updatedAt: Date = Date()) {
+        guard let currentURL else { return }
+        let bookID = audiobookID ?? currentURL.deletingLastPathComponent().absoluteString
+        let state = MacPlaybackResumeState(
+            audiobookID: bookID,
+            trackURL: currentURL.absoluteString,
+            trackIndex: currentTrackIndex,
+            position: currentTime,
+            updatedAt: updatedAt
+        )
+        state.save(to: defaults)
+        lastResumePersistDate = updatedAt
+    }
+
+    private func restoreResumePositionIfNeeded() {
+        guard
+            let state = loadResumeState(),
+            let currentURL,
+            state.matches(audiobookID: audiobookID, trackURL: currentURL)
+        else {
+            return
+        }
+
+        let knownDuration = duration > 0 ? duration : nil
+        let position = state.clampedPosition(duration: knownDuration)
+        guard position > 0 else { return }
+        currentTime = position
+        seek(to: position)
+    }
+
+    private func loadResumeState() -> MacPlaybackResumeState? {
+        guard defaults.data(forKey: resumeStateKey) != nil else { return nil }
+        return MacPlaybackResumeState.load(from: defaults)
     }
 
     /// Evaluates chapter-loop and end-of-chapter-sleep at the current instant.
@@ -601,6 +1380,23 @@ final class MacPlayerModel {
     /// Pure decision is delegated to `MacChapterLoopDecision`; this only applies
     /// the side effect.
     private func handleChapterBoundary() {
+        // Chapter checkpoint gets first claim on a naturally played boundary.
+        // Only loop-off boundaries qualify; checkpoints never fire inside an
+        // intentional chapter loop.
+        if loopMode == .off,
+            let coordinator = checkpointCoordinator,
+            let bookID = audiobookID,
+            chapters.indices.contains(currentChapterIndex),
+            currentTime >= chapters[currentChapterIndex].endSeconds,
+            coordinator.handleChapterEnd(
+                audiobookID: bookID,
+                chapterIndex: currentChapterIndex,
+                naturalEnd: true
+            )
+        {
+            return
+        }
+
         let decision = MacChapterLoopDecision.evaluate(
             currentTime: currentTime,
             chapters: chapters,
@@ -622,12 +1418,13 @@ final class MacPlayerModel {
     /// Enforces the `.bookmark` (A→B) loop on each time-observer tick. Pulls the
     /// enabled bookmark timestamps (ascending), delegates the seek-back decision
     /// to the pure `MacBookmarkLoopDecision`, and applies it. A no-op unless
-    /// `loopMode == .bookmark` and at least two bookmarks exist.
+    /// `loopMode == .bookmark` and at least two enabled bookmarks exist.
     private func handleBookmarkLoop() {
         guard loopMode == .bookmark else { return }
+        guard canBookmarkLoop else { return }
         let times =
             bookmarkStore.bookmarks
-            .filter { $0.isEnabled }
+            .filter { $0.isEnabled && $0.timestamp.isFinite }
             .map(\.timestamp)
             .sorted()
         if let target = MacBookmarkLoopDecision.seekBackTarget(
@@ -684,19 +1481,20 @@ final class MacPlayerModel {
             bookmarkStore.bookmarks.indices.contains(idx) ? bookmarkStore.bookmarks[idx] : nil
         }
         for bm in toDelete {
-            bookmarkStore.deleteBookmark(id: bm.id)
+            bookmarkStore.deleteBookmark(id: bm.id, folderURL: folderURL)
         }
     }
 
     func deleteBookmark(_ bookmark: Bookmark) {
-        bookmarkStore.deleteBookmark(id: bookmark.id)
+        bookmarkStore.deleteBookmark(id: bookmark.id, folderURL: folderURL)
     }
 
     func updateBookmark(_ bookmark: Bookmark) {
         bookmarkStore.updateBookmark(
             id: bookmark.id, title: bookmark.title,
             timestamp: bookmark.timestamp, note: bookmark.note,
-            voiceMemoFileName: bookmark.voiceMemoFileName)
+            voiceMemoFileName: bookmark.voiceMemoFileName,
+            bookmarkImageFileName: bookmark.bookmarkImageFileName)
     }
 
     /// Seeks playback to the given bookmark's timestamp. If the bookmark
@@ -730,7 +1528,11 @@ final class MacPlayerModel {
         do {
             let dao = BookmarkDAO(db: db.writer)
             let records = try dao.bookmarks(for: audiobookID)
-            bookmarkStore.bookmarks = records.map { $0.toModel() }
+            bookmarkStore.bookmarks = BookmarkRecord.decodeModelsSkippingCorruptRows(
+                from: records,
+                logger: Logger(category: "MacPlayerModel"),
+                operation: "loading bookmarks from SQL"
+            )
         } catch {
             Logger(category: "MacPlayerModel").error(
                 "Failed to load bookmarks: \(error.localizedDescription)")
@@ -801,5 +1603,286 @@ final class MacPlayerModel {
         loadBookmarksFromDB()
         Logger(category: "MacPlayerModel").info(
             "Migrated \(legacy.count) legacy bookmarks to shared database")
+    }
+}
+
+// MARK: - ReadyToPlayGuard
+
+/// Single-resume guard for `waitForReadyToPlay()`. The KVO status callback and
+/// the timeout `Task` are two independent resumers of one `CheckedContinuation`,
+/// which traps on a double resume. This `Sendable` Mutex-backed box owns the
+/// continuation, the KVO observer, and the timeout so the *first* caller wins:
+/// it invalidates the observer, cancels the timeout, and resumes exactly once.
+/// It is `Sendable` (not main-actor-isolated) because the `@Sendable` KVO
+/// closure and the timeout `Task` both reach it across isolation boundaries
+/// under Swift 6 strict concurrency.
+private nonisolated final class ReadyToPlayGuard: Sendable {
+    private struct State {
+        var continuation: CheckedContinuation<Void, Never>?
+        var observer: NSKeyValueObservation?
+        var timeout: Task<Void, Never>?
+        var resumed = false
+        /// Set when `resume()` fires before `arm()` has stored the continuation,
+        /// so `arm()` can resume immediately rather than dropping the signal.
+        var pendingResume = false
+    }
+
+    private let state = Mutex(State())
+
+    /// Stores the continuation + cancellables. If a resumer already fired before
+    /// arming, resume right away (and tear down) so we never wait forever.
+    func arm(
+        continuation: CheckedContinuation<Void, Never>,
+        observer: NSKeyValueObservation,
+        timeout: Task<Void, Never>
+    ) {
+        let resumeNow: Bool = state.withLock { s in
+            if s.pendingResume {
+                s.resumed = true
+                return true
+            }
+            s.continuation = continuation
+            s.observer = observer
+            s.timeout = timeout
+            return false
+        }
+        if resumeNow {
+            observer.invalidate()
+            timeout.cancel()
+            continuation.resume()
+        }
+    }
+
+    /// Resumes the continuation exactly once and tears down the observer/timeout.
+    func resume() {
+        let toResume: CheckedContinuation<Void, Never>? = state.withLock { s in
+            guard !s.resumed else { return nil }
+            s.resumed = true
+            guard let continuation = s.continuation else {
+                // Fired before `arm()`; let `arm()` resume when it stores it.
+                s.pendingResume = true
+                s.resumed = false
+                return nil
+            }
+            s.observer?.invalidate()
+            s.observer = nil
+            s.timeout?.cancel()
+            s.timeout = nil
+            let continuationToResume = continuation
+            s.continuation = nil
+            return continuationToResume
+        }
+        toResume?.resume()
+    }
+}
+
+// MARK: - Cover art
+
+extension MacPlayerModel {
+    /// Sources cover art for `url` (embedded artwork first, then a sibling folder
+    /// cover) off the main actor and republishes Now Playing when it arrives.
+    /// Guarded by `artworkLoadToken` so a file swapped mid-load is ignored. iOS
+    /// does the equivalent via `ArtworkCache`, which is UIKit-only and excluded
+    /// from the macOS target.
+    fileprivate func loadCoverArt(for url: URL) {
+        let token = UUID()
+        artworkLoadToken = token
+        let scopedRoot = libraryRootScopedURL
+        Task { @MainActor [weak self] in
+            let meta = await MacArtworkLoader.load(for: url, scopedRoot: scopedRoot)
+            guard let self, self.artworkLoadToken == token else { return }
+            self.coverImage = meta.cgImage.map {
+                NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height))
+            }
+            self.coverSignature = meta.signature
+            self.currentAuthor = meta.author
+            self.updateNowPlaying()
+        }
+    }
+
+    /// Loads the cover already owned by the Library record without rewriting
+    /// metadata or deriving a new identity from the child document URL.
+    fileprivate func loadLibraryCover(path: String?, author: String?) {
+        let token = UUID()
+        artworkLoadToken = token
+        guard let path else {
+            currentAuthor = author
+            updateNowPlaying()
+            return
+        }
+        let url = FileLocations.libraryCoversDirectory.appending(path: path)
+        Task { @MainActor [weak self] in
+            let cover = await MacArtworkLoader.loadImage(at: url)
+            guard let self, self.artworkLoadToken == token else { return }
+            self.coverImage = cover.cgImage.map {
+                NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height))
+            }
+            self.coverSignature = cover.signature
+            self.currentAuthor = author
+            self.updateNowPlaying()
+        }
+    }
+}
+
+// MARK: - Cover-derived tint
+
+/// The inputs the cover theme is a pure function of. Comparing one of these is
+/// far cheaper than rebuilding a theme, which is the whole point of the memo.
+/// `themeColor` is absent on purpose: the theme ignores the accent preference.
+private struct CoverThemeKey: Equatable {
+    let signature: CoverSignature?
+    let vividAccent: Bool
+    let scheme: ColorScheme
+}
+
+extension MacPlayerModel {
+    /// The current book's cover roles — accent, wash, chip.
+    ///
+    /// Memoized rather than computed fresh because the views that read it
+    /// observe `currentTime`, so their bodies re-evaluate several times a
+    /// second, while the answer only changes when the book, the Vivid
+    /// preference, or the appearance does. `CoverThemeBuilder` walks lightness
+    /// in small steps to clear its contrast floors — inexpensive once, wasteful
+    /// at playback tick rate.
+    func coverTheme(vividAccent: Bool, scheme: ColorScheme) -> CoverTheme {
+        let key = CoverThemeKey(
+            signature: coverSignature, vividAccent: vividAccent, scheme: scheme)
+        if key == cachedCoverThemeKey, let cached = cachedCoverTheme { return cached }
+        let theme = MacCoverTint.theme(
+            signature: coverSignature, vividAccent: vividAccent, scheme: scheme)
+        cachedCoverThemeKey = key
+        cachedCoverTheme = theme
+        return theme
+    }
+
+    /// The app-wide accent, or `nil` to leave the system tint in place. Free on
+    /// top of `coverTheme` — the preference switch is an enum lookup, so only
+    /// the memoized build costs anything.
+    func coverTint(themeColor: String, vividAccent: Bool, scheme: ColorScheme) -> Color? {
+        MacCoverTint.tint(
+            themeColor: themeColor,
+            coverTheme: coverTheme(vividAccent: vividAccent, scheme: scheme))
+    }
+}
+
+/// macOS counterpart to the iOS-only `ArtworkCache` cover sourcing. Pure helpers
+/// with no shared mutable state, returning `CGImage` (Sendable) so `load` can
+/// run off the main actor; the caller wraps the result in `NSImage`. `@concurrent`
+/// (not plain `nonisolated async`) is what actually leaves the caller's actor:
+/// this project builds with `SWIFT_APPROACHABLE_CONCURRENCY = YES`, which
+/// enables `NonisolatedNonsendingByDefault` — under that mode a plain
+/// `nonisolated async` function called from the `Task { @MainActor in ... }`
+/// in `loadCoverArt(for:)` above runs ON the main thread, not off it. Do not
+/// drop `@concurrent` under the assumption that `nonisolated async` alone
+/// suspends off-main; it does not, here.
+private nonisolated enum MacArtworkLoader {
+    /// Explicitly `Sendable`: crossing back from the `@concurrent` cooperative
+    /// pool to the caller's `@MainActor` Task requires it, and CGImage/String?
+    /// are both Sendable value types.
+    struct BookMetadata: Sendable {
+        let cgImage: CGImage?
+        let author: String?
+        /// Extracted here rather than by the caller so the histogram pass runs
+        /// on the cooperative pool with the decode. `CoverSignature` is a value
+        /// type of `Double`s, so it crosses back to the main actor freely.
+        let signature: CoverSignature?
+    }
+
+    #if DEBUG
+        /// Test/harness-only observation seam: records whether the most recent
+        /// `load` call executed its body on the main thread. Exists so the
+        /// off-main guarantee is verified empirically instead of trusted from
+        /// the `@concurrent` annotation alone. Not compiled into release builds.
+        nonisolated static let debugLoadRanOnMainThread = Mutex<Bool?>(nil)
+        /// `Thread.isMainThread` is `NS_SWIFT_UNAVAILABLE_FROM_ASYNC` — reading it
+        /// directly inside an `async` function body doesn't compile. This
+        /// synchronous wrapper is the sanctioned way to read it from async code.
+        nonisolated private static func debugIsMainThread() -> Bool { Thread.isMainThread }
+    #endif
+
+    /// Reads the audio file's embedded cover art (`.commonKeyArtwork`) and author
+    /// (`.commonKeyArtist`) in a single metadata pass, falling back to a sibling
+    /// folder cover image when the file has no embedded artwork. See the type's
+    /// doc comment: `@concurrent` is what makes this run off the main actor.
+    @concurrent
+    static func load(for url: URL, scopedRoot: URL?) async -> BookMetadata {
+        #if DEBUG
+            let isMainThread = Self.debugIsMainThread()
+            Self.debugLoadRanOnMainThread.withLock { $0 = isMainThread }
+        #endif
+        // Keep the library root reachable while reading (folder/library books hold
+        // a long-lived root scope; ad-hoc single-file opens no-op here and rely on
+        // the file already being open for playback).
+        let rootDidStart = scopedRoot?.startAccessingSecurityScopedResource() ?? false
+        defer { if rootDidStart { scopedRoot?.stopAccessingSecurityScopedResource() } }
+
+        let asset = AVURLAsset(url: url)
+        let metadata = (try? await asset.load(.commonMetadata)) ?? []
+        var cgImage: CGImage?
+        var author: String?
+        for item in metadata {
+            if cgImage == nil, item.commonKey == .commonKeyArtwork,
+                let data = try? await item.load(.dataValue)
+            {
+                cgImage = MacImageDecode.downsampledCGImage(data: data, maxPixelSize: 600)
+            }
+            if author == nil, item.commonKey == .commonKeyArtist,
+                let value = try? await item.load(.stringValue), !value.isEmpty
+            {
+                author = value
+            }
+        }
+        if cgImage == nil { cgImage = folderArtworkImage(near: url) }
+        return BookMetadata(
+            cgImage: cgImage, author: author, signature: cgImage.map(coverSignature))
+    }
+
+    /// Loads a library cover and its identity hues together, for the same
+    /// reason `load` does: both halves belong on the cooperative pool.
+    @concurrent
+    static func loadImage(at url: URL) async -> (cgImage: CGImage?, signature: CoverSignature?) {
+        guard let data = try? Data(contentsOf: url),
+            let cgImage = MacImageDecode.downsampledCGImage(data: data, maxPixelSize: 600)
+        else { return (nil, nil) }
+        return (cgImage, coverSignature(cgImage))
+    }
+
+    /// The platform-neutral core of the shared extractor — the `UIImage` entry
+    /// point beside it is the only UIKit-gated part, and the Mac has a
+    /// `CGImage` in hand already. Sharing this exact call is what makes a cover
+    /// resolve to the same accent on both platforms.
+    private static func coverSignature(_ cgImage: CGImage) -> CoverSignature {
+        DominantColorExtractor.signature(from: cgImage)
+    }
+
+    /// Falls back to a `cover.*` (or first, name-sorted) image file alongside the
+    /// audio — the same heuristic `ArtworkCache.folderArtworkImage` uses on iOS.
+    static func folderArtworkImage(near url: URL) -> CGImage? {
+        let folderURL = url.deletingLastPathComponent()
+        let didStart = folderURL.startAccessingSecurityScopedResource()
+        defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
+
+        let imageExtensions: Set<String> = [
+            "jpg", "jpeg", "png", "heic", "heif", "webp", "gif", "bmp", "tiff",
+        ]
+        let files =
+            (try? FileManager.default.contentsOfDirectory(
+                at: folderURL,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles])) ?? []
+        let images = files.filter { imageExtensions.contains($0.pathExtension.lowercased()) }
+        guard !images.isEmpty else { return nil }
+
+        let preferred = images.first {
+            $0.deletingPathExtension().lastPathComponent.lowercased() == "cover"
+        }
+        let selected =
+            preferred
+            ?? images.sorted {
+                $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
+                    == .orderedAscending
+            }.first
+        guard let selected, let data = try? Data(contentsOf: selected) else { return nil }
+        return MacImageDecode.downsampledCGImage(data: data, maxPixelSize: 600)
     }
 }

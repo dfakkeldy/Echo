@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "anthologyID": "10000000-0000-0000-0000-000000000001",
+  "revision": 1,
+  "epubIdentifier": "urn:uuid:10000000-0000-0000-0000-000000000001",
+  "title": "Three Small Signals",
+  "subtitle": "A synthetic narration fixture",
+  "creator": "Echo Test Fixtures",
+  "language": "en",
+  "coverPath": null,
+  "modifiedAt": "2026-08-02T12:00:00.000Z",
+  "chapters": [
+    {
+      "entryID": "A0000000-0000-0000-0000-000000000001",
+      "captureID": "A1000000-0000-0000-0000-000000000001",
+      "articleRevisionID": "A2000000-0000-0000-0000-000000000001",
+      "stableSlot": 0,
+      "order": 0,
+      "title": "Three Lanterns at Dawn",
+      "author": "Fixture Author One",
+      "siteName": "Example Test",
+      "sourceURL": "https://example.test/three-lanterns",
+      "capturedAt": "2026-08-02T11:00:00.000Z",
+      "voiceID": null,
+      "blocks": [
+        {
+          "id": "fixture-chapter-one-heading",
+          "stableOrdinal": 0,
+          "kind": "heading",
+          "text": "Three Lanterns at Dawn",
+          "sourceURL": null,
+          "imageCandidateURL": null,
+          "caption": null,
+          "codeLanguage": null
+        }
+      ],
+      "readableContentSHA256": "15debd6e30311f49347fef0acf5c34832c9a08194fc6c8f8187e364606dc6dd2"
+    },
+    {
+      "entryID": "B0000000-0000-0000-0000-000000000002",
+      "captureID": "B1000000-0000-0000-0000-000000000002",
+      "articleRevisionID": "B2000000-0000-0000-0000-000000000002",
+      "stableSlot": 1,
+      "order": 1,
+      "title": "The Clockmaker’s Finch",
+      "author": "Fixture Author Two",
+      "siteName": "Example Test",
+      "sourceURL": "https://example.test/clockmakers-finch",
+      "capturedAt": "2026-08-02T11:01:00.000Z",
+      "voiceID": "bf_emma",
+      "blocks": [
+        {
+          "id": "fixture-chapter-two-heading",
+          "stableOrdinal": 0,
+          "kind": "heading",
+          "text": "The Clockmaker’s Finch",
+          "sourceURL": null,
+          "imageCandidateURL": null,
+          "caption": null,
+          "codeLanguage": null
+        }
+      ],
+      "readableContentSHA256": "ec298a5cedb04b83c54d72912dfb57b6769b6593a413c0ac12a0204b59fa5a9a"
+    },
+    {
+      "entryID": "C0000000-0000-0000-0000-000000000003",
+      "captureID": "C1000000-0000-0000-0000-000000000003",
+      "articleRevisionID": "C2000000-0000-0000-0000-000000000003",
+      "stableSlot": 2,
+      "order": 2,
+      "title": "Rain on Red Stone",
+      "author": "Fixture Author Three",
+      "siteName": "Example Test",
+      "sourceURL": "https://example.test/rain-on-red-stone",
+      "capturedAt": "2026-08-02T11:02:00.000Z",
+      "voiceID": "am_michael",
+      "blocks": [
+        {
+          "id": "fixture-chapter-three-heading",
+          "stableOrdinal": 0,
+          "kind": "heading",
+          "text": "Rain on Red Stone",
+          "sourceURL": null,
+          "imageCandidateURL": null,
+          "caption": null,
+          "codeLanguage": null
+        }
+      ],
+      "readableContentSHA256": "e8d4337ae3ddebb5ba8b12906fd3435b86a6e2bd56b2e4a5628dc211c9936d98"
+    }
+  ]
+}

@@ -29,7 +29,7 @@ struct BookStatsView: View {
                             Text(ch.chapterTitle)
                                 .lineLimit(1)
                             Spacer()
-                            Text(String(format: "%.0f%%", ch.coveredFraction * 100))
+                            Text(ch.coveredFraction.formatted(.percent.precision(.fractionLength(0))))
                                 .foregroundStyle(ch.coveredFraction > 0.5 ? .green : .secondary)
                             if ch.listenPassCount > 1 {
                                 Text("×\(ch.listenPassCount)")

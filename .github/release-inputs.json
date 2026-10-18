@@ -1,0 +1,51 @@
+{
+  "platform_excludes": {
+    "ios": [
+      "Echo macOS"
+    ],
+    "macos": [
+      "Echo Watch App",
+      "Echo Widget",
+      "Echo Watch AppTests",
+      "Echo Watch AppUITests"
+    ]
+  },
+  "controller_overlays": [],
+  "build_env": [
+    "IOS_DESTINATION"
+  ],
+  "bundled_root_documents": [
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "test_inputs": [
+    "Shared/Player.swift",
+    "EchoCore/Resources/voice.bin",
+    "Echo.xcodeproj/project.pbxproj",
+    "Echo.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+    "fastlane/Gymfile",
+    "Scripts/stamp_build_metadata.sh",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "schema": 1,
+  "exclude_roots": [
+    ".github",
+    ".agents",
+    ".codex",
+    ".claude",
+    ".clinerules",
+    ".superpowers",
+    "docs",
+    "web",
+    "marketing",
+    "output",
+    "reports",
+    "scratch",
+    "iTerm2"
+  ],
+  "exclude_files": [
+    "Makefile",
+    ".swift-format",
+    "skills-lock.json",
+    "fastlane/lib/echo_release_delivery.rb"
+  ]
+}

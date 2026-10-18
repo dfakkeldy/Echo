@@ -27,13 +27,20 @@ struct AutoAlignmentTextMatcher {
 
         var bestMatches: [(index: Int, match: Match)] = []
         for (i, candidate) in candidates.enumerated() {
-            guard let text = candidate.text, text.isEmpty == false else { continue }
+            guard
+                CommercialAudioAlignmentSource.isEligible(
+                    blockKind: candidate.blockKind,
+                    text: candidate.text,
+                    isHidden: candidate.isHidden
+                ),
+                let text = candidate.text
+            else { continue }
 
             let scored = scoreWindow(
                 transcriptTokens: transcriptTokens,
                 candidateTokens: tokens(in: text)
             )
-            
+
             var finalScore = scored.score
             // Apply Locality Bias
             if let expectedIndex {
@@ -44,15 +51,16 @@ struct AutoAlignmentTextMatcher {
                 finalScore = min(1.0, finalScore + bias)
             }
 
-            bestMatches.append((
-                index: i,
-                match: Match(
-                    block: candidate,
-                    confidence: finalScore,
-                    bestWindowStart: scored.windowStart,
-                    transcriptTokenCount: transcriptTokens.count
-                )
-            ))
+            bestMatches.append(
+                (
+                    index: i,
+                    match: Match(
+                        block: candidate,
+                        confidence: finalScore,
+                        bestWindowStart: scored.windowStart,
+                        transcriptTokenCount: transcriptTokens.count
+                    )
+                ))
         }
 
         bestMatches.sort {
@@ -69,7 +77,9 @@ struct AutoAlignmentTextMatcher {
             return diff > 0
         }
 
-        guard let best = bestMatches.first?.match, best.confidence >= matchThreshold else { return nil }
+        guard let best = bestMatches.first?.match, best.confidence >= matchThreshold else {
+            return nil
+        }
 
         if bestMatches.count > 1 {
             let secondBest = bestMatches[1]

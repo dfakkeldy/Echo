@@ -2,7 +2,7 @@
 import Foundation
 import GRDB
 
-struct TimelineDAO {
+nonisolated struct TimelineDAO {
     let db: DatabaseWriter
 
     // MARK: - Range query (push-driven scroll sync)
@@ -168,6 +168,96 @@ struct TimelineDAO {
             for var item in items {
                 try item.insert(db)
             }
+        }
+    }
+
+    /// Stamps timeline rows with the segment-local scope used by read-along
+    /// resolution. Existing rows remain nullable until a segment renderer owns
+    /// their block range.
+    func setSegmentKey(
+        audiobookID: String,
+        blockIDs: [String],
+        segmentKey: String,
+        audioEndTimesByBlockID: [String: TimeInterval]? = nil
+    ) throws {
+        guard !blockIDs.isEmpty else { return }
+        try db.write { db in
+            if let audioEndTimesByBlockID {
+                for blockID in blockIDs {
+                    if let audioEndTime = audioEndTimesByBlockID[blockID] {
+                        try db.execute(
+                            sql: """
+                                UPDATE timeline_item
+                                SET segment_key = :segmentKey,
+                                    audio_end_time = :audioEndTime
+                                WHERE audiobook_id = :audiobookID
+                                  AND epub_block_id = :blockID
+                                """,
+                            arguments: [
+                                "segmentKey": segmentKey,
+                                "audioEndTime": audioEndTime,
+                                "audiobookID": audiobookID,
+                                "blockID": blockID,
+                            ])
+                    } else {
+                        try db.execute(
+                            sql: """
+                                UPDATE timeline_item
+                                SET segment_key = :segmentKey
+                                WHERE audiobook_id = :audiobookID
+                                  AND epub_block_id = :blockID
+                                """,
+                            arguments: [
+                                "segmentKey": segmentKey,
+                                "audiobookID": audiobookID,
+                                "blockID": blockID,
+                            ])
+                    }
+                }
+                return
+            }
+
+            let placeholders = databaseQuestionMarks(count: blockIDs.count)
+            try db.execute(
+                sql: """
+                    UPDATE timeline_item
+                    SET segment_key = ?
+                    WHERE audiobook_id = ? AND epub_block_id IN (\(placeholders))
+                    """,
+                arguments: StatementArguments([segmentKey, audiobookID] + blockIDs)
+            )
+        }
+    }
+
+    /// Segment narration stores segment-local anchor end times. A later segment
+    /// render runs the shared alignment recalculation again and can derive an
+    /// earlier segment's tail end from the next segment's local `0.0` start, so
+    /// restore every already segment-scoped row from its source anchor afterward.
+    func restoreSegmentAudioEndTimesFromAnchors(audiobookID: String) throws {
+        try db.write { db in
+            try db.execute(
+                sql: """
+                    UPDATE timeline_item
+                    SET audio_end_time = (
+                        SELECT aa.audio_end_time
+                        FROM alignment_anchor aa
+                        WHERE aa.audiobook_id = timeline_item.audiobook_id
+                          AND aa.epub_block_id = timeline_item.epub_block_id
+                          AND aa.audio_end_time IS NOT NULL
+                        LIMIT 1
+                    )
+                    WHERE audiobook_id = ?
+                      AND segment_key IS NOT NULL
+                      AND epub_block_id IS NOT NULL
+                      AND EXISTS (
+                        SELECT 1
+                        FROM alignment_anchor aa
+                        WHERE aa.audiobook_id = timeline_item.audiobook_id
+                          AND aa.epub_block_id = timeline_item.epub_block_id
+                          AND aa.audio_end_time IS NOT NULL
+                      )
+                    """,
+                arguments: [audiobookID])
         }
     }
 

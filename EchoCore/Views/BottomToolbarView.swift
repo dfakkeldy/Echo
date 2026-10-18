@@ -4,30 +4,56 @@ import SwiftUI
 struct BottomToolbarView: View {
     @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var recentMarkResult: MarkPassageResult?
+    @State private var recentMarkResultTask: Task<Void, Never>?
+
     var onCreateBookmark: ((BookmarkDraft) -> Void)?
+    var onMarkPassageResult: (MarkPassageResult) -> Void
     /// Player-More menu closures (WS-C). The actual sheet/tab-switch state lives
     /// on NowPlayingTab; these just forward the user's intent upward.
     var onShowChapters: () -> Void
     var onShowBookmarks: () -> Void
-    var onShowSettings: () -> Void
+    var onStats: () -> Void
+    var onFidget: () -> Void
+    var onSettings: () -> Void
+    var onHelp: () -> Void
+    var onAddDocument: (() -> Void)?
+    var onExport: (() -> Void)?
+    var onVideoExport: (() -> Void)?
+    var onStudyNotesExport: (() -> Void)?
     var onShowPlaybackOptions: () -> Void
-    // onShowFidget removed — Fidget now lives in the More menu (UnifiedTopHeader).
+    var canCreateReaderCapture: Bool = false
+    var isReaderVoiceMemoRecording: Bool = false
+    var onAddReaderNote: (@MainActor () -> Void)?
+    var onToggleReaderMemo: (@MainActor () -> Void)?
+    var onOpenBookOrFolder: (() -> Void)? = nil
+    var showsReaderSleepTimer = false
 
     var body: some View {
         HStack {
             PlayerMoreMenu(
                 onShowChapters: onShowChapters,
                 onShowBookmarks: onShowBookmarks,
-                onShowSettings: onShowSettings
+                onStats: onStats,
+                onFidget: onFidget,
+                onSettings: onSettings,
+                onHelp: onHelp,
+                onAddDocument: onAddDocument,
+                onExport: onExport,
+                onVideoExport: onVideoExport,
+                onStudyNotesExport: onStudyNotesExport,
+                onOpenBookOrFolder: onOpenBookOrFolder,
+                showsReaderSleepTimer: showsReaderSleepTimer
             )
             Spacer()
-            speedButton
+            speedMenu
             Spacer()
             markPassageButton
             Spacer()
-            timelineButton
+            tabCycleButton
             Spacer()
-            addBookmarkButton
+            bookmarkCaptureMenu
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
@@ -37,22 +63,57 @@ struct BottomToolbarView: View {
 
     private var markPassageButton: some View {
         Button {
-            model.markPassageAtCurrentTime()
-            Haptic.play(.light)
+            markPassage()
         } label: {
             utilityChip(isActive: false) {
-                Image(systemName: "rectangle.stack.badge.plus")
+                Image(systemName: markPassageSystemImage)
                     .font(.title3)
+                    .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
+                    .animation(
+                        reduceMotion ? nil : .easeInOut(duration: 0.2),
+                        value: recentMarkResult
+                    )
             }
         }
         .accessibilityLabel(Text("Mark passage for later"))
-        .disabled(model.tracks.isEmpty)
+        .disabled(!model.canMarkPassage)
+    }
+
+    private var markPassageSystemImage: String {
+        guard let recentMarkResult else { return "rectangle.stack.badge.plus" }
+        return DockStatusFeedback(result: recentMarkResult).systemImage
+    }
+
+    private func markPassage() {
+        let result = model.markPassageAtCurrentTime()
+        switch result {
+        case .saved:
+            Haptic.notify(.success)
+        case .unavailable, .failed:
+            Haptic.notify(.error)
+        }
+
+        onMarkPassageResult(result)
+        recentMarkResultTask?.cancel()
+        recentMarkResult = result
+        recentMarkResultTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .seconds(1.5))
+            } catch {
+                return
+            }
+            recentMarkResult = nil
+        }
     }
 
     // MARK: - Shared chip treatment
 
-    /// Audit B2: active state is carried by a filled chip (shape), not color
-    /// alone. 44pt target either way.
+    /// All bottom-toolbar chrome uses the cover-derived accent (matching the top
+    /// header chips and the rest of the player). The *active* state is still
+    /// carried by a filled chip (shape) so it stays distinguishable without
+    /// relying on color alone. 44pt target either way.
+    private var chromeAccent: Color { model.resolvedThemeTint ?? .accentColor }
+
     private func utilityChip<Content: View>(isActive: Bool, @ViewBuilder content: () -> Content)
         -> some View
     {
@@ -63,10 +124,7 @@ struct BottomToolbarView: View {
                 in: Circle()
             )
             .contentShape(Rectangle())
-            .foregroundStyle(
-                isActive
-                    ? AnyShapeStyle(model.artworkAccentColor ?? .accentColor)
-                    : AnyShapeStyle(.secondary))
+            .foregroundStyle(chromeAccent)
     }
 
     private func utilityTextChip(isActive: Bool, _ text: String) -> some View {
@@ -79,95 +137,127 @@ struct BottomToolbarView: View {
                 in: Capsule()
             )
             .contentShape(Rectangle())
-            .foregroundStyle(
-                isActive
-                    ? AnyShapeStyle(model.artworkAccentColor ?? .accentColor)
-                    : AnyShapeStyle(.secondary))
+            .foregroundStyle(chromeAccent)
     }
 
     // MARK: - Speed
 
-    private var speedLabel: String {
-        switch model.speed {
+    private func speedLabel(_ speed: Float) -> String {
+        switch speed {
         case 0.75: return String(localized: "0.75×")
         case 1.0: return String(localized: "1.0×")
         case 1.25: return String(localized: "1.25×")
         case 1.5: return String(localized: "1.5×")
         case 1.75: return String(localized: "1.75×")
         case 2.0: return String(localized: "2.0×")
-        default: return model.speed.formatted(.number.precision(.fractionLength(1))) + "×"
+        case 3.0: return String(localized: "3.0×")
+        default: return speed.formatted(.number.precision(.fractionLength(1))) + "×"
         }
     }
 
-    private var speedButton: some View {
-        Button {
-            onShowPlaybackOptions()
-            Haptic.play(.light)
+    private var speedLabel: String {
+        speedLabel(model.speed)
+    }
+
+    private var speedMenu: some View {
+        Menu {
+            ForEach(SettingsManager.Defaults.speedPresets, id: \.self) { preset in
+                Button {
+                    model.setSpeed(preset)
+                    Haptic.play(.medium)
+                } label: {
+                    Label(
+                        speedLabel(preset),
+                        systemImage: model.speed == preset ? "checkmark" : "speedometer"
+                    )
+                }
+            }
+
+            Divider()
+
+            Button {
+                onShowPlaybackOptions()
+                Haptic.play(.light)
+            } label: {
+                Label("Playback Options", systemImage: "slider.horizontal.3")
+            }
         } label: {
             utilityTextChip(isActive: model.speed != 1.0, speedLabel)
         }
-        .accessibilityLabel(Text("Playback options"))
+        .accessibilityLabel(Text("Playback speed"))
         .accessibilityValue(Text(speedLabel))
-        .accessibilityHint(Text("Opens speed, loop, and skip settings"))
-        // No manual speed announcement here: this button now opens the Playback
-        // Options sheet rather than cycling speed inline, and the sheet's own
-        // segmented speed Picker announces the change. `accessibilityValue`
-        // above already voices the current speed when the chip is focused.
-        // A `UIAccessibility.post(.announcement)` on `model.speed` would
-        // double-announce (and fire while the chip is hidden behind the sheet).
+        .accessibilityHint(Text("Choose playback speed or open playback options"))
     }
 
-    // MARK: - Timeline / View Toggle
+    // MARK: - Tab Cycle
 
-    private var timelineButton: some View {
-        Button {
+    private var tabCycleButton: some View {
+        let next: TabSelection = {
+            switch model.selectedTab {
+            case .nowPlaying: return .read
+            case .read: return .library
+            case .library: return .nowPlaying
+            }
+        }()
+        return Button {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                switch model.selectedTab {
-                case .nowPlaying:
-                    model.selectedTab = .timeline
-                case .timeline:
-                    model.selectedTab = .read
-                case .read:
-                    model.selectedTab = .timeline
-                }
+                model.selectedTab = next
             }
             Haptic.play(.medium)
         } label: {
-            utilityChip(isActive: model.selectedTab == .timeline || model.selectedTab == .read) {
-                Image(systemName: "list.bullet")
+            utilityChip(isActive: false) {
+                Image(systemName: next.icon)
                     .font(.title2)
             }
         }
-        .accessibilityLabel(Text("Toggle chapters list"))
-        .accessibilityValue(
-            Text(
-                model.selectedTab == .nowPlaying
-                    ? String(localized: "Player")
-                    : model.selectedTab == .timeline
-                        ? String(localized: "Timeline") : String(localized: "Reader"))
-        )
-        .accessibilityAddTraits(
-            (model.selectedTab == .timeline || model.selectedTab == .read) ? .isSelected : []
-        )
-        .disabled(model.tracks.isEmpty)
+        .accessibilityLabel(Text("Go to \(next.label)"))
     }
 
     // MARK: - Bookmark
 
-    private var addBookmarkButton: some View {
-        Button {
-            if let draft = model.bookmarkDraftAtCurrentTime() {
-                onCreateBookmark?(draft)
-                Haptic.play(.medium)
+    private var bookmarkCaptureMenu: some View {
+        Menu {
+            Button {
+                createBookmarkDraft()
+            } label: {
+                Label("Add bookmark", systemImage: "bookmark.fill")
             }
+            .disabled(model.tracks.isEmpty)
+
+            Button {
+                onAddReaderNote?()
+                Haptic.play(.light)
+            } label: {
+                Label("Add note", systemImage: "note.text.badge.plus")
+            }
+            .disabled(!canCreateReaderCapture || onAddReaderNote == nil)
+
+            Button {
+                onToggleReaderMemo?()
+                Haptic.play(isReaderVoiceMemoRecording ? .light : .medium)
+            } label: {
+                if isReaderVoiceMemoRecording {
+                    Label("Stop memo", systemImage: "stop.circle.fill")
+                } else {
+                    Label("Record memo", systemImage: "mic.circle")
+                }
+            }
+            .disabled(!canCreateReaderCapture || onToggleReaderMemo == nil)
         } label: {
-            utilityChip(isActive: false) {
-                Image(systemName: "bookmark.fill")
+            utilityChip(isActive: isReaderVoiceMemoRecording) {
+                Image(systemName: isReaderVoiceMemoRecording ? "mic.circle.fill" : "bookmark.fill")
                     .font(.title2)
             }
         }
-        .accessibilityLabel(Text("Add bookmark at current time"))
-        .disabled(model.tracks.isEmpty)
+        .accessibilityLabel(Text("Bookmark, note, or memo"))
+        .disabled(model.tracks.isEmpty && !canCreateReaderCapture)
+    }
+
+    private func createBookmarkDraft() {
+        if let draft = model.bookmarkDraftAtCurrentTime() {
+            onCreateBookmark?(draft)
+            Haptic.play(.medium)
+        }
     }
 
     // MARK: - EPUB Player Controls
@@ -197,7 +287,7 @@ struct BottomToolbarView: View {
                 .contentShape(Rectangle())
         }
         .accessibilityLabel(Text(model.isPlaying ? "Pause" : "Play"))
-        .disabled(model.tracks.isEmpty)
+        .disabled(!model.hasPlaybackContent)
     }
 
     private var skipForwardButton: some View {

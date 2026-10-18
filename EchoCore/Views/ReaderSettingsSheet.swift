@@ -5,15 +5,15 @@ struct ReaderSettingsSheet: View {
     @Binding var settings: ReaderSettings
     @Environment(\.dismiss) private var dismiss
 
-    private let colorSwatches: [(String, String)] = [
-        ("#F5F0E8", "Sepia"),
-        ("#FFF8E7", "Cream"),
-        ("#FFFFFF", "White"),
-        ("#F0F0F0", "Light Gray"),
-        ("#2C2C2C", "Dark"),
-        ("#000000", "Black"),
-        ("#E8F5E9", "Soft Green"),
-        ("#E3F2FD", "Soft Blue"),
+    private let colorSwatches: [ReaderColorSwatch] = [
+        ReaderColorSwatch(hex: "#F5F0E8", name: "Sepia"),
+        ReaderColorSwatch(hex: "#FFF8E7", name: "Cream"),
+        ReaderColorSwatch(hex: "#FFFFFF", name: "White"),
+        ReaderColorSwatch(hex: "#F0F0F0", name: "Light Gray"),
+        ReaderColorSwatch(hex: "#2C2C2C", name: "Dark"),
+        ReaderColorSwatch(hex: "#000000", name: "Black"),
+        ReaderColorSwatch(hex: "#E8F5E9", name: "Soft Green"),
+        ReaderColorSwatch(hex: "#E3F2FD", name: "Soft Blue"),
     ]
 
     var body: some View {
@@ -29,7 +29,7 @@ struct ReaderSettingsSheet: View {
                 Section("Line Spacing") {
                     VStack {
                         Slider(value: $settings.lineSpacing, in: 1.0...2.5, step: 0.1)
-                        Text(String(format: "%.1f×", settings.lineSpacing))
+                        Text(verbatim: lineSpacingMultiplierText)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -37,24 +37,24 @@ struct ReaderSettingsSheet: View {
 
                 Section("Card Background") {
                     LazyVGrid(columns: Array(repeating: .init(.flexible()), count: 4), spacing: 12) {
-                        ForEach(colorSwatches, id: \.0) { (hex, name) in
+                        ForEach(colorSwatches) { swatch in
                             Button {
-                                settings.cardTintHex = hex
+                                settings.cardTintHex = swatch.hex
                             } label: {
                                 VStack(spacing: 4) {
                                     Circle()
-                                        .fill(Color(hex: hex))
+                                        .fill(Color(hex: swatch.hex))
                                         .frame(width: 44, height: 44)
                                         .overlay(
-                                            settings.cardTintHex == hex
+                                            settings.cardTintHex == swatch.hex
                                                 ? Image(systemName: "checkmark")
-                                                    .foregroundStyle(hex == "#000000" || hex == "#2C2C2C" ? .white : .black)
+                                                    .foregroundStyle(swatch.usesLightCheckmark ? .white : .black)
                                                 : nil
                                         )
                                         .overlay(
                                             Circle().stroke(Color.secondary.opacity(0.3), lineWidth: 1)
                                         )
-                                    Text(name)
+                                    Text(swatch.name)
                                         .font(.caption2)
                                         .foregroundStyle(.secondary)
                                 }
@@ -80,6 +80,21 @@ struct ReaderSettingsSheet: View {
                 }
             }
         }
+    }
+
+    private var lineSpacingMultiplierText: String {
+        settings.lineSpacing.formatted(.number.precision(.fractionLength(1))) + "×"
+    }
+}
+
+private struct ReaderColorSwatch: Identifiable {
+    let hex: String
+    let name: LocalizedStringResource
+
+    var id: String { hex }
+
+    var usesLightCheckmark: Bool {
+        hex == "#000000" || hex == "#2C2C2C"
     }
 }
 

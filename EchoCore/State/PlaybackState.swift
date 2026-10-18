@@ -6,6 +6,91 @@ import Observation
     import UIKit
 #endif
 
+/// Shared book-absolute timing for playlist playback, manifest resume, Watch
+/// context, and Audiobookshelf progress sync.
+struct PlaybackBookTimeIndex: Equatable, Sendable {
+    struct TrackTime: Equatable, Sendable {
+        var trackID: String
+        var trackURL: URL
+        var trackIndex: Int
+        var startTime: TimeInterval
+        var duration: TimeInterval
+
+        var endTime: TimeInterval { startTime + duration }
+    }
+
+    struct ResolvedTime: Equatable, Sendable {
+        var trackID: String
+        var trackURL: URL
+        var trackIndex: Int
+        var offset: TimeInterval
+        var duration: TimeInterval
+    }
+
+    static let empty = PlaybackBookTimeIndex(tracks: [])
+
+    var tracks: [TrackTime]
+
+    var totalDuration: TimeInterval {
+        tracks.last.map(\.endTime) ?? 0
+    }
+
+    init(tracks: [TrackTime]) {
+        self.tracks =
+            tracks
+            .filter { $0.duration.isFinite && $0.duration > 0 }
+            .sorted {
+                if $0.startTime == $1.startTime { return $0.trackIndex < $1.trackIndex }
+                return $0.startTime < $1.startTime
+            }
+    }
+
+    init(orderedTracks: [(track: Track, duration: TimeInterval)]) {
+        var cursor: TimeInterval = 0
+        var values: [TrackTime] = []
+        for (index, item) in orderedTracks.enumerated() {
+            guard item.duration.isFinite, item.duration > 0 else { continue }
+            values.append(
+                TrackTime(
+                    trackID: item.track.id,
+                    trackURL: item.track.url,
+                    trackIndex: index,
+                    startTime: cursor,
+                    duration: item.duration))
+            cursor += item.duration
+        }
+        self.init(tracks: values)
+    }
+
+    func startTime(forTrackID trackID: String) -> TimeInterval? {
+        tracks.first { $0.trackID == trackID }?.startTime
+    }
+
+    func startTime(forTrackURL trackURL: URL) -> TimeInterval? {
+        tracks.first { $0.trackURL == trackURL }?.startTime
+    }
+
+    func bookTime(trackID: String, offset: TimeInterval) -> TimeInterval? {
+        guard let track = tracks.first(where: { $0.trackID == trackID }) else { return nil }
+        return track.startTime + min(max(0, offset), track.duration)
+    }
+
+    func resolve(bookTime: TimeInterval) -> ResolvedTime? {
+        guard let first = tracks.first else { return nil }
+        let clamped = min(max(0, bookTime), totalDuration)
+        let track =
+            tracks.first { clamped >= $0.startTime && clamped < $0.endTime }
+            ?? tracks.last
+            ?? first
+        return ResolvedTime(
+            trackID: track.trackID,
+            trackURL: track.trackURL,
+            trackIndex: track.trackIndex,
+            offset: min(max(0, clamped - track.startTime), track.duration),
+            duration: track.duration)
+    }
+}
+
 /// Shared mutable playback state, owned by PlaybackController and observed by
 /// both PlayerModel (via pass-through computed properties) and SwiftUI views.
 /// Eliminates ~150 lines of stored properties and pass-throughs from PlayerModel.
@@ -14,6 +99,11 @@ final class PlaybackState {
     // MARK: - Playlist
 
     var folderURL: URL? = nil
+    /// Stable persistence/database identity for the active book. This differs
+    /// from `folderURL` when one self-contained M4B is opened from a folder
+    /// containing other audio files.
+    var bookIdentityURL: URL? = nil
+    var sourceDocumentURL: URL? = nil
     var tracks: [Track] = []
     var currentIndex: Int = 0
 
@@ -22,9 +112,108 @@ final class PlaybackState {
     var m4bBooks: [M4BBook] = []
     var aggregatedChapters: [AggregatedChapter] = []
     var totalBookDuration: TimeInterval = 0
+    var bookTimeIndex: PlaybackBookTimeIndex = .empty
+    var pendingBookTimeSeek: TimeInterval? = nil
+    var pendingBookTimeSeekSuppressesProgressPush: Bool = false
 
     var isMultiM4B: Bool { m4bBooks.count >= 2 }
     var pendingAggregatedChapter: AggregatedChapter? = nil
+
+    var activeBookURL: URL? { bookIdentityURL ?? folderURL }
+
+    /// Folder-scoped sidecars and playlist manifests are valid only when the
+    /// folder itself is the book. A directly opened M4B must not read or write
+    /// shared folder state belonging to sibling audio files.
+    var persistenceFolderURL: URL? {
+        activeBookURL == folderURL ? folderURL : nil
+    }
+
+    /// The M4B file currently playing, resolved by matching the playing track's
+    /// URL against `m4bBooks`. `currentIndex` indexes `tracks`, which is
+    /// independently reorderable via persisted `loadOrder`/`moveTracks`, so it must
+    /// NOT be used to index the filename-sorted `m4bBooks` — doing so returns the
+    /// wrong book's offset after a manual reorder (CODE_AUDIT §5.1).
+    var currentBook: M4BBook? {
+        guard tracks.indices.contains(currentIndex) else { return nil }
+        let playingURL = tracks[currentIndex].url
+        return m4bBooks.first { $0.url == playingURL }
+    }
+
+    /// Cumulative start offset (book-global time base) of the currently playing
+    /// book, or 0 when single-file / unresolved.
+    var currentBookStartOffset: TimeInterval { currentBook?.cumulativeStartOffset ?? 0 }
+
+    var currentTrackStartOffset: TimeInterval {
+        guard tracks.indices.contains(currentIndex) else { return 0 }
+        let track = tracks[currentIndex]
+        return bookTimeIndex.startTime(forTrackID: track.id)
+            ?? bookTimeIndex.startTime(forTrackURL: track.url)
+            ?? currentBookStartOffset
+    }
+
+    /// Whole-book duration for the current playback scope: the aggregated total
+    /// for a multi-M4B folder, otherwise the single file's duration. Centralizes
+    /// the `isMultiM4B ? totalBookDuration : durationSeconds` selection that
+    /// book-level progress, scrubbing, and remote (Audiobookshelf) sync must use —
+    /// dividing a book-absolute time by the current *track's* duration reads as
+    /// finished after the first track (CODE_AUDIT §5.20).
+    var effectiveBookDuration: TimeInterval {
+        if bookTimeIndex.totalDuration > 0 { return bookTimeIndex.totalDuration }
+        return isMultiM4B ? totalBookDuration : (durationSeconds ?? 0)
+    }
+
+    func bookTime(forCurrentTrackOffset offset: TimeInterval) -> TimeInterval {
+        guard tracks.indices.contains(currentIndex), offset.isFinite else { return 0 }
+        let track = tracks[currentIndex]
+        return bookTimeIndex.bookTime(trackID: track.id, offset: offset)
+            ?? (currentBookStartOffset + max(0, offset))
+    }
+
+    func currentScopeProgressFraction(forCurrentTrackOffset offset: TimeInterval) -> Double {
+        if chapters.count >= 2,
+            let chapterIndex = currentChapterIndex,
+            chapters.indices.contains(chapterIndex)
+        {
+            let chapter = chapters[chapterIndex]
+            let duration = chapter.endSeconds - chapter.startSeconds
+            guard offset.isFinite, duration.isFinite, duration > 0 else { return 0 }
+            return min(1, max(0, (offset - chapter.startSeconds) / duration))
+        }
+
+        let duration = durationSeconds ?? 0
+        guard offset.isFinite, duration.isFinite, duration > 0 else { return 0 }
+        return min(1, max(0, offset / duration))
+    }
+
+    func bookProgressFraction(forCurrentTrackOffset offset: TimeInterval) -> Double {
+        let duration = effectiveBookDuration
+        guard duration.isFinite, duration > 0 else { return 0 }
+        return min(1, max(0, bookTime(forCurrentTrackOffset: offset) / duration))
+    }
+
+    var bookProgressBoundaryFractions: [Double] {
+        let duration = bookTimeIndex.totalDuration
+        guard duration.isFinite, duration > 0 else { return [] }
+        return bookTimeIndex.tracks.dropFirst().compactMap { track in
+            let fraction = track.startTime / duration
+            return (fraction > 0 && fraction < 1) ? fraction : nil
+        }
+    }
+
+    var hasWholeBookProgress: Bool {
+        bookTimeIndex.tracks.count >= 2 && effectiveBookDuration > 0
+    }
+
+    func trackOffset(forBookTime bookTime: TimeInterval, trackID: String) -> TimeInterval? {
+        guard let resolved = bookTimeIndex.resolve(bookTime: bookTime),
+            resolved.trackID == trackID
+        else { return nil }
+        return resolved.offset
+    }
+
+    func shouldDeferBookTimeSeek(_ target: TimeInterval) -> Bool {
+        tracks.count > 1 && target.isFinite && bookTimeIndex.resolve(bookTime: target) == nil
+    }
 
     // MARK: - Playback
 
@@ -53,6 +242,11 @@ final class PlaybackState {
     /// independent of render progress), shown on the playlist page with
     /// tap-to-exclude. Empty for non-narration books. See NarrationOutlineBuilder.
     var narrationOutline: [NarrationOutlineChapter] = []
+    /// Preferred voice selected for the current narration plan. Anthology rows
+    /// may override it, but ordinary books use it for every chapter.
+    var narrationDefaultVoice: VoiceID? = nil
+    /// Number of represented anthology chapters with a frozen manifest override.
+    var narrationVoiceOverrideCount = 0
     /// Fine-grained sub-section atoms per logical chapter index.
     /// Populated by `ChapterGroupingService` when a Libation-style naming
     /// pattern is detected; empty for all other books.
@@ -69,6 +263,12 @@ final class PlaybackState {
     #if os(iOS)
         var thumbnailImage: UIImage? = nil
         var currentDisplayArtwork: UIImage? = nil
+        /// Identity signature extracted from the SOURCE cover at load time.
+        /// `thumbnailImage` is the square blur-fill composite whose margins and
+        /// scrim dilute small vivid counter-colours below the accent-promotion
+        /// floor, so theming must never extract from it when this is available.
+        /// Tiny value struct — never retains the full-size cover.
+        var sourceCoverSignature: CoverSignature? = nil
     #endif
     var currentDisplayArtworkVersion: Int = 0
     var watchThumbnailData: Data? = nil

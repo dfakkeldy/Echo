@@ -21,6 +21,14 @@ enum BookProgressTrackModel {
         }
         return String(localized: "\(pct)% of book · \(title) of \(chapterCount) chapters")
     }
+
+    static func caption(bookFraction: Double, detail: String?) -> String {
+        let pct = Int((bookFraction * 100).rounded())
+        guard let detail, !detail.isEmpty else {
+            return String(localized: "\(pct)% of book")
+        }
+        return String(localized: "\(pct)% of book · \(detail)")
+    }
 }
 
 /// The 3pt hairline book track under the chapter scrubber: the ring around

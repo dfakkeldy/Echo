@@ -15,6 +15,8 @@ final class DefaultSoundscapeMixer: SoundscapePlaying {
     private var isLooping = false
     private var currentFile: AVAudioFile?
 
+    private(set) var isActive = false
+
     var volume: Float {
         get { playerNode?.volume ?? 0.5 }
         set { playerNode?.volume = newValue }
@@ -46,18 +48,21 @@ final class DefaultSoundscapeMixer: SoundscapePlaying {
     // MARK: - SoundscapePlaying
 
     func play(preset: SoundscapePreset) async {
-        guard let engine, let playerNode else { return }
+        guard let playerNode else { return }
         stop()
 
         if let fileName = preset.fileName {
-            await playFromFile(named: fileName, playerNode: playerNode)
+            isActive = await playFromFile(named: fileName, playerNode: playerNode)
         } else if let config = preset.generatorConfig {
-            startGenerator(config: config)
-            playerNode.play()
+            if startGenerator(config: config) {
+                playerNode.play()
+                isActive = true
+            }
         }
     }
 
     func stop() {
+        isActive = false
         isLooping = false
         currentFile = nil
         playerNode?.stop()
@@ -70,10 +75,10 @@ final class DefaultSoundscapeMixer: SoundscapePlaying {
 
     // MARK: - File Playback
 
-    private func playFromFile(named fileName: String, playerNode: AVAudioPlayerNode) async {
+    private func playFromFile(named fileName: String, playerNode: AVAudioPlayerNode) async -> Bool {
         guard let soundURL = findFile(named: fileName) else {
             os_log(.error, "SoundscapeMixer: '%@' not found in bundle", fileName)
-            return
+            return false
         }
 
         do {
@@ -82,8 +87,10 @@ final class DefaultSoundscapeMixer: SoundscapePlaying {
             isLooping = true
             scheduleLoop(file: file)
             playerNode.play()
+            return true
         } catch {
             os_log(.error, "SoundscapeMixer: file error %{private}@", error.localizedDescription)
+            return false
         }
     }
 
@@ -99,9 +106,13 @@ final class DefaultSoundscapeMixer: SoundscapePlaying {
     }
 
     private func scheduleLoop(file: AVAudioFile) {
-        playerNode?.scheduleFile(file, at: nil, completionCallbackType: .dataPlayedBack) { [weak self] _ in
-            guard let self, self.isLooping, let file = self.currentFile else { return }
+        // The completion handler is @Sendable and fires on an audio thread, so it
+        // must not read the MainActor-isolated `isLooping`/`currentFile` directly.
+        // Hop to the main actor first, then check the loop state and reschedule.
+        playerNode?.scheduleFile(file, at: nil, completionCallbackType: .dataPlayedBack) {
+            [weak self] _ in
             Task { @MainActor in
+                guard let self, self.isLooping, let file = self.currentFile else { return }
                 self.scheduleLoop(file: file)
             }
         }
@@ -109,7 +120,7 @@ final class DefaultSoundscapeMixer: SoundscapePlaying {
 
     // MARK: - Generative Audio
 
-    private func startGenerator(config: SoundscapePreset.GeneratorConfig) {
+    private func startGenerator(config: SoundscapePreset.GeneratorConfig) -> Bool {
         // Remove any previous source node.
         if let old = sourceNode, let engine {
             engine.detach(old)
@@ -131,16 +142,20 @@ final class DefaultSoundscapeMixer: SoundscapePlaying {
             let beat = config.beatFrequency ?? 10
             let pulse = config.pulseRate
             if config.type == .binauralBeats {
-                node = makeBinauralBeatsNode(carrierHz: carrier, beatHz: beat, sampleRate: sampleRate, amplitude: amplitude)
+                node = makeBinauralBeatsNode(
+                    carrierHz: carrier, beatHz: beat, sampleRate: sampleRate, amplitude: amplitude)
             } else {
-                node = makeIsochronicNode(frequency: carrier, pulseRate: pulse ?? 10, sampleRate: sampleRate, amplitude: amplitude)
+                node = makeIsochronicNode(
+                    frequency: carrier, pulseRate: pulse ?? 10, sampleRate: sampleRate,
+                    amplitude: amplitude)
             }
         }
 
-        guard let engine else { return }
+        guard let engine else { return false }
         engine.attach(node)
         engine.connect(node, to: eqNode ?? engine.mainMixerNode, format: nil)
         sourceNode = node
+        return true
     }
 
     /// White noise: uniform random samples.
@@ -159,7 +174,12 @@ final class DefaultSoundscapeMixer: SoundscapePlaying {
 
     /// Pink noise: 3-stage averaging filter (Paul Kellet method).
     private func makePinkNoiseNode(sampleRate: Double, amplitude: Float) -> AVAudioSourceNode {
-        var b0: Float = 0, b1: Float = 0, b2: Float = 0, b3: Float = 0, b4: Float = 0, b5: Float = 0
+        var b0: Float = 0
+        var b1: Float = 0
+        var b2: Float = 0
+        var b3: Float = 0
+        var b4: Float = 0
+        var b5: Float = 0
         return AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
             for buffer in ablPointer {
@@ -199,7 +219,9 @@ final class DefaultSoundscapeMixer: SoundscapePlaying {
     }
 
     /// Binaural beats: two slightly-detuned sine waves for left/right separation.
-    private func makeBinauralBeatsNode(carrierHz: Double, beatHz: Double, sampleRate: Double, amplitude: Float) -> AVAudioSourceNode {
+    private func makeBinauralBeatsNode(
+        carrierHz: Double, beatHz: Double, sampleRate: Double, amplitude: Float
+    ) -> AVAudioSourceNode {
         var phase: Double = 0
         let stepLeft = 2 * Double.pi * carrierHz / sampleRate
         let stepRight = 2 * Double.pi * (carrierHz + beatHz) / sampleRate
@@ -210,7 +232,10 @@ final class DefaultSoundscapeMixer: SoundscapePlaying {
             let channelCount = Int(binfo.mNumberChannels > 0 ? binfo.mNumberChannels : 2)
             for buffer in ablPointer {
                 guard let ptr = buffer.mData?.assumingMemoryBound(to: Float.self) else { continue }
-                let isRight = (buffer.mData == ablPointer[1].mData) || (channelCount == 1 && ablPointer.count > 1 && buffer.mData == ablPointer[1].mData)
+                let isRight =
+                    (buffer.mData == ablPointer[1].mData)
+                    || (channelCount == 1 && ablPointer.count > 1
+                        && buffer.mData == ablPointer[1].mData)
                 let step = isRight ? stepRight : stepLeft
                 for frame in 0..<Int(frameCount) {
                     let sample = sin(phase) * Double(amplitude)
@@ -223,7 +248,9 @@ final class DefaultSoundscapeMixer: SoundscapePlaying {
     }
 
     /// Isochronic tones: pulsed sine wave at the given frequency.
-    private func makeIsochronicNode(frequency: Double, pulseRate: Double, sampleRate: Double, amplitude: Float) -> AVAudioSourceNode {
+    private func makeIsochronicNode(
+        frequency: Double, pulseRate: Double, sampleRate: Double, amplitude: Float
+    ) -> AVAudioSourceNode {
         var phase: Double = 0
         let step = 2 * Double.pi * frequency / sampleRate
         let pulseInterval = sampleRate / pulseRate
@@ -235,7 +262,8 @@ final class DefaultSoundscapeMixer: SoundscapePlaying {
                 guard let ptr = buffer.mData?.assumingMemoryBound(to: Float.self) else { continue }
                 for frame in 0..<Int(frameCount) {
                     // Amplitude modulation by pulse wave
-                    let pulseMod: Float = sin(Double.pi * sampleCount / pulseInterval) > 0 ? amplitude : 0
+                    let pulseMod: Float =
+                        sin(Double.pi * sampleCount / pulseInterval) > 0 ? amplitude : 0
                     let sample = sin(phase) * Double(pulseMod)
                     ptr[frame] = Float(sample)
                     phase += step

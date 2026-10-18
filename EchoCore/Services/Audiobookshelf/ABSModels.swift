@@ -10,15 +10,76 @@ enum ABSError: Error, LocalizedError {
     case http(Int, body: String?)
     case serverMessage(String)
     case missingField(String)
+    case untrustedCertificate(host: String, sha256: String)
 
     var errorDescription: String? {
         switch self {
         case .notConnected: return "No Audiobookshelf server connected."
         case .unauthorized: return "Authentication failed. Sign in again."
-        case .network(let e): return e.localizedDescription
+        case .network(let e):
+            if (e as? URLError)?.code == .appTransportSecurityRequiresSecureConnection {
+                return
+                    "App Transport Security blocked plain HTTP. Reinstall the latest app build, or use an HTTPS Audiobookshelf URL."
+            }
+            return e.localizedDescription
         case .http(let code, _): return "Server returned HTTP \(code)."
         case .serverMessage(let m): return m
         case .missingField(let f): return "Response missing required field: \(f)."
+        case .untrustedCertificate(let host, _):
+            return "\"\(host)\" is using a self-signed certificate that isn't trusted yet."
+        }
+    }
+}
+
+extension ABSError {
+    /// If `error` is a TLS server-trust failure (`URLError.serverCertificateUntrusted`) and the
+    /// trust delegate captured a leaf fingerprint, surface it as `.untrustedCertificate` so the UI
+    /// can offer to pin it. Every other error passes through unchanged. Pure — unit-tested.
+    static func mappingTrustFailure(
+        _ error: ABSError, capturedFingerprint: String?, host: String
+    ) -> ABSError {
+        guard case .network(let underlying) = error,
+            (underlying as? URLError)?.code == .serverCertificateUntrusted,
+            let fingerprint = capturedFingerprint
+        else { return error }
+        return .untrustedCertificate(host: host, sha256: fingerprint)
+    }
+
+    var privacySafeLogDescription: String {
+        switch self {
+        case .notConnected:
+            return "not connected"
+        case .unauthorized:
+            return "unauthorized"
+        case .network(let error):
+            if let urlError = error as? URLError {
+                return "network error \(urlError.code.rawValue)"
+            }
+            return "network error"
+        case .http(let code, _):
+            return "HTTP \(code)"
+        case .serverMessage:
+            return "server message"
+        case .missingField(let field):
+            return "missing field \(field)"
+        case .untrustedCertificate:
+            return "untrusted certificate"
+        }
+    }
+}
+
+enum ABSSignOutResult {
+    case noRemoteToken
+    case remoteRevoked
+    case remoteRevokeFailed(ABSError)
+    case remoteRevokeUnknown
+
+    var didRemoteRevokeFail: Bool {
+        switch self {
+        case .remoteRevokeFailed, .remoteRevokeUnknown:
+            return true
+        case .noRemoteToken, .remoteRevoked:
+            return false
         }
     }
 }
@@ -77,6 +138,43 @@ struct ABSLibraryItemsResponse: Decodable {
     let numPages: Int?
 }
 
+struct ABSLibraryFilterDataResponse: Decodable {
+    let filterdata: FilterData?
+
+    struct FilterData: Decodable {
+        let authors: [NamedValue]?
+        let series: [NamedValue]?
+        let genres: [String]?
+        let tags: [String]?
+    }
+
+    struct NamedValue: Decodable {
+        let id: String
+        let name: String
+    }
+
+    var browseFilterData: ABSLibraryFilterData {
+        guard let filterdata else { return .empty }
+        return ABSLibraryFilterData(
+            authors: Self.options(filterdata.authors, group: .authors),
+            series: Self.options(filterdata.series, group: .series),
+            genres: Self.options(filterdata.genres, group: .genres),
+            tags: Self.options(filterdata.tags, group: .tags))
+    }
+
+    private static func options(
+        _ values: [NamedValue]?, group: ABSFilterGroup
+    ) -> [ABSFilterOption] {
+        (values ?? []).map { ABSFilterOption(group: group, value: $0.id, label: $0.name) }
+    }
+
+    private static func options(
+        _ values: [String]?, group: ABSFilterGroup
+    ) -> [ABSFilterOption] {
+        (values ?? []).map { ABSFilterOption(group: group, value: $0, label: $0) }
+    }
+}
+
 // MARK: - Library Item
 
 struct ABSLibraryItem: Decodable, Identifiable {
@@ -89,16 +187,20 @@ struct ABSLibraryItem: Decodable, Identifiable {
     let isFile: Bool?
     let mimeType: String?
     let size: Int64?
+    let addedAt: Int64?
     let media: ABSMedia?
 
     // If media.metadata is present, these convenience accessors surface the
     // relevant metadata fields.
-    var title: String? { media?.metadata?.title }
-    var author: String? { media?.metadata?.authorName }
-    var publishedYear: String? { media?.metadata?.publishedYear }
+    nonisolated var title: String? { media?.metadata?.title }
+    nonisolated var author: String? { media?.metadata?.author }
+    nonisolated var publishedYear: String? { media?.metadata?.publishedYear }
     var numTracks: Int? { media?.numTracks }
     var duration: Double? { media?.duration }
     var coverPath: String? { media?.coverPath }
+    nonisolated var seriesName: String? { media?.metadata?.series }
+    nonisolated var seriesSequence: String? { media?.metadata?.seriesSequence }
+    var hasAudioContent: Bool { media?.hasAudioContent == true }
 
     /// Genre + tag + series, deduped — the "topics" Echo persists on import.
     var topics: [String] {
@@ -117,10 +219,22 @@ struct ABSLibraryItem: Decodable, Identifiable {
         let numTracks: Int?
         let duration: Double?
         let tracks: [ABSTrack]?
+        let audioFiles: [ABSFile]?
+        let files: [ABSFile]?
+        let ebookFile: ABSFile?
+        let pdfFile: ABSFile?
         let chapters: [ABSChapter]?
 
         enum CodingKeys: String, CodingKey {
-            case id, metadata, coverPath, tags, numTracks, duration, tracks, chapters
+            case id, metadata, coverPath, tags, numTracks, duration, tracks, audioFiles, files
+            case ebookFile, pdfFile, chapters
+        }
+
+        var hasAudioContent: Bool {
+            if let numTracks, numTracks > 0 { return true }
+            if let tracks, !tracks.isEmpty { return true }
+            if let audioFiles, !audioFiles.isEmpty { return true }
+            return files?.contains { $0.isAudio } == true
         }
     }
 
@@ -137,14 +251,236 @@ struct ABSLibraryItem: Decodable, Identifiable {
         let asin: String?
         let language: String?
         let explicit: Bool?
+        let seriesSequence: String?
 
         var authorName: String? { author }
+        var userReadableDescription: String? {
+            Self.plainText(fromHTML: description)
+        }
 
         enum CodingKeys: String, CodingKey {
-            case title, author, narrator, series, description, genres, publisher, isbn, asin,
-                language, explicit
+            case title, author, authors, narrator, narrators, series, description, genres,
+                publisher,
+                isbn, asin, language, explicit
+            case authorName = "authorName"
+            case narratorName = "narratorName"
+            case seriesName = "seriesName"
             case publishedYear = "publishedYear"
         }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+
+            title = Self.string(in: container, forKey: .title)
+            author =
+                Self.string(in: container, forKey: .author)
+                ?? Self.string(in: container, forKey: .authorName)
+                ?? Self.joined(Self.namedValues(in: container, forKey: .authors))
+            narrator =
+                Self.string(in: container, forKey: .narrator)
+                ?? Self.string(in: container, forKey: .narratorName)
+                ?? Self.joined(Self.namedValues(in: container, forKey: .narrators))
+            series =
+                Self.string(in: container, forKey: .series)
+                ?? Self.string(in: container, forKey: .seriesName)
+                ?? Self.joined(Self.namedValues(in: container, forKey: .series))
+            seriesSequence = Self.firstSeriesSequence(in: container)
+            description = Self.string(in: container, forKey: .description)
+            genres = Self.stringArray(in: container, forKey: .genres)
+            publishedYear = Self.string(in: container, forKey: .publishedYear)
+            publisher = Self.string(in: container, forKey: .publisher)
+            isbn = Self.string(in: container, forKey: .isbn)
+            asin = Self.string(in: container, forKey: .asin)
+            language = Self.string(in: container, forKey: .language)
+            explicit = try? container.decodeIfPresent(Bool.self, forKey: .explicit)
+        }
+
+        private struct NamedValue: Decodable {
+            let name: String?
+        }
+
+        private struct SeriesValue: Decodable {
+            let sequence: String?
+        }
+
+        private static func firstSeriesSequence(
+            in container: KeyedDecodingContainer<CodingKeys>
+        ) -> String? {
+            if let values = try? container.decodeIfPresent([SeriesValue].self, forKey: .series) {
+                return normalized(values.first?.sequence)
+            }
+            if let value = try? container.decodeIfPresent(SeriesValue.self, forKey: .series) {
+                return normalized(value.sequence)
+            }
+            return nil
+        }
+
+        private static func string(
+            in container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys
+        ) -> String? {
+            guard let value = try? container.decodeIfPresent(String.self, forKey: key) else {
+                return nil
+            }
+            return normalized(value)
+        }
+
+        private static func stringArray(
+            in container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys
+        ) -> [String]? {
+            if let values = try? container.decodeIfPresent([String].self, forKey: key) {
+                let normalizedValues = values.compactMap(normalized)
+                return normalizedValues.isEmpty ? nil : normalizedValues
+            }
+            if let value = string(in: container, forKey: key) { return [value] }
+            return nil
+        }
+
+        private static func namedValues(
+            in container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys
+        ) -> [String] {
+            if let values = stringArray(in: container, forKey: key) { return values }
+            if let values = try? container.decodeIfPresent([NamedValue].self, forKey: key) {
+                return values.compactMap { normalized($0.name) }
+            }
+            if let value = try? container.decodeIfPresent(NamedValue.self, forKey: key),
+                let name = normalized(value.name)
+            {
+                return [name]
+            }
+            return []
+        }
+
+        private static func joined(_ values: [String]) -> String? {
+            values.isEmpty ? nil : values.joined(separator: ", ")
+        }
+
+        private static func normalized(_ value: String?) -> String? {
+            guard let value else { return nil }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        private static func plainText(fromHTML value: String?) -> String? {
+            guard var text = normalized(value) else { return nil }
+            text = Self.replacingPattern(
+                #"(?i)<\s*br\s*/?\s*>|<\s*/\s*p\s*>|<\s*/\s*div\s*>"#,
+                in: text,
+                with: "\n")
+            text = Self.replacingPattern(#"<[^>]+>"#, in: text, with: "")
+            text = Self.unescapeHTMLEntities(in: text)
+
+            let lines =
+                text
+                .components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            return normalized(lines.filter { !$0.isEmpty }.joined(separator: "\n\n"))
+        }
+
+        private static func replacingPattern(
+            _ pattern: String,
+            in value: String,
+            with replacement: String
+        ) -> String {
+            value.replacingOccurrences(
+                of: pattern,
+                with: replacement,
+                options: .regularExpression)
+        }
+
+        private static func unescapeHTMLEntities(in value: String) -> String {
+            var output = ""
+            var index = value.startIndex
+
+            while index < value.endIndex {
+                guard value[index] == "&",
+                    let semicolon = value[index...].firstIndex(of: ";")
+                else {
+                    output.append(value[index])
+                    index = value.index(after: index)
+                    continue
+                }
+
+                let entityStart = value.index(after: index)
+                let entity = String(value[entityStart..<semicolon])
+                if let decoded = Self.decodedHTMLEntity(entity) {
+                    output.append(decoded)
+                    index = value.index(after: semicolon)
+                } else {
+                    output.append(value[index])
+                    index = value.index(after: index)
+                }
+            }
+
+            return output
+        }
+
+        private static func decodedHTMLEntity(_ entity: String) -> String? {
+            switch entity {
+            case "amp": return "&"
+            case "apos": return "'"
+            case "gt": return ">"
+            case "lt": return "<"
+            case "nbsp": return " "
+            case "quot": return "\""
+            default:
+                if entity.hasPrefix("#x"),
+                    let value = UInt32(entity.dropFirst(2), radix: 16),
+                    let scalar = UnicodeScalar(value)
+                {
+                    return String(scalar)
+                }
+                if entity.hasPrefix("#"),
+                    let value = UInt32(entity.dropFirst()),
+                    let scalar = UnicodeScalar(value)
+                {
+                    return String(scalar)
+                }
+                return nil
+            }
+        }
+    }
+
+    struct ABSFile: Decodable {
+        let ino: String?
+        let metadata: ABSFileMetadata?
+        let addedAt: Int64?
+        let updatedAt: Int64?
+        let trackNumFromMeta: Int?
+        let discNumFromMeta: Int?
+        let trackNumFromFilename: Int?
+        let discNumFromFilename: Int?
+        let manuallyVerified: Bool?
+        let invalid: Bool?
+        let exclude: Bool?
+        let error: String?
+        let format: String?
+        let duration: Double?
+        let bitRate: Int?
+        let language: String?
+        let codec: String?
+        let timeBase: String?
+        let channels: Int?
+        let channelLayout: String?
+        let chapters: [ABSChapter]?
+        let embeddedCoverArt: String?
+        let mimeType: String?
+        let path: String?
+        let relPath: String?
+        let size: Int64?
+
+        var isAudio: Bool {
+            if mimeType?.hasPrefix("audio/") == true { return true }
+            if let codec, !codec.isEmpty { return true }
+            return duration.map { $0 > 0 } == true
+        }
+    }
+
+    struct ABSFileMetadata: Decodable {
+        let filename: String?
+        let ext: String?
+        let path: String?
+        let relPath: String?
+        let size: Int64?
     }
 
     struct ABSTrack: Decodable {
@@ -172,7 +508,7 @@ struct ABSLibraryItem: Decodable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, ino, libraryId, folderId, path, relPath, isFile, mimeType, size, media
+        case id, ino, libraryId, folderId, path, relPath, isFile, mimeType, size, addedAt, media
     }
 }
 
@@ -180,10 +516,95 @@ struct ABSLibraryItem: Decodable, Identifiable {
 
 struct ABSSearchResponse: Decodable {
     let book: [ABSSearchBookResult]
+    let podcast: [ABSSearchBookResult]
+    let authors: [ABSSearchAuthorResult]
+    let series: [ABSSearchSeriesResult]
+
+    var libraryItems: [ABSLibraryItem] {
+        deduped(
+            book.map(\.libraryItem) + podcast.map(\.libraryItem)
+                + series.flatMap(\.books) + authors.flatMap(\.libraryItems))
+    }
+
+    var authorNames: [String] {
+        authors.compactMap(\.name).filter { !$0.isEmpty }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case book, podcast, authors, series
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        book = try container.decodeIfPresent([ABSSearchBookResult].self, forKey: .book) ?? []
+        podcast = try container.decodeIfPresent([ABSSearchBookResult].self, forKey: .podcast) ?? []
+        authors =
+            try container.decodeIfPresent([ABSSearchAuthorResult].self, forKey: .authors) ?? []
+        series =
+            try container.decodeIfPresent([ABSSearchSeriesResult].self, forKey: .series) ?? []
+    }
+
+    func isPotentiallyLimited(to limit: Int) -> Bool {
+        let limit = max(1, limit)
+        return book.count >= limit || podcast.count >= limit || authors.count >= limit
+            || series.count >= limit
+    }
+
+    private func deduped(_ items: [ABSLibraryItem]) -> [ABSLibraryItem] {
+        var seen = Set<String>()
+        return items.filter { seen.insert($0.id).inserted }
+    }
+}
+
+struct ABSSearchResults {
+    let items: [ABSLibraryItem]
+    let isLimited: Bool
 }
 
 struct ABSSearchBookResult: Decodable {
     let libraryItem: ABSLibraryItem
+}
+
+/// Current ABS search payload: each matched series contains its books as raw library items.
+struct ABSSearchSeriesResult: Decodable {
+    let books: [ABSLibraryItem]
+}
+
+struct ABSSearchAuthorResult: Decodable {
+    let name: String?
+    let libraryItems: [ABSLibraryItem]
+
+    enum CodingKeys: String, CodingKey {
+        case name, libraryItem, libraryItems, items, book, books, podcast, podcasts
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+
+        var decodedItems: [ABSLibraryItem] = []
+        if let item = try? container.decodeIfPresent(ABSLibraryItem.self, forKey: .libraryItem) {
+            decodedItems.append(item)
+        }
+        decodedItems +=
+            (try? container.decodeIfPresent([ABSLibraryItem].self, forKey: .libraryItems)) ?? []
+        decodedItems += Self.searchItems(in: container, forKey: .items)
+        decodedItems += Self.searchItems(in: container, forKey: .book)
+        decodedItems += Self.searchItems(in: container, forKey: .books)
+        decodedItems += Self.searchItems(in: container, forKey: .podcast)
+        decodedItems += Self.searchItems(in: container, forKey: .podcasts)
+        libraryItems = decodedItems
+    }
+
+    private static func searchItems(
+        in container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) -> [ABSLibraryItem] {
+        if let results = try? container.decodeIfPresent([ABSSearchBookResult].self, forKey: key) {
+            return results.map(\.libraryItem)
+        }
+        return (try? container.decodeIfPresent([ABSLibraryItem].self, forKey: key)) ?? []
+    }
 }
 
 // MARK: - Media Progress (Milestone D)

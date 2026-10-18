@@ -8,7 +8,10 @@
 
 import XCTest
 
-final class Echo_Watch_AppUITestsLaunchTests: XCTestCase {
+// XCUITest base class. XCTestCase's members are nonisolated; under the target's
+// MainActor default isolation the override/init isolation would mismatch, so opt the
+// class out. Individual test methods keep their explicit @MainActor.
+nonisolated final class Echo_Watch_AppUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true

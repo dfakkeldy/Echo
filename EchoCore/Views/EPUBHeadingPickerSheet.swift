@@ -4,11 +4,22 @@ import GRDB
 
 struct EPUBHeadingPickerSheet: View {
     let folderURL: URL
+    let bookURL: URL
     let onSelect: (EPubBlockRecord) -> Void
     @Environment(PlayerModel.self) private var model
     @Environment(\.dismiss) private var dismiss
 
     @State private var headings: [EPubBlockRecord] = []
+
+    init(
+        folderURL: URL,
+        bookURL: URL? = nil,
+        onSelect: @escaping (EPubBlockRecord) -> Void
+    ) {
+        self.folderURL = folderURL
+        self.bookURL = bookURL ?? folderURL
+        self.onSelect = onSelect
+    }
 
     var body: some View {
         NavigationStack {
@@ -45,7 +56,7 @@ struct EPUBHeadingPickerSheet: View {
         guard let db = model.databaseService else { return }
         let dao = EPubBlockDAO(db: db.writer)
         do {
-            let blocks = try dao.blocks(for: folderURL.absoluteString)
+            let blocks = try dao.blocks(for: bookURL.absoluteString)
             self.headings = blocks.filter { $0.blockKind == EPubBlockRecord.Kind.heading.rawValue && !($0.text?.isEmpty ?? true) }
         } catch {
             // Handle error silently

@@ -1,10 +1,32 @@
 # Building Echo — The Devlog
 
+<!-- TODO(Dan): AI disclosure. Same claim as the devlog.html hero line; update it to match your rewrite. -->
 Echo went from "I wonder if I could make an iOS app" to a four-platform audiobook study system — with on-device AI narration — in about nine weeks. This is the week-by-week story, reconstructed from the actual git history — **956 commits** between April 19 and June 19, 2026, written by a mail carrier with no prior Swift experience, in the hours around a full-time delivery route.
 
 It's all open source. You can audit every claim below: [github.com/dfakkeldy/Echo](https://github.com/dfakkeldy/Echo).
 
 ---
+
+<!-- AUTO-DEVLOG:START -->
+## Automated update - Aug 17-23, 2026
+
+*Generated from 8 commits merged during the week.*
+
+### Shipped
+- Distribute weekly mac builds externally ([c8024c7](https://github.com/dfakkeldy/Echo/commit/c8024c7))
+
+### Fixed
+- Retag sentence-initial imperative heteronyms as verbs (#588) ([516a9f3](https://github.com/dfakkeldy/Echo/commit/516a9f3))
+- Keep complication playback current (#587) ([a8d6d84](https://github.com/dfakkeldy/Echo/commit/a8d6d84))
+- Stop audio engine when playback pauses (#586) ([69b0b37](https://github.com/dfakkeldy/Echo/commit/69b0b37))
+- Reclaim compact top chrome (#585) ([7959ef9](https://github.com/dfakkeldy/Echo/commit/7959ef9))
+- Add document type handler ranks (#584) ([22e7497](https://github.com/dfakkeldy/Echo/commit/22e7497))
+
+### Build, docs, and housekeeping
+- Run doc contracts without Xcode and skip the build gate for docs-only PRs (#583) ([9106a2c](https://github.com/dfakkeldy/Echo/commit/9106a2c))
+- Weekly automated update (#582) ([a21b1f4](https://github.com/dfakkeldy/Echo/commit/a21b1f4))
+
+<!-- AUTO-DEVLOG:END -->
 
 ## Now — June 2026 · *The road to 1.0* (in progress)
 
@@ -50,7 +72,7 @@ The busiest week of the project's opening stretch, and it reads like a different
 - **The Anki system.** SM-2 daily review, inline flashcard recall during playback, audio snippet cards, JSON deck import, and hands-free **flashcard review on the watch**.
 - **The EPUB alignment pipeline** — a Swift CLI that unpacks an EPUB, parses the spine, and fuzzy-aligns transcribed audio to text with Levenshtein matching. The hardest problem in the app, started properly, with tests.
 - **V1 EPUB timeline core** — `epub_block` and `alignment_anchor` tables, an import service, manual anchors with interpolation: the seed of the Read tab.
-- Plus: tab navigation, multi-file **M4B support**, **CarPlay**, a portable playlist manifest, a Twitter-style unified timeline feed — and this very **GitHub Pages site** with the privacy policy.
+- Plus: tab navigation, multi-file **M4B support**, a CarPlay prototype now deferred for entitlement approval, a portable playlist manifest, a Twitter-style unified timeline feed — and this very **GitHub Pages site** with the privacy policy.
 
 ---
 
@@ -92,8 +114,8 @@ Around the headline, a lot else shipped. The **macOS app** got a BookPlayer-styl
 
 ## The shape of the thing
 
-Nine working weeks. Four platforms (iOS, watchOS, macOS, widgets — plus CarPlay). A SQL database, an on-device ML alignment pipeline, an on-device neural text-to-speech narrator, a spaced-repetition system, and an EPUB/PDF reader — built nights-and-weekends around a mail route, by someone whose previous programming experience was "some Python scripts for GIS and a Visual Basic call logger in high school."
+Nine working weeks. Four platforms (iOS, watchOS, macOS, widgets). A SQL database, an on-device ML alignment pipeline, an on-device neural text-to-speech narrator, a spaced-repetition system, and an EPUB/PDF reader — built nights-and-weekends around a mail route, by someone whose previous programming experience was "some Python scripts for GIS and a Visual Basic call logger in high school."
 
 The point of publishing this log isn't bragging rights. It's the same as open-sourcing the code: you should be able to see exactly what you're trusting with your books and your attention — and maybe, if you've been wondering whether you could build *your* app, this page is the nudge.
 
-*The devlog updates roughly weekly, generated from the real commit history.*
+*Last updated August 24, 2026.*

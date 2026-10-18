@@ -4,12 +4,18 @@ import SwiftUI
 struct FlashcardReviewCard: View {
     let frontText: String
     let backText: String
+    var imagePath: String? = nil
     let onGrade: (Int) -> Void
 
     @State private var isRevealed = false
 
     var body: some View {
         VStack(spacing: 0) {
+            if let imagePath {
+                StudyLocalImageView(path: imagePath, accessibilityLabel: frontText)
+                    .frame(maxHeight: 220)
+                    .padding(.bottom, 8)
+            }
             // Card face — Button for proper accessibility, keyboard nav, and hit-testing.
             Button {
                 withAnimation(.easeInOut(duration: 0.3)) {
@@ -42,7 +48,10 @@ struct FlashcardReviewCard: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(isRevealed ? Text("Answer") : Text("Question: \(frontText)"))
-            .accessibilityHint(isRevealed ? String(localized: "Tap to show question") : String(localized: "Tap to reveal answer"))
+            .accessibilityHint(
+                isRevealed
+                    ? String(localized: "Tap to show question")
+                    : String(localized: "Tap to reveal answer"))
 
             // Grade buttons (shown after reveal)
             if isRevealed {

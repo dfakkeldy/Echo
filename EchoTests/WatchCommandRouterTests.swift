@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Testing
+
 @testable import Echo
 
 @MainActor
 struct WatchCommandRouterTests {
     @Test("navigation commands forward through facade and include bookmark jump reply")
-    func navigationCommandReplyIncludesBookmarkJumpAndThumbnail() {
+    func navigationCommandReplyIncludesBookmarkJump() {
         let facade = FakeWatchCommandFacade()
         facade.navigationShouldBookmarkJump = true
         let router = WatchCommandRouter(facade: facade)
@@ -15,7 +16,18 @@ struct WatchCommandRouterTests {
 
         #expect(facade.calls == ["skipForwardNavigation"])
         #expect(reply["commandResult"] as? String == "bookmarkJump")
-        #expect(reply["thumbnailData"] as? Data == Data([0x01, 0x02, 0x03]))
+        #expect(reply["title"] as? String == "Test Book")
+    }
+
+    @Test("command replies omit bulk thumbnail data")
+    func commandRepliesOmitBulkThumbnailData() {
+        let facade = FakeWatchCommandFacade()
+        facade.watchThumbnailData = Data(repeating: 0xA5, count: 70_000)
+        let router = WatchCommandRouter(facade: facade)
+
+        let reply = self.reply(from: router, message: ["command": "requestState"])
+
+        #expect(reply["thumbnailData"] == nil)
         #expect(reply["title"] as? String == "Test Book")
     }
 
@@ -60,15 +72,19 @@ struct WatchCommandRouterTests {
 
         _ = self.reply(from: router, message: ["command": "cycleSpeed"])
         _ = self.reply(from: router, message: ["command": "cycleSpeed", "playbackSpeed": 1.75])
-        _ = self.reply(from: router, message: [
-            "command": "setSleepTimer",
-            "sleepTimerMode": "minutes",
-            "sleepTimerMinutes": 25
-        ])
-        _ = self.reply(from: router, message: [
-            "command": "setSleepTimer",
-            "sleepTimerMode": "endOfChapter"
-        ])
+        _ = self.reply(
+            from: router,
+            message: [
+                "command": "setSleepTimer",
+                "sleepTimerMode": "minutes",
+                "sleepTimerMinutes": 25,
+            ])
+        _ = self.reply(
+            from: router,
+            message: [
+                "command": "setSleepTimer",
+                "sleepTimerMode": "endOfChapter",
+            ])
         _ = self.reply(from: router, message: ["command": "cancelSleepTimer"])
         _ = self.reply(from: router, message: ["command": "toggleSleepTimer"])
 
@@ -79,30 +95,56 @@ struct WatchCommandRouterTests {
         #expect(facade.toggleSleepTimerCalled == true)
     }
 
-    @Test("bookmark and flashcard commands are forwarded without changing payloads")
-    func bookmarkAndFlashcardCommandsForwardPayloads() {
+    @Test("bookmark, mark-passage, and flashcard commands are forwarded")
+    func studyCaptureCommandsForwardPayloads() {
         let facade = FakeWatchCommandFacade()
         let router = WatchCommandRouter(facade: facade)
 
         _ = self.reply(from: router, message: ["command": "addBookmark"])
-        _ = self.reply(from: router, message: [
-            "command": "addWatchTextBookmark",
-            "bookmarkStorageKey": "book-1",
-            "trackId": "track-1",
-            "timestamp": 42.0
-        ])
-        _ = self.reply(from: router, message: [
-            "command": "gradeFlashcard",
-            "cardID": "card-1",
-            "grade": 4
-        ])
+        _ = self.reply(from: router, message: ["command": "markPassage"])
+        _ = self.reply(
+            from: router,
+            message: [
+                "command": "addWatchTextBookmark",
+                "bookmarkStorageKey": "book-1",
+                "trackId": "track-1",
+                "timestamp": 42.0,
+            ])
+        _ = self.reply(
+            from: router,
+            message: [
+                "command": "gradeFlashcard",
+                "cardID": "card-1",
+                "grade": 4,
+            ])
 
         #expect(facade.calls.contains("addBookmarkFromWatchCommand"))
+        #expect(facade.calls.contains("markPassageFromWatchCommand"))
         #expect(facade.addedWatchBookmarkPayloads.count == 1)
-        #expect(facade.addedWatchBookmarkPayloads.first?["bookmarkStorageKey"] as? String == "book-1")
+        #expect(
+            facade.addedWatchBookmarkPayloads.first?["bookmarkStorageKey"] as? String == "book-1")
         #expect(facade.gradedFlashcards.count == 1)
         #expect(facade.gradedFlashcards.first?.cardID == "card-1")
         #expect(facade.gradedFlashcards.first?.grade == 4)
+    }
+
+    @Test("requestState re-offers the thumbnail only when the watch reports it is behind")
+    func requestStateTriggersThumbnailResendForBehindWatch() {
+        let facade = FakeWatchCommandFacade()
+        let router = WatchCommandRouter(facade: facade)
+
+        _ = self.reply(
+            from: router, message: ["command": "requestState", "watchArtworkSeq": 0.0])
+
+        #expect(facade.thumbnailResends.count == 1)
+        #expect(facade.thumbnailResends.first?.watchHeld == 0)
+        // Compared against the reply's own artworkSeq, so a sequence stamped
+        // during context assembly can't orphan the re-sent thumbnail.
+        #expect(facade.thumbnailResends.first?.current == 40)
+
+        // An older watch build that doesn't report its artwork never triggers one.
+        _ = self.reply(from: router, message: ["command": "requestState"])
+        #expect(facade.thumbnailResends.count == 1)
     }
 
     @Test("queued (background) channel drops stale transport and navigation commands")
@@ -119,7 +161,8 @@ struct WatchCommandRouterTests {
             "skipForward", "skipBackward",
             "seek", "scrubDelta", "volumeDelta",
             "cycleSpeed", "cycleLoopMode",
-            "setSleepTimer", "cancelSleepTimer", "toggleSleepTimer"
+            "setSleepTimer", "cancelSleepTimer", "toggleSleepTimer",
+            "markPassage",
         ]
         for command in staleCommands {
             router.route(queuedMessage: ["command": command])
@@ -136,12 +179,12 @@ struct WatchCommandRouterTests {
         router.route(queuedMessage: ["command": "addBookmark"])
         router.route(queuedMessage: [
             "command": "addWatchTextBookmark",
-            "bookmarkStorageKey": "book-1"
+            "bookmarkStorageKey": "book-1",
         ])
         router.route(queuedMessage: [
             "command": "gradeFlashcard",
             "cardID": "card-9",
-            "grade": 3
+            "grade": 3,
         ])
 
         #expect(facade.calls.contains("addBookmarkFromWatchCommand"))
@@ -256,6 +299,10 @@ private final class FakeWatchCommandFacade: WatchCommandRoutingFacade {
         addedWatchBookmarkPayloads.append(payload)
     }
 
+    func markPassageFromWatchCommand() {
+        calls.append("markPassageFromWatchCommand")
+    }
+
     func gradeFlashcard(cardID: String, grade: Int) {
         calls.append("gradeFlashcard")
         gradedFlashcards.append((cardID, grade))
@@ -264,7 +311,15 @@ private final class FakeWatchCommandFacade: WatchCommandRoutingFacade {
     func watchStateContext() -> [String: Any] {
         [
             "title": "Test Book",
-            "isPlaying": false
+            "isPlaying": false,
+            "artworkSeq": 40.0,
         ]
+    }
+
+    var thumbnailResends: [(watchHeld: Double, current: Double?)] = []
+
+    func resendWatchThumbnail(watchHeldArtworkSequence: Double, currentArtworkSequence: Double?) {
+        calls.append("resendWatchThumbnail")
+        thumbnailResends.append((watchHeldArtworkSequence, currentArtworkSequence))
     }
 }

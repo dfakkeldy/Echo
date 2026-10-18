@@ -9,16 +9,16 @@ struct TransportControlsView: View {
     private var isCompact: Bool { settings.playerLayoutStyle == "compact" }
 
     var body: some View {
-        HStack(alignment: .center) {
-            Spacer()
+        HStack(alignment: .center, spacing: isCompact ? 2 : 4) {
             ForEach(0..<5, id: \.self) { index in
                 let action = actionAt(index)
                 let longPressAction = longPressActionAt(index)
                 buttonForAction(action, longPressAction: longPressAction, isCompact: isCompact)
-                Spacer()
+                    .frame(maxWidth: .infinity)
             }
         }
         .frame(maxWidth: .infinity)
+        .padding(.horizontal, isCompact ? 4 : 8)
         .padding(.vertical, isCompact ? 8 : 12)
     }
 
@@ -44,14 +44,9 @@ struct TransportControlsView: View {
     ) -> some View {
         switch action {
         case .playPause:
-            let totalDuration =
-                model.isMultiM4B ? model.totalBookDuration : (model.durationSeconds ?? 0)
-            let elapsedSeconds = model.cumulativePlaybackTime
-            let totalFraction = totalDuration > 0 ? (elapsedSeconds / totalDuration) : 0.0
-
             CircularProgressPlayButton(
                 isPlaying: model.isPlaying,
-                totalProgress: totalFraction,
+                totalProgress: model.bookProgressFraction,
                 chapterProgress: model.progressFraction,
                 action: {
                     model.togglePlayPause()
@@ -76,7 +71,7 @@ struct TransportControlsView: View {
                         forDuration: settings.seekBackwardDuration)
                 )
                 .font(.system(size: isCompact ? 22 : 26, weight: .semibold))
-                .foregroundStyle(model.artworkAccentColor ?? .accentColor)
+                .foregroundStyle(model.resolvedThemeTint ?? .accentColor)
                 .frame(width: isCompact ? 52 : 62, height: isCompact ? 52 : 62)
                 .background(Circle().fill(model.coverTheme.chip))
                 .contentShape(Rectangle())
@@ -97,7 +92,7 @@ struct TransportControlsView: View {
                         forDuration: settings.seekForwardDuration)
                 )
                 .font(.system(size: isCompact ? 22 : 26, weight: .semibold))
-                .foregroundStyle(model.artworkAccentColor ?? .accentColor)
+                .foregroundStyle(model.resolvedThemeTint ?? .accentColor)
                 .frame(width: isCompact ? 52 : 62, height: isCompact ? 52 : 62)
                 .background(Circle().fill(model.coverTheme.chip))
                 .contentShape(Rectangle())
@@ -260,13 +255,31 @@ struct TransportControlsView: View {
             .accessibilityLabel(Text("Add bookmark"))
             .disabled(model.tracks.isEmpty)
 
+        case .markPassage:
+            TransportButton(
+                tapAction: {
+                    model.markPassageAtCurrentTime()
+                    Haptic.play(.light)
+                },
+                longPressAction: longPressAction,
+                model: model
+            ) {
+                Image(systemName: "rectangle.stack.badge.plus")
+                    .font(.system(size: isCompact ? 20 : 24, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel(Text("Mark passage for later"))
+            .disabled(model.tracks.isEmpty)
+
         case .pomodoro:
-            Spacer()
-                .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
+            Color.clear
+                .frame(height: isCompact ? 50 : 64)
 
         case .empty:
-            Spacer()
-                .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
+            Color.clear
+                .frame(height: isCompact ? 50 : 64)
         }
     }
 
@@ -278,7 +291,7 @@ struct TransportControlsView: View {
         case 1.5: return String(localized: "1.5×")
         case 1.75: return String(localized: "1.75×")
         case 2.0: return String(localized: "2.0×")
-        default: return String(format: "%g×", model.speed)
+        default: return model.speed.formatted(.number.precision(.fractionLength(1))) + "×"
         }
     }
 
@@ -335,7 +348,7 @@ struct TransportControlsView: View {
                             ? "EOC" : sleepTimerCountdownText(model.sleepTimerRemainingSeconds)
                     )
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
                     .monospacedDigit()
                 }
             }

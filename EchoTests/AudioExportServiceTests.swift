@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import AVFoundation
+import CoreGraphics
 import Foundation
+import ImageIO
 import Testing
 
 @testable import Echo
@@ -22,22 +24,22 @@ import Testing
         /// feature, so any container rebuild that drops chapters in service of
         /// stamping metadata is a regression.
         ///
-        /// ## Why the oracle is byte-level for *both* chapters and title
+        /// ## Why the oracle is byte-level here (and AVFoundation in the sibling test)
         ///
         /// Both are written by `swift-audio-marker` in a single container-preserving
         /// `modify` pass (chapters as Nero `chpl`/QuickTime `chap`; title/artist as
-        /// `ilst` `©nam`/`©ART`). AVFoundation does not surface either: just as
-        /// `loadChapterMetadataGroups` reports zero chapters for these files (see
-        /// `ChapterMarkerWriterTests`), `load(.commonMetadata)` reports a nil title —
-        /// AVFoundation reads only the `chpl` atom and ignores the package's `ilst`
-        /// layout. (Empirically confirmed during this fix: with the title genuinely
-        /// in the bytes, `commonMetadata`'s title item is nil.) So the assertions
-        /// below verify the bytes we control — the title/author/chapter strings are
-        /// present in the raw output and absent from the silent source fixtures —
-        /// rather than round-tripping through an AVFoundation reader that does not
-        /// expose these atoms. The AVFoundation-title expectation is captured as an
-        /// explicitly disabled manual case below, mirroring
-        /// `ChapterMarkerWriterTests.chaptersVisibleToAVFoundation`.
+        /// `ilst` `©nam`/`©ART`). This test's oracle is deliberately *low-level*: it
+        /// asserts the title/author/chapter strings (and the `mdir`/`aART`/`elst`/
+        /// `ftab` marker atoms) are physically present in the output bytes and absent
+        /// from the silent source fixtures — proving the atoms reached the file and
+        /// were not stripped by a post-chapter container rebuild, independent of any
+        /// reader. The *high-level* oracle — that Apple's own AVFoundation reader
+        /// surfaces the title, artist and chapters — lives in the companion
+        /// `titleAndChaptersVisibleToAVFoundation` test (mirrored by
+        /// `ChapterMarkerWriterTests.chaptersVisibleToAVFoundation`). That used to
+        /// come back empty (upstream `swift-audio-marker` omitted the `mdir` handler
+        /// and wrote a non-conformant chapter track); Echo's fork fixed both, so the
+        /// AVFoundation assertions are now enforced rather than disabled.
         ///
         /// REGRESSION GUARD: this previously *failed* because a Phase-2 passthrough
         /// `AVAssetExportSession` re-export (added only to stamp metadata) rebuilt
@@ -60,10 +62,13 @@ import Testing
             let out = FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4b")
             defer { try? FileManager.default.removeItem(at: out) }
+            let versionStamp =
+                "Echo narration — 2026-06-23 · ONNX rv\(NarrationFileNaming.renderVersion)"
             try await AudioExportService().exportM4B(
                 items: items, outputURL: out,
                 metadata: ExportMetadata(
-                    title: "RoundTripTitle", author: "RoundTripAuthor", coverArt: nil))
+                    title: "RoundTripTitle", author: "RoundTripAuthor", coverArt: nil,
+                    comment: versionStamp))
 
             let outputBytes = try Data(contentsOf: out)
             let sourceBytes = try Data(contentsOf: a)
@@ -82,32 +87,203 @@ import Testing
             #expect(outputBytes.range(of: Data("RoundTripTitle".utf8)) != nil)
             #expect(outputBytes.range(of: Data("RoundTripAuthor".utf8)) != nil)
             #expect(sourceBytes.range(of: Data("RoundTripTitle".utf8)) == nil)
+
+            // (c) The book metadata is actually READABLE, not just present: the `meta`
+            //     box leads with the iTunes handler (`mdir`) or players ignore the
+            //     whole `ilst`. The derived album-artist (`aART`) and genre tags are
+            //     written too.
+            #expect(outputBytes.range(of: Data("mdir".utf8)) != nil)
+            #expect(outputBytes.range(of: Data("aART".utf8)) != nil)
+            #expect(outputBytes.range(of: Data("Audiobook".utf8)) != nil)
+
+            // (d) The chapter text track is AVFoundation-conformant: it carries an
+            //     edit list (`elst`) and an `ftab`-bearing text `stsd`. (Apple's
+            //     reader is exercised directly in `titleAndChaptersVisibleToAVFoundation`.)
+            #expect(outputBytes.range(of: Data("elst".utf8)) != nil)
+            #expect(outputBytes.range(of: Data("ftab".utf8)) != nil)
+
+            // (e) The version stamp lands in the `©cmt` comment atom.
+            #expect(outputBytes.range(of: Data(versionStamp.utf8)) != nil)
         }
 
-        /// MANUAL: AVFoundation's `commonMetadata` does not surface the title that
-        /// `swift-audio-marker` writes into the `ilst` atom (the same reason
-        /// `loadChapterMetadataGroups` does not surface the package's chapters — see
-        /// `ChapterMarkerWriterTests`). Kept as an executable, explicitly disabled
-        /// case so the intended round-trip is documented and re-checkable against a
-        /// future package/OS change — verify real exports by opening the produced
-        /// `.m4b` in Books.app or another tag-aware player.
-        @Test(
-            .disabled(
-                "manual: AVFoundation.commonMetadata does not expose swift-audio-marker's ilst title atom; verify title in Books.app"
-            ))
-        func titleVisibleToAVFoundation() async throws {
+        /// The definitive proof: Apple's own AVFoundation reader (the Books / iOS /
+        /// macOS engine) surfaces the book title, artist AND the chapters from a real
+        /// export. This previously could NOT pass — upstream `swift-audio-marker`
+        /// omitted the iTunes `mdir` handler (so `commonMetadata` was empty) and wrote
+        /// a non-conformant chapter track (so `availableChapterLocales` was empty).
+        /// Echo's fork fixes both, so this is now an enforced, automated guarantee.
+        @Test func titleAndChaptersVisibleToAVFoundation() async throws {
             let a = try await SilentAudioFixture.makeSilentM4A(seconds: 1)
-            defer { try? FileManager.default.removeItem(at: a) }
+            let b = try await SilentAudioFixture.makeSilentM4A(seconds: 1)
+            defer {
+                try? FileManager.default.removeItem(at: a)
+                try? FileManager.default.removeItem(at: b)
+            }
             let out = FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4b")
             defer { try? FileManager.default.removeItem(at: out) }
             try await AudioExportService().exportM4B(
-                items: [ExportItem(title: "One", url: a, timeRange: nil)], outputURL: out,
+                items: [
+                    ExportItem(title: "One", url: a, timeRange: nil),
+                    ExportItem(title: "Two", url: b, timeRange: nil),
+                ],
+                outputURL: out,
                 metadata: ExportMetadata(title: "Round Trip", author: "Tester", coverArt: nil))
 
-            let meta = try await AVURLAsset(url: out).load(.commonMetadata)
-            let titleItem = meta.first { $0.commonKey == .commonKeyTitle }
-            #expect((try? await titleItem?.load(.stringValue)) == "Round Trip")
+            let asset = AVURLAsset(url: out)
+
+            // Book-level tags via Apple's common-metadata reader.
+            let meta = try await asset.load(.commonMetadata)
+            let title = meta.first { $0.commonKey == .commonKeyTitle }
+            let artist = meta.first { $0.commonKey == .commonKeyArtist }
+            #expect((try? await title?.load(.stringValue)) == "Round Trip")
+            #expect((try? await artist?.load(.stringValue)) == "Tester")
+
+            // Chapters via Apple's chapter API — assert the real titles and time
+            // ranges, not just the count (a count check passes for anonymous /
+            // mis-timed chapters).
+            let locales = try await asset.load(.availableChapterLocales)
+            #expect(!locales.isEmpty)
+            let groups = try await asset.loadChapterMetadataGroups(
+                bestMatchingPreferredLanguages: locales.map(\.identifier))
+            #expect(groups.count == 2)
+            var chapterTitles: [String] = []
+            for group in groups {
+                let item = group.items.first { $0.commonKey == .commonKeyTitle }
+                if let value = try? await item?.load(.stringValue) { chapterTitles.append(value) }
+            }
+            #expect(chapterTitles == ["One", "Two"])
+            // First chapter starts at 0; second starts at ~1s (the first clip's length).
+            #expect(abs(groups[0].timeRange.start.seconds - 0) < 0.05)
+            #expect(abs(groups[1].timeRange.start.seconds - 1) < 0.2)
+        }
+
+        @Test func concatenatesTwoRangesFromOneSyntheticSourceWithVisibleMarkers() async throws {
+            let source = try await SilentAudioFixture.makeSilentM4A(seconds: 4)
+            defer { try? FileManager.default.removeItem(at: source) }
+            let out = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4b")
+            defer { try? FileManager.default.removeItem(at: out) }
+
+            try await AudioExportService().exportM4B(
+                items: [
+                    ExportItem(
+                        title: "1. verified — g2p.lexicon.verified — /vɛrɪfaɪd/",
+                        url: source,
+                        timeRange: CMTimeRange(
+                            start: CMTime(seconds: 0.5, preferredTimescale: 24_000),
+                            duration: CMTime(seconds: 0.5, preferredTimescale: 24_000))),
+                    ExportItem(
+                        title: "2. filesystem — override.builtin.filesystem — /faɪl sɪstəm/",
+                        url: source,
+                        timeRange: CMTimeRange(
+                            start: CMTime(seconds: 2, preferredTimescale: 24_000),
+                            duration: CMTime(seconds: 1, preferredTimescale: 24_000))),
+                ],
+                outputURL: out)
+
+            let asset = AVURLAsset(url: out)
+            let duration = try await asset.load(.duration)
+            let locales = try await asset.load(.availableChapterLocales)
+            let groups = try await asset.loadChapterMetadataGroups(
+                bestMatchingPreferredLanguages: locales.map(\.identifier))
+            var titles: [String] = []
+            for group in groups {
+                let title = group.items.first { $0.commonKey == .commonKeyTitle }
+                if let value = try? await title?.load(.stringValue) { titles.append(value) }
+            }
+
+            #expect(abs(duration.seconds - 1.5) < 0.2)
+            #expect(groups.count == 2)
+            #expect(titles[0].contains("verified"))
+            #expect(titles[1].contains("filesystem"))
+            #expect(abs(groups[0].timeRange.start.seconds) < 0.05)
+            #expect(abs(groups[1].timeRange.start.seconds - 0.5) < 0.2)
+        }
+
+        /// Segment-layout narration exports concatenate every segment file, but only
+        /// the first segment of a chapter should stamp a chapter atom. Otherwise a
+        /// two-segment Chapter 1 appears as two chapters in Books/AVFoundation.
+        @Test func continuationItemsDoNotCreateExtraChapterMarkers() async throws {
+            let firstSegment = try await SilentAudioFixture.makeSilentM4A(seconds: 1)
+            let secondSegment = try await SilentAudioFixture.makeSilentM4A(seconds: 1)
+            let nextChapter = try await SilentAudioFixture.makeSilentM4A(seconds: 1)
+            defer {
+                try? FileManager.default.removeItem(at: firstSegment)
+                try? FileManager.default.removeItem(at: secondSegment)
+                try? FileManager.default.removeItem(at: nextChapter)
+            }
+            let out = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4b")
+            defer { try? FileManager.default.removeItem(at: out) }
+
+            try await AudioExportService().exportM4B(
+                items: [
+                    ExportItem(title: "Chapter One", url: firstSegment, timeRange: nil),
+                    ExportItem(
+                        title: "Chapter One", url: secondSegment, timeRange: nil,
+                        emitsChapterMarker: false),
+                    ExportItem(title: "Chapter Two", url: nextChapter, timeRange: nil),
+                ],
+                outputURL: out)
+
+            let asset = AVURLAsset(url: out)
+            let locales = try await asset.load(.availableChapterLocales)
+            #expect(!locales.isEmpty)
+            let groups = try await asset.loadChapterMetadataGroups(
+                bestMatchingPreferredLanguages: locales.map(\.identifier))
+            #expect(groups.count == 2)
+
+            var chapterTitles: [String] = []
+            for group in groups {
+                let item = group.items.first { $0.commonKey == .commonKeyTitle }
+                if let value = try? await item?.load(.stringValue) {
+                    chapterTitles.append(value)
+                }
+            }
+            #expect(chapterTitles == ["Chapter One", "Chapter Two"])
+            #expect(abs(groups[0].timeRange.start.seconds - 0) < 0.05)
+            #expect(abs(groups[1].timeRange.start.seconds - 2) < 0.25)
+        }
+
+        /// The cover image survives the export and is READABLE by Apple's own
+        /// metadata reader — the `commonKeyArtwork` cascade `ExportMetadataResolver`
+        /// uses to re-source a cover and the path Books / Music / the lock screen use
+        /// to show it. The fork writes `covr` inside an `mdir`-led `ilst`, so unlike
+        /// the early pre-fork state there is no AVFoundation-blind caveat: Apple
+        /// surfaces the artwork. The decoded image is asserted to be the *same*
+        /// 240×240 picture, not merely "some bytes", so a truncated or wrong-typed
+        /// `covr` (a cover players silently drop) fails the test.
+        @Test func coverArtSurvivesAndIsReadableByAVFoundation() async throws {
+            let a = try await SilentAudioFixture.makeSilentM4A(seconds: 1)
+            defer { try? FileManager.default.removeItem(at: a) }
+            let cover = CoverArtFixture.makeJPEG(width: 240, height: 240)
+            let out = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4b")
+            defer { try? FileManager.default.removeItem(at: out) }
+            try await AudioExportService().exportM4B(
+                items: [ExportItem(title: "One", url: a, timeRange: nil)],
+                outputURL: out,
+                metadata: ExportMetadata(title: "Cover Book", author: "Tester", coverArt: cover))
+
+            // (a) A `covr` atom landed in the output and the source silence had none.
+            let outputBytes = try Data(contentsOf: out)
+            #expect(outputBytes.range(of: Data("covr".utf8)) != nil)
+
+            // (b) Apple's reader returns the artwork and it decodes to the original
+            //     240×240 image — proving the embedded `covr` is intact and readable.
+            let asset = AVURLAsset(url: out)
+            let meta = try await asset.load(.commonMetadata)
+            let artworkItem = try #require(meta.first { $0.commonKey == .commonKeyArtwork })
+            // Evaluate the async/throwing load in the test body (which supports
+            // concurrency), then unwrap synchronously — `#require`'s autoclosure is
+            // neither `async` nor `throws`, so `await`/`try` must not live inside it.
+            let loadedArtwork = try await artworkItem.load(.dataValue)
+            let data = try #require(loadedArtwork)
+            let source = try #require(CGImageSourceCreateWithData(data as CFData, nil))
+            let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+            #expect(image.width == 240)
+            #expect(image.height == 240)
         }
     #endif
 }

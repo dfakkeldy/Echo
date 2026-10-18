@@ -49,6 +49,30 @@ struct EPUBStructureParsingTests {
         #expect(result.tocHref == "nav.xhtml")
     }
 
+    @Test func opfToleratesUnescapedAmpersandsInMetadataSubjects() {
+        let opf = """
+        <?xml version="1.0"?>
+        <package xmlns="http://www.idpf.org/2007/opf"
+                 xmlns:dc="http://purl.org/dc/elements/1.1/"
+                 version="3.0">
+          <metadata>
+            <dc:title>Library Sample</dc:title>
+            <dc:subject>Eating & Diet</dc:subject>
+          </metadata>
+          <manifest>
+            <item id="ch1" href="ch01.xhtml" media-type="application/xhtml+xml"/>
+          </manifest>
+          <spine>
+            <itemref idref="ch1"/>
+          </spine>
+        </package>
+        """
+
+        let result = parseOPF(from: Data(opf.utf8))
+
+        #expect(result.spine.map(\.href) == ["ch01.xhtml"])
+    }
+
     @Test func navTocParsingIgnoresLandmarksAnchorsAndCapturesThem() {
         // Landmarks listed FIRST so their labels would win under the old
         // first-wins map insertion if scoping were missing.

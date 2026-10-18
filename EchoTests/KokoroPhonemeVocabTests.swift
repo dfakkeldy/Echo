@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Testing
+
 @testable import Echo
 
 @Suite struct KokoroPhonemeVocabTests {
@@ -12,13 +13,16 @@ import Testing
         #expect(v.tokenCount == 178)
     }
 
-    @Test func mapsKnownPhonemesWithBosEosAndDropsUnknown() throws {
-        let v = try KokoroPhonemeVocab()
-        // " " → 16, "." → 4, NUL → not in vocab (dropped, not crashed).
-        let ids = v.ids(forPhonemes: " .\u{0000}")
-        #expect(ids.first == 0) // BOS
-        #expect(ids.last == 0) // EOS
-        #expect(ids == [0, 16, 4, 0]) // NUL dropped
+    @Test func legacyMappingCanStillDropUnknownCharacters() throws {
+        let vocab = try KokoroPhonemeVocab()
+        #expect(vocab.ids(forPhonemes: " .\u{0000}") == [0, 16, 4, 0])
+    }
+
+    @Test func plannedMappingRejectsUnknownCharacters() throws {
+        let vocab = try KokoroPhonemeVocab()
+        #expect(throws: KokoroPhonemeVocab.EncodingError.unsupportedCharacters("\u{0000}")) {
+            try vocab.validatedIDs(forPhonemes: "hɛ\u{0000}loʊ")
+        }
     }
 
     @Test func wrapsEmptyStringInBosEosOnly() throws {
@@ -30,8 +34,40 @@ import Testing
         // Every character the G2P can emit is either mapped or dropped — never
         // an out-of-range id (Phase 0.1 vocab-parity gate).
         let v = try KokoroPhonemeVocab()
-        let ids = v.ids(forPhonemes: "hɛˈloʊ wɜ˞ld") // "hello world"-ish IPA
+        let ids = v.ids(forPhonemes: "hɛˈloʊ wɜ˞ld")  // "hello world"-ish IPA
         #expect(ids.allSatisfy { $0 >= 0 && $0 < Int32(v.tokenCount) })
         #expect(ids.first == 0 && ids.last == 0)
+    }
+
+    @Test func oovWordProducesRealTokensNotSilence() throws {
+        // End-to-end regression for the "Jacqui = silence" bug: the OOV fallback
+        // must yield phonemes that map to at least one REAL token — not just the
+        // boundary (0) and space (16) ids that render as a silent gap.
+        let phonemes = KokoroG2P().phonemes(for: "Jacqui")
+        let ids = try KokoroPhonemeVocab().ids(forPhonemes: phonemes)
+        #expect(ids.contains { $0 != 0 && $0 != 16 })
+    }
+
+    @Test func reportsDistinctUnsupportedCharactersForEntryValidation() throws {
+        let vocab = try KokoroPhonemeVocab()
+        // Valid Kokoro IPA → nothing to flag.
+        #expect(vocab.unsupportedCharacters(in: "kuːbərˈnɛtɪs").isEmpty)
+        // The classic footgun: ASCII "g" (U+0067) is NOT in the vocab; IPA "ɡ"
+        // (U+0261) is. Reported once, de-duplicated, in first-seen order — so the
+        // Settings UI can reject the entry before it can abort a render.
+        #expect(vocab.unsupportedCharacters(in: "ɡəˈɡ g g") == ["g"])
+    }
+
+    @Test func oovMarkerIsUnsupportedAndRejectedByValidatedIDs() throws {
+        // Misaki's ❓ OOV marker has no Kokoro id, so `validatedIDs` stays strict
+        // and rejects it — planned synthesis strips it up front instead (see
+        // PronunciationPlannerTests.planDropsOOVMarkerInsteadOfAbortingTheRender).
+        let vocab = try KokoroPhonemeVocab()
+        #expect(
+            vocab.unsupportedCharacters(in: String(KokoroPhonemeVocab.oovMarker))
+                == [KokoroPhonemeVocab.oovMarker])
+        #expect(throws: KokoroPhonemeVocab.EncodingError.self) {
+            try vocab.validatedIDs(forPhonemes: "hɛ\(KokoroPhonemeVocab.oovMarker)loʊ")
+        }
     }
 }

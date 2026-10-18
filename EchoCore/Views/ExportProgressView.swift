@@ -27,6 +27,7 @@
         let databaseWriter: DatabaseWriter
 
         @Environment(\.dismiss) private var dismiss
+        @Environment(SettingsManager.self) private var settings
 
         @State private var isExporting = true
         @State private var exportedURL: URL?
@@ -69,13 +70,17 @@
         }
 
         private func runExport() async {
+            let preferredVoice =
+                settings.narrationVoiceID.isEmpty
+                ? VoiceCatalog.default.id : VoiceID(settings.narrationVoiceID)
             // Auto-detect the source: a narrated book exports its per-chapter cache,
             // an imported book its original on-disk tracks — both funnel into the
             // shared `AudioExportService`. The resolver inspects the DB to choose.
             let source = ExportSourceResolver.resolve(
                 audiobookID: audiobookID,
                 databaseWriter: databaseWriter,
-                cacheDirectory: cacheDirectory)
+                cacheDirectory: cacheDirectory,
+                preferredVoice: preferredVoice)
             do {
                 let items = try await source.items()
                 let meta = await ExportMetadataResolver.resolve(

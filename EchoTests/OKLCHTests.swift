@@ -2,7 +2,9 @@
 import XCTest
 @testable import Echo
 
-final class OKLCHTests: XCTestCase {
+// `nonisolated`: XCTestCase subclass under Swift 6 MainActor default isolation; nonisolated so the
+// init overrides match XCTestCase's nonisolated inits (pure synchronous value tests).
+nonisolated final class OKLCHTests: XCTestCase {
 
     func testWhiteHasFullLightnessAndZeroChroma() {
         let lch = OKLCH.fromSRGB(ColorMetrics.RGB(r: 1, g: 1, b: 1))

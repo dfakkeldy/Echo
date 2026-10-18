@@ -61,7 +61,7 @@ struct NoteEditorView: View {
 
     private func saveNote() {
         guard let db = model.databaseService,
-              let audiobookID = model.folderURL?.absoluteString,
+              let audiobookID = model.bookIdentityURL?.absoluteString,
               !text.isEmpty else { return }
         let dao = NoteDAO(db: db.writer)
         let record = NoteRecord(

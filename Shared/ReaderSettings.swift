@@ -27,7 +27,12 @@ final class ReaderSettings {
         UIColor(hex: cardTintHex) ?? UIColor.systemBackground
     }
 
-    func uiFont(forTextStyle style: UIFont.TextStyle, weight: UIFont.Weight = .regular, sizeOffset: CGFloat = 0) -> UIFont {
+    func uiFont(
+        forTextStyle style: UIFont.TextStyle,
+        weight: UIFont.Weight = .regular,
+        sizeOffset: CGFloat = 0,
+        compatibleWith traitCollection: UITraitCollection? = nil
+    ) -> UIFont {
         let baseSize: CGFloat
         switch style {
         case .largeTitle: baseSize = 34
@@ -46,26 +51,39 @@ final class ReaderSettings {
 
         let scale = CGFloat(fontSize) / 17.0
         let targetSize = (baseSize * scale) + sizeOffset
+        let font: UIFont
 
         if appFont == "System" || appFont == "Helvetica" {
-            return UIFont.systemFont(ofSize: targetSize, weight: weight)
+            font = UIFont.systemFont(ofSize: targetSize, weight: weight)
+        } else {
+            let weightString: String
+            switch weight {
+            case .semibold, .bold, .heavy, .black: weightString = "SemiBold"
+            default: weightString = "Regular"
+            }
+
+            if let customFont = UIFont(name: "\(appFont)-\(weightString)", size: targetSize) {
+                font = customFont
+            } else {
+                let desc = UIFontDescriptor(name: appFont, size: targetSize)
+                var traits =
+                    desc.fontAttributes[.traits] as? [UIFontDescriptor.TraitKey: Any] ?? [:]
+                traits[.weight] = weight
+                let newDesc = desc.addingAttributes([.traits: traits])
+                font = UIFont(descriptor: newDesc, size: targetSize)
+            }
         }
 
-        let weightString: String
-        switch weight {
-        case .semibold, .bold, .heavy, .black: weightString = "SemiBold"
-        default: weightString = "Regular"
-        }
-        
-        if let font = UIFont(name: "\(appFont)-\(weightString)", size: targetSize) {
-            return font
-        }
-        
-        let desc = UIFontDescriptor(name: appFont, size: targetSize)
-        var traits = desc.fontAttributes[.traits] as? [UIFontDescriptor.TraitKey: Any] ?? [:]
-        traits[.weight] = weight
-        let newDesc = desc.addingAttributes([.traits: traits])
-        return UIFont(descriptor: newDesc, size: targetSize)
+        return UIFontMetrics(forTextStyle: style).scaledFont(
+            for: font, compatibleWith: traitCollection)
+    }
+
+    func scaledLineSpacing(
+        forTextStyle style: UIFont.TextStyle = .body,
+        compatibleWith traitCollection: UITraitCollection? = nil
+    ) -> CGFloat {
+        UIFontMetrics(forTextStyle: style).scaledValue(
+            for: CGFloat(lineSpacing), compatibleWith: traitCollection)
     }
     #endif
 

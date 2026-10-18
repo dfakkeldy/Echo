@@ -14,4 +14,9 @@ enum Haptic {
         guard isEnabled else { return }
         UIImpactFeedbackGenerator(style: style).impactOccurred()
     }
+
+    static func notify(_ type: UINotificationFeedbackGenerator.FeedbackType) {
+        guard isEnabled else { return }
+        UINotificationFeedbackGenerator().notificationOccurred(type)
+    }
 }

@@ -7,9 +7,10 @@ struct ChapterPickerSheet: View {
     let onSelect: (Chapter) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(SettingsManager.self) private var settings
+    @Environment(PlayerModel.self) private var model
 
     var body: some View {
-        NavigationStack {
+        CoverThemedSheet(theme: model.coverTheme) {
             List(chapters) { chapter in
                 Button {
                     onSelect(chapter)
@@ -18,7 +19,9 @@ struct ChapterPickerSheet: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
                             let defaultTitle = String(localized: "Chapter \(chapter.index + 1)")
-                            let displayTitle = (chapter.title ?? defaultTitle).applyingChapterTruncation(enabled: settings.truncateChapterNamesEnabled)
+                            let displayTitle = (chapter.title ?? defaultTitle)
+                                .applyingChapterTruncation(
+                                    enabled: settings.truncateChapterNamesEnabled)
                             Text(displayTitle)
                                 .font(.body)
                                 .lineLimit(2)

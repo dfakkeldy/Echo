@@ -26,18 +26,29 @@ final class BatchQueueRunner {
         self.stages = stages
     }
 
-    /// Processes queued items until none remain.
+    /// Processes queued items until none remain, or until the drain is cancelled.
+    ///
+    /// Cancellation gets its own exit rather than falling into the generic `catch`.
+    /// A cancelled task stays cancelled, so continuing the loop would run every
+    /// remaining item straight into its first `Task.checkCancellation()` and mark
+    /// the whole queue `.failed` — one user cancelling one book would wipe out the
+    /// rest. Instead the in-flight row goes back to `.queued` (the same state
+    /// `recoverInFlight` would give it after a relaunch) and the loop stops; the
+    /// caller starts a fresh, uncancelled drain for whatever is left.
     func drain() async {
         guard !isRunning else { return }
         isRunning = true
         defer { isRunning = false }
-        while let item = try? dao.nextQueued(), let id = item.id {
+        while !Task.isCancelled, let item = try? dao.nextQueued(), let id = item.id {
             do {
                 try await stages.run(item) { [dao] status, progress, message in
                     try? dao.updateStatus(
                         id: id, status: status, progress: progress, message: message)
                 }
                 try? dao.updateStatus(id: id, status: .completed, progress: 1.0)
+            } catch is CancellationError {
+                try? dao.updateStatus(id: id, status: .queued, progress: 0)
+                return
             } catch {
                 try? dao.updateStatus(id: id, status: .failed, error: error.localizedDescription)
             }

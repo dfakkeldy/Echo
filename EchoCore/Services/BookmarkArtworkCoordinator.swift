@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import UIKit
 import Observation
+import UIKit
 import os.log
 
 // MARK: - BookmarkArtworkCoordinator
@@ -40,6 +40,13 @@ final class BookmarkArtworkCoordinator {
         return "\(trackId)#\(currentDisplayArtworkKey ?? "base")"
     }
 
+    /// True while a bookmark-specific image (not the base cover) is displayed.
+    /// Theming extracts from the displayed bookmark image in that case instead
+    /// of using the stored source-cover signature.
+    var isShowingBookmarkArtwork: Bool {
+        currentDisplayArtworkKey?.hasPrefix("bookmark:") == true
+    }
+
     // MARK: - Thumbnail generation
 
     func generateThumbnail(for url: URL) async {
@@ -52,28 +59,37 @@ final class BookmarkArtworkCoordinator {
             sourceImage = loadAppIconImage()
         }
 
+        guard !Task.isCancelled, trackIDProvider?() == url.absoluteString else { return }
+
         guard let sourceImage else {
-            await MainActor.run {
-                state?.thumbnailImage = nil
-                state?.currentDisplayArtwork = nil
-                state?.watchThumbnailData = nil
-                baseWatchThumbnailData = nil
-                currentDisplayArtworkKey = nil
-                onUpdateNowPlaying?(!(isPlayingProvider?() ?? false))
-                onSyncToWatch?()
-            }
+            clearUnavailableArtwork()
             return
         }
 
         let scale = displayScale
         let result = ArtworkCache.generateThumbnails(from: sourceImage, displayScale: scale)
 
-        await MainActor.run {
-            state?.thumbnailImage = result.0
-            baseWatchThumbnailData = result.1
-            let currentTime = currentPlaybackTimeProvider?() ?? 0
-            updateCurrentDisplayArtwork(at: currentTime, force: true)
-        }
+        applyBaseArtwork(
+            thumbnail: result.0, watchData: result.1,
+            signature: DominantColorExtractor.signature(from: sourceImage))
+    }
+
+    func applyBaseArtwork(_ sourceImage: UIImage) {
+        let result = ArtworkCache.generateThumbnails(from: sourceImage, displayScale: displayScale)
+        applyBaseArtwork(
+            thumbnail: result.0, watchData: result.1,
+            signature: DominantColorExtractor.signature(from: sourceImage))
+    }
+
+    /// The signature is extracted from the SOURCE cover, never from the square
+    /// blur-fill composite: the composite's margins and scrim dilute small vivid
+    /// counter-colours below the accent-promotion floor.
+    private func applyBaseArtwork(thumbnail: UIImage, watchData: Data?, signature: CoverSignature) {
+        state?.thumbnailImage = thumbnail
+        state?.sourceCoverSignature = signature
+        baseWatchThumbnailData = watchData
+        let currentTime = currentPlaybackTimeProvider?() ?? 0
+        updateCurrentDisplayArtwork(at: currentTime, force: true)
     }
 
     // MARK: - Display artwork selection
@@ -83,18 +99,21 @@ final class BookmarkArtworkCoordinator {
         let trackId = trackIDProvider?()
         let folderURL = folderURLProvider?()
 
-        let activeBookmark = BookmarkStore.activeArtworkBookmark(from: bookmarks, at: currentTime, trackId: trackId)
-        let nextKey = activeBookmark.flatMap { bookmark -> String? in
-            guard let fileName = bookmark.bookmarkImageFileName else { return nil }
-            return "bookmark:\(bookmark.id.uuidString):\(fileName)"
-        } ?? "base"
+        let activeBookmark = BookmarkStore.activeArtworkBookmark(
+            from: bookmarks, at: currentTime, trackId: trackId)
+        let nextKey =
+            activeBookmark.flatMap { bookmark -> String? in
+                guard let fileName = bookmark.bookmarkImageFileName else { return nil }
+                return "bookmark:\(bookmark.id.uuidString):\(fileName)"
+            } ?? "base"
 
         guard force || nextKey != currentDisplayArtworkKey else { return }
         currentDisplayArtworkKey = nextKey
 
         if let activeBookmark,
-           let fileName = activeBookmark.bookmarkImageFileName,
-           let imageURL = activeBookmark.bookmarkImageURL(in: folderURL) {
+            let fileName = activeBookmark.bookmarkImageFileName,
+            let imageURL = activeBookmark.bookmarkImageURL(in: folderURL)
+        {
             let cacheKey = imageURL.path
             if let cached = bookmarkArtworkCache[cacheKey] {
                 state?.currentDisplayArtwork = cached.image
@@ -106,17 +125,19 @@ final class BookmarkArtworkCoordinator {
                 state?.watchThumbnailData = watchData
             } else {
                 logger.error("Failed to load bookmark artwork: \(fileName)")
+                healBaseWatchThumbnailIfNeeded()
                 state?.currentDisplayArtwork = state?.thumbnailImage
                 state?.watchThumbnailData = baseWatchThumbnailData
             }
         } else {
+            healBaseWatchThumbnailIfNeeded()
             state?.currentDisplayArtwork = state?.thumbnailImage
             state?.watchThumbnailData = baseWatchThumbnailData
         }
 
+        state?.currentDisplayArtworkVersion += 1
         onUpdateNowPlaying?(!(isPlayingProvider?() ?? false))
         onSyncToWatch?()
-        state?.currentDisplayArtworkVersion += 1
     }
 
     // MARK: - Helpers
@@ -128,8 +149,45 @@ final class BookmarkArtworkCoordinator {
     func invalidateCache() {
         bookmarkArtworkCache.removeAll()
         baseWatchThumbnailData = nil
+        clearDisplayArtwork()
+    }
+
+    /// Invalidates only bookmark-derived artwork, preserving the base cover's
+    /// watch payload. Bookmark edits cannot change the base cover, and
+    /// `baseWatchThumbnailData` is only regenerated on track load — a full
+    /// `invalidateCache()` on every bookmark change left it nil mid-book, so
+    /// every later watch context said `hasThumbnail: false` and the watch
+    /// deleted its cover until the book was reloaded on the phone.
+    func invalidateBookmarkArtwork() {
+        bookmarkArtworkCache.removeAll()
+    }
+
+    /// Publishes the absence of artwork after all source fallbacks fail.
+    /// Internal so tests can pin callback ordering without depending on app-icon
+    /// resources in the unit-test host.
+    func clearUnavailableArtwork() {
+        state?.thumbnailImage = nil
+        state?.sourceCoverSignature = nil
+        baseWatchThumbnailData = nil
+        clearDisplayArtwork()
+        onUpdateNowPlaying?(!(isPlayingProvider?() ?? false))
+        onSyncToWatch?()
+    }
+
+    /// Rebuilds the base cover's watch payload from the phone thumbnail when an
+    /// earlier full invalidation dropped it mid-book (regeneration otherwise
+    /// only happens on track load). Without this, the phone keeps showing its
+    /// cover while telling the watch there is none. Runs at most once per
+    /// display-key change, so the encode cost is not on the tick path.
+    private func healBaseWatchThumbnailIfNeeded() {
+        guard baseWatchThumbnailData == nil, let base = state?.thumbnailImage else { return }
+        baseWatchThumbnailData = makeWatchThumbnailData(from: base)
+    }
+
+    private func clearDisplayArtwork() {
         currentDisplayArtworkKey = nil
         state?.currentDisplayArtwork = nil
         state?.watchThumbnailData = nil
+        state?.currentDisplayArtworkVersion += 1
     }
 }

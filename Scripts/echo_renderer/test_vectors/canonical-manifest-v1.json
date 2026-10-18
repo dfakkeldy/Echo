@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "payload": {
+    "schemaVersion": 1,
+    "echoSourceSHA": "0123456789abcdef0123456789abcdef01234567",
+    "installerSourceSHA": "89abcdef0123456789abcdef0123456789abcdef",
+    "executablePath": "echo-cli",
+    "executable": {
+      "sha256": "abababababababababababababababababababababababababababababababab",
+      "byteCount": 12345
+    },
+    "resourcesPath": "EchoNarrationResources",
+    "resources": {
+      "sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "regularFileCount": 4
+    },
+    "renderVersion": 15,
+    "buildConfiguration": "Release",
+    "architectures": [
+      "arm64",
+      "x86_64"
+    ],
+    "minimumMacOSVersion": "15.0",
+    "modelPolicy": {
+      "revision": "kokoro-v1.0",
+      "expectedByteCount": 325566778,
+      "deliveryMode": "sharedEchoCache",
+      "modelBytesAttested": false
+    },
+    "capabilities": [
+      "--cover",
+      "--sidecar",
+      "--voice",
+      "--voice-plan",
+      "--chapter-voice",
+      "--db",
+      "--work-dir",
+      "--jobs",
+      "--threads",
+      "--resume",
+      "--max-chapters",
+      "--no-pronunciation-review",
+      "export-blocks",
+      "resolve-voice-plan",
+      "verify-sidecar"
+    ]
+  },
+  "canonicalUTF8": "{\"architectures\":[\"arm64\",\"x86_64\"],\"buildConfiguration\":\"Release\",\"capabilities\":[\"--cover\",\"--sidecar\",\"--voice\",\"--voice-plan\",\"--chapter-voice\",\"--db\",\"--work-dir\",\"--jobs\",\"--threads\",\"--resume\",\"--max-chapters\",\"--no-pronunciation-review\",\"export-blocks\",\"resolve-voice-plan\",\"verify-sidecar\"],\"echoSourceSHA\":\"0123456789abcdef0123456789abcdef01234567\",\"executable\":{\"byteCount\":12345,\"sha256\":\"abababababababababababababababababababababababababababababababab\"},\"executablePath\":\"echo-cli\",\"installerSourceSHA\":\"89abcdef0123456789abcdef0123456789abcdef\",\"minimumMacOSVersion\":\"15.0\",\"modelPolicy\":{\"deliveryMode\":\"sharedEchoCache\",\"expectedByteCount\":325566778,\"modelBytesAttested\":false,\"revision\":\"kokoro-v1.0\"},\"renderVersion\":15,\"resources\":{\"regularFileCount\":4,\"sha256\":\"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\"},\"resourcesPath\":\"EchoNarrationResources\",\"schemaVersion\":1}\n",
+  "sha256": "fb197335dab2d6e4109c713437cca64e3a7f4b4aac8d6d18f0d9dcc0e9548f7d"
+}

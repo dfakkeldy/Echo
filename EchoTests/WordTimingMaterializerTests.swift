@@ -49,6 +49,72 @@ struct WordTimingMaterializerTests {
         #expect(b1[0].audioStartTime >= 10.0)
     }
 
+    @Test func explicitBlockEndPreventsWordsFromStretchingAcrossPlannedSilence() throws {
+        let db = try DatabaseService(inMemory: ())
+        try db.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO audiobook (id, title, duration)
+                    VALUES ('bk', 'Book', 100.0)
+                    """)
+            try db.execute(
+                sql: """
+                    INSERT INTO epub_block
+                      (id, audiobook_id, spine_href, spine_index, block_index,
+                       sequence_index, block_kind, text, is_hidden)
+                    VALUES ('b0','bk','c.xhtml',0,0,0,'paragraph','one two', 0),
+                           ('b1','bk','c.xhtml',0,1,1,'paragraph','three four', 0)
+                    """)
+            try db.execute(
+                sql: """
+                    INSERT INTO timeline_item
+                      (id, audiobook_id, item_type, title, audio_start_time, audio_end_time,
+                       granularity_level, is_enabled, epub_block_id)
+                    VALUES ('t0','bk','textSegment','', 0.0, 1.0, 1, 1, 'b0'),
+                           ('t1','bk','textSegment','', 1.75, 2.75, 1, 1, 'b1')
+                    """)
+        }
+
+        try WordTimingMaterializer.materialize(audiobookID: "bk", writer: db.writer)
+
+        let words = try WordTimingDAO(db: db.writer).words(forAudiobook: "bk", blockID: "b0")
+        #expect(words.map(\.word) == ["one", "two"])
+        #expect(words.last!.audioEndTime <= 1.01)
+    }
+
+    @Test func codeBlockMaterializesNarratedCueInsteadOfRawListing() throws {
+        let db = try DatabaseService(inMemory: ())
+        try db.write { database in
+            try database.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('bk','Book',10.0)"
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO epub_block
+                      (id, audiobook_id, spine_href, spine_index, block_index,
+                       sequence_index, block_kind, text, narration_text, code_language,
+                       is_hidden)
+                    VALUES ('code','bk','c.xhtml',0,0,0,'code',
+                            'let value = answer + 42','Example value assignment.','swift',0)
+                    """
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO timeline_item
+                      (id, audiobook_id, item_type, title, audio_start_time, audio_end_time,
+                       granularity_level, is_enabled, epub_block_id)
+                    VALUES ('t-code','bk','textSegment','',1.0,4.0,1,1,'code')
+                    """
+            )
+        }
+
+        try WordTimingMaterializer.materialize(audiobookID: "bk", writer: db.writer)
+
+        let words = try WordTimingDAO(db: db.writer)
+            .words(forAudiobook: "bk", blockID: "code")
+        #expect(words.map(\.word) == ["Example", "value", "assignment."])
+    }
+
     @Test func reRunClearsPriorRows() throws {
         let db = try DatabaseService(inMemory: ())
         try db.write { db in
@@ -144,4 +210,51 @@ struct WordTimingMaterializerTests {
         #expect(removed == 1)
         #expect(try dao.words(forAudiobook: "bk").map(\.epubBlockID) == ["b1"])
     }
+    @Test(arguments: ["book", "chapter", "synthesized"])
+    func failedReplacementPreservesPriorWords(scope: String) throws {
+        let db = try DatabaseService(inMemory: ())
+        try db.write { db in
+            try db.execute(sql: "INSERT INTO audiobook (id, title, duration) VALUES ('bk', 'Book', 10)")
+            try db.execute(sql: """
+                INSERT INTO epub_block
+                  (id, audiobook_id, spine_href, spine_index, block_index,
+                   sequence_index, block_kind, text, is_hidden)
+                VALUES ('b0','bk','c.xhtml',0,0,0,'paragraph','one two',0),
+                       ('b1','bk','d.xhtml',1,0,1,'paragraph','other chapter',0)
+                """)
+            try db.execute(sql: """
+                INSERT INTO timeline_item
+                  (id, audiobook_id, item_type, title, audio_start_time, audio_end_time,
+                   granularity_level, is_enabled, epub_block_id)
+                VALUES ('t0','bk','textSegment','',0,2,1,1,'b0'),
+                       ('t1','bk','textSegment','',2,4,1,1,'b1')
+                """)
+        }
+        try WordTimingMaterializer.materialize(audiobookID: "bk", writer: db.writer)
+        let dao = WordTimingDAO(db: db.writer)
+        let original = try dao.words(forAudiobook: "bk")
+        try db.write { db in
+            try db.execute(sql: """
+                CREATE TRIGGER fail_second_word BEFORE INSERT ON word_timing
+                WHEN NEW.epub_block_id = 'b0' AND NEW.word_index = 1
+                BEGIN SELECT RAISE(ABORT, 'injected insertion failure'); END
+                """)
+        }
+        #expect(throws: GRDB.DatabaseError.self) {
+            switch scope {
+            case "chapter":
+                try WordTimingMaterializer.materializeChapter(
+                    audiobookID: "bk", blockIDs: ["b0"], writer: db.writer)
+            case "synthesized":
+                try WordTimingMaterializer.materializeSynthesizedChapter(
+                    audiobookID: "bk", speechRangesByBlock: [
+                        "b0": [NarrationSpeechRange(blockID: "b0", text: "one two", start: 5, end: 7)]
+                    ], writer: db.writer)
+            default:
+                try WordTimingMaterializer.materialize(audiobookID: "bk", writer: db.writer)
+            }
+        }
+        #expect(try dao.words(forAudiobook: "bk") == original)
+    }
+
 }

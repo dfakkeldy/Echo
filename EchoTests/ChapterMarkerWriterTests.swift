@@ -18,20 +18,15 @@
     /// write is driven through `@testable import Echo` and verified from the raw
     /// output bytes + AVFoundation (see the oracle note below).
     ///
-    /// ## Why the verification oracle is "atoms present + still playable", not
-    /// ## `AVFoundation.loadChapterMetadataGroups`
+    /// ## Verification oracles: raw bytes AND AVFoundation
     ///
-    /// `swift-audio-marker` writes valid chapter atoms — confirmed: the package's
-    /// own reader reads them back exactly (count + titles). But AVFoundation's
-    /// `loadChapterMetadataGroups(_:)` does **not** surface them: it reports
-    /// `availableChapterLocales == []` and zero groups for this file. AVFoundation
-    /// only exposes chapters from a `tref`-linked QuickTime chapter *text track*
-    /// with a locale; the package's `chpl` + text-track layout is read by Nero-aware
-    /// players (Books.app, the package's own reader) but not by this AVFoundation
-    /// API. So the automated assertions below verify the bytes we control — the
-    /// chapter atoms are embedded and the container is still valid playable audio —
-    /// and the AVFoundation expectation is captured as an explicitly disabled,
-    /// manual case rather than a silently-deleted (fake-green) one.
+    /// `byte`-level assertions verify the chapter atoms we control are embedded and
+    /// the container is still valid playable audio. The `chaptersVisibleToAVFoundation`
+    /// case additionally drives Apple's own `loadChapterMetadataGroups(_:)` — the
+    /// real Books/iOS/macOS reader. That used to come back empty (the upstream text
+    /// track was missing the `edts/elst`, `gmhd.text` and `ftab`-bearing `stsd`
+    /// AVFoundation requires); Echo's fork of `swift-audio-marker` writes a conformant
+    /// chapter track, so AVFoundation now surfaces the chapters.
     @Suite struct ChapterMarkerWriterTests {
 
         /// `ChapterMarkerWriter` embeds the chapter atoms into a copy of the source
@@ -74,16 +69,13 @@
             #expect(abs(CMTimeGetSeconds(duration) - 6) < 0.25)
         }
 
-        /// MANUAL: AVFoundation's chapter API does not surface `swift-audio-marker`'s
-        /// chapter atoms (see suite doc). Kept as an executable, explicitly disabled
-        /// case so the intended end-to-end behaviour is documented and re-checkable
-        /// against any future package/OS change — verify real exports by opening the
-        /// produced `.m4b` in Books.app or another chapter-aware player.
-        @Test(
-            .disabled(
-                "manual: AVFoundation.loadChapterMetadataGroups does not expose swift-audio-marker chapter atoms; verify chapters in Books.app"
-            ))
-        func chaptersVisibleToAVFoundation() async throws {
+        /// AVFoundation's chapter API surfaces the chapter track end to end. This was
+        /// historically NOT the case — the upstream `swift-audio-marker` text track
+        /// lacked the `edts/elst`, `gmhd.text` and `ftab`-bearing `stsd` that
+        /// AVFoundation requires, so `availableChapterLocales` came back empty. Echo
+        /// now depends on a fork that writes a conformant chapter track, so Apple's
+        /// own reader (Books / iOS / macOS) sees the chapters — asserted here.
+        @Test func chaptersVisibleToAVFoundation() async throws {
             let source = try await SilentAudioFixture.makeSilentM4A(seconds: 6)
             defer { try? FileManager.default.removeItem(at: source) }
             let output = FileManager.default.temporaryDirectory
@@ -102,6 +94,65 @@
             let groups = try await asset.loadChapterMetadataGroups(
                 bestMatchingPreferredLanguages: locales.map(\.identifier))
             #expect(groups.count == 2)
+        }
+
+        @Test func repairModeReplacesStaleAlbumArtistAndNormalModePreservesIt() async throws {
+            let source = try await SilentAudioFixture.makeSilentM4A(seconds: 6)
+            let stale = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4b")
+            let preserved = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4b")
+            let repaired = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4b")
+            defer {
+                try? FileManager.default.removeItem(at: source)
+                try? FileManager.default.removeItem(at: stale)
+                try? FileManager.default.removeItem(at: preserved)
+                try? FileManager.default.removeItem(at: repaired)
+            }
+
+            try await ChapterMarkerWriter().writeChapters(
+                [ChapterAtom(startTime: 0, title: "Intro")],
+                to: source,
+                outputURL: stale,
+                metadata: ExportMetadata(
+                    title: "Imported Series Album", author: "Stale Album Artist",
+                    coverArt: nil))
+
+            try await ChapterMarkerWriter().writeChapters(
+                [ChapterAtom(startTime: 0, title: "Intro")],
+                to: stale,
+                outputURL: preserved,
+                metadata: ExportMetadata(title: "Retagged Title", author: "Fresh Author", coverArt: nil))
+
+            #expect(
+                try await metadataString(.iTunesMetadataAlbumArtist, at: preserved)
+                    == "Stale Album Artist")
+            #expect(
+                try await metadataString(.iTunesMetadataAlbum, at: preserved)
+                    == "Imported Series Album")
+
+            try await ChapterMarkerWriter().writeChapters(
+                [ChapterAtom(startTime: 0, title: "Intro")],
+                to: stale,
+                outputURL: repaired,
+                metadata: ExportMetadata(title: "Retagged Title", author: "Fresh Author", coverArt: nil),
+                replaceExistingBookMetadata: true)
+
+            #expect(
+                try await metadataString(.iTunesMetadataAlbumArtist, at: repaired)
+                    == "Fresh Author")
+            #expect(try await metadataString(.iTunesMetadataAlbum, at: repaired) == "Retagged Title")
+            #expect(try await metadataString(.iTunesMetadataArtist, at: repaired) == "Fresh Author")
+        }
+
+        private func metadataString(_ identifier: AVMetadataIdentifier, at url: URL) async throws
+            -> String?
+        {
+            let asset = AVURLAsset(url: url)
+            let metadata = try await asset.load(.metadata)
+            let item = metadata.first { $0.identifier?.rawValue == identifier.rawValue }
+            return try await item?.load(.stringValue)
         }
 
     }

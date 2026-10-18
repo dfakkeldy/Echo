@@ -5,8 +5,8 @@ import Testing
 @testable import Echo
 
 @MainActor
-@Suite struct SchemaV18Tests {
-    @Test func v18CreatesAbsServerTable() throws {
+@Suite struct AudiobookshelfSchemaBaselineTests {
+    @Test func baselineCreatesAbsServerTable() throws {
         let db = try DatabaseService(inMemory: ())
         let columns = Set(
             try db.read { db in

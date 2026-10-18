@@ -167,12 +167,12 @@ def main():
         },
         {
             "name": "Dyslexia & Read-Along",
-            "promo": "Boost comprehension. Visual word-sync highlights every spoken sentence in real time. Works offline with on-device CoreML. No data leaves your device.",
+            "promo": "EPUB word sync helps you follow narration in real time, with dyslexia-friendly fonts and offline on-device alignment. No data leaves your device.",
             "deep_link": "echoaudio://read"
         },
         {
             "name": "Audiobook Study & Spaced Repetition",
-            "promo": "Turn listening into keeping. Capture audio bookmarks, write notes, and review study cards daily. Built-in spaced repetition & Anki integration.",
+            "promo": "Turn listening into keeping. Capture audio bookmarks, write notes, and review cards daily with built-in FSRS spaced repetition plus Apple Watch review.",
             "deep_link": "echoaudio://study"
         }
     ]

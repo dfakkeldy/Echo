@@ -33,28 +33,34 @@ enum FolderAudioScanner {
         }
     }
 
-    /// Scans `folderURL` and enqueues every discovered **standalone EPUB** as a
-    /// text-only narration item (`kind: .narrate`) — for EPUBs that have no
-    /// companion audio and should be synthesized on-device overnight. Distinct
-    /// from `enqueueFolder`, which aligns narrated audiobooks against their EPUB.
+    /// Scans `folderURL` and enqueues every discovered **standalone document**
+    /// (EPUB or PDF) as a text-only narration item (`kind: .narrate`) — for books
+    /// that have no companion audio and should be synthesized on-device
+    /// overnight. Distinct from `enqueueFolder`, which aligns narrated
+    /// audiobooks against their EPUB.
     ///
-    /// Like `enqueueFolder`, the EPUB is bookmarked **here** while `folderURL`'s
-    /// NSOpenPanel security scope is still active, so the sandboxed app can read
-    /// it back at processing time after a relaunch.
+    /// Like `enqueueFolder`, each document is bookmarked **here** while
+    /// `folderURL`'s NSOpenPanel security scope is still active, so the sandboxed
+    /// app can read it back at processing time after a relaunch.
     @MainActor
-    static func enqueueEPUBsForNarration(
+    static func enqueueDocumentsForNarration(
         _ folderURL: URL, into service: MacBatchProcessingService
     ) throws {
         let didStart = folderURL.startAccessingSecurityScopedResource()
         defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
-        for epubURL in scanForEPUBs(in: folderURL) {
-            try service.enqueueNarration(epubURL: epubURL)
+        for documentURL in scanForNarratableDocuments(in: folderURL) {
+            try service.enqueueNarration(documentURL: documentURL)
         }
     }
 
-    /// Recursively enumerates EPUB files in `folder`, respecting standard
-    /// hidden-file and package exclusions. Mirrors `scanForAudioFiles`.
-    static func scanForEPUBs(in folder: URL) -> [URL] {
+    /// Extensions a *folder* sweep enqueues for on-device narration. `.md`/`.txt`
+    /// stay out deliberately: they are accepted as explicit single-file picks, but
+    /// loose text files inside a book folder are usually notes, not books.
+    static let narratableDocumentExtensions: Set<String> = ["epub", "pdf"]
+
+    /// Recursively enumerates narratable documents in `folder`, respecting
+    /// standard hidden-file and package exclusions. Mirrors `scanForAudioFiles`.
+    static func scanForNarratableDocuments(in folder: URL) -> [URL] {
         var results: [URL] = []
 
         let enumerator = FileManager.default.enumerator(
@@ -64,7 +70,7 @@ enum FolderAudioScanner {
         )
 
         while let url = enumerator?.nextObject() as? URL {
-            if url.pathExtension.lowercased() == "epub" {
+            if narratableDocumentExtensions.contains(url.pathExtension.lowercased()) {
                 results.append(url)
             }
         }

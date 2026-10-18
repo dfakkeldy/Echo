@@ -2,7 +2,9 @@
 import XCTest
 @testable import Echo
 
-final class ColorMetricsTests: XCTestCase {
+// `nonisolated`: XCTestCase subclass under Swift 6 MainActor default isolation; nonisolated so the
+// init overrides match XCTestCase's nonisolated inits (pure synchronous value tests).
+nonisolated final class ColorMetricsTests: XCTestCase {
 
     /// Build an `RGB` from a 0xRRGGBB literal for readable fixtures.
     private func rgb(_ hex: UInt32) -> ColorMetrics.RGB {
