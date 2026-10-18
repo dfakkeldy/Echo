@@ -17,15 +17,9 @@ struct CloudKitSyncSourceTests {
         let source = try Self.source("EchoCore/Services/CloudKitSyncService.swift")
 
         #expect(source.contains("let sanitizedRemoteAnchors = Self.semanticallyValidRemoteAnchors"))
-        #expect(source.contains("let merged = Self.mergeAnchors(local: anchors, remote: sanitizedRemoteAnchors)"))
-    }
-
-    @Test func manualShareUsesPersistedAnchorLookupMetadata() throws {
-        let source = try Self.source("EchoCore/Views/BookSettingsView.swift")
-
-        #expect(source.contains("AudiobookDAO(db: db).get(audiobookID)"))
-        #expect(source.contains("EPUBAutoImportScanner.anchorLookupMetadata"))
-        #expect(source.contains("(record?.duration).flatMap"))
+        #expect(
+            source.contains(
+                "let merged = Self.mergeAnchors(local: anchors, remote: sanitizedRemoteAnchors)"))
     }
 
     @Test func bookSettingsRefreshesEchoDeckBuilderExportAfterDocumentImport() throws {

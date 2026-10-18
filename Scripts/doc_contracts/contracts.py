@@ -143,6 +143,33 @@ TIMELINE_SWEPT_FILES: tuple[str, ...] = (
 )
 
 
+# Echo 1.0 exposes community lookup, but no public-upload entry point. Keep the
+# user manuals and review instructions aligned with that release boundary.
+PUBLIC_ALIGNMENT_AVAILABILITY_CONTRACTS: tuple[FileContract, ...] = (
+    FileContract(
+        path="EchoCore/Views/BookSettingsView.swift",
+        must_not_contain=(
+            "uploadAnchors(",
+            "Share Alignment to CloudKit",
+            'Button("Share Publicly")',
+        ),
+        reason="Echo 1.0 must not expose public alignment uploads",
+    ),
+    *(
+        FileContract(
+            path=path,
+            must_contain=("Public alignment uploads are unavailable in Echo 1.0.",),
+            reason="availability copy must not advertise a deferred upload feature",
+        )
+        for path in (
+            "docs/guides/user-manual.md",
+            "docs/manual.html",
+            "fastlane/metadata/review_information/notes.txt",
+        )
+    ),
+)
+
+
 def all_contracts() -> tuple[FileContract, ...]:
     """Every contract, with the Timeline sweep expanded to one entry per file."""
     timeline = tuple(
@@ -153,7 +180,7 @@ def all_contracts() -> tuple[FileContract, ...]:
         )
         for path in TIMELINE_SWEPT_FILES
     )
-    return SETTINGS_PATH_CONTRACTS + timeline
+    return SETTINGS_PATH_CONTRACTS + timeline + PUBLIC_ALIGNMENT_AVAILABILITY_CONTRACTS
 
 
 @dataclass
