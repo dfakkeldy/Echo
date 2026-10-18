@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Privacy Policy — Echo: Audiobook Study Player</title>
-    <meta name="description" content="Echo's privacy policy: no Echo accounts, no analytics, no tracking, no Echo-run servers. Speech recognition stays on your device. Optional public alignment sharing uses Apple's CloudKit public database.">
+    <meta name="description" content="Echo native-app privacy: local books, optional connected services, public alignment lookup, permissions and support.">
     <link rel="stylesheet" href="styles.css">
     <link rel="icon" type="image/png" href="assets/icon.png">
 </head>
@@ -31,52 +31,35 @@
 
     <main id="main">
         <section class="legal-content">
-            <h1>Privacy Policy</h1>
-            <p>Last updated: October 2026</p>
-
-            <p>Your privacy is critically important to us. At Echo, we have a few fundamental principles:</p>
-
-            <h2>1. We Don't Collect Your Data</h2>
-            <p>Echo is designed to respect your privacy. All of your audiobook files, reading progress, voice memos, photos, text notes, bookmarks, and flashcards are stored locally on your device or synced securely via your personal Apple iCloud account. Echo has no servers of its own and no Echo accounts. Optional, user-initiated public alignment sharing is described below.</p>
-
-            <h2>2. No Tracking or Analytics</h2>
-            <p>We do not use third-party analytics trackers, crash reporters, or advertising networks. We do not track what books you listen to, when you listen, or how you interact with the app.</p>
-            <p>Echo's <strong>Insights</strong> feature (listening time, streaks, review statistics) is computed entirely on your device, from your own local history, for your eyes only. It is not analytics — no one but you can see it, and it never leaves your hardware except through your personal iCloud sync.</p>
-
-            <h2>3. On-Device Speech Recognition</h2>
-            <p>Echo's audio-to-text alignment uses on-device machine learning (WhisperKit / CoreML). Your audio is transcribed entirely on your own hardware and is never uploaded, transmitted, or shared — with us or anyone else.</p>
-
-            <h2>4. Optional Public Alignment Sharing</h2>
-            <p>Book Settings includes a user-initiated Share Alignment action. If you confirm (Cancel / Share Publicly), Echo uploads that book's title, author, duration, and alignment markers to Echo's public CloudKit database — Apple's CloudKit public database — along with a persistent identifier derived from your iCloud account. Other Echo users can use these alignments.</p>
-            <p>This upload excludes audio, full book text, and notes. Echo has no in-app control to delete a shared alignment.</p>
-
-            <h2>5. Location ("Context Memory") — Opt-In Only</h2>
-            <p>Echo can optionally tag your listening sessions, bookmarks, and chapter starts with an approximate place name to support context-dependent memory. This feature is governed by strict rules:</p>
-            <ul>
-                <li><strong>Off by default.</strong> Echo never accesses location unless you explicitly enable Context Memory in Settings.</li>
-                <li><strong>Approximate by design.</strong> Echo requests reduced-accuracy (neighborhood-level) location only — it never knows your precise position.</li>
-                <li><strong>Stored on your device.</strong> Captured places live in Echo's local database. Your session location history is <strong>never synced or transmitted anywhere</strong> — not even to your own iCloud. Place names attached to bookmarks sync with those bookmarks through your personal iCloud only while the feature is enabled.</li>
-                <li><strong>Deletable in one tap.</strong> "Delete Location History" in Settings permanently erases every captured place — sessions, bookmarks, and chapter markers.</li>
-                <li><strong>One honest footnote:</strong> to turn coordinates into a readable name ("Maple Ridge, Halifax"), Echo asks Apple's geocoding service, the standard system facility. That lookup goes to Apple under <a href="https://www.apple.com/legal/privacy/" style="color: var(--accent-gold);">Apple's privacy policy</a>; Echo caches results locally to keep such lookups rare, and we never see them — we have no servers to see them with.</li>
-            </ul>
-
-            <h2>6. Photos, Microphone, and Notifications</h2>
-            <p>If you attach photos to bookmarks, record voice memos, or enable review reminders, those permissions are used solely for those features. Photos and recordings are stored with your library on your device; notifications are generated locally. Nothing is transmitted to us.</p>
-
-            <h2>7. Apple Health Data</h2>
-            <p>If you choose to integrate Echo with Apple Health (for example, via Apple Watch), this data is processed locally and is never transmitted to us or any third parties.</p>
-
-            <h2>8. Beta Builds (TestFlight)</h2>
-            <p>If you run Echo through Apple's TestFlight beta program, TestFlight shares crash reports and any feedback you choose to send with the developer, along with device, OS, and build information. This is TestFlight's standard mechanism, governed by Apple's terms — Echo itself contains no analytics or telemetry in beta builds, exactly as in release builds. See the <a href="beta.html" style="color: var(--accent-gold);">beta guide</a> for details.</p>
-
-            <h2>9. This Website</h2>
-            <p>This website is a static page: it hosts its own fonts, runs one small first-party script (the glossary — no network calls, no tracking), sets no cookies, and embeds no third-party resources. (It's served by GitHub Pages, which may log standard server requests; see GitHub's privacy statement.)</p>
-
-            <h2>10. Open Source</h2>
-            <p>Echo is open source under the GPL-3.0 license. Every claim on this page can be verified by reading the code: <a href="https://github.com/dfakkeldy/Echo" style="color: var(--accent-gold);">github.com/dfakkeldy/Echo</a>.</p>
-
-            <h2>11. Contact Us</h2>
-            <p>If you have any questions about this Privacy Policy, please reach out via our <a href="https://github.com/dfakkeldy/Echo/issues" style="color: var(--accent-gold);">GitHub Issues page</a>.</p>
+            <h1>Echo Privacy Policy</h1>
+            <p>Echo is made by Daniel Vincent Fakkeldy, operating as KinNoKi Labs. You can play and study local audiobooks without creating an Echo account. Echo stores its library records, reading and listening progress, notes, study cards and settings on your device. Features vary by platform. The optional network features below have different data handling; using local files does not mean every feature is offline or uses only private iCloud storage.</p>
+            <h2>Local books, narration and study</h2>
+            <p>Playback, reading, narration synthesis and audio-to-text alignment process your files on your device. Narration and transcription may first download model or tokenizer files from Hugging Face. These downloads disclose the requested model and normal connection information, such as your IP address, to the hosting service; they do not send your book text or audio for remote inference. Hugging Face explains its handling and retention in its <a href="https://huggingface.co/privacy">privacy policy</a>.</p>
+            <p>On supported devices, Echo can draft study cards with Apple&#x27;s on-device Foundation Models. Echo also supports optional external AI. The selected generation preference determines which route is used; Auto can use an external provider once one is configured.</p>
+            <h2>Optional external AI</h2>
+            <p>If you configure an external AI provider and generate study cards with it, Echo sends book passages and their source identifiers to that provider. Generation can include section excerpts, a generated book brief and batches of source text. It sends the model selection and your provider credential so the service can process the request under your provider account. This feature sends text; it does not upload your audio recordings, selected photos or the EPUB file container as part of these requests.</p>
+            <p>The available presets are Anthropic, DeepSeek, Moonshot/Kimi and Z.ai/GLM. You can edit the endpoint or use a custom compatible service. The configuration screen describes the text transfer. Credentials are stored in the system Keychain. Remove Token disables generation with that stored provider configuration. Test Connection sends a small test prompt and your credential to the configured service.</p>
+            <p>The provider&#x27;s terms and account settings govern its access, use, retention and deletion. At the time of this policy review:</p>
+            <ul><li><a href="https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data">Anthropic&#x27;s commercial API retention notice</a> describes deletion of standard API inputs and outputs within 30 days, with exceptions for particular services, agreements, safety and legal obligations. That is not an unconditional deadline for every request.</li><li><a href="https://cdn.deepseek.com/policies/en-US/deepseek-privacy-policy.html">DeepSeek&#x27;s service privacy policy</a> excludes downstream developers&#x27; end-user processing rules. It does not establish retention, training or IP-location handling for Echo&#x27;s API requests; those API-specific practices remain unverified.</li><li><a href="https://platform.kimi.ai/docs/agreement/userprivacy">Kimi OpenPlatform&#x27;s policy</a> describes retaining information as needed for its purposes and using information to improve and train its technology; Echo does not assign it a fixed deletion deadline.</li><li><a href="https://docs.z.ai/legal-agreement/privacy-policy">Z.ai&#x27;s API Data Processing Addendum</a> says API input and generated content are processed in real time without server storage. Other customer data can be stored for API operation or legal requirements.</li></ul>
+            <p>Echo does not impose one retention period on all providers or custom services. Deleting a local card or removing a credential does not delete information already held by a provider. Use the provider&#x27;s controls or contact it for those requests.</p>
+            <h2>Public alignment lookup</h2>
+            <p>When external fetching is permitted and the app can access its configured CloudKit container, importing a book can look for matching public alignment anchors. Echo sends Apple a deterministic record identifier derived from the book&#x27;s title, author and duration. This lookup does not publish your local anchors, audio, full book text or notes. An ordinary lookup failure can fall back to local alignment; the app can also find no matching record.</p>
+            <p>This 1.0 release does not expose an action for uploading alignments to the public database. This is separate from the optional lookup and from files in your private iCloud storage. The lookup description does not promise that a matching record exists or that a request will succeed.</p>
+            <p>If you shared an alignment using another build, removing local anchors, deleting a local book or signing out does not itself delete public copies. Echo&#x27;s client sets no automatic expiry for shared alignment records and has no in-app deletion control for them. We do not state a fixed retention period for past public alignments or guarantee removal of copies obtained by other users. You can contact us with privacy questions or requests using the address below.</p>
+            <h2>Optional Audiobookshelf connection</h2>
+            <p>If you connect an Audiobookshelf server, Echo sends your login to that server and uses the resulting credentials to browse, search and download its library. For books imported from that server, Echo exchanges book identifiers and listening progress, including playback position, duration and completion state. Progress updates can continue while you listen.</p>
+            <p>The server operator controls its accounts, logs and stored progress. Echo defaults to HTTPS; a local HTTP connection requires explicit confirmation in the connection flow. Disconnecting clears the local connection and credentials and attempts server sign-out. It does not erase the server&#x27;s account or listening history.</p>
+            <h2>Articles, exports and other applications</h2>
+            <p>Capturing a website article downloads its HTML and selected images from the corresponding sites. Those sites receive the requested URLs and connection information and apply their own policies. Echo extracts and stores captured content locally. Sending that content to an external study-card provider is a separate use of the AI feature above.</p>
+            <p>You can export or share books, notes, cards and media to destinations you choose. On macOS, exporting through AnkiConnect sends selected card text and deck information to Anki running on the same Mac. The destination application controls any later synchronization or sharing.</p>
+            <h2>Location, photos, microphone and Apple devices</h2>
+            <p>Context Memory is optional and off by default. With permission, Echo can obtain the device&#x27;s location and round its coordinates to two decimal places before asking Apple&#x27;s geocoding service for a place name. The device may supply a precise location fix before rounding. Echo stores the rounded context and place name locally. Delete Context Memory removes the app&#x27;s local context records and cached place data; it does not erase third-party records or device backups.</p>
+            <p>Microphone permission supports recording voice memos. Photo access supports selected images and saving exported media to Photos. Echo keeps these recordings and imported images locally in the traced features. A Watch voice memo can transfer to the paired iPhone using Apple&#x27;s device communication services. Apple may fetch Photos or files from your personal iCloud account when you select them.</p>
+            <p>Apple manages App Store purchases, system backups and any files you choose to keep in Apple cloud storage. Those services follow <a href="https://www.apple.com/legal/privacy/en-ww/">Apple&#x27;s privacy policy</a> and your Apple settings. This does not mean every Echo record is automatically synchronized through private iCloud.</p>
+            <h2>Support and your choices</h2>
+            <p>If you choose to email support, we receive your email address and the content you send. We retain support emails indefinitely. We do not currently operate a support-email deletion system. Echo can prepare a feedback message with your category, rating and message, plus optional app, system, device, locale and time-zone information. Review the message in your mail application before sending. Posting a GitHub issue makes the information you submit visible according to GitHub&#x27;s settings and <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">policy</a>.</p>
+            <p>You can remove local content using Echo&#x27;s controls, disable optional permissions in system Settings, remove an AI token, disconnect Audiobookshelf, and choose what to export or share. Copies in backups, exports, public alignment records and external services have separate handling. We do not promise a single deletion deadline for all of them.</p>
+            <p>For privacy questions or requests, contact <a href="mailto:hello@kinnokilabs.com">hello@kinnokilabs.com</a>. Echo support is available at <a href="mailto:echo@kinnokilabs.com">echo@kinnokilabs.com</a>. Mail sent to these KinNoKi support and privacy addresses is routed through Apple iCloud Mail, subject to <a href="https://www.apple.com/legal/privacy/en-ww/">Apple&#x27;s privacy policy</a>.</p>
         </section>
     </main>
 
