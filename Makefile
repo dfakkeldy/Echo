@@ -42,6 +42,8 @@ fastlane-scheme-test: ## Verify the release scheme probe from Fastlane's working
 	@ruby fastlane/test/scheme_probe_test.rb
 
 fastlane-test: fastlane-scheme-test ## Verify Fastlane release routing without Xcode
+	@ruby fastlane/test/release_delivery_test.rb
+	@ruby fastlane/test/release_lane_test.rb
 	@ruby fastlane/test/testflight_distribution_test.rb
 
 pronunciation-corpus-test: ## Validate pronunciation corpus tests and fixture contracts

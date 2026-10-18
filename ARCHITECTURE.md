@@ -948,7 +948,7 @@ Alignment is now performed entirely in-app, without any external tools or API ca
 6. **Timeline recalculation:** `AlignmentService.recalculateTimeline()` runs in a single DB transaction, updating all affected `timeline_item` rows with new interpolated timestamps, including `audioEndTime` computed from the next visible block's start time.
 7. **Block/chapter hiding:** Users can mark individual blocks ("Not in Audio (This Paragraph)") or entire chapters ("Not in Audio (Whole Chapter)") as hidden when the EPUB contains content not present in the audiobook narration. Hidden blocks get `alignment_status = omitted`, `is_enabled = false`. The `hideChapter(chapterIndex:reason:)` method on `AlignmentService` batch-hides all blocks in a chapter.
 8. **Continuous Alignment:** `ContinuousAlignmentService` (opt-in via `continuousAutoAlignmentEnabled` setting) periodically transcribes the 15 s of audio behind the playback position and inserts a correction anchor when the transcript confidently matches a nearby block. It reads the audio *file* at media time via `AudioSegmentReader` — the earlier output-mixer tap sat after the time-pitch node, so at non-1× speeds every captured window was time-compressed and anchors landed early by the speed factor. Anchors require ≥8 transcribed words and a sane projection range; they are cleared by the next full auto-alignment run.
-9. **CloudKit Sync:** `CloudKitSyncService` synchronizes alignment anchors across devices via CloudKit, ensuring manual and auto-alignment work is shared. It intentionally uses CloudKit's **public** database for shared anchors: the feature is community reuse/discovery keyed by book metadata, not a personal/private device-sync channel. Public records are treated as untrusted input. Echo uploads only non-synthesized anchors, stores suffix-only portable block IDs instead of device-local audiobook or EPUB block IDs, fetches the deterministic SHA-256 record name instead of querying arbitrary public metadata matches, bounds both anchor count and encoded payload bytes, attributes writes with a SHA-256 hash of the uploader's CloudKit user record name (never the raw record name), throttles local per-record uploads to roughly five per hour, rejects malformed/oversized/too-many-anchor payloads before decode/merge, validates remote timestamps against the local audiobook duration, and drops anchors whose EPUB block IDs do not exist locally.
+9. **CloudKit alignment lookup:** `CloudKitSyncService` may request community alignment anchors from CloudKit's **public** database during import, with local alignment fallback. Public alignment uploads are unavailable in Echo 1.0; the settings upload control is removed. This is community reuse/discovery keyed by book metadata, not a personal/private device-sync channel. Public records are treated as untrusted input. The retained, currently unreachable upload implementation accepts only non-synthesized anchors, stores suffix-only portable block IDs instead of device-local audiobook or EPUB block IDs, fetches the deterministic SHA-256 record name instead of querying arbitrary public metadata matches, bounds both anchor count and encoded payload bytes, attributes writes with a SHA-256 hash of the uploader's CloudKit user record name (never the raw record name), throttles local per-record uploads to roughly five per hour, rejects malformed/oversized/too-many-anchor payloads before decode/merge, validates remote timestamps against the local audiobook duration, and drops anchors whose EPUB block IDs do not exist locally.
 
 **Dynamic CPS projection (AlignmentService):**
 
@@ -2128,9 +2128,12 @@ StoreKit product identifiers remain unchanged.
   copy of a workflow on the **default branch**, so this file lives on `main` and
   *checks out* the train branch it was asked to build. Nightly cron builds
   `nightly`; weekly cron builds `weekly`; `workflow_dispatch` takes a `channel`
-  input. Each run always compiles the branch (no secrets needed) and, when the
-  App Store Connect + match secrets are present, runs the `fastlane beta` lane to
-  upload to TestFlight. Missing secrets degrade to compile-only (no red-X
+  input. A read-only Ubuntu comparison skips macOS delivery work when the
+  effective build inputs match the last successful platform/channel receipt.
+  Changed or intentionally forced deliveries compile the pinned source and,
+  when App Store Connect + match secrets are present, run `fastlane beta`.
+  See [change-aware delivery](.github/RELEASE_DELIVERY.md) for baseline recovery,
+  platform retries and rollout through the normal promotion ladder. Missing secrets degrade to compile-only (no red-X
   nightlies). Required secrets: `APP_STORE_CONNECT_API_KEY_JSON`,
   `MATCH_PASSWORD`, `MATCH_GIT_SSH_KEY`.
 

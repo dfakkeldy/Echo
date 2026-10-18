@@ -53,6 +53,11 @@ on:
         type: choice
         options: [nightly, weekly]
         default: nightly
+      force:
+        description: Rebuild unchanged inputs intentionally, with all existing gates
+        required: false
+        type: boolean
+        default: false
 
 # ONE shared group across BOTH channels, and never cancel an in-flight upload
 # (an interrupted TestFlight submission is messy to recover). Per-channel keys
@@ -64,11 +69,11 @@ on:
 # one upload dies as a "Redundant Binary Upload" (the 2026-06-29 collision,
 # re-proven by the twin 2026-08-10 Monday failures). A single group serializes
 # them: the second run queues until the first finishes, then reads the fresh
-# build number. GitHub keeps at most one queued run per group, which is
-# exactly enough for the two Monday crons.
+# build number. queue: max also preserves pending manual and scheduled requests.
 concurrency:
   group: release-trains
   cancel-in-progress: false
+  queue: max
 
 jobs:
   resolve:
@@ -81,8 +86,8 @@ jobs:
       # ── Map the trigger to a channel/branch ───────────────────────────────
       # Scheduled runs identify themselves by their cron string; manual runs by
       # the `channel` input. Channel name == branch name by design. There is no
-      # inactive/skip outcome any more: every scheduled run and every dispatch
-      # ships, so the run's conclusion means exactly what it says.
+      # inactive DST outcome. The comparison below separately reports unchanged
+      # inputs and skips the macOS delivery job when its receipts match.
       - name: Resolve channel → branch
         id: train
         shell: bash
@@ -100,8 +105,49 @@ jobs:
           echo "branch=$CH" >> "$GITHUB_OUTPUT"
           echo "Resolved '$CH' train from branch '$CH'."
 
-  ship:
+  changes:
+    name: Compare delivered build inputs
     needs: resolve
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      should_run: ${{ steps.changes.outputs.should_run }}
+      source_sha: ${{ steps.changes.outputs.source_sha }}
+      plan: ${{ steps.changes.outputs.plan }}
+      ios: ${{ steps.changes.outputs.ios }}
+      fingerprint_ios: ${{ steps.changes.outputs.fingerprint_ios }}
+      macos: ${{ steps.changes.outputs.macos }}
+      fingerprint_macos: ${{ steps.changes.outputs.fingerprint_macos }}
+    steps:
+      - name: Inspect train source tree
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.branch }}
+          sparse-checkout: .github
+
+      - name: Check out delivery guard from controller
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .release-control
+          sparse-checkout: .github
+
+      - name: Compare successful deliveries
+        id: changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE_RELEASE: ${{ inputs.force || false }}
+        run: >-
+          python3 .release-control/.github/scripts/release_delivery.py plan
+          --controller .release-control
+          --channel "${{ needs.resolve.outputs.channel }}"
+          --force "$FORCE_RELEASE"
+
+  ship:
+    needs: [resolve, changes]
+    if: needs.changes.outputs.should_run == 'true'
     name: Build & ship train
     # MUST stay on the same runner image as the ci.yml build gate that vetted
     # the branch this job checks out (`nightly` runs on macos-26). `setup-xcode`
@@ -120,6 +166,8 @@ jobs:
     timeout-minutes: 90
 
     env:
+      RELEASE_PLAN: ${{ needs.changes.outputs.plan }}
+      RELEASE_CONTROL_SCRIPT: ${{ github.workspace }}/.release-control/.github/scripts/release_delivery.py
       # Surfaced as env so the credential check below can test for them; empty
       # strings when the secrets are not configured.
       ASC_API_KEY_JSON: ${{ secrets.APP_STORE_CONNECT_API_KEY_JSON }}
@@ -137,7 +185,7 @@ jobs:
       - name: Checkout ${{ needs.resolve.outputs.branch }}
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.resolve.outputs.branch }}
+          ref: ${{ needs.changes.outputs.source_sha }}
           # Full history + all branches so the nightly "What to Test" generator
           # can resolve origin/weekly and compute merge-base(origin/weekly, HEAD).
           # The default shallow single-branch clone has no origin/weekly ref, which
@@ -147,6 +195,14 @@ jobs:
       # Pin Xcode 26.x to match ci.yml (newest installed 26.x; never a future
       # major). This resolves per runner image, so it only agrees with ci.yml
       # while both jobs run on the same image — see the `runs-on` note above.
+
+      - name: Check out delivery recorder from controller
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .release-control
+          sparse-checkout: .github
+
       - name: Select Xcode 26
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -165,10 +221,8 @@ jobs:
       - name: Resolve package dependencies
         run: xcodebuild -resolvePackageDependencies -project Echo.xcodeproj -scheme Echo
 
-      # ── Always-on gate: compile the train branch (no secrets required) ─────
-      # This is the guaranteed-useful part of a scheduled run and the same gate
-      # ci.yml applies to pushes/PRs. It fails fast and clearly on a train that
-      # someone promoted in a non-compiling state.
+      # Every requested delivery still compiles the compared source. Unchanged
+      # trains skip this job; normal push/PR CI remains independent.
       - name: Build gate — Echo (iOS app + widget + watch + tests)
         run: |
           set -o pipefail
@@ -225,5 +279,24 @@ jobs:
       # Nightly and Weekly builds to separate TestFlight tester groups so
       # testers self-select their risk.
       - name: Upload ${{ needs.resolve.outputs.channel }} build to TestFlight
+        id: delivery
         if: steps.creds.outputs.ready == 'true'
         run: bundle exec fastlane beta channel:${{ needs.resolve.outputs.channel }}
+
+      - name: Retain successful ${{ needs.resolve.outputs.channel }} ios delivery receipt
+        if: success() && steps.delivery.outputs.ios_delivered == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-delivery-v1-${{ needs.resolve.outputs.channel }}-ios-${{ github.run_attempt }}-${{ needs.changes.outputs.fingerprint_ios }}
+          path: ${{ runner.temp }}/release-receipts/ios.json
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Retain successful ${{ needs.resolve.outputs.channel }} macos delivery receipt
+        if: success() && steps.delivery.outputs.macos_delivered == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-delivery-v1-${{ needs.resolve.outputs.channel }}-macos-${{ github.run_attempt }}-${{ needs.changes.outputs.fingerprint_macos }}
+          path: ${{ runner.temp }}/release-receipts/macos.json
+          retention-days: 90
+          if-no-files-found: error

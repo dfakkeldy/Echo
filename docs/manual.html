@@ -589,11 +589,12 @@ iCloud Drive/
                 <p>This is optional — the iOS app's built-in alignment needs none of it — but lovely for archival transcripts of your library. Set it up with <code>pip install -r Tools/requirements.txt</code> and <code>brew install ffmpeg</code>.</p>
 
                 <h2 id="privacy"><span class="sec-num">24</span>Privacy</h2>
-                <p>The shortest section, because there's nothing to disclose:</p>
+                <p>The short version, with one optional exception:</p>
                 <ul>
-                    <li><strong>No accounts. No analytics. No tracking. No ads. No servers.</strong></li>
+                    <li><strong>No Echo accounts. No analytics. No tracking. No ads. No Echo-run servers.</strong></li>
                     <li>Your books, bookmarks, photos, voice memos, notes, flashcards, and listening history stay on your devices (and your personal iCloud, where you enable sync).</li>
                     <li>Speech recognition for alignment runs <strong>entirely on-device</strong>. Audio never leaves your hardware.</li>
+                    <li>Public alignment uploads are unavailable in Echo 1.0. Echo may look up community alignment markers in Apple's public CloudKit database during import and falls back to local alignment when none are available.</li>
                     <li>Location capture (Context Memory <span class="tag-soon">🚧</span>) is <strong>opt-in, approximate, and deletable</strong> — and session location history never leaves the device. Full details in the <a href="privacy.html">privacy policy</a>.</li>
                     <li>The app is <strong>open source (GPL-3.0)</strong> — you can read every line: <a href="https://github.com/dfakkeldy/Echo" target="_blank" rel="noopener noreferrer">github.com/dfakkeldy/Echo</a>.</li>
                 </ul>
@@ -624,7 +625,7 @@ iCloud Drive/
                 <details class="faq-item">
                     <summary>Does Echo work fully offline?</summary>
                     <div class="faq-body">
-                        <p>Yes — playback, reading, alignment, flashcards, notes, insights: everything. The only network use is your own iCloud file syncing (and, if you enable Context Memory, Apple's place-name lookup). On-device means on-device.</p>
+                        <p>Yes — core playback, reading, on-device alignment, flashcard review, notes, and insights work without a network. Community alignment lookup during import, your own iCloud file syncing, and optional place-name lookup use network services. Public alignment uploads are unavailable in Echo 1.0.</p>
                     </div>
                 </details>
                 <details class="faq-item">
@@ -702,7 +703,7 @@ iCloud Drive/
                 <details class="faq-item">
                     <summary>Does Echo use AI? Does anything leave my device?</summary>
                     <div class="faq-body">
-                        <p>Echo uses on-device machine learning (WhisperKit on the Neural Engine) for speech-to-text alignment — no cloud APIs, no audio uploads, ever. There are no chatbots and no generative features today; if AI-assisted card drafting arrives post-1.0, it will run on-device with the same rules <span class="tag-future" style="font-size:0.58rem;">🔭 Roadmap</span>.</p>
+                        <p>Echo uses on-device speech recognition (WhisperKit) for audio-to-text alignment. Optional AI-assisted study-card generation can use a configured external provider after consent. Public alignment uploads are unavailable in Echo 1.0. Community alignment lookup during import can use Apple's public CloudKit database and falls back to local alignment.</p>
                     </div>
                 </details>
                 <details class="faq-item">
