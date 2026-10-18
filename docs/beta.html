@@ -77,7 +77,7 @@
                 <ul>
                     <li><strong>Align <em>or</em> narrate.</strong> Drop an ebook (EPUB/PDF) next to an audiobook and Echo syncs the words to the voice so you can read along. No audiobook? Echo narrates text-only EPUBs, Markdown, or plain text on-device — no cloud, no account.</li>
                     <li><strong>A study system, not just a player.</strong> Bookmarks — with voice memos or photos — become flashcards you review with spaced repetition, on your phone, your wrist, or your Mac.</li>
-                    <li><strong>Private by design.</strong> No analytics, no tracking, no servers; alignment and narration run entirely on your device.</li>
+                    <li><strong>Private by design.</strong> Core import, local playback, reading, and voice synthesis run on-device without an Echo account. Audiobookshelf, external AI, model downloads, public alignment lookup, and files you choose in iCloud use network services; this 1.0 release does not expose public-alignment uploads. These connections are optional.</li>
                 </ul>
                 <h3>Your first 5 minutes</h3>
                 <ol>
@@ -254,8 +254,8 @@
                 </ul>
 
                 <h2 id="privacy"><span class="sec-num">07</span>Privacy during the beta</h2>
-                <p>Echo's promise is unchanged in beta: <strong>no analytics, no tracking, no servers, alignment fully on-device.</strong></p>
-                <p>One thing TestFlight itself adds: Apple's beta system shares <strong>crash reports</strong> and <strong>the feedback you choose to send</strong> with the developer, along with device/OS/build info. That's TestFlight's standard mechanism — it's how your reports reach us — not telemetry inside Echo. Full policy: <a href="privacy.html">privacy.html</a>.</p>
+                <p>Core book import, local playback, reading, and voice synthesis run on-device without an Echo account. You can connect Echo to your own Audiobookshelf server to browse and play your library. External AI features send text to the provider you configure. When network access is permitted, importing a book may look up matching public alignment markers, with local fallback for an ordinary lookup failure. Model downloads and files you choose in iCloud also use network services. This 1.0 release does not expose public-alignment uploads. These connections are optional; they are not needed for local playback and reading.</p>
+                <p>One thing TestFlight itself adds: Apple's beta system shares <strong>crash reports</strong> and <strong>the feedback you choose to send</strong> with the developer, along with device/OS/build info. That's TestFlight's standard mechanism — it's how your reports reach us — not telemetry inside Echo. Full policy: <a href="https://kinnokilabs.com/echo-privacy/">kinnokilabs.com/echo-privacy</a>.</p>
 
                 <p style="margin-top: 2.5rem;"><em>Thank you for testing. Every report makes the player better for the next interrupted listener.</em> — Dan</p>
             </article>
