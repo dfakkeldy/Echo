@@ -2,7 +2,7 @@ Echo turns your DRM-free audiobooks into a study tool: chapter looping, smart re
 
 WHAT BETA MEANS
 
-You're testing real, in-development software. Most things work well day-to-day (the developer uses Echo on a mail route every workday), but you will find rough edges — that's the point. Your books and data stay on your device, and it's wise to keep source files backed up as with any beta.
+You're testing real, in-development software. Most things work well day-to-day (the developer uses Echo on a mail route every workday), but you will find rough edges — that's the point. Core import, playback and reading do not require an Echo account. Keep source files backed up as with any beta.
 
 WHAT ECHO NEEDS FROM YOU
 
@@ -21,7 +21,9 @@ GOOD FIRST TESTS
 
 PRIVACY IN THE BETA
 
-Echo itself contains no analytics, no tracking, and no servers — in beta exactly as in release. TestFlight (Apple's beta system) does share crash reports and the feedback you choose to send with the developer; that's TestFlight's standard behavior, not Echo's. Full policy: https://dfakkeldy.github.io/Echo/privacy.html
+You can connect Echo to your own Audiobookshelf server to browse and play your library. External AI features send text to the provider you configure. When network access is permitted, importing a book may look up matching public alignment markers, with local fallback for an ordinary lookup failure. This release does not expose public alignment uploads. These connections are optional; they are not needed for local playback and reading.
+
+TestFlight (Apple's beta system) does share crash reports and the feedback you choose to send with the developer; that's TestFlight's standard behavior, not Echo's. Full policy: https://kinnokilabs.com/echo-privacy/
 
 Echo is open source (GPL-3.0): github.com/dfakkeldy/Echo
 Tester guide with full test plans: dfakkeldy.github.io/Echo/beta.html
