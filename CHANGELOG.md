@@ -4,10 +4,9 @@ All notable changes to Echo: Audiobook Study Player.
 
 ## [Unreleased]
 
-- Sharing a book's alignment now asks for confirmation (Cancel / Share Publicly)
-  before anything is uploaded to Echo's public CloudKit database. Cancel leaves
-  nothing uploaded. If the loaded book changes before you confirm, the share is
-  rejected and nothing is read or sent.
+- Public alignment uploads are unavailable in Echo 1.0. The upload control is
+  hidden; community alignment lookup and local import fallback are unchanged.
+  Playback, reading, and local alignment remain available.
 - On iPhone/iPad, Echo Pro is offered only as the standard one-time `com.echo.pro.unlock`
   purchase. The Founders offer and window are removed, the beta paywall bypass
   is off, and prior standard or Founders ownership still restores. Both purchase

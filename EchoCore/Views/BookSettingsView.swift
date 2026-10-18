@@ -12,10 +12,6 @@ struct BookOverridesSections: View {
     /// Settings sheet so the section reads "Emotional Design — overrides global".
     var headerTitle: String? = nil
 
-    @State private var isUploading = false
-    @State private var uploadAlert: (title: String, message: String)?
-    @State private var alignmentShareConfirmation: AlignmentShareConfirmation?
-
     var body: some View {
         Section {
             Picker(
@@ -75,56 +71,6 @@ struct BookOverridesSections: View {
             }
             .padding(.vertical, 4)
 
-            Button {
-                let audiobookID = model.bookIdentityURL?.absoluteString
-                alignmentShareConfirmation = AlignmentShareConfirmation {
-                    await shareAlignment(for: audiobookID)
-                }
-            } label: {
-                if isUploading {
-                    ProgressView()
-                } else {
-                    Label("Share Alignment to CloudKit", systemImage: "icloud.and.arrow.up")
-                }
-            }
-            .disabled(isUploading)
-            // Presentation modifiers belong on a plain row view, not the
-            // Section, so both Form homes present the alert reliably.
-            .confirmationDialog(
-                "Share Alignment Publicly?",
-                isPresented: Binding(
-                    get: { alignmentShareConfirmation != nil },
-                    set: { if !$0 { alignmentShareConfirmation = nil } }
-                ),
-                titleVisibility: .visible,
-                presenting: alignmentShareConfirmation
-            ) { confirmation in
-                Button("Share Publicly") {
-                    alignmentShareConfirmation = nil
-                    Task { await confirmation.confirm() }
-                }
-                Button("Cancel", role: .cancel) {
-                    confirmation.cancel()
-                    alignmentShareConfirmation = nil
-                }
-            } message: { _ in
-                Text(
-                    "Share this book's title, author, duration and alignment markers in Echo's public CloudKit database, along with a persistent identifier derived from your iCloud account. Other Echo users can use these alignments. This upload excludes audio, full book text and notes. Echo has no in-app control to delete a shared alignment."
-                )
-            }
-            .alert(
-                uploadAlert?.title ?? "",
-                isPresented: Binding(
-                    get: { uploadAlert != nil },
-                    set: { if !$0 { uploadAlert = nil } }
-                )
-            ) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                if let message = uploadAlert?.message {
-                    Text(message)
-                }
-            }
         } header: {
             if let headerTitle {
                 Text(headerTitle)
@@ -133,55 +79,6 @@ struct BookOverridesSections: View {
             Text(
                 "Overrides apply to this book only. \u{201C}Inherit\u{201D} follows the global setting."
             )
-        }
-    }
-
-    private func shareAlignment(for confirmedAudiobookID: String?) async {
-        guard let db = model.databaseService?.writer,
-            let audiobookID = model.bookIdentityURL?.absoluteString
-        else {
-            uploadAlert = ("Error", "No book loaded.")
-            return
-        }
-        guard audiobookID == confirmedAudiobookID else {
-            uploadAlert = (
-                "Book Changed", "The loaded book changed. Open its settings and try sharing again."
-            )
-            return
-        }
-
-        let folderURL = URL(string: audiobookID) ?? URL(fileURLWithPath: audiobookID)
-        let record = try? AudiobookDAO(db: db).get(audiobookID)
-        let (title, author) = EPUBAutoImportScanner.anchorLookupMetadata(
-            folderURL: folderURL, record: record)
-        let fallbackDuration =
-            model.state.totalBookDuration > 0
-            ? model.state.totalBookDuration : (model.state.durationSeconds ?? 0.0)
-        let duration = (record?.duration).flatMap { $0 > 0 ? $0 : nil } ?? fallbackDuration
-
-        isUploading = true
-        defer { isUploading = false }
-
-        do {
-            let syncService = CloudKitSyncService(db: db)
-            let result = try await syncService.uploadAnchors(
-                audiobookID: audiobookID, title: title, author: author, duration: duration)
-            switch result {
-            case .uploaded, .merged:
-                uploadAlert = ("Success", "Alignment anchors uploaded and shared successfully.")
-            case .noUploadableAnchors:
-                uploadAlert = (
-                    "No Alignment Anchors",
-                    "This book does not have uploadable alignment anchors yet."
-                )
-            case .rateLimited:
-                uploadAlert = (
-                    "Try Again Later",
-                    "Alignment sharing is temporarily rate limited for this book."
-                )
-            }
-        } catch {
-            uploadAlert = ("Upload Failed", error.localizedDescription)
         }
     }
 }
