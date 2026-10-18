@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Privacy Policy — Echo: Audiobook Study Player</title>
-    <meta name="description" content="Echo's privacy policy: no accounts, no analytics, no tracking, no servers. Everything stays on your device.">
+    <meta name="description" content="Echo's privacy policy: no Echo accounts, no analytics, no tracking, no Echo-run servers. Speech recognition stays on your device. Optional public alignment sharing uses Apple's CloudKit public database.">
     <link rel="stylesheet" href="styles.css">
     <link rel="icon" type="image/png" href="assets/icon.png">
 </head>
@@ -32,21 +32,25 @@
     <main id="main">
         <section class="legal-content">
             <h1>Privacy Policy</h1>
-            <p>Last updated: June 2026</p>
+            <p>Last updated: October 2026</p>
 
             <p>Your privacy is critically important to us. At Echo, we have a few fundamental principles:</p>
 
             <h2>1. We Don't Collect Your Data</h2>
-            <p>Echo is designed to respect your privacy. All of your audiobook files, reading progress, voice memos, photos, text notes, bookmarks, and flashcards are stored locally on your device or synced securely via your personal Apple iCloud account. Echo has no servers and no accounts.</p>
+            <p>Echo is designed to respect your privacy. All of your audiobook files, reading progress, voice memos, photos, text notes, bookmarks, and flashcards are stored locally on your device or synced securely via your personal Apple iCloud account. Echo has no servers of its own and no Echo accounts. Optional, user-initiated public alignment sharing is described below.</p>
 
             <h2>2. No Tracking or Analytics</h2>
-            <p>We do not use third-party analytics trackers, crash reporters, or advertising networks. We do not track what books you listen to, when you listen, or how you interact with the app. What happens in Echo stays on your device.</p>
+            <p>We do not use third-party analytics trackers, crash reporters, or advertising networks. We do not track what books you listen to, when you listen, or how you interact with the app.</p>
             <p>Echo's <strong>Insights</strong> feature (listening time, streaks, review statistics) is computed entirely on your device, from your own local history, for your eyes only. It is not analytics — no one but you can see it, and it never leaves your hardware except through your personal iCloud sync.</p>
 
             <h2>3. On-Device Speech Recognition</h2>
             <p>Echo's audio-to-text alignment uses on-device machine learning (WhisperKit / CoreML). Your audio is transcribed entirely on your own hardware and is never uploaded, transmitted, or shared — with us or anyone else.</p>
 
-            <h2>4. Location ("Context Memory") — Opt-In Only</h2>
+            <h2>4. Optional Public Alignment Sharing</h2>
+            <p>Book Settings includes a user-initiated Share Alignment action. If you confirm (Cancel / Share Publicly), Echo uploads that book's title, author, duration, and alignment markers to Echo's public CloudKit database — Apple's CloudKit public database — along with a persistent identifier derived from your iCloud account. Other Echo users can use these alignments.</p>
+            <p>This upload excludes audio, full book text, and notes. Echo has no in-app control to delete a shared alignment.</p>
+
+            <h2>5. Location ("Context Memory") — Opt-In Only</h2>
             <p>Echo can optionally tag your listening sessions, bookmarks, and chapter starts with an approximate place name to support context-dependent memory. This feature is governed by strict rules:</p>
             <ul>
                 <li><strong>Off by default.</strong> Echo never accesses location unless you explicitly enable Context Memory in Settings.</li>
@@ -56,22 +60,22 @@
                 <li><strong>One honest footnote:</strong> to turn coordinates into a readable name ("Maple Ridge, Halifax"), Echo asks Apple's geocoding service, the standard system facility. That lookup goes to Apple under <a href="https://www.apple.com/legal/privacy/" style="color: var(--accent-gold);">Apple's privacy policy</a>; Echo caches results locally to keep such lookups rare, and we never see them — we have no servers to see them with.</li>
             </ul>
 
-            <h2>5. Photos, Microphone, and Notifications</h2>
+            <h2>6. Photos, Microphone, and Notifications</h2>
             <p>If you attach photos to bookmarks, record voice memos, or enable review reminders, those permissions are used solely for those features. Photos and recordings are stored with your library on your device; notifications are generated locally. Nothing is transmitted to us.</p>
 
-            <h2>6. Apple Health Data</h2>
+            <h2>7. Apple Health Data</h2>
             <p>If you choose to integrate Echo with Apple Health (for example, via Apple Watch), this data is processed locally and is never transmitted to us or any third parties.</p>
 
-            <h2>7. Beta Builds (TestFlight)</h2>
+            <h2>8. Beta Builds (TestFlight)</h2>
             <p>If you run Echo through Apple's TestFlight beta program, TestFlight shares crash reports and any feedback you choose to send with the developer, along with device, OS, and build information. This is TestFlight's standard mechanism, governed by Apple's terms — Echo itself contains no analytics or telemetry in beta builds, exactly as in release builds. See the <a href="beta.html" style="color: var(--accent-gold);">beta guide</a> for details.</p>
 
-            <h2>8. This Website</h2>
+            <h2>9. This Website</h2>
             <p>This website is a static page: it hosts its own fonts, runs one small first-party script (the glossary — no network calls, no tracking), sets no cookies, and embeds no third-party resources. (It's served by GitHub Pages, which may log standard server requests; see GitHub's privacy statement.)</p>
 
-            <h2>9. Open Source</h2>
+            <h2>10. Open Source</h2>
             <p>Echo is open source under the GPL-3.0 license. Every claim on this page can be verified by reading the code: <a href="https://github.com/dfakkeldy/Echo" style="color: var(--accent-gold);">github.com/dfakkeldy/Echo</a>.</p>
 
-            <h2>10. Contact Us</h2>
+            <h2>11. Contact Us</h2>
             <p>If you have any questions about this Privacy Policy, please reach out via our <a href="https://github.com/dfakkeldy/Echo/issues" style="color: var(--accent-gold);">GitHub Issues page</a>.</p>
         </section>
     </main>

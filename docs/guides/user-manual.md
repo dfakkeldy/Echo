@@ -525,9 +525,10 @@ Optional — the iOS app's built-in alignment needs none of this. Set up with `p
 
 ## 24. Privacy
 
-- **No accounts. No analytics. No tracking. No ads. No servers.**
+- **No Echo accounts. No analytics. No tracking. No ads. No Echo-run servers.**
 - Books, bookmarks, photos, voice memos, notes, flashcards, and listening history stay on your devices (and your personal iCloud, where you enable sync).
-- Speech recognition runs **entirely on-device**.
+- Speech recognition runs **entirely on-device**. Audio is never uploaded.
+- Optional **Share Alignment** (Book Settings, after Cancel / Share Publicly confirmation) uploads that book's title, author, duration, and alignment markers to Echo's public CloudKit database — Apple's CloudKit public database — along with a persistent identifier derived from your iCloud account. Other Echo users can use these alignments. Audio, full book text, and notes are not uploaded. There is no in-app control to delete a shared alignment. Full policy: [privacy.html](../privacy.html).
 - Location (Context Memory 🚧) is **opt-in, approximate, deletable** — and session location history never leaves the device.
 - Open source (GPL-3.0): [github.com/dfakkeldy/Echo](https://github.com/dfakkeldy/Echo).
 
@@ -547,7 +548,7 @@ One parent "Audiobooks" folder; one folder per book; EPUB/PDF in the same folder
 Not while they're DRM-locked — Echo plays open formats only and does not bypass DRM. If you want to listen to audiobooks **you've purchased** in Echo, tools exist that export your own library to open formats: [Libation](https://getlibation.com) (free, open source, for Audible libraries) and [OpenAudible](https://openaudible.org) (paid) are the well-known ones. Libation's M4B exports work beautifully with Echo — chapters, art, and all. One honest caveat: the legality of removing DRM from media you own varies by country, even for personal use — check the rules where you live. Echo has no affiliation with these tools, and the best long-term fix is buying DRM-free where possible (Libro.fm and Downpour offer DRM-free titles; LibriVox is free and public-domain).
 
 **Does Echo work fully offline?**
-Yes — playback, reading, alignment, flashcards, notes, insights: everything. The only network use is your own iCloud file syncing (and, if you enable Context Memory, Apple's place-name lookup).
+Yes — playback, reading, on-device alignment, flashcards, notes, and insights work without a network. Optional Share Alignment uses Apple's public CloudKit database. Your own iCloud file syncing (and, if you enable Context Memory, Apple's place-name lookup) also uses the network.
 
 **Will a huge library or a 60-hour book slow Echo down?**
 No. Echo reads books in place and keeps its database indexed. The one heavy operation is the *first* auto-alignment of a very long book — plug in for that one.
@@ -589,7 +590,7 @@ Memos are volume-normalized on save; old ones can be re-recorded from the bookma
 Only if you turn it on — and even then: approximate places, a few capture moments, stored on-device, deletable in one tap, session history never synced. Echo has no servers to send it to.
 
 **Does Echo use AI? Does anything leave my device?**
-On-device machine learning (WhisperKit) for alignment — no cloud APIs, no uploads. No chatbots, no generative features today; if AI-assisted card drafting arrives post-1.0, it runs on-device under the same rules 🔭.
+On-device machine learning (WhisperKit) for alignment — no cloud APIs, no audio uploads. Optional Share Alignment (after confirmation) publishes title, author, duration, alignment markers, and an iCloud-account-derived identifier to Echo's public CloudKit database; audio, full book text, and notes stay off that upload. No chatbots, no generative features today; if AI-assisted card drafting arrives post-1.0, it runs on-device under the same rules 🔭.
 
 **What's coming after 1.0?**
 Chapter Study Mode, on-device AI card drafting, focus soundscapes, gentle hyperfocus/transition reminders, a Context Memory map view, .apkg export, full Mac reader parity. The [ROADMAP](../../ROADMAP.md) is public.
