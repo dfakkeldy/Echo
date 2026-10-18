@@ -33,6 +33,13 @@ final class PlaylistManager {
         audioExtensions.contains(url.pathExtension.lowercased())
     }
 
+    /// Review reels remain directly playable, but do not belong to a book's
+    /// automatically discovered audio or chapter timebase.
+    nonisolated static func isAuxiliaryNarrationArtifact(_ url: URL) -> Bool {
+        let stem = url.deletingPathExtension().lastPathComponent.lowercased()
+        return stem.hasSuffix(".pronunciation-reel") || stem == "pronunciation-probe-reel"
+    }
+
     /// Document types that open as an audio-less study book (reader + narration)
     /// rather than as a playable track.
     nonisolated static let documentExtensions: Set<String> = [
@@ -62,7 +69,7 @@ final class PlaylistManager {
         else { return [] }
 
         var loadedTracks: [Track] = urls.compactMap { url in
-            guard Self.isAudioFile(url) else { return nil }
+            guard Self.isAudioFile(url), !Self.isAuxiliaryNarrationArtifact(url) else { return nil }
             return Track(url: url, title: url.deletingPathExtension().lastPathComponent)
         }
 
@@ -89,6 +96,7 @@ final class PlaylistManager {
             loadedTracks = orderedTracks
         }
 
+        PlaylistManifestService.removeAuxiliaryTracks(folderURL: folder, tracks: loadedTracks)
         return loadedTracks
     }
 

@@ -82,6 +82,26 @@ struct PlaylistManifestService {
 
     // MARK: - Targeted Updates
 
+    /// Repairs manifests created before generated review reels were excluded.
+    /// Preserve all ordinary entries and book metadata, including files that
+    /// may be temporarily unavailable from the file provider.
+    static func removeAuxiliaryTracks(folderURL: URL, tracks: [Track]) {
+        guard var manifest = read(from: folderURL) else { return }
+        let removed = manifest.tracks.filter {
+            PlaylistManager.isAuxiliaryNarrationArtifact(folderURL.appending(path: $0.file))
+        }
+        guard !removed.isEmpty else { return }
+
+        let removedFiles = Set(removed.map(\.file))
+        manifest.tracks.removeAll { removedFiles.contains($0.file) }
+        let removedIDs = Set(removed.map { folderURL.appending(path: $0.file).absoluteString })
+        if let lastID = manifest.playbackState.lastTrackId, removedIDs.contains(lastID) {
+            manifest.playbackState.lastTrackId = tracks.first?.id
+            manifest.playbackState.lastPosition = 0
+        }
+        write(manifest, to: folderURL)
+    }
+
     static func updatePlaybackState(
         folderURL: URL,
         speed: Float? = nil,
