@@ -97,6 +97,9 @@ import Testing
         } throws: { $0 is CancellationError }
 
         #expect(!FileManager.default.fileExists(atPath: fixture.destination.path))
+        // URLSession can deliver cancellation before stopLoading removes the stub.
+        // Wait for that callback without clearing or resuming the pending response.
+        try await fixture.waitForPendingDownload(count: 0)
         #expect(fixture.pendingDownloadCount == 0)
         #expect(updates.first?.bytesReceived == 0)
     }
@@ -170,9 +173,9 @@ private final class ABSDownloadFixture {
         URLProtocolStub.resume(scope: scope, pathSuffix: "/download")
     }
 
-    func waitForPendingDownload() async throws {
+    func waitForPendingDownload(count: Int = 1) async throws {
         for _ in 0..<50_000 {
-            if pendingDownloadCount == 1 { return }
+            if pendingDownloadCount == count { return }
             await Task.yield()
         }
         throw ABSDownloadFixtureTimeoutError()

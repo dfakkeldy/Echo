@@ -53,6 +53,25 @@ class DocContractTests(unittest.TestCase):
         self.assertIn("forbidden", kinds)
         self.assertIn("missing", kinds)
 
+    def test_reintroduced_public_upload_entry_point_is_detected(self) -> None:
+        root = Path(self.enterContext(_temp_repo()))
+        view = root / "EchoCore/Views/BookSettingsView.swift"
+        view.parent.mkdir(parents=True)
+        view.write_text(
+            "try await syncService.uploadAnchors(audiobookID: id)\n", encoding="utf-8"
+        )
+
+        violations = contracts.check(root)
+
+        self.assertTrue(
+            any(
+                violation.path == "EchoCore/Views/BookSettingsView.swift"
+                and violation.kind == "forbidden"
+                and violation.needle == "uploadAnchors("
+                for violation in violations
+            )
+        )
+
 
 class DocOnlyScopeTests(unittest.TestCase):
     def test_markdown_and_docs_paths_are_doc_only(self) -> None:
