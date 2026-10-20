@@ -147,6 +147,7 @@ struct NowPlayingLayoutTests {
     @Test func visualListeningSlideshowUsesResolvedContentAndTrackScope() throws {
         let source = try Self.source(named: "NowPlayingTab.swift")
         let stageSource = try Self.source(named: "VisualListeningStageView.swift")
+        let subtitleSource = try Self.source(named: "VisualListeningSubtitleView.swift")
 
         #expect(
             source.contains("VisualListeningViewModel"),
@@ -197,8 +198,8 @@ struct NowPlayingLayoutTests {
             "The slideshow image should have a VoiceOver label with current-figure context."
         )
         #expect(
-            stageSource.contains("Subtitle:"),
-            "The subtitle overlay should have a VoiceOver label with subtitle context."
+            subtitleSource.contains("Subtitle:"),
+            "The subtitle pane should have a VoiceOver label with subtitle context."
         )
     }
 
