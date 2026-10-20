@@ -221,6 +221,7 @@ enum HelpContent {
             • Up to five customizable Player Pages — Each page holds up to 5 action slots that you can configure from the iPhone Settings > Controls > Watch App Settings screen. Swipe between pages to configure them. Empty pages are hidden on the watch.
             • Digital Crown — Configurable to control volume or scrub through the current track.
             • Quick Bookmarks — Hold the bookmark button to auto-create a bookmark after a configurable countdown (1–15 seconds). Great for hands-free bookmarking.
+            • Watch Inbox — Tap Inbox to open native dictation. Finish with double tap or Done to queue the text and return to listening. A book is optional; an open book adds its title and listening position. Configure an HTTPS webhook URL and bearer key on iPhone under Settings > Controls > Watch App Settings > Watch Inbox. The phone delivers in the background and keeps messages until the endpoint accepts them. A success haptic means the watch saved the message, not that the receiver acted. New layouts include Inbox; existing layouts can add it through Inbox setup or the Watch button editor.
             • Progress Display — Choose between a circular progress ring and a linear progress bar. Each can show either chapter progress or total book progress.
             • Artwork — Two layouts: Full Face (immersive artwork) and Classic (small artwork with background). Backgrounds can be blurred artwork or solid black.
             • Word Cloud — A watch page showing the most frequent words from the current chapter.

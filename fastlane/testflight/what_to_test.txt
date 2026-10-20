@@ -27,6 +27,7 @@ WHAT TO FOCUS ON
 
 6) APPLE WATCH
 • Play from the wrist. The crown adjusts volume, and progress and cover should stay in sync when the watch app reopens mid-playback.
+• Watch Inbox: on iPhone, set an HTTPS webhook URL and bearer key in Settings > Controls > Watch App Settings > Watch Inbox (new layouts already include an Inbox button; existing layouts can add it through setup or the Watch button editor). On the watch, tap Inbox, dictate, then finish with double tap or Done. A success haptic means the watch saved the message, not that the endpoint acted. Try with a book open (title and position should be included) and with no book. The phone should keep queued messages until the endpoint accepts them and deliver in the background.
 
 ECHO PRO IN THIS BETA (IPHONE/IPAD ONLY)
 On iPhone/iPad, this build includes the Echo Pro paywall. Echo Pro is a one-time unlock, never a subscription. Free use covers import, playback, reading, one narrated chapter per book, and up to 20 flashcards. TestFlight purchases go through Apple's sandbox, so you aren't charged. Try buying and restoring Echo Pro (Settings > Echo Pro), and report any price that won't load, a stuck pending purchase, a restore that doesn't unlock, or a feature that stays locked after purchase. The current Mac candidate has no Echo Pro purchase/restore UI and does not apply the iPhone/iPad narration or flashcard caps. On Mac, use Batch > Narrate Documents… for narration and skip these purchase/restore steps.
