@@ -64,6 +64,8 @@ Already running **Audiobookshelf**? Echo connects to your self-hosted server: ad
 3. Echo scans the folder, builds the chapter list, finds the cover art (embedded art, or a `cover.*` image in the folder), and picks up any EPUB or PDF sitting alongside the audio for automatic import.
 4. Press play.
 
+On iPhone and iPad, the Books shelf in the Library tab shows a book once you start listening. Unplayed imports stay stored; the Mac sidebar shows the full imported catalog.
+
 Echo remembers everything per book: position, speed, loop mode, and settings overrides. Reopen the app days later and it resumes exactly where you left off — with Smart Rewind backing up just enough to restore your context.
 
 First launch walks you through this — including a step on setting up your library folder. 🚧 Coming in 1.0
