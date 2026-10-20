@@ -61,7 +61,8 @@ nonisolated enum EPUBPronunciationRewriter {
                     from: input.startIndex, to: upper)
             let resultLower = result.index(result.startIndex, offsetBy: range.lowerBound)
             let resultUpper = result.index(result.startIndex, offsetBy: range.upperBound)
-            result.replaceSubrange(resultLower..<resultUpper, with: "[\(span.text)](/\(span.ipa)/)")
+            let ipa = synthesisIPA(span.ipa)
+            result.replaceSubrange(resultLower..<resultUpper, with: "[\(span.text)](/\(ipa)/)")
             seeds.append(
                 .init(
                     blockID: block.id, wordStart: words.lowerBound, wordEnd: words.upperBound,
@@ -69,11 +70,41 @@ nonisolated enum EPUBPronunciationRewriter {
                     sourceWord: span.text,
                     sourceContext: PronunciationAuditContext.sourceContext(
                         in: display, wordStart: words.lowerBound, wordEnd: words.upperBound),
-                    selectedIPA: span.ipa,
+                    selectedIPA: ipa,
                     source: span.source == .inline ? .epubInline : .epubLexicon,
                     ruleID: "epub.\(span.source.rawValue).ipa-v1",
                     rationale: "Explicit EPUB pronunciation instruction."))
         }
         return .init(text: result, decisionSeeds: Array(seeds.reversed()))
+    }
+
+    /// Standard IPA marks a stressed syllable before its onset, but Kokoro was
+    /// trained on Misaki's stress immediately before the vowel. Sending ˈɡɪt
+    /// unchanged can synthesize an extra vowel before ɡ. Adapt at render time so
+    /// existing persisted annotations receive the same conversion as new books.
+    static func synthesisIPA(_ ipa: String) -> String {
+        let vowels = Set("aeiouæɑɒɔəɚɛɜɪʊʌAIWOY")
+        let consonants = Set("bdfhjklmnprstvwzɡŋθðɹʃʒʧʤT")
+        let characters = Array(ipa)
+        var result = ""
+        var index = 0
+        while index < characters.count {
+            let character = characters[index]
+            if character == "ˈ" || character == "ˌ" {
+                var vowelIndex = index + 1
+                while vowelIndex < characters.count, consonants.contains(characters[vowelIndex]) {
+                    vowelIndex += 1
+                }
+                if vowelIndex < characters.count, vowels.contains(characters[vowelIndex]) {
+                    result.append(contentsOf: characters[(index + 1)..<vowelIndex])
+                    result.append(character)
+                    index = vowelIndex
+                    continue
+                }
+            }
+            result.append(character)
+            index += 1
+        }
+        return result
     }
 }

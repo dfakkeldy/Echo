@@ -34,8 +34,9 @@ import Testing
         let stem = URL(fileURLWithPath: name).deletingPathExtension().lastPathComponent
         #expect(".\(stem).partial.m4a".utf8.count <= 255)
         #expect(NarrationFileNaming.location(fromFileName: name)?.segmentIndex == Int.max)
-        #expect(NarrationFileNaming.location(fromFileName: name)?.stableChapterToken
-            == NarrationFileNaming.stableChapterToken(for: "fixture-chapter"))
+        #expect(
+            NarrationFileNaming.location(fromFileName: name)?.stableChapterToken
+                == NarrationFileNaming.stableChapterToken(for: "fixture-chapter"))
     }
 
     @Test func longIdentitiesThatSanitizeAlikeRemainDistinctAndStable() {
@@ -47,18 +48,18 @@ import Testing
         #expect(first.utf8.count <= 128)
     }
 
-    @Test func renderVersionRegeneratesCachesForUnicodePronunciationSpans() {
-        // v26 fixes explicit Unicode pronunciation spans; v25 may have voiced
-        // a possessive suffix twice and its audio/evidence must not be reused.
-        #expect(NarrationFileNaming.renderVersion == 26)
+    @Test func renderVersionRegeneratesCachesForEPUBStress() {
+        // v27 adapts EPUB stress to Kokoro; v26 may contain a leading vowel
+        // before annotated words and its audio/evidence must not be reused.
+        #expect(NarrationFileNaming.renderVersion == 27)
         let current = NarrationFileNaming.chapterFileName(
             audiobookID: "book",
             chapterIndex: 0,
             voice: VoiceID("af_heart"),
             contentSignature: "0123456789abcdef")
-        let previous = current.replacing("-v26.m4a", with: "-v25.m4a")
+        let previous = current.replacing("-v27.m4a", with: "-v26.m4a")
 
-        #expect(current.hasSuffix("-v26.m4a"))
+        #expect(current.hasSuffix("-v27.m4a"))
         #expect(
             NarrationFileNaming.isCurrentChapterCacheFileName(
                 current,
@@ -103,12 +104,12 @@ import Testing
             NarrationFileNaming.chapterFileName(
                 audiobookID: "book", chapterIndex: 3, voice: voice,
                 contentSignature: "abc")
-                == "book-ch3-habc-af_heart-v26.m4a")
+                == "book-ch3-habc-af_heart-v27.m4a")
         #expect(
             NarrationFileNaming.segmentFileName(
                 audiobookID: "book", chapterIndex: 3, segmentIndex: 2,
                 voice: voice, contentSignature: "abc")
-                == "book-ch3-s2-habc-af_heart-v26.m4a")
+                == "book-ch3-s2-habc-af_heart-v27.m4a")
         #expect(
             NarrationFileNaming.location(fromFileName: "book-ch3-s2-habc-af_heart-v22.m4a")
                 == NarrationCacheLocation(
@@ -183,10 +184,10 @@ import Testing
                 .chapterIndex == 3)
         #expect(
             NarrationFileNaming.location(
-                fromFileName: "book-ck0123456789abcdef0123456789abcdef-af_heart-v26.m4a")?
+                fromFileName: "book-ck0123456789abcdef0123456789abcdef-af_heart-v27.m4a")?
                 .stableChapterToken != nil)
         #expect(
-            NarrationFileNaming.location(fromFileName: "\(stablePrefix)-plan-0123456789ab-v26.m4a")?
+            NarrationFileNaming.location(fromFileName: "\(stablePrefix)-plan-0123456789ab-v27.m4a")?
                 .stableChapterToken != nil)
     }
 

@@ -130,12 +130,20 @@ Echo explicitly maps these standard sequences to Kokoro's internal representatio
 | `ɝ` | `ɜɹ` |
 | `ɾ` | `T` (the renderer's flap token) |
 | `ʔ` | `t` (the renderer's existing glottal-stop approximation) |
+| Syllable stress, such as `ˈɡɪtˌhʌb` | Stress before each vowel, `ɡˈɪthˌʌb` |
 
 Author the left-hand column, not internal capital-letter shorthand. English
 approximations for unsupported foreign names must use this subset. Other
 combining marks, syllabification dots, syllabic consonant diacritics, tone marks,
 phonetic brackets, and unsupported letters produce an error. Vocabulary support
 alone does not establish the acoustic quality of a particular pronunciation.
+
+Kokoro expects stress immediately before the vowel. Echo moves standard IPA
+stress past the syllable's opening consonants when building the render plan;
+it preserves the sounds, stress level, word boundaries, and authored metadata.
+This also applies to already imported annotations without reimporting the EPUB.
+The pronunciation audit records the adapted IPA and the exact IDs sent to Kokoro.
+Audio exported before this fix requires a fresh render.
 
 ## Precedence and preservation
 

@@ -21,11 +21,65 @@ struct EPUBPronunciationTests {
         let selected = plan.blocks.flatMap(\.pronunciationDecisions)
         #expect(
             selected.filter { $0.sourceWord == "Portia" }.map(\.selectedIPA) == [
-                "ˈpɔɹʃə", "ˈpɔɹʃə",
+                "pˈɔɹʃə", "pˈɔɹʃə",
             ])
         #expect(
-            selected.filter { $0.sourceWord == "New York" }.map(\.selectedIPA) == ["ˌnjuː ˈjɔɹk"])
+            selected.filter { $0.sourceWord == "New York" }.map(\.selectedIPA) == ["njˌuː jˈɔɹk"])
         #expect(selected.filter { $0.sourceWord == "bass" }.map(\.selectedIPA) == ["bæs", "bAs"])
+        #expect(plan.pronunciationAuditDiagnostics.isEmpty)
+    }
+
+    @Test(arguments: [
+        ("ˈɡɪtˌhʌb", "ɡˈɪthˌʌb"),
+        ("ˈsʌbʤɪkt", "sˈʌbʤɪkt"),
+        ("ˌnjuː ˈjɔɹk", "njˌuː jˈɔɹk"),
+        ("əˈsaɪn", "əsˈaɪn"),
+        ("ˈbɜɹd", "bˈɜɹd"),
+        ("ˈbɚd", "bˈɚd"),
+        ("ˈæpəl", "ˈæpəl"),
+        ("ɡˈɪthˌʌb", "ɡˈɪthˌʌb"),
+        ("bæs", "bæs"),
+        ("ˈs bæs", "ˈs bæs"),
+    ])
+    func synthesisStressPreservesSoundsAndWordBoundaries(ipa: String, expected: String) {
+        let actual = EPUBPronunciationRewriter.synthesisIPA(ipa)
+        #expect(actual == expected)
+        #expect(EPUBPronunciationRewriter.synthesisIPA(actual) == actual)
+        #expect(actual.filter { $0 != "ˈ" && $0 != "ˌ" } == ipa.filter { $0 != "ˈ" && $0 != "ˌ" })
+    }
+
+    @Test(arguments: [false, true])
+    func standardIPAStressReachesKokoroBeforeTheVowel(inline: Bool) throws {
+        let body =
+            inline
+            ? "<p>We use <span ssml:ph=\"ˈɡɪtˌhʌb\">GitHub</span> every day.</p>"
+            : "<p>We use GitHub every day.</p>"
+        let root = try copyFixture(
+            body: body,
+            lexicon: """
+                <lexicon xmlns="http://www.w3.org/2005/01/pronunciation-lexicon" version="1.0" alphabet="ipa" xml:lang="en-US">
+                  <lexeme><grapheme>GitHub</grapheme><phoneme>ˈɡɪtˌhʌb</phoneme></lexeme>
+                </lexicon>
+                """)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let blocks = try parseEPUBBlocks(audiobookID: "proof", epubURL: root).blocks
+        let paragraph = try #require(blocks.last)
+        // Persisted annotations retain authored syllable stress. The render
+        // boundary must also adapt books imported before this fix.
+        let stored = try EPUBPronunciationStorage.decode(paragraph.pronunciationAnnotations)
+        #expect(stored.first?.ipa == "ˈɡɪtˌhʌb")
+
+        let plan = try NarrationRenderPlanner.make(
+            blocks: blocks, overrides: .init(entries: [:]))
+        let rendered = try #require(plan.blocks.last)
+        let decision = try #require(rendered.pronunciationDecisions.first)
+        #expect(decision.selectedIPA == "ɡˈɪthˌʌb")
+        #expect(decision.source == (inline ? .epubInline : .epubLexicon))
+        let expected = try PronunciationPlanner().planResolved(
+            "We use [GitHub](/ɡˈɪthˌʌb/) every day.")
+        #expect(rendered.synthesisChunks.map(\.phonemes).joined() == expected.phonemes)
+        #expect(rendered.synthesisChunks.flatMap(\.phonemeIDs) == expected.phonemeIDs)
+        #expect(rendered.synthesisChunks.map(\.displayText) == ["We use GitHub every day."])
         #expect(plan.pronunciationAuditDiagnostics.isEmpty)
     }
     @Test(arguments: [false, true], [20, 420])
@@ -51,9 +105,9 @@ struct EPUBPronunciationTests {
         #expect(decisions.map(\.sourceWord) == ["Caesar’s", "Brutus’s", "Caesar’s"])
         #expect(decisions.map(\.wordStart) == [0, 3, 4])
         #expect(decisions.map(\.wordEnd) == [0, 3, 4])
-        #expect(decisions.map(\.selectedIPA) == ["ˈsiːzɚz", "ˈbɹuːtəsɪz", "ˈsiːzɚz"])
+        #expect(decisions.map(\.selectedIPA) == ["sˈiːzɚz", "bɹˈuːtəsɪz", "sˈiːzɚz"])
         #expect(decisions.allSatisfy { $0.source == (inline ? .epubInline : .epubLexicon) })
-        #expect(decisions.first?.kokoroTokenIDs == [156, 61, 51, 158, 68, 85, 68])
+        #expect(decisions.first?.kokoroTokenIDs == [61, 156, 51, 158, 68, 85, 68])
         let vocab = try KokoroPhonemeVocab()
         for decision in decisions {
             #expect(
@@ -128,7 +182,7 @@ struct EPUBPronunciationTests {
         let plain = try NarrationRenderPlanner.make(blocks: blocks, overrides: .init(entries: [:]))
         #expect(
             plain.blocks.flatMap(\.pronunciationDecisions).filter { $0.sourceWord == "Portia" }.map(
-                \.selectedIPA) == ["ˈpɔɹʃə", "pɔɹˈtiə"])
+                \.selectedIPA) == ["pˈɔɹʃə", "pɔɹtˈiə"])
         let db = try DatabaseService(inMemory: ())
         let service = NarrationService(
             db: db.writer, audiobookID: "proof", tts: MockTTSEngine(),
@@ -157,7 +211,7 @@ struct EPUBPronunciationTests {
         let authored = try #require(
             builtIns.blocks.flatMap(\.pronunciationDecisions).first { $0.sourceWord == "Campbell" })
         #expect(authored.source == .epubInline)
-        #expect(authored.selectedIPA == "kæmˈbɛl")
+        #expect(authored.selectedIPA == "kæmbˈɛl")
         let user = try NarrationRenderPlanner.make(
             blocks: blocks, overrides: .withBuiltInDefaults(["Campbell": "kæmbəl"]))
         let corrected = try #require(
@@ -173,7 +227,7 @@ struct EPUBPronunciationTests {
         #expect(
             plan.blocks.flatMap(\.synthesisChunks).contains {
                 $0.displayText.contains("New York")
-                    && $0.g2pInputText.contains("[New York](/ˌnjuː ˈjɔɹk/)")
+                    && $0.g2pInputText.contains("[New York](/njˌuː jˈɔɹk/)")
             })
         #expect(
             plan.blocks.flatMap(\.synthesisChunks).reduce(0) { $0 + $1.wordCount }
@@ -343,7 +397,8 @@ struct EPUBPronunciationTests {
     {
         let root = try copyFixture()
         defer { try? FileManager.default.removeItem(at: root) }
-        let output = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let output = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: output) }
         let out = output.appendingPathComponent("proof.m4b")
@@ -363,7 +418,7 @@ struct EPUBPronunciationTests {
             manifest.decisions.filter { $0.source == .epubInline || $0.source == .epubLexicon }
                 .count == 5)
         let plans = await recorder.plans
-        #expect(plans.contains { $0.g2pInputText.contains("[New York](/ˌnjuː ˈjɔɹk/)") })
+        #expect(plans.contains { $0.g2pInputText.contains("[New York](/njˌuː jˈɔɹk/)") })
         #expect(plans.contains { $0.phonemes.contains("bæs") && $0.phonemes.contains("bAs") })
         #expect(plans.allSatisfy { $0.pronunciationEvidenceValidation == .matched })
         let anchors = try AlignmentSidecar.decode(Data(contentsOf: sidecar))
