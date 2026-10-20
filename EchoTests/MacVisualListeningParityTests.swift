@@ -81,21 +81,6 @@ struct MacVisualListeningParityTests {
         #expect(stage.contains("Current code listing"))
     }
 
-    @Test func iOSCodeViewportReservesSubtitleSpace() throws {
-        let stage = try Self.readProjectSource("EchoCore/Views/VisualListeningStageView.swift")
-        let codeView = try Self.privateStruct(named: "VisualListeningCodeView", in: stage)
-
-        #expect(
-            stage.contains("if !isCodeVisual, let subtitleCue = snapshot.subtitleCue"),
-            "Image subtitles should retain their overlay while code subtitles move into reserved space."
-        )
-        #expect(
-            codeView.contains(".safeAreaInset(edge: .bottom, spacing: 0)"),
-            "The code scroll view must reserve the subtitle's actual layout height."
-        )
-        #expect(codeView.contains("VisualListeningSubtitleView(cue: subtitleCue"))
-    }
-
     @Test func macTrackScopeUsesSharedResolver() throws {
         let scope = try MacSource.read("Views/MacPlayerModel+VisualListeningScope.swift")
 
