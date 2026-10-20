@@ -272,6 +272,7 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
             return
         }
         Task { @MainActor [weak self] in
+            WatchInboxRelay.shared.start()
             self?.syncToWatch()
         }
     }

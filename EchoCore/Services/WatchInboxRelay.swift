@@ -38,6 +38,10 @@ final class WatchInboxRelay: NSObject, URLSessionTaskDelegate {
 
     private override init() {
         super.init()
+        reloadConfiguration()
+    }
+
+    private func reloadConfiguration() {
         do {
             if let data = KeychainStore.data(for: .watchInboxWebhook) {
                 history = try JSONDecoder().decode(ConfigurationHistory.self, from: data)
@@ -100,6 +104,9 @@ final class WatchInboxRelay: NSObject, URLSessionTaskDelegate {
         guard !isScheduling,
             ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
         else { return }
+        // A background launch can precede the first device unlock. Retry the
+        // Keychain read on later activation instead of keeping an empty setup.
+        reloadConfiguration()
         isScheduling = true
         Task { @MainActor in
             defer { isScheduling = false }

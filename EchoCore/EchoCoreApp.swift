@@ -12,6 +12,7 @@ import SwiftUI
 @main
 struct EchoCoreApp: App {
     @UIApplicationDelegateAdaptor(WatchInboxAppDelegate.self) private var inboxDelegate
+    @Environment(\.scenePhase) private var scenePhase
     @State private var model: PlayerModel
     @State private var settings: SettingsManager
     @State private var storeManager: StoreManager
@@ -76,6 +77,9 @@ struct EchoCoreApp: App {
                 }
             }
             .task { await openDatabaseIfNeeded() }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { WatchInboxRelay.shared.start() }
+            }
             .onOpenURL { url in
                 handleDeepLink(url)
             }
