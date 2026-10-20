@@ -261,7 +261,7 @@
                         .accessibilityAddTraits(.isHeader)
 
                     Text(
-                        "Add a folder of audiobooks to build your shelf. Echo plays your files where they live; it never copies them."
+                        "Add a folder of audiobooks and start listening to a book to add it to your shelf. Echo plays your files where they live; it never copies them."
                     )
                     .font(.body)
                     .foregroundStyle(.secondary)

@@ -4,6 +4,12 @@ All notable changes to Echo: Audiobook Study Player.
 
 ## [Unreleased]
 
+- The iPhone and iPad Books shelf now shows books whose playback has started,
+  using listening-session history rather than every imported file or saved
+  resume position. Related editions still share one cover, including when
+  playback was recorded against a hidden sibling. Older playback-session logs
+  count too. Unplayed imports and companion documents stay stored without
+  filling the shelf. Mac and CarPlay retain their full catalogs.
 - Long Visual Listening read-along paragraphs no longer cover the slideshow
   picture or grow past the player. On iPhone and iPad, the stage keeps the
   picture or code listing in its own region and puts the full paragraph in a
