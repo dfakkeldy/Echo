@@ -495,15 +495,38 @@ struct LibraryService {
 
     // MARK: - Query
 
-    /// Returns all books ordered by `added_at` DESC. Filters out unavailable books
-    /// unless `includeUnavailable` is `true`.
-    func books(includeUnavailable: Bool) throws -> [AudiobookRecord] {
+    /// Returns books ordered by `added_at` DESC. Filters out unavailable books
+    /// unless `includeUnavailable` is `true`. Listening history includes books
+    /// whose playback started, including an active segment at position zero.
+    /// Imports and saved resume positions alone never count as listening.
+    func books(includeUnavailable: Bool, listenedOnly: Bool = false) throws -> [AudiobookRecord] {
         try db.writer.read { db in
             var request = AudiobookRecord.order(Column("added_at").desc)
-            if !includeUnavailable {
+            if !includeUnavailable && !listenedOnly {
                 request = request.filter(Column("is_available") == true)
             }
-            return collapseEditionGroups(try request.fetchAll(db))
+            var records = try request.fetchAll(db)
+            if listenedOnly {
+                let listenedIDs = Set(
+                    try String.fetchAll(
+                        db,
+                        sql: """
+                            SELECT audiobook_id FROM playback_event WHERE event_type = 'play'
+                            UNION
+                            SELECT audiobook_id FROM real_time_event
+                            WHERE event_type = 'playback_session' AND audiobook_id IS NOT NULL
+                            """))
+                // Keep the whole edition group when a hidden sibling was played:
+                // the representative may own the cover, metadata and root scope.
+                let listenedGroups = Set(
+                    records.filter { listenedIDs.contains($0.id) }.map(editionGroupKey))
+                records = records.filter { listenedGroups.contains(editionGroupKey($0)) }
+            }
+            if !includeUnavailable {
+                // A missing sibling can still prove this edition group was played.
+                records = records.filter(\.isAvailable)
+            }
+            return collapseEditionGroups(records)
         }
     }
 
@@ -523,8 +546,10 @@ struct LibraryService {
 
     /// Returns books grouped into sections according to `axis`. Books within each
     /// section are sorted by title; sections are sorted deterministically by key.
-    func sections(by axis: LibraryAxis, includeUnavailable: Bool) throws -> [LibrarySection] {
-        let all = try books(includeUnavailable: includeUnavailable)
+    func sections(
+        by axis: LibraryAxis, includeUnavailable: Bool, listenedOnly: Bool = false
+    ) throws -> [LibrarySection] {
+        let all = try books(includeUnavailable: includeUnavailable, listenedOnly: listenedOnly)
         switch axis {
         case .recentlyAdded:
             return [LibrarySection(title: "Recently Added", books: all)]
@@ -1068,16 +1093,18 @@ struct LibraryService {
         }
     }
 
-    private func collapseEditionGroups(_ books: [AudiobookRecord]) -> [AudiobookRecord] {
-        let grouped = Dictionary(grouping: books) { book in
-            if let editionGroupID = book.editionGroupID,
-                !editionGroupID.isEmpty,
-                !book.editionGroupOptOut
-            {
-                return "edition:\(editionGroupID)"
-            }
-            return "book:\(book.id)"
+    private func editionGroupKey(_ book: AudiobookRecord) -> String {
+        if let editionGroupID = book.editionGroupID,
+            !editionGroupID.isEmpty,
+            !book.editionGroupOptOut
+        {
+            return "edition:\(editionGroupID)"
         }
+        return "book:\(book.id)"
+    }
+
+    private func collapseEditionGroups(_ books: [AudiobookRecord]) -> [AudiobookRecord] {
+        let grouped = Dictionary(grouping: books, by: editionGroupKey)
 
         return grouped.values.map { editions in
             var representative = editions.sorted(by: editionSort).first!

@@ -7,19 +7,21 @@ import Testing
 
 @MainActor
 struct LibraryViewModelTests {
+    // The Mac full-catalog mode retains the existing shelf/edition contracts.
+    // LibraryListeningHistoryTests exercises the default phone/tablet mode.
     @Test func smartLandingPrefersCurrentBookElseLibrary() {
         #expect(LibraryViewModel.smartLandingTab(hasCurrentBook: true) == .nowPlaying)
         #expect(LibraryViewModel.smartLandingTab(hasCurrentBook: false) == .library)
     }
 
-    @Test func reloadLoadsAvailableBooksForAxis() throws {
+    @Test func catalogModeLoadsAvailableBooksForAxis() throws {
         let db = try DatabaseService(inMemory: ())
         let dao = AudiobookDAO(db: db.writer)
         try dao.save(
             AudiobookRecord(
                 id: "a", title: "Atomic Habits", author: "James Clear", duration: 0,
                 fileCount: nil, addedAt: "2026-06-27T00:00:00Z", isAvailable: true))
-        let vm = LibraryViewModel(db: db, openBook: { _ in })
+        let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
         vm.reload()
         #expect(vm.sections.flatMap(\.books).map(\.id) == ["a"])
         #expect(vm.isEmpty == false)
@@ -33,7 +35,7 @@ struct LibraryViewModelTests {
                 id: "a", title: "A", author: "Jane Author", duration: 0,
                 fileCount: nil, addedAt: "2026-06-27T00:00:00Z",
                 isAvailable: true, authorSort: "jane author"))
-        let vm = LibraryViewModel(db: db, openBook: { _ in })
+        let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
         vm.selectAxis(.author)
         #expect(vm.selectedAxis == .author)
         #expect(vm.sections.map(\.title) == ["Jane Author"])
@@ -66,7 +68,7 @@ struct LibraryViewModelTests {
                     """)
         }
 
-        let vm = LibraryViewModel(db: db, openBook: { _ in })
+        let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
         vm.reload()
         // The sync fetch publishes immediately (still two cards) …
         #expect(vm.sections.flatMap(\.books).count == 2)
@@ -91,7 +93,7 @@ struct LibraryViewModelTests {
             fileCount: nil, addedAt: "2026-06-27T00:00:00Z", isAvailable: true)
         try dao.save(book)
         var opened: LibraryOpenTarget?
-        let vm = LibraryViewModel(db: db, openBook: { opened = $0 })
+        let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { opened = $0 })
         vm.open(book)
         #expect(opened?.url.absoluteString == "file:///Books/Dune/")
         #expect(opened?.scopedRoot == nil)
@@ -100,7 +102,7 @@ struct LibraryViewModelTests {
 
     @Test func openSetsErrorWhenBookUnresolvable() throws {
         let db = try DatabaseService(inMemory: ())
-        let vm = LibraryViewModel(db: db, openBook: { _ in })
+        let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
         let bad = AudiobookRecord(
             id: "not a url", title: "X", author: nil, duration: 0, fileCount: nil,
             addedAt: "2026-06-27T00:00:00Z", isAvailable: true)
@@ -119,7 +121,7 @@ struct LibraryViewModelTests {
                     VALUES ('t1', 'a', 'c1', 50, '/a/c1.wav', 0, 'af_heart')
                     """)
         }
-        let vm = LibraryViewModel(db: db, openBook: { _ in })
+        let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
 
         vm.reload()
 
@@ -158,7 +160,7 @@ struct LibraryViewModelTests {
                     """)
         }
 
-        let vm = LibraryViewModel(db: db, openBook: { _ in })
+        let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
         vm.reload()
 
         let visible = vm.sections.flatMap(\.books)
@@ -181,7 +183,7 @@ struct LibraryViewModelTests {
                 id: "text", title: "Dune", author: "Frank Herbert", duration: 0,
                 fileCount: 0, addedAt: "2026-07-05T00:00:01Z", isAvailable: true,
                 editionGroupID: "edition-dune"))
-        let vm = LibraryViewModel(db: db, openBook: { _ in })
+        let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
 
         vm.reload()
         let visible = try #require(vm.sections.first?.books.first)
@@ -202,7 +204,7 @@ struct LibraryViewModelTests {
                 id: "text", title: "Dune", author: "Frank Herbert", duration: 0,
                 fileCount: 0, addedAt: "2026-07-05T00:00:01Z", isAvailable: true,
                 editionGroupID: "edition-dune"))
-        let vm = LibraryViewModel(db: db, openBook: { _ in })
+        let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
 
         vm.reload()
         let visible = try #require(vm.sections.first?.books.first)
@@ -229,7 +231,7 @@ struct LibraryViewModelTests {
                 id: "text", title: "Dune", author: "Frank Herbert", duration: 0,
                 fileCount: 0, addedAt: "2026-07-05T00:00:01Z", isAvailable: true,
                 editionGroupID: "edition-dune"))
-        let vm = LibraryViewModel(db: db, openBook: { _ in })
+        let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
 
         vm.reload()
         let visible = try #require(vm.sections.first?.books.first)
@@ -278,7 +280,7 @@ struct LibraryViewModelTests {
                 modifiedAt: nil
             )
         )
-        let vm = LibraryViewModel(db: db, openBook: { _ in })
+        let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
 
         vm.reload()
         let visible = try #require(vm.sections.first?.books.first)
@@ -300,7 +302,7 @@ struct LibraryViewModelTests {
                 id: "text2", title: "Dune", author: "Frank Herbert", duration: 0,
                 fileCount: 0, addedAt: "2026-07-05T00:00:01Z", isAvailable: true,
                 editionGroupID: "edition-dune"))
-        let vm = LibraryViewModel(db: db, openBook: { _ in })
+        let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
 
         vm.reload()
         let visible = try #require(vm.sections.first?.books.first)
@@ -316,7 +318,7 @@ struct LibraryViewModelTests {
             id: "file:///Books/Moved/", title: "Moved", author: nil, duration: 0,
             fileCount: nil, addedAt: "2026-06-27T00:00:00Z", isAvailable: false)
         var didOpen = false
-        let vm = LibraryViewModel(db: db, openBook: { _ in didOpen = true })
+        let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in didOpen = true })
 
         vm.open(book)
 
@@ -338,7 +340,7 @@ struct LibraryViewModelTests {
             fileCount: 0,
             addedAt: "2026-08-03T00:00:00Z",
             isAvailable: true)
-        let vm = LibraryViewModel(db: db) { target in
+        let vm = LibraryViewModel(db: db, listenedOnly: false) { target in
             _ = try LibraryBookOpenDispatcher().route(for: target)
         }
 

@@ -18,14 +18,19 @@ final class LibraryViewModel {
     @ObservationIgnored private let service: LibraryService
     @ObservationIgnored private let mergeService: ReadAlongMergeService
     @ObservationIgnored private let openBook: (LibraryOpenTarget) throws -> Void
+    @ObservationIgnored private let listenedOnly: Bool
     @ObservationIgnored private let logger = Logger(category: "LibraryViewModel")
     @ObservationIgnored private var siblingEditionsByBookID: [String: [AudiobookRecord]] = [:]
     @ObservationIgnored private var booksWithText: Set<String> = []
     @ObservationIgnored private var regroupTask: Task<Void, Never>?
     @ObservationIgnored private var mergeTask: Task<Void, Never>?
 
-    init(db: DatabaseService, openBook: @escaping (LibraryOpenTarget) throws -> Void) {
+    init(
+        db: DatabaseService, listenedOnly: Bool = true,
+        openBook: @escaping (LibraryOpenTarget) throws -> Void
+    ) {
         self.database = db
+        self.listenedOnly = listenedOnly
         self.service = LibraryService(db: db)
         self.mergeService = ReadAlongMergeService(db: db)
         self.openBook = openBook
@@ -48,7 +53,8 @@ final class LibraryViewModel {
     /// the background regroup pass can re-publish without re-triggering itself.
     private func applyFetch() {
         do {
-            sections = try service.sections(by: selectedAxis, includeUnavailable: showUnavailable)
+            sections = try service.sections(
+                by: selectedAxis, includeUnavailable: showUnavailable, listenedOnly: listenedOnly)
             let visibleBooks = sections.flatMap(\.books)
             let bookIDs = visibleBooks.map(\.id)
             siblingEditionsByBookID = try service.siblingEditionsMap(for: visibleBooks)

@@ -75,7 +75,7 @@ For EPUB-backed books, Echo can create a Study Plan from Book Settings. A plan g
 ### Features Built for Focus
 
 - **Intermittent Attention Support.** Smart rewind ensures you never lose context when you hit play after a pause. The longer you've been away, the further it rewinds — perfect for delivery drivers, commuters, and anyone with an interrupted day.
-- **Local Library Shelf.** Point Echo at folders of audiobooks and it builds a browsable shelf without copying your files. The Library tab groups by recent additions, author, topic, folder, study status, and processing status; missing books can be hidden, relocated, or removed; and the Mac app gets the same shelf in its sidebar.
+- **Local Library Shelf.** On iPhone and iPad, the Books shelf shows books you have started listening to, with related editions grouped into one cover. Opening or importing a companion document alone does not add another cover. Books can be grouped by recent additions, author, topic, folder, study status, and processing status; missing books can be hidden, relocated, or removed. The Mac sidebar keeps the full imported catalog, and your files stay where they are.
 - **Chapter Looping.** Put a single chapter on repeat until the concepts are fully absorbed. Loop between bookmarks for targeted review sessions.
 - **Voice Memo Bookmarks.** Instantly save your thoughts without fumbling with your phone. Perfect for driving, walking, or when your hands are full. Memos can play back inline when the narration reaches them.
 - **Sessions history.** Review when and where you listened — GPS route and distance, minutes, the chapters you covered, and the bookmarks, cards, and notes you made — then tap any session to jump back into that exact slice of the book.

@@ -7,7 +7,10 @@ struct MacLibraryView: View {
     @State private var rootsVM: LibraryRootsViewModel
 
     init(db: DatabaseService, openBook: @escaping (LibraryOpenTarget) throws -> Void) {
-        _libraryVM = State(initialValue: LibraryViewModel(db: db, openBook: openBook))
+        // Mac playback does not write the iOS listening-session logs, so keep
+        // its catalog available for opening books, including unplayed imports.
+        _libraryVM = State(
+            initialValue: LibraryViewModel(db: db, listenedOnly: false, openBook: openBook))
         _rootsVM = State(initialValue: LibraryRootsViewModel(db: db))
     }
 

@@ -252,7 +252,7 @@
                         .foregroundStyle(.secondary)
                         .accessibilityHidden(true)
 
-                    Text("Your Library")
+                    Text("Your Listening History")
                         .font(.title)
                         .bold()
                         .multilineTextAlignment(.center)
@@ -261,7 +261,7 @@
                         .accessibilityAddTraits(.isHeader)
 
                     Text(
-                        "Add a folder of audiobooks to build your shelf. Echo plays your files where they live; it never copies them."
+                        "Books appear here when you start listening. Open a book or folder to begin."
                     )
                     .font(.body)
                     .foregroundStyle(.secondary)
@@ -270,7 +270,7 @@
                     .fixedSize(horizontal: false, vertical: true)
 
                     actionLayout {
-                        Button("Open a Folder", systemImage: "folder", action: onAddFolder)
+                        Button("Open a Book", systemImage: "folder", action: onAddFolder)
                             .buttonStyle(.borderedProminent)
                             .frame(minHeight: 44)
 
