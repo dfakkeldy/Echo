@@ -4,6 +4,14 @@ All notable changes to Echo: Audiobook Study Player.
 
 ## [Unreleased]
 
+- EPUB pronunciations such as `ˈɡɪthʌb` no longer sound like "a GitHub".
+  Standard IPA puts the stress mark before the syllable onset, while Kokoro
+  expects it right before the vowel. Echo now moves EPUB stress past the
+  opening consonants when building synthesis input and records that same
+  adapted IPA in the pronunciation audit. Inline and PLS pronunciations
+  already stored in imported books are covered.
+  `NarrationFileNaming.renderVersion` 26 → 27 so affected caches regenerate
+  once. Authored metadata and displayed words are unchanged.
 - The iPhone and iPad Books shelf now shows books whose playback has started,
   using listening-session history rather than every imported file or saved
   resume position. Related editions still share one cover, including when
