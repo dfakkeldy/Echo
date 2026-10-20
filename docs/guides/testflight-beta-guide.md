@@ -81,7 +81,7 @@ Pick whichever matches your life. Each plan is 10–20 minutes of intentional te
 2. Check the chapter list: grouping sensible? Sections under chapters where expected?
 3. Drag-reorder a few tracks; dim one (e.g., a disclaimer track) and confirm playback skips it.
 4. iCloud users: try a book *without* "Keep Downloaded" on cellular — how does Echo cope? Then set Keep Downloaded and compare.
-5. Drop an ePub (or PDF) beside an M4B of the same book: the Library should show **one card**, not two. Open the card's context menu — switch between editions, then try **Separate This Edition** and confirm it splits out.
+5. Drop an ePub (or PDF) beside an M4B of the same book. Start playback (or check on Mac) so a card appears — the Library should show **one card**, not two. Open the card's context menu — switch between editions, then try **Separate This Edition** and confirm it splits out.
 
 ### Plan E — The Wrist-Only Day *(watch remote)*
 1. From the phone (Settings → Controls → **Watch App Settings**), design your layout with the slot pickers — up to five pages of five buttons; leave one page empty and confirm it hides on the watch.
