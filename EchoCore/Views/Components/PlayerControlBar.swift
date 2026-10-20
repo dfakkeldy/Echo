@@ -127,7 +127,7 @@ struct PlayerControlBar: View {
                 model.setSpeed(1.0)
             }
             Haptic.play(.medium)
-        case .sleepTimer, .pomodoro, .empty:
+        case .inbox, .sleepTimer, .pomodoro, .empty:
             break
         }
     }
@@ -145,7 +145,7 @@ struct PlayerControlBar: View {
         case .bookmark: return String(localized: "Add bookmark")
         case .markPassage: return String(localized: "Mark passage for later")
         case .speed: return String(localized: "Playback speed")
-        case .sleepTimer, .pomodoro, .empty: return ""
+        case .inbox, .sleepTimer, .pomodoro, .empty: return ""
         }
     }
 

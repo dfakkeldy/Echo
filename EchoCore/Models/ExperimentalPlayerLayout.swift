@@ -51,7 +51,7 @@ struct ExperimentalPlayerLayout: Codable, Equatable {
     var availableActions: [WatchAction] {
         let used = Set(buttons.map(\.action))
         return WatchAction.allCases.filter {
-            !used.contains($0) && $0 != .empty && $0 != .pomodoro
+            !used.contains($0) && $0 != .empty && $0 != .pomodoro && $0 != .inbox
         }
     }
 

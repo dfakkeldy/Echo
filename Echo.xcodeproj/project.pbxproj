@@ -230,6 +230,7 @@
 				Services/WatchConnectivityCoordinator.swift,
 				Services/WatchStateContextBuilder.swift,
 				Services/WatchSyncManager.swift,
+				Services/WatchInboxRelay.swift,
 				Utilities/ColorMetrics.swift,
 				Utilities/FolderPicker.swift,
 				Utilities/OKLCH.swift,
@@ -331,6 +332,7 @@
 				Views/VoiceMemoFeedCell.swift,
 				Views/VoiceMemoOverlayView.swift,
 				Views/WatchAppSettingsView.swift,
+				Views/WatchInboxSettingsView.swift,
 			);
 			target = 449F0DE14CDE91940F20CAED /* echo-cli */;
 		};
@@ -359,6 +361,7 @@
 				Services/WatchConnectivityCoordinator.swift,
 				Services/WatchStateContextBuilder.swift,
 				Services/WatchSyncManager.swift,
+				Services/WatchInboxRelay.swift,
 				Utilities/FolderPicker.swift,
 				ViewModels/PlayerModel.swift,
 				"ViewModels/PlayerModel+Audiobookshelf.swift",
@@ -455,6 +458,7 @@
 				Views/VoiceMemoFeedCell.swift,
 				Views/VoiceMemoOverlayView.swift,
 				Views/WatchAppSettingsView.swift,
+				Views/WatchInboxSettingsView.swift,
 			);
 			target = AA0100000000000000000020 /* Echo macOS */;
 		};

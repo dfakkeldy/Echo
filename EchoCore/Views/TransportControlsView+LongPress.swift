@@ -75,7 +75,7 @@ private func executeAction(_ action: WatchAction, model: PlayerModel) {
         model.markPassageAtCurrentTime()
     case .pomodoro:
         break
-    case .empty:
+    case .inbox, .empty:
         break
     }
 }
@@ -174,7 +174,7 @@ private func secondaryAccessibilityActionName(for action: WatchAction, model: Pl
         return String(localized: "Secondary action: Mark passage for later")
     case .pomodoro:
         return String(localized: "Secondary action: Pomodoro")
-    case .empty:
+    case .inbox, .empty:
         return String(localized: "Secondary action")
     }
 }

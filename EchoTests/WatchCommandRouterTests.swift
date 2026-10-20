@@ -192,6 +192,41 @@ struct WatchCommandRouterTests {
         #expect(facade.calls.contains("gradeFlashcard"))
     }
 
+    @Test func inboxDictationResumesOnlyThePlaybackItPaused() {
+        let facade = FakeWatchCommandFacade()
+        facade.isPlaying = true
+        let router = WatchCommandRouter(facade: facade)
+        _ = reply(from: router, message: ["command": "beginInboxCapture", "captureID": "capture-1"])
+        _ = reply(from: router, message: ["command": "finishInboxCapture", "captureID": "another-capture"])
+        #expect(facade.calls == ["pause"])
+        _ = reply(from: router, message: ["command": "finishInboxCapture", "captureID": "capture-1"])
+        #expect(facade.calls == ["pause", "play"])
+        _ = reply(from: router, message: ["command": "finishInboxCapture", "captureID": "capture-1"])
+        #expect(facade.calls == ["pause", "play"])
+    }
+
+    @Test func inboxDoesNotStartPausedPlaybackOrResumeADifferentBook() {
+        let facade = FakeWatchCommandFacade()
+        let router = WatchCommandRouter(facade: facade)
+        _ = reply(from: router, message: ["command": "beginInboxCapture", "captureID": "paused"])
+        _ = reply(from: router, message: ["command": "finishInboxCapture", "captureID": "paused"])
+        #expect(facade.calls.isEmpty)
+        facade.isPlaying = true
+        _ = reply(from: router, message: ["command": "beginInboxCapture", "captureID": "playing"])
+        facade.bookKey = "another-book"
+        _ = reply(from: router, message: ["command": "finishInboxCapture", "captureID": "playing"])
+        #expect(facade.calls == ["pause"])
+    }
+
+    @Test func queuedInboxPlaybackCommandsNeverResumeLater() {
+        let facade = FakeWatchCommandFacade()
+        facade.isPlaying = true
+        let router = WatchCommandRouter(facade: facade)
+        router.route(queuedMessage: ["command": "beginInboxCapture", "captureID": "stale"])
+        router.route(queuedMessage: ["command": "finishInboxCapture", "captureID": "stale"])
+        #expect(facade.calls.isEmpty)
+    }
+
     private func reply(
         from router: WatchCommandRouter,
         message: [String: Any]
@@ -207,6 +242,8 @@ struct WatchCommandRouterTests {
 @MainActor
 private final class FakeWatchCommandFacade: WatchCommandRoutingFacade {
     var calls: [String] = []
+    var isPlaying = false
+    var bookKey = "test-book"
     var currentPlaybackTime: TimeInterval = 0
     var durationSeconds: Double?
     var speed: Float = 1.0
@@ -224,8 +261,8 @@ private final class FakeWatchCommandFacade: WatchCommandRoutingFacade {
     var addedWatchBookmarkPayloads: [[String: Any]] = []
     var gradedFlashcards: [(cardID: String, grade: Int)] = []
 
-    func play() { calls.append("play") }
-    func pause() { calls.append("pause") }
+    func play() { calls.append("play"); isPlaying = true }
+    func pause() { calls.append("pause"); isPlaying = false }
     func togglePlayPause() { calls.append("togglePlayPause") }
 
     func skipBackwardNavigation() -> Bool {
@@ -311,7 +348,8 @@ private final class FakeWatchCommandFacade: WatchCommandRoutingFacade {
     func watchStateContext() -> [String: Any] {
         [
             "title": "Test Book",
-            "isPlaying": false,
+            "isPlaying": isPlaying,
+            "bookmarkStorageKey": bookKey,
             "artworkSeq": 40.0,
         ]
     }

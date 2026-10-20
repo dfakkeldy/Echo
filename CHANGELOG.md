@@ -4,6 +4,14 @@ All notable changes to Echo: Audiobook Study Player.
 
 ## [Unreleased]
 
+- Watch Inbox opens native dictation from a player button and queues text when
+  dictation finishes, including through the system double-tap action. The paired
+  iPhone forwards captures to a configurable HTTPS webhook using a durable
+  outbox and background uploads. Capture works without a book; an open book
+  adds its title and listening position. Setup and delivery status are in
+  Settings → Watch App Settings → Watch Inbox. Playback resumes only for the same book
+  and track that dictation paused.
+
 - EPUB pronunciations such as `ˈɡɪthʌb` no longer sound like "a GitHub".
   Standard IPA puts the stress mark before the syllable onset, while Kokoro
   expects it right before the vowel. Echo now moves EPUB stress past the

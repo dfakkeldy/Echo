@@ -272,6 +272,7 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
             return
         }
         Task { @MainActor [weak self] in
+            WatchInboxRelay.shared.start()
             self?.syncToWatch()
         }
     }
@@ -296,6 +297,7 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
     nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
         let payload = WatchConnectivityDictionary(value: message)
         Task { @MainActor [weak self, payload] in
+            if WatchInboxRelay.shared.receive(payload.value) { return }
             self?.onMessage?(payload.value, nil)
         }
     }
@@ -307,6 +309,7 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
         let payload = WatchConnectivityDictionary(value: message)
         let reply = WatchConnectivityReplyHandler(value: replyHandler)
         Task { @MainActor [weak self, payload, reply] in
+            if WatchInboxRelay.shared.receive(payload.value, reply: reply.value) { return }
             self?.onMessage?(payload.value, reply.value)
         }
     }
@@ -314,6 +317,7 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
     nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
         let payload = WatchConnectivityDictionary(value: userInfo)
         Task { @MainActor [weak self, payload] in
+            if WatchInboxRelay.shared.receive(payload.value) { return }
             self?.onQueuedMessage?(payload.value)
         }
     }

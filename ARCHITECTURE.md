@@ -616,6 +616,25 @@ Views/TranscriptionManager.swift
 
 ## Echo Watch App
 
+Watch Inbox uses the native WatchKit text-input controller, queues its result
+without another confirmation screen, and relays it through the paired iPhone.
+`Shared/WatchInboxDelivery.swift` defines immutable capture envelopes, atomic
+outboxes, hashed acceptance receipts, endpoint identities and webhook requests.
+`WatchInboxController` retains watch captures until an endpoint-acceptance receipt
+arrives. `WatchInboxRelay` on iOS owns Keychain credentials and file-backed
+background URLSession uploads; `WatchInboxAppDelegate` reconnects background
+sessions after termination. WatchConnectivity uses both live and persistent
+channels, with UUID deduplication before scheduling uploads. Changing the webhook
+URL does not reroute captures already bound to an older endpoint. The receiver
+must also deduplicate UUIDs before acting on a delivery. The shared models compile
+on every target; capture is watch-only and the relay/settings are iOS-only.
+
+Dictation's live begin/finish commands pause and resume through
+`WatchCommandRouter`. Resume requires the matching capture token and unchanged
+book/track, and expires after five minutes. These commands never use the deferred
+WatchConnectivity queue. Native dictation owns its system double-tap behavior;
+the underlying player relinquishes its gesture shortcut while Inbox is open.
+
 ```
 EchoCoreWatchApp.swift
 EchoWatchApp.entitlements

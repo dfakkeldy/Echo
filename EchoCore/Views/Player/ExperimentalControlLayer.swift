@@ -346,7 +346,7 @@
                 .accessibilityLabel(Text("Mark passage for later"))
                 .disabled(model.tracks.isEmpty)
 
-            case .pomodoro, .empty:
+            case .inbox, .pomodoro, .empty:
                 EmptyView()
             }
         }
