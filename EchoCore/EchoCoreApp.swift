@@ -11,6 +11,7 @@ import SwiftUI
 
 @main
 struct EchoCoreApp: App {
+    @UIApplicationDelegateAdaptor(WatchInboxAppDelegate.self) private var inboxDelegate
     @State private var model: PlayerModel
     @State private var settings: SettingsManager
     @State private var storeManager: StoreManager
@@ -56,6 +57,7 @@ struct EchoCoreApp: App {
         Self.playerModel = initialModel
 
         MetricKitDiagnosticsController.shared.start()
+        WatchInboxRelay.shared.start()
     }
 
     var body: some Scene {

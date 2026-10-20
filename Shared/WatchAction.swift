@@ -15,6 +15,7 @@ public enum WatchAction: String, Codable, CaseIterable, Identifiable {
     case speed
     case sleepTimer
     case bookmark
+    case inbox
     case markPassage
     case pomodoro
     case empty
@@ -34,6 +35,7 @@ public enum WatchAction: String, Codable, CaseIterable, Identifiable {
         case .speed: return String(localized: "Speed")
         case .sleepTimer: return String(localized: "Sleep Timer")
         case .bookmark: return String(localized: "Bookmark")
+        case .inbox: return String(localized: "Inbox")
         case .markPassage: return String(localized: "Mark Passage")
         case .pomodoro: return String(localized: "Pomodoro")
         case .empty: return String(localized: "Empty")
@@ -53,6 +55,7 @@ public enum WatchAction: String, Codable, CaseIterable, Identifiable {
         case .speed:         return "gauge.medium"
         case .sleepTimer:    return "moon.zzz.fill"
         case .bookmark:      return "bookmark.fill"
+        case .inbox:         return "tray.and.arrow.down.fill"
         case .markPassage:   return "rectangle.stack.badge.plus"
         case .pomodoro:      return "timer"
         case .empty:         return "plus"
@@ -92,6 +95,7 @@ public enum WatchAction: String, Codable, CaseIterable, Identifiable {
         case .speed:         return "cycleSpeed"
         case .sleepTimer:    return "toggleSleepTimer"
         case .bookmark:      return "addBookmark"
+        case .inbox:         return "" // Handled locally: open native dictation.
         case .markPassage:   return "markPassage"
         case .pomodoro:      return "pomodoro"
         case .empty:         return ""

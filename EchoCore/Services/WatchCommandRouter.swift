@@ -40,6 +40,7 @@ protocol WatchCommandRoutingFacade: AnyObject {
 @MainActor
 final class WatchCommandRouter {
     private let facade: WatchCommandRoutingFacade
+    private var inboxPlayback: (id: String, book: String?, track: String?, expires: Date)?
 
     init(facade: WatchCommandRoutingFacade) {
         self.facade = facade
@@ -51,9 +52,32 @@ final class WatchCommandRouter {
         var commandResult: String?
         if let command = message[WatchMessageKey.command] as? String {
             switch command {
+            case "beginInboxCapture":
+                if let id = message["captureID"] as? String, inboxPlayback?.id != id {
+                    let state = facade.watchStateContext()
+                    if state["isPlaying"] as? Bool == true {
+                        inboxPlayback = (id, state["bookmarkStorageKey"] as? String,
+                                         state["trackId"] as? String, Date().addingTimeInterval(300))
+                        facade.pause()
+                    }
+                }
+            case "finishInboxCapture":
+                if let pending = inboxPlayback, message["captureID"] as? String == pending.id {
+                    inboxPlayback = nil
+                    let state = facade.watchStateContext()
+                    if pending.expires > .now,
+                        pending.book == state["bookmarkStorageKey"] as? String,
+                        pending.track == state["trackId"] as? String,
+                        state["isPlaying"] as? Bool == false
+                    {
+                        facade.play()
+                    }
+                }
             case "play":
+                inboxPlayback = nil
                 facade.play()
             case "pause":
+                inboxPlayback = nil
                 facade.pause()
             case "next":
                 if facade.skipForwardNavigation() { commandResult = "bookmarkJump" }
@@ -93,6 +117,7 @@ final class WatchCommandRouter {
                     facade.setWatchCommandOutputGain(Float(newGain))
                 }
             case "toggle":
+                inboxPlayback = nil
                 facade.togglePlayPause()
             case "toggleLoopMode", "cycleLoopMode":
                 facade.cycleLoopMode()

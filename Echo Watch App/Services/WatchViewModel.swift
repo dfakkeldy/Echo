@@ -33,6 +33,21 @@ struct PlaybackSnapshot {
 
 @Observable @MainActor
 class WatchViewModel: NSObject, WCSessionDelegate {
+    let inbox = WatchInboxController()
+    var isShowingInbox = false
+    private var inboxPlaybackCaptureID: String?
+
+    func beginInboxDictation() {
+        let id = UUID().uuidString
+        inboxPlaybackCaptureID = id
+        sendCommand("beginInboxCapture", params: ["captureID": id])
+    }
+
+    func finishInboxDictation() {
+        guard let id = inboxPlaybackCaptureID else { return }
+        inboxPlaybackCaptureID = nil
+        sendCommand("finishInboxCapture", params: ["captureID": id])
+    }
     /// Local cache of bookmarks created from the watch this session. Used to
     /// derive generic titles like `Bookmark #3` and to drive the local list
     /// view without waiting for a round-trip from the iPhone.
@@ -170,7 +185,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     var seekBackwardDuration: Int = 30
     var seekForwardDuration: Int = 30
 
-    var page1Slots: [WatchAction] = [.empty, .empty, .skipBackward, .playPause, .skipForward]
+    var page1Slots: [WatchAction] = [.inbox, .empty, .skipBackward, .playPause, .skipForward]
     var page2Slots: [WatchAction] = [.loopMode, .empty, .speed, .sleepTimer, .bookmark]
     var page3Slots: [WatchAction] = [.empty, .empty, .empty, .empty, .empty]
     var page4Slots: [WatchAction] = [.empty, .empty, .empty, .empty, .empty]
@@ -490,6 +505,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.stateRequestRetriesRemaining = Self.maxStateRequestRetries
+            self.inbox.flush()
             self.requestCurrentState()
         }
     }
@@ -502,6 +518,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             // fresh retry budget like wake and activation do — the phone often
             // reports reachable a beat before it can actually answer.
             self.stateRequestRetriesRemaining = Self.maxStateRequestRetries
+            self.inbox.flush()
             self.requestCurrentState()
         }
     }
@@ -558,6 +575,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         forceWidgetReload: Bool = false,
         reloadOnProgressDiscontinuity: Bool = true
     ) -> Bool {
+        if inbox.receive(state) { return false }
         guard !state.isEmpty else { return false }
         guard stateRecencyPolicy.shouldApply(state, source: source) else { return false }
         if let sequence = stateRecencyPolicy.lastAppliedSequence {
@@ -909,6 +927,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
 
     @discardableResult
     func applyReceivedUserInfo(_ userInfo: [String: Any]) -> Bool {
+        if inbox.receive(userInfo) { return true }
         guard !userInfo.isEmpty else { return false }
         return applyState(userInfo, source: .queuedUserInfo)
     }
@@ -1018,6 +1037,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     }
 
     func refreshAfterWake() {
+        inbox.flush()
         appWillEnterForeground()
         applyReceivedApplicationContext()
         consumePendingWidgetToggle()
@@ -1183,6 +1203,8 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     /// an error, the view model rolls back to the snapshot.
     func handle(_ action: WatchAction) {
         switch action {
+        case .inbox:
+            isShowingInbox = true
         case .empty:
             return
         case .playPause:

@@ -25,6 +25,7 @@ struct ContentView: View {
     @FocusState private var isFocused: Bool
 
     var body: some View {
+        @Bindable var viewModel = viewModel
         ZStack {
             artworkBackground
 
@@ -32,7 +33,7 @@ struct ContentView: View {
                 PlayerPage(
                     slots: viewModel.page1Slots,
                     viewModel: viewModel,
-                    isPrimaryActionEnabled: selectedPage == 0,
+                    isPrimaryActionEnabled: selectedPage == 0 && !viewModel.isShowingInbox,
                     layout: artworkLayout,
                     onBookmark: { isShowingNewBookmark = true },
                     onSleepTimer: { isShowingSleepTimer = true },
@@ -50,7 +51,7 @@ struct ContentView: View {
                     PlayerPage(
                         slots: viewModel.page2Slots,
                         viewModel: viewModel,
-                        isPrimaryActionEnabled: selectedPage == 1,
+                        isPrimaryActionEnabled: selectedPage == 1 && !viewModel.isShowingInbox,
                         layout: artworkLayout,
                         onBookmark: { isShowingNewBookmark = true },
                         onSleepTimer: { isShowingSleepTimer = true },
@@ -70,7 +71,7 @@ struct ContentView: View {
                     PlayerPage(
                         slots: viewModel.page3Slots,
                         viewModel: viewModel,
-                        isPrimaryActionEnabled: selectedPage == 2,
+                        isPrimaryActionEnabled: selectedPage == 2 && !viewModel.isShowingInbox,
                         layout: artworkLayout,
                         onBookmark: { isShowingNewBookmark = true },
                         onSleepTimer: { isShowingSleepTimer = true },
@@ -90,7 +91,7 @@ struct ContentView: View {
                     PlayerPage(
                         slots: viewModel.page4Slots,
                         viewModel: viewModel,
-                        isPrimaryActionEnabled: selectedPage == 3,
+                        isPrimaryActionEnabled: selectedPage == 3 && !viewModel.isShowingInbox,
                         layout: artworkLayout,
                         onBookmark: { isShowingNewBookmark = true },
                         onSleepTimer: { isShowingSleepTimer = true },
@@ -110,7 +111,7 @@ struct ContentView: View {
                     PlayerPage(
                         slots: viewModel.page5Slots,
                         viewModel: viewModel,
-                        isPrimaryActionEnabled: selectedPage == 4,
+                        isPrimaryActionEnabled: selectedPage == 4 && !viewModel.isShowingInbox,
                         layout: artworkLayout,
                         onBookmark: { isShowingNewBookmark = true },
                         onSleepTimer: { isShowingSleepTimer = true },
@@ -207,6 +208,9 @@ struct ContentView: View {
         )
         .onChange(of: crownAccumulator) { _, newValue in
             handleCrownRotation(offset: newValue)
+        }
+        .sheet(isPresented: $viewModel.isShowingInbox, onDismiss: viewModel.finishInboxDictation) {
+            WatchInboxCaptureView(viewModel: viewModel)
         }
         .sheet(isPresented: $isShowingNewBookmark) {
             NewBookmarkView(viewModel: viewModel)

@@ -136,6 +136,17 @@ When you add an EPUB or PDF file alongside your audiobook, Echo unlocks its stud
 
 ---
 
+Watch Inbox lets you capture a thought without leaving Echo on your watch.
+Tap **Inbox** to open native dictation, then finish with double tap or **Done**
+to queue the text and return to listening. A book is optional; an open book adds
+its title and listening position as context. Configure your HTTPS webhook URL
+and bearer key under **Settings → Watch App Settings → Watch Inbox** on iPhone. The phone
+forwards messages in the background and retains them until the endpoint accepts
+them. Setup includes a queued count and last-acceptance time. A success haptic
+confirms the watch saved the message; webhook acceptance is separate from a
+recipient's response. New watch layouts include Inbox; existing layouts can add
+it through setup or the Watch button editor.
+
 ## Architecture
 
 The workspace is composed of four targets, each with its own entry point and view hierarchy:

@@ -273,7 +273,7 @@ struct TransportControlsView: View {
             .accessibilityLabel(Text("Mark passage for later"))
             .disabled(model.tracks.isEmpty)
 
-        case .pomodoro:
+        case .inbox, .pomodoro:
             Color.clear
                 .frame(height: isCompact ? 50 : 64)
 

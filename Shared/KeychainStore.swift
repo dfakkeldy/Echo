@@ -24,6 +24,7 @@ enum KeychainStore {
         case absRefreshToken
         case absPinnedCertificate
         case anthropicAPIKey
+        case watchInboxWebhook
         // Per-provider AI tokens (`aiProvider.<preset>`). `anthropicAPIKey` is the
         // legacy single-key account, retained only so migration can read and clear it.
         case aiProviderAnthropic = "aiProvider.anthropic"

@@ -24,6 +24,13 @@ struct WatchAppSettingsView: View {
         @Bindable var settings = settings
 
         Form {
+            Section("Inbox") {
+                NavigationLink {
+                    WatchInboxSettingsView()
+                } label: {
+                    Label("Watch Inbox", systemImage: "tray.and.arrow.down.fill")
+                }
+            }
             Section("Face") {
                 Picker("Face Style", selection: $settings.watchArtworkLayout) {
                     Label("Classic", systemImage: "photo").tag("classic")
