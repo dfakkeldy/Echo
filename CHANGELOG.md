@@ -4,6 +4,13 @@ All notable changes to Echo: Audiobook Study Player.
 
 ## [Unreleased]
 
+- Long Visual Listening read-along paragraphs no longer cover the slideshow
+  picture or grow past the player. On iPhone and iPad, the stage keeps the
+  picture or code listing in its own region and puts the full paragraph in a
+  scrollable subtitle pane that follows the spoken word after seeking,
+  resizing, or changing text size. You can still scroll the pane by hand
+  while the picture stays visible; word highlighting, custom font, and
+  Dynamic Type settings are unchanged.
 - Opening a folder-backed book no longer includes Echo-generated pronunciation
   review or probe reels as audiobook tracks, and no longer folds those reels into
   multi-M4B chapters. Folder discovery on iOS and macOS excludes the known reel
