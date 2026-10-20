@@ -13,13 +13,15 @@ struct VisualListeningStageLayoutTests {
         let imageURL = try makeFigure()
         defer { try? FileManager.default.removeItem(at: imageURL) }
         let snapshot = makeSnapshot(imageURL: imageURL, wordIndex: 0)
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 326, height: 360))
+        let window = try makeWindow()
+        let previousKeyWindow = window.windowScene?.keyWindow
         let host = UIHostingController(rootView: stage(snapshot, typeSize: typeSize))
         window.rootViewController = host
         window.makeKeyAndVisible()
         defer {
             window.isHidden = true
             window.rootViewController = nil
+            previousKeyWindow?.makeKey()
         }
         await settleLayout(window)
 
@@ -41,7 +43,8 @@ struct VisualListeningStageLayoutTests {
     @Test func spokenWordStaysVisibleAfterSeekingAndChangingParagraph() async throws {
         let imageURL = try makeFigure()
         defer { try? FileManager.default.removeItem(at: imageURL) }
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 326, height: 360))
+        let window = try makeWindow()
+        let previousKeyWindow = window.windowScene?.keyWindow
         let host = UIHostingController(
             rootView: stage(makeSnapshot(imageURL: imageURL, wordIndex: 0)))
         window.rootViewController = host
@@ -49,12 +52,13 @@ struct VisualListeningStageLayoutTests {
         defer {
             window.isHidden = true
             window.rootViewController = nil
+            previousKeyWindow?.makeKey()
         }
         await settleLayout(window)
 
         host.rootView = stage(makeSnapshot(imageURL: imageURL, wordIndex: 110))
         await settleLayout(window)
-        let subtitle = try #require(
+        var subtitle = try #require(
             descendants(of: window, ofType: UITextView.self).first { $0.text == Self.paragraph })
         #expect(subtitle.contentOffset.y > 0)
         expectWordVisible(110, in: subtitle)
@@ -62,14 +66,20 @@ struct VisualListeningStageLayoutTests {
         host.rootView = stage(
             makeSnapshot(imageURL: imageURL, wordIndex: 110), typeSize: .accessibility3)
         await settleLayout(window)
+        subtitle = try #require(
+            descendants(of: window, ofType: UITextView.self).first { $0.text == Self.paragraph })
         expectWordVisible(110, in: subtitle)
 
         host.rootView = stage(makeSnapshot(imageURL: imageURL, wordIndex: 0))
         await settleLayout(window)
+        subtitle = try #require(
+            descendants(of: window, ofType: UITextView.self).first { $0.text == Self.paragraph })
         expectWordVisible(0, in: subtitle)
 
         host.rootView = stage(makeSnapshot(imageURL: imageURL, wordIndex: 0, blockID: "next"))
         await settleLayout(window)
+        subtitle = try #require(
+            descendants(of: window, ofType: UITextView.self).first { $0.text == Self.paragraph })
         #expect(subtitle.contentOffset.y <= 1)
         expectWordVisible(0, in: subtitle)
     }
@@ -82,13 +92,15 @@ struct VisualListeningStageLayoutTests {
                 text: String(repeating: "let value = 42\n", count: 80), language: "swift"),
             caption: nil, subtitleBlockID: "paragraph", chapterIndex: 0, sequenceIndex: 0,
             displayStartTime: 0, displayEndTime: 100, syncPoint: .begin, source: .explicitTimeline)
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 326, height: 360))
+        let window = try makeWindow()
+        let previousKeyWindow = window.windowScene?.keyWindow
         let host = UIHostingController(rootView: stage(snapshot))
         window.rootViewController = host
         window.makeKeyAndVisible()
         defer {
             window.isHidden = true
             window.rootViewController = nil
+            previousKeyWindow?.makeKey()
         }
         await settleLayout(window)
 
@@ -135,7 +147,18 @@ struct VisualListeningStageLayoutTests {
             .frame(width: 326, height: 360)
             .environment(\.dynamicTypeSize, typeSize)
             .environment(\.colorScheme, .light)
+            .transaction { $0.disablesAnimations = true }
             .ignoresSafeArea())
+    }
+
+    private func makeWindow() throws -> UIWindow {
+        let scene = try #require(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first {
+                $0.activationState == .foregroundActive
+            })
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 326, height: 360)
+        return window
     }
 
     private func settleLayout(_ window: UIWindow) async {

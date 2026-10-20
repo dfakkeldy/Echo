@@ -9,27 +9,16 @@
         private var followedRange = NSRange(location: 0, length: 0)
         private var needsFollow = true
         private var previousSize: CGSize = .zero
-        private var previousFont: UIFont?
 
         func update(text: NSAttributedString, blockID: String, followedRange: NSRange) {
-            if self.blockID != blockID || self.text != text.string {
-                self.blockID = blockID
-                needsFollow = true
-                setContentOffset(.zero, animated: false)
-            }
-            if !attributedText.isEqual(to: text) {
-                textStorage.setAttributedString(text)
-            }
-            let font =
-                text.length > 0 ? text.attribute(.font, at: 0, effectiveRange: nil) as? UIFont : nil
-            if font != previousFont {
-                previousFont = font
-                needsFollow = true
-            }
-            if self.followedRange != followedRange {
-                self.followedRange = followedRange
-                needsFollow = true
-            }
+            let blockChanged = self.blockID != blockID || self.text != text.string
+            let textChanged = !textStorage.isEqual(to: text)
+            let followChanged = self.followedRange != followedRange
+            self.blockID = blockID
+            self.followedRange = followedRange
+            if textChanged { textStorage.setAttributedString(text) }
+            if blockChanged { setContentOffset(.zero, animated: false) }
+            needsFollow = needsFollow || blockChanged || textChanged || followChanged
             setNeedsLayout()
         }
 
@@ -45,7 +34,11 @@
 
             needsFollow = false
             layoutManager.ensureLayout(for: textContainer)
-            scrollRangeToVisible(followedRange)
+            let glyphs = layoutManager.glyphRange(
+                forCharacterRange: followedRange, actualCharacterRange: nil)
+            let rect = layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
+                .offsetBy(dx: textContainerInset.left, dy: textContainerInset.top)
+            scrollRectToVisible(rect, animated: false)
         }
     }
 #endif
