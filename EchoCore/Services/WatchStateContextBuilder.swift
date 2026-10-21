@@ -51,6 +51,7 @@ struct WatchStateSnapshot {
     var durationSeconds: Double?
 
     // MARK: Display title
+    var bookTitle: String = ""
     var chapterCount: Int = 0
     var currentSubtitle: String = ""
     var currentTitle: String = ""
@@ -138,6 +139,7 @@ enum WatchStateContextBuilder {
         }
 
         // Title
+        context["bookTitle"] = s.bookTitle
         let title: String =
             if s.chapterCount >= 2 {
                 s.currentSubtitle.isEmpty

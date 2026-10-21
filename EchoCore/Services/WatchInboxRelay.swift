@@ -21,12 +21,14 @@ final class WatchInboxRelay: NSObject, URLSessionTaskDelegate {
     }
 
     private(set) var pendingCount = 0
+    private(set) var pendingForPreviousSetupCount = 0
     private(set) var lastAcceptedAt: Date?
     private(set) var lastError: String?
     private(set) var isConfigured = false
     @ObservationIgnored private var history = ConfigurationHistory()
     @ObservationIgnored private var outbox: WatchInboxDeliveryQueue?
     @ObservationIgnored private var isScheduling = false
+    @ObservationIgnored private var retrying: Set<UUID> = []
     @ObservationIgnored private var backgroundCompletion: (() -> Void)?
     @ObservationIgnored private lazy var session: URLSession = {
         let configuration = URLSessionConfiguration.background(withIdentifier: Self.sessionIdentifier)
@@ -72,8 +74,28 @@ final class WatchInboxRelay: NSObject, URLSessionTaskDelegate {
         history = next
         isConfigured = true
         lastError = nil
-        try queue().bindUnconfigured(to: configuration.id)
+        let queue = try queue()
+        try queue.bindUnconfigured(to: configuration.id)
+        retrying.formUnion(try queue.retryPending(configurationID: configuration.id))
+        updateStatus()
         start()
+    }
+
+    func retryPendingDeliveries(useCurrentInbox: Bool = false) {
+        do {
+            let queue = try queue()
+            if useCurrentInbox {
+                guard let configuration = history.current else { throw WatchInboxError.invalidWebhook }
+                retrying.formUnion(try queue.useCurrentInboxForPending(configuration.id))
+            } else {
+                retrying.formUnion(try queue.retryPending())
+            }
+            lastError = nil
+            updateStatus()
+            start()
+        } catch {
+            lastError = "Inbox could not restart delivery. Your queued messages are kept."
+        }
     }
 
     /// Returns true when this is an inbox message, including a malformed one:
@@ -114,17 +136,32 @@ final class WatchInboxRelay: NSObject, URLSessionTaskDelegate {
                 let queue = try queue()
                 if let id = history.currentID { try queue.bindUnconfigured(to: id) }
                 updateStatus()
-                guard !queue.pending.isEmpty else { return }
+                guard !queue.pending.isEmpty else {
+                    retrying.removeAll()
+                    return
+                }
                 let tasks = await session.allTasks
-                let activeIDs = Set(tasks.filter { $0.state != .completed && $0.state != .canceling }.compactMap(\.taskDescription))
-                for entry in queue.pending where !activeIDs.contains(entry.id.uuidString) {
-                    guard let configuration = history.destinations.first(where: { $0.id == entry.configurationID }) else { continue }
+                let plan = try WatchInboxUploadPlan(
+                    pending: queue.pending, configurations: history.destinations,
+                    tasks: tasks.map {
+                        .init(
+                            identifier: $0.taskIdentifier,
+                            captureID: $0.taskDescription.flatMap(UUID.init(uuidString:)),
+                            request: $0.originalRequest ?? $0.currentRequest,
+                            isActive: $0.state != .completed && $0.state != .canceling)
+                    }, retrying: retrying)
+                for task in tasks where plan.taskIdentifiersToCancel.contains(task.taskIdentifier) {
+                    task.cancel()
+                }
+                for upload in plan.uploads {
+                    let entry = upload.entry
                     let file = try uploadURL(for: entry.id)
                     try entry.capture.webhookData().write(to: file, options: .atomic)
-                    let task = session.uploadTask(with: try configuration.request(for: entry.capture), fromFile: file)
+                    let task = session.uploadTask(with: upload.request, fromFile: file)
                     task.taskDescription = entry.id.uuidString
-                    task.earliestBeginDate = max(.now, entry.nextAttemptAt)
+                    task.earliestBeginDate = upload.sendImmediately ? .now : max(.now, entry.nextAttemptAt)
                     task.resume()
+                    retrying.remove(entry.id)
                 }
             } catch {
                 lastError = "Inbox delivery is waiting. Your queued messages are kept."
@@ -148,6 +185,9 @@ final class WatchInboxRelay: NSObject, URLSessionTaskDelegate {
 
     private func updateStatus() {
         pendingCount = outbox?.pending.count ?? 0
+        pendingForPreviousSetupCount = outbox?.pending.filter {
+            $0.configurationID != nil && $0.configurationID != history.currentID
+        }.count ?? 0
         lastAcceptedAt = outbox?.lastAcceptedAt
     }
 
@@ -176,8 +216,15 @@ final class WatchInboxRelay: NSObject, URLSessionTaskDelegate {
         let url = response?.url
         let method = task.currentRequest?.httpMethod
         let failed = error != nil
+        let cancelled = (error as? URLError)?.code == .cancelled
         Task { @MainActor [weak self] in
             guard let self, let id else { return }
+            // Replacing a stale request is not another failed delivery and must
+            // not put the replacement back into exponential backoff.
+            if cancelled {
+                start()
+                return
+            }
             do {
                 let queue = try queue()
                 guard let entry = queue.pending.first(where: { $0.id == id }),

@@ -345,7 +345,7 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
         private let expectedContextKeys: Set<String> = [
             "isPlaying", "stateSeq", "artworkSeq", "progressFraction", "currentTime",
             "bookmarkStorageKey",
-            "folderKey", "title", "crownAction", "isHapticFeedbackEnabled",
+            "folderKey", "title", "bookTitle", "crownAction", "isHapticFeedbackEnabled",
             "watchQuickBookmarkTimeoutSeconds", "loopMode", "playbackSpeed",
             "seekBackwardDuration", "seekForwardDuration",
             "watchPage1", "watchPage2", "watchPage3", "watchPage4", "watchPage5",

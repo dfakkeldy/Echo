@@ -625,9 +625,21 @@ arrives. `WatchInboxRelay` on iOS owns Keychain credentials and file-backed
 background URLSession uploads; `WatchInboxAppDelegate` reconnects background
 sessions after termination. WatchConnectivity uses both live and persistent
 channels, with UUID deduplication before scheduling uploads. Changing the webhook
-URL does not reroute captures already bound to an older endpoint. The receiver
+URL does not automatically reroute captures already bound to an older endpoint. The receiver
 must also deduplicate UUIDs before acting on a delivery. The shared models compile
 on every target; capture is watch-only and the relay/settings are iOS-only.
+Saving setup refreshes pending requests for that same endpoint with the latest
+credentials. Check Deliveries resets pending retry delays; stale or explicitly
+retried background tasks are replaced without changing capture IDs or routes.
+Cancellation of a replaced task does not increase the delivery backoff.
+When an earlier URL was incorrect, the explicit Use Current Inbox for Queued
+Messages action moves pending captures to the current endpoint without changing
+their UUIDs or payloads. Accepted captures are never requeued by this action.
+
+Phone snapshots carry `bookTitle` from `PlayerModel.bookDisplayTitle` separately
+from the chapter-oriented playback `title`. The Watch persists both and uses only
+the book title for Inbox context. If book metadata is unavailable, capture omits
+context rather than attaching a chapter or a previous book's cached title.
 
 Dictation's live begin/finish commands pause and resume through
 `WatchCommandRouter`. Resume requires the matching capture token and unchanged

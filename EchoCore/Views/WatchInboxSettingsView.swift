@@ -28,7 +28,7 @@ struct WatchInboxSettingsView: View {
             } header: {
                 Text("Inbox Webhook")
             } footer: {
-                Text("Use the same webhook URL and key as MacroMark to send to the same inbox. The key is stored securely on this iPhone. Leave it blank to keep the key for the current URL.")
+                Text("Use MacroMark's webhook URL and key. Paste only the key, without Bearer; Echo adds the Authorization header. Leave the key blank to keep the saved key for this URL. The key is stored securely on this iPhone.")
             }
 
             Section("Delivery") {
@@ -38,7 +38,16 @@ struct WatchInboxSettingsView: View {
                     LabeledContent("Last accepted") { Text(date, format: .dateTime.month().day().hour().minute()) }
                 }
                 if let error = relay.lastError { Text(error).foregroundStyle(.secondary) }
-                Button("Check Deliveries") { relay.start() }
+                if relay.pendingForPreviousSetupCount > 0, relay.isConfigured {
+                    Text("\(relay.pendingForPreviousSetupCount) queued messages use your previous setup.")
+                    Button("Use Current Inbox for Queued Messages") {
+                        relay.retryPendingDeliveries(useCurrentInbox: true)
+                    }
+                    Text("Sends these messages to the webhook above, keeping their original text.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                Button("Check Deliveries") { relay.retryPendingDeliveries() }
             }
 
             Section {
