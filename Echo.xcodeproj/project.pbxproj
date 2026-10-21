@@ -73,6 +73,9 @@
 		E4420000000000000000000C /* us_silver.json in Resources */ = {isa = PBXBuildFile; fileRef = A3CB4FF9D3E73BABC2FE8E7B /* us_silver.json */; };
 		F60DA9BFC6CB8E3C7056C54E /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 04B720FB270E911EFF290AEA /* WhisperKit */; };
 		F74C018CF5E291A818C03BAF /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 4F2D20FF9F54B5D9915C604A /* ZIPFoundation */; };
+		E5370000000000000000000B /* ptts in Frameworks */ = {isa = PBXBuildFile; productRef = E53700000000000000000015 /* ptts */; };
+		E5370000000000000000000C /* ptts in Frameworks */ = {isa = PBXBuildFile; productRef = E53700000000000000000016 /* ptts */; };
+		E5370000000000000000000D /* ptts in Frameworks */ = {isa = PBXBuildFile; productRef = E53700000000000000000017 /* ptts */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -596,6 +599,7 @@
 				CC0000000000MMSKI0000000 /* MisakiSwift in Frameworks */,
 				CCF1D3F02FE400DF00D4E88F /* ZIPFoundation in Frameworks */,
 				CC595F852FE630AA0034453E /* onnxruntime in Frameworks */,
+				E5370000000000000000000B /* ptts in Frameworks */,
 				CC0000000016AUMK0000016 /* AudioMarker in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -609,6 +613,7 @@
 				F74C018CF5E291A818C03BAF /* ZIPFoundation in Frameworks */,
 				DC21C519E843AA3D2CAA2C7A /* MisakiSwift in Frameworks */,
 				0F35404A791CA6742909DBE8 /* onnxruntime in Frameworks */,
+				E5370000000000000000000D /* ptts in Frameworks */,
 				63A268C4D6C82D38A8373D2B /* AudioMarker in Frameworks */,
 				F60DA9BFC6CB8E3C7056C54E /* WhisperKit in Frameworks */,
 				CD31B53C583657383A66CDDB /* ArgumentParser in Frameworks */,
@@ -632,6 +637,7 @@
 				CC0000000010GRDB00000010 /* GRDB in Frameworks */,
 				CC0000000014ZIPF00000014 /* ZIPFoundation in Frameworks */,
 				CC595F832FE6213C0034453E /* onnxruntime in Frameworks */,
+				E5370000000000000000000C /* ptts in Frameworks */,
 				CC0000000015WHSK00000015 /* WhisperKit in Frameworks */,
 				CC00000000009AUMK0000000 /* AudioMarker in Frameworks */,
 				CC0000000000NMSKI0000000 /* MisakiSwift in Frameworks */,
@@ -787,6 +793,7 @@
 				4F2D20FF9F54B5D9915C604A /* ZIPFoundation */,
 				0FC84089B8B47926290BEA94 /* MisakiSwift */,
 				5C260A9D9E299B82E8D4B077 /* onnxruntime */,
+				E53700000000000000000017 /* ptts */,
 				87D2A7D1EE33E445A60EBDA0 /* AudioMarker */,
 				04B720FB270E911EFF290AEA /* WhisperKit */,
 				027216E9A9EC815EFEBD0513 /* ArgumentParser */,
@@ -821,6 +828,7 @@
 				CC0000000003ZIPF00000003 /* ZIPFoundation */,
 				CC0000000000FMSKI0000000 /* MisakiSwift */,
 				CC595F842FE630AA0034453E /* onnxruntime */,
+				E53700000000000000000015 /* ptts */,
 				CC0000000017AUMK0000017 /* AudioMarker */,
 			);
 			productName = "Echo macOS";
@@ -869,6 +877,9 @@
 				DD0100000000000000000001 /* Shared */,
 			);
 			name = Echo;
+			packageProductDependencies = (
+				E53700000000000000000016 /* ptts */,
+			);
 			productName = Echo;
 			productReference = CC08EC592F9522F600206D2F /* Echo.app */;
 			productType = "com.apple.product-type.application";
@@ -1060,6 +1071,7 @@
 				CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "MisakiSwift" */,
 				CC595F812FE6213C0034453E /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */,
 				A9452D01A62A841C26D8712D /* XCRemoteSwiftPackageReference "swift-argument-parser" */,
+				E53700000000000000000001 /* XCRemoteSwiftPackageReference "xn-ptts" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CC08EC5A2F9522F600206D2F /* Products */;
@@ -1595,6 +1607,8 @@
 		CC08EC782F9522F800206D2F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"ARCHS[sdk=macosx*]" = arm64;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -1659,6 +1673,8 @@
 		CC08EC792F9522F800206D2F /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"ARCHS[sdk=macosx*]" = arm64;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -2309,6 +2325,14 @@
 				minimumVersion = 1.24.2;
 			};
 		};
+		E53700000000000000000001 /* XCRemoteSwiftPackageReference "xn-ptts" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/gradium-ai/xn-ptts.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.4.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -2391,6 +2415,21 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CC595F812FE6213C0034453E /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */;
 			productName = onnxruntime;
+		};
+		E53700000000000000000015 /* ptts */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E53700000000000000000001 /* XCRemoteSwiftPackageReference "xn-ptts" */;
+			productName = ptts;
+		};
+		E53700000000000000000016 /* ptts */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E53700000000000000000001 /* XCRemoteSwiftPackageReference "xn-ptts" */;
+			productName = ptts;
+		};
+		E53700000000000000000017 /* ptts */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E53700000000000000000001 /* XCRemoteSwiftPackageReference "xn-ptts" */;
+			productName = ptts;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

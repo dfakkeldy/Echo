@@ -20,6 +20,8 @@ nonisolated struct NarrationVoice: Identifiable, Hashable, Sendable {
     let accent: VoiceAccent
     let gender: VoiceGender
     let grade: String  // Kokoro "Overall Grade" (VOICES.md); drives best-first ordering
+
+    var isPhonon: Bool { id.rawValue.hasPrefix("ph31m_v040_") }
 }
 
 /// A grouped run of voices for the picker (e.g. "American · Female").
@@ -41,7 +43,7 @@ nonisolated enum VoiceCatalog {
     /// Ordered best-first within each accent/gender group by Kokoro's published
     /// Overall Grade (hexgrad/Kokoro-82M VOICES.md); `af_heart` (Ava, grade A)
     /// stays first so it remains the default.
-    static let all: [NarrationVoice] = [
+    static let kokoro: [NarrationVoice] = [
         // American · Female
         v("af_heart", "Ava", .american, .female, "A"),
         v("af_bella", "Bella", .american, .female, "A-"),
@@ -76,7 +78,41 @@ nonisolated enum VoiceCatalog {
         v("bm_daniel", "Daniel", .british, .male, "D"),
     ]
 
-    static let `default`: NarrationVoice = all[0]
+    /// The versioned prefix keeps Phonon audio out of Kokoro's existing caches.
+    /// These voices are included in the pinned Core ML release bundle.
+    private static let phononVoices: [NarrationVoice] = [
+        p("Hadley", .american, .female),
+        p("Harper", .american, .female),
+        p("Preston", .american, .male),
+        p("Easton", .american, .male),
+        p("Maeve", .british, .female),
+        p("Spencer", .british, .male),
+    ]
+
+    static var phonon: [NarrationVoice] {
+        #if canImport(PhononTTS) && arch(arm64)
+            return phononVoices
+        #else
+            return []
+        #endif
+    }
+
+    static let all: [NarrationVoice] = kokoro + phonon
+    static let `default`: NarrationVoice = kokoro[0]
+
+    static func phononName(for id: VoiceID) -> String? {
+        phononVoices.first { $0.id == id }?.displayName
+    }
+
+    static func rendererIdentity(for voices: Set<VoiceID>) -> String {
+        let families = Set(
+            voices.map { voice in
+                phononName(for: voice) == nil
+                    ? NarrationFileNaming.rendererIdentity
+                    : "echo.phonon-31m-en.coreml.0.4.0"
+            })
+        return families.sorted().joined(separator: "+")
+    }
 
     static func voice(for id: VoiceID) -> NarrationVoice? {
         all.first { $0.id == id }
@@ -90,14 +126,26 @@ nonisolated enum VoiceCatalog {
             (.american, .female), (.american, .male),
             (.british, .female), (.british, .male),
         ]
-        return order.compactMap { accent, gender in
-            let voices = all.filter { $0.accent == accent && $0.gender == gender }
-            guard !voices.isEmpty else { return nil }
-            return VoiceSection(
-                id: "\(accent.rawValue)-\(gender.rawValue)",
-                title: "\(accent.title) · \(gender.title)",
-                voices: voices)
+        return [false, true].flatMap { isPhonon -> [VoiceSection] in
+            order.compactMap { accent, gender in
+                let voices = all.filter {
+                    $0.accent == accent && $0.gender == gender && $0.isPhonon == isPhonon
+                }
+                guard !voices.isEmpty else { return nil }
+                return VoiceSection(
+                    id: "\(isPhonon ? "phonon-" : "")\(accent.rawValue)-\(gender.rawValue)",
+                    title: "\(isPhonon ? "Phonon 31M · " : "")\(accent.title) · \(gender.title)",
+                    voices: voices)
+            }
         }
+    }
+
+    private static func p(
+        _ name: String, _ accent: VoiceAccent, _ gender: VoiceGender
+    ) -> NarrationVoice {
+        NarrationVoice(
+            id: VoiceID("ph31m_v040_\(name.lowercased())"), displayName: name,
+            descriptor: "Phonon 31M · On-device", accent: accent, gender: gender, grade: "")
     }
 
     private static func v(

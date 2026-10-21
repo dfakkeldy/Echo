@@ -44,7 +44,7 @@ import Testing
     /// Every voice in the catalog must have a bundled, loadable, finite pack of
     /// the expected [510,256] shape — guards against a catalog entry whose .f32
     /// file is missing or corrupt (which would throw at render time).
-    @Test(arguments: VoiceCatalog.all)
+    @Test(arguments: VoiceCatalog.kokoro)
     func everyCatalogVoiceLoads(_ voice: NarrationVoice) throws {
         let pack = try KokoroVoicePack(named: voice.id.rawValue)
         #expect(pack.rows == 510)

@@ -23,7 +23,7 @@ struct NarrateCommand: AsyncParsableCommand {
     var epub: String
     @Option(help: "Output .m4b path.") var out: String
     @Option(help: "Sidecar .alignment.json path (optional).") var sidecar: String?
-    @Option(help: "Kokoro voice id. Defaults to af_heart unless --voice-plan supplies the default.")
+    @Option(help: "Kokoro or Phonon voice id (e.g. ph31m_v040_preston). Defaults to af_heart.")
     var voice: String?
     @Option(name: .customLong("voice-plan"), help: "Source-bound block voice-plan JSON file.")
     var voicePlan: String?
@@ -143,7 +143,7 @@ struct NarrateCommand: AsyncParsableCommand {
             case .auditOnly(let auditURL):
                 print("Pronunciation review: \(auditURL.path); no reel was needed.")
             case .disabled:
-                print("Pronunciation review generation was disabled by --no-pronunciation-review.")
+                print("Pronunciation review was not generated.")
             case .pending:
                 break
             }

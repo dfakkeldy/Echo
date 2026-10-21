@@ -70,6 +70,10 @@ protocol TTSEngine: Sendable {
     /// every progress event. The extension still provides a default, so an engine
     /// that can't report progress (`MockTTSEngine`) need not implement it.
     func prepare(progress: @escaping @Sendable (NarrationPrepareProgress) -> Void) async throws
+    /// Routes first-use model preparation to the selected voice's engine.
+    func prepare(
+        voice: VoiceID, progress: @escaping @Sendable (NarrationPrepareProgress) -> Void
+    ) async throws
     func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk
     /// Synthesizes an immutable pronunciation plan. This must be a protocol
     /// requirement so calls through `any TTSEngine` dynamically dispatch to an
@@ -94,6 +98,12 @@ nonisolated enum NarrationPrepareProgress: Sendable, Equatable {
 }
 
 extension TTSEngine {
+    func prepare(
+        voice: VoiceID, progress: @escaping @Sendable (NarrationPrepareProgress) -> Void
+    ) async throws {
+        try await prepare(progress: progress)
+    }
+
     /// Default implementation of the `prepare(progress:)` requirement: run the
     /// plain `prepare()`, then report readiness. The real engine (`OnnxKokoroEngine`)
     /// overrides it to report model-delivery and load progress.
@@ -129,7 +139,8 @@ enum NarrationPrepareStatus {
                 String(localized: "Narration model cached · \(megabytes(byteCount)) MB")
             )
         case .downloadingModel(let receivedBytes, let totalBytes):
-            let fraction = totalBytes > 0
+            let fraction =
+                totalBytes > 0
                 ? min(max(Double(receivedBytes) / Double(totalBytes), 0), 1)
                 : 0
             return (

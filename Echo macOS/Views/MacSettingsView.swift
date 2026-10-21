@@ -348,7 +348,7 @@ private struct MacPlaybackSettingsPane: View {
                 Text("Narration")
             } footer: {
                 Text(
-                    "Echo synthesizes EPUB, PDF, and text documents that have no audiobook on-device, using the voice above. Queue them with Batch ▸ “Narrate Documents…” (⌘⌥N); progress appears in the Batch Queue."
+                    "Echo synthesizes EPUB, PDF, and text documents that have no audiobook on-device, using the voice above. Queue them with Batch ▸ “Narrate Documents…” (⌘⌥N); progress appears in the Batch Queue. Phonon 31M downloads a 137 MB model on first use and uses paragraph read-along. IPA pronunciation corrections and exact word timings apply to Kokoro."
                 )
                 .font(.footnote)
                 .foregroundStyle(.secondary)

@@ -645,20 +645,19 @@ nonisolated enum NarrationRenderPlanner {
         return String(source[lowerBound..<upperBound])
     }
 
-    private static func attachTrailingSilences(
+    static func attachTrailingSilences(
         to blocks: [NarrationPlannedBlock]
     ) -> [NarrationPlannedBlock] {
         guard !blocks.isEmpty else { return [] }
         let lastSpeakableIndex = blocks.lastIndex(where: \.isSpeakable)
         return blocks.enumerated().map { index, block in
             if block.trailingSilence == .sectionBreak { return block }
-            guard block.isSpeakable, index != lastSpeakableIndex else { return block }
             let nextIsSectionBreak =
                 index + 1 < blocks.count
                 && blocks[index + 1].trailingSilence == .sectionBreak
-            guard !nextIsSectionBreak else { return block }
-            let silence: NarrationPlannedSilence =
-                isHeading(block.originalBlock) ? .heading : .paragraph
+            let silence: NarrationPlannedSilence? =
+                block.isSpeakable && index != lastSpeakableIndex && !nextIsSectionBreak
+                ? (isHeading(block.originalBlock) ? .heading : .paragraph) : nil
             return NarrationPlannedBlock(
                 blockID: block.blockID,
                 originalBlock: block.originalBlock,
@@ -727,7 +726,7 @@ nonisolated enum NarrationRenderPlanner {
             || block.blockKind.localizedCaseInsensitiveContains("title")
     }
 
-    private static func isDecorativeSeparator(_ text: String) -> Bool {
+    static func isDecorativeSeparator(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         if trimmed.contains(where: { $0.isLetter || $0.isNumber }) { return false }

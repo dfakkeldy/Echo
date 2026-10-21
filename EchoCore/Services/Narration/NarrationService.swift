@@ -921,11 +921,22 @@ final class NarrationService {
         fmEnabled: Bool,
         onBlockProgress: (@MainActor (NarrationRenderProgress) -> Void)?
     ) async throws -> RenderedNarrationFile {
+        // Resolve once per original block, then freeze the choice for planning,
+        // synthesis and receipts. Do not query a voice plan for image-only blocks.
+        let blockVoices = Dictionary(
+            uniqueKeysWithValues: blocks.filter {
+                BlockVoicePlanLoader.isSpeakable($0)
+            }.map { ($0.id, blockVoice($0.id)) })
+        let resolvedVoice: @Sendable (String) -> VoiceID = { blockVoices[$0] ?? voice }
         let plan = try await renderPlan(
             for: blocks,
             overrides: overrides,
             occurrenceOverrides: occurrenceOverrides,
-            fmEnabled: fmEnabled)
+            fmEnabled: fmEnabled,
+            textOnlyBlockIDs: Set(
+                blocks.filter {
+                    VoiceCatalog.phononName(for: resolvedVoice($0.id)) != nil
+                }.map(\.id)))
         let speakableBlockIDs = plan.blocks.filter(\.isSpeakable).map(\.blockID)
         var renderedSpeakableBlocks = 0
         let renderStartedAt = Date()
@@ -986,7 +997,8 @@ final class NarrationService {
         for plannedBlock in plan.blocks {
             try Task.checkCancellation()
             let block = plannedBlock.originalBlock
-            let selectedVoice = plannedBlock.isSpeakable ? blockVoice(plannedBlock.blockID) : voice
+            let selectedVoice =
+                plannedBlock.isSpeakable ? resolvedVoice(plannedBlock.blockID) : voice
 
             // Bound each synthesize call under Kokoro's ~510-phoneme context window
             // (see NarrationTextChunker for the budget). One anchor per ORIGINAL
@@ -1153,7 +1165,9 @@ final class NarrationService {
             chapterIndex: chapterIndex,
             renderedFileDuration: duration,
             anchors: anchors,
-            renderedOriginalChunks: renderedOriginalChunks)
+            renderedOriginalChunks: renderedOriginalChunks
+        )
+        .filter { VoiceCatalog.phononName(for: resolvedVoice($0.blockID)) == nil }
 
         return RenderedNarrationFile(
             chapterIndex: chapterIndex,
@@ -1163,20 +1177,47 @@ final class NarrationService {
             duration: duration,
             anchors: anchors,
             spokenBlockIDs: spokenBlockIDs,
-            auditedBlockIDs: plan.blocks.map(\.blockID),
+            auditedBlockIDs: plan.blocks.map(\.blockID).filter {
+                VoiceCatalog.phononName(for: resolvedVoice($0)) == nil
+            },
             speechRangesByBlock: speechRangesByBlock,
             synthesisWordTimingsByBlock: synthesisWordTimingsByBlock,
             pronunciationFallbackHits: pronunciationFallbackHits,
             pronunciationDecisions: pronunciationDecisions,
-            pronunciationAuditDiagnostics: pronunciationAuditDiagnostics)
+            pronunciationAuditDiagnostics: pronunciationAuditDiagnostics.filter {
+                VoiceCatalog.phononName(for: resolvedVoice($0.blockID)) == nil
+            })
     }
 
     func renderPlan(
         for blocks: [EPubBlockRecord],
         overrides: PronunciationOverrides,
         occurrenceOverrides: PronunciationOccurrenceOverrides,
-        fmEnabled: Bool
+        fmEnabled: Bool,
+        textOnlyBlockIDs: Set<String> = [],
+        contextBlocks: [EPubBlockRecord]? = nil
     ) async throws -> NarrationRenderPlan {
+        if !textOnlyBlockIDs.isEmpty {
+            let phonon = try await PhononRenderPlanner.make(
+                blocks: blocks.filter { textOnlyBlockIDs.contains($0.id) })
+            let kokoroBlocks = blocks.filter { !textOnlyBlockIDs.contains($0.id) }
+            let kokoro: NarrationRenderPlan
+            if kokoroBlocks.isEmpty {
+                kokoro = NarrationRenderPlan(blocks: [])
+            } else {
+                kokoro = try await renderPlan(
+                    for: kokoroBlocks, overrides: overrides,
+                    occurrenceOverrides: occurrenceOverrides, fmEnabled: fmEnabled,
+                    contextBlocks: blocks)
+            }
+            let byID = Dictionary(
+                uniqueKeysWithValues: (kokoro.blocks + phonon.blocks).map {
+                    ($0.blockID, $0)
+                })
+            return NarrationRenderPlan(
+                blocks: NarrationRenderPlanner.attachTrailingSilences(
+                    to: blocks.compactMap { byID[$0.id] }))
+        }
         let preparedBlocks = await prepareBlocksForRenderPlan(
             blocks,
             occurrenceOverrides: occurrenceOverrides,
@@ -1185,7 +1226,7 @@ final class NarrationService {
             preparedBlocks, overrides: overrides, pronunciationPack: pronunciationPack,
             pronunciationAuditPack: pronunciationAuditPack,
             contextualPronunciationEvaluator: contextualPronunciationEvaluator,
-            neuralEvaluator: neuralEvaluator)
+            neuralEvaluator: neuralEvaluator, contextBlocks: contextBlocks)
     }
 
     #if DEBUG
@@ -1201,7 +1242,7 @@ final class NarrationService {
         pronunciationPack: EnglishPronunciationPack,
         pronunciationAuditPack: EnglishPronunciationAuditPack,
         contextualPronunciationEvaluator: ContextualPronunciationBatchEvaluator,
-        neuralEvaluator: NeuralEvaluator?
+        neuralEvaluator: NeuralEvaluator?, contextBlocks: [EPubBlockRecord]?
     ) async throws -> NarrationRenderPlan {
         try Task.checkCancellation()
         #if DEBUG
@@ -1214,8 +1255,11 @@ final class NarrationService {
             block.text = try EPUBPronunciationRewriter.rewrite(userText, block: block).text
             return block
         }
+        let discoveryByID = Dictionary(uniqueKeysWithValues: discoveryBlocks.map { ($0.id, $0) })
+        let context = contextBlocks?.map { discoveryByID[$0.id] ?? $0 } ?? discoveryBlocks
         let contextualOccurrences = ContextualPronunciationDiscovery.discover(
-            blocks: discoveryBlocks, overrides: overrides)
+            blocks: context, overrides: overrides
+        ).filter { discoveryByID[$0.blockID] != nil }
         let contextualEvidence = try await ContextualPronunciationPreflight.run(
             occurrences: contextualOccurrences,
             evaluator: contextualPronunciationEvaluator,

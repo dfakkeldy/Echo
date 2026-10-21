@@ -284,7 +284,7 @@ nonisolated enum BlockVoicePlanLoader {
         guard blockByID[blockID] != nil else { throw BlockVoicePlanError.nonNarratableBlock(blockID) }
     }
 
-    private static func isSpeakable(_ block: EPubBlockRecord) -> Bool {
+    static func isSpeakable(_ block: EPubBlockRecord) -> Bool {
         guard block.isHidden == false else { return false }
         return NarratedBlockText.text(for: block)?
             .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false

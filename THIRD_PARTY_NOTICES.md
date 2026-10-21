@@ -73,3 +73,41 @@ https://doi.org/10.5281/zenodo.2619474
 
 The complete CMUdict copyright notice, redistribution conditions, funding
 acknowledgment, and disclaimer are reproduced in the CMUdict section above.
+
+
+## Phonon 31M and the Phonon runtime
+
+Gradium's native Phonon runtime (`xn-ptts`, Swift product `ptts`) is used under
+its MIT licensing option. Upstream: https://github.com/gradium-ai/xn-ptts/tree/v0.4.0.
+Phonon builds on Pocket TTS and the Mimi codec from Kyutai. The Phonon 31M English
+model and bundled catalog voices are Apache-2.0, downloaded separately from
+https://huggingface.co/gradium/phonon-31m-en and the matching Gradium release.
+Apache-2.0 terms: https://www.apache.org/licenses/LICENSE-2.0.
+
+Runtime MIT license:
+
+```text
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+```
