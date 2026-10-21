@@ -25,7 +25,6 @@ struct ContentView: View {
     @FocusState private var isFocused: Bool
 
     var body: some View {
-        @Bindable var viewModel = viewModel
         ZStack {
             artworkBackground
 
@@ -209,8 +208,15 @@ struct ContentView: View {
         .onChange(of: crownAccumulator) { _, newValue in
             handleCrownRotation(offset: newValue)
         }
-        .sheet(isPresented: $viewModel.isShowingInbox, onDismiss: viewModel.finishInboxDictation) {
-            WatchInboxCaptureView(viewModel: viewModel)
+        // Keep the native input presenter on the existing player controller.
+        // A SwiftUI sheet here can cover the system dictation interface.
+        .overlay {
+            if viewModel.isShowingInbox {
+                WatchInboxCaptureView(viewModel: viewModel)
+            }
+        }
+        .onChange(of: viewModel.isShowingInbox) { _, isPresented in
+            if !isPresented { viewModel.finishInboxDictation() }
         }
         .sheet(isPresented: $isShowingNewBookmark) {
             NewBookmarkView(viewModel: viewModel)
