@@ -5,30 +5,18 @@
     /// Chooses per utterance, including mixed narrator/character voice plans.
     /// The unused model stays unloaded and existing Kokoro IDs retain their engine.
     actor NarrationEngineRouter: TTSEngine {
-        private let makeKokoro: @Sendable () -> any TTSEngine
-        private let makePhonon: @Sendable () -> any TTSEngine
-        private var kokoro: (any TTSEngine)?
-        private var phonon: (any TTSEngine)?
+        private let kokoro: any TTSEngine
+        private let phonon: any TTSEngine
 
         init(
-            makeKokoro: @escaping @Sendable () -> any TTSEngine,
-            makePhonon: @escaping @Sendable () -> any TTSEngine
+            kokoro: any TTSEngine, phonon: any TTSEngine
         ) {
-            self.makeKokoro = makeKokoro
-            self.makePhonon = makePhonon
+            self.kokoro = kokoro
+            self.phonon = phonon
         }
 
         private func engine(for voice: VoiceID) -> any TTSEngine {
-            if VoiceCatalog.phononName(for: voice) != nil {
-                if let phonon { return phonon }
-                let engine = makePhonon()
-                phonon = engine
-                return engine
-            }
-            if let kokoro { return kokoro }
-            let engine = makeKokoro()
-            kokoro = engine
-            return engine
+            VoiceCatalog.phononName(for: voice) == nil ? kokoro : phonon
         }
 
         func prepare() async throws { try await prepare(progress: { _ in }) }
@@ -53,12 +41,8 @@
         }
 
         func unload() async {
-            let priorKokoro = kokoro
-            let priorPhonon = phonon
-            kokoro = nil
-            phonon = nil
-            await priorKokoro?.unload()
-            await priorPhonon?.unload()
+            await kokoro.unload()
+            await phonon.unload()
         }
     }
 #endif

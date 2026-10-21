@@ -1075,6 +1075,9 @@ router also handles mixed chapter/block voice plans and unloads both engines at
 existing lifecycle boundaries. Phonon serializes voice changes with synthesis,
 keeps Core ML off the main actor, and emits mono 24 kHz PCM without claiming
 Kokoro duration-head word timings or IPA pronunciation evidence.
+`PhononRenderPlanner` uses bounded sentence/paragraph text chunks, bypassing
+Kokoro G2P/preflight for Phonon blocks. Mixed plans merge in original source order
+and apply the shared pause policy across engine boundaries.
 
 `PhononModelStore` coalesces first-use downloads, authenticates the pinned release
 ZIP and manifest with SHA-256, checks every original model/voice file, and stages

@@ -19,19 +19,15 @@
             -> TTSEngine
         {
             let threads = intraOpThreads ?? defaultIntraOpThreads()
-            return NarrationEngineRouter(
-                makeKokoro: {
-                    OnnxKokoroEngine(
-                        intraOpThreads: threads, generateWordTimings: generateWordTimings)
-                },
-                makePhonon: {
-                    #if canImport(PhononTTS)
-                        return PhononTTSEngine()
-                    #else
-                        // Targets without the native runtime never list Phonon voices.
-                        return OnnxKokoroEngine(intraOpThreads: threads)
-                    #endif
-                })
+            // Construct actor shells on the calling MainActor. Their models
+            // remain lazy; neither initializer downloads or loads weights.
+            let kokoro = OnnxKokoroEngine(
+                intraOpThreads: threads, generateWordTimings: generateWordTimings)
+            #if canImport(PhononTTS)
+                return NarrationEngineRouter(kokoro: kokoro, phonon: PhononTTSEngine())
+            #else
+                return kokoro
+            #endif
         }
 
         /// Pure thread-count policy, unit-tested without sysctl: divide the

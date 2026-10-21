@@ -13,6 +13,11 @@ consume Kokoro's IPA annotations or supply Kokoro's exact word timings. Echo doe
 not publish Kokoro pronunciation audit receipts for a Phonon or mixed-engine
 export. Use Kokoro when those features matter.
 
+Its text planner keeps complete sentences together up to 200 words per request,
+splitting unusually long sentences at whitespace. Phonon blocks bypass Kokoro's
+phoneme budgets and pronunciation preflight; mixed plans retain the source order
+and the existing heading, paragraph, and section pauses.
+
 ## Command line
 
 Build with `make echo-cli` through the usual build wrapper, then select a voice:

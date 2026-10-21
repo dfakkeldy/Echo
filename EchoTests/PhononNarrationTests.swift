@@ -22,7 +22,7 @@ import Testing
     @Test func preparingPhononNeverPreparesKokoro() async throws {
         let kokoro = RecordingEngine()
         let phonon = RecordingEngine()
-        let router = NarrationEngineRouter(makeKokoro: { kokoro }, makePhonon: { phonon })
+        let router = NarrationEngineRouter(kokoro: kokoro, phonon: phonon)
         let voice = VoiceID("ph31m_v040_preston")
         try await router.prepare(voice: voice, progress: { _ in })
         _ = try await router.synthesize("A Phonon sentence.", voice: voice)
@@ -56,6 +56,55 @@ import Testing
         #expect(throws: (any Error).self) {
             try PhononModelStore.validateBundle(at: directory, expectedManifestSHA256: "untrusted")
         }
+    }
+
+    @Test func phononKeepsParagraphContextAndBoundsUnusuallyLongSentences() async throws {
+        let paragraph = Array(repeating: "Echo keeps this whole sentence together.", count: 20)
+            .joined(separator: " ")
+        let plan = try await PhononRenderPlanner.make(blocks: [block("p", text: paragraph)])
+        let rendered = try #require(plan.blocks.first)
+        #expect(rendered.synthesisChunks.count == 1)
+        #expect(rendered.synthesisChunks.first?.displayText == paragraph)
+        #expect(rendered.pronunciationDecisions.isEmpty)
+        #expect(rendered.synthesisChunks.allSatisfy { $0.phonemeIDs.isEmpty })
+
+        let longSentence = (0..<1001).map { "word\($0)" }.joined(separator: " ")
+        let chunks = PhononRenderPlanner.chunkTexts(longSentence, maxWords: 80)
+        #expect(chunks.allSatisfy { WordTokenizer.words(in: $0).count <= 80 })
+        #expect(chunks.joined(separator: " ") == longSentence)
+    }
+
+    @MainActor @Test func mixedPlanningPreservesOrderAndSeparatorPauses() async throws {
+        let database = try DatabaseService(inMemory: true)
+        let engine = RecordingEngine()
+        let service = NarrationService(
+            db: database.writer, audiobookID: "book", tts: engine,
+            audioWriter: AVFoundationAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory, state: NarrationState())
+        let native = block("native", text: "This is a complete sentence for Phonon.")
+        let separator = block("break", text: "---")
+        let legacy = block("legacy", text: "This stays with Kokoro.")
+        let plan = try await service.renderPlan(
+            for: [native, separator, legacy], overrides: PronunciationOverrides(entries: [:]),
+            occurrenceOverrides: .empty, fmEnabled: false,
+            textOnlyBlockIDs: [native.id, separator.id])
+        #expect(plan.blocks.map(\.blockID) == ["native", "break", "legacy"])
+        #expect(plan.blocks[0].synthesisChunks.allSatisfy { $0.phonemeIDs.isEmpty })
+        #expect(plan.blocks[0].trailingSilence == nil)
+        #expect(plan.blocks[1].trailingSilence == .sectionBreak)
+        #expect(plan.blocks[2].synthesisChunks.contains { !$0.phonemeIDs.isEmpty })
+        #expect(plan.blocks[2].trailingSilence == nil)
+    }
+
+    private func block(_ id: String, text: String) -> EPubBlockRecord {
+        EPubBlockRecord(
+            id: id, audiobookID: "book", spineHref: "chapter.xhtml",
+            spineIndex: 0, blockIndex: 0, sequenceIndex: 0,
+            blockKind: "paragraph", text: text, htmlContent: nil,
+            cardColor: nil, chapterThemeColor: nil, imagePath: nil,
+            chapterIndex: 0, isHidden: false, hiddenReason: nil,
+            isFrontMatter: false, wordCount: nil, markers: nil, textFormats: nil,
+            createdAt: nil, modifiedAt: nil)
     }
 
     private static func hash(_ data: Data) -> String {

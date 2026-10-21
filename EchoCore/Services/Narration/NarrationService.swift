@@ -925,7 +925,11 @@ final class NarrationService {
             for: blocks,
             overrides: overrides,
             occurrenceOverrides: occurrenceOverrides,
-            fmEnabled: fmEnabled)
+            fmEnabled: fmEnabled,
+            textOnlyBlockIDs: Set(
+                blocks.filter {
+                    VoiceCatalog.phononName(for: blockVoice($0.id)) != nil
+                }.map(\.id)))
         let speakableBlockIDs = plan.blocks.filter(\.isSpeakable).map(\.blockID)
         var renderedSpeakableBlocks = 0
         let renderStartedAt = Date()
@@ -1181,8 +1185,29 @@ final class NarrationService {
         for blocks: [EPubBlockRecord],
         overrides: PronunciationOverrides,
         occurrenceOverrides: PronunciationOccurrenceOverrides,
-        fmEnabled: Bool
+        fmEnabled: Bool,
+        textOnlyBlockIDs: Set<String> = []
     ) async throws -> NarrationRenderPlan {
+        if !textOnlyBlockIDs.isEmpty {
+            let phonon = try await PhononRenderPlanner.make(
+                blocks: blocks.filter { textOnlyBlockIDs.contains($0.id) })
+            let kokoroBlocks = blocks.filter { !textOnlyBlockIDs.contains($0.id) }
+            let kokoro: NarrationRenderPlan
+            if kokoroBlocks.isEmpty {
+                kokoro = NarrationRenderPlan(blocks: [])
+            } else {
+                kokoro = try await renderPlan(
+                    for: kokoroBlocks, overrides: overrides,
+                    occurrenceOverrides: occurrenceOverrides, fmEnabled: fmEnabled)
+            }
+            let byID = Dictionary(
+                uniqueKeysWithValues: (kokoro.blocks + phonon.blocks).map {
+                    ($0.blockID, $0)
+                })
+            return NarrationRenderPlan(
+                blocks: NarrationRenderPlanner.attachTrailingSilences(
+                    to: blocks.compactMap { byID[$0.id] }))
+        }
         let preparedBlocks = await prepareBlocksForRenderPlan(
             blocks,
             occurrenceOverrides: occurrenceOverrides,

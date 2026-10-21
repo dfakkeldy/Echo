@@ -335,6 +335,26 @@ jobs:
             -jobs 5 \
             -quiet
 
+      - name: Package Mac trial app
+        if: success() && steps.scope.outputs.docs_only != 'true'
+        run: |
+          set -euo pipefail
+          xcodebuild -showBuildSettings -project Echo.xcodeproj \
+            -scheme "Echo macOS" -destination "platform=macOS" -json \
+            > "$RUNNER_TEMP/mac-build-settings.json"
+          MAC_APP="$(jq -r '.[] | select(.target == "Echo macOS") | .buildSettings | "\(.TARGET_BUILD_DIR)/\(.FULL_PRODUCT_NAME)"' "$RUNNER_TEMP/mac-build-settings.json")"
+          test -d "$MAC_APP"
+          ditto -c -k --sequesterRsrc --keepParent "$MAC_APP" "$RUNNER_TEMP/EchoMacTrial.zip"
+
+      - name: Upload Mac trial app
+        if: success() && steps.scope.outputs.docs_only != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: EchoMacTrial-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/EchoMacTrial.zip
+          retention-days: 7
+          if-no-files-found: error
+
       - name: Build — echo-cli
         if: steps.scope.outputs.docs_only != 'true'
         run: |

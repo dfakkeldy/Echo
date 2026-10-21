@@ -1254,9 +1254,14 @@ struct NarrationRunResult {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "UTC")
         formatter.dateFormat = "yyyy-MM-dd"
-        let engine =
-            rendererIdentity.contains("phonon-31m")
-            ? "Phonon 31M Core ML 0.4.0" : "ONNX rv\(NarrationFileNaming.renderVersion)"
+        let engine: String
+        if rendererIdentity.contains("phonon-31m") {
+            engine =
+                (rendererIdentity.contains("kokoro") ? "Kokoro + " : "")
+                + "Phonon 31M Core ML 0.4.0"
+        } else {
+            engine = "ONNX rv\(NarrationFileNaming.renderVersion)"
+        }
         return "Echo narration — \(formatter.string(from: date)) · \(engine)"
     }
 
