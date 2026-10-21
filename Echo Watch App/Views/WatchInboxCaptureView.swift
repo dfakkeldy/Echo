@@ -39,8 +39,11 @@ struct WatchInboxCaptureView: View {
         .task(id: scenePhase) {
             guard scenePhase == .active, !didPresent else { return }
             logger.info("Inbox capture appeared.")
-            if let book = viewModel.bookmarkStorageKey, !book.isEmpty {
-                context = .init(title: viewModel.title, position: max(0, viewModel.currentTime))
+            context = nil
+            if let book = viewModel.bookmarkStorageKey, !book.isEmpty,
+                !viewModel.bookTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            {
+                context = .init(title: viewModel.bookTitle, position: max(0, viewModel.currentTime))
             }
             // Let the capture view appear before WatchKit takes over input.
             // A cancelled startup remains eligible when the app becomes active.

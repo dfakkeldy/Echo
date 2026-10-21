@@ -628,6 +628,15 @@ channels, with UUID deduplication before scheduling uploads. Changing the webhoo
 URL does not reroute captures already bound to an older endpoint. The receiver
 must also deduplicate UUIDs before acting on a delivery. The shared models compile
 on every target; capture is watch-only and the relay/settings are iOS-only.
+Saving setup refreshes pending requests for that same endpoint with the latest
+credentials. Check Deliveries resets pending retry delays; stale or explicitly
+retried background tasks are replaced without changing capture IDs or routes.
+Cancellation of a replaced task does not increase the delivery backoff.
+
+Phone snapshots carry `bookTitle` from `PlayerModel.bookDisplayTitle` separately
+from the chapter-oriented playback `title`. The Watch persists both and uses only
+the book title for Inbox context. If book metadata is unavailable, capture omits
+context rather than attaching a chapter or a previous book's cached title.
 
 Dictation's live begin/finish commands pause and resume through
 `WatchCommandRouter`. Resume requires the matching capture token and unchanged

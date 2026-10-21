@@ -118,6 +118,57 @@ nonisolated struct WatchInboxWebhookConfiguration: Codable, Sendable {
     }
 }
 
+/// Reconcile background requests with the latest credentials before uploading.
+/// Replacements retain the capture's UUID, payload and original destination.
+nonisolated struct WatchInboxUploadPlan {
+    struct ScheduledTask: Sendable {
+        let identifier: Int
+        let captureID: UUID?
+        let request: URLRequest?
+        let isActive: Bool
+    }
+
+    struct Upload: Sendable {
+        let entry: WatchInboxDeliveryQueue.Pending
+        let request: URLRequest
+        let sendImmediately: Bool
+    }
+
+    let taskIdentifiersToCancel: Set<Int>
+    let uploads: [Upload]
+
+    init(
+        pending: [WatchInboxDeliveryQueue.Pending],
+        configurations: [WatchInboxWebhookConfiguration],
+        tasks: [ScheduledTask], retrying: Set<UUID> = []
+    ) throws {
+        var cancelled: Set<Int> = []
+        var uploads: [Upload] = []
+        for entry in pending {
+            guard
+                let configuration = configurations.first(where: { $0.id == entry.configurationID })
+            else { continue }
+            let request = try configuration.request(for: entry.capture)
+            let active = tasks.filter { $0.isActive && $0.captureID == entry.id }
+            let obsolete = active.filter { task in
+                retrying.contains(entry.id)
+                    || task.request?.url != request.url
+                    || task.request?.httpMethod != request.httpMethod
+                    || task.request?.value(forHTTPHeaderField: "Authorization")
+                        != request.value(forHTTPHeaderField: "Authorization")
+            }
+            cancelled.formUnion(obsolete.map(\.identifier))
+            guard active.allSatisfy({ cancelled.contains($0.identifier) }) else { continue }
+            uploads.append(
+                Upload(
+                    entry: entry, request: request,
+                    sendImmediately: retrying.contains(entry.id) || !obsolete.isEmpty))
+        }
+        taskIdentifiersToCancel = cancelled
+        self.uploads = uploads
+    }
+}
+
 /// Both devices keep a durable copy until the configured endpoint accepts it.
 /// The phone's receipt history prevents a delayed watch retry from sending again.
 @MainActor
@@ -199,6 +250,20 @@ final class WatchInboxDeliveryQueue {
             let delay = min(3600, 5 * pow(2, Double(min(state.pending[index].attempts, 10))))
             state.pending[index].nextAttemptAt = date.addingTimeInterval(delay)
         }
+    }
+
+    @discardableResult
+    func retryPending(configurationID: UUID? = nil, at date: Date = .now) throws -> Set<UUID> {
+        var ids: Set<UUID> = []
+        try update { state in
+            for index in state.pending.indices
+            where configurationID == nil || state.pending[index].configurationID == configurationID
+            {
+                state.pending[index].nextAttemptAt = date
+                ids.insert(state.pending[index].id)
+            }
+        }
+        return ids
     }
 
     func accept(_ id: UUID, at date: Date = .now) throws {

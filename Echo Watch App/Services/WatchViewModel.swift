@@ -84,6 +84,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
 
     var isPlaying: Bool = false
     var title: String = "No track selected"
+    var bookTitle: String = ""
     var thumbnailImage: UIImage? = nil
     var progressFraction: Double = 0.0
     var totalProgressFraction: Double = 0.0
@@ -397,6 +398,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     private func loadPersistedState() {
         isPlaying = defaults.bool(forKey: "isPlaying")
         title = defaults.string(forKey: "title") ?? "No track selected"
+        bookTitle = defaults.string(forKey: "bookTitle") ?? ""
         progressFraction = defaults.double(forKey: "progressFraction")
         totalBookDuration = defaults.double(forKey: "totalBookDuration")
         loopMode = defaults.string(forKey: "loopMode") ?? "off"
@@ -639,6 +641,17 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             if let displayTitle = incomingDisplayTitle {
                 self.title = displayTitle
                 self.defaults.set(displayTitle, forKey: "title")
+            }
+            if let bookTitle = state["bookTitle"] as? String {
+                self.bookTitle = bookTitle
+                self.defaults.set(bookTitle, forKey: "bookTitle")
+            } else if let bookKey = state["bookmarkStorageKey"] as? String,
+                bookKey != self.bookmarkStorageKey
+            {
+                // An older phone may not send book metadata. Never attach a
+                // previous book's cached title to this new book's capture.
+                self.bookTitle = ""
+                self.defaults.removeObject(forKey: "bookTitle")
             }
             if let progressFraction = state["progressFraction"] as? Double {
                 let delta = abs(progressFraction - self.progressFraction)

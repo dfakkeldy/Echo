@@ -113,4 +113,100 @@ struct WatchInboxDeliveryTests {
         #expect(!config.accepts(status: 200, url: URL(string: "https://example.com/login"), method: "POST"))
         #expect(!config.accepts(status: 200, url: config.url, method: "GET"))
     }
+
+    @Test func correctedCredentialsReplaceTheOldScheduledRequestImmediately() throws {
+        let destination = UUID()
+        let old = try WatchInboxWebhookConfiguration(
+            id: destination, url: "https://example.com/inbox", key: "old-fixture")
+        let corrected = try WatchInboxWebhookConfiguration(
+            id: destination, url: old.url.absoluteString, key: "corrected-fixture")
+        let capture = try WatchInboxCapture(text: "Keep the original capture")
+        var entry = WatchInboxDeliveryQueue.Pending(capture: capture, configurationID: destination)
+        entry.attempts = 7
+        entry.nextAttemptAt = .now.addingTimeInterval(1200)
+        let task = WatchInboxUploadPlan.ScheduledTask(
+            identifier: 17, captureID: capture.id, request: try old.request(for: capture),
+            isActive: true)
+
+        let plan = try WatchInboxUploadPlan(
+            pending: [entry], configurations: [corrected], tasks: [task])
+
+        #expect(plan.taskIdentifiersToCancel == [17])
+        let upload = try #require(plan.uploads.first)
+        #expect(upload.entry == entry)
+        #expect(upload.sendImmediately)
+        #expect(
+            upload.request.value(forHTTPHeaderField: "Authorization") == "Bearer corrected-fixture")
+        #expect(
+            upload.request.value(forHTTPHeaderField: "Idempotency-Key") == capture.id.uuidString)
+    }
+
+    @Test func explicitRetryPersistsAnImmediateAttemptWithoutMovingOtherDestinations() throws {
+        let url = try queueURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let destination = UUID()
+        let otherDestination = UUID()
+        let capture = try WatchInboxCapture(text: "Retry this original")
+        let other = try WatchInboxCapture(text: "Keep this route")
+        let queue = try WatchInboxDeliveryQueue(fileURL: url)
+        try queue.enqueue(capture, configurationID: destination)
+        try queue.enqueue(other, configurationID: otherDestination)
+        let failedAt = Date(timeIntervalSince1970: 100)
+        try queue.recordFailure(capture.id, at: failedAt)
+        try queue.recordFailure(other.id, at: failedAt)
+        let retryAt = Date(timeIntervalSince1970: 101)
+
+        let ids = try queue.retryPending(configurationID: destination, at: retryAt)
+        let restored = try WatchInboxDeliveryQueue(fileURL: url)
+
+        #expect(ids == [capture.id])
+        let entry = try #require(restored.pending.first { $0.id == capture.id })
+        #expect(entry.capture == capture)
+        #expect(entry.configurationID == destination)
+        #expect(entry.attempts == 1)
+        #expect(entry.nextAttemptAt == retryAt)
+        let unchanged = try #require(restored.pending.first { $0.id == other.id })
+        #expect(unchanged.configurationID == otherDestination)
+        #expect(unchanged.nextAttemptAt > retryAt)
+    }
+
+    @Test func explicitRetryReplacesEvenACurrentRequestWaitingInBackoff() throws {
+        let config = try WatchInboxWebhookConfiguration(
+            url: "https://example.com/inbox", key: "fixture")
+        let capture = try WatchInboxCapture(text: "Retry without dictating again")
+        let entry = WatchInboxDeliveryQueue.Pending(capture: capture, configurationID: config.id)
+        let task = WatchInboxUploadPlan.ScheduledTask(
+            identifier: 23, captureID: capture.id, request: try config.request(for: capture),
+            isActive: true)
+
+        let plan = try WatchInboxUploadPlan(
+            pending: [entry], configurations: [config], tasks: [task], retrying: [capture.id])
+
+        #expect(plan.taskIdentifiersToCancel == [23])
+        #expect(plan.uploads.map(\.entry.capture) == [capture])
+        #expect(plan.uploads.first?.sendImmediately == true)
+    }
+
+    @Test func ordinaryChecksRespectActiveRequestsAndOriginalDestinations() throws {
+        let original = try WatchInboxWebhookConfiguration(
+            url: "https://example.com/first", key: "fixture")
+        let current = try WatchInboxWebhookConfiguration(
+            url: "https://example.com/second", key: "fixture")
+        let capture = try WatchInboxCapture(text: "Stay with the original destination")
+        var entry = WatchInboxDeliveryQueue.Pending(capture: capture, configurationID: original.id)
+        entry.nextAttemptAt = .now.addingTimeInterval(600)
+        let task = WatchInboxUploadPlan.ScheduledTask(
+            identifier: 31, captureID: capture.id, request: try original.request(for: capture),
+            isActive: true)
+        let active = try WatchInboxUploadPlan(
+            pending: [entry], configurations: [original, current], tasks: [task])
+        #expect(active.uploads.isEmpty)
+        #expect(active.taskIdentifiersToCancel.isEmpty)
+
+        let retry = try WatchInboxUploadPlan(
+            pending: [entry], configurations: [original, current], tasks: [])
+        #expect(retry.uploads.first?.request.url == original.url)
+        #expect(retry.uploads.first?.sendImmediately == false)
+        #expect(retry.uploads.first?.entry.nextAttemptAt == entry.nextAttemptAt)
+    }
 }

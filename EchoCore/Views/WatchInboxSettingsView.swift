@@ -38,7 +38,7 @@ struct WatchInboxSettingsView: View {
                     LabeledContent("Last accepted") { Text(date, format: .dateTime.month().day().hour().minute()) }
                 }
                 if let error = relay.lastError { Text(error).foregroundStyle(.secondary) }
-                Button("Check Deliveries") { relay.start() }
+                Button("Check Deliveries") { relay.retryPendingDeliveries() }
             }
 
             Section {

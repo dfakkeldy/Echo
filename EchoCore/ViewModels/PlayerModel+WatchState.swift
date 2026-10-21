@@ -43,6 +43,7 @@
             s.durationSeconds = bookDuration > 0 ? bookDuration : durationSeconds
 
             // Display title
+            s.bookTitle = bookDisplayTitle
             s.chapterCount = chapters.count
             s.currentSubtitle = currentSubtitle
             s.currentTitle = currentTitle

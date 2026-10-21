@@ -108,6 +108,21 @@ struct WatchStateContextBuilderTests {
 
     // MARK: - Title
 
+    @Test("book metadata stays separate from the chapter shown on the watch")
+    func bookTitleDoesNotUseTheChapterOrTrackTitle() {
+        var snap = WatchStateSnapshot()
+        snap.bookTitle = "Dune"
+        snap.currentTitle = "Track 03"
+        snap.currentSubtitle = "The Revelation"
+        snap.chapterCount = 5
+        snap.currentChapterIndex = 2
+
+        let ctx = WatchStateContextBuilder.build(from: snap)
+
+        #expect(ctx["bookTitle"] as? String == "Dune")
+        #expect(ctx["title"] as? String == "The Revelation")
+    }
+
     @Test("title uses chapter name when 2+ chapters and subtitle is set")
     func titleWithChaptersAndSubtitle() {
         var snap = WatchStateSnapshot()
