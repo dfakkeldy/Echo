@@ -157,8 +157,14 @@ nonisolated final class EPUBInlinePronunciationTracker {
         let suffix = String(text.dropFirst(current.start))
         let display = suffix.trimmingCharacters(in: .whitespacesAndNewlines)
         let leading = suffix.prefix(while: \.isWhitespace).count
-        guard !display.isEmpty, !display.contains(where: { "[]()/".contains($0) }) else {
-            fail("Annotated text is empty or contains reserved pronunciation markup characters.")
+        guard !display.isEmpty else {
+            fail("Annotated text is empty.")
+            return
+        }
+        if let reserved = display.first(where: { "[]()/".contains($0) }) {
+            fail(
+                "Annotated text \"\(display)\" contains reserved pronunciation markup character \"\(reserved)\"."
+            )
             return
         }
         spans.append(
@@ -374,7 +380,11 @@ nonisolated enum EPUBPronunciationImport {
         guard !ordered.isEmpty else { return }
         let alternatives = ordered.map(NSRegularExpression.escapedPattern(for:)).joined(
             separator: "|")
-        let pattern = "(?<![\\p{L}\\p{N}_’'])(?:" + alternatives + ")(?![\\p{L}\\p{N}_’'])"
+        // Filename separators join token components. A trailing prose period
+        // remains a boundary unless another word component follows it.
+        let pattern =
+            "(?<![\\p{L}\\p{N}_’'.-])(?:" + alternatives
+            + ")(?![\\p{L}\\p{N}_’']|[.-]+[\\p{L}\\p{N}_’'])"
         let regex = try NSRegularExpression(pattern: pattern)
         for index in blocks.indices {
             guard blocks[index].kind != .code, blocks[index].kind != .image,

@@ -94,6 +94,10 @@ matching is **case-sensitive, whole-word, leftmost-longest**. Supply multiple
 `grapheme` elements for casing or spelling variants. Apostrophes, letters, digits,
 and underscores are word constituents; “Portia” does not match “Portia's”. Spaces
 in a phrase match the canonical collapsed spaces in the imported text.
+Dotted and hyphenated tokens must match as a whole: `md` does not match inside
+`open-loops.md` or `md-backup`, but a grapheme for `open-loops.md` can match that
+complete filename. Ordinary punctuation still delimits prose, including a
+sentence-ending period after `md`.
 
 Each lexeme needs one or more graphemes and **exactly one** phoneme. Identical
 repeated entries are accepted. Conflicting pronunciations for the same grapheme
@@ -184,6 +188,10 @@ and unsupported IPA reject the annotated import with an `EPUB pronunciation:`
 error. There is no partial “success” with silently dropped phonemes. Correct the
 source and reimport. Existing books without these instructions retain their
 normal import behavior.
+For example, an inline instruction containing `tiles/mail.json` is rejected
+because `/` is reserved. Its error names the XHTML document, offending text and
+reserved character. `echo-cli export-blocks` preserves that pronunciation error
+for both expanded EPUBs and `.epub` archives.
 
 At render time, stored spans must still match their original words, their phonemes
 must encode in the bundled vocabulary, and each EPUB decision must bind to the

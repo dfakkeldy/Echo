@@ -286,7 +286,8 @@ struct EPUBPronunciationTests {
     {
         let root = try copyFixture(
             body:
-                "<p>Open <span ssml:ph=\"taɪlz meɪl dʒeɪsən\">tiles/mail.json</span> to continue.</p>")
+                "<p>Open <span ssml:ph=\"taɪlz meɪl dʒeɪsən\">tiles/mail.json</span> to continue.</p>"
+        )
         let archive = root.appendingPathExtension("epub")
         defer {
             try? FileManager.default.removeItem(at: root)

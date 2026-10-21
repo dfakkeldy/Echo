@@ -54,14 +54,17 @@ enum SidecarSourceBlockLoader {
             try db.execute(
                 sql:
                     "INSERT OR IGNORE INTO audiobook (id, title, duration, added_at) VALUES (?, ?, 0, '2026-01-01T00:00:00Z')",
-                arguments: [resolvedAudiobookID, source.sourceURL.deletingPathExtension().lastPathComponent]
+                arguments: [
+                    resolvedAudiobookID, source.sourceURL.deletingPathExtension().lastPathComponent,
+                ]
             )
         }
 
         let blocks: [EPubBlockRecord]
         switch source {
         case .expandedEPUB(let epubURL):
-            let importer = EPUBImportService(assetStorage: EPUBAssetStorage(databaseService: database))
+            let importer = EPUBImportService(
+                assetStorage: EPUBAssetStorage(databaseService: database))
             blocks = try await importer.import(
                 audiobookID: resolvedAudiobookID,
                 epubURL: epubURL,
@@ -69,7 +72,7 @@ enum SidecarSourceBlockLoader {
                 bookDuration: nil
             )
         case .epubFile(let epubURL):
-            let didImport = await EPUBAutoImportScanner.importEPUBFile(
+            let outcome = await EPUBAutoImportScanner.importEPUBFileOutcome(
                 epubURL: epubURL,
                 audiobookID: resolvedAudiobookID,
                 databaseService: database,
@@ -77,7 +80,8 @@ enum SidecarSourceBlockLoader {
                 duration: nil,
                 force: true
             )
-            guard didImport else {
+            if case .failed(_, let error) = outcome { throw error }
+            guard outcome.didImportBlocks else {
                 throw SourceError.noBlocksImported(epubURL.lastPathComponent)
             }
             blocks = try EPubBlockDAO(db: database.writer).visibleBlocks(for: resolvedAudiobookID)
