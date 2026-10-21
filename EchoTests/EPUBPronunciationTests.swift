@@ -2,6 +2,7 @@
 import Foundation
 import GRDB
 import Testing
+import ZIPFoundation
 
 @testable import Echo
 
@@ -277,6 +278,76 @@ struct EPUBPronunciationTests {
         #expect(throws: EPUBPronunciationError.self) {
             try parseEPUBBlocks(audiobookID: "proof", epubURL: root)
         }
+    }
+
+    @Test(arguments: [false, true])
+    func slashInInlineTextReportsTheInstructionForExpandedAndArchivedEPUBs(archived: Bool)
+        async throws
+    {
+        let root = try copyFixture(
+            body:
+                "<p>Open <span ssml:ph=\"taɪlz meɪl dʒeɪsən\">tiles/mail.json</span> to continue.</p>")
+        let archive = root.appendingPathExtension("epub")
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: archive)
+        }
+        if archived {
+            try FileManager.default.zipItem(at: root, to: archive, shouldKeepParent: false)
+        }
+
+        do {
+            _ = try await SidecarSourceBlockLoader.blocks(from: archived ? archive : root)
+            Issue.record("Expected the unsupported inline instruction to reject import.")
+        } catch let error as EPUBPronunciationError {
+            #expect(error.detail.contains("chapter.xhtml"))
+            #expect(error.detail.contains("tiles/mail.json"))
+            #expect(error.detail.contains("reserved"))
+        }
+    }
+
+    @Test func plsIgnoresFilenameFragmentsButKeepsProsePunctuation() throws {
+        let text =
+            "Use open-loops.md, md.txt, md-backup, backup-md, notes.md.backup, .md and md--backup. Then md, (md), md."
+        let root = try copyFixture(
+            body: "<p>\(text)</p>",
+            lexicon: """
+                <lexicon xmlns="http://www.w3.org/2005/01/pronunciation-lexicon" version="1.0" alphabet="ipa" xml:lang="en-US">
+                <lexeme><grapheme>md</grapheme><phoneme>ɛm diː</phoneme></lexeme></lexicon>
+                """)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let blocks = try parseEPUBBlocks(audiobookID: "proof", epubURL: root).blocks
+        let paragraph = try #require(blocks.last)
+        #expect(paragraph.text == text)
+        let spans = try EPUBPronunciationStorage.decode(paragraph.pronunciationAnnotations)
+        #expect(spans.map(\.text) == ["md", "md", "md"])
+        #expect(spans.map(\.start) == [91, 96, 101])
+        #expect(spans.allSatisfy { $0.source == .lexicon })
+        let plan = try NarrationRenderPlanner.make(blocks: blocks, overrides: .init(entries: [:]))
+        #expect(
+            plan.blocks.last?.pronunciationDecisions.map(\.sourceWord) == ["md", "md", "md"])
+        #expect(plan.pronunciationAuditDiagnostics.isEmpty)
+    }
+
+    @Test func plsMatchesWholeFilenamesWithoutMatchingTheirComponents() throws {
+        let root = try copyFixture(
+            body: "<p>Read open-loops.md and README-2.txt, then backup-open-loops.md.</p>",
+            lexicon: """
+                <lexicon xmlns="http://www.w3.org/2005/01/pronunciation-lexicon" version="1.0" alphabet="ipa" xml:lang="en-US">
+                <lexeme><grapheme>open-loops.md</grapheme><phoneme>oʊpən luːps</phoneme></lexeme>
+                <lexeme><grapheme>open</grapheme><phoneme>oʊpən</phoneme></lexeme>
+                <lexeme><grapheme>loops</grapheme><phoneme>luːps</phoneme></lexeme>
+                <lexeme><grapheme>md</grapheme><phoneme>ɛm diː</phoneme></lexeme>
+                <lexeme><grapheme>README</grapheme><phoneme>ɹiːd miː</phoneme></lexeme>
+                <lexeme><grapheme>2</grapheme><phoneme>tuː</phoneme></lexeme></lexicon>
+                """)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let blocks = try parseEPUBBlocks(audiobookID: "proof", epubURL: root).blocks
+        let paragraph = try #require(blocks.last)
+        let spans = try EPUBPronunciationStorage.decode(paragraph.pronunciationAnnotations)
+        #expect(spans.map(\.text) == ["open-loops.md"])
+        #expect(spans.first?.start == 5)
+        #expect(spans.first?.end == 18)
     }
 
     @Test func aliasNamespaceEntitiesAndWhitespaceKeepOffsets() throws {
