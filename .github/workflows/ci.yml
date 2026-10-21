@@ -306,7 +306,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload Phonon native audio proof
-        if: success() && steps.scope.outputs.docs_only != 'true'
+        if: always() && steps.scope.outputs.docs_only != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: PhononNativeProof-${{ github.run_id }}-${{ github.run_attempt }}

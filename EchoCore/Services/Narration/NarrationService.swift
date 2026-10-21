@@ -921,6 +921,13 @@ final class NarrationService {
         fmEnabled: Bool,
         onBlockProgress: (@MainActor (NarrationRenderProgress) -> Void)?
     ) async throws -> RenderedNarrationFile {
+        // Resolve once per original block, then freeze the choice for planning,
+        // synthesis and receipts. Do not query a voice plan for image-only blocks.
+        let blockVoices = Dictionary(
+            uniqueKeysWithValues: blocks.filter {
+                BlockVoicePlanLoader.isSpeakable($0)
+            }.map { ($0.id, blockVoice($0.id)) })
+        let resolvedVoice: @Sendable (String) -> VoiceID = { blockVoices[$0] ?? voice }
         let plan = try await renderPlan(
             for: blocks,
             overrides: overrides,
@@ -928,7 +935,7 @@ final class NarrationService {
             fmEnabled: fmEnabled,
             textOnlyBlockIDs: Set(
                 blocks.filter {
-                    VoiceCatalog.phononName(for: blockVoice($0.id)) != nil
+                    VoiceCatalog.phononName(for: resolvedVoice($0.id)) != nil
                 }.map(\.id)))
         let speakableBlockIDs = plan.blocks.filter(\.isSpeakable).map(\.blockID)
         var renderedSpeakableBlocks = 0
@@ -990,7 +997,8 @@ final class NarrationService {
         for plannedBlock in plan.blocks {
             try Task.checkCancellation()
             let block = plannedBlock.originalBlock
-            let selectedVoice = plannedBlock.isSpeakable ? blockVoice(plannedBlock.blockID) : voice
+            let selectedVoice =
+                plannedBlock.isSpeakable ? resolvedVoice(plannedBlock.blockID) : voice
 
             // Bound each synthesize call under Kokoro's ~510-phoneme context window
             // (see NarrationTextChunker for the budget). One anchor per ORIGINAL
@@ -1159,7 +1167,7 @@ final class NarrationService {
             anchors: anchors,
             renderedOriginalChunks: renderedOriginalChunks
         )
-        .filter { VoiceCatalog.phononName(for: blockVoice($0.blockID)) == nil }
+        .filter { VoiceCatalog.phononName(for: resolvedVoice($0.blockID)) == nil }
 
         return RenderedNarrationFile(
             chapterIndex: chapterIndex,
@@ -1170,14 +1178,14 @@ final class NarrationService {
             anchors: anchors,
             spokenBlockIDs: spokenBlockIDs,
             auditedBlockIDs: plan.blocks.map(\.blockID).filter {
-                VoiceCatalog.phononName(for: blockVoice($0)) == nil
+                VoiceCatalog.phononName(for: resolvedVoice($0)) == nil
             },
             speechRangesByBlock: speechRangesByBlock,
             synthesisWordTimingsByBlock: synthesisWordTimingsByBlock,
             pronunciationFallbackHits: pronunciationFallbackHits,
             pronunciationDecisions: pronunciationDecisions,
             pronunciationAuditDiagnostics: pronunciationAuditDiagnostics.filter {
-                VoiceCatalog.phononName(for: blockVoice($0.blockID)) == nil
+                VoiceCatalog.phononName(for: resolvedVoice($0.blockID)) == nil
             })
     }
 
