@@ -636,6 +636,7 @@ struct NarrationRunResult {
         resourceURL: (String, String) -> URL? = NarrationResources.url(forResource:withExtension:)
     ) throws {
         for voice in Set(plan.blocks.map(\.voiceID)) {
+            if VoiceCatalog.phononName(for: voice) != nil { continue }
             guard resourceURL(voice.rawValue, "f32") != nil,
                 resourceURL(voice.rawValue, "rows") != nil
             else {
@@ -1246,13 +1247,17 @@ struct NarrationRunResult {
 
     /// Provenance stamp embedded in the m4b comment (`©cmt`): render date + the
     /// engine/render version, e.g. "Echo narration — 2026-06-23 · ONNX rv7".
-    static func narrationVersionStamp(date: Date = Date()) -> String {
+    static func narrationVersionStamp(
+        date: Date = Date(), rendererIdentity: String = NarrationFileNaming.rendererIdentity
+    ) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "UTC")
         formatter.dateFormat = "yyyy-MM-dd"
-        return
-            "Echo narration — \(formatter.string(from: date)) · ONNX rv\(NarrationFileNaming.renderVersion)"
+        let engine =
+            rendererIdentity.contains("phonon-31m")
+            ? "Phonon 31M Core ML 0.4.0" : "ONNX rv\(NarrationFileNaming.renderVersion)"
+        return "Echo narration — \(formatter.string(from: date)) · \(engine)"
     }
 
     /// Resolves cover art for a narration export. The EPUB cover is declared in the
@@ -1486,6 +1491,8 @@ struct NarrationRunResult {
             "\(chapterIndex):\((voiceByChapterIndex[chapterIndex] ?? Self.legacyDefaultVoice(for: config)).rawValue)"
         }
         let uniqueVoices = Set(voiceByChapterIndex.values)
+        let rendererIdentity = VoiceCatalog.rendererIdentity(
+            for: uniqueVoices.union(resolvedVoicePlan.map { Set($0.blocks.map(\.voiceID)) } ?? []))
         let uniformVoice = uniqueVoices.count == 1 ? uniqueVoices.first : nil
         let chapterVoicePlanDigests = resolvedVoicePlan.map { plan in
             Dictionary(
@@ -1503,7 +1510,7 @@ struct NarrationRunResult {
                 voice: resolvedVoicePlan.defaultVoice,
                 voicePlanSHA256: resolvedVoicePlan.voicePlanSHA256,
                 renderVersion: NarrationFileNaming.renderVersion,
-                rendererIdentity: NarrationFileNaming.rendererIdentity,
+                rendererIdentity: rendererIdentity,
                 normalizationMode: normalizationMode,
                 orderedChapterSignatures: chapterIndices.map {
                     "\($0):\(chapterContentSignatures[$0]!)"
@@ -1516,7 +1523,7 @@ struct NarrationRunResult {
                 sourceFingerprint: sourceFingerprint,
                 voice: uniformVoice ?? Self.legacyDefaultVoice(for: config),
                 renderVersion: NarrationFileNaming.renderVersion,
-                rendererIdentity: NarrationFileNaming.rendererIdentity,
+                rendererIdentity: rendererIdentity,
                 normalizationMode: normalizationMode,
                 orderedChapterSignatures: chapterIndices.map {
                     "\($0):\(chapterContentSignatures[$0]!)"
@@ -1526,7 +1533,7 @@ struct NarrationRunResult {
                 sourceFingerprint: sourceFingerprint,
                 orderedChapterVoices: orderedVoices,
                 renderVersion: NarrationFileNaming.renderVersion,
-                rendererIdentity: NarrationFileNaming.rendererIdentity,
+                rendererIdentity: rendererIdentity,
                 normalizationMode: normalizationMode,
                 orderedChapterSignatures: chapterIndices.map {
                     "\($0):\(chapterContentSignatures[$0]!)"
@@ -1553,7 +1560,7 @@ struct NarrationRunResult {
                         sourceFingerprint: sourceFingerprint,
                         voice: chapterVoice,
                         renderVersion: NarrationFileNaming.renderVersion,
-                        rendererIdentity: NarrationFileNaming.rendererIdentity,
+                        rendererIdentity: rendererIdentity,
                         normalizationMode: normalizationMode,
                         chapterIndex: chapterIndex,
                         chapterContentSignature: signature,
@@ -1616,7 +1623,10 @@ struct NarrationRunResult {
             // happened silently inside the first synthesize call (a fresh
             // environment sat mute through a 163 MB fetch). The other workers'
             // prepare is a fast cache hit on their first synthesize.
-            try await first.prepare { step in
+            try await first.prepare(
+                voice: chapterIndices.first.flatMap { voiceByChapterIndex[$0] }
+                    ?? Self.legacyDefaultVoice(for: config)
+            ) { step in
                 Task { @MainActor in
                     progress(.preparing(fraction: Self.prepareFraction(step)))
                 }
@@ -1835,7 +1845,7 @@ struct NarrationRunResult {
             items: items, outputURL: config.outM4BURL,
             metadata: ExportMetadata(
                 title: config.title, author: config.author, coverArt: coverData,
-                comment: Self.narrationVersionStamp()))
+                comment: Self.narrationVersionStamp(rendererIdentity: rendererIdentity)))
 
         // Revalidate again before any marker payload can influence sidecar or
         // audit assembly. Export must not turn a concurrent mutation into a
@@ -1885,7 +1895,7 @@ struct NarrationRunResult {
         // audiobook and the caller-requested sidecar have succeeded. Review
         // clips therefore address the exact exported audiobook timebase.
         let pronunciationReview: PronunciationReviewOutcome
-        if config.generatePronunciationReview {
+        if config.generatePronunciationReview, !rendererIdentity.contains("phonon-31m") {
             let watchWords = PronunciationWatchVocabulary.words.sorted()
             do {
                 pronunciationReview = try await reviewGenerator(

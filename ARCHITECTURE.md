@@ -1067,6 +1067,25 @@ Block-level read-along (the active paragraph) is refined to **word level** so th
 
 ### On-Device Narration — Synthesis Engine Core (June 2026)
 
+**Current engines (October 2026).** `NarrationEngineFactory` returns a lazy
+`NarrationEngineRouter`: existing voice IDs use `OnnxKokoroEngine`; six versioned
+`ph31m_v040_*` voices use `PhononTTSEngine` through Gradium's exact `ptts` 0.4.0
+Swift package. `prepare(voice:progress:)` loads the selected engine only. The
+router also handles mixed chapter/block voice plans and unloads both engines at
+existing lifecycle boundaries. Phonon serializes voice changes with synthesis,
+keeps Core ML off the main actor, and emits mono 24 kHz PCM without claiming
+Kokoro duration-head word timings or IPA pronunciation evidence.
+
+`PhononModelStore` coalesces first-use downloads, authenticates the pinned release
+ZIP and manifest with SHA-256, checks every original model/voice file, and stages
+installation into the versioned cache. Phonon voices have distinct cache names;
+headless capture identities and exported provenance include their engine family.
+Kokoro remains the default. Phonon/mixed exports omit Kokoro pronunciation review
+receipts. The native dependency links into iOS, macOS, and `echo-cli` only; Mac
+builds require Apple Silicon, and iOS simulator builds use arm64. Watch, widgets,
+and CarPlay retain their playback paths. See [Phonon narration](docs/phonon-narration.md).
+
+
 For study EPUBs that have **no audiobook**, Echo can generate spoken audio on-device and produce the same sentence-synced, study-ready aligned book. This is **additive** — the WhisperKit alignment pipeline above is untouched and still runs whenever a real audiobook exists. The synthesis path is the *inverse* of alignment: because the audio is generated from the EPUB text, every timestamp is known at synthesis time, so the transcribe-and-DTW recovery step is unnecessary — anchors are written directly.
 
 #### Pronunciation pack, contextual shadowing, and qualification

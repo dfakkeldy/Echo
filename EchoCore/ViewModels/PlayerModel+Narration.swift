@@ -594,7 +594,7 @@
                         audiobookID: audiobookID)
                     try await NarrationPreparationProgressRelay.run(
                         prepare: { progress in
-                            try await self.narrationTTS.prepare(progress: progress)
+                            try await self.narrationTTS.prepare(voice: voice.id, progress: progress)
                         },
                         receive: { [weak self] progress in
                             self?.handleNarrationPreparationProgress(

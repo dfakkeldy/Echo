@@ -425,7 +425,9 @@ final class MacBatchProcessingService {
                     try await withThrowingTaskGroup(of: Void.self) { group in
                         group.addTask {
                             defer { prepareContinuation.finish() }
-                            try await prepareEngine.prepare { p in prepareContinuation.yield(p) }
+                            try await prepareEngine.prepare(voice: voice) { p in
+                                prepareContinuation.yield(p)
+                            }
                         }
                         for await p in prepareStream {
                             let s = NarrationPrepareStatus.batch(for: p)

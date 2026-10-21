@@ -10,7 +10,7 @@ import Testing
         // (fetched verbatim from onnx-community/Kokoro-82M-v1.0-ONNX via
         // Tools/fetch_kokoro_voices.py). Non-English voices are excluded —
         // Echo's G2P is English-only.
-        #expect(VoiceCatalog.all.count == 28)
+        #expect(VoiceCatalog.kokoro.count == 28)
         #expect(VoiceCatalog.all.contains { $0.id == VoiceID("af_heart") })
     }
 
@@ -41,7 +41,7 @@ import Testing
     }
 
     @Test func sectionsAreGroupedByAccentAndGender() {
-        let sections = VoiceCatalog.sections
+        let sections = VoiceCatalog.sections.filter { !$0.id.hasPrefix("phonon-") }
         #expect(
             sections.map(\.title) == [
                 "American · Female", "American · Male", "British · Female", "British · Male",

@@ -955,10 +955,9 @@ class TestCIWorkflowRunsInstallerTestsFirst(unittest.TestCase):
     def test_echo_cli_compilation_proof_is_retained(self) -> None:
         text = self._read_ci_workflow()
 
-        self.assertIn(
-            "-scheme echo-cli",
-            text,
-            "ci.yml must retain the existing echo-cli xcodebuild compilation step.",
+        self.assertTrue(
+            "-scheme echo-cli" in text or "make echo-cli" in text,
+            "ci.yml must compile echo-cli directly or through its Release Makefile target.",
         )
 
 

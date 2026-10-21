@@ -1153,7 +1153,9 @@ final class NarrationService {
             chapterIndex: chapterIndex,
             renderedFileDuration: duration,
             anchors: anchors,
-            renderedOriginalChunks: renderedOriginalChunks)
+            renderedOriginalChunks: renderedOriginalChunks
+        )
+        .filter { VoiceCatalog.phononName(for: blockVoice($0.blockID)) == nil }
 
         return RenderedNarrationFile(
             chapterIndex: chapterIndex,
@@ -1163,12 +1165,16 @@ final class NarrationService {
             duration: duration,
             anchors: anchors,
             spokenBlockIDs: spokenBlockIDs,
-            auditedBlockIDs: plan.blocks.map(\.blockID),
+            auditedBlockIDs: plan.blocks.map(\.blockID).filter {
+                VoiceCatalog.phononName(for: blockVoice($0)) == nil
+            },
             speechRangesByBlock: speechRangesByBlock,
             synthesisWordTimingsByBlock: synthesisWordTimingsByBlock,
             pronunciationFallbackHits: pronunciationFallbackHits,
             pronunciationDecisions: pronunciationDecisions,
-            pronunciationAuditDiagnostics: pronunciationAuditDiagnostics)
+            pronunciationAuditDiagnostics: pronunciationAuditDiagnostics.filter {
+                VoiceCatalog.phononName(for: blockVoice($0.blockID)) == nil
+            })
     }
 
     func renderPlan(

@@ -37,7 +37,7 @@ import Testing
         #expect(project.contains("EchoCore/Resources"))
         #expect(project.contains("EchoNarrationResources"))
 
-        for voice in VoiceCatalog.all {
+        for voice in VoiceCatalog.kokoro {
             for ext in ["f32", "rows"] {
                 let url = root.appending(path: "EchoCore/Resources/\(voice.id.rawValue).\(ext)")
                 #expect(

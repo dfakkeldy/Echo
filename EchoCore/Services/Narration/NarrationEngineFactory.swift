@@ -9,20 +9,29 @@
     /// `EchoCore` nor the narration deps). Tests inject `MockTTSEngine` straight
     /// into `NarrationService`, so they bypass this factory entirely.
     enum NarrationEngineFactory {
-        /// The on-device synthesis engine for both iOS and macOS:
-        /// **`OnnxKokoroEngine`** (ONNX Runtime, CPU) — instant load (no AOT
-        /// compile), RTF ≈ 0.5 on A14, and it never touches the ANE so the BNNS
-        /// vocoder trap can't occur. (The former FluidAudio + fixed-shape CoreML
-        /// engines were removed once this was device-verified.)
+        /// Routes each selected voice to Kokoro (ONNX/CPU, the default) or
+        /// Phonon 31M (Core ML). Both models are lazy; preparing a Phonon voice
+        /// does not download or load Kokoro, and mixed voice plans can use both.
         ///
         /// - Parameter intraOpThreads: ONNX intra-op thread count; `nil` uses the
         ///   platform default from `defaultIntraOpThreads(jobs:)`.
         static func make(intraOpThreads: Int32? = nil, generateWordTimings: Bool = true)
             -> TTSEngine
         {
-            OnnxKokoroEngine(
-                intraOpThreads: intraOpThreads ?? defaultIntraOpThreads(),
-                generateWordTimings: generateWordTimings)
+            let threads = intraOpThreads ?? defaultIntraOpThreads()
+            return NarrationEngineRouter(
+                makeKokoro: {
+                    OnnxKokoroEngine(
+                        intraOpThreads: threads, generateWordTimings: generateWordTimings)
+                },
+                makePhonon: {
+                    #if canImport(PhononTTS)
+                        return PhononTTSEngine()
+                    #else
+                        // Targets without the native runtime never list Phonon voices.
+                        return OnnxKokoroEngine(intraOpThreads: threads)
+                    #endif
+                })
         }
 
         /// Pure thread-count policy, unit-tested without sysctl: divide the

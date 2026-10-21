@@ -283,6 +283,7 @@ jobs:
           # Public fixture only. Keep a real import-to-ONNX proof alongside the
           # fast recording-engine tests; the local test remains opt-in.
           TEST_RUNNER_ECHO_EPUB_LISTENING_OUTPUT: ${{ runner.temp }}/epub-pronunciation-proof
+          TEST_RUNNER_ECHO_PHONON_PROOF_OUTPUT: ${{ runner.temp }}/phonon-proof
         run: |
           set -o pipefail
           rm -rf TestResults.xcresult
@@ -301,6 +302,15 @@ jobs:
         with:
           name: EPUBPronunciationProof-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/epub-pronunciation-proof
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Upload Phonon native audio proof
+        if: success() && steps.scope.outputs.docs_only != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhononNativeProof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/phonon-proof
           retention-days: 14
           if-no-files-found: error
 
@@ -328,11 +338,15 @@ jobs:
       - name: Build — echo-cli
         if: steps.scope.outputs.docs_only != 'true'
         run: |
-          set -o pipefail
-          xcodebuild build \
-            -project Echo.xcodeproj \
-            -scheme echo-cli \
-            -destination "platform=macOS" \
-            CODE_SIGNING_ALLOWED=NO \
-            -jobs 5 \
-            -quiet
+          make echo-cli
+
+      - name: Upload Release narration CLI
+        if: success() && steps.scope.outputs.docs_only != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: EchoNarrationCLI-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .build/cli/Build/Products/Release/echo-cli
+            .build/cli/Build/Products/Release/EchoNarrationResources
+          retention-days: 7
+          if-no-files-found: error

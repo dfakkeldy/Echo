@@ -16,6 +16,15 @@ struct VoicePickerView: View {
                         }
                     }
                 }
+                if !VoiceCatalog.phonon.isEmpty {
+                    Section {
+                        Text(
+                            "Phonon 31M downloads a 137 MB model on first use. It reads text directly, with paragraph read-along; Kokoro's IPA pronunciation corrections and exact word timings do not apply."
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    }
+                }
             }
             .navigationTitle("Choose a Voice")
             #if os(iOS)

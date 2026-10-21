@@ -4,6 +4,12 @@ All notable changes to Echo: Audiobook Study Player.
 
 ## [Unreleased]
 
+- Optional Phonon 31M narration on iPhone, iPad, Apple Silicon Mac, and
+  `echo-cli`: six English voices, a verified first-use Core ML model download,
+  and paragraph read-along. Kokoro remains the default and retains IPA
+  pronunciation corrections and exact word timings. Mac builds now require
+  Apple Silicon; Watch, widgets, and CarPlay continue playing generated audio.
+
 - Corrected Watch Inbox setup and Check Deliveries restart queued attempts with
   current credentials, keeping the original message IDs. Messages from an earlier
   URL can be moved explicitly with Use Current Inbox for Queued Messages. A
