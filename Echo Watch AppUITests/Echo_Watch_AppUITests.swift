@@ -33,4 +33,30 @@ nonisolated final class Echo_Watch_AppUITests: XCTestCase {
 
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
     }
+
+    @MainActor
+    func testInboxPresentsSystemTextInput() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let inbox = app.buttons["Dictate to inbox"].firstMatch
+        XCTAssertTrue(inbox.waitForExistence(timeout: 10))
+        inbox.tap()
+
+        let done = app.buttons["Done"].firstMatch
+        XCTAssertTrue(
+            done.waitForExistence(timeout: 30),
+            "Inbox must expose the system input's Done action, rather than leave its waiting view onscreen.\n\(app.debugDescription)"
+        )
+        XCTAssertTrue(done.isHittable, "The system input's Done action must be visible and usable.")
+
+        // Finishing empty input must close capture without saving a message.
+        XCTAssertTrue(done.isEnabled, app.debugDescription)
+        done.tap()
+        XCTAssertTrue(inbox.waitForExistence(timeout: 10))
+        XCTAssertTrue(
+            inbox.isHittable,
+            "Finishing empty dictation must return control to the player.\n\(app.debugDescription)"
+        )
+    }
 }

@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 import WatchKit
+import os.log
 
 /// Uses the same native text-input controller as MacroMark. Accepting dictation
 /// (including the system's double-tap action) saves immediately, with no second
 /// Send screen. Only a durable local save earns the success haptic/dismissal.
 struct WatchInboxCaptureView: View {
     let viewModel: WatchViewModel
-    @Environment(\.dismiss) private var dismiss
+    private let logger = Logger(category: "WatchInboxCapture")
+    @Environment(\.scenePhase) private var scenePhase
     @State private var didPresent = false
     @State private var text: String?
     @State private var capture: WatchInboxCapture?
@@ -29,36 +31,41 @@ struct WatchInboxCaptureView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Button("Cancel", role: .cancel) { close() }
         }
         .padding()
-        .navigationTitle("Inbox")
-        .task {
-            guard !didPresent else { return }
-            didPresent = true
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.black)
+        .task(id: scenePhase) {
+            guard scenePhase == .active, !didPresent else { return }
+            logger.info("Inbox capture appeared.")
             if let book = viewModel.bookmarkStorageKey, !book.isEmpty {
                 context = .init(title: viewModel.title, position: max(0, viewModel.currentTime))
             }
-            viewModel.beginInboxDictation()
-            // Let the sheet finish presentation before asking WatchKit to present
-            // its system input controller, just as MacroMark does.
+            // Let the capture view appear before WatchKit takes over input.
+            // A cancelled startup remains eligible when the app becomes active.
             try? await Task.sleep(for: .milliseconds(100))
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, !didPresent else { return }
+            didPresent = true
+            viewModel.beginInboxDictation()
             presentDictation()
         }
     }
 
     private func presentDictation() {
-        guard let controller = WKExtension.shared().visibleInterfaceController else {
+        guard let controller = WKApplication.shared().visibleInterfaceController else {
             text = text ?? ""
             errorMessage = "Dictation could not open. Please try again."
             WKInterfaceDevice.current().play(.failure)
             return
         }
+        logger.info("Presenting system inbox dictation.")
         controller.presentTextInputController(withSuggestions: nil, allowedInputMode: .plain) { result in
             let words = (result as? [String])?.first
             Task { @MainActor in
+                logger.info("System inbox dictation completed; has text: \(words?.isEmpty == false, privacy: .public)")
                 guard let words, !words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    dismiss()
+                    close()
                     return
                 }
                 text = words
@@ -70,6 +77,11 @@ struct WatchInboxCaptureView: View {
                 }
             }
         }
+        logger.info("System inbox dictation presentation returned.")
+    }
+
+    private func close() {
+        viewModel.isShowingInbox = false
     }
 
     private func save() {
@@ -77,7 +89,7 @@ struct WatchInboxCaptureView: View {
         do {
             try viewModel.inbox.save(capture)
             WKInterfaceDevice.current().play(.success)
-            dismiss()
+            close()
         } catch {
             errorMessage = "Could not save your message. Your words are still here; try again."
         }
