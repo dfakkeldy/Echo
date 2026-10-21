@@ -1186,7 +1186,8 @@ final class NarrationService {
         overrides: PronunciationOverrides,
         occurrenceOverrides: PronunciationOccurrenceOverrides,
         fmEnabled: Bool,
-        textOnlyBlockIDs: Set<String> = []
+        textOnlyBlockIDs: Set<String> = [],
+        contextBlocks: [EPubBlockRecord]? = nil
     ) async throws -> NarrationRenderPlan {
         if !textOnlyBlockIDs.isEmpty {
             let phonon = try await PhononRenderPlanner.make(
@@ -1198,7 +1199,8 @@ final class NarrationService {
             } else {
                 kokoro = try await renderPlan(
                     for: kokoroBlocks, overrides: overrides,
-                    occurrenceOverrides: occurrenceOverrides, fmEnabled: fmEnabled)
+                    occurrenceOverrides: occurrenceOverrides, fmEnabled: fmEnabled,
+                    contextBlocks: blocks)
             }
             let byID = Dictionary(
                 uniqueKeysWithValues: (kokoro.blocks + phonon.blocks).map {
@@ -1216,7 +1218,7 @@ final class NarrationService {
             preparedBlocks, overrides: overrides, pronunciationPack: pronunciationPack,
             pronunciationAuditPack: pronunciationAuditPack,
             contextualPronunciationEvaluator: contextualPronunciationEvaluator,
-            neuralEvaluator: neuralEvaluator)
+            neuralEvaluator: neuralEvaluator, contextBlocks: contextBlocks)
     }
 
     #if DEBUG
@@ -1232,7 +1234,7 @@ final class NarrationService {
         pronunciationPack: EnglishPronunciationPack,
         pronunciationAuditPack: EnglishPronunciationAuditPack,
         contextualPronunciationEvaluator: ContextualPronunciationBatchEvaluator,
-        neuralEvaluator: NeuralEvaluator?
+        neuralEvaluator: NeuralEvaluator?, contextBlocks: [EPubBlockRecord]?
     ) async throws -> NarrationRenderPlan {
         try Task.checkCancellation()
         #if DEBUG
@@ -1245,8 +1247,11 @@ final class NarrationService {
             block.text = try EPUBPronunciationRewriter.rewrite(userText, block: block).text
             return block
         }
+        let discoveryByID = Dictionary(uniqueKeysWithValues: discoveryBlocks.map { ($0.id, $0) })
+        let context = contextBlocks?.map { discoveryByID[$0.id] ?? $0 } ?? discoveryBlocks
         let contextualOccurrences = ContextualPronunciationDiscovery.discover(
-            blocks: discoveryBlocks, overrides: overrides)
+            blocks: context, overrides: overrides
+        ).filter { discoveryByID[$0.blockID] != nil }
         let contextualEvidence = try await ContextualPronunciationPreflight.run(
             occurrences: contextualOccurrences,
             evaluator: contextualPronunciationEvaluator,

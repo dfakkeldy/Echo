@@ -75,7 +75,7 @@ import Testing
     }
 
     @MainActor @Test func mixedPlanningPreservesOrderAndSeparatorPauses() async throws {
-        let database = try DatabaseService(inMemory: true)
+        let database = try DatabaseService(inMemory: ())
         let engine = RecordingEngine()
         let service = NarrationService(
             db: database.writer, audiobookID: "book", tts: engine,
@@ -105,6 +105,38 @@ import Testing
             chapterIndex: 0, isHidden: false, hiddenReason: nil,
             isFrontMatter: false, wordCount: nil, markers: nil, textFormats: nil,
             createdAt: nil, modifiedAt: nil)
+    }
+
+    @MainActor @Test func kokoroKeepsItsPhononNeighborsAsPronunciationContext() async throws {
+        let recorder = ContextRecorder()
+        let evaluate = FoundationModelsContextualPronunciationEvaluator.notRequestedEvaluator()
+        let database = try DatabaseService(inMemory: ())
+        let service = NarrationService(
+            db: database.writer, audiobookID: "book", tts: RecordingEngine(),
+            audioWriter: AVFoundationAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory, state: NarrationState(),
+            contextualPronunciationEvaluator: { request in
+                await recorder.record(request)
+                return try await evaluate(request)
+            })
+        let before = block("before", text: "Yesterday we went to the library.")
+        let target = block("target", text: "I read the record.")
+        let after = block("after", text: "Then we went home.")
+        _ = try await service.renderPlan(
+            for: [before, target, after], overrides: PronunciationOverrides(entries: [:]),
+            occurrenceOverrides: .empty, fmEnabled: false,
+            textOnlyBlockIDs: [before.id, after.id])
+        let requests = await recorder.requests
+        let occurrence = try #require(
+            requests.flatMap(\.occurrences).first { $0.targetWord == "read" })
+        #expect(occurrence.precedingSentence == before.text)
+        #expect(occurrence.followingSentence == after.text)
+        #expect(requests.flatMap(\.occurrences).allSatisfy { $0.blockID == target.id })
+    }
+
+    private actor ContextRecorder {
+        var requests: [ContextualPronunciationBatchRequest] = []
+        func record(_ request: ContextualPronunciationBatchRequest) { requests.append(request) }
     }
 
     private static func hash(_ data: Data) -> String {
