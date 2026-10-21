@@ -592,9 +592,13 @@
                     try NarrationRenderPolicy.checkTaskIsActive(
                         currentFolderURL: self.bookIdentityURL?.absoluteString,
                         audiobookID: audiobookID)
+                    let preparationVoice = forwardSegments.first?.voice
+                        ?? earlierSegments.first?.voice ?? voice.id
                     try await NarrationPreparationProgressRelay.run(
                         prepare: { progress in
-                            try await self.narrationTTS.prepare(voice: voice.id, progress: progress)
+                            try await self.narrationTTS.prepare(
+                                voice: preparationVoice,
+                                progress: progress)
                         },
                         receive: { [weak self] progress in
                             self?.handleNarrationPreparationProgress(

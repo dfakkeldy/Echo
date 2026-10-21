@@ -1496,8 +1496,8 @@ struct NarrationRunResult {
             "\(chapterIndex):\((voiceByChapterIndex[chapterIndex] ?? Self.legacyDefaultVoice(for: config)).rawValue)"
         }
         let uniqueVoices = Set(voiceByChapterIndex.values)
-        let rendererIdentity = VoiceCatalog.rendererIdentity(
-            for: uniqueVoices.union(resolvedVoicePlan.map { Set($0.blocks.map(\.voiceID)) } ?? []))
+        let activeVoices = resolvedVoicePlan.map { Set($0.blocks.map(\.voiceID)) } ?? uniqueVoices
+        let rendererIdentity = VoiceCatalog.rendererIdentity(for: activeVoices)
         let uniformVoice = uniqueVoices.count == 1 ? uniqueVoices.first : nil
         let chapterVoicePlanDigests = resolvedVoicePlan.map { plan in
             Dictionary(
@@ -1624,13 +1624,23 @@ struct NarrationRunResult {
 
         let engines = batch.isEmpty ? [] : (0..<workers).map { _ in makeEngine() }
         if let first = engines.first {
+            let firstChapterBlockIDs = Set(
+                batch.first.flatMap {
+                    plannedByChapterIndex[$0]?.blocks.map {
+                        AlignmentSidecar.portableSuffix(of: $0.id)
+                    }
+                } ?? [])
+            let firstVoice =
+                resolvedVoicePlan?.blocks.first {
+                    firstChapterBlockIDs.contains($0.blockID)
+                }?.voiceID ?? batch.first.flatMap { voiceByChapterIndex[$0] }
+                ?? Self.legacyDefaultVoice(for: config)
             // Surface the one-time model download/session load that previously
             // happened silently inside the first synthesize call (a fresh
             // environment sat mute through a 163 MB fetch). The other workers'
             // prepare is a fast cache hit on their first synthesize.
             try await first.prepare(
-                voice: chapterIndices.first.flatMap { voiceByChapterIndex[$0] }
-                    ?? Self.legacyDefaultVoice(for: config)
+                voice: firstVoice
             ) { step in
                 Task { @MainActor in
                     progress(.preparing(fraction: Self.prepareFraction(step)))

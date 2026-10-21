@@ -422,10 +422,11 @@ final class MacBatchProcessingService {
                     // free under Swift 6 (TTSEngine: Sendable; NarrationService is
                     // main-actor-isolated and not Sendable).
                     let prepareEngine: TTSEngine = service.tts
+                    let preparationVoice = chapters.first?.voice ?? voice
                     try await withThrowingTaskGroup(of: Void.self) { group in
                         group.addTask {
                             defer { prepareContinuation.finish() }
-                            try await prepareEngine.prepare(voice: voice) { p in
+                            try await prepareEngine.prepare(voice: preparationVoice) { p in
                                 prepareContinuation.yield(p)
                             }
                         }
