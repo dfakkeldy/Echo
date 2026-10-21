@@ -21,6 +21,7 @@ final class WatchInboxRelay: NSObject, URLSessionTaskDelegate {
     }
 
     private(set) var pendingCount = 0
+    private(set) var pendingForPreviousSetupCount = 0
     private(set) var lastAcceptedAt: Date?
     private(set) var lastError: String?
     private(set) var isConfigured = false
@@ -76,13 +77,21 @@ final class WatchInboxRelay: NSObject, URLSessionTaskDelegate {
         let queue = try queue()
         try queue.bindUnconfigured(to: configuration.id)
         retrying.formUnion(try queue.retryPending(configurationID: configuration.id))
+        updateStatus()
         start()
     }
 
-    func retryPendingDeliveries() {
+    func retryPendingDeliveries(useCurrentInbox: Bool = false) {
         do {
-            retrying.formUnion(try queue().retryPending())
+            let queue = try queue()
+            if useCurrentInbox {
+                guard let configuration = history.current else { throw WatchInboxError.invalidWebhook }
+                retrying.formUnion(try queue.useCurrentInboxForPending(configuration.id))
+            } else {
+                retrying.formUnion(try queue.retryPending())
+            }
             lastError = nil
+            updateStatus()
             start()
         } catch {
             lastError = "Inbox could not restart delivery. Your queued messages are kept."
@@ -176,6 +185,9 @@ final class WatchInboxRelay: NSObject, URLSessionTaskDelegate {
 
     private func updateStatus() {
         pendingCount = outbox?.pending.count ?? 0
+        pendingForPreviousSetupCount = outbox?.pending.filter {
+            $0.configurationID != nil && $0.configurationID != history.currentID
+        }.count ?? 0
         lastAcceptedAt = outbox?.lastAcceptedAt
     }
 

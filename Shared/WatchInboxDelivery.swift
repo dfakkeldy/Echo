@@ -266,6 +266,23 @@ final class WatchInboxDeliveryQueue {
         return ids
     }
 
+    /// Only the explicit recovery action may move captures to another endpoint.
+    @discardableResult
+    func useCurrentInboxForPending(_ configurationID: UUID, at date: Date = .now) throws -> Set<UUID> {
+        var ids: Set<UUID> = []
+        try update { state in
+            for index in state.pending.indices {
+                if state.pending[index].configurationID != configurationID {
+                    state.pending[index].attempts = 0
+                }
+                state.pending[index].configurationID = configurationID
+                state.pending[index].nextAttemptAt = date
+                ids.insert(state.pending[index].id)
+            }
+        }
+        return ids
+    }
+
     func accept(_ id: UUID, at date: Date = .now) throws {
         try update { state in
             guard let index = state.pending.firstIndex(where: { $0.id == id }) else { return }

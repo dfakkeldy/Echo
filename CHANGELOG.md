@@ -5,7 +5,8 @@ All notable changes to Echo: Audiobook Study Player.
 ## [Unreleased]
 
 - Corrected Watch Inbox setup and Check Deliveries restart queued attempts with
-  current credentials, keeping the original message IDs and destinations. A
+  current credentials, keeping the original message IDs. Messages from an earlier
+  URL can be moved explicitly with Use Current Inbox for Queued Messages. A
   replaced request's cancellation no longer increases its retry delay.
 - Watch Inbox context now uses the book's metadata title instead of the chapter
   or track title displayed by the Watch player.

@@ -187,6 +187,40 @@ struct WatchInboxDeliveryTests {
         #expect(plan.uploads.first?.sendImmediately == true)
     }
 
+    @Test func explicitDestinationRepairKeepsCapturesAndDoesNotResendReceipts() throws {
+        let url = try queueURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let old = try WatchInboxWebhookConfiguration(url: "https://example.com/incorrect", key: "old-fixture")
+        let current = try WatchInboxWebhookConfiguration(url: "https://example.com/inbox", key: "fixture")
+        let capture = try WatchInboxCapture(text: "Keep these original words")
+        let accepted = try WatchInboxCapture(text: "Already delivered")
+        let queue = try WatchInboxDeliveryQueue(fileURL: url)
+        try queue.enqueue(capture, configurationID: old.id)
+        try queue.recordFailure(capture.id)
+        try queue.enqueue(accepted, configurationID: current.id)
+        try queue.accept(accepted.id)
+        let retryAt = Date(timeIntervalSince1970: 200)
+
+        let ids = try queue.useCurrentInboxForPending(current.id, at: retryAt)
+        let restored = try WatchInboxDeliveryQueue(fileURL: url)
+        let entry = try #require(restored.pending.first)
+        #expect(ids == [capture.id])
+        #expect(entry.capture == capture)
+        #expect(entry.configurationID == current.id)
+        #expect(entry.attempts == 0)
+        #expect(entry.nextAttemptAt == retryAt)
+        #expect(restored.hasAccepted(accepted.id))
+
+        let task = WatchInboxUploadPlan.ScheduledTask(
+            identifier: 42, captureID: capture.id, request: try old.request(for: capture), isActive: true)
+        let plan = try WatchInboxUploadPlan(
+            pending: restored.pending, configurations: [old, current], tasks: [task], retrying: ids)
+        #expect(plan.taskIdentifiersToCancel == [42])
+        #expect(plan.uploads.map(\.entry.id) == [capture.id])
+        #expect(plan.uploads.first?.request.url == current.url)
+        #expect(plan.uploads.first?.request.value(forHTTPHeaderField: "Idempotency-Key") == capture.id.uuidString)
+    }
+
     @Test func ordinaryChecksRespectActiveRequestsAndOriginalDestinations() throws {
         let original = try WatchInboxWebhookConfiguration(
             url: "https://example.com/first", key: "fixture")
