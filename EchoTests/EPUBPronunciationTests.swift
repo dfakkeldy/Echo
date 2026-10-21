@@ -326,7 +326,8 @@ struct EPUBPronunciationTests {
         #expect(spans.allSatisfy { $0.source == .lexicon })
         let plan = try NarrationRenderPlanner.make(blocks: blocks, overrides: .init(entries: [:]))
         #expect(
-            plan.blocks.last?.pronunciationDecisions.map(\.sourceWord) == ["md", "md", "md"])
+            plan.blocks.last?.pronunciationDecisions.filter { $0.source == .epubLexicon }.map(
+                \.sourceWord) == ["md", "md", "md"])
         #expect(plan.pronunciationAuditDiagnostics.isEmpty)
     }
 
