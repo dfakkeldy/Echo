@@ -16,13 +16,13 @@ import Testing
         #expect(kokoro == NarrationFileNaming.rendererIdentity)
         #expect(phonon != kokoro)
         #expect(phonon.contains("phonon-31m-en.coreml.0.4.0"))
-        #expect(VoiceCatalog.phonon.allSatisfy(\.isPhonon))
+        #expect(VoiceCatalog.phonon.allSatisfy { $0.isPhonon })
     }
 
     @Test func preparingPhononNeverPreparesKokoro() async throws {
         let kokoro = RecordingEngine()
         let phonon = RecordingEngine()
-        let router = NarrationEngineRouter(kokoro: kokoro, phonon: phonon)
+        let router: any TTSEngine = NarrationEngineRouter(kokoro: kokoro, phonon: phonon)
         let voice = VoiceID("ph31m_v040_preston")
         try await router.prepare(voice: voice, progress: { _ in })
         _ = try await router.synthesize("A Phonon sentence.", voice: voice)
@@ -174,7 +174,7 @@ import Testing
             #expect(chunk.duration > 1)
             #expect(chunk.wordTimings == nil)
             #expect(chunk.pronunciationFallbackHits.isEmpty)
-            #expect(chunk.samples.allSatisfy(\.isFinite))
+            #expect(chunk.samples.allSatisfy { $0.isFinite })
             #expect(chunk.samples.contains { abs($0) > 0.001 })
             _ = try await AVFoundationAudioWriter().write(
                 [chunk], to: directory.appendingPathComponent("phonon-public-proof.m4a"))
