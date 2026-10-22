@@ -189,9 +189,8 @@ final class ReaderFeedViewModel {
             }
             let writer = db
             let bookID = audiobookID
-            let blocks = await Task.detached {
-                try? EPubBlockDAO(db: writer).searchBlocks(for: bookID, query: query ?? "")
-            }.value
+            let blocks = try? await EPubBlockDAO(db: writer).searchBlocksAsync(
+                for: bookID, query: query ?? "")
             guard !Task.isCancelled, revision == reloadRevision, query == searchQuery,
                 let blocks
             else { return }

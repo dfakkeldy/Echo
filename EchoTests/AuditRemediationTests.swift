@@ -81,6 +81,31 @@ struct AuditRemediationTests {
         #expect(model.sections.flatMap(\.items).contains { $0.id == "b-p" })
     }
 
+    @Test func asyncSearchPreservesLiteralWildcardsHiddenPolicyAndCancellation() async throws {
+        let database = try DatabaseService(inMemory: ())
+        try database.write { db in
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('search', 'Search', 60)")
+            for (index, text, hidden) in [
+                (0, "100% match", false), (1, "1000 match", false), (2, "100% hidden", true),
+            ] {
+                try db.execute(
+                    sql:
+                        "INSERT INTO epub_block (id, audiobook_id, spine_href, spine_index, block_index, sequence_index, block_kind, text, is_hidden) VALUES (?, 'search', 'c.xhtml', 0, ?, ?, 'paragraph', ?, ?)",
+                    arguments: ["p\(index)", index, index, text, hidden])
+            }
+        }
+        let dao = EPubBlockDAO(db: database.writer)
+        let rows = try await dao.searchBlocksAsync(for: "search", query: "%")
+        #expect(rows.map(\.id) == ["p0"])
+        #expect(try dao.searchBlocks(for: "search", query: "%").map(\.id) == rows.map(\.id))
+        let task = Task { try await dao.searchBlocksAsync(for: "search", query: "%") }
+        task.cancel()
+        do {
+            _ = try await task.value; Issue.record("Cancelled search returned rows")
+        } catch is CancellationError {}
+    }
+
     @Test func backgroundWidgetMergeRetainsFailedPendingEdits() async throws {
         let database = try DatabaseService(inMemory: ())
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
