@@ -1731,6 +1731,20 @@ ReaderTab (SwiftUI)
 
 **Unified Feed Initiative (Phases 1–5, June 2026):** The reader feed was progressively unified into a single "Read & Study" surface across five phases:
 
+Reader loaders share `ReaderPlaybackSnapshot` for immutable timeline/word data.
+Both platforms publish only the current load revision and book identity; iOS
+search is debounced separately from playback caches. `TimelineIndex` retains
+source row order within chapter/segment buckets, including overlapping ranges.
+`ReaderImageLoader` decodes ImageIO thumbnails off the UI actor with a 32 MiB cache.
+
+Every iOS logical book switch restores `BookmarkStore` independently of picker
+permission persistence. SQL becomes authoritative after successful per-book
+legacy reconciliation; original sidecars/defaults remain recovery sources.
+Pending edits coalesce per book and write through async GRDB transactions.
+Watch/Widget arrivals remain staged until their SQL merge succeeds. Shelf
+snapshots load books, siblings, folded statuses and scoped text eligibility off
+the UI actor, while incomplete root discovery cannot hide missing entries.
+
 - **Phase 1 — Collapsible accordion (iOS):** The feed opens collapsed (one row per audio chapter = a built-in table of contents). Tap to expand inline; one chapter open at a time; the playing chapter auto-expands while audio is running. Each row is honestly labelled **has-audio** (any block in the chapter carries a real `timeline_item.audio_start_time >= 0` — anchor-locked, interpolated/estimated, or synthesized) vs **text-only** via `ChapterAudioStatusResolver` (`Shared/Services/`). New pure types: `FeedAccordion` (`Shared/`), `ReaderFeedDisplayBuilder` / `ReaderChapterGroup` (`EchoCore/Models/`). No schema change.
 
 - **Phase 2 — Inline study items + off-switch + nav consolidation (iOS):** Bookmarks and Anki cards thread through the feed at their anchor positions (`ReaderCardItem.bookmark`/`.ankiCard`, collision-safe `bm-`/`fc-` ids; `ReaderFeedDisplayBuilder.spliceExtras`). A long-press chapter menu exposes a single off-switch: `OffStateResolver` (`EchoCore/Services/`) reconciles both off-state axes — `is_hidden` on EPUB blocks (narration, display, auto-cards) and `isEnabled` on audio tracks (playback queue) — through one `ChapterOffState` write so they can no longer drift. The separate chronological **Study** tab is retired; **Read** is relabelled **"Read & Study"**; deep links to the old surface remap to the Read tab. No schema change.

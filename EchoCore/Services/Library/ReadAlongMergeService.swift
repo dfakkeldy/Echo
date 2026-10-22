@@ -15,11 +15,14 @@ import os.log
 struct ReadAlongMergeService {
 
     enum MergeError: LocalizedError {
+        case existingReadAlongText
         case epubNotFound(URL)
         case expandedEPUBUnsupported(URL)
 
         nonisolated var errorDescription: String? {
             switch self {
+            case .existingReadAlongText:
+                return "This audiobook already has read-along text. Its existing text has been kept."
             case .epubNotFound(let url):
                 return
                     "Couldn't find an .epub file in \(url.lastPathComponent). Re-import the text edition, then try again."
@@ -45,6 +48,7 @@ struct ReadAlongMergeService {
         intoAudio audio: AudiobookRecord,
         libraryService: LibraryService
     ) async throws {
+        try requireNoExistingText(audio.id)
         let textTarget = try libraryService.urlForOpening(text)
         let audioTarget = try libraryService.urlForOpening(audio)
 
@@ -59,6 +63,7 @@ struct ReadAlongMergeService {
         let epubURL = try locateSourceEPUB(at: textTarget.url)
         let chapters = try persistedChapters(for: audio.id)
 
+        try requireNoExistingText(audio.id)
         try await EPUBImportCoordinator.importEPUB(
             from: epubURL,
             to: audioTarget.url,
@@ -75,17 +80,33 @@ struct ReadAlongMergeService {
     /// documents.
     func hasReadAlongText(_ audiobookID: String) -> Bool {
         do {
-            return try !EPubBlockDAO(db: db.writer).visibleBlocks(for: audiobookID).isEmpty
+            return try db.writer.read { connection in
+                try EPubBlockRecord.filter(Column("audiobook_id") == audiobookID).fetchCount(connection) > 0
+            }
         } catch {
             logger.error(
                 "Read-along text check failed for \(audiobookID): \(error.localizedDescription)")
-            return false
+            return true
         }
+    }
+
+    private func requireNoExistingText(_ audiobookID: String) throws {
+        if hasReadAlongText(audiobookID) { throw MergeError.existingReadAlongText }
     }
 
     /// Bulk companion to `hasReadAlongText` for shelf loads: every audiobook id
     /// owning at least one `epub_block` row, in a single query. Errors degrade
     /// to an empty set (the menu action is simply not offered).
+    func audiobookIDsWithText(for ids: [String]) throws -> Set<String> {
+        let ids = Array(Set(ids)).sorted()
+        guard !ids.isEmpty else { return [] }
+        return try db.writer.read { connection in
+            try Set(String.fetchAll(connection, sql:
+                "SELECT DISTINCT audiobook_id FROM epub_block WHERE audiobook_id IN (" + databaseQuestionMarks(count: ids.count) + ")",
+                arguments: StatementArguments(ids)))
+        }
+    }
+
     func audiobookIDsWithText() -> Set<String> {
         do {
             return try db.writer.read { db in

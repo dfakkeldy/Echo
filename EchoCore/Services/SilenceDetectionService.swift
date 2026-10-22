@@ -20,7 +20,7 @@ struct SilenceDetectionService {
 
     /// Returns an array of silence gaps sorted by start time.
     func detectSilences() async throws -> [SilenceGaps] {
-        return try await Task.detached {
+        let worker = Task.detached {
             let file = try AVAudioFile(forReading: self.audioURL)
             let format = file.processingFormat
 
@@ -48,11 +48,10 @@ struct SilenceDetectionService {
                 try file.read(into: buffer, frameCount: framesToRead)
 
                 // A zero-frame read (decode hiccup on a damaged track) would
-                // leave currentFrame unchanged and spin the loop forever (§5.8).
+                // leave currentFrame unchanged and spin the loop forever.
                 guard buffer.frameLength > 0 else { break }
 
                 guard let channelData = buffer.floatChannelData else { break }
-                let data = channelData[0]
 
                 // We calculate RMS over small windows (e.g. 0.1s)
                 let windowSize = max(1, Int(format.sampleRate * 0.1))
@@ -62,8 +61,13 @@ struct SilenceDetectionService {
                     let length = min(windowSize, Int(buffer.frameLength) - offset)
                     var rms: Float = 0
 
-                    // vDSP RMS
-                    vDSP_rmsqv(data.advanced(by: offset), 1, &rms, vDSP_Length(length))
+                    // A quiet channel must not hide speech on another channel.
+                    // Independent energy also handles out-of-phase stereo.
+                    for channel in 0..<Int(format.channelCount) {
+                        var channelRMS: Float = 0
+                        vDSP_rmsqv(channelData[channel].advanced(by: offset), 1, &channelRMS, vDSP_Length(length))
+                        rms = max(rms, channelRMS)
+                    }
 
                     let time =
                         TimeInterval(currentFrame + AVAudioFramePosition(offset))
@@ -99,6 +103,13 @@ struct SilenceDetectionService {
             }
 
             return silences
-        }.value
+        }
+        return try await withTaskCancellationHandler {
+            let result = try await worker.value
+            try Task.checkCancellation()
+            return result
+        } onCancel: {
+            worker.cancel()
+        }
     }
 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import GRDB
 
-struct PDFBlockPageDAO {
+nonisolated struct PDFBlockPageDAO {
     let db: DatabaseWriter
 
     func insert(_ record: PDFBlockPageRecord) throws {

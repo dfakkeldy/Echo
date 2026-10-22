@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
-struct AutoAlignmentTextMatcher {
-    struct Match {
+nonisolated struct AutoAlignmentTextMatcher {
+    struct Match: Sendable {
         let block: EPubBlockRecord
         let confidence: Double
         /// Token index inside the matched block's tokenized text where the

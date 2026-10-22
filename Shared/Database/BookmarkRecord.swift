@@ -6,7 +6,7 @@ import os.log
 // MARK: - Bridging from the app-level Bookmark model
 
 /// GRDB record for the `bookmark` table.
-struct BookmarkRecord: Codable, FetchableRecord, MutablePersistableRecord {
+nonisolated struct BookmarkRecord: Codable, FetchableRecord, MutablePersistableRecord {
     var id: String
     var audiobookID: String
     var trackID: String?

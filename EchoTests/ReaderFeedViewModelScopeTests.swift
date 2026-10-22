@@ -144,7 +144,7 @@ import Testing
         }
     }
 
-    @Test func unmatchedSearchShowsNoResultsRecoveryState() throws {
+    @Test func unmatchedSearchShowsNoResultsRecoveryState() async throws {
         let db = try seed()
         let vm = ReaderFeedViewModel(audiobookID: "bk", db: db.writer)
         vm.reload()
@@ -152,6 +152,7 @@ import Testing
         #expect(!vm.showsNoResults)
 
         vm.searchQuery = "not in this book"
+        await vm.waitForReload()
 
         #expect(vm.displaySections.count == 1)
         #expect(vm.displaySections.flatMap(\.items).isEmpty)

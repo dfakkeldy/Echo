@@ -377,7 +377,16 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         var searchQuery: String? = nil
         var pulseBlockID: String? = nil
         var dataSource: UICollectionViewDiffableDataSource<String, String>?
-        var sections: [ReaderCardSection] = []
+        var sections: [ReaderCardSection] = [] {
+            didSet {
+                appliedSectionIDs = sections.map(\.id)
+                sectionByID = Dictionary(sections.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+                lastHeadingSectionID = nil
+            }
+        }
+        private var appliedSectionIDs: [String] = []
+        private var sectionByID: [String: ReaderCardSection] = [:]
+        private var lastHeadingSectionID: String?
         var activeBlockID: String?
         var activeWord: (blockID: String, index: Int)?
         /// The block whose karaoke word is currently highlighted on screen, so
@@ -1277,9 +1286,11 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         }
 
         private func updateChapterTitle(for indexPath: IndexPath) {
-            if let sectionID = dataSource?.snapshot().sectionIdentifiers[indexPath.section],
-                let section = sections.first(where: { $0.id == sectionID })
-            {
+            guard appliedSectionIDs.indices.contains(indexPath.section) else { return }
+            let sectionID = appliedSectionIDs[indexPath.section]
+            if let section = sectionByID[sectionID] {
+                if lastHeadingSectionID != sectionID {
+                lastHeadingSectionID = sectionID
 
                 var partTitle: String? = nil
                 var chapterTitle: String? = nil
@@ -1330,6 +1341,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     }
                 }
 
+                }
                 var resolvedTheme: String? = nil
                 if let itemID = dataSource?.itemIdentifier(for: indexPath),
                     let item = card(for: itemID)

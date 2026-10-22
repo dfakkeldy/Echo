@@ -37,9 +37,21 @@
                 artworkCoordinator.updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
                 return
             }
-            bookmarkStore.bookmarks = persistence.loadBookmarks(
-                for: key, folderURL: persistenceFolderURL
-            ).sorted { $0.timestamp < $1.timestamp }
+            if let databaseService {
+                do {
+                    try bookmarkStore.restore(
+                        database: databaseService, persistence: persistence,
+                        key: key, folderURL: persistenceFolderURL)
+                } catch {
+                    bookmarkStore.bookmarks = []
+                    logger.error("Bookmark restoration failed: \(error.localizedDescription)")
+                    return
+                }
+            } else {
+                bookmarkStore.bookmarks = persistence.loadBookmarks(
+                    for: key, folderURL: persistenceFolderURL
+                ).sorted { $0.timestamp < $1.timestamp }
+            }
             // Surface any widget/Siri bookmarks the app group staged for this book.
             drainPendingWidgetBookmarks()
             artworkCoordinator.updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
@@ -241,7 +253,7 @@
         func addWatchBookmark(from payload: [String: Any]) {
             guard let storageKey = payload["bookmarkStorageKey"] as? String else { return }
 
-            let folderKey = payload["folderKey"] as? String
+            let folderKey = (payload["folderKey"] as? String) ?? storageKey
             let trackId = payload["trackId"] as? String
             let note = (payload["note"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             let voiceMemoFileName = payload["voiceMemoFileName"] as? String
@@ -249,10 +261,10 @@
             let timestamp = max(0, incomingTimestamp?.isFinite == true ? incomingTimestamp ?? 0 : 0)
 
             let isCurrentBook = storageKey == bookmarksStorageKey
-            // Only the currently-loaded book has live security scope, so sidecar
-            // I/O is restricted to that case; other books fall back to UserDefaults.
+            // The current in-memory list supplies the display title. Captures
+            // themselves stage durably before merging into authoritative SQL.
             let targetFolderURL: URL? = isCurrentBook ? persistenceFolderURL : nil
-            var targetBookmarks =
+            let targetBookmarks =
                 isCurrentBook
                 ? bookmarkStore.bookmarks
                 : persistence.loadBookmarks(for: storageKey, folderURL: targetFolderURL)
@@ -268,14 +280,18 @@
                 voiceMemoFileName: voiceMemoFileName
             )
 
-            targetBookmarks.append(bookmark)
-            targetBookmarks.sort { $0.timestamp < $1.timestamp }
-            persistence.saveBookmarks(targetBookmarks, for: storageKey, folderURL: targetFolderURL)
-
-            if isCurrentBook {
-                bookmarkStore.bookmarks = targetBookmarks
-
+            // Stage captures durably until the authoritative SQL merge succeeds.
+            let defaults = AppGroupDefaults.shared
+            let stagedKey = "bookmarks_" + storageKey
+            var staged = defaults.data(forKey: stagedKey).flatMap {
+                try? JSONDecoder().decode([Bookmark].self, from: $0)
+            } ?? []
+            staged.append(bookmark)
+            if let data = try? JSONEncoder().encode(staged) {
+                defaults.set(data, forKey: stagedKey)
+                drainPendingWidgetBookmarks(from: defaults)
             }
+
         }
 
         /// Drains widget/Siri-created bookmarks staged in the App Group into the real
@@ -286,50 +302,80 @@
         ///
         /// - Parameter appGroupDefaults: the store the widget wrote to. Injectable for
         ///   tests; defaults to the shared app-group suite.
+        @discardableResult
         func drainPendingWidgetBookmarks(
             from appGroupDefaults: UserDefaults = AppGroupDefaults.shared
-        ) {
+        ) -> [Task<Void, Never>] {
             let prefix = "bookmarks_"
             let pendingKeys = appGroupDefaults.dictionaryRepresentation().keys
                 .filter { $0.hasPrefix(prefix) }
-            guard !pendingKeys.isEmpty else { return }
+            guard !pendingKeys.isEmpty else { return [] }
 
+            var tasks: [Task<Void, Never>] = []
             for defaultsKey in pendingKeys {
-                // Always clear the staged entry — even if it is unreadable or all
-                // duplicates — so it is never re-imported on the next foreground.
-                defer { appGroupDefaults.removeObject(forKey: defaultsKey) }
                 guard let data = appGroupDefaults.data(forKey: defaultsKey),
                     let incoming = try? JSONDecoder().decode([Bookmark].self, from: data),
                     !incoming.isEmpty
                 else { continue }
 
                 let storageKey = String(defaultsKey.dropFirst(prefix.count))
-                mergePendingBookmarks(incoming, into: storageKey)
+                if databaseService != nil {
+                    let task = Task { @MainActor in
+                        await bookmarkStore.flushPersistence()
+                        do {
+                            try mergePendingBookmarks(incoming, into: storageKey)
+                            if appGroupDefaults.data(forKey: defaultsKey) == data {
+                                appGroupDefaults.removeObject(forKey: defaultsKey)
+                            }
+                        } catch {
+                            logger.error("Staged bookmark merge failed: \(error.localizedDescription)")
+                        }
+                    }
+                    tasks.append(task)
+                } else {
+                    do {
+                        try mergePendingBookmarks(incoming, into: storageKey)
+                        appGroupDefaults.removeObject(forKey: defaultsKey)
+                    } catch { /* Staging remains available for retry. */ }
+                }
             }
+            return tasks
         }
 
         /// Merges staged widget bookmarks into one book's store, de-duplicating by
-        /// `id`. Mirrors `addWatchBookmark(from:)`: the current book merges into the
-        /// live `bookmarkStore` + sidecar (it alone holds live security scope); any
-        /// other book falls back to its `UserDefaults`-backed storage.
-        private func mergePendingBookmarks(_ incoming: [Bookmark], into storageKey: String) {
+        /// `id`. The caller flushes queued edits first, then this transaction
+        /// commits SQL before it clears incoming staging data.
+        private func mergePendingBookmarks(_ incoming: [Bookmark], into storageKey: String) throws {
             let isCurrentBook = storageKey == bookmarksStorageKey
             let targetFolderURL: URL? = isCurrentBook ? persistenceFolderURL : nil
-            var targetBookmarks =
-                isCurrentBook
-                ? bookmarkStore.bookmarks
-                : persistence.loadBookmarks(for: storageKey, folderURL: targetFolderURL)
+            var targetBookmarks: [Bookmark]
+            if isCurrentBook {
+                targetBookmarks = bookmarkStore.bookmarks
+            } else if let databaseService {
+                let backgroundStore = BookmarkStore()
+                try backgroundStore.restore(database: databaseService, persistence: persistence,
+                    key: storageKey, folderURL: nil)
+                targetBookmarks = backgroundStore.bookmarks
+            } else {
+                targetBookmarks = persistence.loadBookmarks(for: storageKey)
+            }
 
             var seenIDs = Set(targetBookmarks.map(\.id))
             var didAppend = false
-            for bookmark in incoming where seenIDs.insert(bookmark.id).inserted {
+            for var bookmark in incoming where seenIDs.insert(bookmark.id).inserted {
+                bookmark.folderKey = storageKey
                 targetBookmarks.append(bookmark)
                 didAppend = true
             }
             guard didAppend else { return }
 
             targetBookmarks.sort { $0.timestamp < $1.timestamp }
-            persistence.saveBookmarks(targetBookmarks, for: storageKey, folderURL: targetFolderURL)
+            if let databaseService {
+                try BookmarkStore.replaceBookmarks(targetBookmarks, for: storageKey, database: databaseService)
+                persistence.markBookmarksMigratedToSQL(for: storageKey)
+            } else {
+                persistence.saveBookmarks(targetBookmarks, for: storageKey, folderURL: targetFolderURL)
+            }
 
             if isCurrentBook {
                 bookmarkStore.bookmarks = targetBookmarks

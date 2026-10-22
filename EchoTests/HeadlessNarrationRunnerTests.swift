@@ -2495,7 +2495,7 @@ import ZIPFoundation
             """
             {"schemaVersion":1,"source":{"epubSHA256":"\(sourceSHA)"},"defaultSpeakerID":"narrator","speakers":[{"id":"narrator","voiceID":"am_michael"}],"assignments":[]}
             """.utf8).write(to: planURL)
-        let seedResolved = try HeadlessNarrationRunner.resolveVoicePlan(
+        _ = try HeadlessNarrationRunner.resolveVoicePlan(
             epubURL: epub, voicePlanURL: planURL)
         let parsed = try parseEPUBBlocks(audiobookID: "story", epubURL: expanded).blocks
         let portableIDByText = Dictionary(uniqueKeysWithValues: parsed.compactMap { block in

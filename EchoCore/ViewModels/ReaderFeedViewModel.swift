@@ -42,6 +42,7 @@ final class ReaderFeedViewModel {
     /// Carries each row's `chapterIndex` (LEFT JOINed from `epub_block`) so the
     /// active-block resolution can be scoped to the currently-playing track.
     private var timelineCache: [ReaderActiveBlockResolver.TimelineRow] = []
+    private var timelineIndex = ReaderActiveBlockResolver.TimelineIndex(rows: [])
 
     /// Per-word audio `[start, end)` rows for the whole book, ordered by audio
     /// start time. Consumed by `ReaderActiveBlockResolver.activeWord` to drive
@@ -157,11 +158,50 @@ final class ReaderFeedViewModel {
 
     /// Current search query. nil = show all blocks.
     var searchQuery: String? {
-        didSet { reload() }
+        didSet { scheduleSearch() }
     }
 
     /// In-flight `reloadOffMain()` rebuild; superseded by each newer call.
     private var reloadTask: Task<Void, Never>?
+    private var reloadRevision = 0
+    private var browseState: FeedState?
+    private var cardsBySourceBlock: [String: [Flashcard]] = [:]
+    private var sourceAnchoredCardCount = 0
+    private var sourceCardOrder: [String: Int] = [:]
+
+    func waitForReload() async { await reloadTask?.value }
+
+    private func invalidateReload() -> Int {
+        reloadTask?.cancel()
+        reloadRevision &+= 1
+        return reloadRevision
+    }
+
+    private func scheduleSearch() {
+        let revision = invalidateReload()
+        let query = searchQuery
+        reloadTask = Task {
+            do { try await Task.sleep(for: .milliseconds(180)) } catch { return }
+            if query?.isEmpty != false {
+                if let browseState { apply(browseState) } else { reloadOffMain() }
+                return
+            }
+            let writer = db
+            let bookID = audiobookID
+            let blocks = await Task.detached {
+                try? EPubBlockDAO(db: writer).searchBlocks(for: bookID, query: query ?? "")
+            }.value
+            guard !Task.isCancelled, revision == reloadRevision, query == searchQuery,
+                  let blocks else { return }
+            sections = [ReaderCardSection(id: "search", headingStack: ["Search Results"], items: blocks.map { .block($0) })]
+            cardIndexByBlockID = Dictionary(uniqueKeysWithValues: blocks.enumerated().map {
+                ($0.element.id, IndexPath(item: $0.offset, section: 0))
+            })
+            chapterGroups = []
+            openChapterKey = nil
+            displaySections = sections
+        }
+    }
 
     var showsNoResults: Bool {
         hasActiveFeedConstraint && !displaySections.contains { !$0.items.isEmpty }
@@ -214,6 +254,7 @@ final class ReaderFeedViewModel {
     /// which runs the same builder on the concurrent executor instead of
     /// stalling the main actor for the whole-book rebuild.
     func reload() {
+        _ = invalidateReload()
         guard
             let state = Self.buildFeedState(
                 audiobookID: audiobookID, searchQuery: searchQuery, db: db)
@@ -233,13 +274,13 @@ final class ReaderFeedViewModel {
     /// supersedes an in-flight one.
     func reloadOffMain() {
         let query = searchQuery
-        reloadTask?.cancel()
+        let revision = invalidateReload()
         reloadTask = Task {
             guard
                 let state = await Self.buildFeedStateOffMain(
                     audiobookID: self.audiobookID, searchQuery: query, db: self.db)
             else { return }
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, revision == self.reloadRevision, query == self.searchQuery else { return }
             self.apply(state)
         }
     }
@@ -454,68 +495,13 @@ final class ReaderFeedViewModel {
                 }
             }
 
-            // Rebuild timeline cache for fast active block lookup. LEFT JOIN
-            // epub_block so each row carries the block's chapter_index — the
-            // active-block resolution scopes by chapter to the current track,
-            // and the alignment badge is gated the same way. (No schema change:
-            // the mapping is derived at query time from idx_epub_block_chapter.)
-            let rows = try db.read { db in
-                try Row.fetchAll(
-                    db,
-                    sql: """
-                        SELECT ti.audio_start_time, ti.audio_end_time, ti.epub_block_id,
-                               ti.segment_key, ti.alignment_status, eb.chapter_index
-                        FROM timeline_item ti
-                        LEFT JOIN epub_block eb ON eb.id = ti.epub_block_id
-                        WHERE ti.audiobook_id = ? AND ti.epub_block_id IS NOT NULL AND ti.audio_start_time >= 0
-                        ORDER BY ti.audio_start_time
-                        """, arguments: [audiobookID])
-            }
-
-            var newTimeline: [ReaderActiveBlockResolver.TimelineRow] = []
-            var newAlignmentStatus: [String: String] = [:]
-            var newAudioStartTime: [String: TimeInterval] = [:]
-            var newChapterIndex: [String: Int?] = [:]
-            for (i, row) in rows.enumerated() {
-                guard let start: TimeInterval = row["audio_start_time"],
-                    let blockID: String = row["epub_block_id"]
-                else { continue }
-
-                let end: TimeInterval
-                if let explicitEnd: TimeInterval = row["audio_end_time"] {
-                    end = explicitEnd
-                } else if i + 1 < rows.count,
-                    let nextStart: TimeInterval = rows[i + 1]["audio_start_time"]
-                {
-                    end = nextStart
-                } else {
-                    end = start + 3600  // Large fallback for the last item
-                }
-                let chapterIndex: Int? = row["chapter_index"]
-                let segmentKey: String? = row["segment_key"]
-                newTimeline.append((start, end, blockID, chapterIndex, segmentKey))
-                newAudioStartTime[blockID] = start
-                newChapterIndex[blockID] = chapterIndex
-                if let status: String = row["alignment_status"] {
-                    newAlignmentStatus[blockID] = status
-                }
-            }
-            state.timelineCache = newTimeline
-
-            // Load per-word read-along timings for karaoke highlighting. Uses
-            // the same writer the timeline query above runs on.
-            let words = try WordTimingDAO(db: db).words(forAudiobook: audiobookID)
-            state.wordCache = words.map {
-                (
-                    start: $0.audioStartTime, end: $0.audioEndTime,
-                    blockID: $0.epubBlockID, wordIndex: $0.wordIndex
-                )
-            }
-            state.wordIndex = ReaderActiveBlockResolver.WordIndex(rows: state.wordCache)
-
-            state.allAlignmentStatusByBlockID = newAlignmentStatus
-            state.allAudioStartTimeByBlockID = newAudioStartTime
-            state.chapterIndexByBlockID = newChapterIndex
+            let playback = try ReaderPlaybackSnapshot.load(audiobookID: audiobookID, db: db)
+            state.timelineCache = playback.timeline
+            state.wordCache = playback.words
+            state.wordIndex = playback.wordIndex
+            state.allAlignmentStatusByBlockID = playback.alignmentStatus
+            state.allAudioStartTimeByBlockID = playback.audioStart
+            state.chapterIndexByBlockID = playback.chapterIndex
             return state
         } catch {
             logger.error("Failed to load reader blocks: \(error.localizedDescription)")
@@ -527,9 +513,12 @@ final class ReaderFeedViewModel {
     /// phase-2 work (extras splice, off-state, note/memo caches, accordion
     /// rebuild, scope) exactly as the former monolithic reload did.
     private func apply(_ state: FeedState) {
+        if !state.isSearch { browseState = state }
+        refreshSourceAnchoredCards()
         sections = state.sections
         cardIndexByBlockID = state.cardIndexByBlockID
         timelineCache = state.timelineCache
+        timelineIndex = .init(rows: state.timelineCache)
         wordCache = state.wordCache
         wordIndex = state.wordIndex
         allAlignmentStatusByBlockID = state.allAlignmentStatusByBlockID
@@ -633,7 +622,8 @@ final class ReaderFeedViewModel {
 
     /// Persists a free-text note anchored to `blockID` at the current reading
     /// position, then refreshes the feed so it appears inline.
-    func addNote(text: String, atBlockID blockID: String) {
+    @discardableResult
+    func addNote(text: String, atBlockID blockID: String) -> Bool {
         let now = Date().ISO8601Format()
         let note = NoteRecord(
             id: UUID().uuidString,
@@ -650,14 +640,17 @@ final class ReaderFeedViewModel {
             try noteDAO.insert(note)
         } catch {
             logger.error("addNote failed: \(error.localizedDescription, privacy: .public)")
-            return
+            return false
         }
-        reload()
+        notesByBlockID[blockID, default: []].append(note)
+        rebuildDisplaySections()
+        return true
     }
 
     /// Persists a standalone voice memo (already recorded to `fileURL`) anchored
     /// to `blockID`, then refreshes the feed.
-    func addVoiceMemo(fileURL: URL, duration: TimeInterval, atBlockID blockID: String) {
+    @discardableResult
+    func addVoiceMemo(fileURL: URL, duration: TimeInterval, atBlockID blockID: String) -> Bool {
         let now = Date().ISO8601Format()
         let memo = VoiceMemoRecord(
             id: UUID().uuidString,
@@ -673,9 +666,11 @@ final class ReaderFeedViewModel {
             try voiceMemoDAO.insert(memo)
         } catch {
             logger.error("addVoiceMemo failed: \(error.localizedDescription, privacy: .public)")
-            return
+            return false
         }
-        reload()
+        memosByBlockID[blockID, default: []].append(memo)
+        rebuildDisplaySections()
+        return true
     }
 
     /// Opens (expands) the chapter with the given key, collapsing any other open
@@ -792,15 +787,9 @@ final class ReaderFeedViewModel {
 
     /// Recompute the reconciled off-state for every chapter that has sections.
     func refreshOffState() {
-        var result: [Int: ChapterOffState] = [:]
-        let keys = Set(sections.compactMap { Self.chapterKey(ofSectionID: $0.id) })
-        for key in keys where key >= 0 {
-            let files = trackFilesByChapter[key] ?? allTrackFiles()
-            result[key] =
-                (try? offResolver.resolve(
-                    audiobookID: audiobookID, chapterIndex: key, trackFiles: files)) ?? .allOn
-        }
-        offStateByChapter = result
+        let keys = Set(sections.compactMap { Self.chapterKey(ofSectionID: $0.id) }.filter { $0 >= 0 })
+        offStateByChapter = (try? offResolver.resolveAll(
+            audiobookID: audiobookID, trackFilesByChapter: trackFilesByChapter, chapters: keys)) ?? [:]
     }
 
     /// All track files from the manifest (fallback when a per-chapter map is absent).
@@ -1126,13 +1115,13 @@ final class ReaderFeedViewModel {
         restoringOpenChapterKey: Int? = nil
     ) {
         let query = searchQuery
-        reloadTask?.cancel()
+        let revision = invalidateReload()
         reloadTask = Task {
             guard
                 let state = await Self.buildFeedStateOffMain(
                     audiobookID: self.audiobookID, searchQuery: query, db: self.db)
             else { return }
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, revision == self.reloadRevision, query == self.searchQuery else { return }
             self.apply(state)
             self.updateActiveBlock(
                 time: time,
@@ -1172,7 +1161,7 @@ final class ReaderFeedViewModel {
         }
         let previousBlockID = activeBlockID
         let foundBlockID = ReaderActiveBlockResolver.activeBlockID(
-            in: timelineCache,
+            in: timelineIndex,
             time: time,
             currentTrackSegmentKey: currentTrackSegmentKey,
             currentTrackChapterIndices: currentTrackChapterIndices
@@ -1211,14 +1200,24 @@ final class ReaderFeedViewModel {
         }
     }
 
+    func refreshSourceAnchoredCards() {
+        let cards = ((try? flashcardDAO.flashcards(for: audiobookID)) ?? [])
+            .filter { $0.sourceBlockID != nil && $0.isEnabled }
+        cardsBySourceBlock = Dictionary(grouping: cards, by: { $0.sourceBlockID! })
+        sourceAnchoredCardCount = cards.count
+        sourceCardOrder = Dictionary(uniqueKeysWithValues: cards.enumerated().map { ($0.element.id, $0.offset) })
+    }
+
     private func resolveSourceAnchoredCardTriggers(
         previousBlockID: String?,
         activeBlockID: String?,
         isPlaying: Bool
     ) {
         guard isPlaying, previousBlockID != activeBlockID else { return }
-        let cards = (try? flashcardDAO.flashcards(for: audiobookID)) ?? []
-        let candidateCount = cards.filter { $0.sourceBlockID != nil && $0.isEnabled }.count
+        let cards = ((previousBlockID.flatMap { cardsBySourceBlock[$0] } ?? [])
+            + (activeBlockID.flatMap { cardsBySourceBlock[$0] } ?? []))
+            .sorted { (sourceCardOrder[$0.id] ?? 0) < (sourceCardOrder[$1.id] ?? 0) }
+        let candidateCount = sourceAnchoredCardCount
         let result = SourceAnchoredCardTriggerResolver.resolve(
             previousBlockID: previousBlockID,
             activeBlockID: activeBlockID,

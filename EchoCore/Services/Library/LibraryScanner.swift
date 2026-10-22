@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 
 /// A book discovered under a Library root: the folder that directly holds its
 /// audio, its audio files, and a companion EPUB if one sits beside them.
-struct DiscoveredBook: Equatable {
+nonisolated struct DiscoveredBook: Equatable, Sendable {
     let folderURL: URL
     let audioFiles: [URL]
     let companionEPUB: URL?
@@ -27,11 +27,28 @@ enum LibraryScanner {
     ]
     private nonisolated static let imageExtensionSet = Set(imageExtensions)
 
+    nonisolated struct Discovery: Sendable {
+        let books: [DiscoveredBook]
+        let isComplete: Bool
+    }
+
+    @concurrent
+    static func discoverOffMain(in root: URL) async -> Discovery {
+        discover(in: root)
+    }
+
     static func discoverBooks(in root: URL) -> [DiscoveredBook] {
+        discover(in: root).books
+    }
+
+    nonisolated static func discover(in root: URL) -> Discovery {
+        var complete = true
         let enumerator = FileManager.default.enumerator(
             at: root,
             includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants])
+            options: [.skipsHiddenFiles, .skipsPackageDescendants],
+            errorHandler: { _, _ in complete = false; return true })
+        if enumerator == nil { complete = false }
 
         var audioByFolder: [URL: [URL]] = [:]
         while let url = enumerator?.nextObject() as? URL {
@@ -41,15 +58,16 @@ enum LibraryScanner {
             audioByFolder[folder, default: []].append(url)
         }
 
-        return audioByFolder.keys.sorted { $0.path < $1.path }.map { folder in
+        let books = audioByFolder.keys.sorted { $0.path < $1.path }.map { folder in
             DiscoveredBook(
                 folderURL: folder,
                 audioFiles: audioByFolder[folder]!.sorted { $0.path < $1.path },
                 companionEPUB: companionEPUB(in: folder))
         }
+        return Discovery(books: books, isComplete: complete)
     }
 
-    private static func companionEPUB(in folder: URL) -> URL? {
+    private nonisolated static func companionEPUB(in folder: URL) -> URL? {
         let siblings =
             (try? FileManager.default.contentsOfDirectory(
                 at: folder, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
@@ -58,7 +76,7 @@ enum LibraryScanner {
 }
 
 extension LibraryScanner {
-    struct ScannedMetadata: Equatable {
+    nonisolated struct ScannedMetadata: Equatable, Sendable {
         var title: String
         var author: String?
         var narrator: String?
@@ -66,13 +84,14 @@ extension LibraryScanner {
         var coverImageData: Data?
     }
 
-    static func fallbackTitle(for book: DiscoveredBook) -> String {
+    nonisolated static func fallbackTitle(for book: DiscoveredBook) -> String {
         book.folderURL.lastPathComponent
     }
 
     /// Cheap per-book metadata read for the shelf — title/author/duration/cover
     /// only. No chapter parsing, EPUB extraction, or alignment (those run on first
     /// open). Falls back to the folder name when audio carries no title.
+    @concurrent
     static func readMetadata(for book: DiscoveredBook) async -> ScannedMetadata {
         guard let first = book.audioFiles.first else {
             return ScannedMetadata(
@@ -85,10 +104,14 @@ extension LibraryScanner {
         let trackTitle = await stringValue(in: metadata, key: .commonKeyTitle)
         let albumTitle = await stringValue(in: metadata, key: .commonKeyAlbumName)
         let author = await stringValue(in: metadata, key: .commonKeyArtist)
-        let duration =
-            ((try? await asset.load(.duration))?.seconds).flatMap {
-                $0.isFinite ? $0 : nil
-            } ?? 0
+        var duration: TimeInterval = 0
+        for file in book.audioFiles {
+            guard !Task.isCancelled,
+                let seconds = try? await AVURLAsset(url: file).load(.duration).seconds,
+                seconds.isFinite, seconds > 0
+            else { duration = 0; break }
+            duration += seconds
+        }
 
         let cover = await coverArtworkJPEGData(for: first)
 
@@ -100,7 +123,7 @@ extension LibraryScanner {
             author: author, narrator: nil, duration: duration, coverImageData: cover)
     }
 
-    static func resolveBookTitle(album: String?, track: String?, fallback: String) -> String {
+    nonisolated static func resolveBookTitle(album: String?, track: String?, fallback: String) -> String {
         if let album = album?.trimmingCharacters(in: .whitespacesAndNewlines), !album.isEmpty {
             return album
         }
@@ -110,7 +133,7 @@ extension LibraryScanner {
         return fallback
     }
 
-    private static func stringValue(
+    private nonisolated static func stringValue(
         in metadata: [AVMetadataItem], key: AVMetadataKey
     ) async -> String? {
         guard let item = metadata.first(where: { $0.commonKey?.rawValue == key.rawValue })

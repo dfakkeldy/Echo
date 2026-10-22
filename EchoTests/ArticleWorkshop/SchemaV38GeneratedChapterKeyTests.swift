@@ -11,7 +11,7 @@ struct SchemaV38GeneratedChapterKeyTests {
     @MainActor
     func upgradePreservesExistingRows() throws {
         let queue = try DatabaseQueue()
-        var migrator = Self.v37Migrator()
+        let migrator = Self.v37Migrator()
         try migrator.migrate(queue)
 
         try queue.write { database in

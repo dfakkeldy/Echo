@@ -29,6 +29,7 @@ enum EditionMatcher {
     nonisolated static func groups(for identities: [Identity]) -> [String: String] {
         var result = titleGroups(for: identities)
 
+        var membersByGroup = Dictionary(grouping: result.keys, by: { result[$0]! })
         // Path-identity pass: rows whose ids point at the same on-disk book
         // are the same book no matter what their titles say. The library
         // scanner keys a book by its standardized folder URL while a direct
@@ -41,15 +42,13 @@ enum EditionMatcher {
             var members = cluster.memberIDs
             let absorbedTitleGroups = Set(members.compactMap { result[$0] })
             if !absorbedTitleGroups.isEmpty {
-                for identity in identities {
-                    if let assigned = result[identity.id], absorbedTitleGroups.contains(assigned) {
-                        members.insert(identity.id)
-                    }
-                }
+                for group in absorbedTitleGroups { members.formUnion(membersByGroup[group] ?? []) }
             }
             for id in members {
+                if let previous = result[id] { membersByGroup[previous]?.removeAll { $0 == id } }
                 result[id] = cluster.groupID
             }
+            membersByGroup[cluster.groupID] = Array(members)
         }
         return result
     }
@@ -132,6 +131,7 @@ enum EditionMatcher {
             }
         }
 
+        let fileKeysByParent = Dictionary(grouping: audioFileMembers.keys, by: { audioFileParentKey[$0]! })
         var clusters: [PathCluster] = []
         var claimedFileKeys: Set<String> = []
 
@@ -139,9 +139,8 @@ enum EditionMatcher {
             var ids = Set(members.map(\.id))
             let folderHoldsSingleAudioFile = members.contains { $0.fileCount == 1 }
             if folderHoldsSingleAudioFile {
-                for (fileKey, fileIdentities) in audioFileMembers
-                where audioFileParentKey[fileKey] == folderKey {
-                    ids.formUnion(fileIdentities.map(\.id))
+                for fileKey in fileKeysByParent[folderKey] ?? [] {
+                    ids.formUnion((audioFileMembers[fileKey] ?? []).map(\.id))
                     claimedFileKeys.insert(fileKey)
                 }
             }

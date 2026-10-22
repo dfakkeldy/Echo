@@ -44,6 +44,51 @@ nonisolated enum ReaderActiveBlockResolver {
         start: TimeInterval, end: TimeInterval, blockID: String, wordIndex: Int
     )
 
+    struct TimelineIndex: Sendable {
+        let rows: [TimelineRow]
+        private let byChapter: [Int: [(position: Int, row: TimelineRow)]]
+        private let bySegment: [String: [TimelineRow]]
+
+        init(rows: [TimelineRow]) {
+            self.rows = rows
+            var chapters: [Int: [(position: Int, row: TimelineRow)]] = [:]
+            var segments: [String: [TimelineRow]] = [:]
+            for (position, row) in rows.enumerated() {
+                chapters[row.chapterIndex ?? 0, default: []].append((position, row))
+                if let key = row.segmentKey { segments[key, default: []].append(row) }
+            }
+            byChapter = chapters
+            bySegment = segments
+        }
+
+        fileprivate func active(time: TimeInterval, segment: String?, scope: Set<Int>?) -> String? {
+            if let segment {
+                return bySegment[segment]?.first { time >= $0.start && time < $0.end }?.blockID
+            }
+            guard let scope else {
+                return ReaderActiveBlockResolver.activeBlockID(
+                    in: rows, time: time, currentTrackChapterIndices: nil)
+            }
+            // Each bucket retains source order. Choose the earliest source row
+            // across buckets, preserving overlaps and multi-chapter scope.
+            var best: (position: Int, row: TimelineRow)?
+            for chapter in scope {
+                guard let match = byChapter[chapter]?.first(where: {
+                    time >= $0.row.start && time < $0.row.end
+                }) else { continue }
+                if best == nil || match.position < best!.position { best = match }
+            }
+            return best?.row.blockID
+        }
+    }
+
+    static func activeBlockID(
+        in index: TimelineIndex, time: TimeInterval,
+        currentTrackSegmentKey: String? = nil, currentTrackChapterIndices: Set<Int>?
+    ) -> String? {
+        index.active(time: time, segment: currentTrackSegmentKey, scope: currentTrackChapterIndices)
+    }
+
     /// Resolves the active word index *within the already-resolved active block*.
     /// Block resolution is track-scoped upstream (`activeBlockID`), so word lookup
     /// only needs to scan the words of `activeBlockID`.

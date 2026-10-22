@@ -30,7 +30,7 @@ struct ABSEndpoints {
     func libraries() -> URL { baseURL.appending(path: "api/libraries") }
 
     func items(libraryID: String, query: ABSLibraryItemsQuery) -> URL {
-        var url = baseURL.appending(path: "api/libraries/\(libraryID)/items")
+        let url = baseURL.appending(path: "api/libraries/\(libraryID)/items")
         var q = [
             URLQueryItem(name: "page", value: String(query.page)),
             URLQueryItem(name: "limit", value: String(query.limit)),

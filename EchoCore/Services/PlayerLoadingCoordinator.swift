@@ -49,6 +49,7 @@ final class PlayerLoadingCoordinator {
     /// Callbacks for PlayerModel-specific behavior.
     @ObservationIgnored var onConfigureRemoteCommands: (() -> Void)?
     @ObservationIgnored var onPersistSelection: ((URL) -> Void)?
+    @ObservationIgnored var onRestoreBookState: (() -> Void)?
     /// Resets the player-level bookmark-check timestamp, used to avoid
     /// stale state bleeding across track boundaries.
     @ObservationIgnored var onResetBookmarkCheckSecond: (() -> Void)?
@@ -207,6 +208,12 @@ final class PlayerLoadingCoordinator {
             state: state, persistence: persistence,
             bookmarkStore: bookmarkStore)
 
+        if let db = databaseServiceProvider?() {
+            bookmarkStore.configureSQLPersistence(database: db)
+        }
+        // Restoring book state is independent of storing a picker permission.
+        // Library roots already provide permission and still need restoration.
+        onRestoreBookState?()
         if persistBookmark {
             onPersistSelection?(url)
         }
@@ -215,7 +222,6 @@ final class PlayerLoadingCoordinator {
         // File-backed books keep their file identity while the scanners inspect
         // the parent directory for companion EPUB/PDF material.
         guard let db = databaseServiceProvider?() else { return }
-        bookmarkStore.configureSQLPersistence(database: db)
         onConfigureContinuousAlignment?()
 
         // No-audio book (e.g. a standalone study EPUB): the track-gated

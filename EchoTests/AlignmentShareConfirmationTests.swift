@@ -34,14 +34,16 @@ import Testing
 
     @Test func reentrantConfirmationDoesNotUploadAgain() async {
         var uploads = 0
-        var confirmation: AlignmentShareConfirmation!
-        confirmation = AlignmentShareConfirmation {
+        final class Holder { var confirmation: AlignmentShareConfirmation? }
+        let holder = Holder()
+        let confirmation = AlignmentShareConfirmation {
             uploads += 1
             if uploads == 1 {
-                await confirmation.confirm()
+                await holder.confirmation?.confirm()
             }
         }
 
+        holder.confirmation = confirmation
         await confirmation.confirm()
 
         #expect(uploads == 1)

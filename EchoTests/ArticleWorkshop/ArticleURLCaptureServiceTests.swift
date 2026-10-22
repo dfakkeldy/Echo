@@ -305,7 +305,7 @@ private enum ExtractorTestError: Swift.Error {
     }
 
     @Test func clearsInjectedCredentialHeadersAndKeepsReadableLoginMention() async throws {
-        var configuration = articleURLProtocolConfiguration()
+        let configuration = articleURLProtocolConfiguration()
         configuration.httpAdditionalHeaders = ["Authorization": "Bearer secret", "Cookie": "session=secret", "X-Private": "secret"]
         ArticleURLProtocol.install { request in
             #expect(request.value(forHTTPHeaderField: "Authorization") == nil)

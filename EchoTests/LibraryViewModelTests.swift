@@ -14,7 +14,7 @@ struct LibraryViewModelTests {
         #expect(LibraryViewModel.smartLandingTab(hasCurrentBook: false) == .library)
     }
 
-    @Test func catalogModeLoadsAvailableBooksForAxis() throws {
+    @Test func catalogModeLoadsAvailableBooksForAxis() async throws {
         let db = try DatabaseService(inMemory: ())
         let dao = AudiobookDAO(db: db.writer)
         try dao.save(
@@ -23,11 +23,12 @@ struct LibraryViewModelTests {
                 fileCount: nil, addedAt: "2026-06-27T00:00:00Z", isAvailable: true))
         let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
         vm.reload()
+        await vm.awaitShelfRegroup()
         #expect(vm.sections.flatMap(\.books).map(\.id) == ["a"])
         #expect(vm.isEmpty == false)
     }
 
-    @Test func selectingAxisReloadsSections() throws {
+    @Test func selectingAxisReloadsSections() async throws {
         let db = try DatabaseService(inMemory: ())
         let dao = AudiobookDAO(db: db.writer)
         try dao.save(
@@ -37,6 +38,7 @@ struct LibraryViewModelTests {
                 isAvailable: true, authorSort: "jane author"))
         let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
         vm.selectAxis(.author)
+        await vm.awaitShelfRegroup()
         #expect(vm.selectedAxis == .author)
         #expect(vm.sections.map(\.title) == ["Jane Author"])
     }
@@ -70,6 +72,7 @@ struct LibraryViewModelTests {
 
         let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
         vm.reload()
+        await vm.awaitShelfRegroup()
         // The sync fetch publishes immediately (still two cards) …
         #expect(vm.sections.flatMap(\.books).count == 2)
         // … and the single-flight regroup pass re-publishes the collapsed shelf.
@@ -82,10 +85,11 @@ struct LibraryViewModelTests {
         // Reloading again is a stable no-op: still one card, no stacked passes.
         vm.reload()
         await vm.awaitShelfRegroup()
+        await vm.awaitShelfRegroup()
         #expect(vm.sections.flatMap(\.books).count == 1)
     }
 
-    @Test func openResolvesAndCallsOpenBookForStandaloneBook() throws {
+    @Test func openResolvesAndCallsOpenBookForStandaloneBook() async throws {
         let db = try DatabaseService(inMemory: ())
         let dao = AudiobookDAO(db: db.writer)
         let book = AudiobookRecord(
@@ -100,7 +104,7 @@ struct LibraryViewModelTests {
         #expect(vm.errorMessage == nil)
     }
 
-    @Test func openSetsErrorWhenBookUnresolvable() throws {
+    @Test func openSetsErrorWhenBookUnresolvable() async throws {
         let db = try DatabaseService(inMemory: ())
         let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
         let bad = AudiobookRecord(
@@ -110,7 +114,7 @@ struct LibraryViewModelTests {
         #expect(vm.errorMessage != nil)
     }
 
-    @Test func reloadPopulatesStatusMapForShelfDots() throws {
+    @Test func reloadPopulatesStatusMapForShelfDots() async throws {
         let db = try DatabaseService(inMemory: ())
         try db.writer.write { db in
             try db.execute(
@@ -124,11 +128,12 @@ struct LibraryViewModelTests {
         let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
 
         vm.reload()
+        await vm.awaitShelfRegroup()
 
         #expect(vm.statusMap["a"]?.processing.contains(.narrated) == true)
     }
 
-    @Test func statusMapFoldsSiblingEditionProgressIntoVisibleCard() throws {
+    @Test func statusMapFoldsSiblingEditionProgressIntoVisibleCard() async throws {
         // Progress and processing recorded against a hidden duplicate row (the
         // same book opened through another URL form) must surface on the card
         // the shelf actually shows.
@@ -162,6 +167,7 @@ struct LibraryViewModelTests {
 
         let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
         vm.reload()
+        await vm.awaitShelfRegroup()
 
         let visible = vm.sections.flatMap(\.books)
         #expect(visible.map(\.id) == ["file:///Lib/FoldVisible/"])
@@ -170,7 +176,7 @@ struct LibraryViewModelTests {
         #expect(status.processing.contains(.narrated))
     }
 
-    @Test func siblingEditionsReturnOtherMembersInGroup() throws {
+    @Test func siblingEditionsReturnOtherMembersInGroup() async throws {
         let db = try DatabaseService(inMemory: ())
         let dao = AudiobookDAO(db: db.writer)
         try dao.save(
@@ -186,12 +192,13 @@ struct LibraryViewModelTests {
         let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
 
         vm.reload()
+        await vm.awaitShelfRegroup()
         let visible = try #require(vm.sections.first?.books.first)
 
         #expect(vm.siblingEditions(of: visible).map(\.id) == ["text"])
     }
 
-    @Test func separateEditionOptsOutAndReloadsShelf() throws {
+    @Test func separateEditionOptsOutAndReloadsShelf() async throws {
         let db = try DatabaseService(inMemory: ())
         let dao = AudiobookDAO(db: db.writer)
         try dao.save(
@@ -207,8 +214,10 @@ struct LibraryViewModelTests {
         let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
 
         vm.reload()
+        await vm.awaitShelfRegroup()
         let visible = try #require(vm.sections.first?.books.first)
         vm.separateEdition(visible)
+        await vm.awaitShelfRegroup()
 
         let separated = try #require(try dao.get("audio"))
         let sibling = try #require(try dao.get("text"))
@@ -218,7 +227,7 @@ struct LibraryViewModelTests {
         #expect(vm.sections.flatMap(\.books).map(\.id).sorted() == ["audio", "text"])
     }
 
-    @Test func readAlongCandidatesReturnTextSiblingForAudioCard() throws {
+    @Test func readAlongCandidatesReturnTextSiblingForAudioCard() async throws {
         let db = try DatabaseService(inMemory: ())
         let dao = AudiobookDAO(db: db.writer)
         try dao.save(
@@ -234,13 +243,14 @@ struct LibraryViewModelTests {
         let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
 
         vm.reload()
+        await vm.awaitShelfRegroup()
         let visible = try #require(vm.sections.first?.books.first)
 
         #expect(visible.id == "audio")
         #expect(vm.readAlongCandidates(of: visible).map(\.id) == ["text"])
     }
 
-    @Test func readAlongCandidatesEmptyWhenAudioBookAlreadyHasText() throws {
+    @Test func readAlongCandidatesEmptyWhenAudioBookAlreadyHasText() async throws {
         let db = try DatabaseService(inMemory: ())
         let dao = AudiobookDAO(db: db.writer)
         try dao.save(
@@ -283,13 +293,14 @@ struct LibraryViewModelTests {
         let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
 
         vm.reload()
+        await vm.awaitShelfRegroup()
         let visible = try #require(vm.sections.first?.books.first)
 
         #expect(visible.id == "audio")
         #expect(vm.readAlongCandidates(of: visible).isEmpty)
     }
 
-    @Test func readAlongCandidatesEmptyForTextOnlyCard() throws {
+    @Test func readAlongCandidatesEmptyForTextOnlyCard() async throws {
         let db = try DatabaseService(inMemory: ())
         let dao = AudiobookDAO(db: db.writer)
         try dao.save(
@@ -305,6 +316,7 @@ struct LibraryViewModelTests {
         let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
 
         vm.reload()
+        await vm.awaitShelfRegroup()
         let visible = try #require(vm.sections.first?.books.first)
 
         // The displayed card has no audio, so there is nothing to read along to.
@@ -312,7 +324,7 @@ struct LibraryViewModelTests {
         #expect(vm.readAlongCandidates(of: visible).isEmpty)
     }
 
-    @Test func openUnavailableBookStartsRecoveryInsteadOfOpening() throws {
+    @Test func openUnavailableBookStartsRecoveryInsteadOfOpening() async throws {
         let db = try DatabaseService(inMemory: ())
         let book = AudiobookRecord(
             id: "file:///Books/Moved/", title: "Moved", author: nil, duration: 0,
@@ -326,7 +338,7 @@ struct LibraryViewModelTests {
         #expect(vm.pendingRecoveryBook?.id == book.id)
     }
 
-    @Test func dispatcherFailureSurfacesItsLibraryError() throws {
+    @Test func dispatcherFailureSurfacesItsLibraryError() async throws {
         let db = try DatabaseService(inMemory: ())
         let document = FileManager.default.temporaryDirectory
             .appendingPathComponent("Unsupported-\(UUID().uuidString).pages")

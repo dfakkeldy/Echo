@@ -377,6 +377,7 @@ import ZIPFoundation
         fixture = nil
 
         #expect(model == nil)
+        model = nil
     }
 
     @Test func libraryChangeClearsMetadataFiltersButKeepsNotAdded() async throws {
