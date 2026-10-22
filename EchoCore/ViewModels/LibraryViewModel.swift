@@ -11,6 +11,7 @@ final class LibraryViewModel {
     var selectedAxis: LibraryAxis = .recentlyAdded
     var showUnavailable = false
     var isScanning = false
+    var isLoading = false
     var errorMessage: String?
     var pendingRecoveryBook: AudiobookRecord?
 
@@ -61,7 +62,9 @@ final class LibraryViewModel {
         let axis = selectedAxis
         let unavailable = showUnavailable
         textEligibilityAvailable = false
+        isLoading = true
         fetchTask = Task {
+            defer { if revision == fetchRevision { isLoading = false } }
             do {
                 let snapshot = try await service.shelfSnapshot(
                     axis: axis, includeUnavailable: unavailable, listenedOnly: listenedOnly)

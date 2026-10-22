@@ -256,6 +256,7 @@ struct MacReaderFeedView: View {
             clearReader()
             return
         }
+        if loadedBookID != bookID { clearReader() }
         let writer = dbService.writer
         do {
             let snapshot = try await Task.detached(priority: .userInitiated) {

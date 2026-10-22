@@ -190,7 +190,10 @@
         @ViewBuilder
         private var booksContent: some View {
             Group {
-                if vm.isEmpty {
+                if vm.isLoading && vm.isEmpty {
+                    ProgressView("Loading books…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if vm.isEmpty {
                     emptyState
                 } else {
                     LibraryShelfGrid(
