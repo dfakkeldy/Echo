@@ -27,6 +27,7 @@ struct EchoCoreApp: App {
     /// environment and cannot receive `PlayerModel` via injection; `CarPlayManager`'s
     /// library/chapters/bookmarks refreshes read it here (3 sites).
     ///
+    /// Historical audit references: https://github.com/dfakkeldy/Echo/pull/652
     /// REFACTOR-TODO: replace this static with a `@MainActor` registry
     /// keyed by scene identifier. Kept as a deliberate backdoor for now — the capture
     /// buttons already push the other way via `NotificationCenter`.

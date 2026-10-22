@@ -14,13 +14,16 @@ actor ReaderImageLoader {
         guard maxPixelSize > 0 else { return nil }
         let key = "\(maxPixelSize):\(storedPath)"
         if let image = cache[key] { return image }
-        guard let image = await Self.decode(storedPath: storedPath, maxPixelSize: maxPixelSize) else { return nil }
+        guard let image = await Self.decode(storedPath: storedPath, maxPixelSize: maxPixelSize)
+        else { return nil }
         if cache[key] != nil { return cache[key] }
         let bytes = image.bytesPerRow * image.height
         guard bytes <= byteLimit else { return image }
         while cachedBytes + bytes > byteLimit, !order.isEmpty {
             let oldest = order.removeFirst()
-            if let removed = cache.removeValue(forKey: oldest) { cachedBytes -= removed.bytesPerRow * removed.height }
+            if let removed = cache.removeValue(forKey: oldest) {
+                cachedBytes -= removed.bytesPerRow * removed.height
+            }
         }
         cache[key] = image
         order.append(key)
@@ -29,16 +32,20 @@ actor ReaderImageLoader {
     }
 
     @concurrent
-    private static func decode(storedPath: String, maxPixelSize: Int) async -> CGImage? {
+    private nonisolated static func decode(storedPath: String, maxPixelSize: Int) async -> CGImage?
+    {
         guard !Task.isCancelled,
             let url = VisualListeningImageLocator.resolvedURL(forStoredPath: storedPath),
-            let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary)
+            let source = CGImageSourceCreateWithURL(
+                url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary)
         else { return nil }
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
-        ] as CFDictionary)
+        return CGImageSourceCreateThumbnailAtIndex(
+            source, 0,
+            [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+            ] as CFDictionary)
     }
 }

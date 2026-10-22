@@ -87,7 +87,9 @@
             loadedImagePath = nil
             guard let path = snapshot.visualCue?.imagePath else { return }
             let decoded = await ReaderImageLoader.shared.image(storedPath: path)
-            guard !Task.isCancelled, snapshot.visualCue?.imagePath == path, let decoded else { return }
+            guard !Task.isCancelled, snapshot.visualCue?.imagePath == path, let decoded else {
+                return
+            }
             loadedImagePath = path
             image = UIImage(cgImage: decoded)
         }

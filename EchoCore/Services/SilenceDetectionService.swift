@@ -19,6 +19,7 @@ struct SilenceDetectionService {
     }
 
     /// Returns an array of silence gaps sorted by start time.
+    /// Cancellation/channel-energy repair: https://github.com/dfakkeldy/Echo/pull/652
     func detectSilences() async throws -> [SilenceGaps] {
         let worker = Task.detached {
             let file = try AVAudioFile(forReading: self.audioURL)
@@ -65,7 +66,9 @@ struct SilenceDetectionService {
                     // Independent energy also handles out-of-phase stereo.
                     for channel in 0..<Int(format.channelCount) {
                         var channelRMS: Float = 0
-                        vDSP_rmsqv(channelData[channel].advanced(by: offset), 1, &channelRMS, vDSP_Length(length))
+                        vDSP_rmsqv(
+                            channelData[channel].advanced(by: offset), 1, &channelRMS,
+                            vDSP_Length(length))
                         rms = max(rms, channelRMS)
                     }
 

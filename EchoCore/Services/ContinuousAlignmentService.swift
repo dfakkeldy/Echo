@@ -96,6 +96,7 @@ final class ContinuousAlignmentService {
         // shared model: the task acquires the model internally, so releasing
         // before it finishes could out-release a still-resolving acquire and
         // leak/over-release the shared model.
+        // Ownership/cancellation: https://github.com/dfakkeldy/Echo/pull/652
         Task {
             await task?.value
             WhisperSession.shared.release()
@@ -138,7 +139,8 @@ final class ContinuousAlignmentService {
                 guard words.count >= Config.minWordsForAnchor else { return }
 
                 await matchAndInsertAnchor(
-                    words: words, windowStart: windowStart, windowEnd: windowEnd, generation: generation)
+                    words: words, windowStart: windowStart, windowEnd: windowEnd,
+                    generation: generation)
             } catch {
                 logger.error("Transcription failed: \(error.localizedDescription)")
             }
@@ -165,42 +167,8 @@ final class ContinuousAlignmentService {
     ) async {
         let writer = blockDAO.db
         let bookID = audiobookID
-        guard let inputs = await Task.detached(operation: {
-            guard let blocks = try? EPubBlockDAO(db: writer).blocks(for: bookID),
-                  let timeline = try? TimelineDAO(db: writer).items(for: bookID) else { return nil as ([EPubBlockRecord], [TimelineItem])? }
-            return (blocks, timeline)
-        }).value else { return }
-        guard (try? checkRun(generation)) != nil else { return }
-        let (blocks, timelineItems) = inputs
-
-        // Find current block based on timeline — use a single-pass scan
-        // (O(N)) instead of sorting the entire timeline (O(N log N)) to avoid
-        // main-thread stalls every 15 seconds.
-        let blockIndex = Dictionary(uniqueKeysWithValues: blocks.enumerated().map { ($0.element.id, $0.offset) })
-        var currentBlockIdx = 0
-        var bestTime: TimeInterval = 0
-        for item in timelineItems {
-            guard let blockID = item.epubBlockID else { continue }
-            let time = item.audioStartTime
-            if time <= windowStart, time >= bestTime {
-                bestTime = time
-                if let idx = blockIndex[blockID] {
-                    currentBlockIdx = idx
-                }
-            }
-        }
-
-        // Search window of candidates around the current position
-        let searchWindow = 10
-        let startIdx = max(0, currentBlockIdx - searchWindow)
-        let endIdx = min(blocks.count, currentBlockIdx + searchWindow)
-        let candidates = Array(blocks[startIdx..<endIdx])
-
-        let text = words.map(\.text).joined(separator: " ")
-        let match = await Task.detached {
-            AutoAlignmentTextMatcher.findBestMatch(
-                transcribedText: text, candidates: candidates, matchThreshold: Config.matchThreshold)
-        }.value
+        let match = await Self.matchCurrentWindow(
+            writer: writer, bookID: bookID, words: words, windowStart: windowStart)
         guard (try? checkRun(generation)) != nil, let match else { return }
 
         guard
@@ -235,10 +203,50 @@ final class ContinuousAlignmentService {
                     try record.upsert(connection)
                     try token.check()
                 }
-            } onCancel: { token.cancel() }
+            } onCancel: {
+                token.cancel()
+            }
             try checkRun(generation)
             try await alignmentService.recalculateTimelineAsync()
         } catch { return }
         logger.info("Inserted continuous anchor for block \(match.block.id) at \(projected)s")
     }
+    @concurrent
+    private nonisolated static func matchCurrentWindow(
+        writer: any DatabaseWriter, bookID: String, words: [TranscribedWord],
+        windowStart: TimeInterval
+    ) async -> AutoAlignmentTextMatcher.Match? {
+        guard !Task.isCancelled,
+            let blocks = try? EPubBlockDAO(db: writer).blocks(for: bookID),
+            let timelineItems = try? TimelineDAO(db: writer).items(for: bookID)
+        else { return nil }
+        // Find current block based on timeline — use a single-pass scan
+        // (O(N)) with indexed block positions, on the concurrent executor.
+        let blockIndex = Dictionary(
+            uniqueKeysWithValues: blocks.enumerated().map { ($0.element.id, $0.offset) })
+        var currentBlockIdx = 0
+        var bestTime: TimeInterval = 0
+        for item in timelineItems {
+            guard let blockID = item.epubBlockID else { continue }
+            let time = item.audioStartTime
+            if time <= windowStart, time >= bestTime {
+                bestTime = time
+                if let idx = blockIndex[blockID] {
+                    currentBlockIdx = idx
+                }
+            }
+        }
+
+        // Search window of candidates around the current position
+        let searchWindow = 10
+        let startIdx = max(0, currentBlockIdx - searchWindow)
+        let endIdx = min(blocks.count, currentBlockIdx + searchWindow)
+        let candidates = Array(blocks[startIdx..<endIdx])
+
+        let text = words.map(\.text).joined(separator: " ")
+        guard !Task.isCancelled else { return nil }
+        return AutoAlignmentTextMatcher.findBestMatch(
+            transcribedText: text, candidates: candidates, matchThreshold: Config.matchThreshold)
+    }
+
 }

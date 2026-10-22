@@ -262,7 +262,7 @@ struct ReaderFeedAccessibilityTests {
         parent.loadViewIfNeeded()
         child.loadViewIfNeeded()
         parent.addChild(child)
-        child.traitOverrides.preferredContentSizeCategory = trait.preferredContentSizeCategory
+            child.traitOverrides.preferredContentSizeCategory = trait.preferredContentSizeCategory
         parent.view.addSubview(child.view)
         child.didMove(toParent: parent)
 
@@ -272,7 +272,7 @@ struct ReaderFeedAccessibilityTests {
         defer {
             cell.removeFromSuperview()
             child.willMove(toParent: nil)
-            child.traitOverrides.remove(UITraitPreferredContentSizeCategory.self)
+                child.traitOverrides.remove(UITraitPreferredContentSizeCategory.self)
             child.view.removeFromSuperview()
             child.removeFromParent()
             window.isHidden = true

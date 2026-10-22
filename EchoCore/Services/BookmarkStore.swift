@@ -338,7 +338,9 @@ final class BookmarkStore {
 
     /// SQL becomes authoritative only after the legacy recovery data has been
     /// reconciled successfully. Keep that recovery data, including after deletes.
-    func restore(database: DatabaseService, persistence: Persistence, key: String, folderURL: URL?) throws {
+    func restore(database: DatabaseService, persistence: Persistence, key: String, folderURL: URL?)
+        throws
+    {
         stopVoiceMemo()
         bookmarks = []
         if let pending = pendingSnapshots[key] {
@@ -348,7 +350,8 @@ final class BookmarkStore {
         let records = try BookmarkDAO(db: database.writer).bookmarks(for: key)
         if !persistence.bookmarksMigratedToSQL(for: key) {
             if records.isEmpty {
-                let legacy = persistence.loadBookmarks(for: key, folderURL: folderURL).map { bookmark in
+                let legacy = persistence.loadBookmarks(for: key, folderURL: folderURL).map {
+                    bookmark in
                     var scoped = bookmark
                     scoped.folderKey = key
                     return scoped
@@ -357,7 +360,9 @@ final class BookmarkStore {
                 let recovered = try writer.write { connection in
                     let scoped = try legacy.map { bookmark in
                         var copy = bookmark
-                        if let existing = try BookmarkRecord.fetchOne(connection, key: copy.id.uuidString), existing.audiobookID != key {
+                        if let existing = try BookmarkRecord.fetchOne(
+                            connection, key: copy.id.uuidString), existing.audiobookID != key
+                        {
                             // Keep ambiguous parent-book SQL data intact and
                             // give the recovered file-book copy its own identity.
                             copy.id = UUID()
@@ -417,13 +422,16 @@ final class BookmarkStore {
                         let writer = database.writer
                         try await database.withBackgroundOperation(name: "bookmark persistence") {
                             try await writer.write { db in
-                                try Self.replaceBookmarks(snapshot, for: key, in: db, writer: writer)
+                                try Self.replaceBookmarks(
+                                    snapshot, for: key, in: db, writer: writer)
                             }
                         }
                         if !self.pendingKeys.contains(key) { self.pendingSnapshots[key] = nil }
                     } catch {
                         if database.isWorkDeferred(error) {
-                            if !self.pendingKeys.contains(key) { self.pendingKeys.insert(key, at: 0) }
+                            if !self.pendingKeys.contains(key) {
+                                self.pendingKeys.insert(key, at: 0)
+                            }
                             do { try await database.waitUntilForeground() }
                             catch { return }
                             continue
@@ -447,14 +455,14 @@ final class BookmarkStore {
         _ bookmarks: [Bookmark], for key: String, in db: Database, writer: any DatabaseWriter
     ) throws {
         let dao = BookmarkDAO(db: writer)
-            try BookmarkRecord.filter(Column("audiobook_id") == key).deleteAll(db)
-            try TimelineItem
-                .filter(Column("audiobook_id") == key)
-                .filter(Column("source_table") == "bookmark")
-                .deleteAll(db)
-            for bookmark in bookmarks {
-                try dao.insert(BookmarkRecord(from: bookmark), in: db)
-            }
+        try BookmarkRecord.filter(Column("audiobook_id") == key).deleteAll(db)
+        try TimelineItem
+            .filter(Column("audiobook_id") == key)
+            .filter(Column("source_table") == "bookmark")
+            .deleteAll(db)
+        for bookmark in bookmarks {
+            try dao.insert(BookmarkRecord(from: bookmark), in: db)
+        }
     }
 
     // MARK: - Notification

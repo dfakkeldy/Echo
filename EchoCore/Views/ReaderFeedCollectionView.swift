@@ -379,8 +379,6 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         var dataSource: UICollectionViewDiffableDataSource<String, String>?
         var sections: [ReaderCardSection] = [] {
             didSet {
-                appliedSectionIDs = sections.map(\.id)
-                sectionByID = Dictionary(sections.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
                 lastHeadingSectionID = nil
             }
         }
@@ -869,6 +867,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         ) {
             var snapshot = NSDiffableDataSourceSnapshot<String, String>()
             let sectionIDs = sections.map(\.id)
+            let appliedSections = sections
             snapshot.appendSections(sectionIDs)
             for section in sections {
                 snapshot.appendItems(section.items.map(\.id), toSection: section.id)
@@ -896,6 +895,10 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 guard let self, let collectionView else { return }
                 guard scheduledSnapshotGeneration == self.scrollOperationState.snapshotGeneration
                 else { return }
+                self.appliedSectionIDs = sectionIDs
+                self.sectionByID = Dictionary(
+                    appliedSections.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+                self.lastHeadingSectionID = nil
                 collectionView.layoutIfNeeded()
                 if let anchor,
                     self.followState.wrappedValue == .exploring,
@@ -918,6 +921,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     collectionView.layoutIfNeeded()
                 }
                 self.scrollOperationState.completeSnapshot(scheduledSnapshotGeneration)
+                self.updateTopChapterTitle(collectionView)
                 self.drainPendingScrollIfReady(in: collectionView)
             }
             Task { @MainActor in
@@ -1286,11 +1290,13 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         }
 
         private func updateChapterTitle(for indexPath: IndexPath) {
-            guard appliedSectionIDs.indices.contains(indexPath.section) else { return }
+            guard !scrollOperationState.snapshotIsApplying,
+                appliedSectionIDs.indices.contains(indexPath.section)
+            else { return }
             let sectionID = appliedSectionIDs[indexPath.section]
             if let section = sectionByID[sectionID] {
                 if lastHeadingSectionID != sectionID {
-                lastHeadingSectionID = sectionID
+                    lastHeadingSectionID = sectionID
 
                 var partTitle: String? = nil
                 var chapterTitle: String? = nil

@@ -73,9 +73,11 @@ nonisolated enum ReaderActiveBlockResolver {
             // across buckets, preserving overlaps and multi-chapter scope.
             var best: (position: Int, row: TimelineRow)?
             for chapter in scope {
-                guard let match = byChapter[chapter]?.first(where: {
-                    time >= $0.row.start && time < $0.row.end
-                }) else { continue }
+                guard
+                    let match = byChapter[chapter]?.first(where: {
+                        time >= $0.row.start && time < $0.row.end
+                    })
+                else { continue }
                 if best == nil || match.position < best!.position { best = match }
             }
             return best?.row.blockID

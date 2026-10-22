@@ -73,7 +73,8 @@ struct ReaderTab: View {
     @State private var isComposingReaderNote = false
     @State private var readerNoteText = ""
     @State private var readerCaptureError: String?
-    @State private var pendingMemoSave: (url: URL, duration: TimeInterval, blockID: String, bookID: String)?
+    @State private var pendingMemoSave:
+        (url: URL, duration: TimeInterval, blockID: String, bookID: String)?
     @State private var composingNoteBlockID: String?
     @State private var recordingMemoBlockID: String?
 
@@ -346,12 +347,17 @@ struct ReaderTab: View {
 
     private func readerPresentationContent() -> some View {
         readerAuxiliarySheetContent()
-            .alert("Couldn't save", isPresented: Binding(
-                get: { readerCaptureError != nil }, set: { if !$0 { readerCaptureError = nil } }
-            )) {
+            .alert(
+                "Couldn't save",
+                isPresented: Binding(
+                    get: { readerCaptureError != nil }, set: { if !$0 { readerCaptureError = nil } }
+                )
+            ) {
                 if pendingMemoSave != nil { Button("Retry") { retryMemoSave() } }
                 Button("OK", role: .cancel) { readerCaptureError = nil }
-            } message: { Text(readerCaptureError ?? "") }
+            } message: {
+                Text(readerCaptureError ?? "")
+            }
             .alert(
                 "Auto-Alignment Failed",
                 isPresented: Binding(
@@ -1056,7 +1062,8 @@ struct ReaderTab: View {
             return
         }
         guard viewModel?.addNote(text: text, atBlockID: blockID) == true else {
-            readerCaptureError = "Your note could not be saved. The draft is still available. Try saving it again."
+            readerCaptureError =
+                "Your note could not be saved. The draft is still available. Try saving it again."
             return
         }
         cancelReaderNote()
@@ -1099,7 +1106,9 @@ struct ReaderTab: View {
 
     private func retryMemoSave() {
         guard let memo = pendingMemoSave, memo.bookID == audiobookID else { return }
-        if viewModel?.addVoiceMemo(fileURL: memo.url, duration: memo.duration, atBlockID: memo.blockID) == true {
+        if viewModel?.addVoiceMemo(
+            fileURL: memo.url, duration: memo.duration, atBlockID: memo.blockID) == true
+        {
             pendingMemoSave = nil
         } else {
             readerCaptureError = "Your recording is kept on this device. Try saving it again."

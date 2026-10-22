@@ -283,7 +283,7 @@ struct LibraryService {
     @discardableResult
     func rescan(
         root: LibraryRootRecord,
-        discover: ((URL) -> [DiscoveredBook])? = nil,
+        discover: (URL) -> [DiscoveredBook],
         startScope: (URL) -> Bool = { $0.startAccessingSecurityScopedResource() },
         stopScope: (URL) -> Void = { $0.stopAccessingSecurityScopedResource() },
         now: () -> String = { Date().ISO8601Format() }
@@ -303,8 +303,7 @@ struct LibraryService {
         defer { if scopeStarted { stopScope(rootURL) } }
 
         let dao = AudiobookDAO(db: db.writer)
-        let discovery = discover.map { LibraryScanner.Discovery(books: $0(rootURL), isComplete: true) }
-            ?? LibraryScanner.discover(in: rootURL)
+        let discovery = LibraryScanner.Discovery(books: discover(rootURL), isComplete: true)
         let found = discovery.books
         let foundIDs = Set(found.map { $0.folderURL.absoluteString })
         var result = RescanResult(added: 0, updated: 0, hidden: 0)
@@ -367,7 +366,7 @@ struct LibraryService {
     @discardableResult
     func rescan(
         root: LibraryRootRecord,
-        discover: ((URL) -> [DiscoveredBook])? = nil,
+        discover: ((URL) async -> LibraryScanner.Discovery)? = nil,
         readMetadata: (DiscoveredBook) async -> LibraryScanner.ScannedMetadata,
         companionCoverData: ((DiscoveredBook) -> Data?)? = nil,
         coversDir: URL,
@@ -385,7 +384,7 @@ struct LibraryService {
         defer { if scopeStarted { stopScope(rootURL) } }
         let discovery: LibraryScanner.Discovery
         if let discover {
-            discovery = LibraryScanner.Discovery(books: discover(rootURL), isComplete: true)
+            discovery = await discover(rootURL)
         } else {
             discovery = await LibraryScanner.discoverOffMain(in: rootURL)
         }
@@ -396,7 +395,9 @@ struct LibraryService {
             try Task.checkCancellation()
             let metadata = await readMetadata(book)
             let coverData = metadata.coverImageData ?? companionCoverData?(book)
-            let cover = await Self.prepareCover(data: coverData, epubURL: companionCoverData == nil ? book.companionEPUB : nil, id: book.folderURL.absoluteString, coversDir: coversDir)
+            let cover = await Self.prepareCover(
+                data: coverData, epubURL: companionCoverData == nil ? book.companionEPUB : nil,
+                id: book.folderURL.absoluteString, coversDir: coversDir)
             prepared.append((book, metadata, cover))
         }
         try Task.checkCancellation()
@@ -405,14 +406,19 @@ struct LibraryService {
         let foundIDs = Set(discovery.books.map { $0.folderURL.absoluteString })
         let result = try await db.writer.write { connection in
             try Task.checkCancellation()
-            guard let currentRoot = try LibraryRootRecord.fetchOne(connection, key: rootID), currentRoot.bookmark == root.bookmark else { throw CancellationError() }
+            guard let currentRoot = try LibraryRootRecord.fetchOne(connection, key: rootID),
+                currentRoot.bookmark == root.bookmark
+            else { throw CancellationError() }
             var result = RescanResult(added: 0, updated: 0, hidden: 0)
             for (book, meta, coverPath) in pending {
                 let id = book.folderURL.absoluteString
                 let existing = try AudiobookRecord.fetchOne(connection, key: id)
-                var record = existing ?? AudiobookRecord(
+                var record =
+                    existing
+                    ?? AudiobookRecord(
                     id: id, title: meta.title, author: meta.author,
-                    duration: meta.duration, fileCount: book.audioFiles.count, addedAt: timestamp)
+                        duration: meta.duration, fileCount: book.audioFiles.count,
+                        addedAt: timestamp)
                 record.title = meta.title
                 record.author = meta.author ?? record.author
                 record.narrator = meta.narrator ?? record.narrator
@@ -434,7 +440,9 @@ struct LibraryService {
                     try book.save(connection)
                     result.hidden += 1
                 }
-                try connection.execute(sql: "UPDATE library_root SET last_scanned_at = ? WHERE id = ?", arguments: [timestamp, rootID])
+                try connection.execute(
+                    sql: "UPDATE library_root SET last_scanned_at = ? WHERE id = ?",
+                    arguments: [timestamp, rootID])
             }
             try Task.checkCancellation()
             return result
@@ -444,11 +452,16 @@ struct LibraryService {
     }
 
     @concurrent
-    private static func prepareCover(data: Data?, epubURL: URL?, id: String, coversDir: URL) async -> String? {
+    private nonisolated static func prepareCover(
+        data: Data?, epubURL: URL?, id: String, coversDir: URL
+    ) async -> String? {
         try? FileManager.default.createDirectory(at: coversDir, withIntermediateDirectories: true)
-        let fallback = data == nil ? epubURL.flatMap {
-            EpubCoverResolver.coverData(epubArchiveURL: $0) ?? EpubCoverResolver.coverData(expandedEPUBDir: $0)
-        } : nil
+        let fallback =
+            data == nil
+            ? epubURL.flatMap {
+                EpubCoverResolver.coverData(epubArchiveURL: $0)
+                    ?? EpubCoverResolver.coverData(expandedEPUBDir: $0)
+            } : nil
         return LibraryCoverStore.writeCover(data ?? fallback, id: id, coversDir: coversDir)
     }
 
@@ -500,7 +513,9 @@ struct LibraryService {
     /// unless `includeUnavailable` is `true`. Listening history includes books
     /// whose playback started, including an active segment at position zero.
     /// Imports and saved resume positions alone never count as listening.
-    nonisolated func books(includeUnavailable: Bool, listenedOnly: Bool = false) throws -> [AudiobookRecord] {
+    nonisolated func books(includeUnavailable: Bool, listenedOnly: Bool = false) throws
+        -> [AudiobookRecord]
+    {
         try queryWriter.read { db in
             var request = AudiobookRecord.order(Column("added_at").desc)
             if !includeUnavailable && !listenedOnly {
@@ -591,7 +606,9 @@ struct LibraryService {
     }
 
     @concurrent
-    nonisolated func shelfSnapshot(axis: LibraryAxis, includeUnavailable: Bool, listenedOnly: Bool) async throws -> ShelfSnapshot {
+    nonisolated func shelfSnapshot(axis: LibraryAxis, includeUnavailable: Bool, listenedOnly: Bool)
+        async throws -> ShelfSnapshot
+    {
         let books = try books(includeUnavailable: includeUnavailable, listenedOnly: listenedOnly)
         let siblings = try siblingEditionsMap(for: books)
         let ids = Array(Set(books.map(\.id))).sorted()
@@ -599,17 +616,24 @@ struct LibraryService {
         let statuses = Self.foldingSiblingStatuses(
             into: try statusMap(for: allIDs), visibleIDs: ids, siblings: siblings)
         let textIDs = try queryWriter.read { connection in
-            try Set(String.fetchAll(connection, sql:
-                "SELECT DISTINCT audiobook_id FROM epub_block WHERE audiobook_id IN " + sqlIn(ids),
-                arguments: StatementArguments(ids)))
+            try Set(
+                String.fetchAll(
+                    connection,
+                    sql:
+                        "SELECT DISTINCT audiobook_id FROM epub_block WHERE audiobook_id IN "
+                        + sqlIn(ids),
+                    arguments: StatementArguments(ids)))
         }
         try Task.checkCancellation()
-        return ShelfSnapshot(sections: try sections(by: axis, books: books, statuses: statuses),
-                             siblings: siblings, statuses: statuses, booksWithText: textIDs)
+        return ShelfSnapshot(
+            sections: try sections(by: axis, books: books, statuses: statuses),
+            siblings: siblings, statuses: statuses, booksWithText: textIDs)
     }
 
     /// Returns the other visible editions in each displayed book's group.
-    nonisolated func siblingEditionsMap(for books: [AudiobookRecord]) throws -> [String: [AudiobookRecord]] {
+    nonisolated func siblingEditionsMap(for books: [AudiobookRecord]) throws -> [String:
+        [AudiobookRecord]]
+    {
         let groupIDs = Set(
             books.compactMap { book -> String? in
                 guard let groupID = book.editionGroupID,
@@ -743,7 +767,8 @@ struct LibraryService {
                     current.editionGroupOptOut == original.editionGroupOptOut,
                     current.editionGroupID == original.editionGroupID
                 else { continue }
-                try connection.execute(sql: "UPDATE audiobook SET edition_group_id = ? WHERE id = ?",
+                try connection.execute(
+                    sql: "UPDATE audiobook SET edition_group_id = ? WHERE id = ?",
                     arguments: [record.editionGroupID, record.id])
                 changed += 1
             }
@@ -1066,7 +1091,9 @@ struct LibraryService {
         return result
     }
 
-    private nonisolated static func furthestStudyStatus(_ a: StudyStatus, _ b: StudyStatus) -> StudyStatus {
+    private nonisolated static func furthestStudyStatus(_ a: StudyStatus, _ b: StudyStatus)
+        -> StudyStatus
+    {
         func rank(_ status: StudyStatus) -> Int {
             switch status {
             case .notStarted: 0
@@ -1147,7 +1174,8 @@ struct LibraryService {
         return "book:\(book.id)"
     }
 
-    private nonisolated func collapseEditionGroups(_ books: [AudiobookRecord]) -> [AudiobookRecord] {
+    private nonisolated func collapseEditionGroups(_ books: [AudiobookRecord]) -> [AudiobookRecord]
+    {
         let grouped = Dictionary(grouping: books, by: editionGroupKey)
 
         return grouped.values.map { editions in
@@ -1181,7 +1209,9 @@ struct LibraryService {
         return lhs.addedAt > rhs.addedAt
     }
 
-    private nonisolated func editionDisplaySort(_ lhs: AudiobookRecord, _ rhs: AudiobookRecord) -> Bool {
+    private nonisolated func editionDisplaySort(_ lhs: AudiobookRecord, _ rhs: AudiobookRecord)
+        -> Bool
+    {
         let titleOrder = lhs.title.localizedStandardCompare(rhs.title)
         if titleOrder != .orderedSame {
             return titleOrder == .orderedAscending
@@ -1217,7 +1247,9 @@ struct LibraryService {
         URL(string: book.id)?.deletingLastPathComponent().lastPathComponent ?? "Other"
     }
 
-    private nonisolated func studyStatusSections(_ books: [AudiobookRecord], statuses: [String: LibraryBookStatus]? = nil) throws -> [LibrarySection] {
+    private nonisolated func studyStatusSections(
+        _ books: [AudiobookRecord], statuses: [String: LibraryBookStatus]? = nil
+    ) throws -> [LibrarySection] {
         let statuses = try statuses ?? foldedStatusMap(for: books)
         var inProgress: [AudiobookRecord] = []
         var finished: [AudiobookRecord] = []
@@ -1239,7 +1271,9 @@ struct LibraryService {
         ].compactMap { $0 }
     }
 
-    private nonisolated func processingStatusSections(_ books: [AudiobookRecord], statuses: [String: LibraryBookStatus]? = nil) throws -> [LibrarySection] {
+    private nonisolated func processingStatusSections(
+        _ books: [AudiobookRecord], statuses: [String: LibraryBookStatus]? = nil
+    ) throws -> [LibrarySection] {
         let statuses = try statuses ?? foldedStatusMap(for: books)
         var aligned: [AudiobookRecord] = []
         var narrated: [AudiobookRecord] = []
@@ -1287,7 +1321,9 @@ struct LibraryService {
             })
     }
 
-    private nonisolated func counts(_ db: Database, table: String, bookIDs: [String]) throws -> [String: Int] {
+    private nonisolated func counts(_ db: Database, table: String, bookIDs: [String]) throws
+        -> [String: Int]
+    {
         let rows = try Row.fetchAll(
             db,
             sql: """

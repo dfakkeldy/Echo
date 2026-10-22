@@ -168,6 +168,7 @@ final class ReaderFeedViewModel {
     private var cardsBySourceBlock: [String: [Flashcard]] = [:]
     private var sourceAnchoredCardCount = 0
     private var sourceCardOrder: [String: Int] = [:]
+    @ObservationIgnored private var sourceCardObservation: AnyDatabaseCancellable?
 
     func waitForReload() async { await reloadTask?.value }
 
@@ -192,11 +193,17 @@ final class ReaderFeedViewModel {
                 try? EPubBlockDAO(db: writer).searchBlocks(for: bookID, query: query ?? "")
             }.value
             guard !Task.isCancelled, revision == reloadRevision, query == searchQuery,
-                  let blocks else { return }
-            sections = [ReaderCardSection(id: "search", headingStack: ["Search Results"], items: blocks.map { .block($0) })]
-            cardIndexByBlockID = Dictionary(uniqueKeysWithValues: blocks.enumerated().map {
-                ($0.element.id, IndexPath(item: $0.offset, section: 0))
-            })
+                let blocks
+            else { return }
+            sections = [
+                ReaderCardSection(
+                    id: "search", headingStack: ["Search Results"], items: blocks.map { .block($0) }
+                )
+            ]
+            cardIndexByBlockID = Dictionary(
+                uniqueKeysWithValues: blocks.enumerated().map {
+                    ($0.element.id, IndexPath(item: $0.offset, section: 0))
+                })
             chapterGroups = []
             openChapterKey = nil
             displaySections = sections
@@ -225,6 +232,16 @@ final class ReaderFeedViewModel {
         self.playlistFolderURL = playlistFolderURL
         self.offResolver = OffStateResolver(db: db, folderURL: playlistFolderURL)
         self.db = db
+        sourceCardObservation = ValueObservation.tracking { connection in
+            try Flashcard.filter(Column("audiobook_id") == audiobookID).fetchAll(connection)
+        }.start(
+            in: db, scheduling: .immediate,
+            onError: { [weak self] error in
+                self?.logger.error("Card observation failed: \(error.localizedDescription)")
+            },
+            onChange: { [weak self] cards in
+                self?.cacheSourceAnchoredCards(cards)
+            })
     }
 
     /// Everything `reload()` derives from the database, built in one pass
@@ -280,7 +297,8 @@ final class ReaderFeedViewModel {
                 let state = await Self.buildFeedStateOffMain(
                     audiobookID: self.audiobookID, searchQuery: query, db: self.db)
             else { return }
-            guard !Task.isCancelled, revision == self.reloadRevision, query == self.searchQuery else { return }
+            guard !Task.isCancelled, revision == self.reloadRevision, query == self.searchQuery
+            else { return }
             self.apply(state)
         }
     }
@@ -514,7 +532,6 @@ final class ReaderFeedViewModel {
     /// rebuild, scope) exactly as the former monolithic reload did.
     private func apply(_ state: FeedState) {
         if !state.isSearch { browseState = state }
-        refreshSourceAnchoredCards()
         sections = state.sections
         cardIndexByBlockID = state.cardIndexByBlockID
         timelineCache = state.timelineCache
@@ -787,9 +804,12 @@ final class ReaderFeedViewModel {
 
     /// Recompute the reconciled off-state for every chapter that has sections.
     func refreshOffState() {
-        let keys = Set(sections.compactMap { Self.chapterKey(ofSectionID: $0.id) }.filter { $0 >= 0 })
-        offStateByChapter = (try? offResolver.resolveAll(
-            audiobookID: audiobookID, trackFilesByChapter: trackFilesByChapter, chapters: keys)) ?? [:]
+        let keys = Set(
+            sections.compactMap { Self.chapterKey(ofSectionID: $0.id) }.filter { $0 >= 0 })
+        offStateByChapter =
+            (try? offResolver.resolveAll(
+                audiobookID: audiobookID, trackFilesByChapter: trackFilesByChapter, chapters: keys))
+            ?? [:]
     }
 
     /// All track files from the manifest (fallback when a per-chapter map is absent).
@@ -1121,7 +1141,8 @@ final class ReaderFeedViewModel {
                 let state = await Self.buildFeedStateOffMain(
                     audiobookID: self.audiobookID, searchQuery: query, db: self.db)
             else { return }
-            guard !Task.isCancelled, revision == self.reloadRevision, query == self.searchQuery else { return }
+            guard !Task.isCancelled, revision == self.reloadRevision, query == self.searchQuery
+            else { return }
             self.apply(state)
             self.updateActiveBlock(
                 time: time,
@@ -1201,11 +1222,15 @@ final class ReaderFeedViewModel {
     }
 
     func refreshSourceAnchoredCards() {
-        let cards = ((try? flashcardDAO.flashcards(for: audiobookID)) ?? [])
-            .filter { $0.sourceBlockID != nil && $0.isEnabled }
+        cacheSourceAnchoredCards((try? flashcardDAO.flashcards(for: audiobookID)) ?? [])
+    }
+
+    private func cacheSourceAnchoredCards(_ all: [Flashcard]) {
+        let cards = all.filter { $0.sourceBlockID != nil && $0.isEnabled }
         cardsBySourceBlock = Dictionary(grouping: cards, by: { $0.sourceBlockID! })
         sourceAnchoredCardCount = cards.count
-        sourceCardOrder = Dictionary(uniqueKeysWithValues: cards.enumerated().map { ($0.element.id, $0.offset) })
+        sourceCardOrder = Dictionary(
+            uniqueKeysWithValues: cards.enumerated().map { ($0.element.id, $0.offset) })
     }
 
     private func resolveSourceAnchoredCardTriggers(
@@ -1214,7 +1239,8 @@ final class ReaderFeedViewModel {
         isPlaying: Bool
     ) {
         guard isPlaying, previousBlockID != activeBlockID else { return }
-        let cards = ((previousBlockID.flatMap { cardsBySourceBlock[$0] } ?? [])
+        let cards =
+            ((previousBlockID.flatMap { cardsBySourceBlock[$0] } ?? [])
             + (activeBlockID.flatMap { cardsBySourceBlock[$0] } ?? []))
             .sorted { (sourceCardOrder[$0.id] ?? 0) < (sourceCardOrder[$1.id] ?? 0) }
         let candidateCount = sourceAnchoredCardCount

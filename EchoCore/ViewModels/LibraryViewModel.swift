@@ -141,7 +141,9 @@ final class LibraryViewModel {
     /// and companion documents (spec Amendment A1 visibility guard).
     func readAlongCandidates(of book: AudiobookRecord) -> [AudiobookRecord] {
         let hasAudio = (book.fileCount ?? 0) > 0 || book.duration > 0
-        guard textEligibilityAvailable, hasAudio, !booksWithText.contains(book.id) else { return [] }
+        guard textEligibilityAvailable, hasAudio, !booksWithText.contains(book.id) else {
+            return []
+        }
         return siblingEditions(of: book).filter {
             ($0.fileCount ?? 0) == 0 && $0.duration <= 0
         }

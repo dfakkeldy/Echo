@@ -50,29 +50,39 @@ struct OffStateResolver {
     }
 
     /// One grouped SQL read and one manifest decode for an entire refresh.
-    func resolveAll(audiobookID: String, trackFilesByChapter: [Int: [String]], chapters: Set<Int>) throws -> [Int: ChapterOffState] {
+    func resolveAll(audiobookID: String, trackFilesByChapter: [Int: [String]], chapters: Set<Int>)
+        throws -> [Int: ChapterOffState]
+    {
         let hidden = try db.read { connection in
-            try Row.fetchAll(connection, sql: """
-                SELECT chapter_index, COUNT(*) AS total,
-                       SUM(CASE WHEN is_hidden = 0 THEN 1 ELSE 0 END) AS visible
-                FROM epub_block WHERE audiobook_id = ? GROUP BY chapter_index
-                """, arguments: [audiobookID])
+            try Row.fetchAll(
+                connection,
+                sql: """
+                    SELECT chapter_index, COUNT(*) AS total,
+                           SUM(CASE WHEN is_hidden = 0 THEN 1 ELSE 0 END) AS visible
+                    FROM epub_block WHERE audiobook_id = ? GROUP BY chapter_index
+                    """, arguments: [audiobookID])
         }
         var epubOff: Set<Int> = []
         for row in hidden {
             if let key: Int = row["chapter_index"], let count: Int = row["total"],
-               let visible: Int = row["visible"], count > 0, visible == 0 { epubOff.insert(key) }
+                let visible: Int = row["visible"], count > 0, visible == 0
+            {
+                epubOff.insert(key)
+            }
         }
         let manifest = folderURL.flatMap { PlaylistManifestService.read(from: $0) }
-        let enabled = Dictionary((manifest?.tracks ?? []).map { ($0.file, $0.enabled) }, uniquingKeysWith: { a, _ in a })
+        let enabled = Dictionary(
+            (manifest?.tracks ?? []).map { ($0.file, $0.enabled) }, uniquingKeysWith: { a, _ in a })
         let fallback = manifest?.tracks.map(\.file) ?? []
-        return Dictionary(uniqueKeysWithValues: chapters.map { chapter in
-            let backing = (trackFilesByChapter[chapter] ?? fallback).compactMap { enabled[$0] }
-            let audioOff = !backing.isEmpty && backing.allSatisfy { !$0 }
-            let textOff = epubOff.contains(chapter)
-            let state: ChapterOffState = audioOff ? (textOff ? .allOff : .audioOff) : (textOff ? .epubOff : .allOn)
-            return (chapter, state)
-        })
+        return Dictionary(
+            uniqueKeysWithValues: chapters.map { chapter in
+                let backing = (trackFilesByChapter[chapter] ?? fallback).compactMap { enabled[$0] }
+                let audioOff = !backing.isEmpty && backing.allSatisfy { !$0 }
+                let textOff = epubOff.contains(chapter)
+                let state: ChapterOffState =
+                    audioOff ? (textOff ? .allOff : .audioOff) : (textOff ? .epubOff : .allOn)
+                return (chapter, state)
+            })
     }
 
     /// A chapter's EPUB text is hidden iff it has at least one block and *every*

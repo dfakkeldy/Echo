@@ -69,7 +69,8 @@ final class ImageCardCell: UICollectionViewCell {
             imageTask = Task { [weak self] in
                 let decoded = await ReaderImageLoader.shared.image(storedPath: path)
                 guard !Task.isCancelled, let self, self.representedBlockID == block.id,
-                    let decoded else { return }
+                    let decoded
+                else { return }
                 self.artworkView.image = UIImage(cgImage: decoded)
             }
         }

@@ -22,7 +22,8 @@ struct ReadAlongMergeService {
         nonisolated var errorDescription: String? {
             switch self {
             case .existingReadAlongText:
-                return "This audiobook already has read-along text. Its existing text has been kept."
+                return
+                    "This audiobook already has read-along text. Its existing text has been kept."
             case .epubNotFound(let url):
                 return
                     "Couldn't find an .epub file in \(url.lastPathComponent). Re-import the text edition, then try again."
@@ -81,7 +82,8 @@ struct ReadAlongMergeService {
     func hasReadAlongText(_ audiobookID: String) -> Bool {
         do {
             return try db.writer.read { connection in
-                try EPubBlockRecord.filter(Column("audiobook_id") == audiobookID).fetchCount(connection) > 0
+                try EPubBlockRecord.filter(Column("audiobook_id") == audiobookID).fetchCount(
+                    connection) > 0
             }
         } catch {
             logger.error(
@@ -101,9 +103,13 @@ struct ReadAlongMergeService {
         let ids = Array(Set(ids)).sorted()
         guard !ids.isEmpty else { return [] }
         return try db.writer.read { connection in
-            try Set(String.fetchAll(connection, sql:
-                "SELECT DISTINCT audiobook_id FROM epub_block WHERE audiobook_id IN (" + databaseQuestionMarks(count: ids.count) + ")",
-                arguments: StatementArguments(ids)))
+            try Set(
+                String.fetchAll(
+                    connection,
+                    sql:
+                        "SELECT DISTINCT audiobook_id FROM epub_block WHERE audiobook_id IN ("
+                        + databaseQuestionMarks(count: ids.count) + ")",
+                    arguments: StatementArguments(ids)))
         }
     }
 

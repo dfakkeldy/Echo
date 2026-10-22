@@ -34,7 +34,7 @@ import Testing
 
     @Test func reentrantConfirmationDoesNotUploadAgain() async {
         var uploads = 0
-        final class Holder { var confirmation: AlignmentShareConfirmation? }
+        final class Holder { weak var confirmation: AlignmentShareConfirmation? }
         let holder = Holder()
         let confirmation = AlignmentShareConfirmation {
             uploads += 1

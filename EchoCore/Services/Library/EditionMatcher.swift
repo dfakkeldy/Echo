@@ -29,7 +29,9 @@ enum EditionMatcher {
     nonisolated static func groups(for identities: [Identity]) -> [String: String] {
         var result = titleGroups(for: identities)
 
-        var membersByGroup = Dictionary(grouping: result.keys, by: { result[$0]! })
+        var membersByGroup = Dictionary(grouping: result.keys, by: { result[$0]! }).mapValues {
+            Set($0)
+        }
         // Path-identity pass: rows whose ids point at the same on-disk book
         // are the same book no matter what their titles say. The library
         // scanner keys a book by its standardized folder URL while a direct
@@ -45,10 +47,10 @@ enum EditionMatcher {
                 for group in absorbedTitleGroups { members.formUnion(membersByGroup[group] ?? []) }
             }
             for id in members {
-                if let previous = result[id] { membersByGroup[previous]?.removeAll { $0 == id } }
+                if let previous = result[id] { membersByGroup[previous]?.remove(id) }
                 result[id] = cluster.groupID
             }
-            membersByGroup[cluster.groupID] = Array(members)
+            membersByGroup[cluster.groupID] = members
         }
         return result
     }
@@ -131,7 +133,8 @@ enum EditionMatcher {
             }
         }
 
-        let fileKeysByParent = Dictionary(grouping: audioFileMembers.keys, by: { audioFileParentKey[$0]! })
+        let fileKeysByParent = Dictionary(
+            grouping: audioFileMembers.keys, by: { audioFileParentKey[$0]! })
         var clusters: [PathCluster] = []
         var claimedFileKeys: Set<String> = []
 

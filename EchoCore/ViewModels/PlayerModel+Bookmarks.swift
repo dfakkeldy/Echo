@@ -283,9 +283,10 @@
             // Stage captures durably until the authoritative SQL merge succeeds.
             let defaults = AppGroupDefaults.shared
             let stagedKey = "bookmarks_" + storageKey
-            var staged = defaults.data(forKey: stagedKey).flatMap {
-                try? JSONDecoder().decode([Bookmark].self, from: $0)
-            } ?? []
+            var staged =
+                defaults.data(forKey: stagedKey).flatMap {
+                    try? JSONDecoder().decode([Bookmark].self, from: $0)
+                } ?? []
             staged.append(bookmark)
             if let data = try? JSONEncoder().encode(staged) {
                 defaults.set(data, forKey: stagedKey)
@@ -328,7 +329,8 @@
                                 appGroupDefaults.removeObject(forKey: defaultsKey)
                             }
                         } catch {
-                            logger.error("Staged bookmark merge failed: \(error.localizedDescription)")
+                            logger.error(
+                                "Staged bookmark merge failed: \(error.localizedDescription)")
                         }
                     }
                     tasks.append(task)
@@ -336,7 +338,7 @@
                     do {
                         try mergePendingBookmarks(incoming, into: storageKey)
                         appGroupDefaults.removeObject(forKey: defaultsKey)
-                    } catch { /* Staging remains available for retry. */ }
+                    } catch { /* Staging remains available for retry. */  }
                 }
             }
             return tasks
@@ -353,7 +355,8 @@
                 targetBookmarks = bookmarkStore.bookmarks
             } else if let databaseService {
                 let backgroundStore = BookmarkStore()
-                try backgroundStore.restore(database: databaseService, persistence: persistence,
+                try backgroundStore.restore(
+                    database: databaseService, persistence: persistence,
                     key: storageKey, folderURL: nil)
                 targetBookmarks = backgroundStore.bookmarks
             } else {
@@ -371,10 +374,12 @@
 
             targetBookmarks.sort { $0.timestamp < $1.timestamp }
             if let databaseService {
-                try BookmarkStore.replaceBookmarks(targetBookmarks, for: storageKey, database: databaseService)
+                try BookmarkStore.replaceBookmarks(
+                    targetBookmarks, for: storageKey, database: databaseService)
                 persistence.markBookmarksMigratedToSQL(for: storageKey)
             } else {
-                persistence.saveBookmarks(targetBookmarks, for: storageKey, folderURL: targetFolderURL)
+                persistence.saveBookmarks(
+                    targetBookmarks, for: storageKey, folderURL: targetFolderURL)
             }
 
             if isCurrentBook {

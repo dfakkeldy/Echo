@@ -47,7 +47,9 @@ enum LibraryScanner {
             at: root,
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants],
-            errorHandler: { _, _ in complete = false; return true })
+            errorHandler: { _, _ in
+                complete = false; return true
+            })
         if enumerator == nil { complete = false }
 
         var audioByFolder: [URL: [URL]] = [:]
@@ -123,7 +125,9 @@ extension LibraryScanner {
             author: author, narrator: nil, duration: duration, coverImageData: cover)
     }
 
-    nonisolated static func resolveBookTitle(album: String?, track: String?, fallback: String) -> String {
+    nonisolated static func resolveBookTitle(album: String?, track: String?, fallback: String)
+        -> String
+    {
         if let album = album?.trimmingCharacters(in: .whitespacesAndNewlines), !album.isEmpty {
             return album
         }
