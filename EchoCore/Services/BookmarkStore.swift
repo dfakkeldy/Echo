@@ -25,6 +25,8 @@ final class BookmarkStore {
     @ObservationIgnored private var persistenceTask: Task<Void, Never>?
     @ObservationIgnored private var pendingSnapshots: [String: [Bookmark]] = [:]
     @ObservationIgnored private var pendingKeys: [String] = []
+    private(set) var restorationFailed = false
+    enum PersistenceFailure: Error { case restorationFailed }
 
     @ObservationIgnored private var voiceMemoEngine: AVAudioEngine?
     @ObservationIgnored private var voiceMemoPlayerNode: AVAudioPlayerNode?
@@ -343,8 +345,10 @@ final class BookmarkStore {
     {
         stopVoiceMemo()
         bookmarks = []
+        restorationFailed = true
         if let pending = pendingSnapshots[key] {
             bookmarks = pending
+            restorationFailed = false
             return
         }
         let records = try BookmarkDAO(db: database.writer).bookmarks(for: key)
@@ -382,6 +386,7 @@ final class BookmarkStore {
             bookmarks = BookmarkRecord.decodeModelsSkippingCorruptRows(
                 from: records, logger: logger, operation: "restoring bookmarks")
         }
+        restorationFailed = false
     }
 
     func flushPersistence() async { await persistenceTask?.value }
@@ -404,7 +409,9 @@ final class BookmarkStore {
     /// Persist all bookmarks through SQL, keyed by the current storage key.
     func configureSQLPersistence(database: DatabaseService) {
         onPersist = { [weak self] bookmarks in
-            guard let self, let key = self.storageKeyProvider?() else { return }
+            guard let self, !self.restorationFailed, let key = self.storageKeyProvider?() else {
+                return
+            }
             if !self.pendingKeys.contains(key) { self.pendingKeys.append(key) }
             self.pendingSnapshots[key] = bookmarks
             guard self.persistenceTask == nil else { return }

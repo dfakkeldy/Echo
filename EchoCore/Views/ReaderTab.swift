@@ -348,26 +348,34 @@ struct ReaderTab: View {
     private func readerPresentationContent() -> some View {
         readerAuxiliarySheetContent()
             .alert(
-                "Couldn't save",
+                readerCaptureError != nil ? "Couldn't save" : "Auto-Alignment Failed",
                 isPresented: Binding(
-                    get: { readerCaptureError != nil }, set: { if !$0 { readerCaptureError = nil } }
+                    get: {
+                        readerCaptureError != nil
+                            || (viewModel?.showAutoAlignmentFailedAlert ?? false)
+                    },
+                    set: { presented in
+                        guard !presented else { return }
+                        if readerCaptureError != nil {
+                            readerCaptureError = nil
+                        } else {
+                            viewModel?.showAutoAlignmentFailedAlert = false
+                        }
+                    }
                 )
             ) {
-                if pendingMemoSave != nil { Button("Retry") { retryMemoSave() } }
-                Button("OK", role: .cancel) { readerCaptureError = nil }
+                if readerCaptureError != nil, pendingMemoSave != nil {
+                    Button("Retry") {
+                        Task { @MainActor in
+                            await Task.yield(); retryMemoSave()
+                        }
+                    }
+                }
+                Button("OK", role: .cancel) {}
             } message: {
-                Text(readerCaptureError ?? "")
-            }
-            .alert(
-                "Auto-Alignment Failed",
-                isPresented: Binding(
-                    get: { viewModel?.showAutoAlignmentFailedAlert ?? false },
-                    set: { viewModel?.showAutoAlignmentFailedAlert = $0 }
-                )
-            ) {
-                Button("OK") {}
-            } message: {
-                Text(viewModel?.autoAlignmentErrorMessage ?? "An unknown error occurred.")
+                Text(
+                    readerCaptureError ?? viewModel?.autoAlignmentErrorMessage
+                        ?? "An unknown error occurred.")
             }
             .background(Color.clear)
     }

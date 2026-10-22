@@ -44,7 +44,8 @@
                         key: key, folderURL: persistenceFolderURL)
                 } catch {
                     bookmarkStore.bookmarks = []
-                    logger.error("Bookmark restoration failed: \(error.localizedDescription)")
+                    Logger(category: "PlayerBookmarks").error(
+                        "Bookmark restoration failed: \(error.localizedDescription)")
                     return
                 }
             } else {
@@ -329,7 +330,7 @@
                                 appGroupDefaults.removeObject(forKey: defaultsKey)
                             }
                         } catch {
-                            logger.error(
+                            Logger(category: "PlayerBookmarks").error(
                                 "Staged bookmark merge failed: \(error.localizedDescription)")
                         }
                     }
@@ -352,6 +353,9 @@
             let targetFolderURL: URL? = isCurrentBook ? persistenceFolderURL : nil
             var targetBookmarks: [Bookmark]
             if isCurrentBook {
+                guard !bookmarkStore.restorationFailed else {
+                    throw BookmarkStore.PersistenceFailure.restorationFailed
+                }
                 targetBookmarks = bookmarkStore.bookmarks
             } else if let databaseService {
                 let backgroundStore = BookmarkStore()

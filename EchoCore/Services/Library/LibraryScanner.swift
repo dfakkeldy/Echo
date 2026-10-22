@@ -54,6 +54,7 @@ enum LibraryScanner {
 
         var audioByFolder: [URL: [URL]] = [:]
         while let url = enumerator?.nextObject() as? URL {
+            if Task.isCancelled { complete = false; break }
             guard audioExtensions.contains(url.pathExtension.lowercased()) else { continue }
             guard !PlaylistManager.isAuxiliaryNarrationArtifact(url) else { continue }
             let folder = url.deletingLastPathComponent().standardizedFileURL

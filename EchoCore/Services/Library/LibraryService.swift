@@ -394,6 +394,7 @@ struct LibraryService {
         for book in discovery.books {
             try Task.checkCancellation()
             let metadata = await readMetadata(book)
+            try Task.checkCancellation()
             let coverData = metadata.coverImageData ?? companionCoverData?(book)
             let cover = await Self.prepareCover(
                 data: coverData, epubURL: companionCoverData == nil ? book.companionEPUB : nil,

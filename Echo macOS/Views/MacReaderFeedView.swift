@@ -67,7 +67,8 @@ struct MacReaderFeedView: View {
     /// any of the reader's other reload triggers.
     @State private var alignmentSummary: BookAlignmentSummary = .empty
 
-    @State private var chapterGroups: [(key: Int, title: String, hasAudio: Bool, blocks: [EPubBlockRecord])] = []
+    @State private var chapterGroups:
+        [(key: Int, title: String, hasAudio: Bool, blocks: [EPubBlockRecord])] = []
     @State private var chapterByBlockID: [String: Int] = [:]
     @State private var timelineIndex = ReaderActiveBlockResolver.TimelineIndex(rows: [])
     @State private var loadRevision = 0
@@ -260,7 +261,9 @@ struct MacReaderFeedView: View {
             let snapshot = try await Task.detached(priority: .userInitiated) {
                 try Self.buildSnapshot(audiobookID: bookID, writer: writer)
             }.value
-            guard !Task.isCancelled, revision == loadRevision, player.audiobookID == bookID else { return }
+            guard !Task.isCancelled, revision == loadRevision, player.audiobookID == bookID else {
+                return
+            }
             if loadedBookID != bookID {
                 openChapterKey = nil
                 lastPlayingChapterKey = nil
@@ -282,7 +285,9 @@ struct MacReaderFeedView: View {
             chapterGroups = snapshot.groups
             chapterByBlockID = snapshot.chapterByBlockID
         } catch {
-            guard !Task.isCancelled, revision == loadRevision, player.audiobookID == bookID else { return }
+            guard !Task.isCancelled, revision == loadRevision, player.audiobookID == bookID else {
+                return
+            }
             clearReader()
         }
     }
@@ -307,10 +312,14 @@ struct MacReaderFeedView: View {
         loadedBookID = nil
     }
 
-    private nonisolated static func buildSnapshot(audiobookID: String, writer: any DatabaseWriter) throws -> ReaderSnapshot {
+    private nonisolated static func buildSnapshot(audiobookID: String, writer: any DatabaseWriter)
+        throws -> ReaderSnapshot
+    {
         let blocks = try EPubBlockDAO(db: writer).visibleBlocks(for: audiobookID)
-        let chapterTitles = resolveChapterTitles(blocks: blocks, audiobookID: audiobookID, db: writer)
-        let chaptersWithAudio = try ChapterAudioStatusResolver(db: writer).chaptersWithAudio(audiobookID: audiobookID)
+        let chapterTitles = resolveChapterTitles(
+            blocks: blocks, audiobookID: audiobookID, db: writer)
+        let chaptersWithAudio = try ChapterAudioStatusResolver(db: writer).chaptersWithAudio(
+            audiobookID: audiobookID)
         let grouped = Dictionary(grouping: blocks, by: { $0.chapterIndex ?? -1 })
         let groups = grouped.keys.sorted().map { key in
             let chapterBlocks = grouped[key] ?? []
@@ -335,9 +344,11 @@ struct MacReaderFeedView: View {
             titles: chapterTitles, audioChapters: chaptersWithAudio,
             hasPDFPages: try !PDFBlockPageDAO(db: writer).rows(for: audiobookID).isEmpty,
             summary: try BookAlignmentSummary.load(audiobookID: audiobookID, db: writer),
-            groups: groups, chapterByBlockID: Dictionary(uniqueKeysWithValues: blocks.compactMap {
-                block in block.chapterIndex.map { (block.id, $0) }
-            }))
+            groups: groups,
+            chapterByBlockID: Dictionary(
+                uniqueKeysWithValues: blocks.compactMap {
+                    block in block.chapterIndex.map { (block.id, $0) }
+                }))
     }
 
     private func refreshAlignmentSummary(audiobookID: String) async {
@@ -346,7 +357,9 @@ struct MacReaderFeedView: View {
         let summary = await Task.detached(priority: .utility) {
             (try? BookAlignmentSummary.load(audiobookID: audiobookID, db: writer)) ?? .empty
         }.value
-        guard !Task.isCancelled, revision == loadRevision, player.audiobookID == audiobookID else { return }
+        guard !Task.isCancelled, revision == loadRevision, player.audiobookID == audiobookID else {
+            return
+        }
         alignmentSummary = summary
     }
 

@@ -284,6 +284,32 @@ struct AuditRemediationTests {
             ))
     }
 
+    @Test func failedRestoreCannotReplaceUnreadableSQLBookmarks() async throws {
+        let database = try DatabaseService(inMemory: ())
+        try AudiobookDAO(db: database.writer).insert(
+            AudiobookRecord(
+                id: "book", title: "Kept", duration: 60, addedAt: "2026-10-22T00:00:00Z"))
+        let original = Bookmark(title: "Recoverable row", folderKey: "book", timestamp: 2)
+        try BookmarkStore.replaceBookmarks([original], for: "book", database: database)
+        try database.write { db in
+            try db.execute(
+                sql: "UPDATE bookmark SET media_timestamp = 'invalid' WHERE audiobook_id = 'book'")
+        }
+        let store = BookmarkStore()
+        store.storageKeyProvider = { "book" }
+        store.configureSQLPersistence(database: database)
+        #expect(throws: (any Error).self) {
+            try store.restore(
+                database: database, persistence: Persistence(), key: "book", folderURL: nil)
+        }
+        store.onPersist?([])
+        await store.flushPersistence()
+        let ids = try database.read { db in
+            try String.fetchAll(db, sql: "SELECT id FROM bookmark WHERE audiobook_id = 'book'")
+        }
+        #expect(ids == [original.id.uuidString])
+    }
+
     @Test func timelineIndexPreservesScopeAndOverlapOrder() {
         let rows: [ReaderActiveBlockResolver.TimelineRow] = [
             (0, 12, "front", nil, nil), (0, 10, "other", 2, "2-0"),
