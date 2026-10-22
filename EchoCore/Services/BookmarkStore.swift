@@ -389,7 +389,18 @@ final class BookmarkStore {
         restorationFailed = false
     }
 
-    func flushPersistence() async { await persistenceTask?.value }
+    func flushPersistence() async {
+        while let task = persistenceTask { await task.value }
+    }
+
+    func pendingSnapshot(for key: String) -> [Bookmark]? { pendingSnapshots[key] }
+
+    /// Receiver merges call this only after flushing queued writes and committing
+    /// the merged snapshot. Failed edits are included before clearing recovery.
+    func acknowledgeExternalCommit(for key: String) {
+        pendingSnapshots[key] = nil
+        pendingKeys.removeAll { $0 == key }
+    }
 
     /// Load bookmarks from SQL for the given audiobook ID.
     func loadFromSQL(database: DatabaseService, audiobookID: String) {

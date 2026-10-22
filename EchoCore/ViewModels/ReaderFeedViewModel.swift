@@ -258,6 +258,7 @@ final class ReaderFeedViewModel {
         var capturedWithAudio: Set<Int> = []
         var cardIndexByBlockID: [String: IndexPath] = [:]
         var timelineCache: [ReaderActiveBlockResolver.TimelineRow] = []
+        var timelineIndex = ReaderActiveBlockResolver.TimelineIndex(rows: [])
         var wordCache: [ReaderActiveBlockResolver.WordRow] = []
         var wordIndex = ReaderActiveBlockResolver.WordIndex(rows: [])
         var allAlignmentStatusByBlockID: [String: String] = [:]
@@ -515,6 +516,7 @@ final class ReaderFeedViewModel {
 
             let playback = try ReaderPlaybackSnapshot.load(audiobookID: audiobookID, db: db)
             state.timelineCache = playback.timeline
+            state.timelineIndex = playback.timelineIndex
             state.wordCache = playback.words
             state.wordIndex = playback.wordIndex
             state.allAlignmentStatusByBlockID = playback.alignmentStatus
@@ -535,7 +537,7 @@ final class ReaderFeedViewModel {
         sections = state.sections
         cardIndexByBlockID = state.cardIndexByBlockID
         timelineCache = state.timelineCache
-        timelineIndex = .init(rows: state.timelineCache)
+        timelineIndex = state.timelineIndex
         wordCache = state.wordCache
         wordIndex = state.wordIndex
         allAlignmentStatusByBlockID = state.allAlignmentStatusByBlockID

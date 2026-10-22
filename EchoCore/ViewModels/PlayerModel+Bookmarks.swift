@@ -357,6 +357,8 @@
                     throw BookmarkStore.PersistenceFailure.restorationFailed
                 }
                 targetBookmarks = bookmarkStore.bookmarks
+            } else if let pending = bookmarkStore.pendingSnapshot(for: storageKey) {
+                targetBookmarks = pending
             } else if let databaseService {
                 let backgroundStore = BookmarkStore()
                 try backgroundStore.restore(
@@ -374,13 +376,14 @@
                 targetBookmarks.append(bookmark)
                 didAppend = true
             }
-            guard didAppend else { return }
+            guard didAppend || databaseService != nil else { return }
 
             targetBookmarks.sort { $0.timestamp < $1.timestamp }
             if let databaseService {
                 try BookmarkStore.replaceBookmarks(
                     targetBookmarks, for: storageKey, database: databaseService)
                 persistence.markBookmarksMigratedToSQL(for: storageKey)
+                bookmarkStore.acknowledgeExternalCommit(for: storageKey)
             } else {
                 persistence.saveBookmarks(
                     targetBookmarks, for: storageKey, folderURL: targetFolderURL)

@@ -81,6 +81,46 @@ struct AuditRemediationTests {
         #expect(model.sections.flatMap(\.items).contains { $0.id == "b-p" })
     }
 
+    @Test func backgroundWidgetMergeRetainsFailedPendingEdits() async throws {
+        let database = try DatabaseService(inMemory: ())
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "audit-pending-\(UUID())")
+        let a = root.appendingPathComponent("A", isDirectory: true)
+        let b = root.appendingPathComponent("B", isDirectory: true)
+        for url in [a, b] {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            try AudiobookDAO(db: database.writer).insert(
+                AudiobookRecord(
+                    id: url.absoluteString, title: url.lastPathComponent, duration: 0,
+                    addedAt: "2026-10-22T00:00:00Z"))
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = PlayerModel()
+        model.databaseService = database
+        model.openLibraryBook(LibraryOpenTarget(url: a, scopedRoot: nil))
+        let pending = Bookmark(title: "Pending edit", folderKey: a.absoluteString, timestamp: 1)
+        try database.write { db in
+            try db.execute(
+                sql:
+                    "CREATE TRIGGER fail_bookmark_insert BEFORE INSERT ON bookmark BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END"
+            )
+        }
+        model.bookmarkStore.bookmarks = [pending]
+        model.bookmarkStore.onPersist?([pending])
+        await model.bookmarkStore.flushPersistence()
+        try database.write { db in try db.execute(sql: "DROP TRIGGER fail_bookmark_insert") }
+        model.openLibraryBook(LibraryOpenTarget(url: b, scopedRoot: nil))
+        let incoming = Bookmark(title: "Widget capture", folderKey: a.absoluteString, timestamp: 2)
+        let suite = "audit-pending-widget-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(try JSONEncoder().encode([incoming]), forKey: "bookmarks_" + a.absoluteString)
+        for task in model.drainPendingWidgetBookmarks(from: defaults) { await task.value }
+        model.openLibraryBook(LibraryOpenTarget(url: a, scopedRoot: nil))
+        #expect(Set(model.bookmarkStore.bookmarks.map(\.id)) == [pending.id, incoming.id])
+        #expect(try BookmarkDAO(db: database.writer).bookmarks(for: a.absoluteString).count == 2)
+    }
+
     @Test func scannedDurationIncludesEveryAudioFile() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "audit-tracks-\(UUID())")

@@ -15,4 +15,4 @@
 - [ ] Source diagnostics and references: 2.1, 2.4, 3.4, 4.2. Preserve behavior; validate through compiler diagnostics.
 - [ ] Run relevant checks, inspect cross-platform and database changes, deliver a ready PR to nightly, fix introduced failures and merge after required CI passes.
 
-Regression tests precede behavioral changes. The local baseline build was scheduler-deferred with exit 75; hosted CI must supply native compilation and test evidence. Verification results and finding-to-fix links belong in the final remediation record.
+Regression coverage accompanies behavioral changes. The local baseline build was scheduler-deferred with exit 75; hosted CI must supply native compilation and test evidence. Verification results and finding-to-fix links belong in the final remediation record.
