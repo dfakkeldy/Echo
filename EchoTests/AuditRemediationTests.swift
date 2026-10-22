@@ -81,6 +81,29 @@ struct AuditRemediationTests {
         #expect(model.sections.flatMap(\.items).contains { $0.id == "b-p" })
     }
 
+    @Test func searchingDuringBookOpenStillInitializesPlaybackTimings() async throws {
+        let database = try DatabaseService(inMemory: ())
+        try database.write { db in
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book', 'Book', 60)")
+            try db.execute(
+                sql:
+                    "INSERT INTO epub_block (id, audiobook_id, spine_href, spine_index, block_index, sequence_index, block_kind, text, chapter_index, is_hidden) VALUES ('p', 'book', 'c.xhtml', 0, 0, 0, 'paragraph', 'Original paragraph', 0, 0)"
+            )
+            try db.execute(
+                sql:
+                    "INSERT INTO timeline_item (id, audiobook_id, item_type, title, audio_start_time, audio_end_time, epub_block_id) VALUES ('t', 'book', 'textSegment', 'Paragraph', 0, 5, 'p')"
+            )
+        }
+        let model = ReaderFeedViewModel(audiobookID: "book", db: database.writer)
+        model.reloadOffMain()
+        model.searchQuery = "Original"
+        await model.waitForReload()
+        model.updateActiveBlock(time: 2, currentTrackChapterIndices: nil)
+        #expect(model.activeBlockID == "p")
+        #expect(model.displaySections.flatMap(\.items).map(\.id) == ["b-p"])
+    }
+
     @Test func asyncSearchPreservesLiteralWildcardsHiddenPolicyAndCancellation() async throws {
         let database = try DatabaseService(inMemory: ())
         try database.write { db in

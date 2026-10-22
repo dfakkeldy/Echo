@@ -165,12 +165,19 @@ final class ReaderFeedViewModel {
     private var reloadTask: Task<Void, Never>?
     private var reloadRevision = 0
     private var browseState: FeedState?
+    private var hasPlaybackSnapshot = false
     private var cardsBySourceBlock: [String: [Flashcard]] = [:]
     private var sourceAnchoredCardCount = 0
     private var sourceCardOrder: [String: Int] = [:]
     @ObservationIgnored private var sourceCardObservation: AnyDatabaseCancellable?
 
-    func waitForReload() async { await reloadTask?.value }
+    func waitForReload() async {
+        while let task = reloadTask {
+            let revision = reloadRevision
+            await task.value
+            if revision == reloadRevision { return }
+        }
+    }
 
     private func invalidateReload() -> Int {
         reloadTask?.cancel()
@@ -185,6 +192,12 @@ final class ReaderFeedViewModel {
             do { try await Task.sleep(for: .milliseconds(180)) } catch { return }
             if query?.isEmpty != false {
                 if let browseState { apply(browseState) } else { reloadOffMain() }
+                return
+            }
+            // A search can supersede the very first book-open load. Initialize
+            // playback data once before switching to query-only refreshes.
+            if !hasPlaybackSnapshot {
+                reloadOffMain()
                 return
             }
             let writer = db
@@ -532,6 +545,7 @@ final class ReaderFeedViewModel {
     /// phase-2 work (extras splice, off-state, note/memo caches, accordion
     /// rebuild, scope) exactly as the former monolithic reload did.
     private func apply(_ state: FeedState) {
+        hasPlaybackSnapshot = true
         if !state.isSearch { browseState = state }
         sections = state.sections
         cardIndexByBlockID = state.cardIndexByBlockID
