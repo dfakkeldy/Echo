@@ -7,7 +7,7 @@ import Testing
 
 @MainActor
 struct LibraryListeningHistoryTests {
-    @Test func onePlayedBookDoesNotShowItsUnplayedImportArtifacts() throws {
+    @Test func onePlayedBookDoesNotShowItsUnplayedImportArtifacts() async throws {
         let db = try DatabaseService(inMemory: ())
         try saveBook("audio", title: "A Book", in: db)
         try saveBook("text", title: "A Book EPUB", in: db)
@@ -16,15 +16,16 @@ struct LibraryListeningHistoryTests {
 
         let vm = LibraryViewModel(db: db, openBook: { _ in })
         vm.reload()
+        await vm.awaitShelfRegroup()
 
         #expect(vm.sections.flatMap(\.books).map(\.id) == ["audio"])
         #expect(try AudiobookDAO(db: db.writer).all().count == 3)
     }
 
-    @Test func openingAndSeekingWithoutPlayingDoesNotAddABook() throws {
+    @Test func openingAndSeekingWithoutPlayingDoesNotAddABook() async throws {
         let db = try DatabaseService(inMemory: ())
         try saveBook("file:///Books/Opened/", in: db)
-        try db.writer.write { db in
+        try await db.writer.write { db in
             try db.execute(
                 sql: """
                     INSERT INTO playback_state (audiobook_id, last_position, speed)
@@ -37,12 +38,13 @@ struct LibraryListeningHistoryTests {
 
         vm.open(book)
         vm.reload()
+        await vm.awaitShelfRegroup()
 
         #expect(opened)
         #expect(vm.isEmpty)
     }
 
-    @Test func playbackAtTheBeginningCountsBeforeTheFirstHeartbeat() throws {
+    @Test func playbackAtTheBeginningCountsBeforeTheFirstHeartbeat() async throws {
         let db = try DatabaseService(inMemory: ())
         try saveBook("playing", in: db)
         _ = try PlaybackEventDAO(db: db.writer).insertOpen(
@@ -52,16 +54,17 @@ struct LibraryListeningHistoryTests {
 
         let vm = LibraryViewModel(db: db, openBook: { _ in })
         vm.reload()
+        await vm.awaitShelfRegroup()
 
         #expect(vm.sections.flatMap(\.books).map(\.id) == ["playing"])
     }
 
-    @Test func returningToTheBeginningDoesNotEraseListeningHistory() throws {
+    @Test func returningToTheBeginningDoesNotEraseListeningHistory() async throws {
         let db = try DatabaseService(inMemory: ())
         try saveBook("restarted", in: db)
         try saveBook("unplayed", in: db)
         try logPlayback("restarted", in: db)
-        try db.writer.write { db in
+        try await db.writer.write { db in
             try db.execute(
                 sql: """
                     INSERT INTO playback_state (audiobook_id, last_position, speed)
@@ -71,11 +74,12 @@ struct LibraryListeningHistoryTests {
 
         let vm = LibraryViewModel(db: db, openBook: { _ in })
         vm.reload()
+        await vm.awaitShelfRegroup()
 
         #expect(vm.sections.flatMap(\.books).map(\.id) == ["restarted"])
     }
 
-    @Test func olderPlaybackSessionsCountButOtherEventsDoNot() throws {
+    @Test func olderPlaybackSessionsCountButOtherEventsDoNot() async throws {
         let db = try DatabaseService(inMemory: ())
         try saveBook("legacy", in: db)
         try saveBook("bookmark", in: db)
@@ -92,11 +96,12 @@ struct LibraryListeningHistoryTests {
 
         let vm = LibraryViewModel(db: db, openBook: { _ in })
         vm.reload()
+        await vm.awaitShelfRegroup()
 
         #expect(vm.sections.flatMap(\.books).map(\.id) == ["legacy"])
     }
 
-    @Test func playedSiblingKeepsOneCardWithTheGroupsBestMetadata() throws {
+    @Test func playedSiblingKeepsOneCardWithTheGroupsBestMetadata() async throws {
         let db = try DatabaseService(inMemory: ())
         let dao = AudiobookDAO(db: db.writer)
         try dao.save(
@@ -112,6 +117,7 @@ struct LibraryListeningHistoryTests {
 
         let vm = LibraryViewModel(db: db, openBook: { _ in })
         vm.reload()
+        await vm.awaitShelfRegroup()
 
         let books = vm.sections.flatMap(\.books)
         #expect(books.map(\.id) == ["rooted"])
@@ -120,7 +126,7 @@ struct LibraryListeningHistoryTests {
         #expect(Set(vm.siblingEditions(of: displayed).map(\.id)) == ["direct", "companion"])
     }
 
-    @Test func unplayedSeparatedEditionDoesNotInheritGroupListening() throws {
+    @Test func unplayedSeparatedEditionDoesNotInheritGroupListening() async throws {
         let db = try DatabaseService(inMemory: ())
         try saveBook("played", group: "shared", in: db)
         var separated = AudiobookRecord(
@@ -132,11 +138,12 @@ struct LibraryListeningHistoryTests {
 
         let vm = LibraryViewModel(db: db, openBook: { _ in })
         vm.reload()
+        await vm.awaitShelfRegroup()
 
         #expect(vm.sections.flatMap(\.books).map(\.id) == ["played"])
     }
 
-    @Test func missingPlayedSiblingStillQualifiesAnAvailableEdition() throws {
+    @Test func missingPlayedSiblingStillQualifiesAnAvailableEdition() async throws {
         let db = try DatabaseService(inMemory: ())
         try saveBook("available", group: "same-book", in: db)
         try saveBook("missing", group: "same-book", available: false, in: db)
@@ -144,6 +151,7 @@ struct LibraryListeningHistoryTests {
 
         let vm = LibraryViewModel(db: db, openBook: { _ in })
         vm.reload()
+        await vm.awaitShelfRegroup()
 
         #expect(vm.sections.flatMap(\.books).map(\.id) == ["available"])
     }
@@ -172,7 +180,7 @@ struct LibraryListeningHistoryTests {
                 == ["file:///Lib/HistoryBook/book.m4b", "file:///Lib/HistoryText/"])
     }
 
-    @Test func groupingAndMissingBookRecoveryDoNotBringBackUnplayedBooks() throws {
+    @Test func groupingAndMissingBookRecoveryDoNotBringBackUnplayedBooks() async throws {
         let db = try DatabaseService(inMemory: ())
         try saveBook("available", in: db)
         try saveBook("missing", available: false, in: db)
@@ -182,21 +190,25 @@ struct LibraryListeningHistoryTests {
 
         let vm = LibraryViewModel(db: db, openBook: { _ in })
         vm.selectAxis(.author)
+        await vm.awaitShelfRegroup()
         #expect(vm.sections.flatMap(\.books).map(\.id) == ["available"])
 
         vm.setShowUnavailable(true)
+        await vm.awaitShelfRegroup()
         #expect(Set(vm.sections.flatMap(\.books).map(\.id)) == ["available", "missing"])
     }
 
-    @Test func aNewPlaybackSessionAppearsOnTheNextReload() throws {
+    @Test func aNewPlaybackSessionAppearsOnTheNextReload() async throws {
         let db = try DatabaseService(inMemory: ())
         try saveBook("new", in: db)
         let vm = LibraryViewModel(db: db, openBook: { _ in })
         vm.reload()
+        await vm.awaitShelfRegroup()
         #expect(vm.isEmpty)
 
         try logPlayback("new", in: db)
         vm.reload()
+        await vm.awaitShelfRegroup()
 
         #expect(vm.sections.flatMap(\.books).map(\.id) == ["new"])
     }

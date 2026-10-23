@@ -17,7 +17,7 @@ nonisolated enum NarrationQADetector {
         // Build EPUB tokens + a per-token map back to (blockID, sourceWordIndex).
         var epubTokens: [TokenDTW.EPubToken] = []
         // token position -> (blockID, sourceWordIndex)
-        var tokenOrigin: [(blockID: String, wordIndex: Int)] = []
+        var reportableByBlock: [String: Set<Int>] = [:]
         // blockID -> [sourceWordIndex -> source word string], for window text.
         var blockWords: [String: [String]] = [:]
         var sourceWordGlobalIndexByBlock: [String: [Int: Int]] = [:]
@@ -40,7 +40,7 @@ nonisolated enum NarrationQADetector {
             for (wordIndex, word) in words.enumerated() {
                 for norm in TokenDTW.normalize(word) {
                     epubTokens.append(TokenDTW.EPubToken(text: norm, blockID: block.blockID))
-                    tokenOrigin.append((block.blockID, wordIndex))
+                    reportableByBlock[block.blockID, default: []].insert(wordIndex)
                     tokenWordIndex.append(wordIndex)
                 }
             }
@@ -94,46 +94,50 @@ nonisolated enum NarrationQADetector {
         var windows: [DivergenceWindow] = []
         var consumedUnmatchedAudioIndices = Set<Int>()
         let matchedAudioWordIndices = Set(sourceByMatchedAudioIndex.keys)
+        let orderedSourceMatches = matchedAudioIndexBySourceGlobalIndex.keys.sorted()
+        let unmatchedAudio = heardWords.indices.filter { !matchedAudioWordIndices.contains($0) }
         for block in expectedBlocks {
             guard let words = blockWords[block.blockID], !words.isEmpty else { continue }
             // A source word is "reportable" only if it contributed at least one
             // normalized token (i.e. it could ever match). Words that normalize to
             // empty ("a", "I", punctuation) are never flagged.
-            let reportable = Set(
-                tokenOrigin.filter { $0.blockID == block.blockID }.map { $0.wordIndex })
+            let reportable = reportableByBlock[block.blockID] ?? []
             let covered = coveredWords[block.blockID] ?? []
             let times = matchAudioTimes[block.blockID] ?? [:]
             let audioIndices = matchAudioWordIndices[block.blockID] ?? [:]
             let sourceGlobalIndices = sourceWordGlobalIndexByBlock[block.blockID] ?? [:]
 
+            let orderedTimes = times.keys.sorted()
+            let earliestTime = times.values.min()
+            let latestTime = times.values.max()
             var run: [Int] = []
             func flush() {
                 guard let first = run.first, let last = run.last else { return }
                 let previousAudioIndex = sourceGlobalIndices[first].flatMap {
-                    nearestMatchedAudioIndex(
-                        beforeSourceIndex: $0, in: matchedAudioIndexBySourceGlobalIndex)
+                    neighbor($0, in: orderedSourceMatches, before: true).flatMap {
+                        matchedAudioIndexBySourceGlobalIndex[$0]
+                    }
                 }
                 let nextAudioIndex = sourceGlobalIndices[last].flatMap {
-                    nearestMatchedAudioIndex(
-                        afterSourceIndex: $0, in: matchedAudioIndexBySourceGlobalIndex)
+                    neighbor($0, in: orderedSourceMatches, before: false).flatMap {
+                        matchedAudioIndexBySourceGlobalIndex[$0]
+                    }
                 }
-                let heardIndices = heardWords.indices.filter {
-                    !matchedAudioWordIndices.contains($0)
-                        && $0 > (previousAudioIndex ?? -1)
-                        && $0 < (nextAudioIndex ?? heardWords.count)
-                }
+                let lower = lowerBound((previousAudioIndex ?? -1) + 1, in: unmatchedAudio)
+                let upper = lowerBound(nextAudioIndex ?? heardWords.count, in: unmatchedAudio)
+                let heardIndices = Array(unmatchedAudio[lower..<max(lower, upper)])
                 consumedUnmatchedAudioIndices.formUnion(heardIndices)
                 let start =
                     heardIndices.first.map { heardWords[$0].start }
                     ?? previousAudioIndex.map { heardWords[$0].start }
-                    ?? nearestTime(before: first, in: times)
-                    ?? times.values.min()
+                    ?? neighbor(first, in: orderedTimes, before: true).flatMap { times[$0] }
+                    ?? earliestTime
                     ?? 0
                 let end =
                     heardIndices.last.map { heardWords[$0].start }
                     ?? nextAudioIndex.map { heardWords[$0].start }
-                    ?? nearestTime(after: last, in: times)
-                    ?? times.values.max()
+                    ?? neighbor(last, in: orderedTimes, before: false).flatMap { times[$0] }
+                    ?? latestTime
                     ?? start
                 let expected = words[first...last].joined(separator: " ")
                 let heardText = heardIndices.map { heardWords[$0].text }.joined(separator: " ")
@@ -196,34 +200,21 @@ nonisolated enum NarrationQADetector {
         return windows
     }
 
-    private static func nearestTime(before index: Int, in times: [Int: TimeInterval])
-        -> TimeInterval?
-    {
-        times.keys.filter { $0 < index }.max().flatMap { times[$0] }
+    private static func lowerBound(_ value: Int, in positions: [Int]) -> Int {
+        var low = 0
+        var high = positions.count
+        while low < high {
+            let mid = low + (high - low) / 2
+            if positions[mid] < value { low = mid + 1 } else { high = mid }
+        }
+        return low
     }
 
-    private static func nearestTime(after index: Int, in times: [Int: TimeInterval])
-        -> TimeInterval?
-    {
-        times.keys.filter { $0 > index }.min().flatMap { times[$0] }
-    }
-
-    private static func nearestMatchedAudioIndex(
-        beforeSourceIndex index: Int,
-        in indices: [Int: Int]
-    )
-        -> Int?
-    {
-        indices.keys.filter { $0 < index }.max().flatMap { indices[$0] }
-    }
-
-    private static func nearestMatchedAudioIndex(
-        afterSourceIndex index: Int,
-        in indices: [Int: Int]
-    )
-        -> Int?
-    {
-        indices.keys.filter { $0 > index }.min().flatMap { indices[$0] }
+    private static func neighbor(_ value: Int, in positions: [Int], before: Bool) -> Int? {
+        let index = lowerBound(before ? value : value + 1, in: positions)
+        return before
+            ? (index > 0 ? positions[index - 1] : nil)
+            : (index < positions.count ? positions[index] : nil)
     }
 
     private static func insertionWindows(
@@ -236,6 +227,7 @@ nonisolated enum NarrationQADetector {
     ) -> [DivergenceWindow] {
         var windows: [DivergenceWindow] = []
         var run: [Int] = []
+        let orderedMatchedAudio = sourceByMatchedAudioIndex.keys.sorted()
 
         func flush() {
             guard let first = run.first, let last = run.last else { return }
@@ -244,6 +236,7 @@ nonisolated enum NarrationQADetector {
                     firstAudioIndex: first,
                     lastAudioIndex: last,
                     sourceByMatchedAudioIndex: sourceByMatchedAudioIndex,
+                    orderedMatchedAudio: orderedMatchedAudio,
                     fallbackBlockID: fallbackBlockID
                 )
             else {
@@ -284,15 +277,15 @@ nonisolated enum NarrationQADetector {
         firstAudioIndex: Int,
         lastAudioIndex: Int,
         sourceByMatchedAudioIndex: [Int: (blockID: String, wordIndex: Int)],
+        orderedMatchedAudio: [Int],
         fallbackBlockID: String?
     ) -> (blockID: String, wordIndex: Int)? {
-        if let nextIndex = sourceByMatchedAudioIndex.keys.filter({ $0 > lastAudioIndex }).min(),
+        if let nextIndex = neighbor(lastAudioIndex, in: orderedMatchedAudio, before: false),
             let next = sourceByMatchedAudioIndex[nextIndex]
         {
             return next
         }
-        if let previousIndex = sourceByMatchedAudioIndex.keys.filter({ $0 < firstAudioIndex })
-            .max(),
+        if let previousIndex = neighbor(firstAudioIndex, in: orderedMatchedAudio, before: true),
             let previous = sourceByMatchedAudioIndex[previousIndex]
         {
             return previous

@@ -168,6 +168,47 @@ import Testing
         #expect(groups["file:///Books/Dune/"] == groups["epub-import-id"])
     }
 
+    @Test func unavailableEditionRetainsItsFamilyAndNewTextSibling() {
+        let identities: [EditionMatcher.Identity] = [
+            .init(
+                id: "audio", title: "Publisher title", author: "Author", fileCount: 1,
+                editionGroupID: "trusted-family"),
+            .init(
+                id: "missing", title: "Legacy filename", author: nil, fileCount: 1,
+                isAvailable: false, editionGroupID: "trusted-family"),
+            .init(id: "text", title: "Publisher title", author: "Author", fileCount: 0),
+        ]
+        let groups = EditionMatcher.groups(for: identities)
+        #expect(
+            groups == [
+                "audio": "trusted-family", "missing": "trusted-family", "text": "trusted-family",
+            ])
+        #expect(groups == EditionMatcher.groups(for: Array(identities.reversed())))
+    }
+
+    @Test func unavailableMetadataCanRepairAFormerlyClearedGroup() {
+        let groups = EditionMatcher.groups(for: [
+            .init(id: "available", title: "Dune", author: "Frank", fileCount: 1),
+            .init(
+                id: "missing", title: "Dune", author: "Frank", fileCount: 1,
+                isAvailable: false, editionGroupID: "old-family"),
+        ])
+        #expect(groups["available"] != nil)
+        #expect(groups["available"] == groups["missing"])
+    }
+
+    @Test func missingFileDoesNotCreateANewParentPathRelationship() {
+        let groups = EditionMatcher.groups(for: [
+            .init(
+                id: "file:///Books/Shared/", title: "Current book", author: "Author", fileCount: 1),
+            .init(
+                id: "file:///Books/Shared/old.m4b", title: "Old book", author: "Author",
+                fileCount: 1,
+                isAvailable: false),
+        ])
+        #expect(groups.isEmpty)
+    }
+
     @Test func nonFileIDsNeverPathGroup() {
         // ABS/server rows use opaque ids; only real file URLs may path-cluster.
         let groups = EditionMatcher.groups(for: [

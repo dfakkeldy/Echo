@@ -20,7 +20,10 @@ struct MacLibraryView: View {
                 .padding(.horizontal, 10)
                 .padding(.top, 10)
 
-            if libraryVM.isEmpty {
+            if libraryVM.isLoading && libraryVM.isEmpty {
+                ProgressView("Loading books…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if libraryVM.isEmpty {
                 ContentUnavailableView {
                     Label("Library", systemImage: "books.vertical")
                 } description: {

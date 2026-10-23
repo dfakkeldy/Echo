@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import GRDB
 
-struct PDFBlockPageRecord: Identifiable, Equatable, Codable, FetchableRecord,
+nonisolated struct PDFBlockPageRecord: Identifiable, Equatable, Codable, FetchableRecord,
     MutablePersistableRecord
 {
     var id: Int64?

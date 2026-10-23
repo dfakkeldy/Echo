@@ -11,6 +11,7 @@ final class LibraryViewModel {
     var selectedAxis: LibraryAxis = .recentlyAdded
     var showUnavailable = false
     var isScanning = false
+    var isLoading = false
     var errorMessage: String?
     var pendingRecoveryBook: AudiobookRecord?
 
@@ -24,6 +25,9 @@ final class LibraryViewModel {
     @ObservationIgnored private var booksWithText: Set<String> = []
     @ObservationIgnored private var regroupTask: Task<Void, Never>?
     @ObservationIgnored private var mergeTask: Task<Void, Never>?
+    @ObservationIgnored private var fetchTask: Task<Void, Never>?
+    @ObservationIgnored private var fetchRevision = 0
+    private var textEligibilityAvailable = false
 
     init(
         db: DatabaseService, listenedOnly: Bool = true,
@@ -52,31 +56,40 @@ final class LibraryViewModel {
     /// Fetches and publishes sections/status/siblings. Split from `reload()` so
     /// the background regroup pass can re-publish without re-triggering itself.
     private func applyFetch() {
-        do {
-            sections = try service.sections(
-                by: selectedAxis, includeUnavailable: showUnavailable, listenedOnly: listenedOnly)
-            let visibleBooks = sections.flatMap(\.books)
-            let bookIDs = visibleBooks.map(\.id)
-            siblingEditionsByBookID = try service.siblingEditionsMap(for: visibleBooks)
-            let siblingIDs = siblingEditionsByBookID.values.flatMap { $0.map(\.id) }
-            statusMap = LibraryService.foldingSiblingStatuses(
-                into: try service.statusMap(for: bookIDs + siblingIDs),
-                visibleIDs: bookIDs,
-                siblings: siblingEditionsByBookID)
-            booksWithText = mergeService.audiobookIDsWithText().intersection(bookIDs)
-            errorMessage = nil
-        } catch {
-            errorMessage = error.localizedDescription
-            siblingEditionsByBookID = [:]
-            booksWithText = []
-            logger.error("Library reload failed: \(error.localizedDescription)")
+        fetchTask?.cancel()
+        fetchRevision &+= 1
+        let revision = fetchRevision
+        let axis = selectedAxis
+        let unavailable = showUnavailable
+        textEligibilityAvailable = false
+        isLoading = true
+        fetchTask = Task {
+            defer { if revision == fetchRevision { isLoading = false } }
+            do {
+                let snapshot = try await service.shelfSnapshot(
+                    axis: axis, includeUnavailable: unavailable, listenedOnly: listenedOnly)
+                guard !Task.isCancelled, revision == fetchRevision else { return }
+                sections = snapshot.sections
+                siblingEditionsByBookID = snapshot.siblings
+                statusMap = snapshot.statuses
+                booksWithText = snapshot.booksWithText
+                textEligibilityAvailable = true
+                errorMessage = nil
+            } catch {
+                guard !Task.isCancelled, revision == fetchRevision else { return }
+                errorMessage = error.localizedDescription
+                siblingEditionsByBookID = [:]
+                booksWithText = []
+            }
         }
     }
 
     /// Awaits the in-flight shelf regroup pass, if any. Deterministic seam for
     /// tests; production callers rely on the pass re-publishing by itself.
     func awaitShelfRegroup() async {
+        await fetchTask?.value
         await regroupTask?.value
+        await fetchTask?.value
     }
 
     /// Single-flight enrichment + edition-regroup pass: overlapping reloads
@@ -131,7 +144,9 @@ final class LibraryViewModel {
     /// and companion documents (spec Amendment A1 visibility guard).
     func readAlongCandidates(of book: AudiobookRecord) -> [AudiobookRecord] {
         let hasAudio = (book.fileCount ?? 0) > 0 || book.duration > 0
-        guard hasAudio, !booksWithText.contains(book.id) else { return [] }
+        guard textEligibilityAvailable, hasAudio, !booksWithText.contains(book.id) else {
+            return []
+        }
         return siblingEditions(of: book).filter {
             ($0.fileCount ?? 0) == 0 && $0.duration <= 0
         }

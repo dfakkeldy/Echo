@@ -34,9 +34,8 @@
                 .labelsHidden()
                 .accessibilityLabel(Text("Visual timing"))
             }
-            .onAppear(perform: loadImageIfNeeded)
-            .onChange(of: snapshot.visualCue?.imagePath) { _, _ in
-                loadImageIfNeeded()
+            .task(id: snapshot.visualCue?.id) {
+                await loadImageIfNeeded()
             }
             .accessibilityElement(children: .contain)
         }
@@ -83,22 +82,18 @@
             return String(localized: "Current figure")
         }
 
-        private func loadImageIfNeeded() {
-            guard let imagePath = snapshot.visualCue?.imagePath else {
-                image = nil
-                loadedImagePath = nil
+        private func loadImageIfNeeded() async {
+            image = nil
+            loadedImagePath = nil
+            guard let path = snapshot.visualCue?.imagePath else { return }
+            let decoded = await ReaderImageLoader.shared.image(storedPath: path)
+            guard !Task.isCancelled, snapshot.visualCue?.imagePath == path, let decoded else {
                 return
             }
-            guard imagePath != loadedImagePath else { return }
-            loadedImagePath = imagePath
-            image = visualListeningImage(at: imagePath)
+            loadedImagePath = path
+            image = UIImage(cgImage: decoded)
         }
 
-        private func visualListeningImage(at imagePath: String) -> UIImage? {
-            guard let url = VisualListeningImageLocator.resolvedURL(forStoredPath: imagePath)
-            else { return nil }
-            return UIImage(contentsOfFile: url.path)
-        }
     }
 
     private struct VisualListeningCodeView: View {

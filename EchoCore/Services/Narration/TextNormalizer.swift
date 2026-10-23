@@ -1,9 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import Synchronization
 
 /// Converts written prose into a speakable form before phonemization.
 /// Pure and deterministic — the unit with the highest naturalness ROI.
 nonisolated enum TextNormalizer {
+    private static let expressions = Mutex<[String: NSRegularExpression]>([:])
+
+    private static func expression(_ pattern: String) -> NSRegularExpression {
+        expressions.withLock { cache in
+            if let existing = cache[pattern] { return existing }
+            let compiled = try! NSRegularExpression(pattern: pattern)
+            if cache.count >= 128 { cache.removeAll(keepingCapacity: true) }
+            cache[pattern] = compiled
+            return compiled
+        }
+    }
+
     static func normalize(_ input: String) -> String {
         let protectedRanges = currencyCandidateRanges(in: input)
         guard !protectedRanges.isEmpty else { return normalizeUnprotected(input) }
@@ -209,8 +222,8 @@ nonisolated enum TextNormalizer {
         periodPolicy: AbbreviationPeriodPolicy = .endOnly
     ) -> String {
         let escaped = NSRegularExpression.escapedPattern(for: abbreviation)
-        let sentenceBoundary = try! NSRegularExpression(pattern: periodPolicy.pattern(for: escaped))
-        let regular = try! NSRegularExpression(pattern: #"(?<![\p{L}\p{N}_])\#(escaped)"#)
+        let sentenceBoundary = expression(periodPolicy.pattern(for: escaped))
+        let regular = expression(#"(?<![\p{L}\p{N}_])\#(escaped)"#)
 
         let sentenceRange = NSRange(s.startIndex..., in: s)
         var out = sentenceBoundary.stringByReplacingMatches(
@@ -454,7 +467,7 @@ nonisolated enum TextNormalizer {
             guard !hasDollarAmountImmediatelyBefore(match.range, in: text) else { return nil }
             return " percent"
         }
-        let re = try! NSRegularExpression(pattern: "\\s+percent")
+        let re = expression("\\s+percent")
         let r = NSRange(out.startIndex..., in: out)
         return re.stringByReplacingMatches(in: out, range: r, withTemplate: " percent")
     }
@@ -511,7 +524,7 @@ nonisolated enum TextNormalizer {
             "Frederick", "George", "Henry", "James", "Louis", "Mary", "Nicholas", "Peter",
             "Philip", "Richard", "Victoria", "William",
         ].joined(separator: "|")
-        let re = try! NSRegularExpression(pattern: #"\b(\#(monarchs)) ([IVXLC]+)\b"#)
+        let re = expression(#"\b(\#(monarchs)) ([IVXLC]+)\b"#)
         let range = NSRange(s.startIndex..., in: s)
         let matches = re.matches(in: s, range: range).reversed()
         var out = s
@@ -534,7 +547,7 @@ nonisolated enum TextNormalizer {
         pattern: String,
         transform: (Int) -> String
     ) -> String {
-        let re = try! NSRegularExpression(pattern: pattern)
+        let re = expression(pattern)
         let range = NSRange(s.startIndex..., in: s)
         let matches = re.matches(in: s, range: range).reversed()
         var out = s
@@ -633,7 +646,7 @@ nonisolated enum TextNormalizer {
         pattern: String,
         transform: (NSTextCheckingResult, String) -> String?
     ) -> String {
-        let re = try! NSRegularExpression(pattern: pattern)
+        let re = expression(pattern)
         let r = NSRange(s.startIndex..., in: s)
         let matches = re.matches(in: s, range: r).reversed()
         var out = s

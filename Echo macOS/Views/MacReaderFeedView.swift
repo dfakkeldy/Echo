@@ -67,31 +67,22 @@ struct MacReaderFeedView: View {
     /// any of the reader's other reload triggers.
     @State private var alignmentSummary: BookAlignmentSummary = .empty
 
-    /// Blocks grouped into one entry per chapter, in reading order.
-    /// Uses `$0.chapterIndex ?? -1` because `EPubBlockRecord.chapterIndex` is `Int?`;
-    /// -1 is the front-matter convention already used by `ChapterAudioStatusResolver`.
-    private var chapterGroups:
-        [(key: Int, title: String, hasAudio: Bool, blocks: [EPubBlockRecord])]
-    {
-        let grouped = Dictionary(grouping: blocks, by: { $0.chapterIndex ?? -1 })
-        return grouped.keys.sorted().map { key in
-            let chapterBlocks = grouped[key] ?? []
-            // Prefer what the publisher declared. Falling straight to "the first
-            // heading" names a Calibre-converted chapter after its number alone
-            // (`<h1>2</h1>` precedes `<h1>COURTROOM 3: …</h1>`) and names any
-            // chapter opening on a recurring sidebar after the sidebar.
-            let title =
-                chapterTitles[key]
-                ?? chapterBlocks.first(where: {
-                    $0.blockKind == EPubBlockRecord.Kind.heading.rawValue
-                })?.text
-                ?? chapterBlocks.first?.text
-                ?? "Chapter \(key + 1)"
-            return (
-                key: key, title: title, hasAudio: chaptersWithAudio.contains(key),
-                blocks: chapterBlocks
-            )
-        }
+    @State private var chapterGroups:
+        [(key: Int, title: String, hasAudio: Bool, blocks: [EPubBlockRecord])] = []
+    @State private var chapterByBlockID: [String: Int] = [:]
+    @State private var timelineIndex = ReaderActiveBlockResolver.TimelineIndex(rows: [])
+    @State private var loadRevision = 0
+    @State private var loadedBookID: String?
+
+    private nonisolated struct ReaderSnapshot: Sendable {
+        let blocks: [EPubBlockRecord]
+        let playback: ReaderPlaybackSnapshot
+        let titles: [Int: String]
+        let audioChapters: Set<Int>
+        let hasPDFPages: Bool
+        let summary: BookAlignmentSummary
+        let groups: [(key: Int, title: String, hasAudio: Bool, blocks: [EPubBlockRecord])]
+        let chapterByBlockID: [String: Int]
     }
 
     var body: some View {
@@ -198,14 +189,11 @@ struct MacReaderFeedView: View {
             }
         }
         .frame(minWidth: 300)
-        .task {
+        .task(id: player.audiobookID) {
             await loadBlocks()
         }
         .task {
             await trackCurrentBlock()
-        }
-        .onChange(of: player.currentURL) { _, _ in
-            Task { await loadBlocks() }
         }
         .onChange(of: player.documentIngestionTrigger) { _, _ in
             // Transcript materialization creates epub_block rows for the current
@@ -259,86 +247,128 @@ struct MacReaderFeedView: View {
     // MARK: - Load blocks
 
     private func loadBlocks() async {
+        loadRevision &+= 1
+        let revision = loadRevision
+        let bookID = player.audiobookID
         isLoading = true
-        defer { isLoading = false }
-
-        // Reset auto-expand state on book switch so a new book's first playing
-        // chapter is never suppressed by a stale key from the previous book.
-        lastPlayingChapterKey = nil
-
-        guard let audiobookID = player.audiobookID else {
-            blocks = []
-            chapterTitles = [:]
-            timelineCache = []
-            wordCache = []
-            wordIndex = ReaderActiveBlockResolver.WordIndex(rows: [])
-            hasPDFPages = false
-            showingPageView = false
-            alignmentSummary = .empty
+        defer { if revision == loadRevision { isLoading = false } }
+        guard let bookID else {
+            clearReader()
             return
         }
-
+        if loadedBookID != bookID { clearReader() }
+        let writer = dbService.writer
         do {
-            let result = try await dbService.writer.read { db in
-                try EPubBlockRecord
-                    .filter(Column("audiobook_id") == audiobookID)
-                    .filter(Column("is_hidden") == false)
-                    .order(Column("sequence_index"))
-                    .fetchAll(db)
+            let snapshot = try await Task.detached(priority: .userInitiated) {
+                try Self.buildSnapshot(audiobookID: bookID, writer: writer)
+            }.value
+            guard !Task.isCancelled, revision == loadRevision, player.audiobookID == bookID else {
+                return
             }
-            blocks = result
-            let pdfPageRows = try PDFBlockPageDAO(db: dbService.writer).rows(for: audiobookID)
-            hasPDFPages = !pdfPageRows.isEmpty
+            if loadedBookID != bookID {
+                openChapterKey = nil
+                lastPlayingChapterKey = nil
+                currentBlockID = nil
+                activeWord = nil
+                showingPageView = false
+            }
+            loadedBookID = bookID
+            blocks = snapshot.blocks
+            chapterTitles = snapshot.titles
+            chaptersWithAudio = snapshot.audioChapters
+            hasPDFPages = snapshot.hasPDFPages
             if !hasPDFPages { showingPageView = false }
-            // Phase 5: honest per-chapter has-audio for the accordion.
-            let resolver = ChapterAudioStatusResolver(db: dbService.writer)
-            chaptersWithAudio = (try? resolver.chaptersWithAudio(audiobookID: audiobookID)) ?? []
-            chapterTitles = Self.resolveChapterTitles(
-                blocks: result, audiobookID: audiobookID, db: dbService.writer)
-            timelineCache = try await loadTimelineCache(audiobookID: audiobookID)
-            // Per-word timings (Phase A) for karaoke; absent on unaligned books → [].
-            let words = try WordTimingDAO(db: dbService.writer).words(forAudiobook: audiobookID)
-            wordCache = words.map {
-                (
-                    start: $0.audioStartTime, end: $0.audioEndTime,
-                    blockID: $0.epubBlockID, wordIndex: $0.wordIndex
-                )
-            }
-            wordIndex = ReaderActiveBlockResolver.WordIndex(rows: wordCache)
-            await refreshAlignmentSummary(audiobookID: audiobookID)
+            timelineCache = snapshot.playback.timeline
+            timelineIndex = snapshot.playback.timelineIndex
+            wordCache = snapshot.playback.words
+            wordIndex = snapshot.playback.wordIndex
+            alignmentSummary = snapshot.summary
+            chapterGroups = snapshot.groups
+            chapterByBlockID = snapshot.chapterByBlockID
         } catch {
-            blocks = []
-            chapterTitles = [:]
-            hasPDFPages = false
-            showingPageView = false
-            timelineCache = []
-            wordCache = []
-            wordIndex = ReaderActiveBlockResolver.WordIndex(rows: [])
-            alignmentSummary = .empty
+            guard !Task.isCancelled, revision == loadRevision, player.audiobookID == bookID else {
+                return
+            }
+            clearReader()
         }
     }
 
-    /// Recomputes the header's alignment verdict off the UI actor.
-    ///
-    /// `BookAlignmentSummary.load` is deliberately synchronous (a plain
-    /// `nonisolated async` would still run on this main-actor caller under
-    /// `SWIFT_APPROACHABLE_CONCURRENCY`), so the hop off main has to be
-    /// explicit. The queries are three indexed `COUNT`s, but they run against
-    /// the same writer the batch queue is hammering during an alignment, which
-    /// is exactly when this refreshes.
+    private func clearReader() {
+        blocks = []
+        chapterGroups = []
+        chapterTitles = [:]
+        chapterByBlockID = [:]
+        chaptersWithAudio = []
+        timelineCache = []
+        timelineIndex = .init(rows: [])
+        wordCache = []
+        wordIndex = .init(rows: [])
+        currentBlockID = nil
+        activeWord = nil
+        openChapterKey = nil
+        lastPlayingChapterKey = nil
+        hasPDFPages = false
+        showingPageView = false
+        alignmentSummary = .empty
+        loadedBookID = nil
+    }
+
+    private nonisolated static func buildSnapshot(audiobookID: String, writer: any DatabaseWriter)
+        throws -> ReaderSnapshot
+    {
+        let blocks = try EPubBlockDAO(db: writer).visibleBlocks(for: audiobookID)
+        let chapterTitles = resolveChapterTitles(
+            blocks: blocks, audiobookID: audiobookID, db: writer)
+        let chaptersWithAudio = try ChapterAudioStatusResolver(db: writer).chaptersWithAudio(
+            audiobookID: audiobookID)
+        let grouped = Dictionary(grouping: blocks, by: { $0.chapterIndex ?? -1 })
+        let groups = grouped.keys.sorted().map { key in
+            let chapterBlocks = grouped[key] ?? []
+            // Prefer what the publisher declared. Falling straight to "the first
+            // heading" names a Calibre-converted chapter after its number alone
+            // (`<h1>2</h1>` precedes `<h1>COURTROOM 3: …</h1>`) and names any
+            // chapter opening on a recurring sidebar after the sidebar.
+            let title =
+                chapterTitles[key]
+                ?? chapterBlocks.first(where: {
+                    $0.blockKind == EPubBlockRecord.Kind.heading.rawValue
+                })?.text
+                ?? chapterBlocks.first?.text
+                ?? "Chapter \(key + 1)"
+            return (
+                key: key, title: title, hasAudio: chaptersWithAudio.contains(key),
+                blocks: chapterBlocks
+            )
+        }
+        return ReaderSnapshot(
+            blocks: blocks, playback: try .load(audiobookID: audiobookID, db: writer),
+            titles: chapterTitles, audioChapters: chaptersWithAudio,
+            hasPDFPages: try !PDFBlockPageDAO(db: writer).rows(for: audiobookID).isEmpty,
+            summary: try BookAlignmentSummary.load(audiobookID: audiobookID, db: writer),
+            groups: groups,
+            chapterByBlockID: Dictionary(
+                uniqueKeysWithValues: blocks.compactMap {
+                    block in block.chapterIndex.map { (block.id, $0) }
+                }))
+    }
+
     private func refreshAlignmentSummary(audiobookID: String) async {
         let writer = dbService.writer
-        alignmentSummary =
-            await Task.detached(priority: .utility) {
-                (try? BookAlignmentSummary.load(audiobookID: audiobookID, db: writer)) ?? .empty
-            }.value
+        let revision = loadRevision
+        let summary = await Task.detached(priority: .utility) {
+            (try? BookAlignmentSummary.load(audiobookID: audiobookID, db: writer)) ?? .empty
+        }.value
+        guard !Task.isCancelled, revision == loadRevision, player.audiobookID == audiobookID else {
+            return
+        }
+        alignmentSummary = summary
     }
 
     /// Chapter display titles for the loaded book, via the shared
     /// `ChapterTitleResolver` the iOS reader uses — publisher TOC label for the
     /// entry anchored to each chapter's first block, else the audio chapter's
     /// own title. `blocks` must already be in reading order.
-    private static func resolveChapterTitles(
+    private nonisolated static func resolveChapterTitles(
         blocks: [EPubBlockRecord], audiobookID: String, db: any DatabaseWriter
     ) -> [Int: String] {
         var firstBlockIDByChapter: [Int: String] = [:]
@@ -359,50 +389,6 @@ struct MacReaderFeedView: View {
             firstBlockIDByChapter: firstBlockIDByChapter,
             tocEntries: tocEntries,
             audioChapterTitles: audioTitles)
-    }
-
-    /// Builds the audio-range → block timeline cache, LEFT JOINing `epub_block`
-    /// for each block's `chapter_index`, so active-block resolution can be scoped
-    /// to the currently-playing track. Ordered by `audio_start_time` to match the
-    /// iOS reader's cache and the resolver's binary-search (unscoped) path.
-    private func loadTimelineCache(audiobookID: String) async throws
-        -> [ReaderActiveBlockResolver.TimelineRow]
-    {
-        try await dbService.writer.read { db in
-            let rows = try Row.fetchAll(
-                db,
-                sql: """
-                    SELECT ti.audio_start_time, ti.audio_end_time, ti.epub_block_id,
-                           ti.segment_key, eb.chapter_index
-                    FROM timeline_item ti
-                    LEFT JOIN epub_block eb ON eb.id = ti.epub_block_id
-                    WHERE ti.audiobook_id = ? AND ti.epub_block_id IS NOT NULL AND ti.audio_start_time >= 0
-                    ORDER BY ti.audio_start_time
-                    """,
-                arguments: [audiobookID]
-            )
-
-            var cache: [ReaderActiveBlockResolver.TimelineRow] = []
-            for (i, row) in rows.enumerated() {
-                guard let start: TimeInterval = row["audio_start_time"],
-                    let blockID: String = row["epub_block_id"]
-                else { continue }
-                let end: TimeInterval
-                if let explicitEnd: TimeInterval = row["audio_end_time"] {
-                    end = explicitEnd
-                } else if i + 1 < rows.count,
-                    let nextStart: TimeInterval = rows[i + 1]["audio_start_time"]
-                {
-                    end = nextStart
-                } else {
-                    end = start + 3600  // Large fallback for the last item
-                }
-                let chapterIndex: Int? = row["chapter_index"]
-                let segmentKey: String? = row["segment_key"]
-                cache.append((start, end, blockID, chapterIndex, segmentKey))
-            }
-            return cache
-        }
     }
 
     /// EPUB chapter indices in the currently-playing track. macOS has no narration
@@ -476,11 +462,23 @@ struct MacReaderFeedView: View {
     /// scoped to the currently-playing track, so per-track time collisions across
     /// multiple files no longer pin the highlight to the first track.
     private func trackCurrentBlock() async {
+        var previousTime: TimeInterval?
+        var previousScope: Set<Int>?
+        var previousRevision = -1
         while !Task.isCancelled {
-            if player.isPlaying, player.currentTime > 0 {
+            let time = player.currentTime
+            let scope = currentTrackChapterIndices
+            if player.isPlaying, time > 0 {
+                if time == previousTime, scope == previousScope, previousRevision == loadRevision {
+                    try? await Task.sleep(for: .milliseconds(80))
+                    continue
+                }
+                previousTime = time
+                previousScope = scope
+                previousRevision = loadRevision
                 currentBlockID = ReaderActiveBlockResolver.activeBlockID(
-                    in: timelineCache,
-                    time: player.currentTime,
+                    in: timelineIndex,
+                    time: time,
                     currentTrackChapterIndices: currentTrackChapterIndices
                 )
                 if let idx = ReaderActiveBlockResolver.activeWord(
@@ -494,7 +492,7 @@ struct MacReaderFeedView: View {
                 }
                 // Phase 5: auto-expand the chapter that is currently playing.
                 if let playingID = currentBlockID,
-                    let playingChapter = blocks.first(where: { $0.id == playingID })?.chapterIndex
+                    let playingChapter = chapterByBlockID[playingID]
                 {
                     openChapterKey = FeedAccordion.autoExpand(
                         current: openChapterKey,
@@ -504,6 +502,7 @@ struct MacReaderFeedView: View {
                     lastPlayingChapterKey = playingChapter
                 }
             } else {
+                previousTime = nil
                 currentBlockID = nil
                 activeWord = nil
             }

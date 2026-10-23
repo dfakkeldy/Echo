@@ -2,7 +2,7 @@
 import Foundation
 import GRDB
 
-struct BookmarkDAO {
+nonisolated struct BookmarkDAO {
     let db: DatabaseWriter
 
     func bookmarks(for audiobookID: String) throws -> [BookmarkRecord] {

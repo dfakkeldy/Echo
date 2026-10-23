@@ -1134,6 +1134,9 @@ final class PlayerModel {
         playerLoadingCoordinator.onPersistSelection = { [weak self] url in
             self?.persistSelection(url: url)
         }
+        playerLoadingCoordinator.onRestoreBookState = { [weak self] in
+            self?.loadBookmarksForCurrentBook()
+        }
         playerLoadingCoordinator.onResetBookmarkCheckSecond = { [weak self] in
             self?.lastBookmarkCheckSecond = nil
         }
@@ -2125,7 +2128,5 @@ final class PlayerModel {
         // Save security-scoped bookmark so it restores after relaunch.
         showingBookmarkPersistenceWarning = !persistence.saveBookmark(url: url)
 
-        // Load bookmarks for this book.
-        loadBookmarksForCurrentBook()
     }
 }

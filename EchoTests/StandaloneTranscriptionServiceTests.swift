@@ -250,7 +250,7 @@ struct StandaloneTranscriptionServiceTests {
                 createdAt: "2026-06-29T00:00:00Z")
             try rec.insert(database)
         }
-        try await TranscriptMaterializer.materialize(audiobookID: bookID, writer: db)
+        try TranscriptMaterializer.materialize(audiobookID: bookID, writer: db)
         #expect(try EPubBlockDAO(db: db).count(for: bookID) == 1)
 
         let service = StandaloneTranscriptionService(db: db)

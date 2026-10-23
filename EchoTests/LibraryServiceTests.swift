@@ -133,7 +133,7 @@ struct LibraryServiceTests {
 
         _ = try await service.rescan(
             root: root,
-            discover: { _ in [dune] },
+            discover: { _ in LibraryScanner.Discovery(books: [dune], isComplete: true) },
             readMetadata: { _ in
                 LibraryScanner.ScannedMetadata(
                     title: "Dune", author: "Tolkien, J.R.R.", narrator: "Scott Brick",
@@ -171,7 +171,7 @@ struct LibraryServiceTests {
 
         _ = try await service.rescan(
             root: root,
-            discover: { _ in [dune] },
+            discover: { _ in LibraryScanner.Discovery(books: [dune], isComplete: true) },
             readMetadata: { _ in
                 LibraryScanner.ScannedMetadata(
                     title: "Dune", author: "Frank Herbert", narrator: nil,
@@ -205,7 +205,7 @@ struct LibraryServiceTests {
             root: root,
             discover: { url in
                 discoverSawScope = startedURL == url
-                return []
+                return LibraryScanner.Discovery(books: [], isComplete: true)
             },
             readMetadata: { _ in
                 LibraryScanner.ScannedMetadata(
@@ -253,7 +253,7 @@ struct LibraryServiceTests {
 
         _ = try await service.rescan(
             root: root,
-            discover: { _ in [dune] },
+            discover: { _ in LibraryScanner.Discovery(books: [dune], isComplete: true) },
             readMetadata: { _ in
                 LibraryScanner.ScannedMetadata(
                     title: "Dune", author: nil, narrator: nil,
@@ -384,7 +384,7 @@ struct LibraryServiceTests {
 
         _ = try await service.rescan(
             root: root,
-            discover: { _ in [audio] },
+            discover: { _ in LibraryScanner.Discovery(books: [audio], isComplete: true) },
             readMetadata: { _ in
                 LibraryScanner.ScannedMetadata(
                     title: "The Dune", author: "Frank Herbert", narrator: nil,

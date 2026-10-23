@@ -377,7 +377,14 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         var searchQuery: String? = nil
         var pulseBlockID: String? = nil
         var dataSource: UICollectionViewDiffableDataSource<String, String>?
-        var sections: [ReaderCardSection] = []
+        var sections: [ReaderCardSection] = [] {
+            didSet {
+                lastHeadingSectionID = nil
+            }
+        }
+        private var appliedSectionIDs: [String] = []
+        private var sectionByID: [String: ReaderCardSection] = [:]
+        private var lastHeadingSectionID: String?
         var activeBlockID: String?
         var activeWord: (blockID: String, index: Int)?
         /// The block whose karaoke word is currently highlighted on screen, so
@@ -860,6 +867,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         ) {
             var snapshot = NSDiffableDataSourceSnapshot<String, String>()
             let sectionIDs = sections.map(\.id)
+            let appliedSections = sections
             snapshot.appendSections(sectionIDs)
             for section in sections {
                 snapshot.appendItems(section.items.map(\.id), toSection: section.id)
@@ -887,6 +895,10 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 guard let self, let collectionView else { return }
                 guard scheduledSnapshotGeneration == self.scrollOperationState.snapshotGeneration
                 else { return }
+                self.appliedSectionIDs = sectionIDs
+                self.sectionByID = Dictionary(
+                    appliedSections.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+                self.lastHeadingSectionID = nil
                 collectionView.layoutIfNeeded()
                 if let anchor,
                     self.followState.wrappedValue == .exploring,
@@ -909,6 +921,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     collectionView.layoutIfNeeded()
                 }
                 self.scrollOperationState.completeSnapshot(scheduledSnapshotGeneration)
+                self.updateTopChapterTitle(collectionView)
                 self.drainPendingScrollIfReady(in: collectionView)
             }
             Task { @MainActor in
@@ -1277,9 +1290,13 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         }
 
         private func updateChapterTitle(for indexPath: IndexPath) {
-            if let sectionID = dataSource?.snapshot().sectionIdentifiers[indexPath.section],
-                let section = sections.first(where: { $0.id == sectionID })
-            {
+            guard !scrollOperationState.snapshotIsApplying,
+                appliedSectionIDs.indices.contains(indexPath.section)
+            else { return }
+            let sectionID = appliedSectionIDs[indexPath.section]
+            if let section = sectionByID[sectionID] {
+                if lastHeadingSectionID != sectionID {
+                    lastHeadingSectionID = sectionID
 
                 var partTitle: String? = nil
                 var chapterTitle: String? = nil
@@ -1330,6 +1347,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     }
                 }
 
+                }
                 var resolvedTheme: String? = nil
                 if let itemID = dataSource?.itemIdentifier(for: indexPath),
                     let item = card(for: itemID)

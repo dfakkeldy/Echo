@@ -23,6 +23,10 @@ final class BookmarkStore {
     private(set) var voiceMemoProgress: Double = 0.0
 
     @ObservationIgnored private var persistenceTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingSnapshots: [String: [Bookmark]] = [:]
+    @ObservationIgnored private var pendingKeys: [String] = []
+    private(set) var restorationFailed = false
+    enum PersistenceFailure: Error { case restorationFailed }
 
     @ObservationIgnored private var voiceMemoEngine: AVAudioEngine?
     @ObservationIgnored private var voiceMemoPlayerNode: AVAudioPlayerNode?
@@ -334,6 +338,70 @@ final class BookmarkStore {
 
     // MARK: - SQL Persistence
 
+    /// SQL becomes authoritative only after the legacy recovery data has been
+    /// reconciled successfully. Keep that recovery data, including after deletes.
+    func restore(database: DatabaseService, persistence: Persistence, key: String, folderURL: URL?)
+        throws
+    {
+        stopVoiceMemo()
+        bookmarks = []
+        restorationFailed = true
+        if let pending = pendingSnapshots[key] {
+            bookmarks = pending
+            restorationFailed = false
+            return
+        }
+        let records = try BookmarkDAO(db: database.writer).bookmarks(for: key)
+        if !persistence.bookmarksMigratedToSQL(for: key) {
+            if records.isEmpty {
+                let legacy = persistence.loadBookmarks(for: key, folderURL: folderURL).map {
+                    bookmark in
+                    var scoped = bookmark
+                    scoped.folderKey = key
+                    return scoped
+                }
+                let writer = database.writer
+                let recovered = try writer.write { connection in
+                    let scoped = try legacy.map { bookmark in
+                        var copy = bookmark
+                        if let existing = try BookmarkRecord.fetchOne(
+                            connection, key: copy.id.uuidString), existing.audiobookID != key
+                        {
+                            // Keep ambiguous parent-book SQL data intact and
+                            // give the recovered file-book copy its own identity.
+                            copy.id = UUID()
+                        }
+                        return copy
+                    }
+                    try Self.replaceBookmarks(scoped, for: key, in: connection, writer: writer)
+                    return scoped
+                }
+                bookmarks = recovered.sorted { $0.timestamp < $1.timestamp }
+            } else {
+                bookmarks = BookmarkRecord.decodeModelsSkippingCorruptRows(
+                    from: records, logger: logger, operation: "restoring bookmarks")
+            }
+            persistence.markBookmarksMigratedToSQL(for: key)
+        } else {
+            bookmarks = BookmarkRecord.decodeModelsSkippingCorruptRows(
+                from: records, logger: logger, operation: "restoring bookmarks")
+        }
+        restorationFailed = false
+    }
+
+    func flushPersistence() async {
+        while let task = persistenceTask { await task.value }
+    }
+
+    func pendingSnapshot(for key: String) -> [Bookmark]? { pendingSnapshots[key] }
+
+    /// Receiver merges call this only after flushing queued writes and committing
+    /// the merged snapshot. Failed edits are included before clearing recovery.
+    func acknowledgeExternalCommit(for key: String) {
+        pendingSnapshots[key] = nil
+        pendingKeys.removeAll { $0 == key }
+    }
+
     /// Load bookmarks from SQL for the given audiobook ID.
     func loadFromSQL(database: DatabaseService, audiobookID: String) {
         let dao = BookmarkDAO(db: database.writer)
@@ -352,19 +420,36 @@ final class BookmarkStore {
     /// Persist all bookmarks through SQL, keyed by the current storage key.
     func configureSQLPersistence(database: DatabaseService) {
         onPersist = { [weak self] bookmarks in
-            guard let self, let key = self.storageKeyProvider?() else { return }
-            let previous = self.persistenceTask
+            guard let self, !self.restorationFailed, let key = self.storageKeyProvider?() else {
+                return
+            }
+            if !self.pendingKeys.contains(key) { self.pendingKeys.append(key) }
+            self.pendingSnapshots[key] = bookmarks
+            guard self.persistenceTask == nil else { return }
             self.persistenceTask = Task {
-                // Preserve edit ordering, including edits queued while suspended.
-                await previous?.value
-                while !Task.isCancelled {
+                defer { self.persistenceTask = nil }
+                while let key = self.pendingKeys.first, !Task.isCancelled {
+                    guard let snapshot = self.pendingSnapshots[key] else {
+                        self.pendingKeys.removeFirst()
+                        continue
+                    }
+                    // Leave the in-flight snapshot available to rapid book
+                    // switches. Later edits replace it and queue one final write.
+                    self.pendingKeys.removeFirst()
                     do {
+                        let writer = database.writer
                         try await database.withBackgroundOperation(name: "bookmark persistence") {
-                            try Self.replaceBookmarks(bookmarks, for: key, database: database)
+                            try await writer.write { db in
+                                try Self.replaceBookmarks(
+                                    snapshot, for: key, in: db, writer: writer)
+                            }
                         }
-                        return
+                        if !self.pendingKeys.contains(key) { self.pendingSnapshots[key] = nil }
                     } catch {
                         if database.isWorkDeferred(error) {
+                            if !self.pendingKeys.contains(key) {
+                                self.pendingKeys.insert(key, at: 0)
+                            }
                             do { try await database.waitUntilForeground() }
                             catch { return }
                             continue
@@ -379,16 +464,22 @@ final class BookmarkStore {
 
     /// Replacement and its timeline mirror share one rollback boundary.
     static func replaceBookmarks(_ bookmarks: [Bookmark], for key: String, database: DatabaseService) throws {
-        let dao = BookmarkDAO(db: database.writer)
         try database.writer.write { db in
-            try BookmarkRecord.filter(Column("audiobook_id") == key).deleteAll(db)
-            try TimelineItem
-                .filter(Column("audiobook_id") == key)
-                .filter(Column("source_table") == "bookmark")
-                .deleteAll(db)
-            for bookmark in bookmarks {
-                try dao.insert(BookmarkRecord(from: bookmark), in: db)
-            }
+            try replaceBookmarks(bookmarks, for: key, in: db, writer: database.writer)
+        }
+    }
+
+    private nonisolated static func replaceBookmarks(
+        _ bookmarks: [Bookmark], for key: String, in db: Database, writer: any DatabaseWriter
+    ) throws {
+        let dao = BookmarkDAO(db: writer)
+        try BookmarkRecord.filter(Column("audiobook_id") == key).deleteAll(db)
+        try TimelineItem
+            .filter(Column("audiobook_id") == key)
+            .filter(Column("source_table") == "bookmark")
+            .deleteAll(db)
+        for bookmark in bookmarks {
+            try dao.insert(BookmarkRecord(from: bookmark), in: db)
         }
     }
 

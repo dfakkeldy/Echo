@@ -4,6 +4,8 @@ import UIKit
 /// Card cell for EPUB image blocks. Loads image from local asset storage.
 final class ImageCardCell: UICollectionViewCell {
     static let reuseIdentifier = "ImageCardCell"
+    private var imageTask: Task<Void, Never>?
+    private var representedBlockID: String?
 
     private let artworkView: UIImageView = {
         let iv = UIImageView()
@@ -60,26 +62,27 @@ final class ImageCardCell: UICollectionViewCell {
     }
 
     func configure(with block: EPubBlockRecord, tint: UIColor) {
-        var finalImage: UIImage? = nil
-        
-        if let imagePath = block.imagePath {
-            var url = URL(fileURLWithPath: imagePath)
-            if !FileManager.default.fileExists(atPath: url.path) {
-                let filename = url.lastPathComponent
-                let dirName = url.deletingLastPathComponent().lastPathComponent
-                let appSupport = FileLocations.applicationSupportDirectory
-                url = appSupport.appendingPathComponent("EPUBAssets").appendingPathComponent(dirName).appendingPathComponent(filename)
+        imageTask?.cancel()
+        representedBlockID = block.id
+        artworkView.image = UIImage(systemName: "photo")
+        if let path = block.imagePath {
+            imageTask = Task { [weak self] in
+                let decoded = await ReaderImageLoader.shared.image(storedPath: path)
+                guard !Task.isCancelled, let self, self.representedBlockID == block.id,
+                    let decoded
+                else { return }
+                self.artworkView.image = UIImage(cgImage: decoded)
             }
-            finalImage = UIImage(contentsOfFile: url.path)
         }
-        
-        if let image = finalImage {
-            artworkView.image = image
-        } else {
-            artworkView.image = UIImage(systemName: "photo")
-        }
-        
         captionLabel.text = block.text
         contentView.backgroundColor = tint.withAlphaComponent(0.05)
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        imageTask?.cancel()
+        imageTask = nil
+        representedBlockID = nil
+        artworkView.image = nil
     }
 }

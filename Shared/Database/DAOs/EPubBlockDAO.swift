@@ -126,19 +126,34 @@ nonisolated struct EPubBlockDAO {
     /// Search block text for matching terms. Escapes SQL LIKE wildcards
     /// in user input to prevent accidental or malicious pattern injection.
     func searchBlocks(for audiobookID: String, query: String) throws -> [EPubBlockRecord] {
+        try db.read { connection in
+            try Self.searchBlocks(for: audiobookID, query: query, in: connection)
+        }
+    }
+
+    /// Async GRDB reads forward task cancellation to the database operation.
+    func searchBlocksAsync(for audiobookID: String, query: String) async throws -> [EPubBlockRecord]
+    {
+        try await db.read { connection in
+            try Self.searchBlocks(for: audiobookID, query: query, in: connection)
+        }
+    }
+
+    private static func searchBlocks(for audiobookID: String, query: String, in db: Database) throws
+        -> [EPubBlockRecord]
+    {
         let escaped =
             query
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "%", with: "\\%")
             .replacingOccurrences(of: "_", with: "\\_")
-        return try db.read { db in
+        return
             try EPubBlockRecord
-                .filter(Column("audiobook_id") == audiobookID)
-                .filter(Column("is_hidden") == false)
-                .filter(Column("text").like("%\(escaped)%", escape: "\\"))
-                .order(Column("sequence_index"))
-                .fetchAll(db)
-        }
+            .filter(Column("audiobook_id") == audiobookID)
+            .filter(Column("is_hidden") == false)
+            .filter(Column("text").like("%\(escaped)%", escape: "\\"))
+            .order(Column("sequence_index"))
+            .fetchAll(db)
     }
 
     // MARK: - Mutations

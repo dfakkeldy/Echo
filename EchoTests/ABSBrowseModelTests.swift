@@ -368,7 +368,11 @@ import ZIPFoundation
         fixture?.stub(
             pathSuffix: "/items", queryItems: ["sort": "media.metadata.title"],
             json: fixture?.itemsJSON(ids: ["late"]) ?? "{}", suspended: true)
-        weak var model = fixture?.model
+        final class WeakModel {
+            weak var value: ABSBrowseModel?
+            init(_ value: ABSBrowseModel?) { self.value = value }
+        }
+        let model = WeakModel(fixture?.model)
 
         let load = try #require(fixture?.model.setSort(.title))
         try await waitUntilRequest(in: try #require(fixture), sort: "media.metadata.title")
@@ -376,7 +380,7 @@ import ZIPFoundation
         await load.value
         fixture = nil
 
-        #expect(model == nil)
+        #expect(model.value == nil)
     }
 
     @Test func libraryChangeClearsMetadataFiltersButKeepsNotAdded() async throws {

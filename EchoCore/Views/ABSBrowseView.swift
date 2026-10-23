@@ -276,7 +276,7 @@ struct ABSBrowseView: View {
             }
             finishImport(operationID)
         }
-        importBackgroundTask = ABSImportBackgroundTask { [browseModel] in
+        importBackgroundTask = ABSImportBackgroundTask {
             cancelImportWrapper(operationID)
         }
     }

@@ -2,6 +2,7 @@
 import AVFoundation
 import Foundation
 import GRDB
+import Synchronization
 @preconcurrency import WhisperKit
 import os.log
 
@@ -27,6 +28,16 @@ final class ContinuousAlignmentService {
 
     // State
     private var isRunning = false
+    private var runGeneration = 0
+    private var runToken = RunToken()
+
+    private nonisolated final class RunToken: Sendable {
+        private let cancelled = Mutex(false)
+        func cancel() { cancelled.withLock { $0 = true } }
+        func check() throws {
+            if cancelled.withLock({ $0 }) { throw CancellationError() }
+        }
+    }
     private var isProcessing = false
     private var timer: Timer?
     private var transcriptionTask: Task<Void, Never>?
@@ -56,6 +67,8 @@ final class ContinuousAlignmentService {
     func start() {
         guard !isRunning else { return }
         isRunning = true
+        runGeneration &+= 1
+        runToken = RunToken()
 
         timer = Timer.scheduledTimer(withTimeInterval: Config.interval, repeats: true) {
             [weak self] _ in
@@ -70,6 +83,8 @@ final class ContinuousAlignmentService {
     func stop() {
         guard isRunning else { return }
         isRunning = false
+        runGeneration &+= 1
+        runToken.cancel()
         timer?.invalidate()
         timer = nil
         let task = transcriptionTask
@@ -80,7 +95,8 @@ final class ContinuousAlignmentService {
         // Wait for the in-flight transcription to unwind before releasing the
         // shared model: the task acquires the model internally, so releasing
         // before it finishes could out-release a still-resolving acquire and
-        // leak/over-release the ~40 MB model (CODE_AUDIT.md §3.5).
+        // leak/over-release the shared model.
+        // Ownership/cancellation: https://github.com/dfakkeldy/Echo/pull/652
         Task {
             await task?.value
             WhisperSession.shared.release()
@@ -103,70 +119,57 @@ final class ContinuousAlignmentService {
         guard windowEnd - windowStart >= 2.0 else { return }
 
         isProcessing = true
+        let generation = runGeneration
         transcriptionTask = Task {
             defer { isProcessing = false }
             do {
-                try await loadModelIfNeeded()
+                try await loadModelIfNeeded(generation: generation)
+                try checkRun(generation)
                 let samples = try await AudioSegmentReader.samples(
                     from: fileURL, at: windowStart, duration: windowEnd - windowStart
                 )
+                try checkRun(generation)
                 guard samples.count >= Int(Config.sampleRate * 2.0) else { return }
 
                 guard let wk = whisperKit else { return }
                 let words = await AlignmentTranscript.transcribeWords(
                     with: wk, samples: samples, captureStart: windowStart
                 )
+                try checkRun(generation)
                 guard words.count >= Config.minWordsForAnchor else { return }
 
                 await matchAndInsertAnchor(
-                    words: words, windowStart: windowStart, windowEnd: windowEnd)
+                    words: words, windowStart: windowStart, windowEnd: windowEnd,
+                    generation: generation)
             } catch {
                 logger.error("Transcription failed: \(error.localizedDescription)")
             }
         }
     }
 
-    private func loadModelIfNeeded() async throws {
+    private func checkRun(_ generation: Int) throws {
+        try Task.checkCancellation()
+        guard isRunning, generation == runGeneration else { throw CancellationError() }
+    }
+
+    private func loadModelIfNeeded(generation: Int) async throws {
         if whisperKit != nil { return }
-        self.whisperKit = try await WhisperSession.shared.acquire(model: Config.modelSize)
+        let model = try await WhisperSession.shared.acquire(model: Config.modelSize)
+        try checkRun(generation)
+        self.whisperKit = model
     }
 
     private func matchAndInsertAnchor(
         words: [TranscribedWord],
         windowStart: TimeInterval,
-        windowEnd: TimeInterval
+        windowEnd: TimeInterval,
+        generation: Int
     ) async {
-        guard let blocks = try? blockDAO.blocks(for: audiobookID) else { return }
-        guard let timelineItems = try? timelineDAO.items(for: audiobookID) else { return }
-
-        // Find current block based on timeline — use a single-pass scan
-        // (O(N)) instead of sorting the entire timeline (O(N log N)) to avoid
-        // main-thread stalls every 15 seconds.
-        var currentBlockIdx = 0
-        var bestTime: TimeInterval = 0
-        for item in timelineItems {
-            guard let blockID = item.epubBlockID else { continue }
-            let time = item.audioStartTime
-            if time <= windowStart, time >= bestTime {
-                bestTime = time
-                if let idx = blocks.firstIndex(where: { $0.id == blockID }) {
-                    currentBlockIdx = idx
-                }
-            }
-        }
-
-        // Search window of candidates around the current position
-        let searchWindow = 10
-        let startIdx = max(0, currentBlockIdx - searchWindow)
-        let endIdx = min(blocks.count, currentBlockIdx + searchWindow)
-        let candidates = Array(blocks[startIdx..<endIdx])
-
-        let text = words.map(\.text).joined(separator: " ")
-        guard
-            let match = AutoAlignmentTextMatcher.findBestMatch(
-                transcribedText: text, candidates: candidates, matchThreshold: Config.matchThreshold
-            )
-        else { return }
+        let writer = blockDAO.db
+        let bookID = audiobookID
+        let match = await Self.matchCurrentWindow(
+            writer: writer, bookID: bookID, words: words, windowStart: windowStart)
+        guard (try? checkRun(generation)) != nil, let match else { return }
 
         guard
             let projected = AlignmentTranscript.projectBlockStart(
@@ -190,7 +193,60 @@ final class ContinuousAlignmentService {
             modifiedAt: nil
         )
 
-        try? alignmentService.insertAnchors([anchor])
+        do {
+            try checkRun(generation)
+            let token = runToken
+            try await withTaskCancellationHandler {
+                try await writer.write { connection in
+                    try token.check()
+                    var record = anchor
+                    try record.upsert(connection)
+                    try token.check()
+                }
+            } onCancel: {
+                token.cancel()
+            }
+            try checkRun(generation)
+            try await alignmentService.recalculateTimelineAsync()
+        } catch { return }
         logger.info("Inserted continuous anchor for block \(match.block.id) at \(projected)s")
     }
+    @concurrent
+    private nonisolated static func matchCurrentWindow(
+        writer: any DatabaseWriter, bookID: String, words: [TranscribedWord],
+        windowStart: TimeInterval
+    ) async -> AutoAlignmentTextMatcher.Match? {
+        guard !Task.isCancelled,
+            let blocks = try? EPubBlockDAO(db: writer).blocks(for: bookID),
+            let timelineItems = try? TimelineDAO(db: writer).items(for: bookID)
+        else { return nil }
+        // Find current block based on timeline — use a single-pass scan
+        // (O(N)) with indexed block positions, on the concurrent executor.
+        let blockIndex = Dictionary(
+            uniqueKeysWithValues: blocks.enumerated().map { ($0.element.id, $0.offset) })
+        var currentBlockIdx = 0
+        var bestTime: TimeInterval = 0
+        for item in timelineItems {
+            guard let blockID = item.epubBlockID else { continue }
+            let time = item.audioStartTime
+            if time <= windowStart, time >= bestTime {
+                bestTime = time
+                if let idx = blockIndex[blockID] {
+                    currentBlockIdx = idx
+                }
+            }
+        }
+
+        // Search window of candidates around the current position
+        let searchWindow = 10
+        let startIdx = max(0, currentBlockIdx - searchWindow)
+        let endIdx = min(blocks.count, currentBlockIdx + searchWindow)
+        let candidates = Array(blocks[startIdx..<endIdx])
+
+        let text = words.map(\.text).joined(separator: " ")
+        guard !Task.isCancelled else { return nil }
+        return AutoAlignmentTextMatcher.findBestMatch(
+            transcribedText: text, candidates: candidates, matchThreshold: Config.matchThreshold)
+    }
+
 }

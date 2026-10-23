@@ -4,7 +4,7 @@ import GRDB
 import os.log
 
 /// The grouping axes available in the Library browser.
-enum LibraryAxis: CaseIterable, Equatable, Hashable {
+nonisolated enum LibraryAxis: CaseIterable, Equatable, Hashable, Sendable {
     case recentlyAdded
     case author
     case topic
@@ -15,7 +15,7 @@ enum LibraryAxis: CaseIterable, Equatable, Hashable {
 
 /// Study progress for a book, derived from `playback_state.last_position` vs
 /// `audiobook.duration`. No new storage — pure query.
-enum StudyStatus: Equatable {
+nonisolated enum StudyStatus: Equatable, Sendable {
     case notStarted
     case inProgress
     case finished
@@ -23,7 +23,7 @@ enum StudyStatus: Equatable {
 
 /// A book's processing state — which pipeline stages have been applied.
 /// A book may satisfy multiple states simultaneously.
-struct ProcessingStatus: OptionSet, Equatable {
+nonisolated struct ProcessingStatus: OptionSet, Equatable, Sendable {
     let rawValue: Int
     /// Real alignment anchors beyond the 2 default seed anchors exist.
     static let aligned = ProcessingStatus(rawValue: 1 << 0)
@@ -34,7 +34,7 @@ struct ProcessingStatus: OptionSet, Equatable {
 }
 
 /// Study + processing status for one library book.
-struct LibraryBookStatus: Equatable {
+nonisolated struct LibraryBookStatus: Equatable, Sendable {
     var study: StudyStatus
     var processing: ProcessingStatus
 }
@@ -42,7 +42,7 @@ struct LibraryBookStatus: Equatable {
 /// A titled group of books returned by `LibraryService.sections(by:)`.
 /// Note: not `Equatable` because `AudiobookRecord` is not `Equatable`; add
 /// conformance once `AudiobookRecord` gains it (Task 10+).
-struct LibrarySection {
+nonisolated struct LibrarySection: Sendable {
     let title: String
     let books: [AudiobookRecord]
 }
@@ -238,12 +238,14 @@ struct LibraryBookOpenDispatcher {
 struct LibraryService {
     private let logger = Logger(category: "LibraryService")
     private let db: DatabaseService
+    private nonisolated let queryWriter: any DatabaseWriter
 
     init(db: DatabaseService) {
         self.db = db
+        self.queryWriter = db.writer
     }
 
-    struct RescanResult: Equatable {
+    nonisolated struct RescanResult: Equatable {
         var added: Int
         var updated: Int
         var hidden: Int
@@ -281,7 +283,7 @@ struct LibraryService {
     @discardableResult
     func rescan(
         root: LibraryRootRecord,
-        discover: (URL) -> [DiscoveredBook] = { LibraryScanner.discoverBooks(in: $0) },
+        discover: (URL) -> [DiscoveredBook],
         startScope: (URL) -> Bool = { $0.startAccessingSecurityScopedResource() },
         stopScope: (URL) -> Void = { $0.stopAccessingSecurityScopedResource() },
         now: () -> String = { Date().ISO8601Format() }
@@ -301,12 +303,13 @@ struct LibraryService {
         defer { if scopeStarted { stopScope(rootURL) } }
 
         let dao = AudiobookDAO(db: db.writer)
-        let found = discover(rootURL)
+        let discovery = LibraryScanner.Discovery(books: discover(rootURL), isComplete: true)
+        let found = discovery.books
         let foundIDs = Set(found.map { $0.folderURL.absoluteString })
         var result = RescanResult(added: 0, updated: 0, hidden: 0)
         let timestamp = now()
 
-        // FIXME(M3): @MainActor + blocking GRDB per book — move rescan off-main in a bounded Task before wiring the Rescan button.
+        // Synchronous seam; interactive rescans use the async overload below.
         for book in found {
             let id = book.folderURL.absoluteString
             if let existing = try dao.get(id) {
@@ -341,7 +344,7 @@ struct LibraryService {
                 .filter(Column("is_available") == true)
                 .fetchAll(db)
         }
-        for book in knownUnderRoot where !foundIDs.contains(book.id) {
+        for book in knownUnderRoot where discovery.isComplete && !foundIDs.contains(book.id) {
             var hidden = book
             hidden.isAvailable = false
             try dao.save(hidden)
@@ -351,7 +354,7 @@ struct LibraryService {
         try refreshEditionGroups()
 
         var stampedRoot = root
-        stampedRoot.lastScannedAt = timestamp
+        if discovery.isComplete { stampedRoot.lastScannedAt = timestamp }
         try LibraryRootDAO(db: db.writer).save(stampedRoot)
         return result
     }
@@ -363,13 +366,9 @@ struct LibraryService {
     @discardableResult
     func rescan(
         root: LibraryRootRecord,
-        discover: (URL) -> [DiscoveredBook] = { LibraryScanner.discoverBooks(in: $0) },
+        discover: ((URL) async -> LibraryScanner.Discovery)? = nil,
         readMetadata: (DiscoveredBook) async -> LibraryScanner.ScannedMetadata,
-        companionCoverData: (DiscoveredBook) -> Data? = { book in
-            guard let epub = book.companionEPUB else { return nil }
-            return EpubCoverResolver.coverData(epubArchiveURL: epub)
-                ?? EpubCoverResolver.coverData(expandedEPUBDir: epub)
-        },
+        companionCoverData: ((DiscoveredBook) -> Data?)? = nil,
         coversDir: URL,
         startScope: (URL) -> Bool = { $0.startAccessingSecurityScopedResource() },
         stopScope: (URL) -> Void = { $0.stopAccessingSecurityScopedResource() },
@@ -383,72 +382,88 @@ struct LibraryService {
         // (cover/AVAsset file access) for sandbox-external user folders.
         let scopeStarted = startScope(rootURL)
         defer { if scopeStarted { stopScope(rootURL) } }
-        try FileManager.default.createDirectory(at: coversDir, withIntermediateDirectories: true)
-
-        let dao = AudiobookDAO(db: db.writer)
-        let found = discover(rootURL)
-        let foundIDs = Set(found.map { $0.folderURL.absoluteString })
-        var result = RescanResult(added: 0, updated: 0, hidden: 0)
+        let discovery: LibraryScanner.Discovery
+        if let discover {
+            discovery = await discover(rootURL)
+        } else {
+            discovery = await LibraryScanner.discoverOffMain(in: rootURL)
+        }
+        try Task.checkCancellation()
         let timestamp = now()
-
-        // FIXME(M3): @MainActor + blocking GRDB per book — move rescan off-main in a bounded Task before wiring the Rescan button.
-        for book in found {
-            let id = book.folderURL.absoluteString
-            let meta = await readMetadata(book)
-            let coverPath = writeCover(
-                meta.coverImageData ?? companionCoverData(book),
-                id: id,
-                coversDir: coversDir)
-            let existing = try dao.get(id)
-            var record: AudiobookRecord
-            if let e = existing {
-                record = e
-            } else {
-                record = AudiobookRecord(
+        var prepared: [(DiscoveredBook, LibraryScanner.ScannedMetadata, String?)] = []
+        for book in discovery.books {
+            try Task.checkCancellation()
+            let metadata = await readMetadata(book)
+            try Task.checkCancellation()
+            let coverData = metadata.coverImageData ?? companionCoverData?(book)
+            let cover = await Self.prepareCover(
+                data: coverData, epubURL: companionCoverData == nil ? book.companionEPUB : nil,
+                id: book.folderURL.absoluteString, coversDir: coversDir)
+            prepared.append((book, metadata, cover))
+        }
+        try Task.checkCancellation()
+        let pending = prepared
+        let rootID = root.id
+        let foundIDs = Set(discovery.books.map { $0.folderURL.absoluteString })
+        let result = try await db.writer.write { connection in
+            try Task.checkCancellation()
+            guard let currentRoot = try LibraryRootRecord.fetchOne(connection, key: rootID),
+                currentRoot.bookmark == root.bookmark
+            else { throw CancellationError() }
+            var result = RescanResult(added: 0, updated: 0, hidden: 0)
+            for (book, meta, coverPath) in pending {
+                let id = book.folderURL.absoluteString
+                let existing = try AudiobookRecord.fetchOne(connection, key: id)
+                var record =
+                    existing
+                    ?? AudiobookRecord(
                     id: id, title: meta.title, author: meta.author,
-                    duration: meta.duration, fileCount: book.audioFiles.count,
-                    addedAt: timestamp)
+                        duration: meta.duration, fileCount: book.audioFiles.count,
+                        addedAt: timestamp)
+                record.title = meta.title
+                record.author = meta.author ?? record.author
+                record.narrator = meta.narrator ?? record.narrator
+                if meta.duration > 0 { record.duration = meta.duration }
+                record.authorSort = LibraryAccess.authorSort(meta.author ?? record.author)
+                record.coverArtPath = coverPath ?? record.coverArtPath
+                record.fileCount = book.audioFiles.count
+                record.isAvailable = true
+                record.lastSeenAt = timestamp
+                if record.sourceRootID == nil { record.sourceRootID = rootID }
+                try record.save(connection)
+                if existing == nil { result.added += 1 } else { result.updated += 1 }
             }
-            // Coalesce: don't overwrite existing metadata with nil/zero from the scanner.
-            // LibraryScanner.readMetadata never returns narrator, may return nil author
-            // (no artist tag), and may return duration 0 (AVAsset load failure). A full
-            // upsert via AudiobookDAO.save would otherwise silently wipe ABS-imported
-            // narrator/author/duration on every local rescan.
-            record.title = meta.title
-            record.author = meta.author ?? record.author
-            record.narrator = meta.narrator ?? record.narrator
-            record.duration = meta.duration > 0 ? meta.duration : record.duration
-            record.authorSort = LibraryAccess.authorSort(meta.author ?? record.author)
-            record.coverArtPath = coverPath ?? record.coverArtPath
-            record.fileCount = book.audioFiles.count
-            record.isAvailable = true
-            record.lastSeenAt = timestamp
-            record.indexState = existing?.indexState ?? 0
-            if record.sourceRootID == nil { record.sourceRootID = root.id }
-            try dao.save(record)
-            if existing == nil { result.added += 1 } else { result.updated += 1 }
+            if discovery.isComplete {
+                let known = try AudiobookRecord.filter(Column("source_root_id") == rootID)
+                    .filter(Column("is_available") == true).fetchAll(connection)
+                for var book in known where !foundIDs.contains(book.id) {
+                    book.isAvailable = false
+                    try book.save(connection)
+                    result.hidden += 1
+                }
+                try connection.execute(
+                    sql: "UPDATE library_root SET last_scanned_at = ? WHERE id = ?",
+                    arguments: [timestamp, rootID])
+            }
+            try Task.checkCancellation()
+            return result
         }
-
-        // Hide books previously under this root that weren't found this pass.
-        let knownUnderRoot = try await db.writer.read { db in
-            try AudiobookRecord
-                .filter(Column("source_root_id") == root.id)
-                .filter(Column("is_available") == true)
-                .fetchAll(db)
-        }
-        for book in knownUnderRoot where !foundIDs.contains(book.id) {
-            var hidden = book
-            hidden.isAvailable = false
-            try dao.save(hidden)
-            result.hidden += 1
-        }
-
-        try refreshEditionGroups()
-
-        var stampedRoot = root
-        stampedRoot.lastScannedAt = timestamp
-        try LibraryRootDAO(db: db.writer).save(stampedRoot)
+        _ = try await refreshEditionGroupsAsync()
         return result
+    }
+
+    @concurrent
+    private nonisolated static func prepareCover(
+        data: Data?, epubURL: URL?, id: String, coversDir: URL
+    ) async -> String? {
+        try? FileManager.default.createDirectory(at: coversDir, withIntermediateDirectories: true)
+        let fallback =
+            data == nil
+            ? epubURL.flatMap {
+                EpubCoverResolver.coverData(epubArchiveURL: $0)
+                    ?? EpubCoverResolver.coverData(expandedEPUBDir: $0)
+            } : nil
+        return LibraryCoverStore.writeCover(data ?? fallback, id: id, coversDir: coversDir)
     }
 
     func relocateRoot(rootID: String, to newURL: URL) throws {
@@ -499,8 +514,10 @@ struct LibraryService {
     /// unless `includeUnavailable` is `true`. Listening history includes books
     /// whose playback started, including an active segment at position zero.
     /// Imports and saved resume positions alone never count as listening.
-    func books(includeUnavailable: Bool, listenedOnly: Bool = false) throws -> [AudiobookRecord] {
-        try db.writer.read { db in
+    nonisolated func books(includeUnavailable: Bool, listenedOnly: Bool = false) throws
+        -> [AudiobookRecord]
+    {
+        try queryWriter.read { db in
             var request = AudiobookRecord.order(Column("added_at").desc)
             if !includeUnavailable && !listenedOnly {
                 request = request.filter(Column("is_available") == true)
@@ -546,10 +563,16 @@ struct LibraryService {
 
     /// Returns books grouped into sections according to `axis`. Books within each
     /// section are sorted by title; sections are sorted deterministically by key.
-    func sections(
+    nonisolated func sections(
         by axis: LibraryAxis, includeUnavailable: Bool, listenedOnly: Bool = false
     ) throws -> [LibrarySection] {
         let all = try books(includeUnavailable: includeUnavailable, listenedOnly: listenedOnly)
+        return try sections(by: axis, books: all, statuses: nil)
+    }
+
+    private nonisolated func sections(
+        by axis: LibraryAxis, books all: [AudiobookRecord], statuses: [String: LibraryBookStatus]?
+    ) throws -> [LibrarySection] {
         switch axis {
         case .recentlyAdded:
             return [LibrarySection(title: "Recently Added", books: all)]
@@ -570,14 +593,48 @@ struct LibraryService {
         case .folder:
             return grouped(all, key: { rootKey(for: $0) }, title: { rootKey(for: $0) })
         case .studyStatus:
-            return try studyStatusSections(all)
+            return try studyStatusSections(all, statuses: statuses)
         case .processingStatus:
-            return try processingStatusSections(all)
+            return try processingStatusSections(all, statuses: statuses)
         }
     }
 
+    nonisolated struct ShelfSnapshot: Sendable {
+        let sections: [LibrarySection]
+        let siblings: [String: [AudiobookRecord]]
+        let statuses: [String: LibraryBookStatus]
+        let booksWithText: Set<String>
+    }
+
+    @concurrent
+    nonisolated func shelfSnapshot(axis: LibraryAxis, includeUnavailable: Bool, listenedOnly: Bool)
+        async throws -> ShelfSnapshot
+    {
+        let books = try books(includeUnavailable: includeUnavailable, listenedOnly: listenedOnly)
+        let siblings = try siblingEditionsMap(for: books)
+        let ids = Array(Set(books.map(\.id))).sorted()
+        let allIDs = Array(Set(ids + siblings.values.flatMap { $0.map(\.id) })).sorted()
+        let statuses = Self.foldingSiblingStatuses(
+            into: try statusMap(for: allIDs), visibleIDs: ids, siblings: siblings)
+        let textIDs = try await queryWriter.read { connection in
+            try Set(
+                String.fetchAll(
+                    connection,
+                    sql:
+                        "SELECT DISTINCT audiobook_id FROM epub_block WHERE audiobook_id IN "
+                        + sqlIn(ids),
+                    arguments: StatementArguments(ids)))
+        }
+        try Task.checkCancellation()
+        return ShelfSnapshot(
+            sections: try sections(by: axis, books: books, statuses: statuses),
+            siblings: siblings, statuses: statuses, booksWithText: textIDs)
+    }
+
     /// Returns the other visible editions in each displayed book's group.
-    func siblingEditionsMap(for books: [AudiobookRecord]) throws -> [String: [AudiobookRecord]] {
+    nonisolated func siblingEditionsMap(for books: [AudiobookRecord]) throws -> [String:
+        [AudiobookRecord]]
+    {
         let groupIDs = Set(
             books.compactMap { book -> String? in
                 guard let groupID = book.editionGroupID,
@@ -588,9 +645,10 @@ struct LibraryService {
             })
         guard !groupIDs.isEmpty else { return [:] }
 
-        let members = try db.writer.read { db in
+        let members = try queryWriter.read { db in
             try AudiobookRecord
                 .filter(Column("is_available") == true)
+                .filter(groupIDs.contains(Column("edition_group_id")))
                 .fetchAll(db)
         }
         let byGroup = Dictionary(
@@ -666,7 +724,7 @@ struct LibraryService {
         return changed
     }
 
-    /// Recomputes `edition_group_id` for all visible rows from the current
+    /// Recomputes `edition_group_id` for stored editions from the current
     /// title/author metadata. Returns the number of rows whose assignment changed.
     /// Synchronous — reserved for the explicit rescan/separate paths; the
     /// per-shelf-load pass uses `refreshEditionGroupsAsync()` so the recurring
@@ -674,16 +732,14 @@ struct LibraryService {
     @discardableResult
     func refreshEditionGroups() throws -> Int {
         let all = try db.writer.read { db in
-            try AudiobookRecord
-                .filter(Column("is_available") == true)
-                .fetchAll(db)
+            try AudiobookRecord.fetchAll(db)
         }
         let updates = editionGroupUpdates(for: all)
-        let dao = AudiobookDAO(db: db.writer)
-        for record in updates {
-            try dao.save(record)
+        guard !updates.isEmpty else { return 0 }
+        let originalByID = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
+        return try db.writer.write { connection in
+            try Self.writeEditionGroups(updates, originals: originalByID, in: connection)
         }
-        return updates.count
     }
 
     /// Async twin of `refreshEditionGroups()`: reads off the main actor and
@@ -693,30 +749,46 @@ struct LibraryService {
     @discardableResult
     func refreshEditionGroupsAsync() async throws -> Int {
         let all = try await db.writer.read { db in
-            try AudiobookRecord
-                .filter(Column("is_available") == true)
-                .fetchAll(db)
+            try AudiobookRecord.fetchAll(db)
         }
-        let updates = editionGroupUpdates(for: all)
+        let updates = await Task.detached { editionGroupUpdates(for: all) }.value
         guard !updates.isEmpty else { return 0 }
-        try await db.writer.write { db in
-            for record in updates {
-                var mutable = record
-                try mutable.save(db)
-            }
+        let originalByID = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
+        return try await db.writer.write { connection in
+            try Self.writeEditionGroups(updates, originals: originalByID, in: connection)
         }
-        return updates.count
+    }
+
+    private nonisolated static func writeEditionGroups(
+        _ updates: [AudiobookRecord], originals: [String: AudiobookRecord], in connection: Database
+    ) throws -> Int {
+        var changed = 0
+        for record in updates {
+            guard let original = originals[record.id],
+                let current = try AudiobookRecord.fetchOne(connection, key: record.id),
+                current.isAvailable == original.isAvailable, current.title == original.title,
+                current.author == original.author, current.fileCount == original.fileCount,
+                current.editionGroupOptOut == original.editionGroupOptOut,
+                current.editionGroupID == original.editionGroupID
+            else { continue }
+            try connection.execute(
+                sql: "UPDATE audiobook SET edition_group_id = ? WHERE id = ?",
+                arguments: [record.editionGroupID, record.id])
+            changed += 1
+        }
+        return changed
     }
 
     /// Pure diff: the rows whose `edition_group_id` must change to match the
     /// matcher's current assignment.
-    private func editionGroupUpdates(for all: [AudiobookRecord]) -> [AudiobookRecord] {
+    private nonisolated func editionGroupUpdates(for all: [AudiobookRecord]) -> [AudiobookRecord] {
         let identities =
             all
             .filter { !$0.editionGroupOptOut }
             .map {
                 EditionMatcher.Identity(
-                    id: $0.id, title: $0.title, author: $0.author, fileCount: $0.fileCount)
+                    id: $0.id, title: $0.title, author: $0.author, fileCount: $0.fileCount,
+                    isAvailable: $0.isAvailable, editionGroupID: $0.editionGroupID)
             }
         let groupIDs = EditionMatcher.groups(for: identities)
         return all.compactMap { book in
@@ -958,9 +1030,10 @@ struct LibraryService {
     }
 
     /// Study + processing status for many books in a bounded number of queries.
-    func statusMap(for bookIDs: [String]) throws -> [String: LibraryBookStatus] {
+    nonisolated func statusMap(for bookIDs: [String]) throws -> [String: LibraryBookStatus] {
+        let bookIDs = Array(Set(bookIDs)).sorted()
         guard !bookIDs.isEmpty else { return [:] }
-        return try db.writer.read { db in
+        return try queryWriter.read { db in
             let rows = try Row.fetchAll(
                 db,
                 sql: """
@@ -1004,7 +1077,7 @@ struct LibraryService {
     /// visible book's: the furthest study state wins and processing flags
     /// union, so a book finished via direct open never shows Not Started on
     /// its Library card.
-    static func foldingSiblingStatuses(
+    nonisolated static func foldingSiblingStatuses(
         into statuses: [String: LibraryBookStatus],
         visibleIDs: [String],
         siblings: [String: [AudiobookRecord]]
@@ -1022,7 +1095,9 @@ struct LibraryService {
         return result
     }
 
-    private static func furthestStudyStatus(_ a: StudyStatus, _ b: StudyStatus) -> StudyStatus {
+    private nonisolated static func furthestStudyStatus(_ a: StudyStatus, _ b: StudyStatus)
+        -> StudyStatus
+    {
         func rank(_ status: StudyStatus) -> Int {
             switch status {
             case .notStarted: 0
@@ -1036,7 +1111,7 @@ struct LibraryService {
     /// Folded status for the displayed (collapsed) books: hidden sibling
     /// editions' statuses merge onto each representative, so the status
     /// section a card lands in agrees with the badge it wears.
-    private func foldedStatusMap(
+    private nonisolated func foldedStatusMap(
         for books: [AudiobookRecord]
     ) throws -> [String: LibraryBookStatus] {
         let siblings = try siblingEditionsMap(for: books)
@@ -1081,7 +1156,7 @@ struct LibraryService {
 
     /// Groups `books` by `key`, sorts sections by that key, and derives each
     /// section's display title from the first book in the group.
-    private func grouped(
+    private nonisolated func grouped(
         _ books: [AudiobookRecord],
         key: (AudiobookRecord) -> String,
         title: (AudiobookRecord) -> String
@@ -1093,7 +1168,7 @@ struct LibraryService {
         }
     }
 
-    private func editionGroupKey(_ book: AudiobookRecord) -> String {
+    private nonisolated func editionGroupKey(_ book: AudiobookRecord) -> String {
         if let editionGroupID = book.editionGroupID,
             !editionGroupID.isEmpty,
             !book.editionGroupOptOut
@@ -1103,7 +1178,8 @@ struct LibraryService {
         return "book:\(book.id)"
     }
 
-    private func collapseEditionGroups(_ books: [AudiobookRecord]) -> [AudiobookRecord] {
+    private nonisolated func collapseEditionGroups(_ books: [AudiobookRecord]) -> [AudiobookRecord]
+    {
         let grouped = Dictionary(grouping: books, by: editionGroupKey)
 
         return grouped.values.map { editions in
@@ -1122,7 +1198,7 @@ struct LibraryService {
         .sorted { $0.addedAt > $1.addedAt }
     }
 
-    private func editionSort(_ lhs: AudiobookRecord, _ rhs: AudiobookRecord) -> Bool {
+    private nonisolated func editionSort(_ lhs: AudiobookRecord, _ rhs: AudiobookRecord) -> Bool {
         if lhs.isAvailable != rhs.isAvailable { return lhs.isAvailable && !rhs.isAvailable }
         // A root-backed row is scanner-managed: tag-derived title, extracted
         // cover, availability tracking, and a security scope for opening. It
@@ -1137,7 +1213,9 @@ struct LibraryService {
         return lhs.addedAt > rhs.addedAt
     }
 
-    private func editionDisplaySort(_ lhs: AudiobookRecord, _ rhs: AudiobookRecord) -> Bool {
+    private nonisolated func editionDisplaySort(_ lhs: AudiobookRecord, _ rhs: AudiobookRecord)
+        -> Bool
+    {
         let titleOrder = lhs.title.localizedStandardCompare(rhs.title)
         if titleOrder != .orderedSame {
             return titleOrder == .orderedAscending
@@ -1147,7 +1225,7 @@ struct LibraryService {
 
     /// Groups books by each decoded topic tag; a book with multiple topics appears
     /// in multiple sections.
-    private func groupedByTopic(_ books: [AudiobookRecord]) -> [LibrarySection] {
+    private nonisolated func groupedByTopic(_ books: [AudiobookRecord]) -> [LibrarySection] {
         var byTopic: [String: [AudiobookRecord]] = [:]
         for book in books {
             for topic in decodeTopics(book.topicsJSON) {
@@ -1161,7 +1239,7 @@ struct LibraryService {
     }
 
     /// Decodes a JSON array of topic strings from `json`. Returns `[]` on any failure.
-    private func decodeTopics(_ json: String?) -> [String] {
+    private nonisolated func decodeTopics(_ json: String?) -> [String] {
         guard let json, let data = json.data(using: .utf8),
             let topics = try? JSONDecoder().decode([String].self, from: data)
         else { return [] }
@@ -1169,12 +1247,14 @@ struct LibraryService {
     }
 
     /// Returns the parent folder name from the book's `id` URL for grouping by folder.
-    private func rootKey(for book: AudiobookRecord) -> String {
+    private nonisolated func rootKey(for book: AudiobookRecord) -> String {
         URL(string: book.id)?.deletingLastPathComponent().lastPathComponent ?? "Other"
     }
 
-    private func studyStatusSections(_ books: [AudiobookRecord]) throws -> [LibrarySection] {
-        let statuses = try foldedStatusMap(for: books)
+    private nonisolated func studyStatusSections(
+        _ books: [AudiobookRecord], statuses: [String: LibraryBookStatus]? = nil
+    ) throws -> [LibrarySection] {
+        let statuses = try statuses ?? foldedStatusMap(for: books)
         var inProgress: [AudiobookRecord] = []
         var finished: [AudiobookRecord] = []
         var notStarted: [AudiobookRecord] = []
@@ -1195,8 +1275,10 @@ struct LibraryService {
         ].compactMap { $0 }
     }
 
-    private func processingStatusSections(_ books: [AudiobookRecord]) throws -> [LibrarySection] {
-        let statuses = try foldedStatusMap(for: books)
+    private nonisolated func processingStatusSections(
+        _ books: [AudiobookRecord], statuses: [String: LibraryBookStatus]? = nil
+    ) throws -> [LibrarySection] {
+        let statuses = try statuses ?? foldedStatusMap(for: books)
         var aligned: [AudiobookRecord] = []
         var narrated: [AudiobookRecord] = []
         var transcribed: [AudiobookRecord] = []
@@ -1218,11 +1300,11 @@ struct LibraryService {
         ].compactMap { $0 }
     }
 
-    private func sqlIn(_ ids: [String]) -> String {
+    private nonisolated func sqlIn(_ ids: [String]) -> String {
         "(" + Array(repeating: "?", count: ids.count).joined(separator: ",") + ")"
     }
 
-    private func idsWithRows(
+    private nonisolated func idsWithRows(
         _ db: Database,
         table: String,
         bookIDs: [String],
@@ -1243,7 +1325,9 @@ struct LibraryService {
             })
     }
 
-    private func counts(_ db: Database, table: String, bookIDs: [String]) throws -> [String: Int] {
+    private nonisolated func counts(_ db: Database, table: String, bookIDs: [String]) throws
+        -> [String: Int]
+    {
         let rows = try Row.fetchAll(
             db,
             sql: """

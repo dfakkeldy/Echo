@@ -4,6 +4,19 @@ All notable changes to Echo: Audiobook Study Player.
 
 ## [Unreleased]
 
+- Bookmarks restore from SQL on every book switch, including Library opens.
+  Legacy bookmarks remain available for recovery, and Watch/Widget captures
+  stay staged until saved. Repeated edits coalesce into ordered async writes.
+- Library scans keep whole-book duration across multiple audio files and retain
+  availability after an incomplete scan. Missing editions keep their established
+  family, so their listening history still qualifies an available sibling.
+  Reader loads reject older search/book
+  results; failed note saves retain the draft and failed memo saves offer retry.
+- Reader playback, shelf loading, chapter switches, figure thumbnails and
+  narration preparation avoid repeated whole-book queries or scans. Alignment
+  cancellation reaches silence workers and prevents stopped correction writes;
+  silence detection now checks every audio channel.
+
 - Optional Phonon 31M narration on iPhone, iPad, Apple Silicon Mac, and
   `echo-cli`: six English voices, a verified first-use Core ML model download,
   and paragraph read-along. Kokoro remains the default and retains IPA

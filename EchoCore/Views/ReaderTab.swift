@@ -72,6 +72,9 @@ struct ReaderTab: View {
             .appendingPathComponent("voice-memos-tmp", isDirectory: true))
     @State private var isComposingReaderNote = false
     @State private var readerNoteText = ""
+    @State private var readerCaptureError: String?
+    @State private var pendingMemoSave:
+        (url: URL, duration: TimeInterval, blockID: String, bookID: String)?
     @State private var composingNoteBlockID: String?
     @State private var recordingMemoBlockID: String?
 
@@ -342,18 +345,42 @@ struct ReaderTab: View {
         readerPresentationContent()
     }
 
+    private var showCaptureErrorInRoot: Bool {
+        readerCaptureError != nil && !isComposingReaderNote
+    }
+
     private func readerPresentationContent() -> some View {
         readerAuxiliarySheetContent()
             .alert(
-                "Auto-Alignment Failed",
+                showCaptureErrorInRoot ? "Couldn't save" : "Auto-Alignment Failed",
                 isPresented: Binding(
-                    get: { viewModel?.showAutoAlignmentFailedAlert ?? false },
-                    set: { viewModel?.showAutoAlignmentFailedAlert = $0 }
+                    get: {
+                        showCaptureErrorInRoot
+                            || (viewModel?.showAutoAlignmentFailedAlert ?? false)
+                    },
+                    set: { presented in
+                        guard !presented else { return }
+                        if showCaptureErrorInRoot {
+                            readerCaptureError = nil
+                        } else {
+                            viewModel?.showAutoAlignmentFailedAlert = false
+                        }
+                    }
                 )
             ) {
-                Button("OK") {}
+                if showCaptureErrorInRoot, pendingMemoSave != nil {
+                    Button("Retry") {
+                        Task { @MainActor in
+                            await Task.yield(); retryMemoSave()
+                        }
+                    }
+                }
+                Button("OK", role: .cancel) {}
             } message: {
-                Text(viewModel?.autoAlignmentErrorMessage ?? "An unknown error occurred.")
+                Text(
+                    (showCaptureErrorInRoot
+                        ? readerCaptureError : viewModel?.autoAlignmentErrorMessage)
+                        ?? "An unknown error occurred.")
             }
             .background(Color.clear)
     }
@@ -417,6 +444,17 @@ struct ReaderTab: View {
                     onCancel: cancelReaderNote,
                     onSave: saveReaderNote
                 )
+                .alert(
+                    "Couldn't save note",
+                    isPresented: Binding(
+                        get: { readerCaptureError != nil },
+                        set: { if !$0 { readerCaptureError = nil } }
+                    )
+                ) {
+                    Button("OK", role: .cancel) { readerCaptureError = nil }
+                } message: {
+                    Text(readerCaptureError ?? "")
+                }
             }
             .sheet(isPresented: $model.showReaderTOC) {
                 readerTOCSheet()
@@ -1047,7 +1085,12 @@ struct ReaderTab: View {
             cancelReaderNote()
             return
         }
-        viewModel?.addNote(text: text, atBlockID: blockID)
+        guard viewModel?.addNote(text: text, atBlockID: blockID) == true else {
+            readerCaptureError =
+                "Your note could not be saved. The draft is still available. Try saving it again."
+            return
+        }
+        readerCaptureError = nil
         cancelReaderNote()
     }
 
@@ -1082,7 +1125,19 @@ struct ReaderTab: View {
         guard let result = memoRecorder.stop(),
             let blockID = recordingMemoBlockID ?? currentReaderCaptureBlockID()
         else { return }
-        viewModel?.addVoiceMemo(fileURL: result.url, duration: result.duration, atBlockID: blockID)
+        pendingMemoSave = (result.url, result.duration, blockID, audiobookID)
+        retryMemoSave()
+    }
+
+    private func retryMemoSave() {
+        guard let memo = pendingMemoSave, memo.bookID == audiobookID else { return }
+        if viewModel?.addVoiceMemo(
+            fileURL: memo.url, duration: memo.duration, atBlockID: memo.blockID) == true
+        {
+            pendingMemoSave = nil
+        } else {
+            readerCaptureError = "Your recording is kept on this device. Try saving it again."
+        }
     }
 
     private func cancelReaderMemoIfNeeded() {

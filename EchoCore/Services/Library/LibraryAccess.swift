@@ -48,7 +48,7 @@ enum LibraryAccess {
     /// Best-effort normalized grouping key for "browse by author": trims, flips a
     /// single "Last, First" into "First Last", lowercases. Display uses the raw
     /// author; this only groups. Returns nil for nil/empty input.
-    static func authorSort(_ author: String?) -> String? {
+    nonisolated static func authorSort(_ author: String?) -> String? {
         guard let trimmed = author?.trimmingCharacters(in: .whitespacesAndNewlines),
             !trimmed.isEmpty
         else { return nil }

@@ -398,6 +398,14 @@ struct Persistence {
         defaults.set(data, forKey: bookmarksKey(for: key))
     }
 
+    func bookmarksMigratedToSQL(for key: String) -> Bool {
+        defaults.bool(forKey: "Echo.bookmarksSQL." + key)
+    }
+
+    func markBookmarksMigratedToSQL(for key: String) {
+        defaults.set(true, forKey: "Echo.bookmarksSQL." + key)
+    }
+
     func loadBookmarks(for key: String, folderURL: URL? = nil) -> [Bookmark] {
         if let folderURL,
             let bookmarks = readSidecar(folderURL: folderURL)
