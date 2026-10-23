@@ -316,7 +316,7 @@ struct LibraryViewModelTests {
                 id: "text2", title: "Dune", author: "Frank Herbert", duration: 0,
                 fileCount: 0, addedAt: "2026-07-05T00:00:01Z", isAvailable: true,
                 editionGroupID: "edition-dune"))
-        try seedImportedText("text", in: db)
+        try seedImportedText("text1", in: db)
         try seedImportedText("text2", in: db)
         let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
 
