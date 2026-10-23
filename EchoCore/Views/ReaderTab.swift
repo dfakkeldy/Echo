@@ -345,18 +345,22 @@ struct ReaderTab: View {
         readerPresentationContent()
     }
 
+    private var showCaptureErrorInRoot: Bool {
+        readerCaptureError != nil && !isComposingReaderNote
+    }
+
     private func readerPresentationContent() -> some View {
         readerAuxiliarySheetContent()
             .alert(
-                readerCaptureError != nil ? "Couldn't save" : "Auto-Alignment Failed",
+                showCaptureErrorInRoot ? "Couldn't save" : "Auto-Alignment Failed",
                 isPresented: Binding(
                     get: {
-                        readerCaptureError != nil
+                        showCaptureErrorInRoot
                             || (viewModel?.showAutoAlignmentFailedAlert ?? false)
                     },
                     set: { presented in
                         guard !presented else { return }
-                        if readerCaptureError != nil {
+                        if showCaptureErrorInRoot {
                             readerCaptureError = nil
                         } else {
                             viewModel?.showAutoAlignmentFailedAlert = false
@@ -364,7 +368,7 @@ struct ReaderTab: View {
                     }
                 )
             ) {
-                if readerCaptureError != nil, pendingMemoSave != nil {
+                if showCaptureErrorInRoot, pendingMemoSave != nil {
                     Button("Retry") {
                         Task { @MainActor in
                             await Task.yield(); retryMemoSave()
@@ -374,7 +378,8 @@ struct ReaderTab: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(
-                    readerCaptureError ?? viewModel?.autoAlignmentErrorMessage
+                    (showCaptureErrorInRoot
+                        ? readerCaptureError : viewModel?.autoAlignmentErrorMessage)
                         ?? "An unknown error occurred.")
             }
             .background(Color.clear)
@@ -439,6 +444,17 @@ struct ReaderTab: View {
                     onCancel: cancelReaderNote,
                     onSave: saveReaderNote
                 )
+                .alert(
+                    "Couldn't save note",
+                    isPresented: Binding(
+                        get: { readerCaptureError != nil },
+                        set: { if !$0 { readerCaptureError = nil } }
+                    )
+                ) {
+                    Button("OK", role: .cancel) { readerCaptureError = nil }
+                } message: {
+                    Text(readerCaptureError ?? "")
+                }
             }
             .sheet(isPresented: $model.showReaderTOC) {
                 readerTOCSheet()
@@ -1074,6 +1090,7 @@ struct ReaderTab: View {
                 "Your note could not be saved. The draft is still available. Try saving it again."
             return
         }
+        readerCaptureError = nil
         cancelReaderNote()
     }
 
