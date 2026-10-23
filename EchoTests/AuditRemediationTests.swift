@@ -381,7 +381,7 @@ struct AuditRemediationTests {
         try BookmarkStore.replaceBookmarks([original], for: "book", database: database)
         try database.write { db in
             try db.execute(
-                sql: "UPDATE bookmark SET media_timestamp = 'invalid' WHERE audiobook_id = 'book'")
+                sql: "ALTER TABLE bookmark RENAME TO audit_bookmark_recovery")
         }
         let store = BookmarkStore()
         store.storageKeyProvider = { "book" }
@@ -389,6 +389,9 @@ struct AuditRemediationTests {
         #expect(throws: (any Error).self) {
             try store.restore(
                 database: database, persistence: Persistence(), key: "book", folderURL: nil)
+        }
+        try database.write { db in
+            try db.execute(sql: "ALTER TABLE audit_bookmark_recovery RENAME TO bookmark")
         }
         store.onPersist?([])
         await store.flushPersistence()
