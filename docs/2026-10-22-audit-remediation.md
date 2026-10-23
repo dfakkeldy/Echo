@@ -22,7 +22,7 @@ dependency addition, book re-import requirement or renderer installation.
 | 7.8 | Cache source cards by block, observing database edits; keep beginning/end triggers and suppression state | Existing source-anchored trigger tests |
 | 7.9 | Decode capped ImageIO thumbnails off-main with a bounded cache, no failed-result cache and reused-cell identity checks | Thumbnail size/failure-retry test and source review |
 | 7.12, 7.13 | Accumulate reportable indices while tokenizing; use ordered neighbor/range lookups; cache compiled expressions under a mutex | Existing exact QA/normalization tests and concurrent normalization regression |
-| 7.14 | Index direct audio files by parent and group members by group ID; compute regroup updates off-main and write only the guarded group column | Existing deterministic EditionMatcher and shelf regroup tests |
+| 7.14 | Index direct audio files by parent and group members by group ID; compute regroup updates off-main and write only the guarded group column; preserve established families when an edition is unavailable | Deterministic EditionMatcher, missing-edition history and async shelf regroup tests |
 | 8.4 | Return save outcomes, retain failed note drafts and memo files, and offer a retry | Failed-save regression and reader capture tests |
 | 9.1 | Separate book-state restoration from picker permission persistence and share immutable reader playback snapshots | Book-switch regressions, shared snapshot/index tests and cross-platform review |
 

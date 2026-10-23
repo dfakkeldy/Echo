@@ -1744,6 +1744,10 @@ Pending edits coalesce per book and write through async GRDB transactions.
 Watch/Widget arrivals remain staged until their SQL merge succeeds. Shelf
 snapshots load books, siblings, folded statuses and scoped text eligibility off
 the UI actor, while incomplete root discovery cannot hide missing entries.
+Regrouping retains established edition families containing unavailable members,
+so listening through a missing edition still qualifies its available sibling.
+Only available records can establish new file/parent-folder relationships;
+regroup writes update the group column with guards against concurrent edits.
 
 - **Phase 1 — Collapsible accordion (iOS):** The feed opens collapsed (one row per audio chapter = a built-in table of contents). Tap to expand inline; one chapter open at a time; the playing chapter auto-expands while audio is running. Each row is honestly labelled **has-audio** (any block in the chapter carries a real `timeline_item.audio_start_time >= 0` — anchor-locked, interpolated/estimated, or synthesized) vs **text-only** via `ChapterAudioStatusResolver` (`Shared/Services/`). New pure types: `FeedAccordion` (`Shared/`), `ReaderFeedDisplayBuilder` / `ReaderChapterGroup` (`EchoCore/Models/`). No schema change.
 

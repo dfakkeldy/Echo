@@ -8,7 +8,9 @@ All notable changes to Echo: Audiobook Study Player.
   Legacy bookmarks remain available for recovery, and Watch/Widget captures
   stay staged until saved. Repeated edits coalesce into ordered async writes.
 - Library scans keep whole-book duration across multiple audio files and retain
-  availability after an incomplete scan. Reader loads reject older search/book
+  availability after an incomplete scan. Missing editions keep their established
+  family, so their listening history still qualifies an available sibling.
+  Reader loads reject older search/book
   results; failed note saves retain the draft and failed memo saves offer retry.
 - Reader playback, shelf loading, chapter switches, figure thumbnails and
   narration preparation avoid repeated whole-book queries or scans. Alignment

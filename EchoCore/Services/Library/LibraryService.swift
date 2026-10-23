@@ -724,7 +724,7 @@ struct LibraryService {
         return changed
     }
 
-    /// Recomputes `edition_group_id` for all visible rows from the current
+    /// Recomputes `edition_group_id` for stored editions from the current
     /// title/author metadata. Returns the number of rows whose assignment changed.
     /// Synchronous — reserved for the explicit rescan/separate paths; the
     /// per-shelf-load pass uses `refreshEditionGroupsAsync()` so the recurring
@@ -732,16 +732,14 @@ struct LibraryService {
     @discardableResult
     func refreshEditionGroups() throws -> Int {
         let all = try db.writer.read { db in
-            try AudiobookRecord
-                .filter(Column("is_available") == true)
-                .fetchAll(db)
+            try AudiobookRecord.fetchAll(db)
         }
         let updates = editionGroupUpdates(for: all)
-        let dao = AudiobookDAO(db: db.writer)
-        for record in updates {
-            try dao.save(record)
+        guard !updates.isEmpty else { return 0 }
+        let originalByID = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
+        return try db.writer.write { connection in
+            try Self.writeEditionGroups(updates, originals: originalByID, in: connection)
         }
-        return updates.count
     }
 
     /// Async twin of `refreshEditionGroups()`: reads off the main actor and
@@ -751,30 +749,34 @@ struct LibraryService {
     @discardableResult
     func refreshEditionGroupsAsync() async throws -> Int {
         let all = try await db.writer.read { db in
-            try AudiobookRecord
-                .filter(Column("is_available") == true)
-                .fetchAll(db)
+            try AudiobookRecord.fetchAll(db)
         }
         let updates = await Task.detached { editionGroupUpdates(for: all) }.value
         guard !updates.isEmpty else { return 0 }
         let originalByID = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
         return try await db.writer.write { connection in
-            var changed = 0
-            for record in updates {
-                guard let original = originalByID[record.id],
-                    let current = try AudiobookRecord.fetchOne(connection, key: record.id),
-                    current.isAvailable, current.title == original.title,
-                    current.author == original.author, current.fileCount == original.fileCount,
-                    current.editionGroupOptOut == original.editionGroupOptOut,
-                    current.editionGroupID == original.editionGroupID
-                else { continue }
-                try connection.execute(
-                    sql: "UPDATE audiobook SET edition_group_id = ? WHERE id = ?",
-                    arguments: [record.editionGroupID, record.id])
-                changed += 1
-            }
-            return changed
+            try Self.writeEditionGroups(updates, originals: originalByID, in: connection)
         }
+    }
+
+    private nonisolated static func writeEditionGroups(
+        _ updates: [AudiobookRecord], originals: [String: AudiobookRecord], in connection: Database
+    ) throws -> Int {
+        var changed = 0
+        for record in updates {
+            guard let original = originals[record.id],
+                let current = try AudiobookRecord.fetchOne(connection, key: record.id),
+                current.isAvailable == original.isAvailable, current.title == original.title,
+                current.author == original.author, current.fileCount == original.fileCount,
+                current.editionGroupOptOut == original.editionGroupOptOut,
+                current.editionGroupID == original.editionGroupID
+            else { continue }
+            try connection.execute(
+                sql: "UPDATE audiobook SET edition_group_id = ? WHERE id = ?",
+                arguments: [record.editionGroupID, record.id])
+            changed += 1
+        }
+        return changed
     }
 
     /// Pure diff: the rows whose `edition_group_id` must change to match the
@@ -785,7 +787,8 @@ struct LibraryService {
             .filter { !$0.editionGroupOptOut }
             .map {
                 EditionMatcher.Identity(
-                    id: $0.id, title: $0.title, author: $0.author, fileCount: $0.fileCount)
+                    id: $0.id, title: $0.title, author: $0.author, fileCount: $0.fileCount,
+                    isAvailable: $0.isAvailable, editionGroupID: $0.editionGroupID)
             }
         let groupIDs = EditionMatcher.groups(for: identities)
         return all.compactMap { book in

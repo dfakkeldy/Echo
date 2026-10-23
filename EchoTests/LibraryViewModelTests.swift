@@ -21,6 +21,7 @@ struct LibraryViewModelTests {
             AudiobookRecord(
                 id: "a", title: "Atomic Habits", author: "James Clear", duration: 0,
                 fileCount: nil, addedAt: "2026-06-27T00:00:00Z", isAvailable: true))
+        try seedImportedText("a", in: db)
         let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
         vm.reload()
         await vm.awaitShelfRegroup()
@@ -36,6 +37,7 @@ struct LibraryViewModelTests {
                 id: "a", title: "A", author: "Jane Author", duration: 0,
                 fileCount: nil, addedAt: "2026-06-27T00:00:00Z",
                 isAvailable: true, authorSort: "jane author"))
+        try seedImportedText("a", in: db)
         let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
         vm.selectAxis(.author)
         await vm.awaitShelfRegroup()
@@ -71,11 +73,9 @@ struct LibraryViewModelTests {
         }
 
         let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
+        // Before maintenance there are two stored edition groups.
+        #expect(try LibraryService(db: db).books(includeUnavailable: false).count == 2)
         vm.reload()
-        await vm.awaitShelfRegroup()
-        // The sync fetch publishes immediately (still two cards) …
-        #expect(vm.sections.flatMap(\.books).count == 2)
-        // … and the single-flight regroup pass re-publishes the collapsed shelf.
         await vm.awaitShelfRegroup()
         let books = vm.sections.flatMap(\.books)
         #expect(books.map(\.id) == ["file:///Lib/VMDuneAudio/"])
@@ -84,7 +84,6 @@ struct LibraryViewModelTests {
 
         // Reloading again is a stable no-op: still one card, no stacked passes.
         vm.reload()
-        await vm.awaitShelfRegroup()
         await vm.awaitShelfRegroup()
         #expect(vm.sections.flatMap(\.books).count == 1)
     }
@@ -189,6 +188,7 @@ struct LibraryViewModelTests {
                 id: "text", title: "Dune", author: "Frank Herbert", duration: 0,
                 fileCount: 0, addedAt: "2026-07-05T00:00:01Z", isAvailable: true,
                 editionGroupID: "edition-dune"))
+        try seedImportedText("text", in: db)
         let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
 
         vm.reload()
@@ -211,6 +211,7 @@ struct LibraryViewModelTests {
                 id: "text", title: "Dune", author: "Frank Herbert", duration: 0,
                 fileCount: 0, addedAt: "2026-07-05T00:00:01Z", isAvailable: true,
                 editionGroupID: "edition-dune"))
+        try seedImportedText("text", in: db)
         let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
 
         vm.reload()
@@ -240,6 +241,7 @@ struct LibraryViewModelTests {
                 id: "text", title: "Dune", author: "Frank Herbert", duration: 0,
                 fileCount: 0, addedAt: "2026-07-05T00:00:01Z", isAvailable: true,
                 editionGroupID: "edition-dune"))
+        try seedImportedText("text", in: db)
         let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
 
         vm.reload()
@@ -290,6 +292,7 @@ struct LibraryViewModelTests {
                 modifiedAt: nil
             )
         )
+        try seedImportedText("text", in: db)
         let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
 
         vm.reload()
@@ -313,6 +316,8 @@ struct LibraryViewModelTests {
                 id: "text2", title: "Dune", author: "Frank Herbert", duration: 0,
                 fileCount: 0, addedAt: "2026-07-05T00:00:01Z", isAvailable: true,
                 editionGroupID: "edition-dune"))
+        try seedImportedText("text", in: db)
+        try seedImportedText("text2", in: db)
         let vm = LibraryViewModel(db: db, listenedOnly: false, openBook: { _ in })
 
         vm.reload()
@@ -361,5 +366,19 @@ struct LibraryViewModelTests {
         #expect(
             vm.errorMessage
                 == "This Library item doesn’t contain a supported audiobook or study document.")
+    }
+
+    /// A text edition carries imported content; otherwise an old empty row is
+    /// intentionally removed by background shelf maintenance.
+    private func seedImportedText(_ audiobookID: String, in service: DatabaseService) throws {
+        try service.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO epub_block
+                        (id, audiobook_id, spine_href, spine_index, block_index,
+                         sequence_index, block_kind, text)
+                    VALUES (?, ?, 'fixture.xhtml', 0, 0, 0, 'paragraph', 'Synthetic imported text')
+                    """, arguments: [audiobookID + "-library-fixture", audiobookID])
+        }
     }
 }

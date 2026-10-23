@@ -11,6 +11,8 @@ enum EditionMatcher {
         /// parent-folder row only when that folder row holds exactly one
         /// audio file, so sibling books in a shared folder never merge.
         var fileCount: Int? = nil
+        var isAvailable = true
+        var editionGroupID: String? = nil
     }
 
     nonisolated static func normalizedKey(title: String) -> String {
@@ -32,6 +34,22 @@ enum EditionMatcher {
         var membersByGroup = Dictionary(grouping: result.keys, by: { result[$0]! }).mapValues {
             Set($0)
         }
+        var previousGroups: [String: [Identity]] = [:]
+        for identity in identities {
+            if let group = identity.editionGroupID, !group.isEmpty {
+                previousGroups[group, default: []].append(identity)
+            }
+        }
+        let historicalGroups = previousGroups.keys.sorted().compactMap { group -> PathCluster? in
+            let family = previousGroups[group] ?? []
+            let ids = Set(family.map(\.id))
+            guard ids.count > 1, family.contains(where: { !$0.isAvailable }) else { return nil }
+            return PathCluster(groupID: group, memberIDs: ids)
+        }
+        // Availability does not erase an established edition relationship.
+        // Retain those families after fresh matching, including newly matched
+        // text editions, so listening through a missing alias still qualifies.
+        // Infer new path relationships only from currently available entries.
         // Path-identity pass: rows whose ids point at the same on-disk book
         // are the same book no matter what their titles say. The library
         // scanner keys a book by its standardized folder URL while a direct
@@ -40,11 +58,11 @@ enum EditionMatcher {
         // Path groups override title groups; any full title group that shares
         // a member with a path cluster is absorbed into it, so an epub
         // edition already paired with the audio row stays on the same card.
-        for cluster in pathClusters(for: identities) {
+        for cluster in pathClusters(for: identities.filter(\.isAvailable)) + historicalGroups {
             var members = cluster.memberIDs
-            let absorbedTitleGroups = Set(members.compactMap { result[$0] })
-            if !absorbedTitleGroups.isEmpty {
-                for group in absorbedTitleGroups { members.formUnion(membersByGroup[group] ?? []) }
+            let absorbedGroups = Set(members.compactMap { result[$0] })
+            if !absorbedGroups.isEmpty {
+                for group in absorbedGroups { members.formUnion(membersByGroup[group] ?? []) }
             }
             for id in members {
                 if let previous = result[id] { membersByGroup[previous]?.remove(id) }
