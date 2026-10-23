@@ -116,7 +116,7 @@ struct LibraryViewModelTests {
 
     @Test func reloadPopulatesStatusMapForShelfDots() async throws {
         let db = try DatabaseService(inMemory: ())
-        try db.writer.write { db in
+        try await db.writer.write { db in
             try db.execute(
                 sql: "INSERT INTO audiobook (id, title, duration) VALUES ('a', 'A', 100)")
             try db.execute(
@@ -149,7 +149,7 @@ struct LibraryViewModelTests {
                 id: "file:///Lib/FoldDirect/", title: "Fold", author: "An Author",
                 duration: 100, fileCount: 1, addedAt: "2026-07-10T00:00:01Z",
                 isAvailable: true, editionGroupID: "fold-g"))
-        try db.writer.write { db in
+        try await db.writer.write { db in
             try db.execute(
                 sql: """
                     INSERT INTO playback_state (audiobook_id, last_position, speed)

@@ -25,7 +25,7 @@ struct LibraryListeningHistoryTests {
     @Test func openingAndSeekingWithoutPlayingDoesNotAddABook() async throws {
         let db = try DatabaseService(inMemory: ())
         try saveBook("file:///Books/Opened/", in: db)
-        try db.writer.write { db in
+        try await db.writer.write { db in
             try db.execute(
                 sql: """
                     INSERT INTO playback_state (audiobook_id, last_position, speed)
@@ -64,7 +64,7 @@ struct LibraryListeningHistoryTests {
         try saveBook("restarted", in: db)
         try saveBook("unplayed", in: db)
         try logPlayback("restarted", in: db)
-        try db.writer.write { db in
+        try await db.writer.write { db in
             try db.execute(
                 sql: """
                     INSERT INTO playback_state (audiobook_id, last_position, speed)
