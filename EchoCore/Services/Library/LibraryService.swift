@@ -616,7 +616,7 @@ struct LibraryService {
         let allIDs = Array(Set(ids + siblings.values.flatMap { $0.map(\.id) })).sorted()
         let statuses = Self.foldingSiblingStatuses(
             into: try statusMap(for: allIDs), visibleIDs: ids, siblings: siblings)
-        let textIDs = try queryWriter.read { connection in
+        let textIDs = try await queryWriter.read { connection in
             try Set(
                 String.fetchAll(
                     connection,
