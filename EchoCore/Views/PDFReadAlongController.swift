@@ -32,6 +32,24 @@ final class PDFReadAlongController {
     /// blockID → block text (for word-text lookup via WordTokenizer).
     private var blockTextByID: [String: String] = [:]
 
+    /// blockID → stored word boxes, for PDFs imported from a read-along file.
+    private var wordBoxesJSONByBlockID: [String: String] = [:]
+    /// The last block's decoded boxes (nil words = unusable), so each block
+    /// decodes once instead of on every playback tick.
+    @ObservationIgnored
+    private var decodedWordBoxes: (blockID: String, words: [PDFReadAlongFile.Word]?)?
+
+    /// How to highlight one spoken word on the page.
+    enum WordHighlight: Equatable {
+        /// Exact boxes from the PDF's read-along file.
+        case box(PDFWordBox)
+        /// The read-along file says this word has no printed box (a list
+        /// number, or a spoken-only cue): highlight nothing.
+        case unprinted
+        /// No read-along boxes for this block: fall back to searching the page.
+        case unavailable
+    }
+
     private(set) var isLoaded = false
 
     // MARK: - Load
@@ -92,6 +110,10 @@ final class PDFReadAlongController {
             pageIndexByBlockID = Dictionary(
                 pageRows.map { ($0.epubBlockID, $0.pageIndex) },
                 uniquingKeysWith: { first, _ in first })
+            wordBoxesJSONByBlockID = Dictionary(
+                pageRows.compactMap { row in row.wordBoxes.map { (row.epubBlockID, $0) } },
+                uniquingKeysWith: { first, _ in first })
+            decodedWordBoxes = nil
 
             // 4. Block text map — needed for wordText(blockID:wordIndex:)
             // Fetch from epub_block directly (no need for the full EPubBlockRecord overhead).
@@ -157,6 +179,27 @@ final class PDFReadAlongController {
         let ranges = WordTokenizer.wordRanges(in: text)
         guard ranges.indices.contains(wordIndex) else { return nil }
         return String(text[ranges[wordIndex]])
+    }
+
+    /// How to highlight word `wordIndex` of `blockID`. Boxes are used only when
+    /// they cover exactly the block's words, so a block whose text changed
+    /// since import falls back to search instead of lighting the wrong word.
+    func wordHighlight(blockID: String, wordIndex: Int) -> WordHighlight {
+        guard let json = wordBoxesJSONByBlockID[blockID] else { return .unavailable }
+        let words: [PDFReadAlongFile.Word]?
+        if let cached = decodedWordBoxes, cached.blockID == blockID {
+            words = cached.words
+        } else {
+            let decoded = PDFReadAlongFile.decodeWordBoxes(json)
+            let wordCount = blockTextByID[blockID].map { WordTokenizer.words(in: $0).count }
+            words = decoded?.count == wordCount ? decoded : nil
+            decodedWordBoxes = (blockID, words)
+        }
+        guard let words else { return .unavailable }
+        guard words.indices.contains(wordIndex), let box = PDFWordBox(words[wordIndex]) else {
+            return .unprinted
+        }
+        return .box(box)
     }
 
     /// Returns the audio start time for `blockID` from the timeline cache, or nil.

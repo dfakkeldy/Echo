@@ -230,8 +230,12 @@ private func parseListItem(_ line: String) -> String? {
 // MARK: - Block assembly
 
 private func buildParse(
-    units: [TextUnit], audiobookID: String, sourceURL: URL, hrefExt: String
+    units: [TextUnit], audiobookID: String, sourceURL: URL, hrefExt: String,
+    inlineMarkdown: Bool = true
 ) -> EPUBBlockParse {
+    func inline(_ raw: String) -> (plain: String, formats: [TextFormat]) {
+        inlineMarkdown ? MarkdownInlineFormatter.format(raw) : (raw, [])
+    }
     let levels: [Int] = units.compactMap {
         if case .heading(let l, _) = $0 { return l } else { return nil }
     }
@@ -314,7 +318,7 @@ private func buildParse(
     for unit in units {
         switch unit {
         case .heading(let level, let rawText):
-            let (plain, formats) = MarkdownInlineFormatter.format(rawText)
+            let (plain, formats) = inline(rawText)
             if let chapterLevel, level == chapterLevel {
                 if !seenChapterHeading {
                     if emittedFrontMatter { startNewSpine() }
@@ -345,7 +349,7 @@ private func buildParse(
                 }
             }
         case .paragraph(let rawText):
-            let (plain, formats) = MarkdownInlineFormatter.format(rawText)
+            let (plain, formats) = inline(rawText)
             let front = (chapterLevel != nil) && !seenChapterHeading
             if front { emittedFrontMatter = true }
             emit(
@@ -375,6 +379,31 @@ private func buildParse(
         tocEntryTree: tocTree,
         opfDir: sourceURL.deletingLastPathComponent(),
         spineXHTMLURLByIndex: spineXHTMLURLByIndex)
+}
+
+// MARK: - Laid-out text entry point
+
+/// One unit of a document whose blocks were decided upstream, such as a PDF
+/// read-along file: a heading (with its level) or a paragraph.
+nonisolated struct LaidOutTextUnit: Equatable, Sendable {
+    let headingLevel: Int?
+    let text: String
+}
+
+/// Builds the canonical block set from laid-out units, one block per unit in
+/// order, so a caller can pair block `i` with unit `i`. The text is used
+/// verbatim: it is never read as Markdown, because its words must stay exactly
+/// the words the caller measured.
+func parseLaidOutText(
+    audiobookID: String, units: [LaidOutTextUnit], sourceURL: URL
+) -> EPUBBlockParse {
+    let textUnits: [TextUnit] = units.map { unit in
+        if let level = unit.headingLevel { return .heading(level: level, text: unit.text) }
+        return .paragraph(unit.text)
+    }
+    return buildParse(
+        units: textUnits, audiobookID: audiobookID, sourceURL: sourceURL, hrefExt: "txt",
+        inlineMarkdown: false)
 }
 
 // MARK: - Plain-text entry points

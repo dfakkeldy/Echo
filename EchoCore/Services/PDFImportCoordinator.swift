@@ -97,6 +97,8 @@ enum PDFImportCoordinator {
             importURL = sourceURL
         }
 
+        if shouldCopy { copyReadAlongFile(from: sourceURL, to: destinationURL) }
+
         let audiobookID = explicitAudiobookID ?? folderURL.absoluteString
 
         let importOutcome = await PDFAutoImportScanner.importPDFFileOutcome(
@@ -147,6 +149,23 @@ enum PDFImportCoordinator {
             audiobookID: audiobookID,
             copiedFile: shouldCopy
         )
+    }
+
+    /// Brings the PDF's read-along file along when one sits beside the source
+    /// (`PDFReadAlongFile`). Best-effort: without it the PDF imports through
+    /// text extraction, and a picker grant may not cover the sibling file.
+    private static func copyReadAlongFile(from sourceURL: URL, to destinationURL: URL) {
+        let source = PDFReadAlongFile.url(forPDF: sourceURL)
+        let destination = PDFReadAlongFile.url(forPDF: destinationURL)
+        guard FileManager.default.isReadableFile(atPath: source.path) else { return }
+        do {
+            if FileManager.default.fileExists(atPath: destination.path) {
+                try FileManager.default.removeItem(at: destination)
+            }
+            try copyCoordinatedItem(from: source, to: destination)
+        } catch {
+            logger.error("Could not copy the PDF's read-along file: \(error.localizedDescription)")
+        }
     }
 
     private static func validateReadableSource(_ sourceURL: URL) throws {
