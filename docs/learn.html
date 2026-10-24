@@ -1,396 +1,1153 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Getting the Most Out of Echo — The Learning Science Guide</title>
-    <meta name="description" content="Every Echo feature, explained alongside the memory science that makes it work: context-dependent memory, spaced repetition, the testing effect, cognitive offloading, dual coding, and more.">
-    <meta property="og:title" content="Getting the Most Out of Echo">
-    <meta property="og:description" content="Why photo bookmarks, chapter looping, brain dumps, and audio flashcards actually help you remember — the science behind Echo.">
-    <meta property="og:image" content="https://dfakkeldy.github.io/Echo/assets/icon.png">
-    <meta property="og:url" content="https://dfakkeldy.github.io/Echo/learn.html">
-    <meta property="og:type" content="article">
-    <link rel="stylesheet" href="styles.css">
-    <link rel="icon" type="image/png" href="assets/icon.png">
-</head>
-<body>
+    <meta
+      name="description"
+      content="Every Echo feature, explained alongside the memory science that makes it work: context-dependent memory, spaced repetition, the testing effect, cognitive offloading, dual coding, and more."
+    />
+    <meta property="og:title" content="Getting the Most Out of Echo" />
+    <meta
+      property="og:description"
+      content="Why photo bookmarks, chapter looping, brain dumps, and audio flashcards actually help you remember — the science behind Echo."
+    />
+    <meta
+      property="og:image"
+      content="https://dfakkeldy.github.io/Echo/assets/icon.png"
+    />
+    <meta
+      property="og:url"
+      content="https://dfakkeldy.github.io/Echo/learn.html"
+    />
+    <meta property="og:type" content="article" />
+    <link rel="canonical" href="https://dfakkeldy.github.io/Echo/learn.html" />
+    <meta name="theme-color" content="#10151e" />
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="icon" type="image/png" href="assets/icon.png" />
+  </head>
+  <body>
     <a class="skip-link" href="#main">Skip to content</a>
 
     <header class="site-header">
-        <div class="logo-container">
-            <a href="index.html">
-                <img src="assets/icon.png" alt="Echo app icon — an infinity symbol in silver and gold">
-                <span class="logo-text">Echo <span class="infinity">∞</span></span>
-            </a>
-        </div>
-        <nav class="site-nav" aria-label="Main">
-            <a href="index.html">Home</a>
-            <a href="learn.html" aria-current="page">Learn</a>
-            <a href="focus.html">Focus</a>
-            <a href="manual.html">Manual</a>
-            <a href="devlog.html">Devlog</a>
-            <a href="glossary.html">Glossary</a>
-            <a class="nav-cta" href="https://github.com/dfakkeldy/Echo" target="_blank" rel="noopener noreferrer">GitHub</a>
-        </nav>
+      <a
+        class="site-brand"
+        href="index.html"
+        aria-label="Echo documentation home"
+      >
+        <img src="assets/icon.png" width="40" height="40" alt="" />
+        <span
+          >Echo
+          <span class="brand-caption"
+            >The listening &amp; learning guide</span
+          ></span
+        >
+      </a>
+      <nav class="site-nav" aria-label="Main">
+        <a href="index.html">Overview</a>
+        <a href="manual.html">Manual</a>
+        <a href="learn.html" aria-current="page">Learn</a>
+        <a href="focus.html">Focus</a>
+        <a href="devlog.html">Devlog</a>
+        <a href="glossary.html">Glossary</a>
+        <a href="beta.html">Beta</a>
+        <a class="nav-source" href="https://github.com/dfakkeldy/Echo"
+          >Source <span aria-hidden="true">↗</span></a
+        >
+      </nav>
     </header>
 
-    <main id="main">
-        <div class="page-hero">
-            <p class="section-label">The Learning Guide</p>
-            <h1>Getting the Most Out of Echo</h1>
+    <main id="main" tabindex="-1">
+      <div class="page-hero">
+        <p class="section-label">The Learning Guide</p>
+        <h1>Getting the Most Out of Echo</h1>
+        <p>
+          Echo isn't an audiobook player with extra buttons. Every feature
+          exists because of something specific we know about how human memory
+          works. This guide walks through each one: what it does, the science
+          behind why it helps, and how to actually use it. Jump anywhere — each
+          section stands alone.
+        </p>
+        <p class="doc-meta">
+          Product examples reviewed · October 24, 2026 ·
+          <a href="manual.html">Current manual and platform limits →</a>
+        </p>
+      </div>
+
+      <div class="docs-layout">
+        <aside class="docs-toc" aria-label="Table of contents">
+          <h2>On this page</h2>
+          <ol>
+            <li><a href="#photos">1 · Photo &amp; Place Bookmarks</a></li>
+            <li><a href="#srs">2 · The Study System</a></li>
+            <li><a href="#grading">3 · Honest Grading</a></li>
+            <li><a href="#marklater">4 · Mark Now, Card Later</a></li>
+            <li><a href="#braindump">5 · Capture a thought</a></li>
+            <li><a href="#looping">6 · Chapter Looping</a></li>
+            <li><a href="#rewind">7 · Smart Rewind</a></li>
+            <li><a href="#readalong">8 · Read Along</a></li>
+            <li><a href="#voicememos">9 · Voice Memo Bookmarks</a></li>
+            <li><a href="#speed">10 · Speed Control</a></li>
+            <li><a href="#insights">11 · Insights</a></li>
+            <li><a href="#secondbrain">12 · Second-Brain Export</a></li>
+            <li><a href="#pomodoro">13 · Pomodoro Timer</a></li>
+            <li><a href="#sleep">14 · Sleep Timer</a></li>
+            <li><a href="#method">The Echo Method</a></li>
+            <li><a href="#sources">Sources</a></li>
+          </ol>
+        </aside>
+
+        <article class="prose">
+          <blockquote>
             <p>
-                Echo isn't an audiobook player with extra buttons. Every feature exists because of something
-                specific we know about how human memory works. This guide walks through each one: what it does,
-                the science behind why it helps, and how to actually use it. Jump anywhere — each section stands alone.
+              <strong>Source review: October 24, 2026.</strong> Feature examples
+              follow current Nightly source; your installed build may differ.
+              The <a href="manual.html">manual</a> describes platform limits and
+              planned work. Looking for ADHD/AuDHD strategies? Read the
+              <a href="focus.html">Focus Field Guide</a>.
             </p>
-            <p class="tag-legend">
-                Features marked <span class="tag-soon" style="margin-left:0;">🚧 Coming in 1.0</span> are in active
-                development; <span class="tag-future" style="margin-left:0;">🔭 Roadmap</span> means planned after 1.0.
-                Everything else ships in the current beta. Looking for ADHD/AuDHD-specific strategies?
-                That's the <a href="focus.html" style="color: var(--link);">Focus field guide</a>.
+          </blockquote>
+          <blockquote>
+            <p>
+              <strong>The short version:</strong> Passive listening feels like
+              learning, but most of it evaporates within days. Echo is built
+              around the handful of techniques that cognitive science has shown
+              actually move information into long-term memory: retrieval
+              practice, spacing, context cues, cognitive offloading, and
+              multi-sensory encoding. Use even two or three of them and you will
+              remember dramatically more of what you listen to.
             </p>
-        </div>
-
-        <div class="docs-layout">
-            <aside class="docs-toc" aria-label="Table of contents">
-                <h2>On this page</h2>
-                <ol>
-                    <li><a href="#photos">1 · Photo &amp; Place Bookmarks</a></li>
-                    <li><a href="#srs">2 · The Study System</a></li>
-                    <li><a href="#grading">3 · Honest Grading</a></li>
-                    <li><a href="#marklater">4 · Mark Now, Card Later</a></li>
-                    <li><a href="#braindump">5 · Brain Dump</a></li>
-                    <li><a href="#looping">6 · Chapter Looping</a></li>
-                    <li><a href="#rewind">7 · Smart Rewind</a></li>
-                    <li><a href="#readalong">8 · Read Along</a></li>
-                    <li><a href="#voicememos">9 · Voice Memo Bookmarks</a></li>
-                    <li><a href="#speed">10 · Speed Control</a></li>
-                    <li><a href="#insights">11 · Insights</a></li>
-                    <li><a href="#secondbrain">12 · Second-Brain Export</a></li>
-                    <li><a href="#pomodoro">13 · Pomodoro Timer</a></li>
-                    <li><a href="#sleep">14 · Sleep Timer</a></li>
-                    <li><a href="#method">The Echo Method</a></li>
-                    <li><a href="#sources">Sources</a></li>
-                </ol>
-            </aside>
-
-            <article class="prose">
-                <blockquote>
-                    <strong>The short version:</strong> passive listening feels like learning, but most of it evaporates
-                    within days. Echo is built around the handful of techniques cognitive science has shown actually move
-                    information into long-term memory: retrieval practice, spacing, context cues, <a class="gloss" href="glossary.html#cognitive-offloading" data-term="cognitive-offloading">cognitive offloading</a>,
-                    and multi-sensory encoding. Use even two or three of them and you will remember dramatically more
-                    of what you listen to.
-                </blockquote>
-
-                <blockquote>
-                    <strong>Not here to study?</strong> That's completely fine. Echo is a full-featured audiobook player first — a designable Apple Watch remote, a sleep timer, focus soundscapes, pitch-corrected speed, widgets, Control Center playback, and your own DRM-free files, all on-device. Everything below is optional; use as much or as little of it as you like.
-                </blockquote>
-
-                <h2 id="photos"><span class="sec-num">01</span>Photo &amp; Place Bookmarks — borrow your brain's sense of place</h2>
-                <p><strong>What it does:</strong> When you create a bookmark, you can attach a photo — snap something around you or pick one from your photo library. Later, as playback passes that bookmark, Echo switches the player artwork to your photo. Your bookmarks become a visual journal of the book, and each photo becomes a doorway back to what you were hearing.</p>
-
-                <div class="science-note">
-                    <span class="label">The Science · <a class="gloss" href="glossary.html#context-dependent-memory" data-term="context-dependent-memory">Context-Dependent Memory</a></span>
-                    <p>Your brain doesn't file information away in isolation — it <em>involuntarily</em> encodes the environment you're in right alongside the thing you're learning. When you return to that environment, or even just see a picture of it, the environment acts as a <a class="gloss" href="glossary.html#retrieval-cue" data-term="retrieval-cue">retrieval cue</a> that pulls the information back up.</p>
-                    <p>This is one of the most replicated effects in memory research. In Godden &amp; Baddeley's classic 1975 study, scuba divers memorized word lists on land or underwater — and recalled significantly more when tested in the <em>same</em> environment they learned in. A meta-analysis of dozens of studies (Smith &amp; Vela, 2001) confirmed the effect, and found that <em>mentally reinstating</em> a context — like looking at a photo of it — recovers much of the benefit of physically returning.</p>
-                </div>
-
-                <p>You've probably felt this yourself: you remember exactly what audiobook you were listening to when you drove past that one weird intersection — and you'd never have remembered the intersection without the book, or the book without the intersection. The two memories hold each other up. Echo turns that accident into a tool.</p>
-
-                <h3>Context Memory: places, captured automatically <span class="tag-soon">🚧 Coming in 1.0</span></h3>
-                <p>Photo bookmarks ask you to do the capturing. <strong>Context Memory</strong> does it for you: opt in, and Echo quietly notes an approximate place — "Maple Ridge, Halifax" — on your bookmarks, listening sessions, and chapter starts. Bookmark cards grow a small place chip; your per-book insights can tell you <em>"you started Chapter 3 on Oak Street."</em> The same retrieval-cue machinery as photos, with zero effort.</p>
-                <ul>
-                    <li><strong>Off by default, on-device, deletable.</strong> Location uses reduced (neighborhood-level) accuracy, never blocks the action you were taking, and a single button erases all location history. Your session history never leaves the device. Details in the <a href="privacy.html">privacy policy</a>.</li>
-                    <li><strong>Use the chips during review.</strong> When a bookmark shows "Riverside Trail," take one second to put yourself back on that trail before answering. That mental reinstatement is the technique — the chip is just the trigger.</li>
-                </ul>
-
-                <h3>How to use it</h3>
-                <ul>
-                    <li>When something in a book genuinely lands, bookmark it and grab a photo of wherever you are — the trailhead, your kitchen, the view out the windshield (parked!). Mundane is fine; <em>distinctive</em> is better.</li>
-                    <li>Driving or working? Don't break focus. Attach a photo later from your library — a picture taken near that time and place works almost as well. (Or let Context Memory log the place automatically.)</li>
-                    <li>During flashcard review, when the photo appears, take a second to mentally <em>put yourself back there</em> before answering. That deliberate reinstatement fires the retrieval cue.</li>
-                    <li>Don't photograph everything. A photo on every paragraph is noise; a photo on the ten ideas you most want to keep is a memory palace.</li>
-                </ul>
-
-                <div class="tip-note">
-                    <span class="label">Is this a "memory palace"?</span>
-                    <p>Close cousin. The memory palace (method of loci) deliberately places facts into an imagined space; Echo's photo and place bookmarks capture the <em>real</em> space your brain already attached to the moment. Same spatial machinery — brain-imaging studies of champion memorizers (Maguire et al., 2003) show they lean on exactly these spatial-memory regions — but with zero effort, because your hippocampus was doing it anyway.</p>
-                </div>
-
-                <h2 id="srs"><span class="sec-num">02</span>The Study System — <a class="gloss" href="glossary.html#spaced-repetition" data-term="spaced-repetition">spaced repetition</a>, explained from zero</h2>
-                <p><strong>What it does:</strong> Echo has a built-in flashcard system. Any bookmark, passage, or note can become a card with a front (the prompt) and a back (the answer) — and cards can carry the actual audio clip from the book. Echo schedules reviews for you: a card you know well disappears for weeks; a card you fumbled comes back tomorrow. Your due cards show up in a Daily Review queue on your phone — and on your wrist.</p>
-
-                <h3>Never heard of Anki? Start here.</h3>
-                <p>Anki is beloved flashcard software used by medical students, language learners, and memory nerds worldwide. Its superpower is the <em>schedule</em>: instead of cramming, it shows you each card at the moment you're about to forget it — first after a day, then a few days, then weeks, then months. Each successful recall flattens your forgetting curve a little more, until the fact is effectively permanent.</p>
-                <p>Echo speaks the same language — it schedules with FSRS, the modern spaced-repetition algorithm Anki now ships (an evolution of the classic <a class="gloss" href="glossary.html#sm2" data-term="sm2">SM-2</a>), imports Anki-style JSON decks today, and with 1.0 imports real <strong>.apkg deck files</strong> directly <span class="tag-soon">🚧 Coming in 1.0</span> — your years of Anki history, scheduling included, carried over. Organize everything into <strong>decks with tags</strong>, edit any card, review one deck at a time <span class="tag-soon">🚧 Coming in 1.0</span>. And if you ever leave, your cards export right back out — no lock-in (see <a href="#secondbrain">Second-Brain Export</a>).</p>
-
-                <div class="science-note">
-                    <span class="label">The Science · The Forgetting Curve &amp; the Spacing Effect</span>
-                    <p>In the 1880s, Hermann Ebbinghaus measured how quickly memorized material decays: steeply at first — most of it within days — then slowly. He also found the fix: each well-timed review resets the curve and makes it shallower. A century of follow-up research (including Cepeda et al.'s 2006 meta-analysis) keeps confirming it: <strong>spacing reviews out beats massing them together, for essentially everyone, for essentially everything.</strong></p>
-                </div>
-
-                <h3>Why audio flashcards beat paper ones</h3>
-                <ul>
-                    <li><strong>Two memory channels instead of one.</strong> Hearing the narrator's clip while reading the card engages both verbal and auditory encoding — and if you attached a photo, a visual cue too. More routes in, more routes back out.</li>
-                    <li><strong>Matching cue and memory.</strong> You learned the material <em>by ear</em>. Reviewing it by ear matches the retrieval cue to how the memory was encoded — the encoding-specificity principle (Tulving &amp; Thomson, 1973).</li>
-                    <li><strong>Review happens in dead time, not desk time.</strong> What kills flashcard habits isn't difficulty — it's needing to sit down. Echo reviews ride along while you walk the dog or wait in the car, including hands-free on Apple Watch. The best study system is the one that fits inside the life you already have.</li>
-                </ul>
-
-                <h3>How to use it</h3>
-                <ul>
-                    <li>Make cards from <em>meaningful</em> moments: definitions, frameworks, numbers you'll need. Skip trivia.</li>
-                    <li>Write fronts as questions ("What are the four causes of X?"), not labels. A question forces retrieval; a label invites recognition.</li>
-                    <li>Do your Daily Review when the notification arrives. Five minutes daily beats an hour monthly — that's the whole point of spacing.</li>
-                    <li>Trust the schedule. Re-reviewing cards that aren't due is the cramming instinct — the exact thing the system is saving you from.</li>
-                    <li>Bringing decks from Anki? Import the .apkg and keep your scheduling — don't restart mature cards from zero. <span class="tag-soon">🚧 Coming in 1.0</span></li>
-                </ul>
-
-                <h2 id="grading"><span class="sec-num">03</span>Honest Grading — <a class="gloss" href="glossary.html#testing-effect" data-term="testing-effect">the testing effect</a></h2>
-                <p><strong>What it does:</strong> After each flashcard, Echo asks you to grade yourself: <strong>Again, Hard, Good, or Easy</strong>. Your answer drives the schedule.</p>
-
-                <div class="science-note">
-                    <span class="label">The Science · Retrieval Practice</span>
-                    <p>Testing isn't just measurement — it's the intervention. Roediger &amp; Karpicke's landmark 2006 studies showed that students who <em>practiced recalling</em> material remembered far more a week later than students who spent the same time re-reading it — even though re-reading <em>felt</em> more effective. The struggle to pull something from memory is what strengthens it.</p>
-                </div>
-
-                <ul>
-                    <li>Before flipping a card, actually answer it — out loud or in your head. <em>Then</em> look.</li>
-                    <li>Grade ruthlessly. "Again" is not failure; it's telling the scheduler the truth so it can help. An over-graded card disappears for a month and takes the memory with it.</li>
-                    <li>Feeling a card was <em>hard</em> is good news. Effortful retrieval — what researcher Robert Bjork calls a "desirable difficulty" — is exactly the condition under which memory grows.</li>
-                </ul>
-
-                <h2 id="marklater"><span class="sec-num">04</span>Mark Now, Card Later — protect the flow <span class="tag-soon">🚧 Coming in 1.0</span></h2>
-                <p><strong>What it does:</strong> A single tap — on the transport bar or a watch button — <strong>marks</strong> the passage you just heard, with a few seconds of context on either side, and the narration never stops. Later, your <strong>Card Inbox</strong> shows every mark grouped by book, with its transcript snippet and audio. Turn marks into flashcards when you actually have the bandwidth — or swipe away the ones that didn't age well.</p>
-
-                <div class="science-note">
-                    <span class="label">The Science · Attention Residue</span>
-                    <p>Switching tasks isn't free, even for "just a second." Sophie Leroy's research on <em>attention residue</em> (2009) shows that part of your attention stays stuck on an interrupted task after you switch — and interruption studies (Monk, Trafton &amp; Boehm-Davis, 2008) show the cost grows with the interruption's length and depth. Stopping a book mid-argument to type a flashcard is exactly the kind of deep interruption that leaves residue in both directions. A one-tap mark is the shallowest possible interruption: capture intent now, do the work when switching costs nothing.</p>
-                </div>
-
-                <ul>
-                    <li>Mark generously, convert selectively. The tap costs nothing; the inbox is where judgment happens.</li>
-                    <li>Batch your inbox at a set time — end of the listening day, or Sunday with coffee. Converting five marks in a row is faster (and produces better cards) than five mid-listen scrambles.</li>
-                    <li>While converting, the snippet replays the narrator. Write the front as a question <em>before</em> replaying — that's a free retrieval rep.</li>
-                </ul>
-
-                <figure class="shot-placeholder">
-                    <span class="shot-icon" aria-hidden="true">📸</span>
-                    <figcaption>Screenshot coming soon — the Card Inbox: marked passages grouped by book, one tap from flashcard</figcaption>
-                </figure>
-
-                <h2 id="braindump"><span class="sec-num">05</span>Brain Dump — close the open loop <span class="tag-soon">🚧 Coming in 1.0</span></h2>
-                <p><strong>What it does:</strong> A thought hits you mid-chapter — about the book, or about absolutely anything else ("buy stamps," "that's what Sarah meant on Tuesday"). One tap opens a note; hold to record a voice memo; on the watch, dictate it. Playback never pauses. The thought lands in the book's <strong>Notes inbox</strong> (or your global one), and later you can <strong>promote</strong> the keepers into bookmarks or flashcards — or just enjoy having had the thought without losing the chapter.</p>
-
-                <div class="science-note">
-                    <span class="label">The Science · The Zeigarnik Effect &amp; Cognitive Offloading</span>
-                    <p>Unfinished business doesn't wait quietly. Bluma Zeigarnik documented in 1927 that interrupted, incomplete tasks are remembered better — and intrude more — than completed ones. Masicampo &amp; Baumeister (2011) found the modern fix: you don't have to <em>do</em> the nagging task to silence it — merely <strong>making a concrete plan</strong> (or capturing it somewhere you trust) stops it from hijacking attention. And working memory is brutally small — roughly three to five items at once (Cowan, 2010) — so every "don't forget…" you carry is a slot stolen from the book. Offloading to an external store (Risko &amp; Gilbert, 2016) hands the thought to something that never forgets, and frees the slot.</p>
-                </div>
-
-                <ul>
-                    <li><strong>Capture in the cheapest format available.</strong> Walking? Voice. Watch on? Dictate. The format doesn't matter; latency does. The thought you capture in two seconds is the thought that doesn't cost you a paragraph.</li>
-                    <li><strong>Dump distractions, not just insights.</strong> "Email the landlord" has no business in your head during chapter 6. Park it, return to the book, act on it tonight.</li>
-                    <li><strong>Process the inbox on your schedule.</strong> Promote book-thoughts to bookmarks or cards; export errands to wherever errands live; delete freely. An inbox you trust only stays trusted if it empties sometimes.</li>
-                </ul>
-
-                <figure class="shot-placeholder">
-                    <span class="shot-icon" aria-hidden="true">📸</span>
-                    <figcaption>Screenshot coming soon — Brain Dump notes inbox with text and voice entries, promote actions visible</figcaption>
-                </figure>
-
-                <h2 id="looping"><span class="sec-num">06</span>Chapter Looping — repetition on your terms</h2>
-                <p><strong>What it does:</strong> Echo can loop a single chapter until you turn looping off — the feature this entire app was born from. Loop the whole playlist, one chapter, or the exact passage between two bookmarks.</p>
-
-                <div class="science-note">
-                    <span class="label">The Science · Repetition, then Distribution</span>
-                    <p>Hearing dense material once at highway speed is not learning — repetition genuinely helps build the representation. But research on <em>distributed practice</em> shows the bigger win is spreading exposures out: three passes over three days beat six passes in one afternoon. Loop a chapter today; let your flashcards and scheduled reviews carry it across the week.</p>
-                </div>
-
-                <ul>
-                    <li>For a book you need to <em>know</em>: loop one or two chapters per day rather than racing to the end. Six hours of driving = one chapter genuinely absorbed beats six chapters vaguely heard.</li>
-                    <li>End of a looped day, ask the honest question: could you teach this chapter? If not, tomorrow is another loop day.</li>
-                    <li>Drop a bookmark at the start and end of a key argument, switch to <strong>loop between bookmarks</strong>, and drill exactly that stretch.</li>
-                </ul>
-
-                <div class="tip-note">
-                    <span class="label">🔭 Roadmap · Chapter Study Mode</span>
-                    <p>Planned after 1.0: treat <em>each chapter as a flashcard</em>. Finish a chapter, grade yourself — Again or Easy — and Echo schedules that chapter's return; your due chapters become a ready-made listening queue. Until then, the manual version works today: loop the chapter, grade yourself honestly at the end, and make a flashcard for anything you couldn't explain.</p>
-                </div>
-
-                <h2 id="rewind"><span class="sec-num">07</span>Smart Rewind — pick up where your <em>mind</em> left off</h2>
-                <p><strong>What it does:</strong> When you resume after a pause, Echo automatically rewinds — a little after a short pause, more after minutes, a lot after hours or days. You configure the levels; Echo applies them silently every time you hit play.</p>
-
-                <div class="science-note">
-                    <span class="label">The Science · Interruption &amp; Resumption</span>
-                    <p>Research on task interruption (Monk, Trafton &amp; Boehm-Davis, 2008) shows that resuming after a break carries a real cost — a "resumption lag" while your brain rebuilds the context it dropped. The longer the interruption, the more context is gone. Re-hearing the last stretch is the cheapest way to rebuild it: it reinstates the narrative context so the next sentence has something to attach to.</p>
-                </div>
-
-                <p>This is the feature that makes Echo survive real life. Standard players punish every interruption with confusion ("wait, who's talking?"); Echo absorbs the interruption for you.</p>
-                <ul>
-                    <li>Tune the three tiers (seconds / minutes / hours) to your life. Hopping out of a delivery vehicle every few minutes? Short-pause rewind of ~10 seconds. Overnight gap? A minute or more.</li>
-                    <li>Don't fight it. If the rewound material feels boringly familiar — perfect. That's confirmation you encoded it the first time, and it costs seconds.</li>
-                </ul>
-
-                <h2 id="readalong"><span class="sec-num">08</span>Read Along — the synced EPUB &amp; PDF reader</h2>
-                <p><strong>What it does:</strong> Add the EPUB or PDF next to your audiobook and Echo aligns text to audio — on-device, using its own speech recognition. The Read tab scrolls with the narration, highlighting the active paragraph. Put it down for an hour, pick it up, and you're still in the right place. Tap any paragraph to jump the audio there. Search the full text and leap to the moment it's <em>spoken</em>. And when the narrator says "as shown in the diagram" — the diagram is right there.</p>
-
-                <div class="science-note">
-                    <span class="label">The Science · Dual Coding</span>
-                    <p>Allan Paivio's dual coding theory holds that information encoded both verbally and visually creates two interconnected memory traces instead of one — and decades of multimedia-learning research backs the practical upshot: synchronized words + visuals beat either alone. Reading along also keeps wandering attention tethered: when your eyes lose the thread, your ears still have it, and vice versa.</p>
-                </div>
-
-                <p>Many people — especially many neurodivergent people — simply cannot absorb a book through one channel alone. Echo never asks you to. (There's a reason the big platforms charge a premium for exactly this pairing; Echo gives it to your DRM-free library for free.)</p>
-                <ul>
-                    <li>Run <strong>Auto-Align Chapters</strong> once when you add a book; let drift detection and repair do the fussy work. Lock a manual anchor anywhere it matters.</li>
-                    <li>Listening-first day? Leave the reader closed and trust the bookmarks. Studying? Open the Read tab — especially for diagram-heavy non-fiction.</li>
-                    <li>Use search as memory rescue: "they said something about cortisol…" → search → tap → you're hearing that exact sentence.</li>
-                    <li>Dyslexic or just prefer it? Switch the reader to <strong>OpenDyslexic</strong> or <strong>Lexend</strong> — both built in, both chosen from reading-fluency research.</li>
-                </ul>
-
-                <h2 id="voicememos"><span class="sec-num">09</span>Voice Memo Bookmarks — think out loud, keep the thought</h2>
-                <p><strong>What it does:</strong> Hold the bookmark button and talk. Your memo is pinned to that exact second of the book — and Echo can play memos back <em>inline</em> when playback reaches them, so past-you briefs present-you right on cue. On the road, ask Siri or use the watch; your hands never leave the wheel.</p>
-
-                <div class="science-note">
-                    <span class="label">The Science · Self-Explanation &amp; the Production Effect</span>
-                    <p>Explaining material in your own words — even just to yourself — is one of the most reliable comprehension boosters in the literature (the "self-explanation effect," Chi et al., 1989). Separately, the "production effect" (MacLeod et al., 2010) shows that material you say <em>out loud</em> is remembered better than material you merely think. A voice memo does both at once. The recording is almost a bonus — the speaking already did half the work.</p>
-                </div>
-
-                <ul>
-                    <li>Capture <em>your reaction</em>, not a summary: "this contradicts what chapter 2 said" beats "interesting point."</li>
-                    <li>Say why it matters to <em>you</em>: "use this in Thursday's meeting." Future relevance is a powerful retrieval hook.</li>
-                    <li>Leave inline playback on for review listens. Your own voice interrupting the narrator is exactly the cue-rich, slightly weird moment that sticks.</li>
-                </ul>
-
-                <h2 id="speed"><span class="sec-num">10</span>Pristine Speed Control — faster without the chipmunks</h2>
-                <p><strong>What it does:</strong> Echo adjusts playback speed with proper pitch correction, so 1.25× sounds like a quicker human, not a cartoon. Speed is remembered per book.</p>
-
-                <div class="science-note">
-                    <span class="label">The Science · Comprehension Has a Speed Budget</span>
-                    <p>Studies of time-compressed speech show comprehension holds up well at moderate accelerations, then degrades as speed climbs (Murphy et al., 2021; Foulke &amp; Sticht, 1969). The skill is matching speed to difficulty: cruise through familiar territory, slow down where ideas are thick. Slowing down isn't failure — it's the desirable-difficulties principle applied with self-awareness.</p>
-                </div>
-
-                <ul>
-                    <li>Set a comfortable default (1.25× is most people's sweet spot), then adjust <em>per book</em> — Echo remembers each one.</li>
-                    <li>Hit a dense argument? Drop to 1× and loop it rather than plowing through at speed.</li>
-                    <li>Re-listens of looped chapters can run faster — you're reinforcing, not decoding.</li>
-                </ul>
-
-                <h2 id="insights"><span class="sec-num">11</span>Insights — see yourself learn <span class="tag-soon">🚧 Coming in 1.0</span></h2>
-                <p><strong>What it does:</strong> A dedicated Insights screen built from your actual listening and review history — computed on your device, from your own data, never sent anywhere. Listening time by day, week, month, or year. Streaks and a review-day heatmap. A per-book drill-down with <strong>chapter coverage</strong> ("Chapter 7 — 86% covered, listened 3×"). Your speed trend, your session lengths, your best time of day. For flashcards: reviews per day, a retention curve, grade distribution, and a 30-day due forecast so review debt never ambushes you. If you use Context Memory, a simple list of the places you listen most.</p>
-
-                <div class="science-note">
-                    <span class="label">The Science · Self-Monitoring &amp; Feedback</span>
-                    <p>Learners are famously bad at judging their own learning — re-reading <em>feels</em> effective precisely when it isn't. Decades of work on self-regulated learning (Zimmerman, 2002) put accurate self-monitoring at the center of effective studying, and Hattie &amp; Timperley's landmark review (2007) ranks concrete feedback among the most powerful influences on learning. Honest data substitutes for vibes: "I listened 40 minutes a day and cleared my reviews 5 days of 7" is feedback; "I feel behind" is noise. Goal-setting research (Locke &amp; Latham, 2002) adds the second half: specific, visible progress against a specific target sustains effort far better than "do your best."</p>
-                </div>
-
-                <ul>
-                    <li><strong>Check coverage before a re-listen.</strong> The chapter heatmap shows exactly which chapters you've actually heard versus skimmed past — re-listen to the gaps, not the whole book.</li>
-                    <li><strong>Use the due forecast to right-size your card-making.</strong> Fifty new cards today is two hundred reviews next month. The forecast makes the trade visible while you can still adjust.</li>
-                    <li><strong>Find your golden hours.</strong> The time-of-day chart tells you when you actually listen and retain. Schedule the dense book there; save the fun re-listen for the dregs of the day.</li>
-                    <li><strong>Streaks bend, they don't break.</strong> A missed day is data, not a verdict. The goal is the trend line, not a perfect chain — see the <a href="focus.html#allornothing">Focus guide on all-or-nothing thinking</a> for why this matters double for ADHD brains.</li>
-                </ul>
-
-                <figure class="shot-placeholder">
-                    <span class="shot-icon" aria-hidden="true">📸</span>
-                    <figcaption>Screenshot coming soon — Insights: listening totals, streak, chapter-coverage heatmap, retention curve</figcaption>
-                </figure>
-
-                <h2 id="secondbrain"><span class="sec-num">12</span>Second-Brain Export — make it yours forever <span class="tag-soon">🚧 Coming in 1.0</span></h2>
-                <p><strong>What it does:</strong> One tap exports a book's entire study record as a clean, portable Markdown bundle: every bookmark with its timestamp and note, your brain-dump entries, flashcard fronts and backs, chapter headings — plus an assets folder with your voice memos and photos. Drop the folder into <strong>Obsidian</strong>, <strong>Logseq</strong>, or <strong>Notion</strong>, or just keep it as files. No account, no API, no lock-in. (Bookmark-only Markdown export ships today; the full study bundle lands in 1.0.)</p>
-
-                <div class="science-note">
-                    <span class="label">The Science · The Generation Effect &amp; Trusted Storage</span>
-                    <p>Two principles meet here. First, the <em>generation effect</em> (Slamecka &amp; Graf, 1978): material you produce yourself is remembered better than material you receive — and your exported notes are exactly the material you generated (memos in your voice, cards in your words). Reorganizing them in your own system is another generation pass, not busywork. Second, offloading only works when the external store is <em>trusted</em> (Risko &amp; Gilbert, 2016): a capture system you can't search or might lose teaches your brain to keep white-knuckling everything. Plain files in your own vault are the most trustworthy storage that exists.</p>
-                </div>
-
-                <ul>
-                    <li>Export when you <em>finish</em> a book and spend twenty minutes reorganizing the notes in your own words — that pass is studying, disguised as filing.</li>
-                    <li>Link book notes to your existing notes ("connects to [[Atomic Habits]]"). Connections are retrieval routes.</li>
-                    <li>Keep the audio cards in Echo for scheduled review; use the export as the searchable archive. Different tools, different jobs.</li>
-                </ul>
-
-                <h2 id="pomodoro"><span class="sec-num">13</span>Pomodoro Timer — attention is a budget</h2>
-                <p><strong>What it does:</strong> A focus timer on your wrist, inside the watch remote: set a work interval, get a persistent alarm when it ends, glance at progress without touching your phone.</p>
-
-                <div class="science-note">
-                    <span class="label">The Science · Attention Management</span>
-                    <p>The Pomodoro Technique (Francesco Cirillo) builds on a well-supported finding: sustained attention degrades over long unbroken stretches, and brief breaks keep it from sliding (Ariga &amp; Lleras, 2011). Brief rests between intervals also give memory consolidation a quiet moment to work.</p>
-                </div>
-
-                <ul>
-                    <li>Pair a pomodoro with a chapter: "one 25-minute interval on chapter 6, then I grade myself."</li>
-                    <li>Use the break for retrieval, not scrolling: thirty seconds of "what did I just hear?" turns a rest into a review.</li>
-                </ul>
-
-                <h2 id="sleep"><span class="sec-num">14</span>Sleep Timer — end the day, keep the thread</h2>
-                <p><strong>What it does:</strong> Fade out and pause after a set time or at chapter's end — and tomorrow, Smart Rewind backs you up over the part you drifted through, automatically.</p>
-                <p>Sleep is when the hippocampus replays and consolidates the day's learning — but material you heard <em>while falling asleep</em> was barely encoded to begin with (Diekelmann &amp; Born, 2010; Simon &amp; Emmons, 1956). The honest combination is exactly what Echo does: stop playback when you fade, then re-cover that ground on resume instead of pretending you heard it. Set it to chapter-end for natural stopping points, and let tomorrow's rewind decide how much to replay.</p>
-
-                <h2 id="method"><span class="sec-num">∞</span>The Echo Method — putting it together</h2>
-                <ol>
-                    <li><strong>First pass (listen):</strong> normal or slightly raised speed. When something lands, bookmark it — voice memo if your hands are busy, photo if the moment is distinctive. A passing thought about anything else? Brain-dump it and keep listening. <span class="tag-soon">🚧</span></li>
-                    <li><strong>Mark the card-worthy moments:</strong> one tap, no pause. They'll wait in the Card Inbox. <span class="tag-soon">🚧</span></li>
-                    <li><strong>Loop what matters:</strong> for dense chapters, loop until you could explain them. One or two chapters a day is a <em>fast</em> pace for real learning.</li>
-                    <li><strong>Harvest on your schedule:</strong> at home, process the inboxes — promote marks to flashcards (front as a question, audio attached), promote brain-dump keepers to bookmarks or cards, delete the rest.</li>
-                    <li><strong>Review daily:</strong> when the notification arrives, clear your due cards — phone or watch, five-ish minutes.</li>
-                    <li><strong>Check Insights weekly:</strong> coverage gaps tell you what to re-listen; the due forecast tells you whether to ease up on new cards. <span class="tag-soon">🚧</span></li>
-                    <li><strong>Read-along pass (optional, for the big books):</strong> weekend re-listen with the Read tab open, eyes on the diagrams your ears skipped.</li>
-                    <li><strong>Graduate the book:</strong> when you're done, export the study bundle to your second brain and reorganize it in your own words. <span class="tag-soon">🚧</span></li>
-                </ol>
-                <p>None of these steps is hard; the entire system is designed to run inside a life full of interruptions — because it was built inside one.</p>
-
-                <h2 id="sources">Sources &amp; further reading</h2>
-                <p>The effects above are among the most replicated findings in cognitive psychology. Key references:</p>
-                <ul class="sources">
-                    <li>Godden &amp; Baddeley (1975). Context-dependent memory in two natural environments. <em>British Journal of Psychology.</em></li>
-                    <li>Smith &amp; Vela (2001). Environmental context-dependent memory: A review and meta-analysis. <em>Psychonomic Bulletin &amp; Review.</em></li>
-                    <li>Tulving &amp; Thomson (1973). Encoding specificity and retrieval processes in episodic memory. <em>Psychological Review.</em></li>
-                    <li>Ebbinghaus (1885). <em>Memory: A Contribution to Experimental Psychology.</em></li>
-                    <li>Cepeda et al. (2006). Distributed practice in verbal recall tasks. <em>Psychological Bulletin.</em></li>
-                    <li>Roediger &amp; Karpicke (2006). Test-enhanced learning. <em>Psychological Science.</em></li>
-                    <li>Bjork (1994). Memory and metamemory considerations in the training of human beings.</li>
-                    <li>Paivio (1986). <em>Mental Representations: A Dual Coding Approach.</em></li>
-                    <li>Chi et al. (1989). Self-explanations. <em>Cognitive Science.</em></li>
-                    <li>MacLeod et al. (2010). The production effect. <em>JEP: Learning, Memory, and Cognition.</em></li>
-                    <li>Monk, Trafton &amp; Boehm-Davis (2008). The effect of interruption duration and demand on resuming suspended goals. <em>JEP: Applied.</em></li>
-                    <li>Maguire et al. (2003). Routes to remembering: the brains behind superior memory. <em>Nature Neuroscience.</em></li>
-                    <li>Leroy (2009). Why is it so hard to do my work? The challenge of attention residue. <em>Organizational Behavior and Human Decision Processes.</em></li>
-                    <li>Zeigarnik (1927). Das Behalten erledigter und unerledigter Handlungen. <em>Psychologische Forschung.</em></li>
-                    <li>Masicampo &amp; Baumeister (2011). Consider it done! Plan making can eliminate the cognitive effects of unfulfilled goals. <em>Journal of Personality and Social Psychology.</em></li>
-                    <li>Risko &amp; Gilbert (2016). Cognitive offloading. <em>Trends in Cognitive Sciences.</em></li>
-                    <li>Cowan (2010). The magical mystery four: How is working memory capacity limited, and why? <em>Current Directions in Psychological Science.</em></li>
-                    <li>Slamecka &amp; Graf (1978). The generation effect: Delineation of a phenomenon. <em>JEP: Human Learning and Memory.</em></li>
-                    <li>Zimmerman (2002). Becoming a self-regulated learner: An overview. <em>Theory Into Practice.</em></li>
-                    <li>Hattie &amp; Timperley (2007). The power of feedback. <em>Review of Educational Research.</em></li>
-                    <li>Locke &amp; Latham (2002). Building a practically useful theory of goal setting and task motivation. <em>American Psychologist.</em></li>
-                    <li>Lally et al. (2010). How are habits formed: Modelling habit formation in the real world. <em>European Journal of Social Psychology.</em></li>
-                    <li>Foulke &amp; Sticht (1969). Review of research on the intelligibility and comprehension of accelerated speech. <em>Psychological Bulletin.</em></li>
-                    <li>Murphy et al. (2021). Learning in double time: The effect of lecture video speed on immediate and delayed comprehension. <em>Applied Cognitive Psychology.</em></li>
-                    <li>Ariga &amp; Lleras (2011). Brief and rare mental &ldquo;breaks&rdquo; keep you focused: Deactivation and reactivation of task goals preempt vigilance decrements. <em>Cognition.</em></li>
-                    <li>Simon &amp; Emmons (1956). Responses to material presented during various levels of sleep. <em>Journal of Experimental Psychology.</em></li>
-                    <li>Diekelmann &amp; Born (2010). The memory function of sleep. <em>Nature Reviews Neuroscience.</em></li>
-                </ul>
-                <p><em>Echo is not a medical device and makes no clinical claims — it's a media player built with care around how memory actually works.</em></p>
-            </article>
-        </div>
+          </blockquote>
+          <hr />
+          <span
+            class="anchor-alias"
+            id="does-listening-even-count--reading-vs-listening-honestly"
+          ></span>
+          <h2 id="listening">
+            Does listening even count? — reading vs. listening, honestly
+          </h2>
+          <p>
+            Before any features, the question every audiobook learner eventually
+            gets asked — or asks themselves. The research gives a clear two-part
+            answer, and Echo is built on taking <em>both</em> parts seriously.
+          </p>
+          <p>
+            <strong>Part one: your brain doesn't much care.</strong> UC Berkeley
+            researchers (Deniz et al., 2019) used fMRI to map brain activity
+            word-by-word while people listened to hours of stories, then read
+            the very same stories. The resulting semantic maps — which patch of
+            cortex handles which kind of meaning — were nearly identical across
+            the two formats. That's less surprising than it sounds: the brain
+            has no purpose-built reading center. Reading is a recent cultural
+            invention that borrows the speech-comprehension machinery you've had
+            since infancy. And for narrative books, head-to-head comparisons
+            agree: Rogowsky and colleagues (2016) found no comprehension
+            difference between reading, listening, and doing both at once —
+            tested immediately <em>and</em> two weeks later. As far as the
+            meaning-making parts of your brain are concerned, listening to a
+            story is reading it.
+          </p>
+          <p>
+            <strong
+              >Part two: passive listening still loses on dense
+              material.</strong
+            >
+            Daniel &amp; Woody (2010) gave students the same psychology material
+            as text or as audio. The listeners scored about 28% lower on the
+            quiz — two letter grades' worth. (Most had <em>preferred</em> audio
+            beforehand; they changed their minds when the scores came back.) The
+            literature points to two culprits:
+          </p>
+          <ul>
+            <li>
+              <strong>Audio has no "flip back."</strong> Print gives you
+              effortless random access — glance back at a definition, re-scan
+              the start of the argument. A bare audio stream just marches on
+              (Willingham, 2018).
+            </li>
+            <li>
+              <strong>Minds wander more by ear.</strong> Listening produces
+              measurably more mind-wandering and weaker recall than reading the
+              same material (Varao Sousa, Carriere &amp; Smilek, 2013) — partly
+              because audio never offers the natural pause-and-check points that
+              page turns and paragraph breaks build into print.
+            </li>
+          </ul>
+          <p>
+            Look at those two failure modes again: neither is a property of your
+            ears. They're missing <em>affordances</em> — things a printed page
+            happens to hand you that a bare audio stream doesn't. Restoring them
+            is this entire app's job description:
+          </p>
+          <ul>
+            <li>
+              <strong>No random access?</strong>
+              <a href="#readalong">Read Along</a> bolts print's superpower onto
+              audio: tap a paragraph to jump the narration there, search a
+              phrase and land on the second it's spoken.
+              <a href="#rewind">Smart Rewind</a> rebuilds context after every
+              interruption, and <a href="#looping">Chapter Looping</a> makes
+              "read that again" a single switch.
+            </li>
+            <li>
+              <strong>No pause points?</strong> Bookmarks, voice memos, and the
+              <a href="#srs">study system</a> manufacture them — moments where
+              you stop receiving and start retrieving, which is where memory
+              actually forms.
+            </li>
+          </ul>
+          <p>
+            One more honest note from the same research:
+            <strong>attention beats format.</strong> An audiobook heard with
+            real attention outperforms a page skimmed while half-distracted —
+            and the reverse is just as true. Nothing in this guide makes
+            distracted listening free; it makes <em>recovering</em> from
+            distraction cheap, and turns listening from a passive stream into
+            something your brain has to answer to.
+          </p>
+          <hr />
+          <span
+            class="anchor-alias"
+            id="1-photo--place-bookmarks--borrow-your-brains-sense-of-place"
+          ></span>
+          <h2 id="photos">
+            1. Photo &amp; Place Bookmarks — borrow your brain's sense of place
+          </h2>
+          <p>
+            <strong>What it does:</strong> When you create a bookmark, you can
+            attach a photo — snap something around you or pick one from your
+            photo library. Later, as playback passes that bookmark, Echo
+            switches the player artwork to your photo. Your bookmarks become a
+            visual journal of the book, and each photo becomes a doorway back to
+            what you were hearing.
+          </p>
+          <p>
+            <strong>The science: Context-Dependent Memory.</strong> Your brain
+            doesn't file information away in isolation — it
+            <em>involuntarily</em> encodes the environment you're in right
+            alongside the thing you're learning. When you return to that
+            environment, or even just see a picture of it, the environment acts
+            as a retrieval cue that pulls the information back up.
+          </p>
+          <p>
+            This is one of the most replicated effects in memory research. In
+            the classic 1975 study by Godden and Baddeley, scuba divers
+            memorized word lists either on land or underwater — and recalled
+            significantly more when tested in the <em>same</em> environment they
+            learned in. A large meta-analysis (Smith &amp; Vela, 2001) confirmed
+            the effect across dozens of studies — and crucially, found that
+            <em>mentally reinstating</em> a context (like looking at a photo of
+            it) recovers much of the benefit of physically being there.
+          </p>
+          <p>
+            You've probably felt this yourself: you remember exactly what
+            audiobook you were listening to when you drove past that one weird
+            intersection — and you'd never have remembered the intersection
+            without the book, or the book without the intersection. The two
+            memories hold each other up. Echo turns that accident into a tool.
+          </p>
+          <h3 id="context-memory-approximate-places-on-bookmarks">
+            Context Memory: approximate places on bookmarks
+          </h3>
+          <p>
+            Opt in to <strong>Context Memory</strong> on iPhone and Echo can
+            attach an approximate place name to a new bookmark. Capture does not
+            delay saving the bookmark. The current reachable capture path is
+            bookmark creation; automatic session/chapter place capture and a
+            Places map remain planned.
+          </p>
+          <ul>
+            <li>
+              <strong>Off by default, deletable.</strong> Use Settings →
+              Advanced &amp; Privacy → Advanced → Context Memory.
+              <strong>Delete Context Memory</strong> clears saved bookmark
+              places and local session-location history.
+            </li>
+            <li>
+              <strong>Use place chips as cues.</strong> When a bookmark names a
+              place, pause to recall that setting before reviewing. Local place
+              data is not a promise of full iCloud study sync.
+            </li>
+          </ul>
+          <p><strong>How to use it:</strong></p>
+          <ul>
+            <li>
+              When something in a book genuinely lands, bookmark it and grab a
+              photo of wherever you are — the trailhead, your kitchen, the view
+              out the windshield (when parked!). Mundane is fine;
+              <em>distinctive</em> is better.
+            </li>
+            <li>
+              Driving or working? Don't break focus. Attach a photo later from
+              your photo library — a picture taken near that time and place
+              works almost as well. (Or let Context Memory log the place
+              automatically.)
+            </li>
+            <li>
+              During flashcard review, when the photo appears, take a second to
+              mentally <em>put yourself back there</em> before answering. That
+              deliberate reinstatement is what fires the retrieval cue.
+            </li>
+            <li>
+              Don't photograph everything. A photo on every paragraph is noise;
+              a photo on the ten ideas you most want to keep is a memory palace.
+            </li>
+          </ul>
+          <blockquote>
+            <p>
+              <strong>Is this a "memory palace"?</strong> Close cousin. The
+              memory palace (method of loci) deliberately places facts into an
+              imagined space; Echo's photo and place bookmarks capture the
+              <em>real</em> space your brain already attached to the moment.
+              Same spatial machinery — brain-imaging studies of champion
+              memorizers (Maguire et al., 2003) show they lean on exactly these
+              spatial-memory regions — but with zero effort, because your
+              hippocampus was doing it anyway.
+            </p>
+          </blockquote>
+          <hr />
+          <span
+            class="anchor-alias"
+            id="2-the-study-system--spaced-repetition-explained-from-zero"
+          ></span>
+          <h2 id="srs">
+            2. The Study System — spaced repetition, explained from zero
+          </h2>
+          <p>
+            <strong>What it does:</strong> Echo has a built-in flashcard system.
+            A bookmark or reader passage can become a card with a front (the
+            prompt) and a back (the answer) — and cards can carry the actual
+            audio clip from the book. Echo schedules reviews for you: a card you
+            know well disappears for weeks; a card you fumbled comes back
+            tomorrow. Your due cards show up in a Daily Review queue on your
+            phone — and on your wrist.
+          </p>
+          <p>
+            <strong>Never heard of Anki? Start here.</strong> Anki is beloved
+            flashcard software used by medical students, language learners, and
+            memory nerds worldwide. Its superpower is the <em>schedule</em>:
+            instead of cramming, it shows you each card at the moment you're
+            about to forget it — first after a day, then a few days, then weeks,
+            then months. Each successful recall flattens your forgetting curve a
+            little more, until the fact is effectively permanent.
+          </p>
+          <p>
+            Echo uses
+            <strong
+              ><a class="gloss" href="glossary.html#fsrs" data-term="fsrs"
+                >FSRS</a
+              ></strong
+            >
+            to schedule reviews. Decks, tags, card editing, and per-deck review
+            are implemented. The phone's
+            <strong>Settings → Study &amp; Notes → Import Deck</strong> accepts
+            Echo JSON or a deck folder. An Anki <code>.apkg</code> importer
+            exists in the backend, but that phone picker does not expose it. Mac
+            offers Anki export and an optional AnkiConnect handoff. See
+            <a href="manual.html#9-the-study-system-flashcards--review"
+              >the manual</a
+            >
+            for the supported routes.
+          </p>
+          <p>
+            <strong
+              >The science: the Forgetting Curve and the Spacing Effect.</strong
+            >
+            In the 1880s, Hermann Ebbinghaus measured how quickly memorized
+            material decays: steeply at first — most of it within days — then
+            slowly. He also found the fix: each well-timed review resets the
+            curve and makes it shallower. A century-plus of follow-up research
+            (including a major meta-analysis by Cepeda and colleagues in 2006)
+            keeps confirming it:
+            <strong
+              >spacing reviews out beats massing them together, for essentially
+              everyone, for essentially everything.</strong
+            >
+          </p>
+          <p><strong>Why audio flashcards beat paper ones:</strong></p>
+          <ul>
+            <li>
+              <strong>Two memory channels instead of one.</strong> Hearing the
+              narrator's clip while reading the card engages both verbal and
+              auditory encoding — and if you attached a photo, a visual cue too.
+              More routes in, more routes back out.
+            </li>
+            <li>
+              <strong>Matching cue and memory.</strong> You learned the material
+              <em>by ear</em>. Reviewing it by ear matches the retrieval cue to
+              how the memory was encoded — the encoding-specificity principle
+              (Tulving &amp; Thomson, 1973).
+            </li>
+            <li>
+              <strong>Review happens in dead time, not desk time.</strong> What
+              kills flashcard habits isn't difficulty — it's needing to sit
+              down. Echo reviews ride along while you walk the dog or wait in
+              the car, including hands-free on Apple Watch. The best study
+              system is the one that fits inside the life you already have.
+            </li>
+          </ul>
+          <p><strong>How to use it:</strong></p>
+          <ul>
+            <li>
+              Make cards from <em>meaningful</em> moments: definitions,
+              frameworks, numbers you'll need. Skip trivia.
+            </li>
+            <li>
+              Write fronts as questions ("What are the four causes of X?"), not
+              labels. A question forces retrieval; a label invites recognition.
+            </li>
+            <li>
+              Do your Daily Review when the notification arrives. Five minutes
+              daily beats an hour monthly — that's the whole point of spacing.
+            </li>
+            <li>
+              Trust the schedule. Re-reviewing cards that aren't due is the
+              cramming instinct — the exact thing the system is saving you from.
+            </li>
+            <li>
+              Bringing a deck from another tool? Use the supported Echo
+              JSON/folder format and check the import result before relying on
+              it for study.
+            </li>
+          </ul>
+          <hr />
+          <span
+            class="anchor-alias"
+            id="3-honest-grading--the-testing-effect"
+          ></span>
+          <h2 id="grading">3. Honest Grading — the testing effect</h2>
+          <p>
+            <strong>What it does:</strong> After each flashcard, Echo asks you
+            to grade yourself: <strong>Again, Hard, Good, or Easy</strong>. Your
+            answer drives the schedule.
+          </p>
+          <p>
+            <strong>The science: Retrieval Practice.</strong> Testing isn't just
+            measurement — it's the intervention. Roediger &amp; Karpicke's
+            landmark 2006 studies showed that students who
+            <em>practiced recalling</em> material remembered far more a week
+            later than students who spent the same time re-reading it — even
+            though re-reading <em>felt</em> more effective. The struggle to pull
+            something from memory is what strengthens it.
+          </p>
+          <ul>
+            <li>
+              Before flipping a card, actually answer it — out loud or in your
+              head. <em>Then</em> look.
+            </li>
+            <li>
+              Grade ruthlessly. "Again" is not failure; it's telling the
+              scheduler the truth so it can help. An over-graded card disappears
+              for a month and takes the memory with it.
+            </li>
+            <li>
+              Feeling a card was <em>hard</em> is good news. Effortful retrieval
+              — what researcher Robert Bjork calls a "desirable difficulty" — is
+              exactly the condition under which memory grows.
+            </li>
+          </ul>
+          <hr />
+          <span
+            class="anchor-alias"
+            id="4-mark-now-card-later--protect-the-flow"
+          ></span>
+          <h2 id="marklater">4. Mark Now, Card Later — protect the flow</h2>
+          <p>
+            <strong>What it does:</strong> A single tap — on the transport bar
+            or a watch button — <strong>marks</strong> the passage you just
+            heard, with a few seconds of context on either side, and the
+            narration never stops. Later, your <strong>Card Inbox</strong> shows
+            every mark grouped by book, with its transcript snippet and audio.
+            Turn marks into flashcards when you actually have the bandwidth — or
+            swipe away the ones that didn't age well.
+          </p>
+          <p>
+            <strong>The science: Attention Residue.</strong> Switching tasks
+            isn't free, even for "just a second." Sophie Leroy's research on
+            <em>attention residue</em> (2009) shows that part of your attention
+            stays stuck on an interrupted task after you switch — and
+            interruption studies (Monk, Trafton &amp; Boehm-Davis, 2008) show
+            the cost grows with the interruption's length and depth. Stopping a
+            book mid-argument to type a flashcard is exactly the kind of deep
+            interruption that leaves residue in both directions. A one-tap mark
+            is the shallowest possible interruption: capture intent now, do the
+            work when switching costs nothing.
+          </p>
+          <ul>
+            <li>
+              Mark generously, convert selectively. The tap costs nothing; the
+              inbox is where judgment happens.
+            </li>
+            <li>
+              Batch your inbox at a set time — end of the listening day, or
+              Sunday with coffee. Converting five marks in a row is faster (and
+              produces better cards) than five mid-listen scrambles.
+            </li>
+            <li>
+              While converting, the snippet replays the narrator. Write the
+              front as a question <em>before</em> replaying — that's a free
+              retrieval rep.
+            </li>
+          </ul>
+          <hr />
+          <span
+            class="anchor-alias"
+            id="5-capture-a-thought--close-the-open-loop"
+          ></span>
+          <h2 id="braindump">5. Capture a thought — close the open loop</h2>
+          <p>
+            <strong>What it does:</strong> Add a text note to the current book,
+            or save a voice-memo bookmark. For a general thought on your Watch,
+            <strong>Inbox</strong> opens native dictation and queues the message
+            for the webhook you configured on the paired phone. An open book can
+            supply context; a book is not required. Watch Inbox and local book
+            notes are separate destinations.
+          </p>
+          <p>
+            <strong
+              >The science: the Zeigarnik Effect &amp; Cognitive
+              Offloading.</strong
+            >
+            Unfinished business doesn't wait quietly. Bluma Zeigarnik documented
+            in 1927 that interrupted, incomplete tasks are remembered better —
+            and intrude more — than completed ones. Masicampo &amp; Baumeister
+            (2011) found the modern fix: you don't have to <em>do</em> the
+            nagging task to silence it — merely
+            <strong>making a concrete plan</strong> (or capturing it somewhere
+            you trust) stops it from hijacking attention. And working memory is
+            brutally small — roughly three to five items at once (Cowan, 2010) —
+            so every "don't forget…" you carry is a slot stolen from the book.
+            Offloading to an external store (Risko &amp; Gilbert, 2016) hands
+            the thought to something that never forgets, and frees the slot.
+          </p>
+          <ul>
+            <li>
+              <strong>Choose the destination before relying on it.</strong> Book
+              notes belong with your reading; Watch Inbox goes to your
+              configured endpoint.
+            </li>
+            <li>
+              <strong>Capture, then return.</strong> Save the thought in the
+              available format and resume the passage.
+            </li>
+            <li>
+              <strong>Check delivery separately.</strong> A saved Watch haptic
+              means queued locally. The phone's Watch Inbox settings show
+              endpoint acceptance; that does not mean someone has read it.
+            </li>
+          </ul>
+          <p>
+            The broader unified Brain Dump inbox with note-promotion actions
+            remains planned.
+            <a href="manual.html#10-notes-and-watch-inbox">The manual</a> covers
+            what you can use today.
+          </p>
+          <hr />
+          <span
+            class="anchor-alias"
+            id="6-chapter-looping--repetition-on-your-terms"
+          ></span>
+          <h2 id="looping">6. Chapter Looping — repetition on your terms</h2>
+          <p>
+            <strong>What it does:</strong> Echo can loop a single chapter until
+            you turn looping off — the feature this entire app was born from.
+            Loop the whole playlist, one chapter, or the exact passage between
+            two bookmarks.
+          </p>
+          <p>
+            <strong>The science: Repetition, then Distribution.</strong> Hearing
+            dense material once at highway speed is not learning — repetition
+            genuinely helps build the representation. But research on
+            <em>distributed practice</em> shows the bigger win is spreading
+            exposures out: three passes over three days beat six passes in one
+            afternoon. Loop a chapter today; let your flashcards and scheduled
+            reviews carry it across the week.
+          </p>
+          <ul>
+            <li>
+              For a book you need to <em>know</em>: loop one or two chapters per
+              day rather than racing to the end. Six hours of driving = one
+              chapter genuinely absorbed beats six chapters vaguely heard.
+            </li>
+            <li>
+              End of a looped day, ask the honest question: could you teach this
+              chapter? If not, tomorrow is another loop day.
+            </li>
+            <li>
+              Drop a bookmark at the start and end of a key argument, switch to
+              <strong>loop between bookmarks</strong>, and drill exactly that
+              stretch.
+            </li>
+          </ul>
+          <blockquote>
+            <p>
+              <strong>Chapter Study Plans are partly implemented.</strong> For
+              EPUB-backed books, choose chapters and a release cadence in Book
+              Settings → Study Plan. Chapter assignments join the FSRS queue
+              after grading. Some hands-free re-listen and retirement
+              interactions remain unfinished. Ordinary chapter looping is
+              available independently.
+            </p>
+          </blockquote>
+          <hr />
+          <span
+            class="anchor-alias"
+            id="7-smart-rewind--pick-up-where-your-mind-left-off"
+          ></span>
+          <h2 id="rewind">
+            7. Smart Rewind — pick up where your <em>mind</em> left off
+          </h2>
+          <p>
+            <strong>What it does:</strong> When you resume after a pause, Echo
+            automatically rewinds — a little after a short pause, more after
+            minutes, a lot after hours or days. You configure the levels; Echo
+            applies them silently every time you hit play.
+          </p>
+          <p>
+            <strong>The science: Interruption &amp; Resumption.</strong>
+            Research on task interruption (Monk, Trafton &amp; Boehm-Davis,
+            2008) shows that resuming after a break carries a real cost — a
+            "resumption lag" while your brain rebuilds the context it dropped.
+            The longer the interruption, the more context is gone. Re-hearing
+            the last stretch is the cheapest way to rebuild it: it reinstates
+            the narrative context so the next sentence has something to attach
+            to.
+          </p>
+          <p>
+            This is the feature that makes Echo survive real life. Standard
+            players punish every interruption with confusion ("wait, who's
+            talking?"); Echo absorbs the interruption for you.
+          </p>
+          <ul>
+            <li>
+              Tune the three tiers (seconds / minutes / hours) to your life.
+              Hopping out of a delivery vehicle every few minutes? Short-pause
+              rewind of ~10 seconds. Overnight gap? A minute or more.
+            </li>
+            <li>
+              Don't fight it. If the rewound material feels boringly familiar —
+              perfect. That's confirmation you encoded it the first time, and it
+              costs seconds.
+            </li>
+          </ul>
+          <hr />
+          <span
+            class="anchor-alias"
+            id="8-read-along--the-synced-epub--pdf-reader"
+          ></span>
+          <h2 id="readalong">
+            8. Read Along — the synced EPUB &amp; PDF reader
+          </h2>
+          <p>
+            <strong>What it does:</strong> Add the EPUB or PDF next to your
+            audiobook and Echo aligns text to audio — on-device, using its own
+            speech recognition. The Read tab scrolls with the narration,
+            highlighting the active paragraph. Tap any paragraph to jump the
+            audio there. Search the full text and leap to the moment it's
+            <em>spoken</em>. And when the narrator says "as shown in the
+            diagram" — the diagram is right there.
+          </p>
+          <p>
+            <strong>The science: Dual Coding.</strong> Allan Paivio's dual
+            coding theory holds that information encoded both verbally and
+            visually creates two interconnected memory traces instead of one —
+            and decades of multimedia-learning research backs the practical
+            upshot: synchronized words + visuals beat either alone. Reading
+            along also keeps wandering attention tethered: when your eyes lose
+            the thread, your ears still have it, and vice versa.
+          </p>
+          <p>
+            Many people — especially many neurodivergent people — simply cannot
+            absorb a book through one channel alone. Echo never asks you to.
+          </p>
+          <ul>
+            <li>
+              Run <strong>Auto-Align Chapters</strong> once when you add a book;
+              let drift detection and repair do the fussy work. Lock a manual
+              anchor anywhere it matters.
+            </li>
+            <li>
+              Listening-first day? Leave the reader closed and trust the
+              bookmarks. Studying? Open the Read tab — especially for
+              diagram-heavy non-fiction.
+            </li>
+            <li>
+              Use search as memory rescue: "they said something about cortisol…"
+              → search → tap → you're hearing that exact sentence.
+            </li>
+            <li>
+              Dyslexic or just prefer it? Switch the reader to
+              <strong>OpenDyslexic</strong> or <strong>Lexend</strong> — both
+              built in, both chosen from reading-fluency research.
+            </li>
+          </ul>
+          <hr />
+          <span
+            class="anchor-alias"
+            id="9-voice-memo-bookmarks--think-out-loud-keep-the-thought"
+          ></span>
+          <h2 id="voicememos">
+            9. Voice Memo Bookmarks — think out loud, keep the thought
+          </h2>
+          <p>
+            <strong>What it does:</strong> Hold the bookmark button and talk.
+            Your memo is pinned to that exact second of the book — and Echo can
+            play memos back <em>inline</em> when playback reaches them, so
+            past-you briefs present-you right on cue. On the road, ask Siri or
+            use the watch; your hands never leave the wheel.
+          </p>
+          <p>
+            <strong
+              >The science: Self-Explanation &amp; the Production
+              Effect.</strong
+            >
+            Explaining material in your own words — even just to yourself — is
+            one of the most reliable comprehension boosters in the literature
+            (the "self-explanation effect," Chi et al., 1989). Separately, the
+            "production effect" (MacLeod et al., 2010) shows that material you
+            say <em>out loud</em> is remembered better than material you merely
+            think. A voice memo does both at once. The recording is almost a
+            bonus — the speaking already did half the work.
+          </p>
+          <ul>
+            <li>
+              Capture <em>your reaction</em>, not a summary: "this contradicts
+              what chapter 2 said" beats "interesting point."
+            </li>
+            <li>
+              Say why it matters to <em>you</em>: "use this in Thursday's
+              meeting." Future relevance is a powerful retrieval hook.
+            </li>
+            <li>
+              Leave inline playback on for review listens. Your own voice
+              interrupting the narrator is exactly the cue-rich, slightly weird
+              moment that sticks.
+            </li>
+          </ul>
+          <hr />
+          <span
+            class="anchor-alias"
+            id="10-pristine-speed-control--faster-without-the-chipmunks"
+          ></span>
+          <h2 id="speed">
+            10. Pristine Speed Control — faster without the chipmunks
+          </h2>
+          <p>
+            <strong>What it does:</strong> Echo adjusts playback speed with
+            proper pitch correction, so 1.25× sounds like a quicker human, not a
+            cartoon. Speed is remembered per book.
+          </p>
+          <p>
+            <strong>The science: comprehension has a speed budget.</strong>
+            Studies of time-compressed speech show comprehension holds up well
+            at moderate accelerations, then degrades as speed climbs (Murphy et
+            al., 2021; Foulke &amp; Sticht, 1969). The skill is matching speed
+            to difficulty: cruise through familiar territory, slow down where
+            ideas are thick.
+          </p>
+          <ul>
+            <li>
+              Set a comfortable default (1.25× is most people's sweet spot),
+              then adjust <em>per book</em> — Echo remembers each one.
+            </li>
+            <li>
+              Hit a dense argument? Drop to 1× and loop it rather than plowing
+              through at speed.
+            </li>
+            <li>
+              Re-listens of looped chapters can run faster — you're reinforcing,
+              not decoding.
+            </li>
+          </ul>
+          <hr />
+          <span
+            class="anchor-alias"
+            id="11-insights--see-yourself-learn"
+          ></span>
+          <h2 id="insights">11. Insights — see yourself learn</h2>
+          <p>
+            <strong>What it does:</strong> On iPhone/iPad, Stats and per-book
+            Insights are built from your actual listening and review history —
+            computed on your device, from your local history. Listening time by
+            day, week, month, or year. Active days and review-history charts. A
+            per-book view with <strong>chapter coverage</strong> ("Chapter 7 —
+            86% covered, listened 3×"). Your speed trend and time-of-day
+            patterns. For flashcards: reviews per day, a retention curve, grade
+            distribution, and a 30-day due forecast so review debt never
+            ambushes you. If you use Context Memory, a simple list of the places
+            you listen most.
+          </p>
+          <p>
+            <strong>The science: Self-Monitoring &amp; Feedback.</strong>
+            Learners are famously bad at judging their own learning — re-reading
+            <em>feels</em> effective precisely when it isn't. Decades of work on
+            self-regulated learning (Zimmerman, 2002) put accurate
+            self-monitoring at the center of effective studying, and Hattie
+            &amp; Timperley's landmark review (2007) ranks concrete feedback
+            among the most powerful influences on learning. Honest data
+            substitutes for vibes. Goal-setting research (Locke &amp; Latham,
+            2002) adds the second half: specific, visible progress against a
+            specific target sustains effort far better than "do your best."
+          </p>
+          <ul>
+            <li>
+              <strong>Check coverage before a re-listen.</strong> The chapter
+              heatmap shows exactly which chapters you've actually heard versus
+              skimmed past — re-listen to the gaps, not the whole book.
+            </li>
+            <li>
+              <strong
+                >Use the due forecast to right-size your card-making.</strong
+              >
+              Fifty new cards today is two hundred reviews next month. The
+              forecast makes the trade visible while you can still adjust.
+            </li>
+            <li>
+              <strong>Find your golden hours.</strong> The time-of-day chart
+              tells you when you actually listen and retain. Schedule the dense
+              book there.
+            </li>
+            <li>
+              <strong>Streaks bend, they don't break.</strong> A missed day is
+              data, not a verdict. The goal is the trend line, not a perfect
+              chain — see the
+              <a href="focus.html#6-all-or-nothing-thinking--finding-the-gray"
+                >Focus guide on all-or-nothing thinking</a
+              >
+              for why this matters double for ADHD brains.
+            </li>
+          </ul>
+          <hr />
+          <span
+            class="anchor-alias"
+            id="12-second-brain-export--make-it-yours-forever"
+          ></span>
+          <h2 id="secondbrain">
+            12. Second-Brain Export — make it yours forever
+          </h2>
+          <p>
+            <strong>What it does:</strong> Export the current book's study notes
+            as a Markdown bundle, or export study notes across your library from
+            Settings. The media bundle can include voice memos, photos, and card
+            media. Echo Pro's <strong>Auto-Export Study Notes</strong> keeps a
+            separate <strong>text-only</strong> Markdown mirror in a folder you
+            choose; media and location data stay in Echo. Use the files in your
+            own notes tool. Exporting is a copy, not two-way study sync.
+          </p>
+          <p>
+            <strong
+              >The science: the Generation Effect &amp; trusted storage.</strong
+            >
+            Two principles meet here. First, the
+            <em>generation effect</em> (Slamecka &amp; Graf, 1978): material you
+            produce yourself is remembered better than material you receive —
+            and your exported notes are exactly the material you generated.
+            Reorganizing them in your own system is another generation pass, not
+            busywork. Second, offloading only works when the external store is
+            <em>trusted</em> (Risko &amp; Gilbert, 2016): a capture system you
+            can't search or might lose teaches your brain to keep
+            white-knuckling everything. Plain files in your own vault are the
+            most trustworthy storage that exists.
+          </p>
+          <ul>
+            <li>
+              Export when you <em>finish</em> a book and spend twenty minutes
+              reorganizing the notes in your own words — that pass is studying,
+              disguised as filing.
+            </li>
+            <li>
+              Link book notes to your existing notes ("connects to [[Atomic
+              Habits]]"). Connections are retrieval routes.
+            </li>
+            <li>
+              Keep the audio cards in Echo for scheduled review; use the export
+              as the searchable archive. Different tools, different jobs.
+            </li>
+          </ul>
+          <hr />
+          <span
+            class="anchor-alias"
+            id="13-pomodoro-timer--attention-is-a-budget"
+          ></span>
+          <h2 id="pomodoro">13. Pomodoro Timer — attention is a budget</h2>
+          <p>
+            <strong>What it does:</strong> A focus timer on your wrist, inside
+            the watch remote: set a work interval, get a persistent alarm when
+            it ends, glance at progress without touching your phone.
+          </p>
+          <p>
+            <strong>The science: attention management.</strong> The Pomodoro
+            Technique (Francesco Cirillo) builds on a well-supported finding:
+            sustained attention degrades over long unbroken stretches, and brief
+            breaks keep it from sliding (Ariga &amp; Lleras, 2011). Brief rests
+            between intervals also give memory consolidation a quiet moment to
+            work.
+          </p>
+          <ul>
+            <li>
+              Pair a pomodoro with a chapter: "one 25-minute interval on chapter
+              6, then I grade myself."
+            </li>
+            <li>
+              Use the break for retrieval, not scrolling: thirty seconds of
+              "what did I just hear?" turns a rest into a review.
+            </li>
+          </ul>
+          <hr />
+          <span
+            class="anchor-alias"
+            id="14-sleep-timer--end-the-day-keep-the-thread"
+          ></span>
+          <h2 id="sleep">14. Sleep Timer — end the day, keep the thread</h2>
+          <p>
+            <strong>What it does:</strong> Fade out and pause after a set time
+            or at chapter's end — and tomorrow, Smart Rewind backs you up over
+            the part you drifted through, automatically.
+          </p>
+          <p>
+            Sleep is when the hippocampus replays and consolidates the day's
+            learning — but material you heard <em>while falling asleep</em> was
+            barely encoded to begin with (Diekelmann &amp; Born, 2010; Simon
+            &amp; Emmons, 1956). The honest combination is exactly what Echo
+            does: stop playback when you fade, then re-cover that ground on
+            resume instead of pretending you heard it.
+          </p>
+          <hr />
+          <span
+            class="anchor-alias"
+            id="the-echo-method--putting-it-together"
+          ></span>
+          <h2 id="method">The Echo Method — putting it together</h2>
+          <ol type="1">
+            <li>
+              <strong>First pass (listen):</strong> normal or slightly raised
+              speed. When something lands, bookmark it — voice memo if your
+              hands are busy, photo if the moment is distinctive. A passing
+              thought about anything else? Brain-dump it and keep listening.
+              (🚧)
+            </li>
+            <li>
+              <strong>Mark the card-worthy moments:</strong> one tap, no pause.
+              They'll wait in the Card Inbox. (🚧)
+            </li>
+            <li>
+              <strong>Loop what matters:</strong> for dense chapters, loop until
+              you could explain them. One or two chapters a day is a
+              <em>fast</em> pace for real learning.
+            </li>
+            <li>
+              <strong>Harvest on your schedule:</strong> at home, process the
+              inboxes — promote marks to flashcards (front as a question, audio
+              attached), promote brain-dump keepers to bookmarks or cards,
+              delete the rest.
+            </li>
+            <li>
+              <strong>Review daily:</strong> when the notification arrives,
+              clear your due cards — phone or watch, five-ish minutes.
+            </li>
+            <li>
+              <strong>Check Insights weekly:</strong> coverage gaps tell you
+              what to re-listen; the due forecast tells you whether to ease up
+              on new cards. (🚧)
+            </li>
+            <li>
+              <strong>Read-along pass (optional, for the big books):</strong>
+              weekend re-listen with the Read tab open, eyes on the diagrams
+              your ears skipped.
+            </li>
+            <li>
+              <strong>Graduate the book:</strong> when you're done, export the
+              study bundle to your second brain and reorganize it in your own
+              words. (🚧)
+            </li>
+          </ol>
+          <p>
+            None of these steps is hard; the entire system is designed to run
+            inside a life full of interruptions — because it was built inside
+            one.
+          </p>
+          <hr />
+          <span class="anchor-alias" id="sources--further-reading"></span>
+          <h2 id="sources">Sources &amp; further reading</h2>
+          <ul>
+            <li>
+              Deniz, Nunez-Elizalde, Huth &amp; Gallant (2019). The
+              representation of semantic information across human cerebral
+              cortex during listening versus reading is invariant to stimulus
+              modality. <em>Journal of Neuroscience.</em>
+            </li>
+            <li>
+              Rogowsky, Calhoun &amp; Tallal (2016). Does modality matter? The
+              effects of reading, listening, and dual modality on comprehension.
+              <em>SAGE Open.</em>
+            </li>
+            <li>
+              Daniel &amp; Woody (2010). They hear, but do not listen: Retention
+              for podcasted material in a classroom context.
+              <em>Teaching of Psychology.</em>
+            </li>
+            <li>
+              Willingham (2018). Is listening to a book the same thing as
+              reading it? <em>The New York Times.</em>
+            </li>
+            <li>
+              Varao Sousa, Carriere &amp; Smilek (2013). The way we encounter
+              reading material influences how frequently we mind wander.
+              <em>Frontiers in Psychology.</em>
+            </li>
+            <li>
+              Godden &amp; Baddeley (1975). Context-dependent memory in two
+              natural environments. <em>British Journal of Psychology.</em>
+            </li>
+            <li>
+              Smith &amp; Vela (2001). Environmental context-dependent memory: A
+              review and meta-analysis.
+              <em>Psychonomic Bulletin &amp; Review.</em>
+            </li>
+            <li>
+              Tulving &amp; Thomson (1973). Encoding specificity and retrieval
+              processes in episodic memory. <em>Psychological Review.</em>
+            </li>
+            <li>
+              Ebbinghaus (1885).
+              <em>Memory: A Contribution to Experimental Psychology.</em>
+            </li>
+            <li>
+              Cepeda et al. (2006). Distributed practice in verbal recall tasks.
+              <em>Psychological Bulletin.</em>
+            </li>
+            <li>
+              Roediger &amp; Karpicke (2006). Test-enhanced learning.
+              <em>Psychological Science.</em>
+            </li>
+            <li>
+              Bjork (1994). Memory and metamemory considerations in the training
+              of human beings.
+            </li>
+            <li>
+              Paivio (1986).
+              <em>Mental Representations: A Dual Coding Approach.</em>
+            </li>
+            <li>
+              Chi et al. (1989). Self-explanations. <em>Cognitive Science.</em>
+            </li>
+            <li>
+              MacLeod et al. (2010). The production effect.
+              <em>JEP: Learning, Memory, and Cognition.</em>
+            </li>
+            <li>
+              Monk, Trafton &amp; Boehm-Davis (2008). The effect of interruption
+              duration and demand on resuming suspended goals.
+              <em>JEP: Applied.</em>
+            </li>
+            <li>
+              Maguire et al. (2003). Routes to remembering: the brains behind
+              superior memory. <em>Nature Neuroscience.</em>
+            </li>
+            <li>
+              Leroy (2009). Why is it so hard to do my work? The challenge of
+              attention residue.
+              <em>Organizational Behavior and Human Decision Processes.</em>
+            </li>
+            <li>
+              Zeigarnik (1927). Das Behalten erledigter und unerledigter
+              Handlungen. <em>Psychologische Forschung.</em>
+            </li>
+            <li>
+              Masicampo &amp; Baumeister (2011). Consider it done! Plan making
+              can eliminate the cognitive effects of unfulfilled goals.
+              <em>Journal of Personality and Social Psychology.</em>
+            </li>
+            <li>
+              Risko &amp; Gilbert (2016). Cognitive offloading.
+              <em>Trends in Cognitive Sciences.</em>
+            </li>
+            <li>
+              Cowan (2010). The magical mystery four: How is working memory
+              capacity limited, and why?
+              <em>Current Directions in Psychological Science.</em>
+            </li>
+            <li>
+              Slamecka &amp; Graf (1978). The generation effect: Delineation of
+              a phenomenon. <em>JEP: Human Learning and Memory.</em>
+            </li>
+            <li>
+              Zimmerman (2002). Becoming a self-regulated learner: An overview.
+              <em>Theory Into Practice.</em>
+            </li>
+            <li>
+              Hattie &amp; Timperley (2007). The power of feedback.
+              <em>Review of Educational Research.</em>
+            </li>
+            <li>
+              Locke &amp; Latham (2002). Building a practically useful theory of
+              goal setting and task motivation. <em>American Psychologist.</em>
+            </li>
+            <li>
+              Lally et al. (2010). How are habits formed: Modelling habit
+              formation in the real world.
+              <em>European Journal of Social Psychology.</em>
+            </li>
+            <li>
+              Foulke &amp; Sticht (1969). Review of research on the
+              intelligibility and comprehension of accelerated speech.
+              <em>Psychological Bulletin.</em>
+            </li>
+            <li>
+              Murphy et al. (2021). Learning in double time: The effect of
+              lecture video speed on immediate and delayed comprehension.
+              <em>Applied Cognitive Psychology.</em>
+            </li>
+            <li>
+              Ariga &amp; Lleras (2011). Brief and rare mental "breaks" keep you
+              focused: Deactivation and reactivation of task goals preempt
+              vigilance decrements. <em>Cognition.</em>
+            </li>
+            <li>
+              Simon &amp; Emmons (1956). Responses to material presented during
+              various levels of sleep.
+              <em>Journal of Experimental Psychology.</em>
+            </li>
+            <li>
+              Diekelmann &amp; Born (2010). The memory function of sleep.
+              <em>Nature Reviews Neuroscience.</em>
+            </li>
+          </ul>
+          <p>
+            <em
+              >Echo is not a medical device and makes no clinical claims — it's
+              a media player built with care around how memory actually
+              works.</em
+            >
+          </p>
+        </article>
+      </div>
     </main>
 
     <footer class="site-footer">
-        <div class="footer-links">
-            <a href="beta.html">Beta</a>
-            <a href="learn.html">Learn</a>
-            <a href="focus.html">Focus</a>
-            <a href="manual.html">Manual</a>
-            <a href="devlog.html">Devlog</a>
-            <a href="glossary.html">Glossary</a>
-            <a href="privacy.html">Privacy</a>
-            <a href="https://github.com/dfakkeldy/Echo" target="_blank" rel="noopener noreferrer">GitHub</a>
-            <a href="https://github.com/dfakkeldy/Echo/issues" target="_blank" rel="noopener noreferrer">Support</a>
-        </div>
-        <p>&copy; 2026 Echo. Open source under the GPL-3.0 License.</p>
-        <p class="footer-fineprint">This site is set in OpenDyslexic, hosts its own fonts, runs one small first-party script (the glossary), sets no cookies, and makes no network calls.</p>
+      <div class="footer-top">
+        <a class="footer-brand" href="index.html"
+          >Echo <span aria-hidden="true">∞</span></a
+        >
+        <p>For every mind. Built around the way you listen.</p>
+        <a href="#main">Back to top ↑</a>
+      </div>
+      <nav class="footer-links" aria-label="Footer">
+        <a href="https://kinnokilabs.com/apps/echo">KinNoKi Labs</a>
+        <a href="beta.html">Beta access</a>
+        <a href="manual.html">Manual</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="terms.html">Terms</a>
+        <a href="https://github.com/dfakkeldy/Echo/issues">Support</a>
+        <a href="https://github.com/dfakkeldy/Echo">GitHub</a>
+      </nav>
+      <p class="footer-fineprint">
+        © 2026 KinNoKi Labs · GPL-3.0 · Public documentation for Echo. Fonts
+        and scripts are hosted here; this site uses no analytics or cookies.
+      </p>
     </footer>
 
     <script defer src="glossary.js"></script>
-</body>
+  </body>
 </html>
