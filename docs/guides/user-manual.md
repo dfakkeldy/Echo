@@ -1,12 +1,8 @@
 # Echo User Manual
 
-The complete reference for **Echo: Audiobook Study Player** on iPhone, iPad, Apple Watch, Mac, and widgets.
+The reference for Echo on iPhone, iPad, Apple Watch, and Mac.
 
-New to Echo? Read [Getting the Most Out of Echo](getting-the-most-out-of-echo.md) first — it explains *why* these features help you learn. This manual explains *how* everything works.
-
-> **Status tags:** 🚧 **Coming in 1.0** = in active development right now. 🔭 **Roadmap** = planned after 1.0. Everything unmarked ships in the current beta.
-
----
+**Reviewed against `nightly`, October 24, 2026.** This guide describes the current source. TestFlight tracks can contain older builds; check your build's What to Test notes. Planned work is labelled explicitly. Start with [the learning guide](getting-the-most-out-of-echo.md) for the thinking behind the study tools.
 
 ## Contents
 
@@ -19,585 +15,299 @@ New to Echo? Read [Getting the Most Out of Echo](getting-the-most-out-of-echo.md
 7. [Sleep Timer](#7-sleep-timer)
 8. [Bookmarks](#8-bookmarks)
 9. [The Study System](#9-the-study-system-flashcards--review)
-10. [Brain Dump & Book Notes](#10-brain-dump--book-notes--coming-in-10)
+10. [Notes and Watch Inbox](#10-notes-and-watch-inbox)
 11. [The Reader: EPUB](#11-the-reader-epub)
 12. [Audio–Text Alignment](#12-audiotext-alignment)
-13. [PDF Companions](#13-pdf-companion-documents)
-14. [Insights](#14-insights--coming-in-10)
-15. [Context Memory](#15-context-memory-location--coming-in-10)
+13. [PDF Companion Documents](#13-pdf-companion-documents)
+14. [Insights](#14-insights)
+15. [Context Memory](#15-context-memory-location)
 16. [Exports & Your Data](#16-exports--your-data)
 17. [Playlist & Study Library](#17-playlist--study-library)
 18. [Apple Watch](#18-apple-watch)
-19. [Widgets & Control Center](#19-widgets--control-center)
+19. [Widgets & System Controls](#19-widgets--system-controls)
 20. [Echo for Mac](#20-echo-for-mac)
 21. [Sync & iCloud](#21-sync--icloud)
 22. [Settings Reference](#22-settings-reference)
-23. [Transcription Tools](#23-transcription-tools-power-users)
+23. [Command-Line Tools](#23-command-line-tools)
 24. [Privacy](#24-privacy)
-25. [Troubleshooting & FAQ](#25-troubleshooting--faq)
-
----
+25. [Troubleshooting](#25-troubleshooting)
+26. [On-Device Narration](#26-on-device-narration)
+27. [Articles & Anthologies](#27-articles--anthologies)
 
 ## 1. Getting Started
 
 ### What Echo plays
 
-Echo is a player for **DRM-free** audiobooks — files you own and can see in the Files app:
+Echo plays **DRM-free files** you own: MP3, M4A, and M4B, including folders of tracks and multi-file M4B books. The Mac also handles additional audio formats through its import/conversion path. Echo cannot play protected Audible or Apple Books downloads.
 
-- **MP3 / M4A** — including folders of one-file-per-chapter rips
-- **M4B** — with full embedded chapter parsing, including books split across multiple M4B files (chapters are aggregated automatically)
-- **FLAC, AAC, AIFF, OGG, OPUS, WMA** — on Mac
-- **EPUB** — as a synced companion text (see The Reader)
-- **PDF** — as a synced companion document (see PDF Companions)
-- **Markdown / plain text** (.md, .markdown, .txt) — imported as a standalone, narratable book; headings become chapters, then Echo narrates it on-device
-
-Echo does not bypass DRM and cannot play protected Audible/Apple Books titles. Tools like Libation or OpenAudible can export books you own to open formats — see the FAQ for details and a note on legality.
-
-### From an Audiobookshelf server
-
-Already running **Audiobookshelf**? Echo connects to your self-hosted server: add it in Settings, browse and search your libraries, download a book to your device, and play. Progress syncs both ways — where you stopped on the server is where you start in Echo, and vice-versa. Books download for offline listening (Echo is not a streaming client). On iPhone today; the Mac app follows.
+You can add an **EPUB or PDF** as companion reading material, or narrate a text-only **EPUB, PDF, Markdown (`.md`, `.markdown`), or plain-text (`.txt`)** document on-device. A scanned PDF needs usable text or a matching read-along file for narration; importing an image-only scan does not supply OCR.
 
 ### Loading your first book
 
-1. Put the audiobook in a folder — one folder per book is the happy path (see [Organizing Your Library](#2-organizing-your-library)). iCloud Drive, "On My iPhone," third-party file providers: all work.
-2. In Echo, choose **Load Folder** and select the book's folder.
-3. Echo scans the folder, builds the chapter list, finds the cover art (embedded art, or a `cover.*` image in the folder), and picks up any EPUB or PDF sitting alongside the audio for automatic import.
-4. Press play.
+1. Put the audio files in one folder per book. Add a companion EPUB/PDF and a cover image if you have them.
+2. Choose **Load Folder** and select that book's folder, or use the document import action for a standalone document.
+3. Let Echo scan the folder and import the companion text.
+4. Press Play. Echo saves a resume position and per-book playback settings.
 
-Echo remembers everything per book: position, speed, loop mode, and settings overrides. Reopen the app days later and it resumes exactly where you left off — with Smart Rewind backing up just enough to restore your context.
+On iPhone/iPad, the Library's Books shelf shows books you have **started listening to**, with related editions grouped under one cover. An unplayed import or companion document stays stored without creating another shelf cover. The Mac sidebar shows the full imported catalog.
 
-First launch walks you through this — including a step on setting up your library folder. 🚧 Coming in 1.0
+### From an Audiobookshelf server
 
-> 📸 *Screenshot coming soon — loading a book folder and the Now Playing screen that follows.*
+On iPhone/iPad, open **Settings → Library & Accounts → Connections**. On Mac, use the Audiobookshelf connection controls in Settings. Add your server, browse or filter its library, and download a book. Imports show downloading, extraction, validation, and adding progress; open the book after it reports Added. Failed imports can be retried.
+
+Both platforms support multiple saved servers and exchange progress for server-linked books. Echo downloads books for local playback; **Audiobookshelf streaming is planned**. Do not switch apps expecting progress to transfer until the server has received it.
 
 ### Cover art
 
-Echo looks for artwork in this order: image embedded in the audio file → an image file in the book folder (prefers `cover.*`) → the Echo app icon as fallback. Artwork drives the player background, the watch complication thumbnail, and the dynamic accent color.
-
----
+Echo uses embedded audio artwork, a cover image in the folder, or its app icon as a fallback. Artwork also informs the player theme and Watch thumbnail.
 
 ## 2. Organizing Your Library
 
-Echo reads your files in place — there's no import-everything step and no hidden copy of your library. That means a little folder discipline up front pays off every single day.
+### One folder per book
 
-### The golden rule: one folder per book
-
-```
-iCloud Drive/
-└── Audiobooks/
-    ├── Thinking, Fast and Slow/
-    │   ├── Thinking Fast and Slow.m4b
-    │   ├── Thinking Fast and Slow.epub   ← auto-imported
-    │   └── cover.jpg                     ← optional if art is embedded
-    ├── Project Hail Mary/
-    │   ├── 01 - Chapter 1.mp3
-    │   ├── 02 - Chapter 2.mp3
-    │   ├── …
-    │   └── cover.png
-    └── Archive/
-        └── (finished books)
+```text
+Audiobooks/
+├── A book title/
+│   ├── A book title.m4b
+│   ├── A book title.epub
+│   └── cover.jpg
+└── Another book/
+    ├── 01 - Introduction.mp3
+    ├── 02 - Chapter one.mp3
+    └── companion.pdf
 ```
 
-- **One parent folder** ("Audiobooks") holds everything. One place to look, one place to back up, one place to point Echo at.
-- **One folder per book**, named by the book title — human-readable ("Project Hail Mary", not "PHM_64kbps_final2").
-- **Companion text goes in the same folder.** Drop the `.epub` or `.pdf` next to the audio and Echo's auto-import scanner picks it up. One EPUB per book folder.
-- **An `Archive/` subfolder** keeps finished books out of your active view without deleting anything. Export your study notes first (see Exports).
+Keep companion documents beside the audio. Zero-pad track numbers so `02` sorts before `10`. Rename and organize files before first loading them; moving them later may require selecting the folder again.
 
-### File naming that sorts correctly
+### iCloud Drive and local storage
 
-- **Zero-pad track numbers:** `01, 02 … 10, 11` — not `1, 2 … 10`. Plain alphabetical sorting puts "10" before "2"; zero-padding fixes it everywhere, forever.
-- **Rename *before* the first load, not after.** Echo tracks progress per file; renaming files mid-book can orphan your position in them.
-- **Prefer M4B when you have the choice.** A single M4B carries embedded chapter markers and cover art in one tidy file. Books split across several M4Bs are fine — Echo aggregates the chapters automatically. Folders of MP3s work well; their "chapters" are the files, named by you.
-- **Libation-style fine-grained chapters are handled.** Files named like "Chapter 11. A" / "Chapter 11. B" are automatically grouped into logical chapters with sections.
+In Files or Finder, use **Keep Downloaded** before offline listening. A cloud icon can mean the file is visible but its audio bytes are not local. “On My iPhone” storage stays local to that device. Third-party file providers work through the system picker; download behavior depends on the provider.
 
-### iCloud Drive: the rules of the road
+Echo reads folder-backed audio in place. Document imports, generated narration, extracted images, and Audiobookshelf downloads also use managed local storage. The local database holds progress, cards, notes, and alignment records. Sharing the source folder through iCloud Drive does **not** sync that database.
 
-> **The single most important setting:** long-press your **Audiobooks** folder in the Files app and choose **Keep Downloaded**. Without it, iOS silently *evicts* audio files to reclaim space — the file is "there" with a little cloud icon, but the bytes are gone until re-downloaded. That's the #1 cause of "my book stopped playing mid-commute."
-
-- **Check the cloud icons before you leave Wi-Fi.** A cloud-with-arrow icon next to a file means it's not on the device.
-- **iCloud Drive is the cross-device choice:** the same folder is reachable from iPhone, iPad, and Mac. "On My iPhone" is the fully-offline choice — always local, never evicted, but invisible to other devices.
-- **On the Mac,** "Optimize Mac Storage" does the same eviction trick — right-click the folder in Finder and choose **Keep Downloaded** there too.
-- **Third-party providers** (Dropbox, Drive, NAS apps) work through the Files app, but many don't background-download as smoothly — for daily listening, iCloud Drive or on-device storage is less fussy.
-- **Don't move or rename the book's folder casually.** Echo holds a secure reference to the folder you picked; moving it may require re-selecting the folder (your bookmarks and cards survive — they live in Echo's database, not the folder).
-
-### What lives where
-
-| Data | Where it lives |
-|---|---|
-| Audio, EPUB, PDF files | Your folder, wherever you put it. Echo reads in place and never modifies your files. |
-| Bookmarks, flashcards, notes, alignment, progress | Echo's local database on the device (synced via your personal iCloud — see Sync). |
-| Playlist order edits | Echo's database *plus* a small portable manifest file in the book's folder. |
-| Voice memos & bookmark photos | Echo's app storage on the device. |
-
----
+Use Library actions to relocate missing files or remove stale entries. Keep backups of source files and export study material before removing a book.
 
 ## 3. The Three Tabs
 
-| Tab | What it's for |
-|---|---|
-| **Now Playing** | The player: artwork, scrubber, transport controls, speed, sleep timer, bookmarks, quick capture. |
-| **Read** | The synced EPUB/PDF reader: read along, search, align, highlight, bookmark from text. |
-| **Stats** | Insights, decks, Card Inbox, daily review, and study-library entry points. |
+The iPhone/iPad app has **Now Playing**, **Read & Study**, and **Library**. The reader and bottom dock keep playback, speed, bookmarks, notes, and Mark Passage close to the text. Study dashboards and Stats provide review queues, decks, and listening history.
 
-The compact bottom dock keeps playback controls available while you move between Now Playing and Read & Study.
-
----
+Mac uses a Library/table-of-contents sidebar, reader/player workspace, and a resizable Notes pane. Watch is an iPhone companion rather than an independent audiobook library.
 
 ## 4. Playback
 
-### Transport controls
+Play/pause, skip, chapter and section navigation, speed, and volume controls operate on the current book. Book settings can override defaults. Configure the phone controls at **Settings → Controls → Phone Player Settings**; controls can have different tap and long-press actions.
 
-Five configurable transport buttons. Defaults: skip back, previous chapter, play/pause, next chapter, skip forward.
+**Settings → Now Playing → Playback Defaults** contains default speed, skip behavior, and Smart Rewind. Speed uses pitch correction; displayed remaining times account for playback speed. Volume boost can help quiet recordings, but the output still depends on your headphones and system volume.
 
-- **Skip durations** configurable 5–60 s, independently forward/backward, synced to the watch.
-- **Long-press secondary actions:** each button can carry a second action on long-press. Configure under *Settings → Controls → Phone Player Settings*.
-- **Sections:** fine-grained chapter files are grouped into logical chapters; Next/Previous Section jumps sub-sections; the scrubber shows tick marks and snaps with a haptic tap.
-- **Mark for a flashcard** 🚧 Coming in 1.0 — a one-tap Mark action drops the passage into your Card Inbox without pausing playback.
-
-### Speed control — pitch-corrected
-
-0.5× to 2×+ with true pitch correction. Global default in Settings; each book remembers its own speed; all displayed times adjust to the current speed.
-
-### Volume boost
-
-Up to +9 dB of clean gain (configurable), independent of system volume.
-
-### Audio behavior
-
-- Playback pauses automatically when headphones disconnect.
-- Calls, alarms, and Siri interruptions pause and resume correctly (no auto-resume if *you* paused first).
-- Audio is configured as spoken-word audio system-wide.
-
----
+The optional **Experimental Player Layout** lives under Now Playing settings. It offers movable playback controls; the reader retains its own dock. Focus soundscapes and visualizers are optional listening tools, not a prerequisite for study.
 
 ## 5. Smart Rewind
 
-Every time you press play after a pause, Echo rewinds first — proportionally to how long you were gone (seconds → a few seconds; minutes → more; hours–days → the most). All three tiers are configurable under *Settings → Now Playing → Playback Defaults → Smart Rewind*. This is Echo's signature feature: it makes interruption free.
-
----
+After a pause, Echo can back up before resuming. Tune the pause thresholds and rewind amounts at **Settings → Now Playing → Playback Defaults → Smart Rewind**. A short interruption and an overnight break can use different amounts. Per-book overrides let you adapt a dense textbook without changing every book.
 
 ## 6. Loop Modes
 
-- **Loop chapter** — repeat the current chapter until you turn it off. *The feature Echo was built for.*
-- **Loop playlist** — repeat the whole book.
-- **Loop between bookmarks** — repeat the passage between consecutive bookmarks.
-- **Off** — straight through.
+Loop the playlist, a chapter, or a passage between bookmarks. Chapter looping repeats the current chapter; bookmark looping needs usable start and end boundaries. If the loop action is unavailable, check that a book and the required boundaries are loaded.
 
-Loop mode is remembered per book; available on the watch and as a long-press action.
-
----
+Use ordinary chapter looping for repeated listening. Study Plans separately schedule chapter assignments; they do not require keeping the player in a loop.
 
 ## 7. Sleep Timer
 
-Countdown (with fade-out) or stop at chapter end. Echo notes the pause time so tomorrow's Smart Rewind re-covers what you drifted through. Controllable from phone and watch.
-
----
+Choose a duration or an end-of-chapter stop from the player controls. Timer options include a fade. The Watch also exposes sleep-timer controls. Smart Rewind can restore context at the next listening session.
 
 ## 8. Bookmarks
 
-### Creating bookmarks
+Save a timestamp from playback, the reader, Watch, or supported Siri actions. Add a text note, photo, or voice memo where the platform offers it. Photo bookmarks can replace player artwork around their timestamp. Voice memos can play inline when **Play Bookmarks Inline** is enabled.
 
-- **Phone:** bookmark button in the player (or a transport long-press).
-- **Reader:** long-press any paragraph → **Save Bookmark**.
-- **Watch:** one (configurable) button; quick-bookmark timeout confirms or auto-saves.
-- **Siri:** dictate a bookmark hands-free.
-- **PDF:** long-press a page → bookmark with a page screenshot.
-
-### What a bookmark can hold
-
-| Element | Details |
-|---|---|
-| Title & note | Editable text; titles default to "Bookmark N". |
-| Voice memo | Recorded in the moment; volume-normalized. |
-| Photo | From library or camera; drives dynamic artwork. |
-| Place 🚧 | With Context Memory enabled, an approximate place name, shown as a chip. |
-| PDF view state | Exact page, zoom, scroll restore. |
-| Enabled/disabled | Disabled bookmarks stay visible but won't trigger inline playback. |
-
-### Voice memos that play inline
-
-With *Inline Voice Memos* enabled, playback reaching a bookmark with a memo ducks the narration and plays **your** voice, then resumes. Toggle globally or per book.
-
-### Photo bookmarks & dynamic artwork
-
-As playback passes a photo bookmark, the player artwork switches to your photo (phone, watch, lock screen) and back. The science is in [the learning guide](getting-the-most-out-of-echo.md).
-
-> **Safety first:** never take photos while driving. Pick from your library later — or let Context Memory capture the place automatically, hands-free (🚧 Coming in 1.0).
-
-### Managing bookmarks
-
-- Grouped per book; sortable; editable (rename, retime, re-record, swap photo).
-- **Loop between bookmarks** uses them as fences.
-- **Export to Markdown** — timestamps, notes, deep links (see Exports).
-- Any bookmark promotes to a **flashcard** in one tap.
-
----
+Use the bookmark editor to change a note or recording. A plain bookmark is a saved moment; Mark Passage is a separate capture for making a study card later. Local bookmarks are not automatically a cross-device iCloud study library.
 
 ## 9. The Study System (Flashcards & Review)
 
-A complete spaced-repetition system — think Anki, built into your audiobook player, with audio on the cards.
+### Capture, then make a card
 
-### Creating cards
+Tap **Mark Passage** on the phone or Watch without stopping the book. Open **Card Inbox** later, choose a mark, edit the question/answer and audio context, and save a card or dismiss the mark. You can also create cards from reader passages and bookmarks.
 
-- **From the reader:** long-press a passage → **Create Flashcard**.
-- **From a bookmark:** any bookmark becomes a card.
-- **From a mark** 🚧 — via the Card Inbox, below.
-- **From a note** 🚧 — promote a Brain Dump entry.
-- **From scratch:** from the Decks screen in Stats.
-- **Import a deck:** Anki-style JSON today; real .apkg with 1.0.
+Cards can carry text, audio snippets, images, deck assignment, and tags. The deck browser shows card and due counts; its editor supports changes to existing cards. Review all due work or focus on a deck. Grade your recall with **Again / Hard / Good / Easy**; FSRS schedules the next review.
 
-Cards carry a front, a back, and optionally: an **audio snippet**, a **photo**, a **deck and tags** (🚧), and a **trigger timing** (or manual-review-only).
+### Import and export
 
-### The Card Inbox — mark now, card later 🚧 Coming in 1.0
+**Settings → Study & Notes → Import Deck** accepts Echo-compatible JSON or a folder containing a `.echo-deck.json` manifest and media. It does **not** directly accept Anki `.apkg` archives. An `.apkg` importer exists in the backend, but the current phone picker does not expose it; a direct archive-import workflow remains unfinished.
 
-1. **Mark:** one tap on the transport bar (or a watch button) captures the passage just heard — context either side, transcript snippet when aligned. Playback never stops.
-2. **Inbox:** marks collect grouped by book, with a badge in Stats and the Card Inbox.
-3. **Convert:** tap a mark → pre-filled card editor (adjust clip, write the front as a question, pick a deck) — or swipe to dismiss.
+Mac has an **Anki export** surface for `.apkg` and an optional AnkiConnect route to a running local Anki installation. Those export actions are separate from the phone's JSON importer.
 
-When the Card Inbox arrives, inline flashcard popups retire — capture stops competing with listening.
+### Study Plans and generated cards
 
-> 📸 *Screenshot coming soon — the Card Inbox with marked passages and the pre-filled card editor.*
+For EPUB-backed books, open **Book Settings → Study Plan**. Choose chapters, a release cadence, and optional image cards. Due reviews precede new assignments; after grading, FSRS controls the next due date. The global new-chapter cap is in **Settings → Study & Notes**. Some deeper hands-free chapter-review interactions remain unfinished.
 
-### Inline recall during playback
+AI card generation starts on iPhone/iPad under **Settings → Study & Notes → AI Card Generation**. Options include Apple on-device generation on supported hardware, a deterministic fallback, or an external service you configure. External generation sends source text to that service. Review generated cards before accepting them; an API key is not needed for ordinary manual cards.
 
-Cards with a trigger timing surface as you listen — a micro-review in context. *Manual only* cards never interrupt. (With 1.0, new cards default to manual-only and the popup mechanism is retired.)
+## 10. Notes and Watch Inbox
 
-### Editing cards 🚧 Coming in 1.0
+Use **Add Note** in the reader/player tools to save text against the current book and position. Mac's Notes pane supports creating, editing, and deleting per-book notes. Voice memo bookmarks provide a separate audio capture path.
 
-Full editor on every card: front/back, audio snippet range ("use current position"), deck, tags, enabled toggle, delete-with-confirmation. Reachable from review sessions, Card Inbox, and the deck browser.
+**Watch Inbox** captures a general thought through native dictation, including when no book is open. Set it up on iPhone at **Settings → Controls → Watch App Settings → Watch Inbox** with your HTTPS webhook URL and bare bearer key. Add Inbox to an existing Watch layout if needed.
 
-### Decks & tags 🚧 Coming in 1.0
+Finish dictation with Done or the supported double-tap gesture. Echo queues the capture and returns to listening. An open book adds title and position context. A success haptic means the Watch saved it; the phone retains delivery work until the webhook accepts it. Setup shows queued captures and last acceptance. Endpoint acceptance does not establish that a recipient read or acted on the message.
 
-- **Deck list:** card count + due count per deck; "Unfiled" holds deckless cards.
-- **Deck detail:** searchable cards, per-deck mini-stats, rename, delete (cascade or orphan).
-- **Review by deck:** run a session over one deck — exam-week mode.
-- **Tags:** space-separated, Anki convention.
-
-### Importing real Anki decks (.apkg) 🚧 Coming in 1.0
-
-Pick a `.apkg` from the deck list's import button — **scheduling history included** (mature cards stay mature).
-
-- First field → front; remaining fields → back (HTML cleaned); tags kept; suspended cards arrive disabled; media copied in; review state maps conservatively.
-- **Cloze cards** flatten to plain Q&A in v1 (counted in the import summary).
-- **Newest Anki format:** Echo will ask you to re-export with *"Support older Anki versions"* checked.
-- Imported decks aren't tied to an audiobook and review like any other cards.
-
-### Daily Review
-
-- **FSRS-4.5 scheduling** (the modern Anki scheduler): grades **Again / Hard / Good / Easy** drive each card's next appearance.
-- Cards with audio play their snippet.
-- Due / reviewed-today / total show in Stats; the full picture lives in Insights 🚧.
-- Optional **daily local notification** (generated on-device; Echo has no servers).
-
-### Review on Apple Watch
-
-Full hands-free review sessions: hear the card, think, tap a grade.
-
-> **🔭 Roadmap — Chapter Study Mode:** chapters as flashcards with a due-chapter listening queue. Until then: loop the chapter, grade yourself honestly at its end, card what you couldn't explain.
-
----
-
-## 10. Brain Dump & Book Notes 🚧 Coming in 1.0
-
-Bookmarks pin thoughts to a *moment*; flashcards pin them to a *question*. Book Notes are everything else — thoughts about the book as a whole, plus the "buy stamps" intrusions that would otherwise cost you a chapter.
-
-### Capturing
-
-- **Phone:** Note button in the Now Playing overflow — text field, or hold to record a voice memo. Playback continues.
-- **Watch:** a *Dictate Note* action — speak, done; lands on the current book.
-- Notes are **untethered** (book-level, not timestamped), though capture position is recorded as silent context.
-
-### The Notes inbox
-
-- Per-book **Book Notes** view: newest first, text + voice entries, inline memo playback, swipe to delete.
-- **Promote** any note → *bookmark* (at capture position) or → *flashcard* (pre-filled editor).
-- Entry points: the book notes surface and a dashboard module when anything's waiting.
-- Notes join the study-notes export alongside bookmarks and flashcards.
-
-> 📸 *Screenshot coming soon — Book Notes inbox with a voice memo entry and promote actions.*
-
----
+Watch Inbox is separate from local book notes. The older proposed unified “Brain Dump” inbox with note-to-card promotion is not a description of the current UI.
 
 ## 11. The Reader: EPUB
 
-Drop the `.epub` in the book's folder (auto-import) or use **Import Document**. Imports are copy-only and validated; paragraphs, headings, images, inline formatting, block quotes, and links are preserved.
+Import a standalone EPUB or place it beside the audiobook. The reader preserves paragraphs, headings, images, links, inline formatting, and code blocks.
 
-- Clean feed of cards: chapter headers, paragraphs, images.
-- **Follow the narration:** active paragraph highlighted, auto-scroll with playback; scroll away to browse, tap to return live.
-- **Tap to seek** any paragraph; tap images for full-screen.
-- **Search** full text; results jump text *and* audio.
-- **Table of contents** + sticky position header (Part → Chapter → Section).
-- **Highlights:** long-press → Change Color.
-- **Typography:** size, spacing, card tint; **Lexend** and **OpenDyslexic** built in.
-- **Reader speed controls:** adjust playback speed from the Read tab using the speed chip presets, with Playback Options still available for loop and skip settings.
+- Follow the highlighted paragraph and word while audio plays; scroll away to browse and return to live reading.
+- Tap aligned text to seek. Search phrases and use the table of contents to navigate.
+- Long-press passages for alignment, highlights, notes, or study actions.
+- Adjust type size, spacing, and reader appearance. **Lexend** and **OpenDyslexic** are bundled choices.
+- Use the inline speed presets and bottom dock without leaving Read & Study.
 
-The bottom dock keeps playback and study controls nearby while the Read tab is active: mini-player controls, inline speed presets, Mark Passage, the Read/Now Playing toggle, and bookmark, note, or memo capture.
-
----
+**Visual Listening** brings figures and code onto the player stage with read-along text in its own scrolling area. A figure stays until the next figure, or chapter end; consecutive figures share available time in reading order. Timing depends on the book's alignment.
 
 ## 12. Audio–Text Alignment
 
-### Auto-Align (recommended)
+### Auto-Align
 
-**Auto-Align Chapters** uses on-device speech recognition (WhisperKit on the Neural Engine — *no audio ever leaves your device*):
+Run **Auto-Align Chapters** for an audiobook with companion text. The pipeline starts with chapter-title matching, then uses on-device speech recognition and text matching to create or refine anchors. Drift checks and repairs improve timing between chapter boundaries. Model assets may need an initial download; inference runs locally.
 
-| Tier | What it does |
-|---|---|
-| 0 — Title match | Chapter titles → instant coarse anchors. |
-| 1 — Chapter snap | Transcribes a clip at each boundary, fuzzy-matches, anchors every chapter start/end. |
-| 2 — Drift detection | Spot-checks inside chapters for drift. |
-| 3 — Drift repair | Bisects flagged regions; word-level anchors via token DTW. |
-
-Between anchors, positions interpolate weighted by paragraph word counts. On completion, Echo celebrates your **% aligned** 🚧 Coming in 1.0.
-
-**Continuous Alignment** (optional) refines in the background while you listen.
+Continuous alignment can refine timing during playback. A new automatic run replaces its previous automatic anchors; manual anchors remain a separate source. Alignment quality depends on matching editions and the recording.
 
 ### Manual anchors
 
-- Long-press a paragraph → **Align to Now** (or **Align to 5s Ago**).
-- Heading cards: **Align to Chapter Start/End**.
-- Locked anchors show a green badge; **Erase Anchor** removes one; **Reset Alignment** starts fresh.
+Long-press a paragraph and choose **Align to Now** or **Align to 5s Ago**. Heading actions can align a chapter start/end. Erase an individual anchor or reset alignment when needed. Save a useful manual correction before running further checks.
 
----
+An audio-only book can also be transcribed on-device for a searchable read-along without a companion ebook. Transcription can mishear names; it is not the original published text.
 
 ## 13. PDF Companion Documents
 
-Import like an EPUB — the Import button routes automatically.
+PDFs can accompany audio or supply text for on-device narration. On iPhone/iPad, use page view or reflow text; page view supports scrolling, zoom, word following, and vocabulary actions where text mapping is available. Mac also has a PDF page reader with read-along. An image-only scan does not gain text automatically.
 
-- Continuous scroll and zoom.
-- **Page-level alignment:** long-press a page → Manual Alignment sheet with play/pause, ±5 s skips, and the **scrubber joystick** (small pulls = precise, big pulls = fast, live audio preview).
-- **Page bookmarks:** screenshot thumbnail + exact page/zoom/scroll restore.
+For manual page alignment, long-press a page and use the alignment sheet's playback controls and scrubber joystick. Page bookmarks retain page/zoom/scroll context.
 
----
+A publisher can place **`Title.readalong.json` beside `Title.pdf`** before import. When valid, it supplies the narration order and exact printed word boxes, avoiding spoken running headers and page numbers. The importer validates the format, page count, optional PDF hash, words, and rectangles. Reimport after changing either source. Without a matching file, Echo uses ordinary PDF text extraction and search-based highlighting.
 
-## 14. Insights 🚧 Coming in 1.0
+On Mac, **Batch → Narrate Documents…** accepts PDF as well as EPUB and text files. The [authoring contract](../pdf-readalong-authoring.md) documents the sidecar format.
 
-Computed entirely on your device from your own history. Open from Stats or the dashboard modules.
+## 14. Insights
 
-| Section | Contents |
-|---|---|
-| Overview | Range picker (D/W/M/Y/all), total listening time, streak, daily average. |
-| Listening | Time per bucket, speed trend, per-book share, time-of-day histogram, session lengths. |
-| Per-book | Chapter-coverage heatmap — "Chapter 7 — 86% covered, listened 3×". |
-| Study | Reviews/day, retention curve vs 90% target, grade distribution, 30-day due forecast. |
-| Planner | Planned-versus-actual session pairs. |
-| Places | If Context Memory is on: where you listen most (map view 🔭 Roadmap). |
+On iPhone/iPad, open Stats and per-book statistics for listening totals, active days, speed trends, time-of-day patterns, chapter coverage, and study history. Review charts include grade distribution, retention history, and a due forecast when enough data exists. The values come from local listening/review records; an empty history produces little to chart.
 
-The dashboard gets live teaser modules (listened-today, streak, upcoming reviews). The Mac gets a Stats pane (Overview/Listening/Study).
+The current Mac has Daily Review and study tools, but does not reproduce every phone Insights chart. Avoid treating missing local history or a platform difference as evidence that data synced.
 
-> 📸 *Screenshot coming soon — Insights overview with streak, listening chart, and chapter-coverage heatmap.*
+## 15. Context Memory (Location)
 
----
+Opt in on iPhone at **Settings → Advanced & Privacy → Advanced → Context Memory**. Echo can attach approximate place context to new bookmarks. Automatic session/chapter place capture remains planned. Capturing a bookmark does not wait for location.
 
-## 15. Context Memory (Location) 🚧 Coming in 1.0
-
-Off by default; opt in via **Settings → Advanced & Privacy → Advanced → Context Memory**.
-
-- **Approximate places only:** reduced-accuracy location, neighborhood level — never your doorstep.
-- **Three capture points:** session start, bookmark creation, chapter start. Powers bookmark place chips, "Chapter 3 started at Oak Street" in per-book Insights, and the Places list.
-- **Never blocking:** capture is fire-and-forget with a timeout — bookmarks save instantly even in airplane mode, just without a place.
-- **Deletable in one tap:** *Delete Location History* erases every captured place permanently.
-- **Sync policy:** bookmark places travel with bookmarks via your personal iCloud while enabled; **session location history never leaves the device.**
-
----
+Use **Delete Context Memory** in the same settings to remove captured places. Session location history stays on-device. Full private-iCloud bookmark/study sync and a Places map are planned; do not assume location chips travel to another installation.
 
 ## 16. Exports & Your Data
 
-Your data is yours, in formats you can read, forever. The database schema is open source.
-
-| Export | What you get |
+| Export | Current behavior |
 |---|---|
-| **Audiobook → chaptered .m4b** (today) | Export a narrated EPUB, or an audiobook you imported, as a single chaptered `.m4b` (cover, metadata, chapter markers) — playable in any audiobook app. iPhone: player More menu. Mac: File menu, plus overnight batch-narrate a folder of EPUBs and export each. `.m4b` only; mp3 export 🔭 Roadmap. |
-| **Bookmarks → Markdown** (today) | Timestamps, notes, deep links that reopen Echo at the exact second. |
-| **Auto-export study Markdown** (Echo Pro) | One deterministic Markdown file per book, continuously updated in a folder you pick. Includes bookmarks, notes, flashcards, chapter attribution, and stable capture markers. Text-only in v1; voice memos, photos, and location data stay in Echo. |
-| **Study Notes bundle** 🚧 | A fuller media bundle remains planned for voice memos, photos, and imported card media. |
-| **Deck → JSON** 🚧 | `.echodeck.json` with every field incl. scheduling; re-imports losslessly — backup + migration. |
-| **Anki .apkg import** 🚧 | Inbound — see The Study System. (.apkg *export* 🔭 Roadmap.) |
+| Chaptered `.m4b` | Export imported or generated narration with metadata, cover, and chapter markers from the phone's player menu or Mac File menu. MP3 export is planned. |
+| Bookmark Markdown | Export timestamped notes and links back into Echo. |
+| Study notes | Export study material using the current book or bulk export surfaces. Check the selected export's media options. |
+| Auto-export Markdown (Echo Pro on iPhone/iPad) | One updated Markdown file per book in a selected folder. Text includes notes, bookmarks, and flashcards; photos, voice memos, card media, and location data stay in Echo. |
+| Anki export (Mac) | `.apkg` file or optional AnkiConnect handoff. |
 
-### Auto-export your study notes
-
-Echo can keep a folder of Markdown files, one per book, continuously in sync with your notes, bookmarks, and flashcards. Point it at an iCloud Drive folder and your captures appear on your Mac a few seconds after you make them, ready for whatever notes system you use there.
-
-1. Open **Settings → Study & Notes** and turn on **Auto-Export Study Notes** (Echo Pro).
-2. Tap **Export Folder** and pick a folder. Echo writes into an `Echo Study Notes` subfolder it manages.
-3. Capture as you listen. Files update a few seconds after each capture and whenever you leave the app.
-
-Each book becomes one Markdown file with your bookmarks, notes, and flashcards in listening order, tagged with chapter and timestamp. Voice memos, photos, card media, and bookmark location data stay in Echo; use the manual export path when you need a richer handoff. If the folder becomes unavailable, Echo quietly queues your changes and the Settings row asks you to re-select the folder; nothing is lost.
-
----
+Enable **Auto-Export Study Notes** at **Settings → Study & Notes**, then choose an export folder. Echo manages an `Echo Study Notes` subfolder. A disconnected folder can require selecting it again. An export is a copy for use in another tool, not live two-way study sync.
 
 ## 17. Playlist & Study Library
 
-### Playlist
+The playlist shows tracks, chapters, and sections. Change order or disable tracks that should not play. Narrated books show a chapter outline; excluding a chapter prevents narration without deleting already rendered audio.
 
-- Chapters in playback order with duration and progress; logical chapters expand into sections.
-- **Drag to reorder**; **tap to dim** a chapter to skip it (skipped by playback and loops).
-- Hierarchical titles render nested structure with indentation.
-- Edits persist per book; a portable manifest file keeps ordering across devices.
-
-### Study Library
-
-Study history now lives across the dedicated study surfaces instead of a separate tab: Read & Study for aligned text and capture, Stats for dashboard modules and Insights, Card Inbox for marks waiting to become cards, and Decks for browsing or editing saved cards.
-
----
+The Study Library provides decks, Card Inbox, review queues, and study plans. Opening a companion document does not by itself start a listening session or place the book on the phone's listened-books shelf.
 
 ## 18. Apple Watch
 
-### The remote
+Watch controls playback on the paired iPhone. Customize up to **five pages of five actions** at **Settings → Controls → Watch App Settings**. Available actions include playback, skips, chapters, sections, loop, speed, sleep timer, bookmark, Mark Passage, Inbox, and Pomodoro. Empty pages hide.
 
-- **Up to 25 buttons:** five pages × five slots, all user-assignable: play/pause, skips (5–60 s), chapters, sections, loop, speed, sleep timer, bookmark, Pomodoro — or empty (empty pages hide).
-- **Mark passage** 🚧 — one tap into the Card Inbox.
-- **Dictate note** 🚧 — speak a Brain Dump note; playback never pauses.
-- **Design it from the phone:** drag-and-drop in *Settings → Controls → Watch App Settings*; syncs instantly.
-- **Digital Crown:** volume or scrubbing (with deadzone).
-- **Big targets:** hit them in gloves, rain, mid-stride.
+Choose volume or scrubbing for the Digital Crown. Watch also supports voice-memo bookmarks and study review. The Watch exchanges state and queued actions with the phone; it does not replace the phone with standalone file playback. Keep the phone app and Watch app on compatible builds.
 
-### On-wrist features
+## 19. Widgets & System Controls
 
-Now-playing screen with full-screen artwork (incl. photo-bookmark switching), voice-memo bookmarks, hands-free flashcard review, Pomodoro with persistent alarm, sleep timer/speed/loop control, and a complication with book thumbnail + progress ring.
+The current **Echo Widget target is watchOS-only**. It provides circular watch-face and rectangular Smart Stack/complication families with artwork and progress. Availability and color treatment depend on the watch face and WidgetKit rendering mode.
 
-### Reliability
-
-Durable application-context sync; stale commands never replay; the watch requests authoritative position on wake and converges.
-
-> 📸 *Screenshot coming soon — the watch remote grid and a hands-free review session.*
-
----
-
-## 19. Widgets & Control Center
-
-- Lock/Home Screen widget: thumbnail + progress ring.
-- Play/pause from the widget.
-- Control Center toggle-playback control.
-
----
+iPhone Lock Screen playback comes from system Now Playing integration. The source contains an iOS Control Widget implementation behind a platform gate, but the current extension target does not ship an iPhone Home/Lock Screen widget or Control Center extension. Do not look for those in the iPhone widget gallery.
 
 ## 20. Echo for Mac
 
-- **Three-pane layout:** bookmarks sidebar, player pane, document pane.
-- Broadest format support (FLAC/OGG/OPUS).
-- **EPUB alignment** with streaming on-device transcription.
-- **Transcript pane** with live highlighting, search, and word clouds.
-- Bookmarks share the iOS format via the app-group store.
-- **Insights pane** 🚧 Coming in 1.0 — listening and study charts.
-- **Review pane** 🚧 Coming in 1.0 — clear due cards at the desk; menu-bar + keyboard-shortcut basics.
+Mac includes a local Library, chapter navigation, player, reader, resizable Notes pane, Card Inbox, Daily Review, and Anki export. Audiobookshelf browse/download/progress sync and multiple saved servers are available. The document batch queue imports, transcribes, aligns, or narrates supported documents and can export chaptered M4B files.
 
-Mac 1.0 is the *functional core* — play, read, review, see your stats. Full reader/alignment parity continues after 1.0.
+Open **Batch → Narrate Documents…** (⌘⌥N) for EPUB/PDF/Markdown/text narration; use Settings (⌘,) for preferences. Mac applies its persisted font/theme choices. Not every phone study chart, AI-generation entry point, or location feature has Mac parity.
 
----
+The current Mac does not expose Echo Pro purchase/restore UI or enforce the phone's narration/flashcard caps.
 
 ## 21. Sync & iCloud
 
-Echo has no servers and no accounts — sync rides on *your* iCloud.
+These are different mechanisms:
 
-- **Today:** audio files sync wherever you keep them; alignment anchors sync so a book aligned once stays aligned.
-- **Study sync** 🚧 Coming in 1.0 — flashcards, decks, bookmarks, playback position across iPhone, Mac, and Watch (personal iCloud, private database).
-- **Sensible conflicts:** scheduling follows your most recent review; content follows your most recent edit.
-- **What never syncs:** session location history, and anything you haven't opted into.
-- Voice memos, brain-dump notes, and planned sessions stay device-local in 1.0; their sync is on the roadmap.
+- **Source files:** iCloud Drive or another file provider can carry books between devices. Download files before going offline.
+- **Audiobookshelf:** connected books exchange listening progress with their selected server on iPhone/iPad and Mac.
+- **Article Inbox:** article captures and anthology drafts have a private CloudKit sync path. This is separate from the ordinary study database.
+- **Community alignment lookup:** import may request matching anchors from Apple's public CloudKit database. There may be no match; local alignment is available. Public alignment uploads are unavailable in Echo 1.0.
+- **Watch:** WatchConnectivity carries companion state/actions and capture delivery through the paired phone.
+- **Planned:** automatic private-iCloud sync of all flashcards, decks, bookmarks, and playback state across independent Echo installations.
 
----
+A shared Apple ID or a book appearing in iCloud Drive does not prove study-state transfer. Use exports when you need a portable copy of notes or cards.
 
 ## 22. Settings Reference
 
-| Group | Settings |
+Phone settings are grouped by intent:
+
+| Group | Main controls |
 |---|---|
-| Now Playing | Playback defaults · Smart Rewind · skip durations · Play Bookmarks Inline |
-| Appearance | Color scheme · app icon · accent color · font · Reader Defaults · chapter-name truncation |
-| Controls | Phone Player Settings · Watch App Settings · mini-player buttons · focus tools |
-| Library & Accounts | Audiobookshelf connections · Echo Pro |
-| Study & Notes | AI card generation · deck import · Global New Chapters · auto-export study notes · bulk study-note export |
-| Advanced & Privacy | Pronunciation · continuous auto-alignment · Context Memory · diagnostics |
-| Support & About | Feedback & Support · Help · Privacy Policy · version and commit |
+| Now Playing | Playback Defaults, Smart Rewind, speed/skip behavior, experimental player |
+| Appearance | Color scheme, icon, accent, font, Reader Defaults |
+| Controls | Phone Player Settings, Watch App Settings, Watch Inbox |
+| Library & Accounts | Connections, Echo Pro |
+| Study & Notes | AI Card Generation, Import Deck, global new-chapter cap, study-note exports |
+| Advanced & Privacy | Advanced, pronunciation/alignment options, Context Memory, diagnostics |
+| Support & About | Feedback & Support, Help, privacy, version/commit |
 
----
+On iPhone/iPad, Echo Pro is a **one-time unlock**. Core import, playback, and reading are free; free narration covers one chapter per book and flashcards are capped at 20. The current Mac behavior differs as described above. Prices and purchase availability come from StoreKit.
 
-## 23. Transcription Tools (Power Users)
+## 23. Command-Line Tools
 
-A companion command-line tool (`Tools/transcription_generator.py`) for archival transcripts on your Mac. EPUB/PDF alignment runs entirely in-app now (on-device WhisperKit); the earlier Swift transcription/alignment CLI has been retired.
+The active **`echo-cli`** can narrate documents, export audiobooks, build study decks, inspect/verify sidecars, and run narration QA. Contributors should build it with **`make echo-cli`**, which applies required Release compiler settings. Run `echo-cli --help` and each command's help for the current arguments. On this project's shared Mac, run Apple builds/tests through the configured build-slot wrapper.
 
-- **Python CLI** (faster-whisper): transcribe a single file with `--audio_path` or a folder with `--dir` (existing `.transcript.json` files are skipped). Tune with `--model_size`, `--language`, `--device`, and `--force`.
-- Output is a `.transcript.json` sidecar of timestamped segments plus word-frequency data (rendered as word clouds on Mac).
-
-Optional — the iOS app's built-in alignment needs none of this. Set up with `pip install -r Tools/requirements.txt` and `brew install ffmpeg`.
-
----
+`Tools/transcription_generator.py` is an optional Python transcript tool using faster-whisper. Set up its dependencies from `Tools/requirements.txt`; it is separate from the app's built-in WhisperKit alignment. See [the architecture reference](../../ARCHITECTURE.md#tools--pipeline) and [renderer guide](versioned-echo-renderer.md) for developer workflows.
 
 ## 24. Privacy
 
-- **No Echo accounts. No analytics. No tracking. No ads. No Echo-run servers.**
-- Books, bookmarks, photos, voice memos, notes, flashcards, and listening history stay on your devices (and your personal iCloud, where you enable sync).
-- Speech recognition runs **entirely on-device**. Audio is never uploaded.
-- Public alignment uploads are unavailable in Echo 1.0. Echo may look up community alignment markers in Apple's public CloudKit database during import and falls back to local alignment when none are available.
-- Location (Context Memory 🚧) is **opt-in, approximate, deletable** — and session location history never leaves the device.
-- Open source (GPL-3.0): [github.com/dfakkeldy/Echo](https://github.com/dfakkeldy/Echo).
+Local playback, narration inference, and alignment process files on-device without an Echo account. Initial model downloads, Audiobookshelf, community alignment lookup, optional external AI, Article Inbox sync, and a configured Watch Inbox webhook use network services with different data handling.
 
----
+External AI sends selected book text to your configured provider. Watch Inbox sends dictated text and available book context to your endpoint. These are optional connections; local inference does not imply every feature is offline.
 
-## 25. Troubleshooting & FAQ
+Read [the privacy policy](../privacy.html) for permissions, optional transfers, and deletion controls. Echo is [open source under GPL-3.0](https://github.com/dfakkeldy/Echo).
 
-### Library & playback
+## 25. Troubleshooting
 
-**My book won't play / chapters are missing.**
-Nine times out of ten this is iCloud eviction: the files show a cloud icon and aren't on the device. Long-press the folder in Files → **Keep Downloaded** (see Organizing Your Library). For multi-file books, confirm name-sorting — or drag-reorder in the playlist.
+**My book is missing from the phone shelf.** Start playback. The phone shelf uses listening history; unplayed imports stay stored. Check missing-file filters and select a moved folder again.
 
-**How should I organize my audiobook and EPUB files?**
-One parent "Audiobooks" folder; one folder per book; EPUB/PDF in the same folder as the audio; zero-padded track numbers. iCloud Drive for cross-device, "On My iPhone" for always-local. Full guide: [Organizing Your Library](#2-organizing-your-library).
+**A file is visible but will not play offline.** Check that the bytes are downloaded in Files/Finder. Use Keep Downloaded and finish Audiobookshelf imports before leaving the network.
 
-**Can Echo play my Audible or Apple Books audiobooks?**
-Not while they're DRM-locked — Echo plays open formats only and does not bypass DRM. If you want to listen to audiobooks **you've purchased** in Echo, tools exist that export your own library to open formats: [Libation](https://getlibation.com) (free, open source, for Audible libraries) and [OpenAudible](https://openaudible.org) (paid) are the well-known ones. Libation's M4B exports work beautifully with Echo — chapters, art, and all. One honest caveat: the legality of removing DRM from media you own varies by country, even for personal use — check the rules where you live. Echo has no affiliation with these tools, and the best long-term fix is buying DRM-free where possible (Libro.fm and Downpour offer DRM-free titles; LibriVox is free and public-domain).
+**Text does not follow the right audio.** Check the edition, run Auto-Align, and add a manual anchor. Reimport older PDFs for page mapping or a newly added read-along sidecar.
 
-**Does Echo work fully offline?**
-Yes — core playback, reading, on-device alignment, flashcard review, notes, and insights work without a network. Community alignment lookup during import, your own iCloud file syncing, and optional place-name lookup use network services. Public alignment uploads are unavailable in Echo 1.0.
+**A PDF has no text to narrate.** An image-only scan needs a text-bearing source or an authored read-along file. Echo's ordinary PDF import is not OCR.
 
-**Will a huge library or a 60-hour book slow Echo down?**
-No. Echo reads books in place and keeps its database indexed. The one heavy operation is the *first* auto-alignment of a very long book — plug in for that one.
+**Names sound wrong.** Use the pronunciation tools; EPUB authors can supply supported IPA/PLS metadata. Reimport after changing authored metadata. Kokoro and optional Phonon do not support identical pronunciation/timing features.
 
-### Reader & alignment
+**My Watch capture is queued.** Open Watch Inbox setup on iPhone, check the destination and queued state, and use its recovery controls. Keep the bare key private. A saved haptic is different from webhook acceptance.
 
-**The reader text doesn't match the narration.**
-Different editions drift. Run **Auto-Align Chapters**; for stubborn spots, long-press the paragraph you're *hearing* → **Align to Now**. Two or three manual anchors usually tame a messy book.
+**Cards or bookmarks are absent on another device.** Shared source files do not carry the study database. Check the sync mechanisms above rather than resetting local data.
 
-**Auto-alignment is slow or makes my phone warm.**
-First run downloads and warms the on-device model, and transcription is real Neural Engine work. Plug in for the first full-book alignment; afterward, repairs are quick.
+**How do I report a bug?** Use Settings → Support & About → Feedback & Support, TestFlight feedback, or [GitHub Issues](https://github.com/dfakkeldy/Echo/issues). Include build, platform, reproduction steps, and the observed result. Keep book content, credentials, and personal captures out of public reports.
 
-### Study & data
+## 26. On-Device Narration
 
-**Can I import my Anki decks?**
-JSON decks import today. Real `.apkg` files — scheduling included — arrive with 1.0 🚧. Newest-format decks: re-export from Anki with *"Support older Anki versions"* checked. Cloze cards flatten to plain Q&A in v1.
+Import a text-only document and use **Narrate**. The first selection can download model assets; later inference runs locally. Kokoro offers English voices and pronunciation controls. You can set chapter voice overrides, exclude chapters, and export the resulting audio as chaptered M4B.
 
-**Can I get my flashcards and notes back out?**
-Yes — that's policy. Bookmarks -> Markdown and Echo Pro auto-exported study Markdown are available today; with 1.0, decks -> portable JSON (lossless re-import) and fuller media bundles remain planned. The schema is open source; your data is never hostage.
+**Phonon 31M** is an optional English engine on supported arm64 iPhone/iPad and Apple Silicon Mac builds. Its first use downloads and compiles a separate model bundle. It supplies paragraph alignment, rather than Kokoro's exact word timing and IPA/audit features. See [Phonon narration](../phonon-narration.md) for supported hardware, voices, and CLI behavior.
 
-**Inline flashcards interrupt me too much.**
-Set those cards to *manual only*, or disable inline triggers in Settings → Now Playing → Playback Defaults. In 1.0 the Card Inbox replaces mid-playback popups entirely 🚧.
+For authored EPUB pronunciation, see [the IPA/PLS guide](../epub-pronunciation-authoring.md). Changing a voice or pronunciation can require regenerating affected audio. Keep original source documents and separate outputs when comparing engines.
 
-**What's the difference between a bookmark, a note, and a flashcard?**
-**Bookmark** = a *moment* (timestamp; optional memo/photo/place). **Note** 🚧 = an *untethered thought* (the brain-dump). **Flashcard** = a *question* you want to keep answering. Notes and bookmarks both promote into flashcards — capture cheap first, decide later.
+## 27. Articles & Anthologies
 
-**Will my flashcards and bookmarks sync between devices?**
-Anchors sync today; full study sync (cards, decks, bookmarks, position) ships in 1.0 via your personal iCloud 🚧.
+The Library's article tools collect article captures and let you assemble an ordered anthology for narration. Review captured text, clean it up, choose its order and chapter voices, and generate a book for the existing reader/player pipeline.
 
-### Watch, privacy & the project
-
-**The watch shows a stale book/position.**
-Raise the watch and give it a beat — it requests authoritative state from the phone on wake. Both devices on, same Wi-Fi/Bluetooth, helps.
-
-**Voice memos are quiet/loud.**
-Memos are volume-normalized on save; old ones can be re-recorded from the bookmark editor.
-
-**Is the location feature tracking me?**
-Only if you turn it on — and even then: approximate places, a few capture moments, stored on-device, deletable in one tap, session history never synced. Echo has no servers to send it to.
-
-**Does Echo use AI? Does anything leave my device?**
-Echo uses on-device speech recognition (WhisperKit) for audio-to-text alignment. Optional AI-assisted study-card generation can use a configured external provider after consent. Public alignment uploads are unavailable in Echo 1.0. Community alignment lookup during import can use Apple's public CloudKit database and falls back to local alignment.
-
-**What's coming after 1.0?**
-Chapter Study Mode, on-device AI card drafting, focus soundscapes, gentle hyperfocus/transition reminders, a Context Memory map view, .apkg export, full Mac reader parity. The [ROADMAP](../../ROADMAP.md) is public.
-
-**Where are my files? Can I get my data out?**
-Audio stays where you put it (read in place, never modified). Echo's data lives in a local SQL database with an open schema; everything exports (see Exports). Deleting the app deletes Echo's database — your audio folder is untouched.
-
----
-
-*Echo is open source under the GPL-3.0 license. Found a bug, or want a feature? [Open an issue](https://github.com/dfakkeldy/Echo/issues) — the developer reads every one.*
+Article/anthology private-iCloud sync is separate from study-state sync. Source websites and any configured services have their own network behavior. Keep an original source link so you can revisit or correct a capture.
