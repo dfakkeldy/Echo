@@ -11,7 +11,8 @@ release mechanics, and the CLI.
   `make test-only FILTER=EchoTests/<Suite>`.
 - `make echo-cli` builds the CLI. Use it instead of a bare
   `xcodebuild -scheme echo-cli`; the target carries required compiler settings.
-- UI tests are not part of the scheme's test action.
+- The shared Echo scheme includes unit and UI tests. `make test` and CI
+  explicitly select only `EchoTests`; a bare scheme test also selects UI tests.
 
 ## Conventions
 

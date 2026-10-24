@@ -75,7 +75,7 @@ Open `Echo.xcodeproj` in Xcode with the required Apple platform SDKs. App target
 | `make architecture` | Refresh the architecture source tree while preserving manual notes |
 | `make devlog-update` | Regenerate the previous calendar week's dated commit digest |
 
-Run agent-started Apple builds/tests through the build-slot wrapper specified in your working instructions. **Use `make echo-cli` rather than a bare CLI scheme build**: its Release and compilation-mode settings are required. `EchoUITests` is not in the shared scheme's test action. Hosted CI compiles the embedded Watch app; Watch test execution is separate.
+Run agent-started Apple builds/tests through the build-slot wrapper specified in your working instructions. **Use `make echo-cli` rather than a bare CLI scheme build**: its Release and compilation-mode settings are required. The shared `Echo` scheme includes `EchoTests` and `EchoUITests`; `make test` and CI explicitly select only `EchoTests`. Hosted CI compiles the embedded Watch app; Watch test execution is separate.
 
 Useful contributor references:
 
