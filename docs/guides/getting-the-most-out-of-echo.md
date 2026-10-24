@@ -4,7 +4,7 @@ Echo isn't just an audiobook player with extra buttons. Every feature exists bec
 
 You don't need to read this front to back. Jump to whatever feature you're curious about — each section stands on its own.
 
-> **Status tags:** 🚧 **Coming in 1.0** = in active development right now. 🔭 **Roadmap** = planned after 1.0. Everything unmarked ships in the current beta. Looking for ADHD/AuDHD-specific strategies? See the [Focus Field Guide](focus-field-guide.md).
+> **Source review: October 24, 2026.** Feature examples follow current Nightly source; your installed build may differ. The [manual](user-manual.md) describes platform limits and planned work. Looking for ADHD/AuDHD strategies? Read the [Focus Field Guide](focus-field-guide.md).
 
 > **The short version:** Passive listening feels like learning, but most of it evaporates within days. Echo is built around the handful of techniques that cognitive science has shown actually move information into long-term memory: retrieval practice, spacing, context cues, cognitive offloading, and multi-sensory encoding. Use even two or three of them and you will remember dramatically more of what you listen to.
 
@@ -40,12 +40,12 @@ This is one of the most replicated effects in memory research. In the classic 19
 
 You've probably felt this yourself: you remember exactly what audiobook you were listening to when you drove past that one weird intersection — and you'd never have remembered the intersection without the book, or the book without the intersection. The two memories hold each other up. Echo turns that accident into a tool.
 
-### Context Memory: places, captured automatically — 🚧 Coming in 1.0
+### Context Memory: approximate places on bookmarks
 
-Photo bookmarks ask you to do the capturing. **Context Memory** does it for you: opt in, and Echo quietly notes an approximate place — "Maple Ridge, Halifax" — on your bookmarks, listening sessions, and chapter starts. Bookmark cards grow a small place chip; your per-book insights can tell you *"you started Chapter 3 on Oak Street."* The same retrieval-cue machinery as photos, with zero effort.
+Opt in to **Context Memory** on iPhone and Echo can attach an approximate place name to a new bookmark. Capture does not delay saving the bookmark. The current reachable capture path is bookmark creation; automatic session/chapter place capture and a Places map remain planned.
 
-- **Off by default, on-device, deletable.** Location uses reduced (neighborhood-level) accuracy, never blocks the action you were taking, and a single button erases all location history. Your session history never leaves the device.
-- **Use the chips during review.** When a bookmark shows "Riverside Trail," take one second to put yourself back on that trail before answering. That mental reinstatement is the technique — the chip is just the trigger.
+- **Off by default, deletable.** Use Settings → Advanced & Privacy → Advanced → Context Memory. **Delete Context Memory** clears saved bookmark places and local session-location history.
+- **Use place chips as cues.** When a bookmark names a place, pause to recall that setting before reviewing. Local place data is not a promise of full iCloud study sync.
 
 **How to use it:**
 - When something in a book genuinely lands, bookmark it and grab a photo of wherever you are — the trailhead, your kitchen, the view out the windshield (when parked!). Mundane is fine; *distinctive* is better.
@@ -59,11 +59,11 @@ Photo bookmarks ask you to do the capturing. **Context Memory** does it for you:
 
 ## 2. The Study System — spaced repetition, explained from zero
 
-**What it does:** Echo has a built-in flashcard system. Any bookmark, passage, or note can become a card with a front (the prompt) and a back (the answer) — and cards can carry the actual audio clip from the book. Echo schedules reviews for you: a card you know well disappears for weeks; a card you fumbled comes back tomorrow. Your due cards show up in a Daily Review queue on your phone — and on your wrist.
+**What it does:** Echo has a built-in flashcard system. A bookmark or reader passage can become a card with a front (the prompt) and a back (the answer) — and cards can carry the actual audio clip from the book. Echo schedules reviews for you: a card you know well disappears for weeks; a card you fumbled comes back tomorrow. Your due cards show up in a Daily Review queue on your phone — and on your wrist.
 
 **Never heard of Anki? Start here.** Anki is beloved flashcard software used by medical students, language learners, and memory nerds worldwide. Its superpower is the *schedule*: instead of cramming, it shows you each card at the moment you're about to forget it — first after a day, then a few days, then weeks, then months. Each successful recall flattens your forgetting curve a little more, until the fact is effectively permanent.
 
-Echo speaks the same language — it schedules with FSRS, the modern spaced-repetition algorithm Anki now ships (an evolution of the classic SM-2), imports Anki-style JSON decks today, and with 1.0 imports real **.apkg deck files** directly (🚧 Coming in 1.0) — your years of Anki history, scheduling included, carried over. Organize everything into **decks with tags**, edit any card, review one deck at a time (🚧 Coming in 1.0). And if you ever leave, your cards export right back out — no lock-in (see [Second-Brain Export](#12-second-brain-export--make-it-yours-forever---coming-in-10)).
+Echo uses **FSRS** to schedule reviews. Decks, tags, card editing, and per-deck review are implemented. The phone's **Settings → Study & Notes → Import Deck** accepts Echo JSON or a deck folder. An Anki `.apkg` importer exists in the backend, but that phone picker does not expose it. Mac offers Anki export and an optional AnkiConnect handoff. See [the manual](user-manual.md#9-the-study-system-flashcards--review) for the supported routes.
 
 **The science: the Forgetting Curve and the Spacing Effect.** In the 1880s, Hermann Ebbinghaus measured how quickly memorized material decays: steeply at first — most of it within days — then slowly. He also found the fix: each well-timed review resets the curve and makes it shallower. A century-plus of follow-up research (including a major meta-analysis by Cepeda and colleagues in 2006) keeps confirming it: **spacing reviews out beats massing them together, for essentially everyone, for essentially everything.**
 
@@ -77,7 +77,7 @@ Echo speaks the same language — it schedules with FSRS, the modern spaced-repe
 - Write fronts as questions ("What are the four causes of X?"), not labels. A question forces retrieval; a label invites recognition.
 - Do your Daily Review when the notification arrives. Five minutes daily beats an hour monthly — that's the whole point of spacing.
 - Trust the schedule. Re-reviewing cards that aren't due is the cramming instinct — the exact thing the system is saving you from.
-- Bringing decks from Anki? Import the .apkg and keep your scheduling — don't restart mature cards from zero. (🚧 Coming in 1.0)
+- Bringing a deck from another tool? Use the supported Echo JSON/folder format and check the import result before relying on it for study.
 
 ---
 
@@ -93,7 +93,7 @@ Echo speaks the same language — it schedules with FSRS, the modern spaced-repe
 
 ---
 
-## 4. Mark Now, Card Later — protect the flow — 🚧 Coming in 1.0
+## 4. Mark Now, Card Later — protect the flow
 
 **What it does:** A single tap — on the transport bar or a watch button — **marks** the passage you just heard, with a few seconds of context on either side, and the narration never stops. Later, your **Card Inbox** shows every mark grouped by book, with its transcript snippet and audio. Turn marks into flashcards when you actually have the bandwidth — or swipe away the ones that didn't age well.
 
@@ -103,21 +103,21 @@ Echo speaks the same language — it schedules with FSRS, the modern spaced-repe
 - Batch your inbox at a set time — end of the listening day, or Sunday with coffee. Converting five marks in a row is faster (and produces better cards) than five mid-listen scrambles.
 - While converting, the snippet replays the narrator. Write the front as a question *before* replaying — that's a free retrieval rep.
 
-> 📸 *Screenshot coming soon — the Card Inbox: marked passages grouped by book, one tap from flashcard.*
 
 ---
 
-## 5. Brain Dump — close the open loop — 🚧 Coming in 1.0
+## 5. Capture a thought — close the open loop
 
-**What it does:** A thought hits you mid-chapter — about the book, or about absolutely anything else ("buy stamps," "that's what Sarah meant on Tuesday"). One tap opens a note; hold to record a voice memo; on the watch, dictate it. Playback never pauses. The thought lands in the book's **Notes inbox** (or your global one), and later you can **promote** the keepers into bookmarks or flashcards — or just enjoy having had the thought without losing the chapter.
+**What it does:** Add a text note to the current book, or save a voice-memo bookmark. For a general thought on your Watch, **Inbox** opens native dictation and queues the message for the webhook you configured on the paired phone. An open book can supply context; a book is not required. Watch Inbox and local book notes are separate destinations.
 
 **The science: the Zeigarnik Effect & Cognitive Offloading.** Unfinished business doesn't wait quietly. Bluma Zeigarnik documented in 1927 that interrupted, incomplete tasks are remembered better — and intrude more — than completed ones. Masicampo & Baumeister (2011) found the modern fix: you don't have to *do* the nagging task to silence it — merely **making a concrete plan** (or capturing it somewhere you trust) stops it from hijacking attention. And working memory is brutally small — roughly three to five items at once (Cowan, 2010) — so every "don't forget…" you carry is a slot stolen from the book. Offloading to an external store (Risko & Gilbert, 2016) hands the thought to something that never forgets, and frees the slot.
 
-- **Capture in the cheapest format available.** Walking? Voice. Watch on? Dictate. The format doesn't matter; latency does. The thought you capture in two seconds is the thought that doesn't cost you a paragraph.
-- **Dump distractions, not just insights.** "Email the landlord" has no business in your head during chapter 6. Park it, return to the book, act on it tonight.
-- **Process the inbox on your schedule.** Promote book-thoughts to bookmarks or cards; export errands to wherever errands live; delete freely. An inbox you trust only stays trusted if it empties sometimes.
 
-> 📸 *Screenshot coming soon — Brain Dump notes inbox with text and voice entries, promote actions visible.*
+- **Choose the destination before relying on it.** Book notes belong with your reading; Watch Inbox goes to your configured endpoint.
+- **Capture, then return.** Save the thought in the available format and resume the passage.
+- **Check delivery separately.** A saved Watch haptic means queued locally. The phone's Watch Inbox settings show endpoint acceptance; that does not mean someone has read it.
+
+The broader unified Brain Dump inbox with note-promotion actions remains planned. [The manual](user-manual.md#10-notes-and-watch-inbox) covers what you can use today.
 
 ---
 
@@ -131,7 +131,7 @@ Echo speaks the same language — it schedules with FSRS, the modern spaced-repe
 - End of a looped day, ask the honest question: could you teach this chapter? If not, tomorrow is another loop day.
 - Drop a bookmark at the start and end of a key argument, switch to **loop between bookmarks**, and drill exactly that stretch.
 
-> **🔭 Roadmap — Chapter Study Mode.** Planned after 1.0: treat *each chapter as a flashcard*. Finish a chapter, grade yourself — Again or Easy — and Echo schedules that chapter's return; your due chapters become a ready-made listening queue. Until then, the manual version works today: loop the chapter, grade yourself honestly at the end, and make a flashcard for anything you couldn't explain.
+> **Chapter Study Plans are partly implemented.** For EPUB-backed books, choose chapters and a release cadence in Book Settings → Study Plan. Chapter assignments join the FSRS queue after grading. Some hands-free re-listen and retirement interactions remain unfinished. Ordinary chapter looping is available independently.
 
 ---
 
@@ -187,9 +187,9 @@ Many people — especially many neurodivergent people — simply cannot absorb a
 
 ---
 
-## 11. Insights — see yourself learn — 🚧 Coming in 1.0
+## 11. Insights — see yourself learn
 
-**What it does:** A dedicated Insights screen built from your actual listening and review history — computed on your device, from your own data, never sent anywhere. Listening time by day, week, month, or year. Streaks and a review-day heatmap. A per-book drill-down with **chapter coverage** ("Chapter 7 — 86% covered, listened 3×"). Your speed trend, your session lengths, your best time of day. For flashcards: reviews per day, a retention curve, grade distribution, and a 30-day due forecast so review debt never ambushes you. If you use Context Memory, a simple list of the places you listen most.
+**What it does:** On iPhone/iPad, Stats and per-book Insights are built from your actual listening and review history — computed on your device, from your local history. Listening time by day, week, month, or year. Active days and review-history charts. A per-book view with **chapter coverage** ("Chapter 7 — 86% covered, listened 3×"). Your speed trend and time-of-day patterns. For flashcards: reviews per day, a retention curve, grade distribution, and a 30-day due forecast so review debt never ambushes you.
 
 **The science: Self-Monitoring & Feedback.** Learners are famously bad at judging their own learning — re-reading *feels* effective precisely when it isn't. Decades of work on self-regulated learning (Zimmerman, 2002) put accurate self-monitoring at the center of effective studying, and Hattie & Timperley's landmark review (2007) ranks concrete feedback among the most powerful influences on learning. Honest data substitutes for vibes. Goal-setting research (Locke & Latham, 2002) adds the second half: specific, visible progress against a specific target sustains effort far better than "do your best."
 
@@ -198,13 +198,12 @@ Many people — especially many neurodivergent people — simply cannot absorb a
 - **Find your golden hours.** The time-of-day chart tells you when you actually listen and retain. Schedule the dense book there.
 - **Streaks bend, they don't break.** A missed day is data, not a verdict. The goal is the trend line, not a perfect chain — see the [Focus guide on all-or-nothing thinking](focus-field-guide.md#6-all-or-nothing-thinking--finding-the-gray) for why this matters double for ADHD brains.
 
-> 📸 *Screenshot coming soon — Insights: listening totals, streak, chapter-coverage heatmap, retention curve.*
 
 ---
 
-## 12. Second-Brain Export — make it yours forever — 🚧 Coming in 1.0
+## 12. Second-Brain Export — make it yours forever
 
-**What it does:** One tap exports a book's entire study record as a clean, portable Markdown bundle: every bookmark with its timestamp and note, your brain-dump entries, flashcard fronts and backs, chapter headings — plus an assets folder with your voice memos and photos. Drop the folder into **Obsidian**, **Logseq**, or **Notion**, or just keep it as files. No account, no API, no lock-in. (Bookmark-only Markdown export ships today; the full study bundle lands in 1.0.)
+**What it does:** Export the current book's study notes as a Markdown bundle, or export study notes across your library from Settings. The media bundle can include voice memos, photos, and card media. Echo Pro's **Auto-Export Study Notes** keeps a separate **text-only** Markdown mirror in a folder you choose; media and location data stay in Echo. Use the files in your own notes tool. Exporting is a copy, not two-way study sync.
 
 **The science: the Generation Effect & trusted storage.** Two principles meet here. First, the *generation effect* (Slamecka & Graf, 1978): material you produce yourself is remembered better than material you receive — and your exported notes are exactly the material you generated. Reorganizing them in your own system is another generation pass, not busywork. Second, offloading only works when the external store is *trusted* (Risko & Gilbert, 2016): a capture system you can't search or might lose teaches your brain to keep white-knuckling everything. Plain files in your own vault are the most trustworthy storage that exists.
 

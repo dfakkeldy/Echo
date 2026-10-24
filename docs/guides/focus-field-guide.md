@@ -2,7 +2,7 @@
 
 Echo was built by an AuDHD mail carrier who needed his own tools to exist. This page is the rest of the toolbox: practical, research-backed strategies for the executive-function stuff — getting started, time blindness, staying organized, motivation, all-or-nothing thinking, hyperfocus, distractibility. Most tips work with or without Echo; where Echo genuinely helps, there's a note. Take what works, skip what doesn't.
 
-> **This is a field guide, not medical advice.** ADHD and autism are real, diagnosable conditions — strategies like these *complement* professional care (therapy, coaching, medication where appropriate); they don't replace it. Echo features marked 🚧 **Coming in 1.0** are in active development; 🔭 **Roadmap** means planned after 1.0.
+> **This is a field guide, not medical advice.** ADHD and autism are real, diagnosable conditions — strategies like these *complement* professional care (therapy, coaching, medication where appropriate); they don't replace it. Product examples were reviewed against Nightly source on October 24, 2026; check the [manual](user-manual.md) for platform limits. Roadmap items remain planned.
 
 > **The premise of this whole page:** ADHD is not a knowledge problem — you usually know exactly what you should be doing. It's a *performance* problem: a gap between knowing and doing, driven by how the brain handles activation, time, working memory, and reward (Barkley, 2012). So none of these strategies are "try harder." All of them are **move the work out of your head and into the world** — externalize time, externalize memory, externalize the starting gun. That's also the design thesis behind Echo.
 
@@ -40,7 +40,7 @@ Many ADHDers experience time in two flavors: *now* and *not now*. Research consi
 **∞ How Echo helps:**
 - **Honest time displays:** chapter lengths and time remaining are shown *at your playback speed* — "20 minutes left" means twenty real minutes, so a chapter becomes a plannable block.
 - **The sleep timer and Pomodoro are external clocks** that act on your behalf: playback simply stops at the boundary, no monitoring required.
-- **Insights shows you where time actually went** (🚧 Coming in 1.0) — listening totals and time-of-day patterns turn "what happened this week?" into a chart you can plan against.
+- **Insights shows you where time actually went** — listening totals and time-of-day patterns turn "what happened this week?" into a chart you can plan against.
 
 ---
 
@@ -58,8 +58,8 @@ The ADHD organization problem is usually not messiness — it's *cue-dependence*
 **∞ How Echo helps:**
 - **The folder-per-book convention IS the organization system:** drop the files in, and Echo finds the audio, the cover, and the EPUB by itself. The structure does the remembering.
 - **Read & Study plus Stats are self-presenting study surfaces** — aligned passages, bookmarks, cards, decks, and review queues have visible homes instead of hiding behind memory.
-- **Brain Dump and the Card Inbox** (🚧 Coming in 1.0) are one-inbox designs with badges — they present themselves instead of waiting to be remembered.
-- **Second-Brain Export** (🚧 Coming in 1.0) lands your study record in plain Markdown files you can't lose to a proprietary app.
+- **Card Inbox** gives marked passages a visible home for later review. Local book notes and a configured Watch Inbox provide separate capture paths.
+- **Study-note export** lands your study record in plain Markdown files you can't lose to a proprietary app.
 
 ---
 
@@ -75,8 +75,8 @@ Working memory — the mental scratchpad — holds three to five items for anyon
 
 **∞ How Echo helps:**
 - **Voice memo bookmarks are five-second capture** pinned to the exact moment in the book — hold, speak, done.
-- **Brain Dump** (🚧 Coming in 1.0) is the same reflex for *everything else* — parked without pausing playback, including dictation from the watch.
-- **Mark Now, Card Later** (🚧 Coming in 1.0) means "this should be a flashcard" costs one tap and zero working-memory slots.
+- **Watch Inbox** queues a dictated thought for your configured endpoint. Book notes and voice-memo bookmarks are local capture choices.
+- **Mark Now, Card Later** means "this should be a flashcard" costs one tap and zero working-memory slots.
 
 ---
 
@@ -92,7 +92,7 @@ ADHD motivation runs on interest, novelty, challenge, and urgency far more than 
 
 **∞ How Echo helps:**
 - **Audio learning is temptation bundling by nature** — chapters ride along on walks, chores, and commutes.
-- **Streaks, heatmaps, and listening totals** (🚧 Coming in 1.0) give progress an immediate, visible surface — honest numbers, no guilt-trip notifications. (Why the streak is designed to bend instead of break: next section.)
+- **Active days, review charts, and listening totals** give progress an immediate, visible surface — honest numbers, no guilt-trip notifications. (Why the streak is designed to bend instead of break: next section.)
 - **Five-minute review sessions** are deliberately sized for "I can do five minutes" — and the due count hitting zero is today's visible win.
 
 ---
@@ -111,9 +111,9 @@ ADHD motivation runs on interest, novelty, challenge, and urgency far more than 
 - **Pre-plan the recovery.** Decide *now* what happens after a bad day: "if I miss a day, I do five minutes the next morning." That's an implementation intention (Gollwitzer, 1999) aimed precisely at the relapse moment — where the what-the-hell effect strikes.
 
 **∞ How Echo helps:**
-- **Chapter coverage is the gray scale, literally** (🚧 Coming in 1.0) — a book stops being "read or unread" and becomes "Chapter 7 — 86% covered, listened 3×." Partial progress is a number on the screen, climbing.
-- **The streak is designed to bend, not break** (🚧 Coming in 1.0) — and the heatmap shows your month as texture (strong weeks, thin weeks) instead of a single pass/fail verdict. That design is a deliberate answer to the abstinence violation effect.
-- **Mark Now, Card Later is anti-perfectionism by design** (🚧 Coming in 1.0) — a rough one-tap mark today beats the perfect flashcard you never made. Capture imperfectly; refine when you have bandwidth.
+- **Per-book chapter coverage makes partial progress visible** — a book stops being "read or unread" and becomes "Chapter 7 — 86% covered, listened 3×." Partial progress is a number on the screen, climbing.
+- **Use your history as information.** A thin week is still part of the record; resume with a small session rather than treating a streak as a pass/fail verdict.
+- **Mark Now, Card Later is anti-perfectionism by design** — a rough one-tap mark today beats the perfect flashcard you never made. Capture imperfectly; refine when you have bandwidth.
 - **Five-minute reviews and the Pomodoro make partial sessions official.** A 25-minute interval is a complete unit of work — "not enough time to do it properly" stops being an excuse the system agrees with.
 - **Smart Rewind makes messy resumes free.** The "I lost my place, it's all ruined" spiral never starts — press play and you're back mid-thought.
 
@@ -152,9 +152,9 @@ Distraction isn't a character flaw; it's attention orienting to novelty with the
 
 **∞ How Echo helps:**
 - **Read-along is the two-channel anchor:** the synced EPUB highlights the active paragraph, so when your eyes drift the audio holds the thread — and vice versa.
-- **Brain Dump is capture-don't-chase, institutionalized** (🚧 Coming in 1.0) — the intrusive thought gets parked in two seconds and the narration never stopped.
+- **Notes and Watch Inbox support capture first** — save the thought in the appropriate destination, then return to the book. Watch delivery and endpoint acceptance are separate.
 - **Speed control matches input rate to arousal:** bump to 1.25× when an easy stretch is losing you; drop to 1× and loop when it's dense.
-- **Focus soundscapes** (🔭 Roadmap) — layered background audio under the narration is planned post-1.0; there's real evidence behind it (auditory noise can improve cognitive performance in ADHD — Söderlund et al., 2007).
+- **Optional focus soundscapes** layer background audio under narration. Try a comfortable level and keep it only if it helps you focus.
 
 ---
 

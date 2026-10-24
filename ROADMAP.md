@@ -1,8 +1,17 @@
 # Echo: Audiobook Study Player — Roadmap
 
-<!-- Last updated: 2026-07-03 (2026-07-03 — auto-export study Markdown to a user-picked folder landed on the implementation branch; schema summary advanced through V34. 2026-07-01 — doc-sync for nightly: AI-generated cards are no longer purely deferred after BYO Anthropic + Foundation Models providers landed; Audiobookshelf macOS UI, multiple saved servers, and macOS progress sync are wired; schema summary advanced through V32. 2026-06-30 — added transcript/narration QA program status for M1–M5 + macOS parity. 2026-06-21 — doc-sync reconciliation vs merged reality: Audiobookshelf (#102), FSRS-as-the-default-scheduler (#97), narration chapter-outline + tap-to-exclude (#103), the FluidAudio/KokoroPipeline SPM-package removal, and the universal Mac app (#115) are all now MERGED — their ROADMAP/README status moved from "on branch / pending / unchecked" to shipped, and the V22 FSRS-seed migration was added to ARCHITECTURE's ledger. 2026-06-20 — MERGED origin/main into the wedge rebuild: integrated the shipped **ONNX narration engine swap** — `OnnxKokoroEngine` replaced the CoreML/FluidAudio stack and **A14 narration is now DE-GATED** (§A.1; reconciled into Wedge 2, which previously listed it as to-do) — plus main's competitor findings (AudioBookSync = closest tech competitor §7.11–§7.12; Voxlight confirmed chapter-level; SyncBooks/Vlume notes; §A.3.6 "defend the alignment moat" + §A.3.7 research backlog folded into priorities 6–9). 2026-06-19 EVENING — ROADMAP REBUILT into six competitive wedges per the 2026-06-19 rebuild design spec: Part A is now wedge-structured (Study Moat / Rock-Solid / Clarity / Trust / Sync / Support) + macOS full-peer parity; 1.0 holds for a DEEP moat with FSRS, Chapter Study Mode, deep analytics, and full Audiobookshelf all pulled INTO 1.0; Aug-1 target retired → gate-driven; old WS0–WS10 re-slotted under the wedges. PRIOR PM — moat reassessment vs the "Sync cohort". 2026-06-18: WS0–WS10 workstream model; On-Device Narration (Kokoro) workstream; Echo Pro / FreeTierGate; schema V21. The Phase 1–9 blueprint is preserved in Part B.) -->
+<!-- Source status reviewed: 2026-10-24. Dated design/research sections retain their original context. -->
 
 ---
+
+## Current source status — October 24, 2026
+
+This is a plan for unfinished work, not a release announcement. The [manual](docs/guides/user-manual.md) is the reference for usable workflows and platform differences.
+
+- **Implemented:** local playback/read-along, Card Inbox/decks/editor, FSRS, chapter Study Plans, phone Insights, bookmark Context Memory, optional soundscapes, local notes, Watch Inbox, Audiobookshelf on phone/Mac, document narration including Mac PDFs, article/anthology capture with its own private CloudKit sync, and export tools.
+- **Newer source:** optional arm64 Phonon narration, EPUB IPA/PLS authoring, listened-books shelf on phone, separate Visual Listening figures/subtitles, and authored PDF read-along word boxes (V44).
+- **Still incomplete:** general private-iCloud study-state sync, some hands-free Chapter Study interactions, full Mac study/Insights parity, unified Brain Dump promotion, direct phone Anki-archive import UI, Audiobookshelf streaming/background-transfer resumability, and the remaining release gates.
+- **Availability boundaries:** the widget target ships on Watch; iPhone uses system Now Playing. The phone deck picker accepts Echo JSON/folders although an `.apkg` backend exists. Pro is one-time on iPhone/iPad; current Mac has no Pro purchase UI or phone caps. Community anchor lookup is not private study sync; public uploads are unavailable in 1.0.
 
 ## How this roadmap is organized
 
@@ -12,7 +21,7 @@ This roadmap has two layers:
 - **Part B — Original blueprint (Phases 1–9, historical).** The foundational hardening/feature phases that predate the wedge model. Phases 1–7 are complete and kept as engineering history; the forward-looking items in Phases 8–9 are now tracked under the wedges in Part A (cross-referenced).
 
 > [!IMPORTANT]
-> Keep this file in sync with `README.md`'s "Road to v1.0" section. When a wedge item's status changes, update both. **Current schema baseline: V1** after the pre-external-TestFlight reset; future database changes should be additive migrations again.
+> Keep current capability statements in sync with `README.md` and the [manual](docs/guides/user-manual.md). A checked backend or merged PR does not establish a reachable UI, TestFlight availability, or release acceptance. The reset schema baseline is **V1**, with registered additive migrations now through **V44**; do not edit shipped migrations.
 
 ---
 
@@ -35,7 +44,7 @@ The fused study system no sync-app and no TTS-app has. **This is the "deep" the 
 - [x] **Card Inbox / mark-later**, full **card editor**, **decks & tags** (retire mid-playback popups). Mark-later capture routes to Card Inbox from phone controls, watch-configurable controls, and watch live commands; Card Inbox opens a prefilled full-card editor; existing cards can be edited from Decks; cards can be assigned to decks and tags; Decks supports manual create/rename/delete; inline mid-playback popups are retired. *(was WS6)*
 - [x] **Narrator-audio-snippet cards** + **watchOS haptic review** — audio-snippet review is shipped; watch review now persists its due-card queue across eviction/relaunch, receives explicit empty-queue clears from iPhone, sends grades over the queued WatchConnectivity path, and centralizes haptic feedback behind the watch haptic preference.
 - [ ] **Align-or-synthesize narration** — real-narration alignment + on-device Kokoro narration of text-only EPUBs (core shipped); remaining polish in §A.1. *(was WS-N)*
-- [x] **`.apkg` round-trip** + Markdown second-brain export — `.apkg` import/export now preserves decks, tags, scheduling state, and referenced media files across a round trip; the iOS More menu exports per-book Markdown `.zip` bundles, Settings exports a full-library study-notes `.zip`, and Echo Pro can continuously mirror text-only study Markdown to a user-picked folder with deterministic per-book files. *(was WS7)*
+- [~] **Deck import/export and Markdown** — Anki archive backend import/export and tests exist; Mac exposes Anki export/AnkiConnect. The current phone Import Deck picker routes Echo JSON/folders through `DeckImportService`, so a direct `.apkg` import workflow remains incomplete. Per-book/full-library study-note bundles and a text-only auto-export mirror are implemented. *(was WS7)*
 - [ ] **Deep analytics / full Insights** *(was 1.x → now 1.0)* — Study Insights now persist typed review metadata and show on-device daily review counts, retention curves, grade distributions, playback-speed trends, time-of-day patterns, and the 30-day due forecast; remaining work is the broader listening analytics surface (per-chapter coverage heatmap polish and a session-length definition decision). *(was WS3–4)*
 - [ ] **Context Memory** (opt-in, on-device, deletable) — bookmark place tagging now has a visible Settings toggle, reduced-accuracy default, and one-tap deletion of bookmark places/session-location rows; session + chapter-start capture still need a product-scope decision before this can close. *(was WS5)*
 
@@ -61,18 +70,18 @@ Competitors are confusing → **Echo is obvious from first launch. This is a gen
 
 ### Wedge 4 — TRUST *(beats ads / hidden-fees / subscriptions + privacy complaints)*
 
-Competitors hide fees, gate features behind subscriptions, and run ad-SDKs → **Echo is free & open-source, ad-free, and verifiably private — the only paid options are an optional Echo Pro subscription (monthly/yearly) or a one-time lifetime unlock — free core, ad-free, no lock-in.**
+Competitors hide fees, gate features behind subscriptions, and run ad-SDKs → **Echo is free & open-source, ad-free, and verifiably private — iPhone/iPad offers an optional one-time Echo Pro unlock; current Mac has no purchase/restore UI or phone free-tier caps — free core, ad-free, no lock-in.**
 
 - [x] **Free-tier gate** — `FreeTierGate` (20 cards / 1 narrated chapter free); Pro unlocks. *(shipped; see §A.2)*
-- [x] **Honest Echo Pro paywall UX** — BookPlayer tip-jar / simple-unlock style, never an aggressive carousel; the shipped sheet uses StoreKit display prices, visible restore, subscription-or-lifetime/no-account copy, and no carousel-style paging. *(§A.2)*
+- [x] **Honest Echo Pro paywall UX** — BookPlayer tip-jar / simple-unlock style, never an aggressive carousel; the shipped sheet uses StoreKit display prices, visible restore, one-time-unlock/no-account copy, and no carousel-style paging. *(§A.2)*
 - [ ] **Verifiable privacy** — on-device, no accounts, no tracking, privacy manifest accurate; *provable* because GPL-3.0 ("verifiably private, not just promised").
-- [ ] **No lock-in** — open formats, full data export. Strong local slices are shipped (`.apkg` round-trip, per-book Markdown export, full-library study-notes `.zip` from Settings, and continuous text-only study Markdown auto-export); closing the checkbox still needs a product-scope decision for whether "full data export" also includes settings, reading-position history, connection metadata, or other non-study-note state.
+- [ ] **No lock-in** — open formats, full data export. Strong local slices are implemented (Anki backend and Mac export, per-book Markdown export, full-library study-notes `.zip` from Settings, and continuous text-only study Markdown auto-export); closing the checkbox still needs a product-scope decision for whether "full data export" also includes settings, reading-position history, connection metadata, or other non-study-note state.
 
 ### Wedge 5 — SYNC DONE RIGHT *(beats sync / file-management failures)*
 
-Competitors lose progress and corrupt files → **Echo's BYO library + iCloud just works, and your self-hosted shelf comes with it.**
+**Goal:** preserve progress across devices and self-hosted libraries. Source-file access, server progress, community alignment lookup, and private study-state sync are separate mechanisms.
 
-- [ ] **Full CloudKit study-state sync** — position, bookmarks, cards, decks (today **anchors-only**), conflict handling, no lost progress across iPhone / Watch / Mac. *(was WS8)*
+- [ ] **Full CloudKit study-state sync** — position, bookmarks, cards, decks (community anchor lookup and private article/anthology sync are separate existing paths), conflict handling, no lost progress across iPhone / Watch / Mac. *(was WS8)*
 - [x] **On-device Library (BYO-library shelf + folder roots)** — Schema V27, `LibraryService` / `LibraryScanner` / `LibraryAccess` / `LibraryRootDAO`, the iOS Library tab, smart landing, Browse By facets, status dots, Manage Roots, missing-file hide/relocate/remove flows, last-library-book restore, and macOS sidebar parity are shipped on this branch. See `docs/superpowers/specs/2026-06-26-local-library-design.md`.
 - [x] **Full Audiobookshelf** *(was 1.x → now 1.0)* — auth (JWT login + refresh-with-rotation), browse libraries/items, server-side search, **download-to-local** (whole-item zip → `ABSLibrary/<remoteItemID>/`; sibling EPUB auto-discovered so alignment + flashcards fire unchanged), and two-way progress sync (ABS-authoritative last-write-wins reconciler, throttled push + reconcile-on-load). *Merged to `main` for the original iOS path (PR #102; V23 migration); nightly now adds macOS browse/import UI, multiple saved servers via V31, and macOS progress sync. Remaining fast-follows: device-verify live sync, full `URLSessionConfiguration.background` resumable download, and any multi-m4b progress edge cases; streaming deferred post-1.0.* *(was WS8b)*
 
@@ -90,9 +99,9 @@ Competitors give slow, unhelpful support → **Echo is responsive and open.** In
 
 ### Deferred to 1.x (post-1.0)
 
-Photo-of-page → audio jump (the one row Echo is behind on; reuses the existing transcription index) · multi-voice / per-character narration · CarPlay capture buttons · ABS streaming (Part B §9.5) · AnkiConnect · `.apkg` export polish · focus-soundscape expansion · hyperfocus/transition alarms · Context Memory map view.
+Photo-of-page → audio jump (the one row Echo is behind on; reuses the existing transcription index) · further per-character narration polish (chapter voice overrides are implemented) · CarPlay capture buttons · ABS streaming (Part B §9.5) · further Anki workflow polish · focus-soundscape expansion · hyperfocus/transition alarms · Context Memory map view.
 
-### A.1 — On-Device Narration (Kokoro) — ✅ Core shipped
+### A.1 — On-Device Narration — core implemented
 
 Echo's direct answer to TTS-reader competitors (notably Voice Dream). Generates spoken audio for study EPUBs that have **no audiobook**, entirely on-device.
 
@@ -101,11 +110,11 @@ Echo's direct answer to TTS-reader competitors (notably Voice Dream). Generates 
 - [x] **A14 narration de-gate (done)** — the A15+ `NarrationCapability` gate is removed; narration is available on every device meeting the iOS 18 / macOS 15 floor. The gate existed only because the CoreML vocoder trapped on the A14 ANE; the ONNX engine never touches the ANE, verified on an iPhone 12 Pro (≈0.7 s load, RTF ≈ 0.5, no crash/jetsam).
 - [x] **Removed the unused FluidAudio + KokoroPipeline SPM packages** — dropped from `Echo.xcodeproj/project.pbxproj` (iOS + macOS) and `ThirdParty/KokoroPipeline` deleted; only `MisakiSwift` (G2P) and `onnxruntime` remain. *(Commit 373941a.)*
 - [x] **Word-level read-along / karaoke (Schema V19)** — `word_timing` table; char-proportional interpolation refined to real WhisperKit/DTW word times; iOS + macOS readers. *(Existing books need a one-time re-align.)*
-- [x] **PDF read-along + per-word Define & vocabulary (iOS, Schema V28)** — a text-parsed PDF gains a Page ⇄ Reflow reading surface (persisted per book); page mode auto-follows narration via the per-block `pdf_block_page` index and highlights the active word by PDFKit text search; tap-a-word seeks, press-hold offers Look Up + Save word; saved words become FSRS `vocabulary` cards reviewed with their context sentence. `ReaderSurfaceResolver`, `PDFReadAlongController`, `PDFBlockPageMapper`, `VocabularyCardBuilder`. *(Re-import existing PDFs once to populate page indices. M2/M3 iOS-only; macOS parity pending.)*
+- [x] **PDF read-along + per-word Define & vocabulary (iOS, Schema V28)** — a text-parsed PDF gains a Page ⇄ Reflow reading surface (persisted per book); page mode auto-follows narration via the per-block `pdf_block_page` index and highlights the active word by PDFKit text search; tap-a-word seeks, press-hold offers Look Up + Save word; saved words become FSRS `vocabulary` cards reviewed with their context sentence. `ReaderSurfaceResolver`, `PDFReadAlongController`, `PDFBlockPageMapper`, `VocabularyCardBuilder`. *(Re-import existing PDFs once to populate page indices. iPhone has page/reflow and vocabulary tools; Mac now has page read-along and exact authored word boxes, with other reader parity still separate.)*
 - [x] **Cross-platform chaptered `.m4b` export (iOS + macOS)** — `AudioExportService` (`EchoCore/Services/Export/`) composes + transcodes any book (narrated EPUB via `NarrationCacheSource`, or imported m4b/mp3 via `ImportedBookSource`) and writes Nero `chpl` + QuickTime `chap` markers plus title/author/cover art in one in-place pass via `swift-audio-marker` (now linked on both targets). iOS entry: player More menu → share sheet. macOS entry: File menu → `NSSavePanel`. **mp3 export deferred** (needs LAME; per-chapter-file strategy decided).
 - [x] **macOS port + overnight narrate queue (Schema V21)** — Kokoro de-gated to iOS+macOS via `NarrationEngineFactory`; `batch_queue.kind` carries text-only **narrate** items; Batch ▸ "Narrate EPUB(s)…" (⌘⌥N).
 - [x] **Markdown / plain-text import (iOS + macOS)** — `.md`/`.markdown`/`.txt` files import as standalone narratable books via `TextDocumentParser` + shared `EPUBImportService.import(parse:)` + `DocumentImportFinalizer`; same narration, read-along, and chaptered playback as EPUBs. No schema change for this import path (reuses `epub_block`). *Future: attach text to an existing audio book for read-along; render-but-not-speak code blocks; image resolution; multi-file (folder-of-.md) books.*
-- [ ] **PDF text import for narration** — `PDFAutoImportScanner` (PDFKit text extraction → shared `import(parse:)`/`DocumentImportFinalizer`) narrates a PDF's text; marker-less multi-page PDFs fall back to one synthetic chapter per page. **In:** headless runner / `echo-cli narrate` (accepts a `.pdf` file or folder) + iOS folder import. **GUI exposure (partial):** the iOS PDF reader now shows a **Narrate** button when a parsed PDF has no audio (one-tap on-device narration); the iOS document picker still lacks a PDF `UTType` and the macOS open panel / batch importer still reject PDFs, so import-time PDF→narrate isn't fully wired. No schema change for narration itself (reuses `epub_block`); the read-along page index lands separately in Schema V28.
+- [x] **PDF text import and Mac narration** — shared text extraction/import supports PDF narration. Mac **Batch → Narrate Documents…** accepts PDF, EPUB, Markdown, and text; a folder sweep includes EPUB/PDF. Authored `.readalong.json` files can supply text order and exact PDF word boxes on iOS and macOS (V44). Image-only scans still need usable text or an authored file; ordinary import is not OCR. See [PDF authoring](docs/pdf-readalong-authoring.md).
 - [x] **Chapter outline + tap-to-exclude (iOS)** — opening the playlist for a narration book now shows the **full EPUB chapter outline up front** (every narratable chapter, independent of render progress) via the pure `NarrationOutlineBuilder` → `NarrationOutlineChapter`. Tapping a chapter **excludes it from narration** (greyed + speaker-slash) so it is never synthesized or queued; built on the existing `is_hidden` block axis (`EPubBlockDAO.unhideChapter`), and already-rendered audio is kept on disk so re-including is instant. No schema change. *(PR #103.)*
 - [x] **Read-first Listen UI polish** — iOS playback chrome now treats audio-less EPUB narration books as playback content: the root dock/mini-player and Read & Study toggle appear before rendered tracks exist, and play/toggle routes through the narration-aware `PlayerModel.play()` path.
 - [x] **macOS custom font/theme application** — the macOS window now applies the persisted `appFont` and static `themeColor` tint, with the tri-pane player chrome and reader feed/card text using the configured accessibility font.
@@ -123,13 +132,13 @@ Echo's direct answer to TTS-reader competitors (notably Voice Dream). Generates 
 Tracked here because no prior roadmap section owned it. Detailed pricing is kept in the private strategy docs.
 
 - [x] **Free-tier gate** — `FreeTierGate` caps the free tier at **20 flashcards** and **1 narrated chapter per book**; Pro entitlement (`ProEntitlementProviding`) unlocks both. Idempotent re-renders/voice-changes of an already-narrated chapter are never blocked.
-- [x] **Paywall UX** — shipped as a non-intrusive simple-unlock sheet, not an aggressive carousel; structural tests lock StoreKit display prices, visible restore, subscription-or-lifetime/no-account copy, and no carousel-style paging.
+- [x] **Paywall UX** — shipped as a non-intrusive simple-unlock sheet, not an aggressive carousel; structural tests lock StoreKit display prices, visible restore, one-time-unlock/no-account copy, and no carousel-style paging.
 
 ---
 
-## Part A.3 — Competitive Priorities
+## Part A.3 — Competitive Priorities (dated June 2026 research)
 
-Sourced from internal competitor field notes (Voice Dream, BookPlayer, Prologue, the reader/TTS cohort incl. **Fox Reader**, and the closest tech competitor **AudioBookSync**).
+These are historical research leads, not current market claims. Recheck product availability, prices, and capabilities before using them for decisions or public copy. Sourced from internal competitor field notes (Voice Dream, BookPlayer, Prologue, the reader/TTS cohort incl. **Fox Reader**, and the closest tech competitor **AudioBookSync**).
 
 > [!NOTE]
 > **The six wedges above now carry the forward plan** — this section is retained as the *competitive reasoning* behind them (which weakness each wedge exploits, what to protect, what to reposition). Priorities 6–8 map to Wedge 1 (study moat + word-level read-along), the positioning work, and the 1.x photo-jump/OCR evaluation; priorities 1–2 (VoiceOver, watch persistence) fold into Clarity/Trust and Rock-Solid; priority 9 is the live research backlog.
@@ -472,15 +481,15 @@ Goal: connect a self-hosted **Audiobookshelf (ABS)** server as a first-class lib
 | # | Workstream | Status |
 |---|------------|--------|
 | WS0 | Listening capture layer | ✅ Shipped |
-| WS1 | Identity & macOS foundation | 🟡 Mostly complete (Fastlane/provisioning pending) |
-| WS2 | CI | ✅ Build gate + full EchoTests execution restored on pinned iOS 26.4 simulator |
+| WS1 | Identity & macOS foundation | 🟡 Source/packaging implemented; upload, processing, and release eligibility require separate evidence |
+| WS2 | CI | ✅ Build gate + full EchoTests execution restored; CI selects and records an available iOS 26.x simulator |
 | WS3–4 | Insights | 🟡 Partial (Study review charts, retention metadata, speed trend, and time-of-day charts shipped; session-length definition and chapter heatmap polish pending) |
 | WS5 | Context Memory | 🟡 Partial (bookmark place tagging + Settings deletion shipped; session/chapter-start capture pending product decision) |
 | WS6 | Anki core | 🟡 Partial (Card Inbox/decks/editor shipped; Chapter Study Mode pending product decision) |
 | WS6b | Brain Dump / Book Notes | 🟡 Partial |
-| WS7 | Import / Export | ✅ `.apkg` round-trip + Markdown second-brain export + text-only auto-export mirror shipped |
-| WS-N | On-Device Narration (Kokoro) | 🟡 Core shipped; Listen UI + macOS theming done; hybrid streaming-start orchestration pending |
-| WS8 | iCloud study sync | 🟡 Partial (anchors only) |
+| WS7 | Import / Export | 🟡 Anki backend + Mac export; phone archive-import UI incomplete. Study bundles and text-only auto-export implemented |
+| WS-N | On-Device Narration (Kokoro) | 🟡 Kokoro + optional Phonon, Mac PDF batch narration, and segment orchestration implemented; remaining UX/performance validation is separate |
+| WS8 | iCloud study sync | 🟡 General study sync unfinished; public anchor lookup and private article sync are separate |
 | WS8b | Audiobookshelf integration | ✅ Shipped to `main` for the original iOS path (PR #102; V23). Nightly adds macOS browse/import/progress sync plus multiple saved servers (V31). Fast-follows: device-verify live sync, full background-URLSession, multi-m4b progress edge cases; streaming post-1.0 |
 | WS9 | Polish & release | 🟡 Partial |
 | WS10 | Docs & site content | 🟢 Ongoing |
@@ -501,7 +510,7 @@ Goal: connect a self-hosted **Audiobookshelf (ABS)** server as a first-class lib
 | 8 | Study Workflow & Polish | Folded into WS5/6/8/9; Accent Contrast Safety ✅, Now Playing redesign ✅, Watch Connectivity hardened ✅, Pomodoro timer ✅, CloudKit sync infrastructure in place |
 | 9 | Audiobookshelf Integration | ✅ Shipped to `main` for the original iOS path (PR #102; connect/browse/search/download/progress-sync; V23); nightly adds macOS UI/progress sync and multi-saved-server support (V31). Live-sync device verification + streaming remain deferred/follow-up |
 
-**Foundation (Phases 1–7): complete. Forward work tracked under Part A workstreams. Current schema head: V32 (fresh baseline V1 + additive migrations V25–V32).**
+**Foundation (Phases 1–7): complete. Forward work tracked under Part A workstreams. Current registered schema head: V44 (reset baseline V1 plus the additive migrations in `DatabaseService.makeMigrator`).**
 
 ### June 2026 Highlights (since last update)
 

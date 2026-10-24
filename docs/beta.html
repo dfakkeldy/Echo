@@ -1,283 +1,370 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Join the Echo Beta — TestFlight Tester Guide</title>
-    <meta name="description" content="How to join the Echo beta on TestFlight, send feedback that helps, and run structured test plans — plus known limitations and beta privacy notes.">
-    <meta property="og:title" content="Join the Echo Beta">
-    <meta property="og:description" content="Test the audiobook player that helps you remember — and help shape it. TestFlight guide, test plans, and feedback how-to.">
-    <meta property="og:image" content="https://dfakkeldy.github.io/Echo/assets/icon.png">
-    <meta property="og:url" content="https://dfakkeldy.github.io/Echo/beta.html">
-    <meta property="og:type" content="article">
-    <link rel="stylesheet" href="styles.css">
-    <link rel="icon" type="image/png" href="assets/icon.png">
-</head>
-<body>
+    <meta
+      name="description"
+      content="How to join the Echo beta on TestFlight, send feedback that helps, and run structured test plans — plus known limitations and beta privacy notes."
+    />
+    <meta property="og:title" content="Join the Echo Beta" />
+    <meta
+      property="og:description"
+      content="Test the audiobook player that helps you remember — and help shape it. TestFlight guide, test plans, and feedback how-to."
+    />
+    <meta
+      property="og:image"
+      content="https://dfakkeldy.github.io/Echo/assets/icon.png"
+    />
+    <meta
+      property="og:url"
+      content="https://dfakkeldy.github.io/Echo/beta.html"
+    />
+    <meta property="og:type" content="article" />
+    <link rel="canonical" href="https://dfakkeldy.github.io/Echo/beta.html" />
+    <meta name="theme-color" content="#10151e" />
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="icon" type="image/png" href="assets/icon.png" />
+  </head>
+  <body>
     <a class="skip-link" href="#main">Skip to content</a>
 
     <header class="site-header">
-        <div class="logo-container">
-            <a href="index.html">
-                <img src="assets/icon.png" alt="Echo app icon — an infinity symbol in silver and gold">
-                <span class="logo-text">Echo <span class="infinity">∞</span></span>
-            </a>
-        </div>
-        <nav class="site-nav" aria-label="Main">
-            <a href="index.html">Home</a>
-            <a href="learn.html">Learn</a>
-            <a href="focus.html">Focus</a>
-            <a href="manual.html">Manual</a>
-            <a href="devlog.html">Devlog</a>
-            <a href="glossary.html">Glossary</a>
-            <a class="nav-cta" href="https://github.com/dfakkeldy/Echo" target="_blank" rel="noopener noreferrer">GitHub</a>
-        </nav>
+      <a
+        class="site-brand"
+        href="index.html"
+        aria-label="Echo documentation home"
+      >
+        <img src="assets/icon.png" width="40" height="40" alt="" />
+        <span
+          >Echo
+          <span class="brand-caption"
+            >The listening &amp; learning guide</span
+          ></span
+        >
+      </a>
+      <nav class="site-nav" aria-label="Main">
+        <a href="index.html">Overview</a>
+        <a href="manual.html">Manual</a>
+        <a href="learn.html">Learn</a>
+        <a href="focus.html">Focus</a>
+        <a href="devlog.html">Devlog</a>
+        <a href="glossary.html">Glossary</a>
+        <a href="beta.html" aria-current="page">Beta</a>
+        <a class="nav-source" href="https://github.com/dfakkeldy/Echo"
+          >Source <span aria-hidden="true">↗</span></a
+        >
+      </nav>
     </header>
 
-    <main id="main">
-        <div class="page-hero">
-            <p class="section-label">TestFlight</p>
-            <h1>Join the Echo Beta</h1>
-            <p>
-                <strong>Echo is a free, open-source audiobook <em>study</em> player.</strong> It lines your audiobooks up with
-                their ebook text so you can read along as you listen — or narrates plain text on-device when there's no audio
-                at all — and turns what you hear into bookmarks and flashcards you actually review later.
-            </p>
-            <p>
-                It's built by one person around a full-time mail route, so every tester genuinely moves the project. This page
-                is your whole guide: what Echo does, how to get started, how to stay on the latest build, and how to send
-                feedback that actually helps.
-            </p>
-            <p><strong>The short version:</strong> use Echo like you really listen — commute, chores, workouts, bedtime — and tell us the moment something feels wrong.</p>
-            <div class="hero-ctas" style="justify-content: flex-start; margin-top: 1.5rem;">
-                <a href="mailto:testflight@kinnokilabs.com?subject=Echo%20Beta%20invite%20request&amp;body=Hi%20Dan%2C%20I'd%20like%20to%20test%20Echo.%20Device(s)%20I'd%20test%20on%3A%20" class="cta-button">Request an Invite</a>
-                <a href="https://github.com/dfakkeldy/Echo/issues" class="cta-button secondary" target="_blank" rel="noopener noreferrer">Report a Bug</a>
-            </div>
-            <!-- When the public TestFlight link exists, point the primary CTA at it:
-                 https://testflight.apple.com/join/XXXXXXXX -->
-        </div>
-
-        <div class="docs-layout">
-            <aside class="docs-toc" aria-label="Table of contents">
-                <h2>On this page</h2>
-                <ol>
-                    <li><a href="#start">1 · Getting started</a></li>
-                    <li><a href="#join">2 · Joining the beta</a></li>
-                    <li><a href="#updates">3 · Staying on the latest build</a></li>
-                    <li><a href="#feedback">4 · Sending feedback</a></li>
-                    <li><a href="#plans">5 · Test plans</a></li>
-                    <li><a href="#known">6 · Known limitations</a></li>
-                    <li><a href="#privacy">7 · Beta privacy</a></li>
-                </ol>
-            </aside>
-
-            <article class="prose">
-                <h2 id="start"><span class="sec-num">01</span>Getting started</h2>
-                <p>New to Echo? Here's the whole idea in three lines:</p>
-                <ul>
-                    <li><strong>Align <em>or</em> narrate.</strong> Drop an ebook (EPUB/PDF) next to an audiobook and Echo syncs the words to the voice so you can read along. No audiobook? Echo narrates text-only EPUBs, Markdown, or plain text on-device — no cloud, no account.</li>
-                    <li><strong>A study system, not just a player.</strong> Bookmarks — with voice memos or photos — become flashcards you review with spaced repetition, on your phone, your wrist, or your Mac.</li>
-                    <li><strong>Private by design.</strong> Core import, local playback, reading, and voice synthesis run on-device without an Echo account. Audiobookshelf, external AI, model downloads, public alignment lookup, and files you choose in iCloud use network services; this 1.0 release does not expose public-alignment uploads. These connections are optional.</li>
-                </ul>
-                <h3>Your first 5 minutes</h3>
-                <ol>
-                    <li><strong>Add something to read.</strong> Import an audiobook (an M4B or a folder of MP3s) — or, to try narration with nothing else, a text-only EPUB, <code>.md</code>, or <code>.txt</code> file.</li>
-                    <li><strong>Play it.</strong> If you added matching ebook text, open the reader and watch the words follow the voice; tap any paragraph to jump there.</li>
-                    <li><strong>Make one bookmark.</strong> That's the seed of the study side — later you can promote it to a flashcard.</li>
-                </ol>
-                <p>That's enough to get the feel of it. The <a href="manual.html">Manual</a> covers everything in depth, and <a href="learn.html">Learn</a> walks through the study workflow.</p>
-
-                <h2 id="join"><span class="sec-num">02</span>Joining the beta</h2>
-                <ol>
-                    <li>Install <strong>TestFlight</strong> (Apple's free beta app) from the App Store.</li>
-                    <li>Open your Echo invite link on the device — it opens in TestFlight.</li>
-                    <li>Tap <strong>Accept</strong>, then <strong>Install</strong>. Echo appears on your home screen like any app, with an orange dot in TestFlight marking it as a beta.</li>
-                </ol>
-                <p>Don't have an invite yet? <a href="mailto:testflight@kinnokilabs.com?subject=Echo%20Beta%20invite%20request&amp;body=Hi%20Dan%2C%20I'd%20like%20to%20test%20Echo.%20Device(s)%20I'd%20test%20on%3A%20">Email testflight@kinnokilabs.com</a> and say which device you'd test on.</p>
-                <p><strong>Requirements:</strong> a recent iPhone (on-device alignment uses the Neural Engine, so newer hardware aligns faster). Apple Watch and Mac are optional but very welcome test surfaces — the watch app installs automatically from the iPhone's Watch app.</p>
-                <div class="tip-note">
-                    <span class="label">Your data</span>
-                    <p>Beta data carries forward to future builds — but it's a beta, so keep your source audiobook files backed up. (You should anyway; Echo never modifies them.)</p>
-                </div>
-
-                <h2 id="updates"><span class="sec-num">03</span>Staying on the latest build</h2>
-                <p>The public beta follows Echo's <strong>weekly</strong> track: a fresh, tested build lands roughly once a week. The simplest way to keep up is to let TestFlight update Echo for you.</p>
-                <h3>Turn on Automatic Updates</h3>
-                <p>Two switches do this — flip whichever you prefer:</p>
-                <ul>
-                    <li><strong>Just for Echo:</strong> open <strong>TestFlight</strong> → tap <strong>Echo</strong> → turn on <strong>Automatic Updates</strong>. New weekly builds then install on their own.</li>
-                    <li><strong>For every beta you test:</strong> in <strong>TestFlight</strong> → <strong>Settings</strong> (top corner) → turn on <strong>Automatic Updates</strong> to do the same across all your betas.</li>
-                </ul>
-                <p>With either on, you'll always be on the newest build TestFlight has for you. Leave it off and TestFlight simply notifies you instead — tap <strong>Update</strong> when you're ready.</p>
-                <div class="tip-note">
-                    <span class="label">What to test</span>
-                    <p>Every build ships with <em>What to Test</em> notes in TestFlight — a quick read tells you what changed and where to aim. Beta builds expire after 90 days; updating resets the clock.</p>
-                </div>
-                <p><strong>Want the bleeding edge?</strong> Nightly builds — rebuilt every day, rougher around the edges — go to core contributors only. If you'd like in, mention it when you <a href="mailto:testflight@kinnokilabs.com?subject=Echo%20nightly%20access">email testflight@kinnokilabs.com</a>; otherwise the weekly track is the right home for most testers.</p>
-
-                <h2 id="feedback"><span class="sec-num">04</span>Sending feedback that helps</h2>
-                <h3>The fastest way: TestFlight screenshots</h3>
-                <p>See something wrong? <strong>Take a screenshot right then.</strong> Tap the screenshot preview → <strong>Share</strong> → <strong>Send Beta Feedback</strong>. Your note arrives with the build number, device model, and iOS version attached automatically — that's half the diagnosis done.</p>
-                <h3>Crashes</h3>
-                <p>If Echo crashes, TestFlight offers to send the crash report with a comment box. Please add one sentence about what you were doing — a crash log with <em>"happened when I tapped Auto-Align on a 40-hour book"</em> is worth ten without.</p>
-                <h3>Trackable bugs &amp; ideas</h3>
-                <p>For anything you want tracked (or to check whether it's known): <a href="https://github.com/dfakkeldy/Echo/issues" target="_blank" rel="noopener noreferrer">github.com/dfakkeldy/Echo/issues</a>. The developer reads every one.</p>
-                <h3>Reporting alignment problems (special instructions)</h3>
-                <p>Alignment bugs are the most valuable reports and need the most context. Include:</p>
-                <ul>
-                    <li><strong>Book title + narrator</strong> (different narrations behave differently)</li>
-                    <li><strong>Where the ePub/PDF came from</strong> — store, edition, year if known (editions drift; that's often the whole bug)</li>
-                    <li><strong>What the audio is</strong> — single M4B, folder of MP3s, LibriVox, Libation export…</li>
-                    <li><strong>Where it went wrong</strong> — chapter, and roughly what the text said vs. what was playing</li>
-                    <li>Whether <strong>Auto-Align</strong> had run, and whether you'd placed <strong>manual anchors</strong></li>
-                </ul>
-                <blockquote>"Book X aligned perfectly except chapter 7 drifted ~30s after an ad-libbed intro; ePub is the 2nd edition from Kobo; audio is a Libation M4B" — that's a <em>perfect</em> report.</blockquote>
-
-                <h2 id="plans"><span class="sec-num">05</span>Structured test plans</h2>
-                <p>Pick whichever matches your life. Each is 10–20 minutes of intentional testing.</p>
-
-                <h3>Plan A — The Commute Run <em>(Smart Rewind &amp; interruptions)</em></h3>
-                <ol>
-                    <li>Start a book, then live your interrupted life: pause for seconds, minutes, an hour.</li>
-                    <li>Each resume: did Smart Rewind back up a sensible amount? Ever dump you somewhere confusing?</li>
-                    <li>Mid-sentence, unplug headphones / disconnect Bluetooth. Echo should pause — never blast the speaker.</li>
-                    <li>Take a phone call. Afterward, does Echo resume if it was playing — and stay paused if you'd paused?</li>
-                </ol>
-
-                <h3>Plan B — The Alignment Gauntlet <em>(EPUB + auto-align)</em></h3>
-                <ol>
-                    <li>Put an ePub in the audiobook's folder; confirm Echo imports it automatically.</li>
-                    <li>Run <strong>Auto-Align Chapters</strong> and watch the tiers run (plug in for long books — the first run also downloads the ~40&nbsp;MB speech model).</li>
-                    <li>Spot-check five chapters: tap a paragraph — does audio land on those words, or close?</li>
-                    <li>Find the worst spot and fix it: long-press → <strong>Align to Now</strong>. Does surrounding text snap into place?</li>
-                    <li>Search a distinctive phrase; tap the result. Text and audio should jump together.</li>
-                </ol>
-
-                <h3>Plan C — The Study Session <em>(bookmarks, flashcards, review)</em></h3>
-                <ol>
-                    <li>While listening, make three bookmarks: one plain, one with a <strong>voice memo</strong>, one with a <strong>photo</strong>.</li>
-                    <li>Re-listen across them: does the memo play inline? Does the artwork switch to your photo and back?</li>
-                    <li>Promote a bookmark to a <strong>flashcard</strong> (front as a question; attach the audio snippet).</li>
-                    <li>Tomorrow, when the review notification arrives: Daily Review on the phone — then a session on the <strong>watch</strong>, hands-free.</li>
-                    <li>Grade honestly; check the stats module updates (due / reviewed today / total).</li>
-                </ol>
-
-                <h3>Plan D — The Library Stress Test <em>(formats &amp; playlist)</em></h3>
-                <ol>
-                    <li>Load your messiest book: multi-file M4B, a 100-file LibriVox folder, weird filenames.</li>
-                    <li>Check the chapter list: grouping sensible? Sections under chapters where expected?</li>
-                    <li>Drag-reorder a few tracks; dim one (e.g., a disclaimer track) and confirm playback skips it.</li>
-                    <li>iCloud users: try a book <em>without</em> "Keep Downloaded" on cellular — how does Echo cope? Then enable it and compare.</li>
-                </ol>
-
-                <h3>Plan E — The Wrist-Only Day <em>(watch remote)</em></h3>
-                <ol>
-                    <li>From the phone, design your button layout (fill multiple pages; leave one empty — it should hide).</li>
-                    <li>Drive a full session from the watch only: play, skip, sections, loop, speed, sleep timer, a voice-memo bookmark.</li>
-                    <li>Set the Digital Crown to scrubbing; check the deadzone (brushing it shouldn't jump position).</li>
-                    <li>Leave the watch off-wrist overnight; raise it next morning: right book, right position, no phantom commands?</li>
-                    <li>Run a <strong>Pomodoro</strong>: set 25 minutes, lower your wrist, confirm the alarm is unmissable.</li>
-                </ol>
-
-                <h3>Plan F — The Accessibility Pass</h3>
-                <ol>
-                    <li>Crank Dynamic Type to a large size: anything truncated, overlapping, unreadable?</li>
-                    <li>Switch the reader font to <strong>OpenDyslexic</strong>, then <strong>Lexend</strong>; adjust size and spacing.</li>
-                    <li>VoiceOver users: a pass over player and reader — every control labeled and operable?</li>
-                    <li>Enable Reduce Motion: anything still animating that shouldn't?</li>
-                </ol>
-
-                <h3>Plan G — The 1.0 Preview <em>(as builds gain the new features)</em> <span class="tag-soon">🚧 Coming in 1.0</span></h3>
-                <p>The road to 1.0 lands feature-by-feature in beta builds — each build's <em>What to Test</em> notes will say which of these are live. When yours has them:</p>
-                <ol>
-                    <li><strong>Insights:</strong> after a few days of normal listening, open Insights. Do the totals, streak, and per-chapter coverage match your memory of the week? Anything obviously wrong is a great report.</li>
-                    <li><strong>Card Inbox:</strong> mark three passages from the transport bar (and one from the watch) without pausing; later, convert one, dismiss one, leave one. Did anything interrupt playback?</li>
-                    <li><strong>Brain Dump:</strong> dictate a note from the watch mid-chapter; confirm it lands on the right book and playback never hiccuped. Promote it to a flashcard.</li>
-                    <li><strong>Anki import:</strong> bring a real .apkg deck. Counts right? Scheduling sensible (mature cards not reset)? Cloze cards reported in the summary?</li>
-                    <li><strong>Context Memory:</strong> opt in, bookmark something on a walk, check the place chip. Then try airplane mode — bookmarks must still save instantly. Then press <em>Delete Location History</em> and verify everything's gone.</li>
-                    <li><strong>Study sync:</strong> with two devices on the same iCloud, create a card on one and review it on the other.</li>
-                </ol>
-
-                <h3>Plan H — The Narrator <em>(on-device narration — no audiobook needed)</em></h3>
-                <p>Echo's flagship new surface. Works on every device Echo supports — no special chip required. Each build's <em>What to Test</em> notes confirm it's live.</p>
-                <ol>
-                    <li>Import a <strong>text-only EPUB</strong> (one with no matching audiobook) and tap <strong>Narrate</strong>. Echo voices it on-device — no cloud, no account. Note your device and how long the first words took (the model warms up once).</li>
-                    <li>Try a plain <strong>.md / .markdown / .txt</strong> file too: does it import and narrate, with chapter breaks in sensible places?</li>
-                    <li>Read along as it narrates — do the words light up in time? Scrub, then tap a paragraph: does the voice follow?</li>
-                    <li>Switch the narrator voice and re-narrate a chapter. Different voice, timing still tight?</li>
-                    <li>On iPhone/iPad, free narration covers one chapter per book; narrating more opens the Echo Pro prompt (Plan K). Mac batch narration does not apply this cap. Report anything else that stops you.</li>
-                </ol>
-
-                <h3>Plan I — The PDF Companion</h3>
-                <ol>
-                    <li>Import a <strong>PDF</strong> — as a book's companion (slides, a scanned textbook, sheet music) or on its own. The import button takes EPUB and PDF and routes automatically.</li>
-                    <li>Reader tab: is continuous scroll and pinch-zoom smooth? Pages legible at your text size?</li>
-                    <li>If the PDF has matching audio, try tap-to-seek / read-along. Report anything that drifts or won't seek.</li>
-                </ol>
-
-                <h3>Plan J — Export &amp; Take It With You</h3>
-                <ol>
-                    <li>Export an audiobook as <strong>.m4b</strong> (the "Export Audiobook (.m4b)…" action). Open it in another player: do chapters, cover, and metadata survive?</li>
-                    <li>Export your study notes as <strong>Markdown</strong> — formatting and passages intact?</li>
-                    <li>Anki <strong>.apkg</strong> deck export lives in the Mac app only — skip this one if you are testing on iPhone.</li>
-                </ol>
-
-                <h3>Plan K — Echo Pro <em>(iPhone/iPad only; one-time unlock, sandbox purchase)</em></h3>
-                <p>On iPhone/iPad, Echo Pro is a <strong>one-time unlock, never a subscription</strong>. Core import, playback, and reading are free; free narration covers one chapter per book and flashcards stop at 20. TestFlight purchases go through Apple's sandbox, so you aren't charged. Skip these purchase/restore steps on Mac: the current Mac candidate has no Echo Pro purchase/restore UI and does not apply these iPhone/iPad caps.</p>
-                <ol>
-                    <li>Hit a Pro prompt (narrate a second chapter, or open Settings ▸ Echo Pro). Does the price load, or do you get a clear retry?</li>
-                    <li>Buy Echo Pro, then try Restore Purchases. Does everything unlock, and does a pending or failed purchase explain itself?</li>
-                    <li>Report anything that stays locked after purchase, or anything free that asks you to pay.</li>
-                </ol>
-
-                <h3>Plan L — The Mac <em>(if you test on macOS)</em></h3>
-                <ol>
-                    <li>Import a book — or a whole folder of EPUBs.</li>
-                    <li>Use <strong>Batch ▸ Narrate Documents…</strong> from the menu; if you queued several, watch the batch queue chew through them.</li>
-                    <li>Read along in the reader; export an audiobook or a deck. Anything Mac-only broken, or different from the phone?</li>
-                </ol>
-
-                <h3>Plan M — Audiobookshelf <em>(self-hosters)</em></h3>
-                <ol>
-                    <li>Settings → <strong>Add Audiobookshelf Server</strong>; connect to your server.</li>
-                    <li>Browse and search your ABS library; download or stream a book and play it.</li>
-                    <li>Listen on one device, then confirm progress synced back to the server (and to Echo on another device). Report anything that double-counts or resets position.</li>
-                </ol>
-
-                <h2 id="known"><span class="sec-num">06</span>Known limitations (current beta)</h2>
-                <p>These are known — no need to report them, though opinions are welcome:</p>
-                <ul>
-                    <li><strong>First auto-align is heavy.</strong> Model download (~40&nbsp;MB) + Neural Engine work; phones run warm on long books. Plug in.</li>
-                    <li><strong>iCloud sync covers alignment anchors only</strong> so far; bookmark/flashcard/position sync ships with 1.0 (see Plan G).</li>
-                    <li><strong>Edition drift is real.</strong> Auto-align gets close; some books need two or three manual anchors. Expected — but tell us about books that need <em>lots</em>.</li>
-                    <li><strong>Watch review sessions</strong> can briefly show stale state if the phone app was killed mid-review; relaunching the phone app reconverges.</li>
-                </ul>
-
-                <h2 id="privacy"><span class="sec-num">07</span>Privacy during the beta</h2>
-                <p>Core book import, local playback, reading, and voice synthesis run on-device without an Echo account. You can connect Echo to your own Audiobookshelf server to browse and play your library. External AI features send text to the provider you configure. When network access is permitted, importing a book may look up matching public alignment markers, with local fallback for an ordinary lookup failure. Model downloads and files you choose in iCloud also use network services. This 1.0 release does not expose public-alignment uploads. These connections are optional; they are not needed for local playback and reading.</p>
-                <p>One thing TestFlight itself adds: Apple's beta system shares <strong>crash reports</strong> and <strong>the feedback you choose to send</strong> with the developer, along with device/OS/build info. That's TestFlight's standard mechanism — it's how your reports reach us — not telemetry inside Echo. Full policy: <a href="https://kinnokilabs.com/echo-privacy/">kinnokilabs.com/echo-privacy</a>.</p>
-
-                <p style="margin-top: 2.5rem;"><em>Thank you for testing. Every report makes the player better for the next interrupted listener.</em> — Dan</p>
-            </article>
-        </div>
+    <main id="main" tabindex="-1">
+      <div class="page-hero">
+        <p class="section-label">TestFlight</p>
+        <h1>Bring a book. Help shape Echo.</h1>
+        <p>
+          How to join, what is available, and how to send feedback that helps.
+        </p>
+        <p class="doc-meta">Source review · October 24, 2026</p>
+      </div>
+      <div class="docs-layout">
+        <aside class="docs-toc" aria-label="Contents">
+          <h2>In this guide</h2>
+          <ol>
+            <li><a href="#access">1. Getting access</a></li>
+            <li><a href="#requirements">2. Requirements</a></li>
+            <li><a href="#install">3. Install and update</a></li>
+            <li><a href="#feedback">4. Feedback that helps</a></li>
+            <li><a href="#plans">5. Areas to explore</a></li>
+            <li><a href="#limitations">6. Current limitations</a></li>
+            <li><a href="#privacy">7. Privacy during the beta</a></li>
+          </ol>
+        </aside>
+        <article class="prose">
+          <p>
+            Use Echo with a book you actually want to hear. This guide covers
+            access, supported devices, useful feedback, and current source
+            limitations.
+          </p>
+          <p>
+            <strong>Reviewed October 24, 2026 against Nightly source.</strong> A
+            feature in the repository may be newer than the TestFlight build you
+            receive. Your build's <strong>What to Test</strong> notes are the
+            guide to that build.
+          </p>
+          <h2 id="access">1. Getting access</h2>
+          <p>
+            Request an invitation at
+            <a
+              href="mailto:testflight@kinnokilabs.com?subject=Echo%20beta%20access"
+              ><span>testflight@kinnokilabs.com</span></a
+            >, or through
+            <a href="https://github.com/dfakkeldy/Echo/issues">GitHub Issues</a
+            >. Mention the platforms you use; do not post your email address or
+            private book files in a public issue.
+          </p>
+          <p>
+            Nightly is the integration track; Weekly is the promoted beta track.
+            TestFlight access, build processing, and external eligibility are
+            separate from a PR merging. An invitation does not promise a
+            particular source revision is available yet.
+          </p>
+          <h2 id="requirements">2. Requirements</h2>
+          <ul>
+            <li><strong>iPhone/iPad:</strong> iOS/iPadOS 18 or newer.</li>
+            <li>
+              <strong>Apple Watch:</strong> watchOS 11 or newer, paired with an
+              iPhone running Echo. Watch is a companion remote, not an
+              independent file player.
+            </li>
+            <li>
+              <strong>Mac:</strong> macOS 15 or newer. Optional Phonon narration
+              has a separate arm64/Apple Silicon requirement.
+            </li>
+            <li>
+              <strong>A book:</strong> DRM-free audio, a supported text document
+              to narrate, or a connected Audiobookshelf server.
+            </li>
+          </ul>
+          <p>
+            Alignment and narration may download models on first use. Longer
+            books need local storage and processing time. Download your audio
+            before offline listening. A scanned PDF needs usable text or an
+            authored read-along file; ordinary PDF import does not add OCR.
+          </p>
+          <h2 id="install">3. Install and update</h2>
+          <p>
+            Install Apple's <strong>TestFlight</strong>, open your invitation on
+            the target device, and accept/install Echo. For Watch, check the
+            iPhone's Watch app if the companion does not install automatically.
+            Update the phone and Watch together.
+          </p>
+          <p>
+            Read <strong>What to Test</strong> before updating. TestFlight
+            builds expire after 90 days; keep source files and exported study
+            material backed up. Do not remove an older installation just to
+            resolve a symptom without preserving its local data first.
+          </p>
+          <p>
+            Core import, playback, and reading are free. On iPhone/iPad, free
+            narration covers one chapter per book and flashcards are capped at
+            20; <strong>Echo Pro is a one-time unlock</strong>. TestFlight
+            purchases use Apple's sandbox. The current Mac has no
+            purchase/restore UI and does not apply those phone caps.
+          </p>
+          <h2 id="feedback">4. Feedback that helps</h2>
+          <p>
+            TestFlight screenshot feedback attaches device/build information.
+            For a reproducible issue,
+            <a href="https://github.com/dfakkeldy/Echo/issues">GitHub Issues</a>
+            or
+            <strong
+              >Settings → Support &amp; About → Feedback &amp; Support</strong
+            >
+            provides a trackable route.
+          </p>
+          <p>Include:</p>
+          <ul>
+            <li>Platform, OS, and Echo build/commit where available.</li>
+            <li>What you did, what you expected, and what happened.</li>
+            <li>
+              For reading/alignment: source format, edition, narrator, chapter,
+              approximate timestamp, and whether Auto-Align or manual anchors
+              were used.
+            </li>
+            <li>
+              For narration: voice/engine, document format, and whether it is a
+              first render or cached audio.
+            </li>
+            <li>
+              For Watch Inbox: whether it is queued or accepted. Keep endpoint
+              credentials and dictated text private.
+            </li>
+          </ul>
+          <p>
+            Report the outcome you observed. A Watch haptic proves local saving,
+            an import's Added state proves a completed local import, and a
+            webhook acceptance proves endpoint acceptance; none establishes what
+            a downstream person did.
+          </p>
+          <h2 id="plans">5. Areas to explore</h2>
+          <p>
+            These are optional ways to focus feedback. You do not need to
+            complete a test checklist to use the beta.
+          </p>
+          <h3 id="everyday-listening">Everyday listening</h3>
+          <p>
+            Try interruptions, Smart Rewind, a chapter loop, and a sleep timer
+            with your normal book. Include the audio route if playback or resume
+            fails. On iPhone/iPad, a book enters the Books shelf after listening
+            starts; an unplayed import or companion document stays stored
+            without adding a cover. Mac shows the imported catalog.
+          </p>
+          <h3 id="reading-and-visual-listening">
+            Reading and Visual Listening
+          </h3>
+          <p>
+            Try a matching EPUB or text-bearing PDF, Auto-Align, search,
+            tap-to-seek, and a manual correction. The PDF reader has page/reflow
+            support on iPhone/iPad and page read-along on Mac. A valid
+            <code>.readalong.json</code> beside a PDF supplies authored
+            narration order and exact word boxes. Reimport to pick up a newly
+            supplied sidecar.
+          </p>
+          <p>
+            Figures stay on the Visual Listening stage until the next figure or
+            chapter end. Read-along text scrolls separately. If either behaves
+            incorrectly, include the chapter and seek position.
+          </p>
+          <h3 id="capture-and-study">Capture and study</h3>
+          <p>
+            Mark a passage on phone or Watch and open Card Inbox later. Make or
+            edit a card, assign a deck, review it, and check local Stats. Study
+            Plans can schedule EPUB chapter assignments. The broader hands-free
+            chapter-study workflow is still partial.
+          </p>
+          <p>
+            The phone's deck importer takes Echo JSON or a deck folder. Anki
+            archive import has a backend but no current phone picker entry; do
+            not expect an <code>.apkg</code> archive to appear in that picker.
+            Mac offers Anki export/AnkiConnect.
+          </p>
+          <h3 id="watch-inbox">Watch Inbox</h3>
+          <p>
+            Configure
+            <strong
+              >Settings → Controls → Watch App Settings → Watch Inbox</strong
+            >
+            on iPhone, then use the Watch's Inbox action. A book is optional.
+            Check the queued count and last acceptance in setup if delivery does
+            not finish. Native dictation is separate from local book notes.
+          </p>
+          <h3 id="narration-and-exports">Narration and exports</h3>
+          <p>
+            Narrate an EPUB, PDF, Markdown, or text file. On Mac use
+            <strong>Batch → Narrate Documents…</strong> (⌘⌥N), including a
+            folder of supported EPUB/PDF documents. Kokoro and optional Phonon
+            have different pronunciation and timing features. Export chaptered
+            <code>.m4b</code> audio or study notes if useful to your workflow.
+          </p>
+          <h3 id="audiobookshelf">Audiobookshelf</h3>
+          <p>
+            Connect through the phone's
+            <strong>Settings → Library &amp; Accounts → Connections</strong> or
+            Mac's Audiobookshelf settings. Browse/sort/filter, download, then
+            open the verified local import. A failed import should remain named
+            and retryable. Playback is download-based, not streaming. Check
+            server receipt before assuming progress reached another client.
+          </p>
+          <h3 id="ai-cards-and-accessibility">AI cards and accessibility</h3>
+          <p>
+            AI card generation starts on iPhone/iPad at
+            <strong>Settings → Study &amp; Notes → AI Card Generation</strong>.
+            Available routes include on-device generation on supported hardware,
+            a deterministic fallback, or a configured external provider.
+            External generation sends book text to that service; Auto may use it
+            once configured. Mac preferences do not imply a Mac generation entry
+            point.
+          </p>
+          <p>
+            Choose Lexend or OpenDyslexic, adjust type size/spacing, and use
+            VoiceOver or Reduce Motion if those fit your normal use. Tell us
+            about a control you cannot reach, identify, or read.
+          </p>
+          <h2 id="limitations">6. Current limitations</h2>
+          <ul>
+            <li>
+              <strong>Study-state sync remains incomplete.</strong> iCloud Drive
+              carries source files; Article Inbox has its own private sync;
+              import can look up community alignment markers. These do not sync
+              all ordinary cards, decks, bookmarks, or playback across
+              installations.
+            </li>
+            <li>
+              <strong>Audiobookshelf</strong> requires completed local
+              downloads. Streaming and fully resumable background transfers
+              remain deferred; Mac multi-file progress differs from the phone's
+              book-time axis.
+            </li>
+            <li>
+              <strong>Platform parity varies.</strong> Mac has Daily Review and
+              Card Inbox, but not every phone Insights chart, location feature,
+              or AI-generation action. The Echo Widget target ships on Watch;
+              iPhone playback controls use system Now Playing.
+            </li>
+            <li>
+              <strong>Models and editions matter.</strong> First-use
+              downloads/processing take time. Different ebook/audio editions can
+              need manual alignment. Phonon offers paragraph alignment rather
+              than Kokoro's word timing and IPA/audit support.
+            </li>
+            <li>
+              <strong
+                >Full private-iCloud study sync, a unified Brain Dump inbox, and
+                the direct phone Anki archive import workflow remain
+                unfinished.</strong
+              >
+              The <a href="manual.html">manual</a> describes usable
+              alternatives.
+            </li>
+          </ul>
+          <p>
+            A new failure is still worth reporting even if it falls in one of
+            these areas. Avoid resetting local data to diagnose it.
+          </p>
+          <h2 id="privacy">7. Privacy during the beta</h2>
+          <p>
+            Core book import, local playback, reading, and voice synthesis run
+            on-device without an Echo account. You can connect Echo to your own
+            Audiobookshelf server to browse and play your library. External AI
+            features send text to the provider you configure. When network
+            access is permitted, importing a book may look up matching public
+            alignment markers, with local fallback for an ordinary lookup
+            failure. Model downloads and files you choose in iCloud also use
+            network services. This 1.0 release does not expose public-alignment
+            uploads. These connections are optional; they are not needed for
+            local playback and reading.
+          </p>
+          <p>
+            A configured Watch Inbox sends captured text and available book
+            context to your endpoint. Article captures and anthology drafts have
+            a private CloudKit sync path. These optional connections are
+            separate from local inference.
+          </p>
+          <p>
+            Apple's TestFlight shares crash reports and feedback you choose to
+            send with the developer, including device/OS/build information. That
+            is TestFlight's mechanism. Read
+            <a href="privacy.html">the privacy policy</a> for Echo's optional
+            services and deletion controls.
+          </p>
+        </article>
+      </div>
     </main>
 
     <footer class="site-footer">
-        <div class="footer-links">
-            <a href="beta.html">Beta</a>
-            <a href="learn.html">Learn</a>
-            <a href="focus.html">Focus</a>
-            <a href="manual.html">Manual</a>
-            <a href="devlog.html">Devlog</a>
-            <a href="glossary.html">Glossary</a>
-            <a href="privacy.html">Privacy</a>
-            <a href="https://github.com/dfakkeldy/Echo" target="_blank" rel="noopener noreferrer">GitHub</a>
-            <a href="https://github.com/dfakkeldy/Echo/issues" target="_blank" rel="noopener noreferrer">Support</a>
-        </div>
-        <p>&copy; 2026 Echo. Open source under the GPL-3.0 License.</p>
-        <p class="footer-fineprint">This site is set in OpenDyslexic, hosts its own fonts, runs one small first-party script (the glossary), sets no cookies, and makes no network calls.</p>
+      <div class="footer-top">
+        <a class="footer-brand" href="index.html"
+          >Echo <span aria-hidden="true">∞</span></a
+        >
+        <p>For every mind. Built around the way you listen.</p>
+        <a href="#main">Back to top ↑</a>
+      </div>
+      <nav class="footer-links" aria-label="Footer">
+        <a href="https://kinnokilabs.com/apps/echo">KinNoKi Labs</a>
+        <a href="beta.html">Beta access</a>
+        <a href="manual.html">Manual</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="terms.html">Terms</a>
+        <a href="https://github.com/dfakkeldy/Echo/issues">Support</a>
+        <a href="https://github.com/dfakkeldy/Echo">GitHub</a>
+      </nav>
+      <p class="footer-fineprint">
+        © 2026 KinNoKi Labs · GPL-3.0 · Public documentation for Echo. Fonts
+        and scripts are hosted here; this site uses no analytics or cookies.
+      </p>
     </footer>
 
     <script defer src="glossary.js"></script>
-</body>
+  </body>
 </html>
