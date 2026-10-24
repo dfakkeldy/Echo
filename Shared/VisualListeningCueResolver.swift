@@ -30,6 +30,10 @@ struct VisualListeningVisualCue: Equatable, Identifiable, Sendable {
     let displayEndTime: TimeInterval
     let syncPoint: VisualListeningSyncPoint
     let source: VisualListeningImageCueSource
+    /// When pacing held the figure past its own window, the time the hold
+    /// began. From then on only the active block supplies a subtitle, so a
+    /// silent gap never brings back the figure's earlier reference text.
+    var holdStartTime: TimeInterval?
 
     /// Image path when the content is an image; nil for code. Kept so
     /// image-loading call sites stay simple (`visualCue?.imagePath`).
@@ -101,7 +105,7 @@ nonisolated enum VisualListeningCueResolver {
                 time: time
             )
             ?? subtitleCue(
-                blockID: visualCue?.subtitleBlockID,
+                blockID: fallbackSubtitleBlockID(for: visualCue, time: time),
                 blocksByID: blocksByID,
                 words: words,
                 time: time
@@ -142,10 +146,18 @@ nonisolated enum VisualListeningCueResolver {
         let subtitle =
             subtitleCue(blockID: activeBlockID, blocksByID: blocksByID, words: words, time: time)
             ?? subtitleCue(
-                blockID: visualCue?.subtitleBlockID, blocksByID: blocksByID, words: words,
-                time: time)
+                blockID: fallbackSubtitleBlockID(for: visualCue, time: time),
+                blocksByID: blocksByID, words: words, time: time)
         return VisualListeningSnapshot(
             visualCue: visualCue, subtitleCue: subtitle, activeBlockID: activeBlockID)
+    }
+
+    private static func fallbackSubtitleBlockID(
+        for cue: VisualListeningVisualCue?, time: TimeInterval
+    ) -> String? {
+        guard let cue else { return nil }
+        if let holdStartTime = cue.holdStartTime, time >= holdStartTime { return nil }
+        return cue.subtitleBlockID
     }
 
     private static func activeVisualCue(
@@ -198,7 +210,7 @@ nonisolated enum VisualListeningCueResolver {
             }
         }
 
-        return visualBlocks.compactMap { block in
+        let rawCues: [VisualListeningVisualCue] = visualBlocks.compactMap { block in
             if let explicit = scopedRows.first(where: {
                 $0.blockID == block.id && $0.end > $0.start
             }) {
@@ -238,6 +250,110 @@ nonisolated enum VisualListeningCueResolver {
                 syncPoint: syncPoint,
                 source: .derivedFromNearbyText
             )
+        }
+        return pacedCues(rawCues, rows: scopedRows)
+    }
+
+    /// Shortest time a figure stays up before a following derived figure may
+    /// replace it. Explicit (spoken caption) cues are never delayed.
+    static let minimumFigureDwell: TimeInterval = 3
+
+    /// Paces raw cues per chapter so each figure stays on stage until the next
+    /// one starts: derived figures that share one reference window split it
+    /// in reading order, a derived figure waits up to `minimumFigureDwell`
+    /// after the previous figure (sharing the room when the next figure or
+    /// chapter end is closer), and every window extends to the next figure's
+    /// start or, for the chapter's last figure, to the end of the chapter's
+    /// spoken rows. Ends never move earlier, so overlap resolution (highest
+    /// `sequenceIndex` wins) is unchanged.
+    private static func pacedCues(
+        _ cues: [VisualListeningVisualCue],
+        rows: [ReaderActiveBlockResolver.TimelineRow]
+    ) -> [VisualListeningVisualCue] {
+        var chapterEnds: [Int?: TimeInterval] = [:]
+        for row in rows where row.end > row.start {
+            chapterEnds[row.chapterIndex] = max(chapterEnds[row.chapterIndex] ?? row.end, row.end)
+        }
+
+        var paced: [VisualListeningVisualCue] = []
+        paced.reserveCapacity(cues.count)
+        for (chapter, chapterCues) in Dictionary(grouping: cues, by: \.chapterIndex) {
+            let ordered = chapterCues.sorted { lhs, rhs in
+                if lhs.sequenceIndex == rhs.sequenceIndex {
+                    return lhs.blockID.localizedStandardCompare(rhs.blockID) == .orderedAscending
+                }
+                return lhs.sequenceIndex < rhs.sequenceIndex
+            }
+            let chapterEnd =
+                chapterEnds[chapter] ?? ordered.map(\.displayEndTime).max() ?? 0
+            var starts = ordered.map(\.displayStartTime)
+
+            // Consecutive derived figures with an identical window (no text
+            // between them) split that window evenly instead of stacking.
+            var groupStart = 0
+            while groupStart < ordered.count {
+                let first = ordered[groupStart]
+                var groupEnd = groupStart + 1
+                if first.source == .derivedFromNearbyText {
+                    while groupEnd < ordered.count,
+                        ordered[groupEnd].source == .derivedFromNearbyText,
+                        ordered[groupEnd].displayStartTime == first.displayStartTime,
+                        ordered[groupEnd].displayEndTime == first.displayEndTime
+                    {
+                        groupEnd += 1
+                    }
+                }
+                let count = groupEnd - groupStart
+                if count > 1 {
+                    let slice = (first.displayEndTime - first.displayStartTime) / Double(count)
+                    for offset in 1..<count {
+                        starts[groupStart + offset] =
+                            first.displayStartTime + slice * Double(offset)
+                    }
+                }
+                groupStart = groupEnd
+            }
+
+            // Minimum dwell: a derived figure waits for the previous one. When
+            // the next figure or the chapter end leaves too little room, the
+            // two share what is left evenly instead of hiding either one.
+            for index in ordered.indices.dropFirst()
+            where ordered[index].source == .derivedFromNearbyText {
+                var bound = chapterEnd
+                if index + 1 < ordered.count, starts[index + 1] > starts[index] {
+                    bound = min(bound, starts[index + 1])
+                }
+                let previous = starts[index - 1]
+                let desired = previous + min(minimumFigureDwell, (bound - previous) / 2)
+                starts[index] = max(starts[index], desired)
+            }
+
+            for (index, cue) in ordered.enumerated() {
+                let start = starts[index]
+                let nextStart = starts[(index + 1)...].first { $0 > start }
+                let end = max(cue.displayEndTime, nextStart ?? chapterEnd)
+                guard end > start else { continue }
+                paced.append(
+                    VisualListeningVisualCue(
+                        blockID: cue.blockID,
+                        content: cue.content,
+                        caption: cue.caption,
+                        subtitleBlockID: cue.subtitleBlockID,
+                        chapterIndex: cue.chapterIndex,
+                        sequenceIndex: cue.sequenceIndex,
+                        displayStartTime: start,
+                        displayEndTime: end,
+                        syncPoint: cue.syncPoint,
+                        source: cue.source,
+                        holdStartTime: end > cue.displayEndTime ? cue.displayEndTime : nil
+                    ))
+            }
+        }
+        return paced.sorted { lhs, rhs in
+            if lhs.sequenceIndex == rhs.sequenceIndex {
+                return lhs.blockID.localizedStandardCompare(rhs.blockID) == .orderedAscending
+            }
+            return lhs.sequenceIndex < rhs.sequenceIndex
         }
     }
 
