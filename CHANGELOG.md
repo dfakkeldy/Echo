@@ -4,6 +4,14 @@ All notable changes to Echo: Audiobook Study Player.
 
 ## [Unreleased]
 
+- Refreshed the current manual, learning/focus/beta guides, contributor overview,
+  architecture map, roadmap status, and source-linked devlog. Documentation now
+  distinguishes phone/Mac/Watch features, Anki backend and picker availability,
+  private article sync versus unfinished study sync, one-time Pro, and PDF narration.
+- Reworked the documentation website with clearer guide navigation, a labelled
+  study illustration, responsive reading layouts, keyboard focus, consistent legal
+  links, and current platform guidance. Added PDF read-along authoring instructions.
+
 - A PDF can carry a read-along file (`<name>.readalong.json`, written by the
   tool that laid it out). Echo then narrates exactly the text it lists, never
   running heads, page numbers or footers, and highlights each spoken word's

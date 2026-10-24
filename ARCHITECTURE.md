@@ -3,7 +3,7 @@
 <!-- ⚠️  AUTO-GENERATED — do not edit directly. -->
 <!-- Regenerate with: `make architecture`                        -->
 
-**Last generated:** 2026-08-16 20:59:30
+**Last generated:** 2026-10-24 15:30:39
 
 This document maps the source-tree layout of the Xcode targets and Shared/
 module in the Echo: Audiobook Study Player project. Folders are shown in the order
@@ -27,9 +27,11 @@ Development Assets/aliceinwonderland_1102_librivox/Alice's Adventures in Wonderl
 Development Assets/standardebooks_great_gatsby/f-scott-fitzgerald_the-great-gatsby.epub
 EchoCore.entitlements
 EchoCoreApp.swift
+Helpers/MacNotesPaneWidthPolicy.swift
 Info.plist
 Localizable.xcstrings
 Models/AggregatedChapter.swift
+Models/AlignmentShareConfirmation.swift
 Models/Chapter.swift
 Models/EchoPlaylistManifest.swift
 Models/ExperimentalPlayerLayout.swift
@@ -175,7 +177,9 @@ Services/Contribution/ContributionConsent.swift
 Services/Contribution/ContributionPayloadFilter.swift
 Services/Contribution/ContributionTransport.swift
 Services/Contribution/PronunciationContributionPayload.swift
+Services/CoverImageCache.swift
 Services/CoverThemeBuilder.swift
+Services/DatabaseLifecycleCoordinator.swift
 Services/DeckImportResult.swift
 Services/DeckImportService.swift
 Services/DeepLinkHandler.swift
@@ -233,6 +237,7 @@ Services/Narration/ContextualPronunciationDiscovery.swift
 Services/Narration/ContextualPronunciationFamilies.swift
 Services/Narration/ContextualPronunciationPreflight.swift
 Services/Narration/ContextualPronunciationTypes.swift
+Services/Narration/EPUBPronunciationRewriter.swift
 Services/Narration/EnglishPronunciationAuditPack.swift
 Services/Narration/EnglishPronunciationPack.swift
 Services/Narration/EpubCoverResolver.swift
@@ -259,6 +264,7 @@ Services/Narration/NarrationChunkQuality.swift
 Services/Narration/NarrationCodeBlockCue.swift
 Services/Narration/NarrationCoverOverride.swift
 Services/Narration/NarrationEngineFactory.swift
+Services/Narration/NarrationEngineRouter.swift
 Services/Narration/NarrationEntitlementCounter.swift
 Services/Narration/NarrationFileNaming.swift
 Services/Narration/NarrationOutlineBuilder.swift
@@ -293,6 +299,9 @@ Services/Narration/NeuralG2PResources/encoder_model.onnx
 Services/Narration/NeuralG2PResources/generation_config.json
 Services/Narration/NeuralG2PResources/tokenizer.json
 Services/Narration/OnnxKokoroEngine.swift
+Services/Narration/PhononModelStore.swift
+Services/Narration/PhononRenderPlanner.swift
+Services/Narration/PhononTTSEngine.swift
 Services/Narration/PlannedSynthesisChunk.swift
 Services/Narration/ProgressFanOut.swift
 Services/Narration/PronunciationAdvisoryEvidence.swift
@@ -328,6 +337,7 @@ Services/PDFBlockPageMapper.swift
 Services/PDFFigureExtractor.swift
 Services/PDFFigureImporter.swift
 Services/PDFImportCoordinator.swift
+Services/PDFReadAlongFile.swift
 Services/Persistence.swift
 Services/PhotoLibrarySaver.swift
 Services/PlaybackController.swift
@@ -371,6 +381,7 @@ Services/TranscriptService.swift
 Services/VoiceMemoRecorder.swift
 Services/WatchCommandRouter.swift
 Services/WatchConnectivityCoordinator.swift
+Services/WatchInboxRelay.swift
 Services/WatchStateContextBuilder.swift
 Services/WatchSyncManager.swift
 Services/WhisperSession.swift
@@ -476,6 +487,7 @@ Views/Fidget/KineticSandView.swift
 Views/Fidget/TactilePlaygroundView.swift
 Views/FlashcardReviewCard.swift
 Views/FlashcardReviewSession.swift
+Views/FollowingSubtitleTextView.swift
 Views/FontSelectionView.swift
 Views/HelpContent.swift
 Views/HelpView.swift
@@ -555,6 +567,7 @@ Views/TransportControlsView.swift
 Views/UpcomingReviewsModuleView.swift
 Views/VideoExportProgressView.swift
 Views/VisualListeningStageView.swift
+Views/VisualListeningSubtitleView.swift
 Views/Visualizer/VisualizerPickerView.swift
 Views/Visualizer/VisualizerShaders.metal
 Views/Visualizer/VisualizerStyle.swift
@@ -562,6 +575,7 @@ Views/Visualizer/VisualizerView.swift
 Views/VoiceMemoFeedCell.swift
 Views/VoiceMemoOverlayView.swift
 Views/WatchAppSettingsView.swift
+Views/WatchInboxSettingsView.swift
 ```
 
 ## Echo macOS
@@ -603,6 +617,7 @@ Views/MacPlayerModel+VisualListeningScope.swift
 Views/MacPlayerModel.swift
 Views/MacPlayerMoreMenu.swift
 Views/MacReaderFeedView.swift
+Views/MacReaderNotesSplit.swift
 Views/MacSettingsView.swift
 Views/MacTOCTreeView.swift
 Views/MacTranscribeProgressView.swift
@@ -616,37 +631,6 @@ Views/TranscriptionManager.swift
 
 ## Echo Watch App
 
-Watch Inbox uses the native WatchKit text-input controller, queues its result
-without another confirmation screen, and relays it through the paired iPhone.
-`Shared/WatchInboxDelivery.swift` defines immutable capture envelopes, atomic
-outboxes, hashed acceptance receipts, endpoint identities and webhook requests.
-`WatchInboxController` retains watch captures until an endpoint-acceptance receipt
-arrives. `WatchInboxRelay` on iOS owns Keychain credentials and file-backed
-background URLSession uploads; `WatchInboxAppDelegate` reconnects background
-sessions after termination. WatchConnectivity uses both live and persistent
-channels, with UUID deduplication before scheduling uploads. Changing the webhook
-URL does not automatically reroute captures already bound to an older endpoint. The receiver
-must also deduplicate UUIDs before acting on a delivery. The shared models compile
-on every target; capture is watch-only and the relay/settings are iOS-only.
-Saving setup refreshes pending requests for that same endpoint with the latest
-credentials. Check Deliveries resets pending retry delays; stale or explicitly
-retried background tasks are replaced without changing capture IDs or routes.
-Cancellation of a replaced task does not increase the delivery backoff.
-When an earlier URL was incorrect, the explicit Use Current Inbox for Queued
-Messages action moves pending captures to the current endpoint without changing
-their UUIDs or payloads. Accepted captures are never requeued by this action.
-
-Phone snapshots carry `bookTitle` from `PlayerModel.bookDisplayTitle` separately
-from the chapter-oriented playback `title`. The Watch persists both and uses only
-the book title for Inbox context. If book metadata is unavailable, capture omits
-context rather than attaching a chapter or a previous book's cached title.
-
-Dictation's live begin/finish commands pause and resume through
-`WatchCommandRouter`. Resume requires the matching capture token and unchanged
-book/track, and expires after five minutes. These commands never use the deferred
-WatchConnectivity queue. Native dictation owns its system double-tap behavior;
-the underlying player relinquishes its gesture shortcut while Inbox is open.
-
 ```
 EchoCoreWatchApp.swift
 EchoWatchApp.entitlements
@@ -654,6 +638,7 @@ Info.plist
 Models/PomodoroTimePresentation.swift
 Models/WatchBookmark.swift
 PrivacyInfo.xcprivacy
+Services/WatchInboxController.swift
 Services/WatchStateRecencyPolicy.swift
 Services/WatchViewModel.swift
 Services/WatchVoiceMemoRecorder.swift
@@ -664,10 +649,12 @@ Views/Components/SegmentedLinearProgressBar.swift
 Views/Components/SegmentedProgressRing.swift
 Views/Components/ToggleTraitModifier.swift
 Views/Components/VolumeIndicatorView.swift
+Views/Components/WatchPrimaryActionModifier.swift
 Views/ContentView.swift
 Views/PlayerPage.swift
 Views/PomodoroTimerPickerView.swift
 Views/WatchControlBackground.swift
+Views/WatchInboxCaptureView.swift
 Views/WatchReviewView.swift
 ```
 
@@ -707,6 +694,7 @@ Database/BatchQueueRecord.swift
 Database/BookmarkRecord.swift
 Database/ChapterRecord.swift
 Database/ClozeParser.swift
+Database/ContainerPathRepair.swift
 Database/DAOs/ABSServerDAO.swift
 Database/DAOs/AlignmentAnchorDAO.swift
 Database/DAOs/AnthologyDAO.swift
@@ -736,6 +724,7 @@ Database/DAOs/TranscriptionDAO.swift
 Database/DAOs/VoiceMemoDAO.swift
 Database/DAOs/WordTimingDAO.swift
 Database/DatabaseService.swift
+Database/DatabaseWorkProtection.swift
 Database/Deck.swift
 Database/EPubBlockRecord.swift
 Database/EPubTOCEntryRecord.swift
@@ -803,6 +792,7 @@ Database/WordTimingRecord.swift
 DictionaryLookupTerm.swift
 EPUBBlockParser.swift
 EPUBHeuristicEngine.swift
+EPUBPronunciation.swift
 EPUBStructureChaptering.swift
 EPUBXMLParsing.swift
 EnhancedTranscriptionSegment.swift
@@ -825,6 +815,7 @@ Networking/AnthropicMessagesClient.swift
 Networking/LooseJSONExtractor.swift
 NotificationNames.swift
 ReaderActiveBlockResolver.swift
+ReaderImageLoader.swift
 ReaderSettings.swift
 SRTFormatter.swift
 SafeFileName.swift
@@ -843,6 +834,7 @@ Services/ChapterCardDrafter.swift
 Services/FeedFilterModel.swift
 Services/FeedScopeResolver.swift
 Services/FixtureStudyDeckGenerator.swift
+Services/ReaderPlaybackSnapshot.swift
 Services/SessionSummaryService.swift
 Services/StudyChapterRetireService.swift
 Services/StudyDeckAcceptanceService.swift
@@ -883,6 +875,7 @@ VisualizerFrame.swift
 WatchAction.swift
 WatchCrownVolume.swift
 WatchFlashcard.swift
+WatchInboxDelivery.swift
 WatchMessageKey.swift
 WatchProgressRingMetrics.swift
 WatchReviewFeedbackPolicy.swift
@@ -918,6 +911,21 @@ Views/Echo_WidgetControl.swift
 <!-- MANUAL BELOW -->
 
 ## Tools & Pipeline
+
+### Current source map — October 24, 2026
+
+The generated tree above reflects this checkout. Dated subsystem notes below retain design context; these are the current availability boundaries:
+
+- **Targets:** iOS/iPadOS player, native Mac, paired Watch app, Watch-only widget, and `echo-cli`. The iOS control-widget source is gated and is not a shipped extension target.
+- **Study:** `CardInboxView`, deck/card editors, `StatsView`, and Study Plans are reachable on phone. Mac has `MacCardInboxView` and `MacDailyReviewView`, but not all phone Insights surfaces. Local text notes differ from the proposed unified Brain Dump flow.
+- **Decks:** `ApkgImportService`/export backend code and tests exist. The reachable phone Settings importer accepts JSON/folders via `DeckImportService`; Mac's Anki export surface also supports AnkiConnect. Backend existence does not establish a phone `.apkg` picker route.
+- **Sync:** `CloudKitSyncService` reads community alignment records from the public database; 1.0 exposes no public upload action. `ArticleWorkshopCloudSyncEngine` uses private CloudKit for article captures/anthology drafts. Neither implements general private-iCloud flashcard/bookmark/playback sync. Audiobookshelf and WatchConnectivity have separate contracts.
+- **Watch Inbox:** `WatchInboxController`, `WatchInboxDelivery`, and `WatchInboxRelay` carry native dictation through durable queues to a configured webhook. UUIDs survive retry; book context uses the book title. Local saving, endpoint acceptance, and downstream response are distinct.
+- **Narration/reading:** Kokoro and optional arm64 Phonon route through `NarrationEngineRouter`. Phonon supplies paragraph alignment rather than Kokoro word timing/IPA audits. Mac **Narrate Documents…** accepts PDF/EPUB/text; `PDFReadAlongFile` supplies optional authored text order and exact word boxes to both PDF page readers. See [Phonon](docs/phonon-narration.md) and [PDF sidecar authoring](docs/pdf-readalong-authoring.md).
+- **Visual Listening:** figures hold until the next cue or chapter end; the phone keeps full read-along text in a separate scrolling pane. Live playback and slideshow export use the shared cue resolver.
+- **Database:** reset baseline `Schema_V1` plus registered additive migrations through **V44** (`pdf_block_page.word_boxes`). The October 22 audit remediation is mapped in [the dated report](docs/2026-10-22-audit-remediation.md).
+- **Pricing/release:** iPhone/iPad has the one-time Pro unlock and free-tier caps; current Mac has neither purchase UI nor those caps. CI and TestFlight/release receipts are independent proof states.
+
 
 ### iOS database suspension and recovery
 
@@ -1635,6 +1643,14 @@ The Reader tab renders EPUB content as a feed of styled cards aligned to the aud
 | V34 | `study_export_destination` + `study_export_state` — auto-export destination security bookmark and per-book dirty/retry state for deterministic Markdown study mirrors |
 | V35 | Nullable/defaulted edition-grouping columns on `audiobook` (`edition_group_id`, `edition_group_optout`) plus indexes |
 | V36 | `.code` joins the raw `epub_block.block_kind` values; nullable `epub_block.code_language` stores a best-effort language hint while `text` preserves the raw listing and `narration_text` stores its spoken cue |
+| V37 | Article Inbox and anthology tables, plus the separately registered repair for anthology build-attempt receipts |
+| V38 | Stable generated-chapter keys for narration ordering/cache reuse |
+| V39 | Article/anthology private CloudKit sync records, engine state, and outbox bookkeeping |
+| V40 | Narration-quality issue origin provenance |
+| V41 | Additive repair for database shapes stranded by the squashed-baseline gap |
+| V42 | `idx_alignment_anchor_epub_block` foreign-key lookup index |
+| V43 | Nullable `epub_block.pronunciation_annotations` for EPUB IPA/PLS metadata |
+| V44 | Nullable `pdf_block_page.word_boxes` for authored PDF read-along geometry |
 
 Key indexes: `idx_epub_block_sequence` (audiobook_id, sequence_index), `idx_epub_block_chapter` (audiobook_id, chapter_index), `idx_epub_block_hidden` (audiobook_id, is_hidden), `idx_alignment_anchor_time` (audiobook_id, audio_time), `idx_alignment_anchor_block` (audiobook_id, epub_block_id).
 
@@ -1770,17 +1786,13 @@ Echo can hand the current book's EPUB to the companion **EchoDeckBuilder** macOS
 
 **iOS** surfaces this as a `ShareLink` in Book Settings ("Make Flashcards in EchoDeckBuilder"), gated on a real resolved `.epub` (not `hasEPUB`, which is also true for parsed PDF/.md/.txt books, so those show the row disabled rather than enabled-but-always-failing). **macOS** surfaces a "More ▸ Open in EchoDeckBuilder" action that resolves the `.epub`, wraps the book + EPUB security scopes around the launch, and opens the app via `NSWorkspace.open(withApplicationAt:)` (bundle id `com.dfakkeldy.EchoDeckBuilder`, with `/Applications` and `~/Applications` fallbacks), showing an install hint when the app isn't present. The single-message `EchoDeckBuilderAlert` value type is shared by both surfaces. No schema change. Tests: `EchoDeckBuilderHandoffServiceTests`.
 
-### AI Card Generation (BYO Anthropic key, June 2026)
+### AI Card Generation (current source)
 
-Echo can generate study flashcards from a book's text with a large language model, alongside the existing deterministic generator. The model-backed path is **bring-your-own-key**: the user pastes their own Anthropic API key (stored in the Keychain via `APIKeyStore`, never in UserDefaults, never logged) and Echo calls the Anthropic Messages API directly over HTTPS — no first-party backend, no Echo account. Generation is gated on the key only (no Pro requirement, and AI cards do not consume the free-tier flashcard cap); with no key it falls back to the deterministic `FixtureStudyDeckGenerator`. (The Claude *CLI* path the EchoDeckBuilder companion uses is not viable inside Echo macOS — it ships App-Sandboxed via the Mac App Store and cannot spawn a user-installed binary — so HTTPS over the existing `com.apple.security.network.client` entitlement is the in-app path.)
+The reachable generation flow starts on iPhone/iPad through `StudyDeckGenerationViewModel`; Mac exposes preferences but does not provide the same generation entry point. `StudyDeckGenerating` implementations cover the deterministic fallback, Apple's on-device Foundation Models on supported hardware, and optional external providers. `StudyDeckGeneratorFactory` resolves the selected preference; Auto can select an external provider once configured.
 
-The seam is `protocol StudyDeckGenerating { func generate(sources:settings:) async -> GeneratedStudyDeckDraft }` (`Shared/Services/`), mirroring the narration-QA `DivergenceClassifier` pattern: `FixtureStudyDeckGenerator` (deterministic, always-available), `AnthropicStudyDeckGenerator` (cloud, BYO-key), and `FoundationModelsStudyDeckGenerator` (on-device, iOS 26+/macOS 26+) all conform. `StudyDeckGeneratorFactory.make(preference:hasKey:fmAvailable:anthropic:)` selects among the three: in `.auto` mode, a key wins → on-device FM → fixture; `.cloud` forces the network generator (fixture if no key); `.onDevice` forces the FM generator (fixture if unavailable). `AICardGenerationSettings.providerPreference` (persisted in UserDefaults, default `.auto`) carries the user's choice; `StudyDeckGenerationViewModel` injects the resolved generator and drives the generation sheet. The old `make(hasKey:anthropic:)` two-arg overload is preserved for backward compatibility. `BookSettingsView`/`MacSettingsView` build the generator from `APIKeyStore` + the selected model (`AICardGenerationSettings`, default `claude-opus-4-8`, with a Sonnet/Haiku picker since the user bears token cost). Everything except the SwiftUI settings views is cross-platform (`Shared/`) and `nonisolated`, so the same pipeline serves iOS and macOS.
+`AICardGenerationSettingsView` configures Anthropic, DeepSeek, Moonshot/Kimi, Z.ai/GLM, or a compatible custom endpoint. Credentials live in Keychain. External generation sends source text/identifiers to the selected service, and connection testing sends a small test request; local playback/alignment does not imply this feature is offline. The current [privacy policy](docs/privacy.html) describes the transfers.
 
-**On-device provider (`FoundationModelsStudyDeckGenerator`, iOS 26 / macOS 26, no key, fully private):** triple-gated (`#if canImport(FoundationModels) && (os(iOS) || os(macOS))` compile-time + `@available(iOS 26, macOS 26, *)` + `LanguageModelSession.isAvailable` runtime), this provider generates cards entirely on-device using Apple Intelligence without sending text to any server. `StudyDeckFMAvailability.isAvailable` reports runtime availability (mirroring the narration-QA `DivergenceClassifierFactory` approach; no locale pre-check is done — availability mirrors what the FM framework reports). A `StudyDeckFMCardMapper` maps each source block through a `LanguageModelSession` with a `@Generable StudyDeckGeneratedCard` schema (constrained decoding) to produce card drafts; the fixture generator is the fallback on any error or on a zero-card run. The provider preference is exposed via an inline `Picker` inside a `Section("Provider")` in `AICardGenerationSettingsView`; the on-device option is shown only when `fmAvailable` is true at runtime. On macOS the preference is configurable in the AI settings tab, but study-deck generation is currently triggered only from iOS book settings (`BookSettingsView`, excluded from the macOS target) — a pre-existing scope boundary, so on macOS the preference is settable but not yet actionable.
-
-`AnthropicMessagesClient` (`Shared/Networking/`, URLSession — Swift has no official Anthropic SDK) speaks `POST /v1/messages` with `output_config.format` structured output, adaptive thinking (no sampling params), a prompt-cached system prefix, and typed handling of the `refusal` stop reason / 401 / 429. Generation is a two-pass pipeline ported from EchoDeckBuilder's `codex/ai-generation-cli`: a book-brief call (capped, escaped source snippets → summary/themes/key-concepts) then one call per chapter-sized batch (`StudyDeckBatcher`, spine-bounded), each batch constrained to its own blocks. `StudyDeckPromptBuilder` frames all source text as untrusted XML-escaped quoted material (prompt-injection mitigation) and emits the JSON schema. Validation is deterministic and layered: the ported `studyDeckIsLongSourceQuotation` drops cards copying ≥14 words/≥80 chars verbatim, `GeneratedStudyDeckDraft.validated()` drops cards with an unknown source block or oversized text, and cloze cards are dropped unless their `clozeText` carries a valid `{{c1::…}}` marker (`studyDeckHasValidClozeMarkers`). A failing batch is skipped (warning logged) while earlier batches' cards survive (partial recovery); the run is cancellable between batches and reports `(done,total)` progress — both surfaced in the generation sheet, where Cancel/dismiss actually stops generation rather than billing on in the background.
-
-Accepted cards flow through the **unchanged** `StudyDeckAcceptanceService` → `FlashcardDAO` path: basic cards persist as before, and **cloze** cards expand via `ClozeParser` into one `flashcard` row per deletion with `card_type = "cloze"` and `cloze_index` — populating columns that already exist in `Schema_V1`, so there is **no migration**. **Privacy:** the on-device default experience is unchanged; the AI feature is opt-in behind a one-time consent that discloses the book's text is sent to the user's own Anthropic account when used. New types: `StudyDeckGenerating`/`StudyDeckGeneratorFactory`, `AnthropicStudyDeckGenerator`, `AnthropicMessagesClient`/`AnthropicClientError`, `APIKeyStore` (+ `KeychainStore.Key.anthropicAPIKey`), `StudyDeckPromptBuilder`, `StudyDeckBatcher`, `studyDeckHasValidClozeMarkers`/`studyDeckIsLongSourceQuotation`, `StudyDeckCardKind`, `AICardGenerationSettings`/`AICardGenerationSettingsView`, `StudyFlashcardType.cloze`. Design/plan: `docs/superpowers/specs/2026-06-30-ai-card-generation-design.md`, `docs/superpowers/plans/2026-06-30-ai-card-generation.md`.
+Drafts pass through validation and `StudyDeckAcceptanceService` before persisting. Accepted cards use the existing flashcard/FSRS path, with source anchors and cloze expansion where applicable. Source implementation and model availability are separate from a particular build's reachable hardware/provider configuration.
 
 ### PDF Companion Document Support (June 2026)
 
@@ -1870,8 +1882,9 @@ The iOS app uses a 3-tab layout managed by `RootTabView`:
 ```
 RootTabView
 ├── Tab 0: NowPlayingTab   ← pure media consumption (album art, scrubber, transport)
-└── Tab 1: ReaderTab        ← Read & Study: EPUB/PDF reader, search, alignment, TOC,
+├── Tab 1: ReaderTab        ← Read & Study: EPUB/PDF reader, search, alignment, TOC,
                               capture surfaces, review/library entry points, and empty states
+└── Tab 2: LibraryTab       ← listened-books shelf, managed roots, articles/anthologies
 ```
 
 **NowPlayingTab** focuses entirely on active playback: `AlbumArtHeroView`, `PlayerScrubberView`, and `TransportControlsView`, plus a `< Chapter Title >` chevron nav bar in `metadataArea` flanking the title marquee (gated by `PlayerModel.hasPreviousChapter` / `hasNextChapter`, reusing the chapter-aware `skipBackwardNavigation()` / `skipForwardNavigation()` the lock screen and CarPlay use). Per-listen controls live elsewhere (BookPlayer-style redesign, June 2026): **playback speed, the 3-way loop, seek/skip durations, Smart Rewind, and Volume Boost** moved into a presented `PlaybackOptionsSheet` (opened from the Now Playing speed indicator — both the static `BottomToolbarView` speed chip via an injected `onShowPlaybackOptions` closure threaded through `UnifiedBottomDock`, and the configurable `TransportControlsView` `.speed` slot via a `showPlaybackOptions` `EnvironmentKey` installed by `NowPlayingTab`). A single player-scoped `PlayerMoreMenu` in the `BottomToolbarView` dock holds Chapters, Bookmarks, Add/Replace Document, Export M4B, Export Study Notes, Stats, Fidget, Settings, and Help. The app-level `UnifiedTopHeader` no longer has an ellipsis action menu; it only shows the folder chip on the Library tab and the trailing `SleepTimerPill` as the one visible sleep-timer state.
@@ -1890,7 +1903,6 @@ RootTabView
 
 When a book is loaded, a `PlayerControlBar` mini-player appears above the `BottomToolbarView`,
 showing artwork, de-noised title/chapter metadata (numeric track prefixes stripped), and play/pause — tapping it opens the full NowPlaying view.
-```
 
 ### PlayerModel Decomposition
 

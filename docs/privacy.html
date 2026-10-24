@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Privacy Policy — Echo: Audiobook Study Player</title>
     <meta name="description" content="Echo native-app privacy: local books, optional connected services, public alignment lookup, permissions and support.">
+    <link rel="canonical" href="https://dfakkeldy.github.io/Echo/privacy.html">
+    <meta name="theme-color" content="#10151e">
     <link rel="stylesheet" href="styles.css">
     <link rel="icon" type="image/png" href="assets/icon.png">
 </head>
@@ -12,24 +14,34 @@
     <a class="skip-link" href="#main">Skip to content</a>
 
     <header class="site-header">
-        <div class="logo-container">
-            <a href="index.html">
-                <img src="assets/icon.png" alt="Echo app icon — an infinity symbol in silver and gold">
-                <span class="logo-text">Echo <span class="infinity">∞</span></span>
-            </a>
-        </div>
-        <nav class="site-nav" aria-label="Main">
-            <a href="index.html">Home</a>
-            <a href="learn.html">Learn</a>
-            <a href="focus.html">Focus</a>
-            <a href="manual.html">Manual</a>
-            <a href="devlog.html">Devlog</a>
-            <a href="glossary.html">Glossary</a>
-            <a class="nav-cta" href="https://github.com/dfakkeldy/Echo" target="_blank" rel="noopener noreferrer">GitHub</a>
-        </nav>
+      <a
+        class="site-brand"
+        href="index.html"
+        aria-label="Echo documentation home"
+      >
+        <img src="assets/icon.png" width="40" height="40" alt="" />
+        <span
+          >Echo
+          <span class="brand-caption"
+            >The listening &amp; learning guide</span
+          ></span
+        >
+      </a>
+      <nav class="site-nav" aria-label="Main">
+        <a href="index.html">Overview</a>
+        <a href="manual.html">Manual</a>
+        <a href="learn.html">Learn</a>
+        <a href="focus.html">Focus</a>
+        <a href="devlog.html">Devlog</a>
+        <a href="glossary.html">Glossary</a>
+        <a href="beta.html">Beta</a>
+        <a class="nav-source" href="https://github.com/dfakkeldy/Echo"
+          >Source <span aria-hidden="true">↗</span></a
+        >
+      </nav>
     </header>
 
-    <main id="main">
+    <main id="main" tabindex="-1">
         <section class="legal-content">
             <h1>Echo Privacy Policy</h1>
             <p>Echo is made by Daniel Vincent Fakkeldy, operating as KinNoKi Labs. You can play and study local audiobooks without creating an Echo account. Echo stores its library records, reading and listening progress, notes, study cards and settings on your device. Features vary by platform. The optional network features below have different data handling; using local files does not mean every feature is offline or uses only private iCloud storage.</p>
@@ -67,19 +79,26 @@
     </main>
 
     <footer class="site-footer">
-        <div class="footer-links">
-            <a href="beta.html">Beta</a>
-            <a href="learn.html">Learn</a>
-            <a href="focus.html">Focus</a>
-            <a href="manual.html">Manual</a>
-            <a href="devlog.html">Devlog</a>
-            <a href="glossary.html">Glossary</a>
-            <a href="privacy.html">Privacy</a>
-            <a href="https://github.com/dfakkeldy/Echo" target="_blank" rel="noopener noreferrer">GitHub</a>
-            <a href="https://github.com/dfakkeldy/Echo/issues" target="_blank" rel="noopener noreferrer">Support</a>
-        </div>
-        <p>&copy; 2026 Echo. Open source under the GPL-3.0 License.</p>
-        <p class="footer-fineprint">This site is set in OpenDyslexic, hosts its own fonts, runs one small first-party script (the glossary), sets no cookies, and makes no network calls.</p>
+      <div class="footer-top">
+        <a class="footer-brand" href="index.html"
+          >Echo <span aria-hidden="true">∞</span></a
+        >
+        <p>For every mind. Built around the way you listen.</p>
+        <a href="#main">Back to top ↑</a>
+      </div>
+      <nav class="footer-links" aria-label="Footer">
+        <a href="https://kinnokilabs.com/apps/echo">KinNoKi Labs</a>
+        <a href="beta.html">Beta access</a>
+        <a href="manual.html">Manual</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="terms.html">Terms</a>
+        <a href="https://github.com/dfakkeldy/Echo/issues">Support</a>
+        <a href="https://github.com/dfakkeldy/Echo">GitHub</a>
+      </nav>
+      <p class="footer-fineprint">
+        © 2026 KinNoKi Labs · GPL-3.0 · Public documentation for Echo. Fonts
+        and scripts are hosted here; this site uses no analytics or cookies.
+      </p>
     </footer>
 
     <script defer src="glossary.js"></script>

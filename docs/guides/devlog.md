@@ -1,36 +1,59 @@
 # Building Echo — The Devlog
 
-<!-- TODO(Dan): AI disclosure. Same claim as the devlog.html hero line; update it to match your rewrite. -->
-Echo went from "I wonder if I could make an iOS app" to a four-platform audiobook study system — with on-device AI narration — in about nine weeks. This is the week-by-week story, reconstructed from the actual git history — **956 commits** between April 19 and June 19, 2026, written by a mail carrier with no prior Swift experience, in the hours around a full-time delivery route.
+Echo started as a mail-route audiobook player in April 2026. Dan directs AI coding agents to build and maintain it, testing the results in daily listening. This log combines a dated commit digest with the original account of the first nine weeks.
 
-It's all open source. You can audit every claim below: [github.com/dfakkeldy/Echo](https://github.com/dfakkeldy/Echo).
+The source is public: [github.com/dfakkeldy/Echo](https://github.com/dfakkeldy/Echo). “Shipped” in the generated digest means merged source, not App Store publication or a verified TestFlight upload.
 
 ---
 
 <!-- AUTO-DEVLOG:START -->
-## Automated update - Aug 17-23, 2026
+## Automated update - Aug 24-Oct 24, 2026
 
-*Generated from 8 commits merged during the week.*
+*Generated from 80 commits merged during the week.*
 
 ### Shipped
-- Distribute weekly mac builds externally ([c8024c7](https://github.com/dfakkeldy/Echo/commit/c8024c7))
+- Keep figures on stage until the next figure ([604464f](https://github.com/dfakkeldy/Echo/commit/604464f))
+- Add optional Phonon 31M narration (#650) ([6c9c637](https://github.com/dfakkeldy/Echo/commit/6c9c637))
+- Dictate into an inbox with background webhook delivery (#644) ([40af462](https://github.com/dfakkeldy/Echo/commit/40af462))
+- Preserve EPUB pronunciation instructions through synthesis ([785394a](https://github.com/dfakkeldy/Echo/commit/785394a))
+- Improve contextual preparation and render efficiency ([a611675](https://github.com/dfakkeldy/Echo/commit/a611675))
 
 ### Fixed
-- Retag sentence-initial imperative heteronyms as verbs (#588) ([516a9f3](https://github.com/dfakkeldy/Echo/commit/516a9f3))
-- Keep complication playback current (#587) ([a8d6d84](https://github.com/dfakkeldy/Echo/commit/a8d6d84))
-- Stop audio engine when playback pauses (#586) ([69b0b37](https://github.com/dfakkeldy/Echo/commit/69b0b37))
-- Reclaim compact top chrome (#585) ([7959ef9](https://github.com/dfakkeldy/Echo/commit/7959ef9))
-- Add document type handler ranks (#584) ([22e7497](https://github.com/dfakkeldy/Echo/commit/22e7497))
+- Report inline pronunciation errors and respect filename boundaries (#649) ([7451a28](https://github.com/dfakkeldy/Echo/commit/7451a28))
+- Recover Inbox retries and attach the book title (#647) ([0819b02](https://github.com/dfakkeldy/Echo/commit/0819b02))
+- Present Inbox dictation from the active player (#646) ([aebe041](https://github.com/dfakkeldy/Echo/commit/aebe041))
+- Adapt EPUB stress positions for Kokoro (#642) ([a12077e](https://github.com/dfakkeldy/Echo/commit/a12077e))
+- Exclude pronunciation reels from folder books (#634) ([f60ca9d](https://github.com/dfakkeldy/Echo/commit/f60ca9d))
+- Retain GRDB import for book settings types ([53570e6](https://github.com/dfakkeldy/Echo/commit/53570e6))
+- Public alignment uploads are unavailable in 1.0; community lookup and local fallback remain unchanged. ([3c91823](https://github.com/dfakkeldy/Echo/commit/3c91823))
+- Confirm public alignment sharing before upload ([e2cafff](https://github.com/dfakkeldy/Echo/commit/e2cafff))
+- ...and 24 more fixed items.
+
+### Improved
+- Prepare pronunciation plans off the UI actor ([61a856e](https://github.com/dfakkeldy/Echo/commit/61a856e))
 
 ### Build, docs, and housekeeping
-- Run doc contracts without Xcode and skip the build gate for docs-only PRs (#583) ([9106a2c](https://github.com/dfakkeldy/Echo/commit/9106a2c))
-- Weekly automated update (#582) ([a21b1f4](https://github.com/dfakkeldy/Echo/commit/a21b1f4))
+- Disclose Phonon model download from GitHub (#651) ([8d85927](https://github.com/dfakkeldy/Echo/commit/8d85927))
+- Watch Inbox queued-message recovery (#648) ([5b887f4](https://github.com/dfakkeldy/Echo/commit/5b887f4))
+- Add Watch Inbox to in-app help and TestFlight notes (#645) ([4b49ec4](https://github.com/dfakkeldy/Echo/commit/4b49ec4))
+- Note EPUB pronunciation stress fix (#642) (#643) ([3032a1c](https://github.com/dfakkeldy/Echo/commit/3032a1c))
+- Listened-books shelf in TestFlight guide and user manual (#641) ([8ae15ab](https://github.com/dfakkeldy/Echo/commit/8ae15ab))
+- Note Visual Listening picture and subtitle layout fix (#639) ([cb609a1](https://github.com/dfakkeldy/Echo/commit/cb609a1))
+- Agent work on GitHub (#636) ([45cdd0c](https://github.com/dfakkeldy/Echo/commit/45cdd0c))
+- Note pronunciation reel exclusion from folder books (#634) (#635) ([b6c8a52](https://github.com/dfakkeldy/Echo/commit/b6c8a52))
+- ...and 34 more housekeeping items.
 
 <!-- AUTO-DEVLOG:END -->
 
-## Now — June 2026 · *The road to 1.0* (in progress)
+## October 24, 2026 — current source
 
-Most of the 1.0 program has now landed, build by build: the **listening capture layer** and the **Insights screen** (real listening time, streaks, chapter coverage, retention curves), opt-in **Context Memory** (place-tagged bookmarks and sessions), the full **Anki workflow** (decks, a card editor, the mark-later Card Inbox, Markdown and JSON export), and — the headline of the last two weeks — **on-device AI narration** that reads a text-only EPUB aloud in a neural voice, entirely offline. Echo also went **GPL-3.0**. What's left for 1.0: **Brain Dump notes** with watch dictation, deeper **Markdown second-brain export**, **Audiobookshelf sync**, and **iCloud study sync** — planned the same way everything else here was built: in public.
+Since the summer, the source has gained Audiobookshelf on Mac, PDF batch narration, article/anthology workflows, authored EPUB pronunciation, optional Phonon narration, and Watch Inbox dictation with queued-delivery recovery. The latest PDF read-along files carry narration order and exact word boxes; Visual Listening keeps figures visible while the full read-along text scrolls separately.
+
+The [manual](user-manual.md) describes today's reachable workflows and platform differences. Full private-iCloud study-state sync, parts of hands-free Chapter Study, and some Mac parity remain incomplete. Merged code, hosted CI, a distributed build, and observed device behavior are separate milestones.
+
+## The opening nine weeks — historical account
+
+The entries below describe the original April–June build period. Their dates, counts, and development snapshots are retained as history; use the current manual for availability.
 
 ---
 
@@ -118,4 +141,4 @@ Nine working weeks. Four platforms (iOS, watchOS, macOS, widgets). A SQL databas
 
 The point of publishing this log isn't bragging rights. It's the same as open-sourcing the code: you should be able to see exactly what you're trusting with your books and your attention — and maybe, if you've been wondering whether you could build *your* app, this page is the nudge.
 
-*Last updated August 24, 2026.*
+*Last reviewed October 24, 2026. The generated digest covers merged source through this review.*
