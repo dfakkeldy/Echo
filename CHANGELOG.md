@@ -4,6 +4,12 @@ All notable changes to Echo: Audiobook Study Player.
 
 ## [Unreleased]
 
+- Visual Listening and slideshow export keep each figure on stage until the
+  next figure appears, instead of only while its caption or neighbouring
+  paragraph is spoken. Back-to-back figures share their paragraph in reading
+  order, each gets up to three seconds before the next replaces it, and a
+  chapter's last figure stays up until the chapter ends.
+
 - Bookmarks restore from SQL on every book switch, including Library opens.
   Legacy bookmarks remain available for recovery, and Watch/Widget captures
   stay staged until saved. Repeated edits coalesce into ordered async writes.
