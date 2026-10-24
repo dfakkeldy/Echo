@@ -4,6 +4,12 @@ All notable changes to Echo: Audiobook Study Player.
 
 ## [Unreleased]
 
+- A PDF can carry a read-along file (`<name>.readalong.json`, written by the
+  tool that laid it out). Echo then narrates exactly the text it lists, never
+  running heads, page numbers or footers, and highlights each spoken word's
+  exact place on the printed page on iPhone, iPad and Mac, following the word
+  onto the next page. Other PDFs import as before.
+
 - Visual Listening and slideshow export keep each figure on stage until the
   next figure appears, instead of only while its caption or neighbouring
   paragraph is spoken. Back-to-back figures share their paragraph in reading

@@ -161,6 +161,21 @@ enum PDFAutoImportScanner {
             }
         }
 
+        // A read-along file from the PDF's layout engine replaces text
+        // extraction: its segments become the blocks, and its word boxes drive
+        // exact highlighting. A missing or mismatched file falls through.
+        let readAlongCandidates = [pdfURL, finalizerFileURL].compactMap { $0 }
+            .map(PDFReadAlongFile.url(forPDF:))
+        let readAlong = await Task.detached(priority: .userInitiated) {
+            Self.loadReadAlongFile(pdfURL: pdfURL, candidates: readAlongCandidates)
+        }.value
+        if let readAlong {
+            return await importReadAlong(
+                readAlong, pdfURL: pdfURL, audiobookID: audiobookID,
+                databaseService: databaseService, chapters: chapters, duration: duration,
+                finalizerFileURL: finalizerFileURL)
+        }
+
         do {
             // PDF text extraction (PDFDocument(url:) + per-page .string) is a
             // synchronous, potentially expensive CPU pass with no suspension
@@ -245,6 +260,71 @@ enum PDFAutoImportScanner {
             logger.error("PDF auto-import failed: \(error.localizedDescription)")
             return .failed(pdfURL, underlying: error)
         }
+    }
+
+    /// Imports a PDF from its read-along file: one block per segment, each
+    /// block's page and word boxes from the file. No figure extraction, since
+    /// figure blocks would sit between the segments the boxes are keyed to.
+    private static func importReadAlong(
+        _ file: PDFReadAlongFile,
+        pdfURL: URL,
+        audiobookID: String,
+        databaseService: DatabaseService,
+        chapters: [Chapter],
+        duration: TimeInterval?,
+        finalizerFileURL: URL?
+    ) async -> ImportOutcome {
+        do {
+            let parse = parseLaidOutText(
+                audiobookID: audiobookID, units: file.units, sourceURL: pdfURL)
+            guard parse.blocks.count == file.segments.count else {
+                return .failed(pdfURL, underlying: PDFAutoImportError.finalizationFailed(pdfURL))
+            }
+            let importer = EPUBImportService(
+                assetStorage: EPUBAssetStorage(databaseService: databaseService))
+            let blocks = try await importer.import(
+                parse: parse,
+                audiobookID: audiobookID,
+                chapters: chapters,
+                bookDuration: duration,
+                assetBaseURL: pdfURL.deletingLastPathComponent()
+            )
+            logger.info(
+                "Imported \(blocks.count) PDF blocks from its read-along file for \(sanitizedPath(audiobookID))"
+            )
+            let finalized = await DocumentImportFinalizer.finalize(
+                audiobookID: audiobookID, blocks: blocks, fileURL: finalizerFileURL ?? pdfURL,
+                duration: duration, databaseService: databaseService)
+            guard finalized else {
+                return .failed(pdfURL, underlying: PDFAutoImportError.finalizationFailed(pdfURL))
+            }
+            // Block IDs survive import unchanged, and block i is segment i.
+            let records = zip(parse.blocks, file.segments).map { block, segment in
+                PDFBlockPageRecord(
+                    id: nil, audiobookID: audiobookID, epubBlockID: block.id,
+                    pageIndex: segment.page,
+                    wordBoxes: PDFReadAlongFile.encodeWordBoxes(segment.words))
+            }
+            let dao = PDFBlockPageDAO(db: databaseService.writer)
+            try? dao.deleteAll(for: audiobookID)
+            try? dao.insertAll(records)
+            return .imported
+        } catch {
+            logger.error("PDF read-along import failed: \(error.localizedDescription)")
+            return .failed(pdfURL, underlying: error)
+        }
+    }
+
+    /// `nonisolated` so it runs in a detached task: it opens the PDF only to
+    /// count pages, and hashes it when the file names a SHA-256.
+    private nonisolated static func loadReadAlongFile(
+        pdfURL: URL, candidates: [URL]
+    ) -> PDFReadAlongFile? {
+        guard candidates.contains(where: { FileManager.default.fileExists(atPath: $0.path) }),
+            let document = PDFDocument(url: pdfURL)
+        else { return nil }
+        return PDFReadAlongFile.loadMatching(
+            pdfURL: pdfURL, candidates: candidates, pageCount: document.pageCount)
     }
 
     /// Best-effort: writes the figure manifest (portable anchor → image path)

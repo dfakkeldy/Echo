@@ -291,6 +291,13 @@ final class DatabaseService {
                 table.add(column: "pronunciation_annotations", .text)
             }
         }
+        // Exact per-word page boxes for PDFs imported from a read-along file
+        // (`PDFReadAlongFile`); null for every other PDF.
+        migrator.registerMigration("v44_pdf_block_page_word_boxes") { db in
+            try db.alter(table: "pdf_block_page") { table in
+                table.add(column: "word_boxes", .text)
+            }
+        }
         return migrator
     }
 }

@@ -28,6 +28,9 @@ struct MacPDFReaderView: View {
     /// occurrence of an identical word" so it can search forward instead of
     /// re-pinning to the page's first match every time.
     @State private var highlightPositionKey: String?
+    /// Exact boxes of the spoken word from the PDF's read-along file; when set,
+    /// it replaces the search for `highlightTerm`.
+    @State private var highlightBox: PDFWordBox?
     @State private var loadError: String?
     private let logger = Logger(subsystem: "com.echo.audiobooks", category: "MacPDFReader")
 
@@ -39,6 +42,7 @@ struct MacPDFReaderView: View {
                     activePageIndex: activePageIndex,
                     highlightTerm: highlightTerm,
                     highlightPositionKey: highlightPositionKey,
+                    highlightBox: highlightBox,
                     isPlaying: player.isPlaying,
                     onSaveVocabulary: { performSaveVocabulary($0) },
                     onBookmarkHere: { player.addBookmarkAtCurrentTime() }
@@ -86,23 +90,39 @@ struct MacPDFReaderView: View {
                 if let active = readAlong.activeBlock(at: player.currentTime) {
                     activePageIndex = readAlong.pageIndex(forBlock: active.blockID)
                     if let wordIndex = active.wordIndex {
-                        highlightTerm = readAlong.wordText(
-                            blockID: active.blockID, wordIndex: wordIndex)
                         highlightPositionKey = "\(active.blockID)#\(wordIndex)"
+                        switch readAlong.wordHighlight(
+                            blockID: active.blockID, wordIndex: wordIndex)
+                        {
+                        case .box(let box):
+                            activePageIndex = box.pageIndex
+                            highlightBox = box
+                            highlightTerm = nil
+                        case .unprinted:
+                            highlightBox = nil
+                            highlightTerm = nil
+                        case .unavailable:
+                            highlightBox = nil
+                            highlightTerm = readAlong.wordText(
+                                blockID: active.blockID, wordIndex: wordIndex)
+                        }
                     } else {
-                        highlightTerm = nil
-                        highlightPositionKey = nil
+                        clearHighlight()
                     }
                 } else {
-                    highlightTerm = nil
-                    highlightPositionKey = nil
+                    clearHighlight()
                 }
             } else {
-                highlightTerm = nil
-                highlightPositionKey = nil
+                clearHighlight()
             }
             try? await Task.sleep(for: player.isPlaying ? .milliseconds(150) : .milliseconds(500))
         }
+    }
+
+    private func clearHighlight() {
+        highlightTerm = nil
+        highlightPositionKey = nil
+        highlightBox = nil
     }
 
     // MARK: Save vocabulary
@@ -144,6 +164,7 @@ private struct MacPDFKitRepresentable: NSViewRepresentable {
     let activePageIndex: Int?
     let highlightTerm: String?
     let highlightPositionKey: String?
+    let highlightBox: PDFWordBox?
     let isPlaying: Bool
     let onSaveVocabulary: (String) -> Void
     let onBookmarkHere: () -> Void
@@ -172,7 +193,11 @@ private struct MacPDFKitRepresentable: NSViewRepresentable {
             nsView.go(to: page)
         }
 
-        nsView.updateHighlight(term: highlightTerm, positionKey: highlightPositionKey)
+        if let highlightBox {
+            nsView.updateHighlight(box: highlightBox, positionKey: highlightPositionKey)
+        } else {
+            nsView.updateHighlight(term: highlightTerm, positionKey: highlightPositionKey)
+        }
     }
 }
 
@@ -243,6 +268,24 @@ final class MacPDFInteractiveView: PDFView {
         lastHighlightTerm = term
         lastHighlightPage = currentPage
         lastHighlightSelection = found
+    }
+
+    /// Highlights a word's exact boxes on its own page (from the PDF's
+    /// read-along file), with the same per-word throttle as the search path.
+    func updateHighlight(box: PDFWordBox, positionKey: String?) {
+        guard let positionKey, let page = document?.page(at: box.pageIndex) else {
+            clearHighlightIfNeeded()
+            return
+        }
+        if positionKey == lastHighlightPositionKey, page === lastHighlightPage { return }
+        // A hair narrower than the glyph boxes, so a touching neighbour
+        // (punctuation, the next word) isn't pulled into the selection.
+        let selections = box.rects.compactMap { page.selection(for: $0.insetBy(dx: 0.5, dy: 0)) }
+        highlightedSelections = selections.isEmpty ? nil : selections
+        lastHighlightPositionKey = positionKey
+        lastHighlightTerm = nil
+        lastHighlightPage = page
+        lastHighlightSelection = nil
     }
 
     private func clearHighlightIfNeeded() {

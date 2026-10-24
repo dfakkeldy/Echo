@@ -194,6 +194,9 @@ struct PDFDocumentView: View {
     @State private var activeWordTerm: String?
     /// Stable identity for the current spoken word, used to distinguish repeated terms.
     @State private var activeWordPositionKey: String?
+    /// Exact boxes of the current spoken word, from the PDF's read-along file.
+    /// When set, it replaces the search for `activeWordTerm`.
+    @State private var activeWordBox: PDFWordBox?
 
     var body: some View {
         ZStack {
@@ -210,6 +213,7 @@ struct PDFDocumentView: View {
                     activePageIndex: activePageIndex,
                     activeWordTerm: activeWordTerm,
                     activeWordPositionKey: activeWordPositionKey,
+                    activeWordBox: activeWordBox,
                     isPlaying: model.isPlaying,
                     onStateChange: { state in
                         updateCurrentPDFState(state)
@@ -274,17 +278,31 @@ struct PDFDocumentView: View {
             else {
                 activeWordTerm = nil
                 activeWordPositionKey = nil
+                activeWordBox = nil
                 return
             }
             if let page = ra.pageIndex(forBlock: active.blockID) {
                 activePageIndex = page
             }
             if let wordIndex = active.wordIndex {
-                activeWordTerm = ra.wordText(blockID: active.blockID, wordIndex: wordIndex)
                 activeWordPositionKey = "\(active.blockID)#\(wordIndex)"
+                switch ra.wordHighlight(blockID: active.blockID, wordIndex: wordIndex) {
+                case .box(let box):
+                    // A paragraph can run onto the next page: follow the word.
+                    activePageIndex = box.pageIndex
+                    activeWordBox = box
+                    activeWordTerm = nil
+                case .unprinted:
+                    activeWordBox = nil
+                    activeWordTerm = nil
+                case .unavailable:
+                    activeWordBox = nil
+                    activeWordTerm = ra.wordText(blockID: active.blockID, wordIndex: wordIndex)
+                }
             } else {
                 activeWordTerm = nil
                 activeWordPositionKey = nil
+                activeWordBox = nil
             }
         }
         // Clear highlight when paused so it does not persist stale.
@@ -292,6 +310,7 @@ struct PDFDocumentView: View {
             if !playing {
                 activeWordTerm = nil
                 activeWordPositionKey = nil
+                activeWordBox = nil
             }
         }
         .confirmationDialog("Align PDF View", isPresented: $showingAlignmentOptions) {
@@ -613,6 +632,8 @@ private struct PDFKitView: UIViewRepresentable {
     let activeWordTerm: String?
     /// Stable `"blockID#wordIndex"` identity for repeated spoken terms.
     let activeWordPositionKey: String?
+    /// Exact boxes for the spoken word; takes precedence over `activeWordTerm`.
+    let activeWordBox: PDFWordBox?
     /// Whether narration is actively playing. Auto-follow is suppressed when false.
     let isPlaying: Bool
     let onStateChange: (PDFViewState) -> Void
@@ -692,9 +713,15 @@ private struct PDFKitView: UIViewRepresentable {
             uiView.go(to: page)
         }
 
-        // Best-effort word highlight: search the current page for the term.
-        context.coordinator.updateWordHighlight(
-            term: activeWordTerm, positionKey: activeWordPositionKey, in: uiView)
+        // Word highlight: exact boxes when the PDF has a read-along file,
+        // otherwise a best-effort search of the current page for the term.
+        if let activeWordBox {
+            context.coordinator.updateWordHighlight(
+                box: activeWordBox, positionKey: activeWordPositionKey, in: uiView)
+        } else {
+            context.coordinator.updateWordHighlight(
+                term: activeWordTerm, positionKey: activeWordPositionKey, in: uiView)
+        }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -712,6 +739,8 @@ private struct PDFKitView: UIViewRepresentable {
         // PDFKit coordinate conversion each time the active word changes.
         // Throttled: we skip the update if the spoken word has not changed since last paint.
         private weak var highlightView: UIView?
+        /// Extra overlays for a word broken across lines (one per further box).
+        private var extraHighlightViews: [UIView] = []
         private var lastHighlightedTerm: String?
         private var lastHighlightPositionKey: String?
         private weak var lastHighlightedPage: PDFPage?
@@ -727,19 +756,73 @@ private struct PDFKitView: UIViewRepresentable {
 
         /// Adds a reusable highlight overlay to `pdfView`. Called once from `makeUIView`.
         func installHighlightView(on pdfView: PDFView) {
+            let view = makeHighlightView()
+            pdfView.addSubview(view)
+            highlightView = view
+        }
+
+        private func makeHighlightView() -> UIView {
             let view = UIView()
             view.backgroundColor = UIColor.systemYellow.withAlphaComponent(0.25)
             view.layer.cornerRadius = 3
             view.isUserInteractionEnabled = false
             view.isHidden = true
-            pdfView.addSubview(view)
-            highlightView = view
+            return view
+        }
+
+        /// Positions the highlight over a word's exact boxes on its own page.
+        /// Throttled like the search path: no-op while the same word is shown.
+        func updateWordHighlight(box: PDFWordBox, positionKey: String?, in pdfView: PDFView) {
+            guard let highlightView, let page = pdfView.document?.page(at: box.pageIndex),
+                !box.rects.isEmpty
+            else {
+                clearHighlightIfNeeded()
+                return
+            }
+            if let positionKey, positionKey == lastHighlightPositionKey,
+                page === lastHighlightedPage, !highlightView.isHidden
+            {
+                return
+            }
+            let visible = pdfView.bounds
+            let frames = box.rects.map { pdfView.convert($0, from: page) }
+            guard frames.contains(where: { visible.intersects($0) }) else {
+                hideHighlightViews()
+                return
+            }
+            while extraHighlightViews.count < box.rects.count - 1 {
+                let view = makeHighlightView()
+                pdfView.addSubview(view)
+                extraHighlightViews.append(view)
+            }
+            highlightView.frame = frames[0]
+            highlightView.isHidden = false
+            pdfView.bringSubviewToFront(highlightView)
+            for (i, view) in extraHighlightViews.enumerated() {
+                if i + 1 < frames.count {
+                    view.frame = frames[i + 1]
+                    view.isHidden = false
+                    pdfView.bringSubviewToFront(view)
+                } else {
+                    view.isHidden = true
+                }
+            }
+            lastHighlightedTerm = nil
+            lastHighlightPositionKey = positionKey
+            lastHighlightedPage = page
+            lastHighlightedRange = nil
+        }
+
+        private func hideHighlightViews() {
+            highlightView?.isHidden = true
+            extraHighlightViews.forEach { $0.isHidden = true }
         }
 
         /// Positions (or hides) the highlight overlay for `term` on the visible page.
         /// Best-effort: if the search returns no match on the current page, hides.
         /// Throttled: no-op when the same spoken word is already highlighted.
         func updateWordHighlight(term: String?, positionKey: String?, in pdfView: PDFView) {
+            extraHighlightViews.forEach { $0.isHidden = true }
             guard let highlightView,
                 let term, !term.isEmpty,
                 let positionKey,
@@ -798,7 +881,7 @@ private struct PDFKitView: UIViewRepresentable {
         }
 
         private func clearHighlightIfNeeded() {
-            highlightView?.isHidden = true
+            hideHighlightViews()
             lastHighlightedTerm = nil
             lastHighlightPositionKey = nil
             lastHighlightedPage = nil
