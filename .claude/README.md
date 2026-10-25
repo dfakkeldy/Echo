@@ -27,21 +27,22 @@ bash .claude/hooks/test-swift-format-on-edit.sh
 
 | Agent | Invoke it before… |
 |-------|-------------------|
-| `schema-migration-reviewer` | committing a GRDB schema change (`Shared/Database/`, new `Schema_Vxx`, `registerMigration`). Catches version collisions, unregistered/edited migrations, missing tests, and re-import/re-align consequences. |
 | `cross-platform-parity-reviewer` | committing a change to shared logic (`Shared/`, `EchoCore/`). Checks the change landed on every surface that needs it — watchOS, Widget, the macOS `Mac*` counterparts, CarPlay. |
 
-Both are read-only. They run automatically when relevant, or on request: *"use the schema-migration-reviewer on my diff."*
+It is read-only. It runs automatically when relevant, or on request: *"use the cross-platform-parity-reviewer on my diff."*
+
+Database changes have no subagent. The `new-schema-migration` skill and its check script cover them (below).
 
 ## Skills — `skills/`
 
 | Skill | Invocation | Purpose |
 |-------|-----------|---------|
-| `/new-schema-migration` | user | Scaffold the next GRDB migration (enum + registration + test) with a collision-proof version number. Bundles `scripts/check-schema-version.sh`. |
+| `/new-schema-migration` | user or model | Scaffold the next GRDB migration, and review any database change before it is committed. Bundles `scripts/check-migrations.py`. |
 | `/doc-sync` | user or model | After a feature/architecture/schema/pipeline change, find which of `ARCHITECTURE.md` / `README.md` / `CHANGELOG.md` / `ROADMAP.md` are now stale and draft the patches. |
 
-Check the next free schema version any time:
+Check migrations and the next free schema version any time (exits 1 on a blocker):
 ```bash
-bash .claude/skills/new-schema-migration/scripts/check-schema-version.sh
+python3 .claude/skills/new-schema-migration/scripts/check-migrations.py
 ```
 
 ## Settings files

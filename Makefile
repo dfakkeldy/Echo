@@ -150,9 +150,10 @@ test-only: ## Re-run without rebuilding: make test-only FILTER=EchoTests/TOCTree
 	xcodebuild test-without-building -scheme Echo -destination '$(SIM_DEST)' \
 	  -only-testing:$(or $(FILTER),EchoTests) -parallel-testing-enabled NO $(CODESIGN_OFF)
 
-hooks-test: ## Run the Claude Code hook test suites (xcodebuild guard + swift-format)
+hooks-test: ## Run the Claude Code hook and migration-check test suites
 	@bash .claude/hooks/test-guard-xcodebuild.sh
 	@bash .claude/hooks/test-swift-format-on-edit.sh
+	@python3 .claude/skills/new-schema-migration/scripts/test_check_migrations.py
 
 # Release is non-negotiable here: the scheme's default (Debug/-Onone) is
 # ~26% slower on inference-bound narrate and far slower on Swift-heavy
