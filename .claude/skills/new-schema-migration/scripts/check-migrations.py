@@ -339,8 +339,14 @@ def check(root: Path, base_ref: str, base_label: str, tip_ref: str | None) -> in
     changed |= set((git(root, "ls-files", "--others", "--exclude-standard") or "").splitlines())
     changed_tests = [p for p in changed if p.startswith(TEST_DIR + "/") and (root / p).exists()]
     for reg in new:
-        needles = (reg.ident, f"SchemaV{reg.num}", f"Schema_V{reg.num}")
-        if not any(any(n in p or n in (root / p).read_text() for n in needles) for p in changed_tests):
+        # A test counts when a changed test file names the migration, its
+        # version, or a column or index it adds.
+        needles = [reg.ident, f"SchemaV{reg.num}", f"Schema_V{reg.num}"]
+        needles += [f'"{name}"' for name in re.findall(r'(?:add\(column|index):\s*"([a-z_0-9]+)"', reg.body)]
+        version_word = re.compile(rf"\bv{reg.num}(?![0-9])")
+        if not any(any(n in p or n in (root / p).read_text() for n in needles)
+                   or version_word.search((root / p).read_text())
+                   for p in changed_tests):
             warnings.append(f'"{reg.ident}" has no test. Add {TEST_DIR}/SchemaV{reg.num}Tests.swift.')
 
     for table in sorted(touched_import_tables):
