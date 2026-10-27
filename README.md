@@ -5,6 +5,14 @@
 [![CI](https://github.com/dfakkeldy/Echo/actions/workflows/ci.yml/badge.svg)](https://github.com/dfakkeldy/Echo/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
+**[Join the TestFlight beta](https://testflight.apple.com/join/Zu9rzg59)** · Echo is in public beta on TestFlight.
+
+<p>
+  <img src="docs/assets/screenshots/echo-player.webp" width="200" alt="Echo's iPhone player showing The Merchant of Venice, chapter 1, with playback controls">
+  <img src="docs/assets/screenshots/echo-reader.webp" width="200" alt="Echo's read-along view showing the synced chapter text above the mini player">
+  <img src="docs/assets/screenshots/echo-watch-playback.webp" width="200" alt="Echo's Apple Watch playback screen with cover art, chapter title and controls">
+</p>
+
 Echo plays the audiobooks you own, aligns them with EPUB/PDF text, and helps you turn useful passages into spaced-repetition study cards. It can also narrate text-only documents on-device. It runs on **iOS/iPadOS 18+, macOS 15+, and watchOS 11+**; Watch is a companion to the iPhone player.
 
 **Documentation reviewed against `nightly` on October 24, 2026.** Implemented source, a TestFlight build, and public release availability are separate states. Check the notes for the build you install.

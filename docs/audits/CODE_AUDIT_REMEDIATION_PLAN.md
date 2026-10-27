@@ -1,7 +1,7 @@
 # CODE_AUDIT.md Remediation Plan
 
 Generated: 2026-06-26
-Source audit: `CODE_AUDIT.md`
+Source audit: [`CODE_AUDIT.md`](CODE_AUDIT.md)
 Branch audited: `origin/nightly` at `d18af0394b0ca9d61ca56c7b3bd0e8c0fdd1ca36`
 Implementation plan: `docs/superpowers/plans/2026-06-26-nightly-code-audit-remediation.md`
 
