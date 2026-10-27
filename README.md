@@ -8,6 +8,14 @@
 [![Platform](https://img.shields.io/badge/watchOS-11+-blue.svg)](#)
 [![License](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
+**[Join the TestFlight beta](https://testflight.apple.com/join/Zu9rzg59)** · Echo is in public beta on TestFlight.
+
+<p>
+  <img src="docs/assets/screenshots/echo-player.webp" width="200" alt="Echo's iPhone player showing The Merchant of Venice, chapter 1, with playback controls">
+  <img src="docs/assets/screenshots/echo-reader.webp" width="200" alt="Echo's read-along view showing the synced chapter text above the mini player">
+  <img src="docs/assets/screenshots/echo-watch-playback.webp" width="200" alt="Echo's Apple Watch playback screen with cover art, chapter title and controls">
+</p>
+
 **Echo** turns audiobooks into a serious study medium. It aligns the audiobook you already own to its EPUB/PDF for word-level read-along, **narrates ebooks that have no audiobook** on-device, and turns what you hear into flashcards you review with spaced repetition — all without leaving the audio.
 
 Plenty of apps now read your ebook aloud, or sync an audiobook to the text. Echo is the one that turns that into a study *system* — and it still works when you own the ebook but not an audiobook (it narrates that for you too).
