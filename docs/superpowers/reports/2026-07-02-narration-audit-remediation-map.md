@@ -6,9 +6,9 @@ Scope: repo-local narration audit and QA ledger cleanup only. Do not treat this 
 
 ## Source Of Truth
 
-- Historical audit: `NARRATION_AUDIT.md`, added by PR #368 from branch `claude/peaceful-herschel-867461`.
+- Historical audit: [`docs/audits/NARRATION_AUDIT.md`](../../audits/NARRATION_AUDIT.md), added by PR #368 from branch `claude/peaceful-herschel-867461`.
 - Current remediation map: this file.
-- Historical CoreML-era audit: `CODE_AUDIT_NARRATION.md`, retained only for archaeology. It is not current remediation guidance.
+- Historical CoreML-era audit: [`docs/audits/CODE_AUDIT_NARRATION.md`](../../audits/CODE_AUDIT_NARRATION.md), retained only for archaeology. It is not current remediation guidance.
 - Current living architecture: `ARCHITECTURE.md`, especially the generated narration QA and shared improvement sections.
 
 ## Completed Since PR #368

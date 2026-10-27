@@ -20,6 +20,8 @@ Open `http://localhost:8768/`. Check both a desktop width and a narrow phone wid
 | Shared site layout | `styles.css` and the header/footer in each HTML page |
 | Development history | `guides/devlog.md` and `devlog.html`; the automated block has explicit markers |
 | Developer architecture/plans | `../ARCHITECTURE.md`, `../ROADMAP.md`, and dated reports/specs |
+| Code audits and review snapshots | `audits/` (historical; source comments citing `CODE_AUDIT.md §n` mean `audits/CODE_AUDIT.md` or an earlier version of it in git history) |
+| Agent handoff notes | `handoffs/` (working notes for unfinished tasks, kept for history) |
 | Format contracts | `epub-pronunciation-authoring.md`, `pdf-readalong-authoring.md`, `phonon-narration.md` |
 
 Update both Markdown and HTML when changing a guide. Preserve existing public section fragments; the manual includes aliases for numbered Markdown headings as well as older short HTML fragments. Pandoc can assist with body conversion, but review relative links, heading IDs, tables, and the surrounding page shell before saving. Do not replace an author's historical claims with a new review date.
