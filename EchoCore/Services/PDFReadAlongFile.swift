@@ -142,6 +142,59 @@ nonisolated struct PDFReadAlongFile: Decodable, Sendable {
         return nil
     }
 
+    // MARK: - iCloud
+
+    /// Where iCloud keeps `url` while only its placeholder is on the device:
+    /// `<dir>/.<name>.icloud`. The logical file doesn't exist until it downloads.
+    static func placeholderURL(for url: URL) -> URL {
+        url.deletingLastPathComponent()
+            .appendingPathComponent("." + url.lastPathComponent + ".icloud")
+    }
+
+    /// True when `url` is on disk or iCloud holds it as a placeholder.
+    static func isPresent(_ url: URL, fileManager: FileManager = .default) -> Bool {
+        fileManager.fileExists(atPath: url.path)
+            || fileManager.fileExists(atPath: placeholderURL(for: url).path)
+    }
+
+    /// Downloads `url` when iCloud holds only a placeholder, waiting up to
+    /// `timeout`; true once the file is local. A file outside iCloud returns
+    /// whether it exists. Echo can open a book's folder as soon as the PDF is
+    /// local, while this file is still in the cloud; `loadMatching` checks only
+    /// for a file on disk, so without this the PDF imports through text
+    /// extraction instead.
+    static func downloadIfNeeded(
+        _ url: URL, timeout: Duration = .seconds(30), fileManager: FileManager = .default
+    ) async -> Bool {
+        guard isPresent(url, fileManager: fileManager) else { return false }
+        let values = try? url.resourceValues(forKeys: [
+            .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey,
+        ])
+        if values?.isUbiquitousItem != true, fileManager.fileExists(atPath: url.path) {
+            return true
+        }
+        if values?.ubiquitousItemDownloadingStatus == .current { return true }
+        do {
+            try fileManager.startDownloadingUbiquitousItem(at: url)
+        } catch {
+            logger.error(
+                "Could not download read-along file \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+            return false
+        }
+        let clock = ContinuousClock()
+        let deadline = clock.now + timeout
+        while clock.now < deadline {
+            do { try await Task.sleep(for: .milliseconds(200)) } catch { return false }
+            let status = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
+                .ubiquitousItemDownloadingStatus
+            if status == .current { return true }
+        }
+        logger.info(
+            "Read-along file \(url.lastPathComponent, privacy: .public) didn't download in time")
+        return false
+    }
+
     // MARK: - Stored word boxes (`pdf_block_page.word_boxes`)
 
     /// Encodes one segment's words for storage; nil when the segment has none.

@@ -157,7 +157,12 @@ enum PDFImportCoordinator {
     private static func copyReadAlongFile(from sourceURL: URL, to destinationURL: URL) {
         let source = PDFReadAlongFile.url(forPDF: sourceURL)
         let destination = PDFReadAlongFile.url(forPDF: destinationURL)
-        guard FileManager.default.isReadableFile(atPath: source.path) else { return }
+        // An iCloud placeholder isn't readable yet; the coordinated copy downloads it.
+        let placeholder = PDFReadAlongFile.placeholderURL(for: source)
+        guard
+            FileManager.default.isReadableFile(atPath: source.path)
+                || FileManager.default.fileExists(atPath: placeholder.path)
+        else { return }
         do {
             if FileManager.default.fileExists(atPath: destination.path) {
                 try FileManager.default.removeItem(at: destination)
