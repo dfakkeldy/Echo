@@ -2,7 +2,7 @@
 
 The reference for Echo on iPhone, iPad, Apple Watch, and Mac.
 
-**Reviewed against `nightly`, October 24, 2026.** This guide describes the current source. TestFlight tracks can contain older builds; check your build's What to Test notes. Planned work is labelled explicitly. Start with [the learning guide](getting-the-most-out-of-echo.md) for the thinking behind the study tools.
+**Updated October 24, 2026.** This guide describes the latest beta. If something looks different, check your build's What to Test notes. Planned work is labelled explicitly. Start with [the learning guide](getting-the-most-out-of-echo.md) for the thinking behind the study tools.
 
 ## Contents
 
@@ -244,7 +244,7 @@ These are different mechanisms:
 - **Source files:** iCloud Drive or another file provider can carry books between devices. Download files before going offline.
 - **Audiobookshelf:** connected books exchange listening progress with their selected server on iPhone/iPad and Mac.
 - **Article Inbox:** article captures and anthology drafts have a private CloudKit sync path. This is separate from the ordinary study database.
-- **Community alignment lookup:** import may request matching anchors from Apple's public CloudKit database. There may be no match; local alignment is available. Public alignment uploads are unavailable in Echo 1.0.
+- **Community alignment lookup:** import may request matching anchors from Apple's public CloudKit database. There may be no match; local alignment is available. Public alignment uploads are unavailable in the current version.
 - **Watch:** WatchConnectivity carries companion state/actions and capture delivery through the paired phone.
 - **Planned:** automatic private-iCloud sync of all flashcards, decks, bookmarks, and playback state across independent Echo installations.
 
@@ -268,7 +268,7 @@ On iPhone/iPad, Echo Pro is a **one-time unlock**. Core import, playback, and re
 
 ## 23. Command-Line Tools
 
-The active **`echo-cli`** can narrate documents, export audiobooks, build study decks, inspect/verify sidecars, and run narration QA. Contributors should build it with **`make echo-cli`**, which applies required Release compiler settings. Run `echo-cli --help` and each command's help for the current arguments. On this project's shared Mac, run Apple builds/tests through the configured build-slot wrapper.
+The active **`echo-cli`** can narrate documents, export audiobooks, build study decks, inspect/verify sidecars, and run narration QA. Contributors should build it with **`make echo-cli`**, which applies required Release compiler settings. Run `echo-cli --help` and each command's help for the current arguments.
 
 `Tools/transcription_generator.py` is an optional Python transcript tool using faster-whisper. Set up its dependencies from `Tools/requirements.txt`; it is separate from the app's built-in WhisperKit alignment. See [the architecture reference](../../ARCHITECTURE.md#tools--pipeline) and [renderer guide](versioned-echo-renderer.md) for developer workflows.
 

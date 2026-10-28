@@ -18,7 +18,7 @@ Next: build slot HOLD until 22:00; background job bw7elevs5 runs
 when the window opens. Hosted CI verifies the PR meanwhile.
 Resume:
 ```
-cd /Users/dfakkeldy/Developer/Echo/.claude/worktrees/old-worktrees-salvage-d4912c
+cd ~/Developer/Echo/.claude/worktrees/old-worktrees-salvage-d4912c
 # branch claude/audiobookshelf-download-corruption-4abdf2
 # next: check test results, commit, push, open PR to nightly
 ```
@@ -33,6 +33,6 @@ Next: user merges #596; on first launch after install, stranded ABS books
 re-key automatically. Delete this handoff in the PR that closes the task.
 Resume:
 ```
-cd /Users/dfakkeldy/Developer/Echo/.claude/worktrees/old-worktrees-salvage-d4912c
+cd ~/Developer/Echo/.claude/worktrees/old-worktrees-salvage-d4912c
 gh pr view 596   # merge when ready; repair runs on next app launch
 ```

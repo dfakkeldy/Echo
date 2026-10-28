@@ -30,7 +30,7 @@ this task must add a direct no-op regression rather than assume either reading.
   engine.
 - Keep private book content out of committed fixtures and reports.
 - Every Apple build or test command must run through
-  `/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- <command>`.
+  `~/.claude/bin/xcode-build-slot.sh -- <command>`.
 - Do not claim performance, physical-device, audiobook-render, listening,
   human-label, hosted-CI, or production-authority proof unless newly run.
 - Do not push or open a PR until the task-scoped immutable review and the

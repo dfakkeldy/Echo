@@ -22,9 +22,9 @@ Next:
 
 Resume:
 ```
-Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/busy-gauss-3c559c,
+Worktree ~/Developer/Echo/.claude/worktrees/busy-gauss-3c559c,
 branch test/abs-stub-scope-isolation. Run
-`/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests`, then
+`~/.claude/bin/xcode-build-slot.sh -- make build-tests`, then
 test-only on EchoTests/URLProtocolStubScopeTests and the 5 ABS suites, then
 `gh pr create --base nightly`.
 ```

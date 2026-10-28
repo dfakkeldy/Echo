@@ -14,8 +14,8 @@
 
 | Name | Value |
 |------|-------|
-| `SITE` | `/Users/dfakkeldy/Developer/echo-source-tours` (new repo, sibling of Echo) |
-| `ECHO_SRC` | `/Users/dfakkeldy/Developer/Echo/.claude/worktrees/hardcore-bouman-4b6eac` (read source here; subsystem files identical to `origin/main`) |
+| `SITE` | `~/Developer/echo-source-tours` (new repo, sibling of Echo) |
+| `ECHO_SRC` | `~/Developer/Echo/.claude/worktrees/hardcore-bouman-4b6eac` (read source here; subsystem files identical to `origin/main`) |
 | `SOURCE_SHA` | `c5807ec` |
 | `SOURCE_DATE` | `2026-06-17` |
 | `ECHO_WEB` | `https://github.com/dfakkeldy/Echo` |
@@ -32,12 +32,12 @@
 ### Task 1: Scaffold the Starlight site
 
 **Files:**
-- Create: entire `/Users/dfakkeldy/Developer/echo-source-tours/` tree (via scaffolder)
+- Create: entire `~/Developer/echo-source-tours/` tree (via scaffolder)
 
 - [ ] **Step 1: Run the Starlight scaffolder non-interactively**
 
 ```bash
-cd /Users/dfakkeldy/Developer
+cd ~/Developer
 npm create astro@latest echo-source-tours -- \
   --template starlight --install --git --skip-houston --yes
 ```
@@ -47,7 +47,7 @@ Expected: creates `echo-source-tours/`, installs deps, makes an initial git comm
 - [ ] **Step 2: Verify the scaffold builds**
 
 ```bash
-cd /Users/dfakkeldy/Developer/echo-source-tours
+cd ~/Developer/echo-source-tours
 npm run build
 ```
 
@@ -64,7 +64,7 @@ Expected: one of them exists. Record which (used in Task 3). Current Starlight u
 - [ ] **Step 4: Commit (only if the scaffolder left uncommitted changes)**
 
 ```bash
-cd /Users/dfakkeldy/Developer/echo-source-tours
+cd ~/Developer/echo-source-tours
 git add -A && git commit -m "chore: scaffold Astro Starlight site" || echo "nothing to commit"
 ```
 
@@ -73,7 +73,7 @@ git add -A && git commit -m "chore: scaffold Astro Starlight site" || echo "noth
 ### Task 2: Configure the site (title, sidebar, Pages base, code themes)
 
 **Files:**
-- Modify: `/Users/dfakkeldy/Developer/echo-source-tours/astro.config.mjs`
+- Modify: `~/Developer/echo-source-tours/astro.config.mjs`
 
 - [ ] **Step 1: Replace `astro.config.mjs` with the configured version**
 
@@ -106,7 +106,7 @@ export default defineConfig({
 - [ ] **Step 2: Verify the build still succeeds**
 
 ```bash
-cd /Users/dfakkeldy/Developer/echo-source-tours && npm run build
+cd ~/Developer/echo-source-tours && npm run build
 ```
 
 Expected: `[build] Complete!`. (Sidebar groups for `tours`/`concepts` may warn that the directories are empty — that is fine until Task 5+.)
@@ -122,7 +122,7 @@ git add astro.config.mjs && git commit -m "chore: configure site title, sidebar,
 ### Task 3: Add the `SourceCommit` badge component and extend the content schema
 
 **Files:**
-- Create: `/Users/dfakkeldy/Developer/echo-source-tours/src/components/SourceCommit.astro`
+- Create: `~/Developer/echo-source-tours/src/components/SourceCommit.astro`
 - Modify: the content config file recorded in Task 1 Step 3 (`src/content.config.ts`)
 
 - [ ] **Step 1: Create the `SourceCommit.astro` component**
@@ -185,7 +185,7 @@ If the scaffolder generated `src/content/config.ts` instead (older layout), appl
 - [ ] **Step 3: Verify the build still succeeds**
 
 ```bash
-cd /Users/dfakkeldy/Developer/echo-source-tours && npm run build
+cd ~/Developer/echo-source-tours && npm run build
 ```
 
 Expected: `[build] Complete!`.
@@ -202,13 +202,13 @@ git add src/components/SourceCommit.astro src/content.config.ts && \
 ### Task 4: Install the internal-link validator (the build-time test harness)
 
 **Files:**
-- Modify: `/Users/dfakkeldy/Developer/echo-source-tours/astro.config.mjs`
+- Modify: `~/Developer/echo-source-tours/astro.config.mjs`
 - Modify: `package.json` (dependency added by npm)
 
 - [ ] **Step 1: Install the plugin**
 
 ```bash
-cd /Users/dfakkeldy/Developer/echo-source-tours
+cd ~/Developer/echo-source-tours
 npm install starlight-links-validator
 ```
 
@@ -260,8 +260,8 @@ git add astro.config.mjs package.json package-lock.json && \
 ### Task 5: Home page and concepts glossary stub
 
 **Files:**
-- Modify: `/Users/dfakkeldy/Developer/echo-source-tours/src/content/docs/index.mdx`
-- Create: `/Users/dfakkeldy/Developer/echo-source-tours/src/content/docs/concepts/index.md`
+- Modify: `~/Developer/echo-source-tours/src/content/docs/index.mdx`
+- Create: `~/Developer/echo-source-tours/src/content/docs/concepts/index.md`
 
 - [ ] **Step 1: Write the home page with a tour card grid**
 
@@ -325,7 +325,7 @@ dynamic time warping here as they reference them.)
 - [ ] **Step 3: Verify the build and links pass**
 
 ```bash
-cd /Users/dfakkeldy/Developer/echo-source-tours && npm run build
+cd ~/Developer/echo-source-tours && npm run build
 ```
 
 Expected: `[build] Complete!` with links-validator green. (The three tour links do not exist yet; if the validator flags them, that is expected — proceed to create tours in Tasks 6–8 and re-run. To keep this task self-contained and green, comment out the two not-yet-built `LinkCard`s and the hero `actions` for tours that do not yet exist, then restore each as its tour lands. The DI tour link is restored in Task 6, alignment in Task 7, cross-platform in Task 8.)
@@ -343,12 +343,12 @@ git add src/content/docs/index.mdx src/content/docs/concepts/index.md && \
 
 **Files:**
 - Read (source): `ECHO_SRC/Shared/Database/DatabaseService.swift` (124 lines), and skim `ECHO_SRC/Shared/Database/Schema_V1.swift` for the migrator pattern
-- Create: `/Users/dfakkeldy/Developer/echo-source-tours/src/content/docs/tours/di-without-ceremony.mdx`
+- Create: `~/Developer/echo-source-tours/src/content/docs/tours/di-without-ceremony.mdx`
 
 - [ ] **Step 1: Read the source and pick the blocks to snapshot**
 
 ```bash
-sed -n '1,124p' /Users/dfakkeldy/Developer/Echo/.claude/worktrees/hardcore-bouman-4b6eac/Shared/Database/DatabaseService.swift
+sed -n '1,124p' ~/Developer/Echo/.claude/worktrees/hardcore-bouman-4b6eac/Shared/Database/DatabaseService.swift
 ```
 
 Identify these exact regions to copy verbatim into blocks:
@@ -446,7 +446,7 @@ If the DI `LinkCard`/hero action was commented out in Task 5 Step 3, uncomment i
 - [ ] **Step 4: Verify build + links**
 
 ```bash
-cd /Users/dfakkeldy/Developer/echo-source-tours && npm run build
+cd ~/Developer/echo-source-tours && npm run build
 ```
 
 Expected: `[build] Complete!`, links-validator green.
@@ -456,7 +456,7 @@ Expected: `[build] Complete!`, links-validator green.
 For each pasted block, pick one distinctive line and confirm it exists in the source:
 
 ```bash
-grep -F 'inMemory' /Users/dfakkeldy/Developer/Echo/.claude/worktrees/hardcore-bouman-4b6eac/Shared/Database/DatabaseService.swift
+grep -F 'inMemory' ~/Developer/Echo/.claude/worktrees/hardcore-bouman-4b6eac/Shared/Database/DatabaseService.swift
 ```
 
 Expected: a match. Repeat with a distinctive line from each other block. Any non-match means the code was paraphrased — fix it to match the source exactly.
@@ -474,14 +474,14 @@ git add src/content/docs/tours/di-without-ceremony.mdx src/content/docs/index.md
 
 **Files:**
 - Read (source): `ECHO_SRC/EchoCore/Services/ChapterTitleMatcher.swift`, `ECHO_SRC/EchoCore/Services/TokenDTW.swift` (330 lines), `ECHO_SRC/EchoCore/Services/AutoAlignmentService.swift` (637 lines — excerpt only), and note `ECHO_SRC/EchoTests/TokenDTWTests.swift` exists
-- Create: `/Users/dfakkeldy/Developer/echo-source-tours/src/content/docs/tours/alignment-pipeline.mdx`
+- Create: `~/Developer/echo-source-tours/src/content/docs/tours/alignment-pipeline.mdx`
 
 - [ ] **Step 1: Read the sources and choose excerpts**
 
 ```bash
-sed -n '1,120p' /Users/dfakkeldy/Developer/Echo/.claude/worktrees/hardcore-bouman-4b6eac/EchoCore/Services/ChapterTitleMatcher.swift
-sed -n '1,120p' /Users/dfakkeldy/Developer/Echo/.claude/worktrees/hardcore-bouman-4b6eac/EchoCore/Services/TokenDTW.swift
-grep -n 'func ' /Users/dfakkeldy/Developer/Echo/.claude/worktrees/hardcore-bouman-4b6eac/EchoCore/Services/AutoAlignmentService.swift
+sed -n '1,120p' ~/Developer/Echo/.claude/worktrees/hardcore-bouman-4b6eac/EchoCore/Services/ChapterTitleMatcher.swift
+sed -n '1,120p' ~/Developer/Echo/.claude/worktrees/hardcore-bouman-4b6eac/EchoCore/Services/TokenDTW.swift
+grep -n 'func ' ~/Developer/Echo/.claude/worktrees/hardcore-bouman-4b6eac/EchoCore/Services/AutoAlignmentService.swift
 ```
 
 Choose these excerpts (these files are large — excerpt key functions, never paste whole files):
@@ -575,7 +575,7 @@ from the written text.
 - [ ] **Step 5: Verify build + links**
 
 ```bash
-cd /Users/dfakkeldy/Developer/echo-source-tours && npm run build
+cd ~/Developer/echo-source-tours && npm run build
 ```
 
 Expected: `[build] Complete!`, links-validator green.
@@ -583,8 +583,8 @@ Expected: `[build] Complete!`, links-validator green.
 - [ ] **Step 6: Fidelity check**
 
 ```bash
-grep -F 'Jaccard' /Users/dfakkeldy/Developer/Echo/.claude/worktrees/hardcore-bouman-4b6eac/EchoCore/Services/ChapterTitleMatcher.swift || \
-grep -nF 'jaccard' /Users/dfakkeldy/Developer/Echo/.claude/worktrees/hardcore-bouman-4b6eac/EchoCore/Services/ChapterTitleMatcher.swift
+grep -F 'Jaccard' ~/Developer/Echo/.claude/worktrees/hardcore-bouman-4b6eac/EchoCore/Services/ChapterTitleMatcher.swift || \
+grep -nF 'jaccard' ~/Developer/Echo/.claude/worktrees/hardcore-bouman-4b6eac/EchoCore/Services/ChapterTitleMatcher.swift
 ```
 
 Expected: a match (case may vary — confirm the real identifier). Repeat with a distinctive line from each pasted excerpt against its source file.
@@ -602,12 +602,12 @@ git add src/content/docs/tours/alignment-pipeline.mdx src/content/docs/concepts/
 
 **Files:**
 - Read (source): `ECHO_SRC/Shared/AppGroupDefaults.swift`, `ECHO_SRC/Shared/FileLocations.swift`, `ECHO_SRC/Shared/WatchAction.swift`, `ECHO_SRC/Shared/WatchMessageKey.swift`, `ECHO_SRC/Echo Widget/Views/Echo_Widget.swift`, `ECHO_SRC/Echo Widget/Models/AppIntent.swift`
-- Create: `/Users/dfakkeldy/Developer/echo-source-tours/src/content/docs/tours/one-model-four-targets.mdx`
+- Create: `~/Developer/echo-source-tours/src/content/docs/tours/one-model-four-targets.mdx`
 
 - [ ] **Step 1: Read the sources and choose excerpts**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo/.claude/worktrees/hardcore-bouman-4b6eac
+cd ~/Developer/Echo/.claude/worktrees/hardcore-bouman-4b6eac
 sed -n '1,80p' Shared/AppGroupDefaults.swift
 sed -n '1,80p' Shared/FileLocations.swift
 sed -n '1,80p' Shared/WatchAction.swift
@@ -695,7 +695,7 @@ duplicating these types per target is how watch/widget silently drift from iOS)
 - [ ] **Step 4: Verify build + links**
 
 ```bash
-cd /Users/dfakkeldy/Developer/echo-source-tours && npm run build
+cd ~/Developer/echo-source-tours && npm run build
 ```
 
 Expected: `[build] Complete!`, links-validator green.
@@ -703,7 +703,7 @@ Expected: `[build] Complete!`, links-validator green.
 - [ ] **Step 5: Fidelity check**
 
 ```bash
-grep -rnF 'group.' /Users/dfakkeldy/Developer/Echo/.claude/worktrees/hardcore-bouman-4b6eac/Shared/AppGroupDefaults.swift
+grep -rnF 'group.' ~/Developer/Echo/.claude/worktrees/hardcore-bouman-4b6eac/Shared/AppGroupDefaults.swift
 ```
 
 Expected: the app-group identifier line matches what you pasted. Repeat with a distinctive line from each pasted excerpt against its source file.
@@ -720,9 +720,9 @@ git add src/content/docs/tours/one-model-four-targets.mdx src/content/docs/index
 ### Task 9: GitHub Pages deploy workflow, README, and final verification
 
 **Files:**
-- Create: `/Users/dfakkeldy/Developer/echo-source-tours/.github/workflows/deploy.yml`
-- Create: `/Users/dfakkeldy/Developer/echo-source-tours/README.md`
-- Create: `/Users/dfakkeldy/Developer/echo-source-tours/docs/design-spec.md` (copy of the brainstorming spec)
+- Create: `~/Developer/echo-source-tours/.github/workflows/deploy.yml`
+- Create: `~/Developer/echo-source-tours/README.md`
+- Create: `~/Developer/echo-source-tours/docs/design-spec.md` (copy of the brainstorming spec)
 
 - [ ] **Step 1: Add the Pages deploy workflow**
 
@@ -790,15 +790,15 @@ pipeline — this is intentional.
 - [ ] **Step 3: Copy the design spec into the new repo**
 
 ```bash
-mkdir -p /Users/dfakkeldy/Developer/echo-source-tours/docs
-cp "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/hardcore-bouman-4b6eac/docs/superpowers/specs/2026-06-16-echo-source-tours-design.md" \
-   /Users/dfakkeldy/Developer/echo-source-tours/docs/design-spec.md
+mkdir -p ~/Developer/echo-source-tours/docs
+cp "~/Developer/Echo/.claude/worktrees/hardcore-bouman-4b6eac/docs/superpowers/specs/2026-06-16-echo-source-tours-design.md" \
+   ~/Developer/echo-source-tours/docs/design-spec.md
 ```
 
 - [ ] **Step 4: Final full build**
 
 ```bash
-cd /Users/dfakkeldy/Developer/echo-source-tours && npm run build
+cd ~/Developer/echo-source-tours && npm run build
 ```
 
 Expected: `[build] Complete!`, links-validator green, all three tours present in `dist/`.
@@ -817,7 +817,7 @@ by the executor:
 
 ```bash
 # Dan runs, when ready:
-cd /Users/dfakkeldy/Developer/echo-source-tours
+cd ~/Developer/echo-source-tours
 gh repo create echo-source-tours --public --source . --push
 # then: Settings → Pages → Source: GitHub Actions
 ```

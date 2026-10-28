@@ -24,7 +24,7 @@
 
 ## Global Constraints
 
-- Worktree/branch: /Users/dfakkeldy/Developer/Echo/.claude/worktrees/pensive-fermi-dae756 on `claude/pensive-fermi-dae756` (already based on origin/nightly). Commit per task with Conventional Commits; do NOT push or open PRs from within a task.
+- Worktree/branch: ~/Developer/Echo/.claude/worktrees/pensive-fermi-dae756 on `claude/pensive-fermi-dae756` (already based on origin/nightly). Commit per task with Conventional Commits; do NOT push or open PRs from within a task.
 - Every new Swift file starts with `// SPDX-License-Identifier: GPL-3.0-or-later` as line 1 (a SwiftFormat PostToolUse hook reflows files — after edits verify the SPDX line is still line 1).
 - DI style: concrete types + constructor/closure injection, tested against `DatabaseService(inMemory: true)`. NO new protocols or mocks. `@Observable`/@State — never ObservableObject/@Published.
 - Concurrency: async/await + @MainActor where UI-adjacent; no DispatchQueue.main.async, no semaphores.
@@ -2051,7 +2051,7 @@ and both `Self.flashcard(` calls inside it gain `deferScheduling: deferSchedulin
 - [ ] Mechanically update the 8 existing call sites in `EchoTests/StudyDeckAcceptanceServiceTests.swift` (every `accept(...)` there ends with a `now: fixedNow` or `now: fixedNow.addingTimeInterval(60)` argument):
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo/.claude/worktrees/pensive-fermi-dae756
+cd ~/Developer/Echo/.claude/worktrees/pensive-fermi-dae756
 perl -0pi -e 's/(now: fixedNow(?:\.addingTimeInterval\(60\))?\n        \))/$1.acceptedCards/g' EchoTests/StudyDeckAcceptanceServiceTests.swift
 grep -c "\.acceptedCards" EchoTests/StudyDeckAcceptanceServiceTests.swift
 ```

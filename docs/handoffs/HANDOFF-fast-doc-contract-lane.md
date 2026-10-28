@@ -15,7 +15,7 @@ Next: watch CI on the PR. If it is green, nothing else is outstanding.
 
 Resume:
 ```
-Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/doc-contract-lane,
+Worktree ~/Developer/Echo/.claude/worktrees/doc-contract-lane,
 branch chore/fast-doc-contract-lane. Check CI on the open PR; if the Swift build
 step failed, the cause is the deletion of the two EchoTests files.
 ```

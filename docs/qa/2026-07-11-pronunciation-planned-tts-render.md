@@ -8,7 +8,7 @@ Status: automated Release render gate passed; human listening pending.
 - Pre-rebase render source commit: `9d52706fc4fc552f117bedec886bf7a65f77ccef`
 - Rebased equivalent implementation commit: `1d42c555`
 - External run directory:
-  `/Users/dfakkeldy/Developer/echo-overnight/pronunciation-regression-20260711/`
+  `~/Developer/echo-overnight/pronunciation-regression-20260711/`
 - Source PDF SHA-256:
   `172d652c80176d1db51d49e7abdb41aee0603cd35bd587dd5664eadfc8736512`
 - Release CLI: `.build/cli/Build/Products/Release/echo-cli`

@@ -57,7 +57,7 @@ Append to `EchoTests/MacAudiobookshelfParityTests.swift`, before the struct's cl
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && make test-only FILTER=EchoTests/MacAudiobookshelfParityTests`
+Run: `cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && make test-only FILTER=EchoTests/MacAudiobookshelfParityTests`
 Expected: FAIL — `MacSource.MacSourceError.notFound("Views/MacPlayerModel+Audiobookshelf.swift")` (file doesn't exist yet).
 
 - [ ] **Step 3: Add the 4 stored properties to `MacPlayerModel.swift`**
@@ -197,18 +197,18 @@ extension MacPlayerModel {
 
 - [ ] **Step 5: Run the test to verify it passes**
 
-Run: `cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && make test-only FILTER=EchoTests/MacAudiobookshelfParityTests`
+Run: `cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && make test-only FILTER=EchoTests/MacAudiobookshelfParityTests`
 Expected: PASS (all 4 tests in the suite, including the 3 pre-existing ones).
 
 - [ ] **Step 6: Build `Echo macOS` to confirm the extension actually compiles**
 
-Run: `cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && "$HOME/.claude/bin/xcode-build-gate.sh" --wait && xcodebuild build -scheme "Echo macOS" -destination 'platform=macOS' -jobs 4 CODE_SIGNING_ALLOWED=NO`
+Run: `cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && "$HOME/.claude/bin/xcode-build-gate.sh" --wait && xcodebuild build -scheme "Echo macOS" -destination 'platform=macOS' -jobs 4 CODE_SIGNING_ALLOWED=NO`
 Expected: `** BUILD SUCCEEDED **`. (`MacSource`-based tests only check source text, not real compilation — this step is the actual compile check for macOS-only code.)
 
 - [ ] **Step 7: Commit**
 
 ```bash
-cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
+cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
 git add "Echo macOS/Views/MacPlayerModel.swift" "Echo macOS/Views/MacPlayerModel+Audiobookshelf.swift" EchoTests/MacAudiobookshelfParityTests.swift
 git commit -m "feat(macos): add independent ABS sync engine to MacPlayerModel
 
@@ -251,7 +251,7 @@ Append to `EchoTests/MacAudiobookshelfParityTests.swift`, before the struct's cl
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && make test-only FILTER=EchoTests/MacAudiobookshelfParityTests`
+Run: `cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && make test-only FILTER=EchoTests/MacAudiobookshelfParityTests`
 Expected: FAIL on `wiresProgressSyncIntoPlaybackHooks` — none of the 3 marker strings are present in `MacPlayerModel.swift` yet.
 
 - [ ] **Step 3: Wire `open(url:)`**
@@ -404,19 +404,19 @@ Change to:
 
 - [ ] **Step 7: Run the test to verify it passes**
 
-Run: `cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && make test-only FILTER=EchoTests/MacAudiobookshelfParityTests`
+Run: `cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && make test-only FILTER=EchoTests/MacAudiobookshelfParityTests`
 Expected: PASS (all 5 tests in the suite).
 
 - [ ] **Step 8: Build `Echo macOS` and run the full iOS test-target build**
 
 Run sequentially (never concurrently):
 ```bash
-cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
+cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && xcodebuild build -scheme "Echo macOS" -destination 'platform=macOS' -jobs 4 CODE_SIGNING_ALLOWED=NO
 ```
 Expected: `** BUILD SUCCEEDED **`. Then:
 ```bash
-cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
+cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
 make build-tests
 ```
 Expected: build succeeds (iOS test target, includes `EchoTests`).
@@ -424,7 +424,7 @@ Expected: build succeeds (iOS test target, includes `EchoTests`).
 - [ ] **Step 9: Commit**
 
 ```bash
-cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
+cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
 git add "Echo macOS/Views/MacPlayerModel.swift" EchoTests/MacAudiobookshelfParityTests.swift
 git commit -m "feat(macos): wire ABS progress sync into MacPlayerModel playback hooks
 
@@ -500,7 +500,7 @@ import Testing
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && make build-tests && make test-only FILTER=EchoTests/SchemaV31Tests`
+Run: `cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && make build-tests && make test-only FILTER=EchoTests/SchemaV31Tests`
 Expected: build FAILS — `Schema_V31` does not exist yet (this is the TDD "fail" for a new-type test; the build error itself is the expected failure signal).
 
 - [ ] **Step 3: Create `Shared/Database/Migrations/Schema_V31.swift`**
@@ -554,18 +554,18 @@ Change to:
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && make build-tests && make test-only FILTER=EchoTests/SchemaV31Tests`
+Run: `cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && make build-tests && make test-only FILTER=EchoTests/SchemaV31Tests`
 Expected: PASS (both tests).
 
 - [ ] **Step 6: Run the full iOS test suite to confirm no regressions**
 
-Run: `cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && make test`
+Run: `cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && make test`
 Expected: all suites pass (the migration is additive; `ABSServerDAOTests` still passes here since Task 4 hasn't touched the DAO yet — `current()`/`save()` still exist unchanged in this task).
 
 - [ ] **Step 7: Commit**
 
 ```bash
-cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
+cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
 git add Shared/Database/Migrations/Schema_V31.swift Shared/Database/DatabaseService.swift EchoTests/SchemaV31Tests.swift
 git commit -m "feat(db): add Schema_V31 multi-row abs_server migration
 
@@ -660,7 +660,7 @@ import Testing
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && make build-tests`
+Run: `cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && make build-tests`
 Expected: build FAILS — `upsert`/`setActive`/`all` don't exist on `ABSServerDAO` yet.
 
 - [ ] **Step 3: Rewrite `Shared/Database/DAOs/ABSServerDAO.swift`**
@@ -794,18 +794,18 @@ Change to:
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
-Run: `cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && make build-tests && make test-only FILTER=EchoTests/ABSServerDAOTests`
+Run: `cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && make build-tests && make test-only FILTER=EchoTests/ABSServerDAOTests`
 Expected: PASS (all 4 tests).
 
 - [ ] **Step 7: Run the full iOS test suite, then build `Echo macOS`, sequentially**
 
 ```bash
-cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
+cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
 make test
 ```
 Expected: all suites pass (in particular, `AudiobookshelfServiceAuthTests` and anything exercising `connectAudiobookshelf` — confirm no other test references the removed `save(`).
 ```bash
-cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
+cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && xcodebuild build -scheme "Echo macOS" -destination 'platform=macOS' -jobs 4 CODE_SIGNING_ALLOWED=NO
 ```
 Expected: `** BUILD SUCCEEDED **`.
@@ -813,7 +813,7 @@ Expected: `** BUILD SUCCEEDED **`.
 - [ ] **Step 8: Commit**
 
 ```bash
-cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
+cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
 git add Shared/Database/DAOs/ABSServerDAO.swift EchoCore/ViewModels/PlayerModel+Audiobookshelf.swift "Echo macOS/Views/MacAudiobookshelfView.swift" EchoTests/ABSServerDAOTests.swift
 git commit -m "feat(abs): replace ABSServerDAO.save() with multi-server upsert/setActive/all
 
@@ -859,7 +859,7 @@ Append to `EchoTests/MacAudiobookshelfParityTests.swift`, before the struct's cl
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && make test-only FILTER=EchoTests/MacAudiobookshelfParityTests`
+Run: `cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && make test-only FILTER=EchoTests/MacAudiobookshelfParityTests`
 Expected: FAIL on `supportsMultipleSavedServers` — none of the marker strings exist yet.
 
 - [ ] **Step 3: Add the `.addingServer` phase and `savedServers` state**
@@ -1222,18 +1222,18 @@ to:
 
 - [ ] **Step 8: Run the test to verify it passes**
 
-Run: `cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && make test-only FILTER=EchoTests/MacAudiobookshelfParityTests`
+Run: `cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1" && make test-only FILTER=EchoTests/MacAudiobookshelfParityTests`
 Expected: PASS (all 6 tests in the suite — 3 pre-existing + Tasks 1/2/5's additions).
 
 - [ ] **Step 9: Build `Echo macOS` and run the full iOS suite, sequentially**
 
 ```bash
-cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
+cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && xcodebuild build -scheme "Echo macOS" -destination 'platform=macOS' -jobs 4 CODE_SIGNING_ALLOWED=NO
 ```
 Expected: `** BUILD SUCCEEDED **`.
 ```bash
-cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
+cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
 make test
 ```
 Expected: all suites pass.
@@ -1241,7 +1241,7 @@ Expected: all suites pass.
 - [ ] **Step 10: Commit**
 
 ```bash
-cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
+cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
 git add "Echo macOS/Views/MacAudiobookshelfView.swift" EchoTests/MacAudiobookshelfParityTests.swift
 git commit -m "feat(macos): add Saved Servers list to the Audiobookshelf sheet
 
@@ -1260,14 +1260,14 @@ parity work."
 - [ ] **Step 1: Push the branch**
 
 ```bash
-cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
+cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
 git push -u origin claude/happy-hertz-be98c1
 ```
 
 - [ ] **Step 2: Open the PR against `nightly`**
 
 ```bash
-cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
+cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
 gh pr create --base nightly --title "feat(abs): macOS two-way progress sync + multiple saved servers" --body "$(cat <<'EOF'
 ## Summary
 - Two-way ABS playback-progress sync on macOS (`MacPlayerModel+Audiobookshelf.swift`), mirroring iOS's `PlayerModel+Audiobookshelf.swift` over the shared `ABSProgressSync`/`ABSProgressReconciler` helpers. Known gap: no multi-m4b book-time axis on macOS yet (tracked separately).
@@ -1287,7 +1287,7 @@ EOF
 - [ ] **Step 3: Check CI**
 
 ```bash
-cd "/Users/dfakkeldy/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
+cd "~/Developer/Echo/.claude/worktrees/happy-hertz-be98c1"
 gh pr checks --watch
 ```
 

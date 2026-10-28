@@ -18,7 +18,7 @@ Custom Product Pages let us route specific audiences (like "ADHD study reader" o
 
 ### Tailored App Description (2,250 Chars)
 ```text
-Stop fighting your attention span. Echo is an open-source audiobook study player designed specifically for ADHD, AuDHD, and minds that process information differently. Built by a neurodivergent developer who needed a better way to learn, Echo helps you stay engaged, capture thoughts instantly, and recover gracefully when your focus drifts.
+Stop fighting your attention span. Echo is an open-source audiobook study player designed specifically for ADHD, AuDHD, and minds that process information differently. Echo helps you stay engaged, capture thoughts instantly, and recover gracefully when your focus drifts.
 
 WHY ECHO WORKS FOR ADHD & AUDHD:
 

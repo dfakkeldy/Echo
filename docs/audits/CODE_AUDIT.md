@@ -2,7 +2,7 @@
 
 Generated: 2026-07-02
 Branch audited: `origin/nightly` at `2df6d205d32c`
-Audit worktree: `/Users/dfakkeldy/.codex/worktrees/echo-code-audit-20260702`
+Audit worktree: `~/.codex/worktrees/echo-code-audit-20260702`
 Toolchain observed locally: Xcode 26.6 (`17F113`), Apple Swift 6.3.3, Swift language mode 6.0.
 
 Scope: production Swift, SwiftUI/UIKit bridge surfaces, GRDB persistence, import/alignment flows, AI provider configuration, release/CI configuration, tests, privacy manifests, macOS/watch/widget/CLI entry points, and high-change reader/library/narration areas. This report replaces the prior top-level `CODE_AUDIT.md`; source comments that cite old audit section numbers should be treated as historical breadcrumbs, not stable identifiers.
@@ -388,8 +388,8 @@ Several old top-level audit findings appear fixed on current nightly and are not
 
 ### 12.1 Branch and project state
 
-- Started from `/Users/dfakkeldy/Developer/Echo`, fetched `origin/nightly`, and avoided the dirty local checkout.
-- Created clean worktree `/Users/dfakkeldy/.codex/worktrees/echo-code-audit-20260702`.
+- Started from `~/Developer/Echo`, fetched `origin/nightly`, and avoided the dirty local checkout.
+- Created clean worktree `~/.codex/worktrees/echo-code-audit-20260702`.
 - Audited branch `codex/full-code-audit-2026-07-02`, based on `origin/nightly` at `2df6d205d32c`.
 - `git status --short --branch` in the audit worktree was clean before editing this report.
 

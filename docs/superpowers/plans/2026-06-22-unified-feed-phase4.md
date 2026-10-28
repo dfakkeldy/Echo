@@ -101,7 +101,7 @@ Notes need a document-order position (Trap 3): add `epub_block_id` so a note thr
 Run, in the foreground:
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo && ls Shared/Database/Migrations/ | sort -V | tail -5 && grep -n 'registerMigration' Shared/Database/DatabaseService.swift | tail -3
+cd ~/Developer/Echo && ls Shared/Database/Migrations/ | sort -V | tail -5 && grep -n 'registerMigration' Shared/Database/DatabaseService.swift | tail -3
 ```
 
 Expected: highest file `Schema_V23.swift`, last registration `"v23_audiobook_abs_provenance"`. If a `Schema_V24.swift` already exists (a later phase claimed it), bump every `V24`/`v24_…` token in this task to `V25`/`v25_…` consistently. Proceed only after confirming the number is free.
@@ -230,7 +230,7 @@ In `Shared/Database/DatabaseService.swift`, after the `v23_audiobook_abs_provena
 Run, in the foreground:
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo && grep -rIn 'CKRecord\|recordType\|CloudKit' Shared/ EchoCore/ | grep -i 'note\|voice_memo\|voiceMemo' || echo "NO CloudKit mapping touches note/voice_memo — safe to add columns"
+cd ~/Developer/Echo && grep -rIn 'CKRecord\|recordType\|CloudKit' Shared/ EchoCore/ | grep -i 'note\|voice_memo\|voiceMemo' || echo "NO CloudKit mapping touches note/voice_memo — safe to add columns"
 ```
 
 Expected: the `echo` fallback prints (no CloudKit record type references `note`/`voice_memo`). If any line is printed instead, STOP and add the new column to that CloudKit record type before continuing; note the finding in the PR body.
@@ -238,7 +238,7 @@ Expected: the `echo` fallback prints (no CloudKit record type references `note`/
 - [ ] **Step 6: Build the test target and run the schema test**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo && make build-tests && make test-only FILTER=EchoTests/SchemaV24Tests
+cd ~/Developer/Echo && make build-tests && make test-only FILTER=EchoTests/SchemaV24Tests
 ```
 
 Expected output ends with `Test Suite 'SchemaV24Tests' passed` (or the Swift Testing equivalent `✔ Suite SchemaV24Tests passed`) and all 3 tests green.
@@ -250,7 +250,7 @@ Dispatch the `schema-migration-reviewer` agent on `Shared/Database/Migrations/Sc
 - [ ] **Step 8: Commit**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo
+cd ~/Developer/Echo
 git add Shared/Database/Migrations/Schema_V24.swift Shared/Database/DatabaseService.swift EchoTests/SchemaV24Tests.swift
 git commit -m "feat(db): V24 — note.epub_block_id + standalone voice_memo table (unified feed Phase 4)"
 ```
@@ -440,7 +440,7 @@ struct VoiceMemoDAO {
 - [ ] **Step 4: Build and run the test**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo && make build-tests && make test-only FILTER=EchoTests/VoiceMemoDAOTests
+cd ~/Developer/Echo && make build-tests && make test-only FILTER=EchoTests/VoiceMemoDAOTests
 ```
 
 Expected: `VoiceMemoDAOTests` passes, all 3 tests green.
@@ -448,7 +448,7 @@ Expected: `VoiceMemoDAOTests` passes, all 3 tests green.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo
+cd ~/Developer/Echo
 git add Shared/Database/VoiceMemoRecord.swift Shared/Database/DAOs/VoiceMemoDAO.swift EchoTests/VoiceMemoDAOTests.swift
 git commit -m "feat(db): VoiceMemoRecord + VoiceMemoDAO (unified feed Phase 4)"
 ```
@@ -589,7 +589,7 @@ In `Shared/Database/DAOs/NoteDAO.swift`, add after `notes(in:audiobookID:)` (`:2
 - [ ] **Step 4: Build and run**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo && make build-tests && make test-only FILTER=EchoTests/NoteDAOEpubBlockTests
+cd ~/Developer/Echo && make build-tests && make test-only FILTER=EchoTests/NoteDAOEpubBlockTests
 ```
 
 Expected: `NoteDAOEpubBlockTests` passes, both tests green. (If `make build-tests` surfaces a pre-existing `NoteRecord(…)` call site that now needs the default, the `= nil` from Step 2 fixes it — confirm no call site passes positional args past `modifiedAt`.)
@@ -597,7 +597,7 @@ Expected: `NoteDAOEpubBlockTests` passes, both tests green. (If `make build-test
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo
+cd ~/Developer/Echo
 git add Shared/Database/NoteRecord.swift Shared/Database/DAOs/NoteDAO.swift EchoTests/NoteDAOEpubBlockTests.swift
 git commit -m "feat(db): NoteRecord.epubBlockID + positional NoteDAO query (unified feed Phase 4)"
 ```
@@ -666,7 +666,7 @@ enum TimelineItemType: String, Codable {
 
 Run:
 ```bash
-cd /Users/dfakkeldy/Developer/Echo && grep -rn 'legacyRawValue' Shared/ EchoCore/ --include='*.swift'
+cd ~/Developer/Echo && grep -rn 'legacyRawValue' Shared/ EchoCore/ --include='*.swift'
 ```
 Expected: only `TimelineItem.swift` defines and uses `init?(legacyRawValue:)` — no code *writes* new rows with the old `"note"` string (the migrator only reads persisted rows). If any call site passes `"note"` *to* `legacyRawValue` to create new data, stop and investigate before proceeding; the remap is safe only if the path is purely read (de-serialization of old DB rows).
 
@@ -681,7 +681,7 @@ In the same file, change the `"note"` branch of `init?(legacyRawValue:)` (locate
 - [ ] **Step 6: Build and run**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo && make build-tests && make test-only FILTER=EchoTests/TimelineItemTypePhase4Tests
+cd ~/Developer/Echo && make build-tests && make test-only FILTER=EchoTests/TimelineItemTypePhase4Tests
 ```
 
 Expected: `TimelineItemTypePhase4Tests` passes, all 4 tests green.
@@ -689,7 +689,7 @@ Expected: `TimelineItemTypePhase4Tests` passes, all 4 tests green.
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo
+cd ~/Developer/Echo
 git add Shared/Database/TimelineItem.swift EchoTests/TimelineItemTypePhase4Tests.swift
 git commit -m "feat(feed): TimelineItemType .voiceMemo + .note; legacy note→note (unified feed Phase 4)"
 ```
@@ -837,7 +837,7 @@ extension ReaderCardItem: Hashable {
 - [ ] **Step 4: Build and run**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo && make build-tests && make test-only FILTER=EchoTests/ReaderCardItemPhase4Tests
+cd ~/Developer/Echo && make build-tests && make test-only FILTER=EchoTests/ReaderCardItemPhase4Tests
 ```
 
 Expected: `ReaderCardItemPhase4Tests` passes, all 3 tests green.
@@ -845,7 +845,7 @@ Expected: `ReaderCardItemPhase4Tests` passes, all 3 tests green.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo
+cd ~/Developer/Echo
 git add EchoCore/Models/ReaderCardItem.swift Shared/Database/NoteRecord.swift Shared/Database/VoiceMemoRecord.swift EchoTests/ReaderCardItemPhase4Tests.swift
 git commit -m "feat(feed): ReaderCardItem .note + .voiceMemo cases with unique ids (unified feed Phase 4)"
 ```
@@ -988,7 +988,7 @@ enum FeedItemInjector {
 - [ ] **Step 3: Build and run**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo && make build-tests && make test-only FILTER=EchoTests/FeedItemInjectorTests
+cd ~/Developer/Echo && make build-tests && make test-only FILTER=EchoTests/FeedItemInjectorTests
 ```
 
 Expected: `FeedItemInjectorTests` passes, all 4 tests green.
@@ -996,7 +996,7 @@ Expected: `FeedItemInjectorTests` passes, all 4 tests green.
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo
+cd ~/Developer/Echo
 git add Shared/Feed/FeedItemInjector.swift EchoTests/FeedItemInjectorTests.swift
 git commit -m "feat(feed): FeedItemInjector — pure note/memo positioning (unified feed Phase 4)"
 ```
@@ -1168,7 +1168,7 @@ final class VoiceMemoFeedCell: UICollectionViewCell {
 - [ ] **Step 3: Build (no test — UIKit cells are build-verified)**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo && make build-tests
+cd ~/Developer/Echo && make build-tests
 ```
 
 Expected: build succeeds (the cells compile in the test build of the Echo target).
@@ -1176,7 +1176,7 @@ Expected: build succeeds (the cells compile in the test build of the Echo target
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo
+cd ~/Developer/Echo
 git add EchoCore/Views/NoteFeedCell.swift EchoCore/Views/VoiceMemoFeedCell.swift
 git commit -m "feat(feed): NoteFeedCell + VoiceMemoFeedCell (unified feed Phase 4)"
 ```
@@ -1263,7 +1263,7 @@ In `cell(for:at:collectionView:)` (locate by searching for `func cell(for:`), af
 - [ ] **Step 4: Build**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo && make build-tests
+cd ~/Developer/Echo && make build-tests
 ```
 
 Expected: build succeeds. The `switch item` is now exhaustive over all four `ReaderCardItem` cases (the compiler enforces this — if a case was missed, this build fails).
@@ -1271,7 +1271,7 @@ Expected: build succeeds. The `switch item` is now exhaustive over all four `Rea
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo
+cd ~/Developer/Echo
 git add EchoCore/Views/ReaderFeedCollectionView.swift
 git commit -m "feat(feed): register + dispatch note/voice-memo cells (unified feed Phase 4)"
 ```
@@ -1362,7 +1362,7 @@ final class VoiceMemoRecorder {
 - [ ] **Step 2: Build**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo && make build-tests
+cd ~/Developer/Echo && make build-tests
 ```
 
 Expected: build succeeds. (No unit test — `AVAudioRecorder` requires audio hardware/session; this is verified on-device in Task 11.)
@@ -1372,7 +1372,7 @@ Expected: build succeeds. (No unit test — `AVAudioRecorder` requires audio har
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo
+cd ~/Developer/Echo
 git add EchoCore/Services/VoiceMemoRecorder.swift
 git commit -m "feat(feed): VoiceMemoRecorder — standalone .m4a capture (unified feed Phase 4)"
 ```
@@ -1715,7 +1715,7 @@ Pass the play closure into the `ReaderFeedCollectionView` representable wherever
 - [ ] **Step 5: Build + run the VM test**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo && make build-tests && make test-only FILTER=EchoTests/ReaderFeedViewModelCaptureTests
+cd ~/Developer/Echo && make build-tests && make test-only FILTER=EchoTests/ReaderFeedViewModelCaptureTests
 ```
 
 Expected: `ReaderFeedViewModelCaptureTests` passes, both tests green; the full build succeeds.
@@ -1723,7 +1723,7 @@ Expected: `ReaderFeedViewModelCaptureTests` passes, both tests green; the full b
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo
+cd ~/Developer/Echo
 git add EchoCore/ViewModels/ReaderFeedViewModel.swift EchoCore/Views/FeedCaptureBar.swift EchoCore/Views/ReaderTab.swift EchoTests/ReaderFeedViewModelCaptureTests.swift
 git commit -m "feat(feed): note/voice-memo capture UI + VM wiring (unified feed Phase 4)"
 ```
@@ -1738,7 +1738,7 @@ git commit -m "feat(feed): note/voice-memo capture UI + VM wiring (unified feed 
 - [ ] **Step 1: Run the full EchoTests suite (confirm no regressions)**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo && make test-only FILTER=EchoTests
+cd ~/Developer/Echo && make test-only FILTER=EchoTests
 ```
 
 Expected: all suites pass (or only the pre-existing known failures noted in MEMORY — `VoiceCatalogTests` "trim to Ava", and any `PlayerModel` teardown crashes the gate already excludes). The six new suites (`SchemaV24Tests`, `VoiceMemoDAOTests`, `NoteDAOEpubBlockTests`, `TimelineItemTypePhase4Tests`, `ReaderCardItemPhase4Tests`, `FeedItemInjectorTests`, `ReaderFeedViewModelCaptureTests`) all green. If a new failure appears that is NOT pre-existing, fix it before proceeding (use systematic-debugging).
@@ -1771,7 +1771,7 @@ Confirm the V24 number is still free on the now-current `nightly` (a sibling pha
 - [ ] **Step 5: Commit + open the PR**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo
+cd ~/Developer/Echo
 git add CHANGELOG.md
 git commit -m "docs(changelog): notes + voice memos in the reader feed (unified feed Phase 4)"
 git push -u origin feature/unified-feed-phase4

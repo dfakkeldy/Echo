@@ -14,7 +14,7 @@ Next: Dan merges #595, then device-verifies the progress UI on a real ABS import
 Resume:
 
 ```
-Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/old-worktrees-salvage-d4912c,
+Worktree ~/Developer/Echo/.claude/worktrees/old-worktrees-salvage-d4912c,
 branch claude/audiobookshelf-download-progress-dc2f32: PR #595 is CI-green and
 ready to merge; after merge, device-verify download progress during an ABS import.
 ```

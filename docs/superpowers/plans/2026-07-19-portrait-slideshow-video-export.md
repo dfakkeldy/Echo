@@ -11,7 +11,7 @@
 
 ## Global Constraints
 
-- Work only in `/Users/dfakkeldy/.codex/worktrees/portrait-slideshow-video-export-design/Echo` on `codex/portrait-slideshow-video-export-design`, based on `origin/nightly`; preserve the unrelated changes in `/Users/dfakkeldy/Developer/Echo`.
+- Work only in `~/.codex/worktrees/portrait-slideshow-video-export-design/Echo` on `codex/portrait-slideshow-video-export-design`, based on `origin/nightly`; preserve the unrelated changes in `~/Developer/Echo`.
 - Preserve iOS 18, macOS 15, watchOS 11, and Swift 6.0 project settings.
 - Every new source, test, and Markdown file starts with the repository SPDX header on line 1.
 - Do not add UIKit/AppKit to `Shared/` or `EchoCore/Services/Export/`; those files compile for iOS, macOS, and echo-cli.

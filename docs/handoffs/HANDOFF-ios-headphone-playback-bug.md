@@ -33,9 +33,9 @@ Next:
 Resume:
 
 ```
-Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/busy-gauss-3c559c,
+Worktree ~/Developer/Echo/.claude/worktrees/busy-gauss-3c559c,
 branch claude/ios-headphone-playback-bug-733213. Run
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests, then
+~/.claude/bin/xcode-build-slot.sh -- make build-tests, then
 make test-only FILTER=EchoTests/AudioEngineConfigurationChangeTests.
 ```
 
@@ -61,7 +61,7 @@ Next:
 Resume:
 
 ```
-Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/busy-gauss-3c559c,
+Worktree ~/Developer/Echo/.claude/worktrees/busy-gauss-3c559c,
 branch claude/ios-headphone-playback-bug-733213, commit 1b8eae2f, local gates
 green. Next action: git push -u origin HEAD and gh pr create --base nightly.
 ```

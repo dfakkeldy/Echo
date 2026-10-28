@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Work only in `/Users/dfakkeldy/Developer/Echo/.claude/worktrees/dreamy-torvalds-9f6fdb` on `codex/watch-progress-smart-stack`; preserve the detached dirty Codex checkout.
+- Work only in `~/Developer/Echo/.claude/worktrees/dreamy-torvalds-9f6fdb` on `codex/watch-progress-smart-stack`; preserve the detached dirty Codex checkout.
 - Keep the branch based on current `origin/nightly`; the final PR target is `nightly`, never `main`.
 - Build on merged PR #436 (`fix: keep Now Playing and Watch state current`). Do not reopen its iPhone Lock Screen/Now Playing or Watch state pipeline unless verification exposes a regression; the Lock Screen surface is system Now Playing, not this watch-only widget extension.
 - Preserve watchOS 11, iOS 18, macOS 15, and Swift 6 deployment/language settings.
@@ -1596,7 +1596,7 @@ git commit -m 'feat(watch): add Smart Stack progress card'
 - Modify: `README.md:128-143,215-229`
 - Modify: `ARCHITECTURE.md:1492-1498,1513`
 - Verify: every source/test file changed in Tasks 1-5
-- External receipt after hosted green: `/Users/dfakkeldy/Developer/knowledge-base/bundle/status/2026-07-11-echo-watch-progress-smart-stack.md` plus the scoped Echo project/status index/log entries in a clean KB worktree
+- External receipt after hosted green: `~/Developer/knowledge-base/bundle/status/2026-07-11-echo-watch-progress-smart-stack.md` plus the scoped Echo project/status index/log entries in a clean KB worktree
 
 **Interfaces:**
 - Consumes: All implementation slices and their green focused tests.

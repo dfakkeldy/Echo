@@ -21,10 +21,10 @@ near-monochrome cover, and a book with no artwork.
 Resume:
 
 ```
-Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/macos-cover-colors-016824,
+Worktree ~/Developer/Echo/.claude/worktrees/macos-cover-colors-016824,
 branch claude/macos-cover-colors-016824. The macOS cover-theme work is committed
 but unbuilt: run `make test`, then
-`/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- xcodebuild build -scheme "Echo macOS" -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO`
+`~/.claude/bin/xcode-build-slot.sh -- xcodebuild build -scheme "Echo macOS" -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO`
 and `make echo-cli`, then open a PR to nightly.
 ```
 
@@ -56,7 +56,7 @@ handoff in the commit that closes the task.
 Resume:
 
 ```
-Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/macos-cover-colors-016824,
+Worktree ~/Developer/Echo/.claude/worktrees/macos-cover-colors-016824,
 branch claude/macos-cover-colors-016824, PR #575 open to nightly. All local gates
 are green. Next: `gh pr checks 575`, then run the Mac app and check the accent on
 a duotone, a near-monochrome, and a coverless book.
@@ -79,7 +79,7 @@ Delete this handoff in the commit that closes the task.
 Resume:
 
 ```
-Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/macos-cover-colors-016824,
+Worktree ~/Developer/Echo/.claude/worktrees/macos-cover-colors-016824,
 branch claude/macos-cover-colors-016824, PR #575 open to nightly, CI green.
 Next: run the Mac app and check the accent on a duotone, a near-monochrome, and a
 coverless book; compare the same book against iOS.
