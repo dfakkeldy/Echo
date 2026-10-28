@@ -30,13 +30,13 @@ This worktree is ALREADY based on `origin/nightly` (verified during planning: `g
 
 - [ ] **Step 1: Verify the base includes nightly.** Run:
   ```
-  git -C /Users/dfakkeldy/Developer/Echo/.claude/worktrees/naughty-proskuriakova-5d9d8c fetch origin nightly
-  git -C /Users/dfakkeldy/Developer/Echo/.claude/worktrees/naughty-proskuriakova-5d9d8c merge-base --is-ancestor origin/nightly HEAD && echo "ON NIGHTLY (good)" || echo "NOT ON NIGHTLY — STOP"
+  git -C ~/Developer/Echo/.claude/worktrees/naughty-proskuriakova-5d9d8c fetch origin nightly
+  git -C ~/Developer/Echo/.claude/worktrees/naughty-proskuriakova-5d9d8c merge-base --is-ancestor origin/nightly HEAD && echo "ON NIGHTLY (good)" || echo "NOT ON NIGHTLY — STOP"
   ```
   Expected: "ON NIGHTLY (good)". If it prints "NOT ON NIGHTLY — STOP", stop and report — do NOT force a reset while the branch has commits.
 - [ ] **Step 2: Re-verify the next free migration version.** Run:
   ```
-  git -C /Users/dfakkeldy/Developer/Echo/.claude/worktrees/naughty-proskuriakova-5d9d8c show origin/nightly:Shared/Database/DatabaseService.swift | grep registerMigration
+  git -C ~/Developer/Echo/.claude/worktrees/naughty-proskuriakova-5d9d8c show origin/nightly:Shared/Database/DatabaseService.swift | grep registerMigration
   ```
   Expected: the latest registered is `v28_pdf_block_page`, so this milestone claims **V29**. If a `v29_*` already exists upstream, renumber this milestone's migration to the next free version and adjust every `V29`/`v29_` reference in this plan accordingly.
 

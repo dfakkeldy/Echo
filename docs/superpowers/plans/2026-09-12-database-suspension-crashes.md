@@ -90,11 +90,11 @@ Sources: [Apple SIGKILL documentation](https://developer.apple.com/documentation
 - [ ] Run Apple builds/tests through the required resource wrapper:
 
   ```sh
-  /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-  /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/DatabaseSuspensionTests
-  /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/DatabaseLifecycleCoordinatorTests
-  /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test
-  /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make echo-cli
+  ~/.claude/bin/xcode-build-slot.sh -- make build-tests
+  ~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/DatabaseSuspensionTests
+  ~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/DatabaseLifecycleCoordinatorTests
+  ~/.claude/bin/xcode-build-slot.sh -- make test
+  ~/.claude/bin/xcode-build-slot.sh -- make echo-cli
   ```
 
   Run the other changed suites with the same `test-only` pattern. Consult the wrapper's status if it queues work; do not bypass its limits.

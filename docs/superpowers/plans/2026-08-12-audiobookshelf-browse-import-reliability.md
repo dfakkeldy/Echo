@@ -19,7 +19,7 @@
 - Keep credentials, tokens, server response bodies, private paths, book titles, and book metadata out of logs and committed fixtures.
 - Preserve localization, Dynamic Type, and accessibility behavior for every new control and state.
 - Keep streaming, resumable background transfers, and listening-status filters out of scope.
-- Run every Apple build/test through `/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- <command>`.
+- Run every Apple build/test through `~/.claude/bin/xcode-build-slot.sh -- <command>`.
 - Preserve unrelated untracked files `docs/superpowers/plans/2026-08-02-macos-performance-remediation.md` and `file.txt`.
 - Target the eventual PR to `nightly` and use Conventional Commits.
 
@@ -108,7 +108,7 @@ Extend `AudiobookshelfServiceLibraryTests` with `/api/libraries/lib1?include=fil
 - [ ] **Step 2: Verify the tests fail before implementation**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
 Expected: build fails because the new query/filter symbols and timestamp fields do not exist.
@@ -192,9 +192,9 @@ The items URL includes `page`, `limit`, `minified=0`, optional `sort`, `desc=1|0
 - [ ] **Step 5: Build and run focused tests**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseQueryTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/AudiobookshelfServiceLibraryTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseQueryTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/AudiobookshelfServiceLibraryTests
 ```
 
 Expected: both suites pass.
@@ -264,7 +264,7 @@ Include `saga-missing` in the expected order after `saga-10` and before `standal
 - [ ] **Step 2: Verify the resolver is missing**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
 Expected: build fails on `ABSBrowseResultResolver`.
@@ -288,8 +288,8 @@ Union selection results within each group and intersect group unions. De-duplica
 - [ ] **Step 4: Build and test**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseOrderingTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseOrderingTests
 ```
 
 Expected: suite passes.
@@ -349,7 +349,7 @@ Its initializer creates explicit temporary managed-folder URLs, `insertRecords` 
 - [ ] **Step 2: Verify the new API is absent**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
 Expected: build fails on the DAO/status types.
@@ -380,8 +380,8 @@ Implement `ABSLocalImportStatus.hasSupportedRootContent(at:)` and `usableBooks(r
 - [ ] **Step 4: Build and test**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSLocalImportStatusTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSLocalImportStatusTests
 ```
 
 Expected: suite passes.
@@ -456,7 +456,7 @@ The initializer uses `URLProtocolStub.makeSession()`, a unique token-store serve
 - [ ] **Step 2: Verify the model is absent**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
 Expected: build fails on `ABSBrowseModel`.
@@ -503,8 +503,8 @@ With zero metadata selections, page normally. With one, use one server filter. W
 - [ ] **Step 5: Build and test**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseModelTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseModelTests
 ```
 
 Expected: suite passes without real-time sleeps.
@@ -555,7 +555,7 @@ Create `ABSDownloadFixture` with `service`, explicit temporary `destination`, an
 - [ ] **Step 2: Verify the overload is absent**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
 Expected: build fails on progress symbols.
@@ -590,9 +590,9 @@ Use a fresh task delegate after a 401 refresh so attempt progress restarts. Map 
 - [ ] **Step 5: Build and run download tests**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSDownloadProgressTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/AudiobookshelfServiceDownloadTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSDownloadProgressTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/AudiobookshelfServiceDownloadTests
 ```
 
 Expected: both suites pass, including existing header-auth/no-query-token checks.
@@ -654,7 +654,7 @@ Create `ABSImportProgressFixture` with `db`, `service`, `importer`, `item`, and 
 - [ ] **Step 2: Verify stage contracts are absent**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
 Expected: build fails on stage/progress/failure APIs.
@@ -698,9 +698,9 @@ Use logger category `AudiobookshelfImport`. Log stage, hashed/private remote ite
 - [ ] **Step 6: Build and run import tests**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSImportProgressTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSImportServiceTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSImportProgressTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSImportServiceTests
 ```
 
 Expected: both suites pass, including existing size-limit, zip-slip, cover, atomic replacement, and residue tests.
@@ -745,7 +745,7 @@ Also test one import at a time, stage mapping, cancel, named failure retention, 
 - [ ] **Step 2: Verify model import APIs are absent**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
 Expected: build fails on import-state APIs.
@@ -768,8 +768,8 @@ Own one import task and active item ID. Apply the already Main-Actor-isolated pr
 - [ ] **Step 4: Build and test**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseModelTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseModelTests
 ```
 
 Expected: all browse/import model tests pass.
@@ -837,7 +837,7 @@ private enum EchoSource {
 - [ ] **Step 2: Verify wiring tests fail**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
 Expected: missing shared wiring/presentation helpers.
@@ -886,10 +886,10 @@ Use model add/cancel/retry. Display stage, elapsed time, bytes, determinate prog
 - [ ] **Step 6: Build and run iOS-focused suites**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseViewWiringTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseModelTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSImportProgressTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseViewWiringTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseModelTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSImportProgressTests
 ```
 
 Expected: suites pass. If synchronized target membership fails, add only the exact new incompatible file to the affected target's `membershipExceptions` and rebuild.
@@ -932,7 +932,7 @@ Retain connection, trust, switching, and progress-sync tests.
 - [ ] **Step 2: Verify the new Mac view is absent**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
 Expected: new view lookup/parity assertion fails.
@@ -958,10 +958,10 @@ Add Library, Sort, Filters with count, Search, and result count. Use popover/com
 - [ ] **Step 5: Build and run parity suites**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/MacAudiobookshelfParityTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseModelTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseViewWiringTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/MacAudiobookshelfParityTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseModelTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseViewWiringTests
 ```
 
 Expected: all pass and existing connection/sync parity remains.
@@ -1011,17 +1011,17 @@ Expected: import logs contain stage/category/byte evidence only; no titles, auth
 - [ ] **Step 4: Run all focused Audiobookshelf suites**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseQueryTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseOrderingTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSLocalImportStatusTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseModelTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSDownloadProgressTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/AudiobookshelfServiceDownloadTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSImportProgressTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSImportServiceTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseViewWiringTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/MacAudiobookshelfParityTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseQueryTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseOrderingTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSLocalImportStatusTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseModelTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSDownloadProgressTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/AudiobookshelfServiceDownloadTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSImportProgressTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSImportServiceTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ABSBrowseViewWiringTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/MacAudiobookshelfParityTests
 ```
 
 Expected: every suite passes.
@@ -1029,7 +1029,7 @@ Expected: every suite passes.
 - [ ] **Step 5: Run the primary unit gate**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test
+~/.claude/bin/xcode-build-slot.sh -- make test
 ```
 
 Expected: `TEST SUCCEEDED` with no error output.

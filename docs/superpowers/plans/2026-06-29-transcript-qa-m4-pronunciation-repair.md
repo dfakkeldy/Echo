@@ -28,13 +28,13 @@
 
 - [ ] **Step 1: Confirm the branch is based on `nightly`.** Run:
   ```
-  git -C /Users/dfakkeldy/Developer/Echo/.claude/worktrees/naughty-proskuriakova-5d9d8c status --short --branch
-  git -C /Users/dfakkeldy/Developer/Echo/.claude/worktrees/naughty-proskuriakova-5d9d8c fetch origin nightly
-  git -C /Users/dfakkeldy/Developer/Echo/.claude/worktrees/naughty-proskuriakova-5d9d8c merge-base --is-ancestor origin/nightly HEAD && echo "BASED-ON-NIGHTLY" || echo "NEEDS-REBASE"
+  git -C ~/Developer/Echo/.claude/worktrees/naughty-proskuriakova-5d9d8c status --short --branch
+  git -C ~/Developer/Echo/.claude/worktrees/naughty-proskuriakova-5d9d8c fetch origin nightly
+  git -C ~/Developer/Echo/.claude/worktrees/naughty-proskuriakova-5d9d8c merge-base --is-ancestor origin/nightly HEAD && echo "BASED-ON-NIGHTLY" || echo "NEEDS-REBASE"
   ```
   If it prints `NEEDS-REBASE` and the worktree has no own commits, run `git reset --hard origin/nightly`. M4 adds NO migration, so no version-collision check is needed — but confirm M3's `narration_quality_issue` table (`Schema_V30`) and `NarrationQualityIssueRecord`/`NarrationQualityIssueDAO` are present on the branch (they are M4's dependency):
   ```
-  grep -rn "narration_quality_issue" /Users/dfakkeldy/Developer/Echo/.claude/worktrees/naughty-proskuriakova-5d9d8c/Shared /Users/dfakkeldy/Developer/Echo/.claude/worktrees/naughty-proskuriakova-5d9d8c/EchoCore | head
+  grep -rn "narration_quality_issue" ~/Developer/Echo/.claude/worktrees/naughty-proskuriakova-5d9d8c/Shared ~/Developer/Echo/.claude/worktrees/naughty-proskuriakova-5d9d8c/EchoCore | head
   ```
   If absent, STOP — M4 cannot proceed until M3 has merged to `nightly`.
 

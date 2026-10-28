@@ -20,18 +20,18 @@ Bluesky/Mastodon mirrors.
 
 | ID | Week | App | Format | Surface | Status | Proof link/asset | Draft owner |
 |---|---|---|---|---|---|---|---|
-| JUL-01 | 1 | Echo | Weekly build note | GitHub/devlog mirror | Ready to draft | `docs/guides/devlog.md` generated block | David |
-| JUL-02 | 1 | Echo | Short proof thread | X/Bluesky/Mastodon | Draft needed | Latest devlog digest | David |
-| JUL-03 | 2 | Echo | Problem/solution note | Reddit candidate | Hold for screenshot | Reader/narration/review clip | David |
-| JUL-04 | 2 | Echo | Demo clip caption | X/Bluesky | Hold for clip | 20-40 second clip | David |
-| JUL-05 | 3 | Routey | First public note | X/Bluesky or devlog | Blocked on proof | Routey URL/screenshot | David |
-| JUL-06 | 3 | Umbrella | Monthly build ledger | GitHub/devlog | Draft needed | Echo + Routey proof points | David |
-| JUL-07 | 4 | Echo | TestFlight/beta note | GitHub + optional social | Draft needed | TestFlight notes, beta guide | David |
-| JUL-08 | 4 | MacroMark | Capture workflow note | Optional social | Hold for clip | Watch capture proof asset | David |
-| JUL-09 | 4 | NS Marks The Spot | Map/history progress note | Optional social | Hold for screenshot | Current map proof asset | David |
-| JUL-10 | 4 | Turn Timer | Rebrand progress note | Optional social | Hold for naming check | Current timer screenshot | David |
-| JUL-11 | 5 | Echo | Launch-day copy bank | App/site/social | Draft needed | Final release notes | David |
-| JUL-12 | 5 | Umbrella | What shipped this month | GitHub/devlog | Draft needed | Calendar recap | David |
+| JUL-01 | 1 | Echo | Weekly build note | GitHub/devlog mirror | Ready to draft | `docs/guides/devlog.md` generated block | Dan |
+| JUL-02 | 1 | Echo | Short proof thread | X/Bluesky/Mastodon | Draft needed | Latest devlog digest | Dan |
+| JUL-03 | 2 | Echo | Problem/solution note | Reddit candidate | Hold for screenshot | Reader/narration/review clip | Dan |
+| JUL-04 | 2 | Echo | Demo clip caption | X/Bluesky | Hold for clip | 20-40 second clip | Dan |
+| JUL-05 | 3 | Routey | First public note | X/Bluesky or devlog | Blocked on proof | Routey URL/screenshot | Dan |
+| JUL-06 | 3 | Umbrella | Monthly build ledger | GitHub/devlog | Draft needed | Echo + Routey proof points | Dan |
+| JUL-07 | 4 | Echo | TestFlight/beta note | GitHub + optional social | Draft needed | TestFlight notes, beta guide | Dan |
+| JUL-08 | 4 | MacroMark | Capture workflow note | Optional social | Hold for clip | Watch capture proof asset | Dan |
+| JUL-09 | 4 | NS Marks The Spot | Map/history progress note | Optional social | Hold for screenshot | Current map proof asset | Dan |
+| JUL-10 | 4 | Turn Timer | Rebrand progress note | Optional social | Hold for naming check | Current timer screenshot | Dan |
+| JUL-11 | 5 | Echo | Launch-day copy bank | App/site/social | Draft needed | Final release notes | Dan |
+| JUL-12 | 5 | Umbrella | What shipped this month | GitHub/devlog | Draft needed | Calendar recap | Dan |
 
 ## Week 1 Drafts
 

@@ -6,7 +6,7 @@
 
 ## Background
 
-Narration pipeline: EPUB → MisakiSwift G2P → Kokoro-82M via ONNX Runtime → per-chapter `.m4a` → `AudioExportService.exportM4B` → chaptered `.m4b` + `.alignment.json` read-along sidecar. A native macOS CLI `echo-cli narrate` (`HeadlessNarrationRunner`) runs it off-simulator. Delivery scripts in `~/Developer/echo-overnight/` place finished m4bs into a Syncthing-mirrored Audiobookshelf library.
+Narration pipeline: EPUB → MisakiSwift G2P → Kokoro-82M via ONNX Runtime → per-chapter `.m4a` → `AudioExportService.exportM4B` → chaptered `.m4b` + `.alignment.json` read-along sidecar. A native macOS CLI `echo-cli narrate` (`HeadlessNarrationRunner`) runs it off-simulator. Delivery scripts in `~/Developer/echo-overnight/` place finished m4bs into a sync-mirrored Audiobookshelf library.
 
 ## What is already fixed (this session)
 
@@ -51,11 +51,11 @@ New `echo-cli retag --m4b <file> --epub <file> [--out <file>]` subcommand: read 
 
 ### Phase C — delivery rework (`~/Developer/echo-overnight/` scripts; off git)
 
-Rework `deliver-to-abs.sh` / `deliver-watcher.sh`: place **EPUB + m4b + sidecar** together in one Title-Case folder (`$author/$title/` with `$title.epub` + `$title.m4b` + `$title.alignment.json`) — the EPUB is the missing piece that currently makes a second item. Keep the existing Syncthing-wait + delete-item + rescan. Use the `audiobookshelf-setup` skill conventions (delete-item then rescan, never a plain rescan). Source EPUB from `expanded/<stem>` (or the original `~/Developer/explainer-audiobooks/books/<stem>/<stem>.epub`).
+Rework `deliver-to-abs.sh` / `deliver-watcher.sh`: place **EPUB + m4b + sidecar** together in one Title-Case folder (`$author/$title/` with `$title.epub` + `$title.m4b` + `$title.alignment.json`) — the EPUB is the missing piece that currently makes a second item. Keep the existing sync-wait + delete-item + rescan. Use the `audiobookshelf-setup` skill conventions (delete-item then rescan, never a plain rescan). Source EPUB from `expanded/<stem>` (or the original `~/Developer/explainer-audiobooks/books/<stem>/<stem>.epub`).
 
 ### Phase D — one-time automatic migration (script; off git)
 
-Idempotent, library-wide: for each Echo book, ensure the canonical Title-Case folder holds EPUB + m4b + sidecar; move EPUBs out of the lowercase folders; delete the now-empty lowercase + orphan audio-only folders; delete the stale ABS items (`abs_admin delete-ids`); rescan once at the end. Logs exactly what it did; safe to re-run. Operates on the Syncthing mirror (`/Volumes/Fledging-WD-2TB/Books`) + ABS.
+Idempotent, library-wide: for each Echo book, ensure the canonical Title-Case folder holds EPUB + m4b + sidecar; move EPUBs out of the lowercase folders; delete the now-empty lowercase + orphan audio-only folders; delete the stale ABS items (`abs_admin delete-ids`); rescan once at the end. Logs exactly what it did; safe to re-run. Operates on the file-sync mirror (`<books-volume>`) + ABS.
 
 ### Phase E — ABS-import read-along (Swift)
 

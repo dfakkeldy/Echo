@@ -16,7 +16,7 @@
 - Limit compact chrome to the standalone EPUB Reader root; PDF page/reflow, transcript, Library, Now Playing, pushed destinations, modal sheets, macOS, and watchOS remain unchanged.
 - Preserve localization, VoiceOver semantics, Dynamic Type, Reduce Motion, and 44-point minimum hit targets.
 - Keep sleep-timer state and behavior in the existing `PlayerModel`/`SleepTimerManager`; do not duplicate business state.
-- Run every Apple build or test as one complete command through `/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- <command>`.
+- Run every Apple build or test as one complete command through `~/.claude/bin/xcode-build-slot.sh -- <command>`.
 - Keep the unrelated untracked `docs/superpowers/plans/2026-08-02-macos-performance-remediation.md` and `file.txt` untouched.
 
 ---
@@ -118,7 +118,7 @@ Append these tests inside `ReaderChromeClearanceTests` before its source helper:
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
 Expected: FAIL with `cannot find 'ReaderTopChromeLayout' in scope`. A schedule or memory-pressure hold from the wrapper is infrastructure status, not the expected test failure; wait for admission rather than bypassing the wrapper.
@@ -202,8 +202,8 @@ Do not change the Library's inner safe-area reservation: its existing comment do
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderChromeClearanceTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderChromeClearanceTests
 ```
 
 Expected: build succeeds and `ReaderChromeClearanceTests` passes. The pure tests must show that PDF, transcript, non-Read tabs, pushed Read destinations, and empty Reader state all retain global chrome. Task 4 verifies the rendered Root wiring in Simulator.
@@ -267,7 +267,7 @@ Append these tests to `SleepTimerPillStateTests`:
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
 Expected: FAIL because `accessibilityValue` and `activeStatusText` do not yet exist.
@@ -406,8 +406,8 @@ Delete the old `menuItems` and private `accessibilityValue` implementations afte
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/SleepTimerPillStateTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/SleepTimerPillStateTests
 ```
 
 Expected: build succeeds and `SleepTimerPillStateTests` passes, including the unchanged boundary formatting tests.
@@ -482,7 +482,7 @@ Do not replace it with another source-text assertion. Add these pure state tests
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
 Expected: FAIL because `PlayerMoreMenuState` does not exist.
@@ -653,11 +653,11 @@ Add this under `CHANGELOG.md` → `[Unreleased]` → `Fixed`:
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlayerMoreMenuTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ChromeConsolidationTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/SleepTimerPillStateTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderChromeClearanceTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlayerMoreMenuTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ChromeConsolidationTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/SleepTimerPillStateTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderChromeClearanceTests
 ```
 
 Expected: build succeeds and all four suites pass. The existing experimental-player `PlayerMoreMenu` call must continue compiling through the new defaulted inputs.
@@ -692,7 +692,7 @@ Expected: no whitespace errors; the string catalog is valid; only the two pre-ex
 - [ ] **Step 2: Run the primary iOS unit-test gate**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test
+~/.claude/bin/xcode-build-slot.sh -- make test
 ```
 
 Expected: `TEST SUCCEEDED`. Record any failures exactly; do not weaken or delete unrelated tests to make the gate pass.
