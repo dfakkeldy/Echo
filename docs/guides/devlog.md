@@ -1,6 +1,6 @@
 # Building Echo — The Devlog
 
-Echo started as a mail-route audiobook player in April 2026. Dan directs AI coding agents to build and maintain it, testing the results in daily listening. This log combines a dated commit digest with the original account of the first nine weeks.
+Echo started as a simple chapter-looping audiobook player in April 2026. Dan directs AI coding agents to build and maintain it, testing the results in daily listening. This log combines a dated commit digest with the original account of the first nine weeks.
 
 The source is public: [github.com/dfakkeldy/Echo](https://github.com/dfakkeldy/Echo). “Shipped” in the generated digest means merged source, not App Store publication or a verified TestFlight upload.
 
@@ -59,15 +59,15 @@ The entries below describe the original April–June build period. Their dates, 
 
 ## Week 1 — April 19 · *The two-hour app* (10 commits)
 
-It started with a problem, not a plan. No audiobook app on the internet would loop a single chapter, survive thirty interruptions a shift, and play at 1.25× without chipmunk-voicing the narrator. One Sunday of vibe-coding later: a working player that loaded a folder from iCloud, looped chapters, and played speed-corrected audio. By the end of the day it had background-persistence so it would still be ready to play after a long pause — the first brick of what became Smart Rewind.
+It started with a problem, not a plan. No audiobook app on the internet would loop a single chapter, survive constant interruptions, and play at 1.25× without chipmunk-voicing the narrator. After one Sunday spent directing an AI coding agent: a working player that loaded a folder from iCloud, looped chapters, and played speed-corrected audio. By the end of the day it had background-persistence so it would still be ready to play after a long pause — the first brick of what became Smart Rewind.
 
-Then the repo went quiet for ten days. (Day job. Also: using the thing every day on the route, finding out what was missing.)
+Then the repo went quiet for ten days while daily use showed what was missing.
 
 ---
 
 ## Week 2 — April 27 – May 3 · *The watch appears* (20 commits)
 
-The project got a name (BookLoop — it wouldn't survive), and got serious: a playlist editor with a virtual chapter queue, disabled-chapter skipping, persistent progress and per-book speed memory. Then the line that changed the app's shape: *"feat: Add Apple Watch app with Connectivity, Haptics, and Glassmorphism UI."* One day later the watch had widgets and App Intents; by week's end the complication showed the current book's thumbnail with live progress. The phone could finally stay plugged into the aux cable, in the user's pocket, all shift.
+The project got a name (BookLoop — it wouldn't survive), and got serious: a playlist editor with a virtual chapter queue, disabled-chapter skipping, persistent progress and per-book speed memory. Then the line that changed the app's shape: *"feat: Add Apple Watch app with Connectivity, Haptics, and Glassmorphism UI."* One day later the watch had widgets and App Intents; by week's end the complication showed the current book's thumbnail with live progress. The phone could finally stay plugged into the aux cable, in the user's pocket, all day.
 
 ---
 
@@ -75,7 +75,7 @@ The project got a name (BookLoop — it wouldn't survive), and got serious: a pl
 
 The week of the signature features. **Smart Rewind** grew its three tiers — seconds, minutes, hours — so every interruption length got a proportional rewind. **Voice memo bookmarks** landed, including the detail that still surprises people: memos *play back inline* when the narration reaches them. Then bookmarks reached the watch, learned to **loop between bookmarks**, and got volume normalization.
 
-Also this week: an Appearance menu with **OpenDyslexic and Lexend** fonts (the accessibility thread starts here, not as an afterthought), a sleep timer, the MIT relicense — and the first macOS app. Honesty corner: this is also the week of commits literally titled *"broke some stuff"*, *"broken"*, and *"stuck on computing dependencies"* ×2, as three Xcode targets were forcibly consolidated into one project. It got fixed. The git history keeps the scars.
+Also this week: an Appearance menu with **OpenDyslexic and Lexend** fonts (the accessibility thread starts here, not as an afterthought), a sleep timer, the MIT relicense — and the first macOS app. Honesty corner: this was also the week the build broke more than once, as three Xcode targets were consolidated into one project. It got fixed. The git history keeps the scars.
 
 ---
 
@@ -105,7 +105,7 @@ A maturity week. A systematic roadmap appeared and got executed: concurrency saf
 
 Two headliners: the **EPUB Reader Feed** shipped — the dedicated Read tab with card-based rendering, full-text search with highlighting, per-passage colors, TOC, and auto-scroll that follows the narration. And **WhisperKit auto-alignment** arrived: on-device speech recognition snapping chapter boundaries, detecting drift, and repairing it automatically. The "align an entire audiobook to its EPUB with one tap" dream became a feature.
 
-And at week's end: *"chore: Rebrand Orbit Audiobooks to **Echo**"* — new name, alternate app icons, and the "For Every Mind" positioning, with the infinity-symbol icon in silver and gold as a nod to the AuDHD community the app was built from.
+And at week's end: *"chore: Rebrand Orbit Audiobooks to **Echo**"* — new name, alternate app icons, and the "For Every Mind" positioning, with the infinity-symbol icon in silver and gold as a nod to the neurodivergent community Echo is built for.
 
 ---
 
@@ -137,7 +137,7 @@ Around the headline, a lot else shipped. The **macOS app** got a BookPlayer-styl
 
 ## The shape of the thing
 
-Nine working weeks. Four platforms (iOS, watchOS, macOS, widgets). A SQL database, an on-device ML alignment pipeline, an on-device neural text-to-speech narrator, a spaced-repetition system, and an EPUB/PDF reader — built nights-and-weekends around a mail route, by someone whose previous programming experience was "some Python scripts for GIS and a Visual Basic call logger in high school."
+Nine working weeks. Three platforms (iPhone and iPad, Apple Watch, Mac) plus widgets. A SQL database, an on-device ML alignment pipeline, an on-device neural text-to-speech narrator, a spaced-repetition system, and an EPUB/PDF reader — built on nights and weekends by Dan, whose background is GIS and estimating work, directing AI coding agents.
 
 The point of publishing this log isn't bragging rights. It's the same as open-sourcing the code: you should be able to see exactly what you're trusting with your books and your attention — and maybe, if you've been wondering whether you could build *your* app, this page is the nudge.
 

@@ -4,7 +4,7 @@ Echo isn't just an audiobook player with extra buttons. Every feature exists bec
 
 You don't need to read this front to back. Jump to whatever feature you're curious about — each section stands on its own.
 
-> **Source review: October 24, 2026.** Feature examples follow current Nightly source; your installed build may differ. The [manual](user-manual.md) describes platform limits and planned work. Looking for ADHD/AuDHD strategies? Read the [Focus Field Guide](focus-field-guide.md).
+> **Updated October 24, 2026.** Feature examples follow the latest beta; your installed build may differ. The [manual](user-manual.md) describes platform limits and planned work. Looking for ADHD/AuDHD strategies? Read the [Focus Field Guide](focus-field-guide.md).
 
 > **The short version:** Passive listening feels like learning, but most of it evaporates within days. Echo is built around the handful of techniques that cognitive science has shown actually move information into long-term memory: retrieval practice, spacing, context cues, cognitive offloading, and multi-sensory encoding. Use even two or three of them and you will remember dramatically more of what you listen to.
 

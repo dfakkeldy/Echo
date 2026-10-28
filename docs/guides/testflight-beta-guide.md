@@ -2,13 +2,15 @@
 
 Use Echo with a book you actually want to hear. This guide covers access, supported devices, useful feedback, and current source limitations.
 
-**Reviewed October 24, 2026 against Nightly source.** A feature in the repository may be newer than the TestFlight build you receive. Your build's **What to Test** notes are the guide to that build.
+**Updated October 24, 2026.** Your build's **What to Test** notes describe what is new in that build.
 
 ## 1. Getting access
 
-Request an invitation at [testflight@kinnokilabs.com](mailto:testflight@kinnokilabs.com?subject=Echo%20beta%20access), or through [GitHub Issues](https://github.com/dfakkeldy/Echo/issues). Mention the platforms you use; do not post your email address or private book files in a public issue.
+Echo is in public beta on TestFlight. Install Apple's free TestFlight app, then open the invitation link on your device.
 
-Nightly is the integration track; Weekly is the promoted beta track. TestFlight access, build processing, and external eligibility are separate from a PR merging. An invitation does not promise a particular source revision is available yet.
+**[Join the TestFlight beta](https://testflight.apple.com/join/Zu9rzg59)**
+
+If the link does not work for you, request an invitation at [testflight@kinnokilabs.com](mailto:testflight@kinnokilabs.com?subject=Echo%20beta%20access), or through [GitHub Issues](https://github.com/dfakkeldy/Echo/issues). Mention the platforms you use; do not post your email address or private book files in a public issue.
 
 ## 2. Requirements
 
@@ -38,8 +40,6 @@ Include:
 - For reading/alignment: source format, edition, narrator, chapter, approximate timestamp, and whether Auto-Align or manual anchors were used.
 - For narration: voice/engine, document format, and whether it is a first render or cached audio.
 - For Watch Inbox: whether it is queued or accepted. Keep endpoint credentials and dictated text private.
-
-Report the outcome you observed. A Watch haptic proves local saving, an import's Added state proves a completed local import, and a webhook acceptance proves endpoint acceptance; none establishes what a downstream person did.
 
 ## 5. Areas to explore
 
@@ -91,7 +91,7 @@ A new failure is still worth reporting even if it falls in one of these areas. A
 
 ## 7. Privacy during the beta
 
-Core book import, local playback, reading, and voice synthesis run on-device without an Echo account. You can connect Echo to your own Audiobookshelf server to browse and play your library. External AI features send text to the provider you configure. When network access is permitted, importing a book may look up matching public alignment markers, with local fallback for an ordinary lookup failure. Model downloads and files you choose in iCloud also use network services. This 1.0 release does not expose public-alignment uploads. These connections are optional; they are not needed for local playback and reading.
+Core book import, local playback, reading, and voice synthesis run on-device without an Echo account. You can connect Echo to your own Audiobookshelf server to browse and play your library. External AI features send text to the provider you configure. When network access is permitted, importing a book may look up matching public alignment markers, with local fallback for an ordinary lookup failure. Model downloads and files you choose in iCloud also use network services. The current version does not offer public-alignment uploads. These connections are optional; they are not needed for local playback and reading.
 
 A configured Watch Inbox sends captured text and available book context to your endpoint. Article captures and anthology drafts have a private CloudKit sync path. These optional connections are separate from local inference.
 
