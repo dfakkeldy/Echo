@@ -1278,6 +1278,11 @@ td code {
     flex-basis: 60%;
   }
 }
+@media (max-width: 850px) {
+  .screenshot-strip img {
+    width: min(260px, 42vw);
+  }
+}
 @media (max-width: 500px) {
   .screenshot-strip {
     gap: 1.5rem 0.9rem;
