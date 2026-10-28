@@ -15,7 +15,7 @@
 
 Echo plays the audiobooks you own, aligns them with EPUB/PDF text, and helps you turn useful passages into spaced-repetition study cards. It can also narrate text-only documents on-device. It runs on **iOS/iPadOS 18+, macOS 15+, and watchOS 11+**; Watch is a companion to the iPhone player.
 
-**Documentation reviewed against `nightly` on October 24, 2026.** Implemented source, a TestFlight build, and public release availability are separate states. Check the notes for the build you install.
+**Documentation updated October 24, 2026.** It describes the latest beta; check the What to Test notes for the build you install.
 
 ## Start here
 
@@ -52,7 +52,7 @@ You can use it as an ordinary player. The reading and study tools are there when
 
 The **Echo Widget extension is watchOS-only**, with circular and rectangular Smart Stack/complication families. iPhone Lock Screen playback uses system Now Playing. An iOS Control Widget exists behind a source gate but is not shipped by that extension target.
 
-Source files in iCloud Drive, Audiobookshelf progress, public CloudKit alignment lookup, private article sync, and WatchConnectivity are separate mechanisms. **Full private-iCloud study-state sync for ordinary cards, decks, bookmarks, and playback is unfinished.** Sharing an audio folder does not transfer the local study database. Public alignment uploads are unavailable in Echo 1.0.
+Source files in iCloud Drive, Audiobookshelf progress, public CloudKit alignment lookup, private article sync, and WatchConnectivity are separate mechanisms. **Full private-iCloud study-state sync for ordinary cards, decks, bookmarks, and playback is unfinished.** Sharing an audio folder does not transfer the local study database. Public alignment uploads are unavailable in the current version.
 
 On iPhone/iPad, **Echo Pro is a one-time unlock**: core import, playback, and reading stay free; free narration covers one chapter per book and flashcards are capped at 20. The current Mac has no Pro purchase/restore UI and does not enforce those phone caps. StoreKit supplies current prices and purchase availability.
 
@@ -70,7 +70,7 @@ The [manual](docs/guides/user-manual.md) has current Settings paths, PDF read-al
 
 ## Build and contribute
 
-Open `Echo.xcodeproj` in Xcode with the required Apple platform SDKs. App targets use Swift 6 with default MainActor isolation; keep media, database, and transcript work off the main actor. Follow [AGENTS.md](AGENTS.md) for repository and shared-Mac build scheduling rules.
+Open `Echo.xcodeproj` in Xcode with the required Apple platform SDKs. App targets use Swift 6 with default MainActor isolation; keep media, database, and transcript work off the main actor. Follow [AGENTS.md](AGENTS.md) for repository conventions.
 
 | Command | Purpose |
 |---|---|

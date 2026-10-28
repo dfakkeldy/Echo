@@ -244,7 +244,7 @@ These are different mechanisms:
 - **Source files:** iCloud Drive or another file provider can carry books between devices. Download files before going offline.
 - **Audiobookshelf:** connected books exchange listening progress with their selected server on iPhone/iPad and Mac.
 - **Article Inbox:** article captures and anthology drafts have a private CloudKit sync path. This is separate from the ordinary study database.
-- **Community alignment lookup:** import may request matching anchors from Apple's public CloudKit database. There may be no match; local alignment is available. Public alignment uploads are unavailable in Echo 1.0.
+- **Community alignment lookup:** import may request matching anchors from Apple's public CloudKit database. There may be no match; local alignment is available. Public alignment uploads are unavailable in the current version.
 - **Watch:** WatchConnectivity carries companion state/actions and capture delivery through the paired phone.
 - **Planned:** automatic private-iCloud sync of all flashcards, decks, bookmarks, and playback state across independent Echo installations.
 
