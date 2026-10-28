@@ -59,9 +59,9 @@ After this plan's documentation PR is merged, run:
 ```bash
 git fetch origin
 git worktree add \
-  /Users/dfakkeldy/.codex/worktrees/portable-study-deck-import/Echo \
+  ~/.codex/worktrees/portable-study-deck-import/Echo \
   -b codex/portable-study-deck-import origin/nightly
-cd /Users/dfakkeldy/.codex/worktrees/portable-study-deck-import/Echo
+cd ~/.codex/worktrees/portable-study-deck-import/Echo
 git status --short --branch
 ```
 

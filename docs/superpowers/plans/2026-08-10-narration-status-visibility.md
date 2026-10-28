@@ -21,7 +21,7 @@
 - Download event history advances in five-percentage-point milestones while the live progress value may update more often.
 - Remove the silent Now Playing model prewarm. Model preparation starts only after an explicit narration request creates a visible session.
 - Localize every new user-facing string and preserve Dynamic Type, VoiceOver, reduced-motion, and contrast behavior.
-- Run every Apple build/test command as one complete command through `/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- <command>`.
+- Run every Apple build/test command as one complete command through `~/.claude/bin/xcode-build-slot.sh -- <command>`.
 - Branch workflow remains `codex/narration-status-verbosity -> nightly`; do not push directly to `nightly`, `weekly`, or `main`.
 
 ## File Map
@@ -129,7 +129,7 @@ Update `NarrationStateTests` to assert that `reset()` clears `snapshot`, events,
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
 Expected: build fails because `NarrationStatusSnapshot`, transition methods, and the new activity types do not exist.
@@ -288,9 +288,9 @@ func record(_ descriptor: NarrationEventDescriptor, at date: Date = Date()) {
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationStatusTypesTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationStateTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationStatusTypesTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationStateTests
 ```
 
 Expected: build succeeds and both suites pass with zero failures.
@@ -384,7 +384,7 @@ Cover simultaneous work, waiting, slow synthesis, bytes, all-rendered playback, 
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
 Expected: build fails because `NarrationStatusFormatter` and `NarrationStatusPresentation` do not exist.
@@ -423,8 +423,8 @@ Implement precedence in this order: render/playback failure or blocked/no-text; 
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationStatusPresentationTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationStatusPresentationTests
 ```
 
 Expected: all presentation tests pass.
@@ -489,7 +489,7 @@ Update headless expectations so 50/100 maps to `0.45`, validation/loading map to
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
 Expected: build fails because production still exposes the old enum cases.
@@ -541,11 +541,11 @@ After exact-size validation emit `.validatingModel(byteCount:)`; immediately bef
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationPrepareStatusTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/HeadlessNarrationRunnerParallelTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/OnnxKokoroEnginePrepareTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/OnnxKokoroEngineModelDeliveryTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationPrepareStatusTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/HeadlessNarrationRunnerParallelTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/OnnxKokoroEnginePrepareTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/OnnxKokoroEngineModelDeliveryTests
 ```
 
 Expected: all four suites pass; no case still uses `compilingModels` or `downloadingModels`.
@@ -615,8 +615,8 @@ Place `nowPlayingDoesNotSilentlyPrewarmNarrationModel` in `NowPlayingLayoutTests
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlayerModelTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlayerModelTests
 ```
 
 Expected: the new lifecycle and prewarm assertions fail.
@@ -692,9 +692,9 @@ Call `publishNarrationStatusToNowPlaying()` on every discrete transition and onl
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlayerModelTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NowPlayingLayoutTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlayerModelTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NowPlayingLayoutTests
 ```
 
 Expected: preparation mapping, stale-callback rejection, session ordering, and no-prewarm tests pass.
@@ -756,8 +756,8 @@ Add a PlayerModel/state test that updates a buffer with `queuedSegments: 3`, `cu
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationServiceTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationServiceTests
 ```
 
 Expected: callback signature and void `renderSegment` no longer satisfy the tests.
@@ -816,10 +816,10 @@ For cached segments, record `Using cached narration for chapter N`. After every 
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationServiceTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationRenderPolicyTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlayerModelTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationServiceTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationRenderPolicyTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlayerModelTests
 ```
 
 Expected: structured progress, stale-callback rejection, unchanged look-ahead policy, playable-buffer counts, and separate render completion all pass.
@@ -895,8 +895,8 @@ Add a state test that transitions `.waitingForRender(3)`, then `.resuming(3)`, t
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlaybackControllerTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlaybackControllerTests
 ```
 
 Expected: typed changes, pause reason, and natural-end API are missing.
@@ -953,9 +953,9 @@ If the sleep timer fires during a queue wait, clear auto-resume as today and tra
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlaybackControllerTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlayerModelTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlaybackControllerTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlayerModelTests
 ```
 
 Expected: ordinary pause, queue wait, natural completion, sleep-timer cancellation, and auto-resume ordering pass without changing existing transport tests.
@@ -1026,9 +1026,9 @@ private static func narrationStatusSource() throws -> String {
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NowPlayingLayoutTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationStatusViewContractTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NowPlayingLayoutTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationStatusViewContractTests
 ```
 
 Expected: experimental placement, disclosure history, and operational subtitle assertions fail.
@@ -1131,11 +1131,11 @@ After those call sites migrate, delete `NarrationProgressText.swift` and its tes
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationStatusPresentationTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NowPlayingLayoutTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationStatusViewContractTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlayerModelTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationStatusPresentationTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NowPlayingLayoutTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationStatusViewContractTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlayerModelTests
 ```
 
 Expected: both layouts mount one shared card, expanded-log contract passes, lock-screen copy is derived, and chapter-title behavior remains intact.
@@ -1202,9 +1202,9 @@ In `NarrationServiceTests`, replace all three `state.debugLog.contains` assertio
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationStateTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlayerModelTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationStateTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlayerModelTests
 ```
 
 Expected: remaining generic completion/failure paths and legacy state assumptions fail.
@@ -1260,12 +1260,12 @@ Change `AnthologyChapterVoicesIntegrationTests.Result` to store `NarrationRender
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationStateTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlayerModelTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ArticleWorkshop/AnthologyChapterVoicesIntegrationTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlaybackControllerTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationServiceTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationStateTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlayerModelTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ArticleWorkshop/AnthologyChapterVoicesIntegrationTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlaybackControllerTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationServiceTests
 ```
 
 Expected: every focused suite passes with zero failures.
@@ -1275,7 +1275,7 @@ Expected: every focused suite passes with zero failures.
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test
+~/.claude/bin/xcode-build-slot.sh -- make test
 ```
 
 Expected: `TEST SUCCEEDED`, no test failures, and no compiler errors.
@@ -1285,7 +1285,7 @@ Expected: `TEST SUCCEEDED`, no test failures, and no compiler errors.
 Use the `build-ios-apps:ios-debugger-agent` skill. Select a booted iPhone 17 simulator; if none is booted, stop and ask the user to boot one as required by that skill. Build through the required slot wrapper:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- xcodebuild build -scheme Echo -destination 'platform=iOS Simulator,name=iPhone 17' -jobs 5 CODE_SIGNING_ALLOWED=NO
+~/.claude/bin/xcode-build-slot.sh -- xcodebuild build -scheme Echo -destination 'platform=iOS Simulator,name=iPhone 17' -jobs 5 CODE_SIGNING_ALLOWED=NO
 ```
 
 Then launch the already-built app through the simulator tooling and verify these exact observations in both standard and Experimental Player Layout:

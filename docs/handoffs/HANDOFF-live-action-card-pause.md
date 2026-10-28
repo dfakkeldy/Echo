@@ -36,8 +36,8 @@ Deliberately NOT done:
 
 Resume:
 ```
-Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/echo-narration-test-426822,
+Worktree ~/Developer/Echo/.claude/worktrees/echo-narration-test-426822,
 branch claude/live-action-card-pause-0ed991 (based on origin/nightly 006ab42a).
-Next action: /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh --status, and when it reports FREE+admit,
-run: /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test
+Next action: ~/.claude/bin/xcode-build-slot.sh --status, and when it reports FREE+admit,
+run: ~/.claude/bin/xcode-build-slot.sh -- make test
 ```

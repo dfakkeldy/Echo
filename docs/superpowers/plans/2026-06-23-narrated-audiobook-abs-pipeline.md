@@ -16,7 +16,7 @@
 - ABS folder layout: `Author/Title/Title.{epub,m4b,alignment.json}`; title/author from EPUB `dc:title`/`dc:creator`; replacing a file = ABS delete-item + rescan (never a plain rescan).
 - macOS 16 GB: never run two `xcodebuild` concurrently; `make build-tests` needs `CODE_SIGNING_ALLOWED=NO` (onnxruntime codesign break on Xcode 26.5).
 - `make build-tests` then `make test-only FILTER=EchoTests/<Suite>` for Echo; `swift test --filter AudioMarkerTests` in the fork.
-- ABS env (from `~/Developer/echo-overnight/deliver-to-abs.sh`): `ABS_URL=http://100.95.69.48:13378`, library `f246f255-a98f-4665-8478-11d8dae37b2e`; helper `~/.claude/skills/audiobookshelf-setup/scripts/abs_admin.py`; SSH `dan@100.95.69.48`; Syncthing mirror `/Volumes/Fledging-WD-2TB/Books`, host `/var/mnt/2TB Internal HDD/Books`.
+- ABS env (from `~/Developer/echo-overnight/deliver-to-abs.sh`): `ABS_URL=http://<abs-host>:<port>`, library `<library-id>`; helper `~/.claude/skills/audiobookshelf-setup/scripts/abs_admin.py`; SSH `<user>@<abs-host>`; file-sync mirror `<books-volume>`, host `<host-books-dir>`.
 
 ---
 
@@ -29,7 +29,7 @@
 - [ ] **Step 1:** From the main checkout, create the branch and worktree off the latest nightly:
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo
+cd ~/Developer/Echo
 git fetch origin
 git worktree add -b feature/narrated-abs-pipeline .claude/worktrees/narrated-abs-pipeline origin/nightly
 cd .claude/worktrees/narrated-abs-pipeline
@@ -61,7 +61,7 @@ git add -A && git commit -m "chore: integration branch for narrated-abs pipeline
 
 ## Phase A-fork — swift-audio-marker robustness (→ 0.1.3)
 
-Work in `/Users/dfakkeldy/Developer/swift-audio-marker` on branch `fix/itunes-metadata-handler-and-quicktime-chapter-track`. Verify with the harness at `/tmp/am-probe` (probe) + `/tmp/avcheck` (AVFoundation) + ffprobe.
+Work in `~/Developer/swift-audio-marker` on branch `fix/itunes-metadata-handler-and-quicktime-chapter-track`. Verify with the harness at `/tmp/am-probe` (probe) + `/tmp/avcheck` (AVFoundation) + ffprobe.
 
 ### Task F1: 64-bit-safe chapter chunk offsets (review HIGH-1)
 
@@ -164,7 +164,7 @@ gh pr comment atelier-socle/swift-audio-marker#2 --body "Pushed 0.1.3 with 64-bi
 
 **Files:** Modify `Echo.xcodeproj/project.pbxproj` (the `swift-audio-marker` `XCRemoteSwiftPackageReference`).
 
-- [ ] **Step 1:** Get the 0.1.3 commit SHA: `git -C /Users/dfakkeldy/Developer/swift-audio-marker rev-parse 0.1.3`.
+- [ ] **Step 1:** Get the 0.1.3 commit SHA: `git -C ~/Developer/swift-audio-marker rev-parse 0.1.3`.
 - [ ] **Step 2:** Change the requirement from `exactVersion 0.1.2` to:
 
 ```
@@ -425,7 +425,7 @@ srcepub=$(find "$EXP/$stem" -name '*.epub' 2>/dev/null | head -1)
 [ -n "$srcepub" ] || srcepub="$HOME/Developer/explainer-audiobooks/books/$stem/$stem.epub"
 [ -f "$srcepub" ] && cp "$srcepub" "$dest/$title.epub"
 ```
-Keep the existing m4b + sidecar copy, the Syncthing host-size wait, the delete-stale-item, and the rescan. Update the host-sync wait to also confirm the `.epub` landed.
+Keep the existing m4b + sidecar copy, the file-sync host-size wait, the delete-stale-item, and the rescan. Update the host-sync wait to also confirm the `.epub` landed.
 
 - [ ] **Step 2: Verify** on one already-rendered book (dry: copy to a scratch `$dest`, `ls` shows `Title.epub`, `Title.m4b`, `Title.alignment.json`). Do NOT run the live ABS delete/scan yet — that's Task D1's job to do library-wide.
 - [ ] **Step 3:** Leave `deliver-watcher.sh` PAUSED until D1 completes.
@@ -438,8 +438,8 @@ Keep the existing m4b + sidecar copy, the Syncthing host-size wait, the delete-s
   1. Compute canonical `Author/Title` from the OPF.
   2. Ensure `$SYNC/$Author/$Title/` holds `Title.epub` + `Title.m4b` + `Title.alignment.json` (move the EPUB out of the lowercase folder if that's where it is).
   3. Record the set of OLD folders for this book: the lowercase stem folder(s) (`*/the-bug-is-a-clue`, etc.) and any audio-only Title-Case folder that isn't canonical.
-  4. After all books are consolidated: for each OLD folder now empty/superseded, `rm -rf` it on the Syncthing mirror; collect the corresponding stale ABS item ids (search by old title/path) and `abs_admin delete-ids` them.
-  5. Wait for Syncthing to settle on the host (reuse the size-poll), then ONE `abs_admin scan`.
+  4. After all books are consolidated: for each OLD folder now empty/superseded, `rm -rf` it on the file-sync mirror; collect the corresponding stale ABS item ids (search by old title/path) and `abs_admin delete-ids` them.
+  5. Wait for file-sync to settle on the host (reuse the size-poll), then ONE `abs_admin scan`.
   6. Log every move/delete/skip; re-running is a no-op (guard each move/delete on existence).
 - [ ] **Step 2: Dry-run mode first** — `migrate-abs-consolidate.sh --dry-run` prints the plan (moves/deletes/ABS-deletes) without touching anything. Review the output against Finding #4's expected dupes (the-bug-is-a-clue, git-happens, tests-first, the-voice-in-the-machine, findable, you-are-the-architect, Echo-From-The-Inside, Why-It-Feels-Right + their Title-Case audio-only twins).
 - [ ] **Step 3: Run for real** — `migrate-abs-consolidate.sh`. Confirm via `abs_admin` (or the API) that each book is now ONE item with both ebook + audiobook and no duplicate.

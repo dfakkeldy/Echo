@@ -1,6 +1,6 @@
 # Build-in-Public Umbrella
 
-**Owner:** David Fakkeldy
+**Owner:** Dan Fakkeldy
 **Status:** Active operating kit
 **Cadence:** One monthly batching session, one short weekly refresh
 **Scope:** Echo, MacroMark, NS Marks The Spot, Routey, Turn Timer, and any other app moving toward a public launch or beta

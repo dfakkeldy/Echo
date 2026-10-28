@@ -1238,7 +1238,7 @@ These are procedures, not TDD cycles. Run them in order; artifacts live under `~
 
 - [ ] **Step 1:** `xcrun simctl boot "iPhone 17" || true` (ignore "already booted").
 - [ ] **Step 2:** `make build-tests` (build the test host once, with the new code).
-- [ ] **Step 3:** Create the work dir: `mkdir -p ~/Developer/echo-overnight/day1-vibe-coding/{work,out}` and copy the source PDF into it: `cp "/Volumes/Fledging-WD-2TB/Books/Unknown Author/Day 1 v3/Day 1 v3.pdf" ~/Developer/echo-overnight/day1-vibe-coding/`.
+- [ ] **Step 3:** Create the work dir: `mkdir -p ~/Developer/echo-overnight/day1-vibe-coding/{work,out}` and copy the source PDF into it: `cp "<books-volume>/Unknown Author/Day 1 v3/Day 1 v3.pdf" ~/Developer/echo-overnight/day1-vibe-coding/`.
 
 ### Task 11: Narrate the PDF on the sim (batched loop)
 
