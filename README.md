@@ -15,7 +15,7 @@
 
 Echo plays the audiobooks you own, aligns them with EPUB/PDF text, and helps you turn useful passages into spaced-repetition study cards. It can also narrate text-only documents on-device. It runs on **iOS/iPadOS 18+, macOS 15+, and watchOS 11+**; Watch is a companion to the iPhone player.
 
-**Documentation reviewed against `nightly` on October 24, 2026.** Implemented source, a TestFlight build, and public release availability are separate states. Check the notes for the build you install.
+**Documentation updated October 24, 2026.** It describes the latest beta; check the What to Test notes for the build you install.
 
 ## Start here
 
@@ -32,7 +32,7 @@ Echo plays the audiobooks you own, aligns them with EPUB/PDF text, and helps you
 
 ## Why Echo exists
 
-Echo began with interrupted audiobook listening on a mail route: loop a difficult chapter, recover context after a pause, and save a thought without losing the passage. Dan directs AI coding agents to build and maintain the app, using it in daily life and refining what gets in the way.
+Echo began with interrupted audiobook listening: loop a difficult chapter, recover context after a pause, and save a thought without losing the passage. Dan directs AI coding agents to build and maintain the app, using it in daily life and refining what gets in the way.
 
 You can use it as an ordinary player. The reading and study tools are there when you need them.
 
@@ -52,7 +52,7 @@ You can use it as an ordinary player. The reading and study tools are there when
 
 The **Echo Widget extension is watchOS-only**, with circular and rectangular Smart Stack/complication families. iPhone Lock Screen playback uses system Now Playing. An iOS Control Widget exists behind a source gate but is not shipped by that extension target.
 
-Source files in iCloud Drive, Audiobookshelf progress, public CloudKit alignment lookup, private article sync, and WatchConnectivity are separate mechanisms. **Full private-iCloud study-state sync for ordinary cards, decks, bookmarks, and playback is unfinished.** Sharing an audio folder does not transfer the local study database. Public alignment uploads are unavailable in Echo 1.0.
+Source files in iCloud Drive, Audiobookshelf progress, public CloudKit alignment lookup, private article sync, and WatchConnectivity are separate mechanisms. **Full private-iCloud study-state sync for ordinary cards, decks, bookmarks, and playback is unfinished.** Sharing an audio folder does not transfer the local study database. Public alignment uploads are unavailable in the current version.
 
 On iPhone/iPad, **Echo Pro is a one-time unlock**: core import, playback, and reading stay free; free narration covers one chapter per book and flashcards are capped at 20. The current Mac has no Pro purchase/restore UI and does not enforce those phone caps. StoreKit supplies current prices and purchase availability.
 
@@ -70,7 +70,7 @@ The [manual](docs/guides/user-manual.md) has current Settings paths, PDF read-al
 
 ## Build and contribute
 
-Open `Echo.xcodeproj` in Xcode with the required Apple platform SDKs. App targets use Swift 6 with default MainActor isolation; keep media, database, and transcript work off the main actor. Follow [AGENTS.md](AGENTS.md) for repository and shared-Mac build scheduling rules.
+Open `Echo.xcodeproj` in Xcode with the required Apple platform SDKs. App targets use Swift 6 with default MainActor isolation; keep media, database, and transcript work off the main actor. Follow [AGENTS.md](AGENTS.md) for repository conventions.
 
 | Command | Purpose |
 |---|---|
@@ -83,7 +83,7 @@ Open `Echo.xcodeproj` in Xcode with the required Apple platform SDKs. App target
 | `make architecture` | Refresh the architecture source tree while preserving manual notes |
 | `make devlog-update` | Regenerate the previous calendar week's dated commit digest |
 
-Run agent-started Apple builds/tests through the build-slot wrapper specified in your working instructions. **Use `make echo-cli` rather than a bare CLI scheme build**: its Release and compilation-mode settings are required. The shared `Echo` scheme includes `EchoTests` and `EchoUITests`; `make test` and CI explicitly select only `EchoTests`. Hosted CI compiles the embedded Watch app; Watch test execution is separate.
+**Use `make echo-cli` rather than a bare CLI scheme build**: its Release and compilation-mode settings are required. The shared `Echo` scheme includes `EchoTests` and `EchoUITests`; `make test` and CI explicitly select only `EchoTests`. Hosted CI compiles the embedded Watch app; Watch test execution is separate.
 
 Useful contributor references:
 
@@ -112,7 +112,7 @@ Scheduled TestFlight workflows run from the default branch and check out the sel
 
 ### Accessibility
 
-Echo bundles **Lexend** and **OpenDyslexic**, supports Dynamic Type and VoiceOver, and respects Reduce Motion. The silver/gold infinity identity reflects its AuDHD origins. Font preference is personal; neither font is presented as a treatment or a guaranteed reading improvement.
+Echo bundles **Lexend** and **OpenDyslexic**, supports Dynamic Type and VoiceOver, and respects Reduce Motion. The silver/gold infinity identity is a nod to the neurodivergent community Echo is built for. Font preference is personal; neither font is presented as a treatment or a guaranteed reading improvement.
 
 ## Credits and license
 

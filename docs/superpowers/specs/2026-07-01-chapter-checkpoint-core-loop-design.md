@@ -15,7 +15,7 @@ Three behaviors from the Wedge-1 spec remain unbuilt (named ROADMAP closeout ite
 3. **Retire-chapter prompt** when real flashcards exist inside a chapter.
 4. **macOS study-layer parity** for chapter mode (plan creation UI, study settings, checkpoint presentation).
 
-The driving use case: hands-free listening (screen off, walking a mail route or driving). The user presses play; when a due chapter finishes, Echo prompts for a retention grade and keeps the day's study queue flowing — across books — without requiring hands or eyes.
+The driving use case: hands-free listening (screen off, walking or driving). The user presses play; when a due chapter finishes, Echo prompts for a retention grade and keeps the day's study queue flowing — across books — without requiring hands or eyes.
 
 ## 2. Owner decisions (recorded verbatim from the design session)
 

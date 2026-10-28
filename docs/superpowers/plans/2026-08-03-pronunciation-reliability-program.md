@@ -27,7 +27,7 @@
 - Shadow-only packs, model results, and family decisions do not change synthesis/cache identity. Any policy that can alter output bytes must update the render version or production policy signature.
 - Agents may create provisional public/synthetic evaluation cases, but may not impersonate independent human labelers or populate trusted human receipts. Missing evidence produces an explicit waiting state, never a fabricated pass.
 - App unit tests, Release CLI build, hosted CI, production rendering, physical-device execution, and human listening are separate proof states.
-- Every Apple build or test command in this plan must run through `/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- <command>`. Do not call `xcodebuild`, Apple build/test Make targets, or `swift test` directly.
+- Every Apple build or test command in this plan must run through `~/.claude/bin/xcode-build-slot.sh -- <command>`. Do not call `xcodebuild`, Apple build/test Make targets, or `swift test` directly.
 - Each stage is a coherent review boundary. Implement it on a clean `feature/*` branch based on the intended `nightly` state, commit coherent changes, push, and open a ready PR to `nightly`. Do not start the next production-affecting stage until its dependency is either merged or explicitly stacked.
 - Stop a stage at its qualification gate when evidence is insufficient. Commit the tooling and truthful receipt, keep the component shadow-only, and continue independent stages.
 
@@ -52,10 +52,10 @@ Expected: all tooling contracts pass; the current contextual qualification may t
 - [ ] Run the focused Apple baseline through the slot:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PronunciationProgramAcceptanceTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationServiceTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make echo-cli
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PronunciationProgramAcceptanceTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationServiceTests
+~/.claude/bin/xcode-build-slot.sh -- make echo-cli
 ```
 
 Expected: each command passes. If a baseline failure prevents attribution, record it and stop before changing that surface.
@@ -112,7 +112,7 @@ func cardinalTwentyRange(value: Int, expected: String) {
 - [ ] Run the package suite through the slot.
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- swift test --package-path ThirdParty/MisakiSwift
+~/.claude/bin/xcode-build-slot.sh -- swift test --package-path ThirdParty/MisakiSwift
 ```
 
 Expected: the new 20–29 assertions fail because `midNumWords` has no `20` entry.
@@ -324,9 +324,9 @@ Expected: focused tests pass; valid currency input is clean and malformed input 
 - [ ] Run all MisakiSwift tests and the focused Echo acceptance suite.
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- swift test --package-path ThirdParty/MisakiSwift
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PronunciationProgramAcceptanceTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make echo-cli
+~/.claude/bin/xcode-build-slot.sh -- swift test --package-path ThirdParty/MisakiSwift
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PronunciationProgramAcceptanceTests
+~/.claude/bin/xcode-build-slot.sh -- make echo-cli
 ```
 
 Expected: all pass.
@@ -730,10 +730,10 @@ Expected: both surfaces present the same evidence and all accepted corrections u
 
 ```bash
 make pronunciation-audit-pack-test
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PronunciationAuditTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/HeadlessNarrationRunnerTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationQAReviewModelTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make echo-cli
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PronunciationAuditTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/HeadlessNarrationRunnerTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationQAReviewModelTests
+~/.claude/bin/xcode-build-slot.sh -- make echo-cli
 ```
 
 - [ ] Confirm an identical synthetic disagreement appears in iOS/macOS model data, headless audit manifest, and listening reel with no synthesis/cache change.
@@ -1130,8 +1130,8 @@ Expected: qualified OOV fixtures select neural IPA; every other word and failure
 ### 16.3 Full gate, commit, and publish
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make echo-cli
+~/.claude/bin/xcode-build-slot.sh -- make test
+~/.claude/bin/xcode-build-slot.sh -- make echo-cli
 make neural-g2p-qualification
 ```
 
@@ -1468,7 +1468,7 @@ Expected: all tooling tests pass. Qualification commands may report shadow/waiti
 - [ ] Run one complete test command:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test
+~/.claude/bin/xcode-build-slot.sh -- make test
 ```
 
 Expected: all Echo unit tests pass.
@@ -1476,7 +1476,7 @@ Expected: all Echo unit tests pass.
 - [ ] Build the Release CLI:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make echo-cli
+~/.claude/bin/xcode-build-slot.sh -- make echo-cli
 ```
 
 Expected: Release `echo-cli` builds successfully.
@@ -1484,7 +1484,7 @@ Expected: Release `echo-cli` builds successfully.
 - [ ] Re-run the vendored package suite:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- swift test --package-path ThirdParty/MisakiSwift
+~/.claude/bin/xcode-build-slot.sh -- swift test --package-path ThirdParty/MisakiSwift
 ```
 
 Expected: all MisakiSwift tests pass.

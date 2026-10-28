@@ -20,7 +20,7 @@ pins no fastlane version (`*.lock` is gitignored), so CI floats.
 Resume:
 
 ```
-Worktree: /Users/dfakkeldy/Developer/Echo/.claude/worktrees/old-worktrees-salvage-d4912c
+Worktree: ~/Developer/Echo/.claude/worktrees/old-worktrees-salvage-d4912c
 Branch: claude/macos-testflight-packaging-789ec4 (based on origin/nightly)
 Next: confirm Scripts/import_mac_installer_cert.sh has been run, then
 `gh workflow run release-trains.yml -f channel=nightly` and read the macOS
@@ -46,7 +46,7 @@ fastlane.
 Resume:
 
 ```
-Worktree: /Users/dfakkeldy/Developer/Echo/.claude/worktrees/old-worktrees-salvage-d4912c
+Worktree: ~/Developer/Echo/.claude/worktrees/old-worktrees-salvage-d4912c
 Branch: fix/mac-installer-cert-ruby-guard (based on origin/nightly)
 Next: `gh workflow run release-trains.yml -f channel=nightly`, then read the
 macOS export + second upload steps. Local fastlane needs

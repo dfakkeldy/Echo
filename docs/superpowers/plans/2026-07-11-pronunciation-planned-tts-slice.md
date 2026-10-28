@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Work only in `/Users/dfakkeldy/.codex/worktrees/pronunciation-planned-tts/Echo` on `codex/pronunciation-planned-tts-slice`.
+- Work only in `~/.codex/worktrees/pronunciation-planned-tts/Echo` on `codex/pronunciation-planned-tts-slice`.
 - Preserve the unrelated dirty changes in the original and main Echo worktrees.
 - Add no dependency, network pronunciation service, private book fixture, or model artifact.
 - Keep rule precedence: occurrence override > per-book/global override > contextual homograph rule > ordinary G2P.
@@ -506,7 +506,7 @@ Have the reviewer inspect rule precedence, existential dispatch, exact-ID reuse,
 
 **Files:**
 
-- Create outside Git: `/Users/dfakkeldy/Developer/echo-overnight/pronunciation-regression-20260711/`
+- Create outside Git: `~/Developer/echo-overnight/pronunciation-regression-20260711/`
 - Create in Git after verification: `docs/qa/2026-07-11-pronunciation-planned-tts-render.md`
 
 ### Step 1: Create the text-selectable synthetic source

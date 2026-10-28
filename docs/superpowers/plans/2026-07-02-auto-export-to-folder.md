@@ -1996,7 +1996,7 @@ git commit -m "docs: document study auto-export feature"
 
 Self-contained brief for the implementing agent (OpenAI Codex 5.5). Do not assume access to any prior conversation — everything needed is in this file and the spec.
 
-**Repository:** `/Users/dfakkeldy/Developer/Echo` — public, GPL-3.0. Every new Swift file must start with `// SPDX-License-Identifier: GPL-3.0-or-later`. Never commit secrets, personal data, or private-repo content.
+**Repository:** `~/Developer/Echo` — public, GPL-3.0. Every new Swift file must start with `// SPDX-License-Identifier: GPL-3.0-or-later`. Never commit secrets, personal data, or private-repo content.
 
 **Read first:**
 1. `docs/superpowers/specs/2026-07-02-auto-export-to-folder-design.md` (the approved design — decisions and rationale)
@@ -2006,7 +2006,7 @@ Self-contained brief for the implementing agent (OpenAI Codex 5.5). Do not assum
 **Branch setup (the repo's promotion ladder — feature work is based on `nightly`, never `main`):**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo
+cd ~/Developer/Echo
 git fetch origin nightly
 git checkout -b feature/study-auto-export origin/nightly
 git status --short --branch   # confirm clean and tracking origin/nightly

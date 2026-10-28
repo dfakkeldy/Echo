@@ -150,7 +150,7 @@ Expected: all complete; per-iteration time stays flat (no climb). Record avg RTF
 **Interfaces:**
 - Produces: `import KokoroPipeline` available in the iOS + macOS app modules; the public symbols `KokoroPipeline`, `SynthesisResult`, `KokoroVocabulary`, `HarmonicConstants`.
 
-- [ ] **Step 1: Copy the package.** Run: `cp -R /tmp/km_probe/gh/swift /Users/dfakkeldy/Developer/Echo/ThirdParty/KokoroPipeline` then remove the executable/benchmark targets from its `Package.swift` (keep only the `KokoroPipeline` library + its tests) so Echo doesn't build the CLIs.
+- [ ] **Step 1: Copy the package.** Run: `cp -R /tmp/km_probe/gh/swift ~/Developer/Echo/ThirdParty/KokoroPipeline` then remove the executable/benchmark targets from its `Package.swift` (keep only the `KokoroPipeline` library + its tests) so Echo doesn't build the CLIs.
 
 - [ ] **Step 2: Confirm the LICENSE** of the upstream package is Apache-2.0 and copy it to `ThirdParty/KokoroPipeline/LICENSE`. Add a one-line attribution to Echo's `ACKNOWLEDGEMENTS`/`README` third-party section.
 

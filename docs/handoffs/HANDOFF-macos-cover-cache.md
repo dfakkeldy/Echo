@@ -16,8 +16,8 @@ push and open a PR with `--base nightly`.
 Resume:
 
 ```
-Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/macos-echo-ux-c62409,
-branch claude/blissful-almeida-d80238. Run `/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test`,
+Worktree ~/Developer/Echo/.claude/worktrees/macos-echo-ux-c62409,
+branch claude/blissful-almeida-d80238. Run `~/.claude/bin/xcode-build-slot.sh -- make test`,
 then the macOS scheme build, then push and open a PR with --base nightly.
 ```
 
@@ -40,7 +40,7 @@ still polling for local macOS/echo-cli coverage that CI does not provide.
 Resume:
 
 ```
-Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/macos-echo-ux-c62409,
+Worktree ~/Developer/Echo/.claude/worktrees/macos-echo-ux-c62409,
 branch claude/blissful-almeida-d80238. Check the PR's CI, and read
 scratchpad/verify-progress.log for the macOS + echo-cli builds CI cannot cover.
 ```

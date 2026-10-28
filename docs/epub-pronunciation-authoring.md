@@ -237,7 +237,7 @@ output directory (the simulator receives environment variables prefixed with
 
 ```sh
 TEST_RUNNER_ECHO_EPUB_LISTENING_OUTPUT=/tmp/echo-epub-michael-proof \
-  /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- \
+  ~/.claude/bin/xcode-build-slot.sh -- \
   make test-only FILTER=EchoTests/EPUBPronunciationTests/michaelListeningProof
 ```
 

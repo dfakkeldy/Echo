@@ -34,11 +34,11 @@ Next:
 
 Resume:
 ```
-Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/epub-identity-fork
+Worktree ~/Developer/Echo/.claude/worktrees/epub-identity-fork
 is clean at origin/nightly 8afbd6fa (nightly is now 8 commits ahead). Nothing
 pushed, no PR. Next action: decide whether to fix the `.staleSource` dead end
 and the false `.foundButUnresolved` status line; read
-/private/tmp/claude-501/-Users-dfakkeldy-Developer-Echo/fa65aa4b-9e21-4a8f-a7da-cbd548c5de35/tasks/wf9zm465j.output
+<scratchpad>/tasks/wf9zm465j.output
 (result.mustFix, 19 items) first.
 ```
 
@@ -95,10 +95,10 @@ Next:
 
 Resume:
 ```
-Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/epub-identity-fork,
+Worktree ~/Developer/Echo/.claude/worktrees/epub-identity-fork,
 branch fix/reimport-source-text (2 behind origin/nightly), 13 files dirty,
 nothing committed. Single next action: re-run
-/private/tmp/claude-501/-Users-dfakkeldy-Developer-Echo/fa65aa4b-9e21-4a8f-a7da-cbd548c5de35/scratchpad/verify2.sh
+<scratchpad>/scratchpad/verify2.sh
 (make build-tests, then the six suites batched into one FILTER, then the
 "Echo macOS" build, then make echo-cli). It exits 0 on deferral — grep the
 output for "Build deferred" / "NEVER ADMITTED".
@@ -128,7 +128,7 @@ Next:
 
 Resume:
 ```
-Worktree /Users/dfakkeldy/Developer/Echo/.claude/worktrees/epub-identity-fork,
+Worktree ~/Developer/Echo/.claude/worktrees/epub-identity-fork,
 branch fix/reimport-source-text, clean, PR #581 open against nightly.
 Single next action: gh pr checks 581 — if red, read the job log before
 touching code; if green, the task is done and this handoff should be deleted

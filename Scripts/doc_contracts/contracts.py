@@ -158,14 +158,18 @@ PUBLIC_ALIGNMENT_AVAILABILITY_CONTRACTS: tuple[FileContract, ...] = (
     *(
         FileContract(
             path=path,
-            must_contain=("Public alignment uploads are unavailable in Echo 1.0.",),
+            must_contain=("Public alignment uploads are unavailable in the current version.",),
             reason="availability copy must not advertise a deferred upload feature",
         )
         for path in (
             "docs/guides/user-manual.md",
             "docs/manual.html",
-            "fastlane/metadata/review_information/notes.txt",
         )
+    ),
+    FileContract(
+        path="fastlane/metadata/review_information/notes.txt",
+        must_contain=("Public alignment uploads are unavailable in Echo 1.0.",),
+        reason="App Review notes must not advertise a deferred upload feature",
     ),
 )
 

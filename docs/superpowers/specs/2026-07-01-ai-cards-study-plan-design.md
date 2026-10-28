@@ -14,7 +14,7 @@ Goal: accepted AI cards join the study plan — released chapter-by-chapter with
 
 | Question | Decision |
 |---|---|
-| Generation timing | **Whole book up front** — one run; cards stored immediately, released with the plan cadence. Offline-safe on the route; one review pass; cost paid once up front. |
+| Generation timing | **Whole book up front** — one run; cards stored immediately, released with the plan cadence. Offline-safe away from a network; one review pass; cost paid once up front. |
 | Draft review | **One review pass, grouped by chapter** — extend the existing accept/reject sheet with chapter sections + accept-all-per-chapter. |
 | Checkpoint delivery | **Screen-on quiz now, audio quiz later** — due Q&A cards for the finished chapter appear after the chapter grade when the screen is on; screen-off listeners get them in the regular due queue. The hands-free TTS audio quiz is deferred to its own future slice. |
 

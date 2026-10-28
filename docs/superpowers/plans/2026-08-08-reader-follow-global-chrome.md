@@ -14,7 +14,7 @@
 - Execute the implementation with a `gpt-5.6-terra` worker. After all implementation checks, give the complete diff and test evidence to an independent `gpt-5.6-sol` reviewer. The implementation worker must address valid review findings and obtain a final clean review before publication.
 - Work only on `feature/reader-follow-global-chrome`. Preserve the unrelated untracked `docs/superpowers/plans/2026-08-02-macos-performance-remediation.md` and `file.txt` exactly as found.
 - Follow test-driven development: add the focused failing test, observe the red result, make the smallest production change, rerun the focused test, then commit that task.
-- Every Apple build or test command must run through `/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh --` followed by the concrete command shown in each task. Do not use `XBG_ALLOW_NOW=1` unless the user separately requests an immediate off-hours build.
+- Every Apple build or test command must run through `~/.claude/bin/xcode-build-slot.sh --` followed by the concrete command shown in each task. Do not use `XBG_ALLOW_NOW=1` unless the user separately requests an immediate off-hours build.
 - Use `make build-tests` to compile new test files and each task's concrete `make test-only FILTER=EchoTests/ReaderFollowStateTests`-style command for focused loops. Run the full `make test` gate at the end, also through the build-slot wrapper.
 - Keep user-facing controls localizable, at least 44 points, Dynamic Type safe, VoiceOver-labelled, and Reduce Motion aware.
 - Do not add a protocol. The only new seams are value types and closures with a current production use and direct tests.
@@ -99,7 +99,7 @@ import Testing
 Run:
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
 Expected red result: `ReaderFollowState`, `ReaderScrollIntent`, and `ReaderScrollPermission` are undefined.
@@ -154,8 +154,8 @@ nonisolated enum ReaderScrollPermission {
 - [ ] **Step 4: Build and run the focused suite**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFollowStateTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFollowStateTests
 ```
 
 Expected: all three tests pass.
@@ -260,7 +260,7 @@ import Testing
 - [ ] **Step 2: Run the focused suite and observe the signature mismatch**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
 Expected red result: the new `targetRange`, `topInset`, `bottomInset`, and `preferredRange` API does not exist.
@@ -313,8 +313,8 @@ nonisolated enum ReaderWordFollowScroll {
 - [ ] **Step 4: Run the focused suite**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderWordFollowScrollTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderWordFollowScrollTests
 ```
 
 Expected: all four magnetic-centering tests pass.
@@ -432,7 +432,7 @@ Append to `ReaderFeedViewModelAccordionTests`:
 - [ ] **Step 3: Build tests and observe the missing argument and durable trigger API**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
 Expected red result: `allowsPlaybackFollowing` is not accepted. The new timing test should compile against existing DAO APIs and fail only if the cache does not refresh.
@@ -470,9 +470,9 @@ Delete `ObserverTokenBox`, `timelineObserverToken`, observer setup in `init`, an
 - [ ] **Step 5: Run both focused suites**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderTimingRefreshTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFeedViewModelAccordionTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderTimingRefreshTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFeedViewModelAccordionTests
 ```
 
 Expected: the late word becomes active after `reload()`, existing playback expansion still passes, and exploration prevents expansion.
@@ -565,7 +565,7 @@ private final class MutableBox<Value> {
 - [ ] **Step 2: Build and observe the old Boolean coordinator API fail**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
 Expected red result: coordinator has `autoScrollEnabled`, no `followState`, no `scrollGeneration`, and no `mayApplyScroll`.
@@ -690,10 +690,10 @@ Reuse `forceScrollBlockID` and `forceScrollTrigger`, but make their task use `.r
 - [ ] **Step 8: Run the coordinator, state, and centering suites**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFeedFollowCoordinatorTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFollowStateTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderWordFollowScrollTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFeedFollowCoordinatorTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFollowStateTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderWordFollowScrollTests
 ```
 
 Expected: manual drag enters exploration, invalidates the queued scroll, and line-centering tests remain green.
@@ -770,7 +770,7 @@ import Testing
 - [ ] **Step 2: Build and observe the wiring tests fail**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
 Expected red result: root has no follow state or return pill, Reader does not observe the durable trigger, and the local arrow button still exists.
@@ -912,11 +912,11 @@ Delete `readerChromeHidden` and `epubScrollToActiveTrigger` from `PlayerModel`, 
 - [ ] **Step 8: Run follow, timing, accordion, and wiring suites**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFollowWiringTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderTimingRefreshTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFeedViewModelAccordionTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFeedFollowCoordinatorTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFollowWiringTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderTimingRefreshTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFeedViewModelAccordionTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFeedFollowCoordinatorTests
 ```
 
 Expected: late timing resolves without recreating Reader, exploration survives ordinary state updates, and only a resolved return resumes following.
@@ -982,7 +982,7 @@ Append this test to the existing `UnifiedChromeLayoutTests` suite, reusing its `
 - [ ] **Step 3: Build and observe both layout tests fail**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
 Expected red result: folder is conditional and the three per-screen reservations still exist.
@@ -1016,10 +1016,10 @@ Keep Reader's local chapter-header inset and all bottom-dock insets. Do not add 
 - [ ] **Step 7: Run the header and layout suites**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlayerMoreMenuTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/UnifiedChromeLayoutTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ChromeConsolidationTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PlayerMoreMenuTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/UnifiedChromeLayoutTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ChromeConsolidationTests
 ```
 
 Expected: unconditional folder, one root reservation, and no return of the global More menu.
@@ -1125,7 +1125,7 @@ import Testing
 - [ ] **Step 2: Build and observe the missing result types**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
 Expected red result: capture result, request, and helper do not exist.
@@ -1220,9 +1220,9 @@ Do not log the captured snippet or private book text.
 - [ ] **Step 5: Run the capture and DAO suites**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/MarkedPassageCaptureTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/MarkedPassageDAOTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/MarkedPassageCaptureTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/MarkedPassageDAOTests
 ```
 
 Expected: saved, unavailable, and failed are distinct; the existing inbox persistence test remains green.
@@ -1283,7 +1283,7 @@ import Testing
 - [ ] **Step 2: Build and observe the missing mapping type**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
 ```
 
 Expected red result: `DockStatusFeedback` is undefined.
@@ -1413,10 +1413,10 @@ Preserve valid JSON and the repository's existing catalog ordering convention.
 - [ ] **Step 7: Run feedback, capture, and accessibility suites**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/DockStatusFeedbackTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/MarkedPassageCaptureTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFeedAccessibilityTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/DockStatusFeedbackTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/MarkedPassageCaptureTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFeedAccessibilityTests
 ```
 
 Expected: result mapping is correct, capture paths remain green, and existing Dynamic Type/accessibility behavior is intact.
@@ -1454,16 +1454,16 @@ Expected: no whitespace errors; the obsolete Boolean and global chrome/jump stat
 - [ ] **Step 2: Run all focused regression suites together**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFollowStateTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderWordFollowScrollTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderTimingRefreshTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFeedViewModelAccordionTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFeedFollowCoordinatorTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFollowWiringTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/UnifiedChromeLayoutTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/MarkedPassageCaptureTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/DockStatusFeedbackTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFollowStateTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderWordFollowScrollTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderTimingRefreshTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFeedViewModelAccordionTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFeedFollowCoordinatorTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/ReaderFollowWiringTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/UnifiedChromeLayoutTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/MarkedPassageCaptureTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/DockStatusFeedbackTests
 ```
 
 Expected: all focused suites pass.
@@ -1471,7 +1471,7 @@ Expected: all focused suites pass.
 - [ ] **Step 3: Run the full repository unit-test gate**
 
 ```bash
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test
+~/.claude/bin/xcode-build-slot.sh -- make test
 ```
 
 Expected: the complete Echo test suite passes. Record the command, exit status, test count, and any skipped tests.
