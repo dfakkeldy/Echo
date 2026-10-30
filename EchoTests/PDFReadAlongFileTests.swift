@@ -232,4 +232,126 @@ import Testing
         #expect(result.blocks.contains { ($0.text ?? "").contains("ordinary prose") })
         #expect(result.pages.allSatisfy { $0.wordBoxes == nil })
     }
+
+    // MARK: - A read-along file that arrives late (iCloud)
+
+    private struct LateFixture {
+        let db: DatabaseService
+        let folder: URL
+        let pdfURL: URL
+        var audiobookID: String { folder.absoluteString }
+
+        func open() async -> PDFAutoImportScanner.ImportOutcome {
+            await PDFAutoImportScanner.importPDFFileOutcome(
+                pdfURL: pdfURL, audiobookID: audiobookID, databaseService: db,
+                chapters: [], duration: nil, force: false)
+        }
+
+        func blocks() throws -> [EPubBlockRecord] {
+            try EPubBlockDAO(db: db.writer).allBlocks(for: audiobookID)
+                .sorted { $0.sequenceIndex < $1.sequenceIndex }
+        }
+
+        func pages() throws -> [PDFBlockPageRecord] {
+            try PDFBlockPageDAO(db: db.writer).rows(for: audiobookID)
+        }
+    }
+
+    /// A PDF opened before its read-along file was on disk: imported by text extraction.
+    private func textImportedFixture() async throws -> LateFixture {
+        let db = try DatabaseService(inMemory: ())
+        let folder = try tempFolder()
+        let pdfURL = try TestPDFFixture.threePagesWithoutChapterMarkers(in: folder)
+        let fixture = LateFixture(db: db, folder: folder, pdfURL: pdfURL)
+        try db.write { db in
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES (?, 'Fixture', 120)",
+                arguments: [fixture.audiobookID])
+        }
+        guard case .imported = await fixture.open() else {
+            Issue.record("the text import should have run")
+            return fixture
+        }
+        #expect(try fixture.blocks().contains { ($0.text ?? "").contains("ordinary prose") })
+        #expect(try !fixture.pages().isEmpty)
+        return fixture
+    }
+
+    private func writeReadAlongFile(for pdfURL: URL) throws {
+        let sha = try PDFReadAlongFile.sha256Hex(of: pdfURL)
+        try fileJSON(pageCount: 3, sha256: sha, segments: sampleSegments)
+            .write(to: PDFReadAlongFile.url(forPDF: pdfURL))
+    }
+
+    @Test func aTextImportIsReplacedWhenItsReadAlongFileArrivesLater() async throws {
+        let fixture = try await textImportedFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.folder) }
+        guard case .alreadyImported = await fixture.open() else {
+            Issue.record("with no read-along file, reopening keeps the text import")
+            return
+        }
+
+        try writeReadAlongFile(for: fixture.pdfURL)
+        guard case .imported = await fixture.open() else {
+            Issue.record("the late read-along file should replace the text import")
+            return
+        }
+        #expect(try fixture.blocks().map(\.text) == sampleSegments.map(\.text))
+        #expect(try fixture.pages().contains { $0.wordBoxes != nil })
+
+        // Recovered once: the next open is an ordinary already-imported book.
+        guard case .alreadyImported = await fixture.open() else {
+            Issue.record("a recovered book must not re-import on every open")
+            return
+        }
+    }
+
+    @Test func aBookWithoutPDFPageRowsKeepsItsBlocks() async throws {
+        // Stands in for a folder whose blocks came from an EPUB beside the PDF.
+        let fixture = try await textImportedFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.folder) }
+        try PDFBlockPageDAO(db: fixture.db.writer).deleteAll(for: fixture.audiobookID)
+        let before = try fixture.blocks().map(\.text)
+
+        try writeReadAlongFile(for: fixture.pdfURL)
+        guard case .alreadyImported = await fixture.open() else {
+            Issue.record("blocks that didn't come from this PDF must be left alone")
+            return
+        }
+        #expect(try fixture.blocks().map(\.text) == before)
+    }
+
+    @Test func aMismatchedLateFileKeepsTheTextImport() async throws {
+        let fixture = try await textImportedFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.folder) }
+        let otherPDF = String(repeating: "0", count: 64)
+        try fileJSON(pageCount: 3, sha256: otherPDF, segments: sampleSegments)
+            .write(to: PDFReadAlongFile.url(forPDF: fixture.pdfURL))
+        guard case .alreadyImported = await fixture.open() else {
+            Issue.record("a read-along file for another PDF must not replace the import")
+            return
+        }
+        #expect(try fixture.blocks().contains { ($0.text ?? "").contains("ordinary prose") })
+    }
+
+    @Test func anICloudPlaceholderCountsAsPresent() async throws {
+        let folder = try tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = PDFReadAlongFile.url(forPDF: folder.appendingPathComponent("book.pdf"))
+        let placeholder = PDFReadAlongFile.placeholderURL(for: file)
+        #expect(placeholder.lastPathComponent == ".book.readalong.json.icloud")
+        #expect(!PDFReadAlongFile.isPresent(file))
+        #expect(await !PDFReadAlongFile.downloadIfNeeded(file))
+
+        try Data().write(to: placeholder)
+        #expect(PDFReadAlongFile.isPresent(file))
+        // Outside iCloud there is nothing to download, and no wait.
+        let clock = ContinuousClock()
+        let start = clock.now
+        #expect(await !PDFReadAlongFile.downloadIfNeeded(file))
+        #expect(clock.now - start < .seconds(5))
+
+        try fileJSON(pageCount: 3, segments: sampleSegments).write(to: file)
+        #expect(await PDFReadAlongFile.downloadIfNeeded(file))
+    }
 }

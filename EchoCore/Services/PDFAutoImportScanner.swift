@@ -148,6 +148,12 @@ enum PDFAutoImportScanner {
                 (try? EPubBlockDAO(db: databaseService.writer).allBlocks(for: audiobookID)
                     .isEmpty) == false
             if alreadyImported {
+                if let recovered = await reimportFromLateReadAlongFile(
+                    pdfURL: pdfURL, audiobookID: audiobookID, databaseService: databaseService,
+                    chapters: chapters, duration: duration, finalizerFileURL: finalizerFileURL)
+                {
+                    return recovered
+                }
                 logger.debug(
                     "PDF text blocks already exist for \(sanitizedPath(audiobookID)); skipping auto-import."
                 )
@@ -164,12 +170,10 @@ enum PDFAutoImportScanner {
         // A read-along file from the PDF's layout engine replaces text
         // extraction: its segments become the blocks, and its word boxes drive
         // exact highlighting. A missing or mismatched file falls through.
-        let readAlongCandidates = [pdfURL, finalizerFileURL].compactMap { $0 }
-            .map(PDFReadAlongFile.url(forPDF:))
-        let readAlong = await Task.detached(priority: .userInitiated) {
-            Self.loadReadAlongFile(pdfURL: pdfURL, candidates: readAlongCandidates)
-        }.value
-        if let readAlong {
+        if let readAlong = await readAlongFile(
+            pdfURL: pdfURL,
+            candidates: readAlongCandidates(pdfURL: pdfURL, finalizerFileURL: finalizerFileURL))
+        {
             return await importReadAlong(
                 readAlong, pdfURL: pdfURL, audiobookID: audiobookID,
                 databaseService: databaseService, chapters: chapters, duration: duration,
@@ -313,6 +317,57 @@ enum PDFAutoImportScanner {
             logger.error("PDF read-along import failed: \(error.localizedDescription)")
             return .failed(pdfURL, underlying: error)
         }
+    }
+
+    private static func readAlongCandidates(pdfURL: URL, finalizerFileURL: URL?) -> [URL] {
+        [pdfURL, finalizerFileURL].compactMap { $0 }.map(PDFReadAlongFile.url(forPDF:))
+    }
+
+    /// The first matching read-along file, downloading any candidate iCloud
+    /// still holds as a placeholder first.
+    private static func readAlongFile(pdfURL: URL, candidates: [URL]) async -> PDFReadAlongFile? {
+        guard candidates.contains(where: { PDFReadAlongFile.isPresent($0) }) else { return nil }
+        for url in candidates { _ = await PDFReadAlongFile.downloadIfNeeded(url) }
+        return await Task.detached(priority: .userInitiated) {
+            Self.loadReadAlongFile(pdfURL: pdfURL, candidates: candidates)
+        }.value
+    }
+
+    /// A PDF imported by text extraction before its read-along file was there
+    /// (iCloud hadn't downloaded it yet) would otherwise keep its extracted
+    /// blocks for good, because an imported book is never imported again. When
+    /// the book's PDF page rows carry no word boxes and a matching read-along file is now
+    /// beside the PDF, the book is re-imported from the file; the rebuild keeps
+    /// the user's notes and highlights (`replaceAllPreservingUserState`). Nil
+    /// when there is nothing to recover, so the existing import stands.
+    private static func reimportFromLateReadAlongFile(
+        pdfURL: URL,
+        audiobookID: String,
+        databaseService: DatabaseService,
+        chapters: [Chapter],
+        duration: TimeInterval?,
+        finalizerFileURL: URL?
+    ) async -> ImportOutcome? {
+        let candidates = readAlongCandidates(pdfURL: pdfURL, finalizerFileURL: finalizerFileURL)
+        guard candidates.contains(where: { PDFReadAlongFile.isPresent($0) }) else { return nil }
+        // Page rows are written only by PDF imports, so a book whose blocks came
+        // from an EPUB in the same folder has none and is left alone.
+        let rows = (try? PDFBlockPageDAO(db: databaseService.writer).rows(for: audiobookID)) ?? []
+        guard !rows.isEmpty, !rows.contains(where: { $0.wordBoxes != nil }),
+            let file = await readAlongFile(pdfURL: pdfURL, candidates: candidates)
+        else { return nil }
+        // A read-along import whose segments all lack printed words also stores
+        // no boxes; its blocks already are the file's segments.
+        let blockDAO = EPubBlockDAO(db: databaseService.writer)
+        let blocks = (try? blockDAO.allBlocks(for: audiobookID)) ?? []
+        let texts = blocks.sorted { $0.sequenceIndex < $1.sequenceIndex }.map(\.text)
+        guard texts != file.segments.map({ Optional($0.text) }) else { return nil }
+        logger.info(
+            "Re-importing \(sanitizedPath(audiobookID)) from the read-along file that arrived after its text import"
+        )
+        return await importReadAlong(
+            file, pdfURL: pdfURL, audiobookID: audiobookID, databaseService: databaseService,
+            chapters: chapters, duration: duration, finalizerFileURL: finalizerFileURL)
     }
 
     /// `nonisolated` so it runs in a detached task: it opens the PDF only to
