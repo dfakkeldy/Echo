@@ -31,9 +31,9 @@ enum BookProgressTrackModel {
     }
 }
 
-/// The 3pt hairline book track under the chapter scrubber: the ring around
-/// play carries ambient total progress; this track adds what the ring can't —
-/// chapter ticks on the same time axis as the scrubber.
+/// The 3pt hairline book track under the chapter scrubber: whole-book
+/// progress with chapter ticks on the same time axis as the scrubber. It is
+/// the iPhone player's only book-progress display.
 struct BookProgressTrack: View {
     let bookFraction: Double
     let tickFractions: [Double]
