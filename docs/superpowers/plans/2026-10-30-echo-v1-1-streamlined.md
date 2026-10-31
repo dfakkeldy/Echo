@@ -57,7 +57,7 @@ How a flip works: flipping a `1.0-gate` item to `1.1` ships it after the App Sto
 | P1 Study entry points split | Open (A-1) |
 | P1 Reader empty state has no import / import hidden | Fixed on iOS. Mac still open (A-12) |
 | P1 PDF import promise | Fixed |
-| P1 Onboarding | Launch gate removed. The teaching half is open (A-14). The ROADMAP Onboarding line's false "walkthrough is wired" claim was corrected in this plan's PR (4f95205e) |
+| P1 Onboarding | Launch gate removed. The teaching half is open (A-14). The ROADMAP Onboarding line's false "walkthrough is wired" claim was corrected in PR #664 (this plan's PR) |
 | P2 Settings routes land on placeholders | Audio route fixed. Chapter route open (C-10.1) |
 | P2 Capture/review failures masquerade as empty | Inbox load fixed. Stats loaders (A-8), capture feedback (C-5) and Mac capture and export (C-10.13, C-10.12) open |
 | P2 ABS loading/empty states | Fixed |
@@ -140,7 +140,7 @@ The same picker carries five labels (LibraryView.swift:80, :276; UnifiedTopHeade
 Proposal: use "Add to Library" and "Open Book" everywhere. Remove the dead parameters. Either gate the chip to Library or correct the CHANGELOG. Update the pinned "Open a Folder" tests.
 
 **A-14 · live-getting-started-card · Data-driven Getting Started card · 1.0-gate · M**
-The ROADMAP Wedge 3 Onboarding line (ROADMAP.md:69) used to say the walkthrough "is wired", while tests assert it is gone (Wedge3ClarityOnRampTests.swift:19-25). That correction is done (commit 4f95205e, in this plan's PR); the teaching work below is not.
+The ROADMAP Wedge 3 Onboarding line (ROADMAP.md:69) used to say the walkthrough "is wired", while tests assert it is gone (Wedge3ClarityOnRampTests.swift:19-25). That correction is done (in PR #664, this plan's PR); the teaching work below is not.
 Proposal: add one dismissible "Getting started" card that teaches by doing, with four rows ticked from real data. Each row has one action button that performs the step:
 - *Add a book*: done when a book with at least one playable track, or a standalone document, is open. Action: Add to Library (C-6), then a list of the books just found with an Open button each; a single EPUB, PDF, Markdown or text file opens directly.
 - *Follow along*: done when the loaded book shows text that tracks the audio. That means aligned text for an audiobook with an EPUB/PDF, the generated text for a narrated document, or a transcript for an audio-only book. A book with partial alignment counts. Action: the matching step (Attach text, Align, Narrate or Transcribe), chosen from the book's type; the row explains why when none applies.
