@@ -44,10 +44,8 @@ struct TransportControlsView: View {
     ) -> some View {
         switch action {
         case .playPause:
-            CircularProgressPlayButton(
+            PlayPauseHeroButton(
                 isPlaying: model.isPlaying,
-                totalProgress: model.bookProgressFraction,
-                chapterProgress: model.progressFraction,
                 action: {
                     model.togglePlayPause()
                     Haptic.play(.light)
