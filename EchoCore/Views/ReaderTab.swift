@@ -123,7 +123,7 @@ struct ReaderTab: View {
                 }
                 if let title = topChapterTitle, !title.isEmpty {
                     let isTop = topPartTitle?.isEmpty ?? true
-                    Text(title)
+                    Text(ChapterLabel.name(title))
                         .font(isTop ? .headline : .subheadline)
                         .foregroundStyle(isTop ? .primary : .secondary)
                         .frame(maxWidth: .infinity, alignment: .center)

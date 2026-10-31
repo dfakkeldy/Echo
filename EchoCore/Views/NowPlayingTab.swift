@@ -409,11 +409,12 @@ struct NowPlayingTab: View {
     private let chevronHitTarget: CGFloat = 44
 
     private var titleText: String {
-        model.chapters.count >= 2
-            ? (model.currentSubtitle.isEmpty
-                ? String(localized: "Ch \((model.currentChapterIndex ?? 0) + 1)")
-                : model.currentSubtitle)
-            : model.currentTitle
+        ChapterLabel.headline(
+            chapterCount: model.chapters.count,
+            chapterTitle: model.currentSubtitle,
+            chapterIndex: model.currentChapterIndex,
+            trackTitle: model.currentTitle
+        )
     }
 
     private var secondaryLineText: String {

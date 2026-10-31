@@ -368,17 +368,19 @@ struct MacTriPaneView: View {
 
     // MARK: - Player Bar
 
-    /// The title shown in the chapter-nav bar: the current chapter's title
-    /// when available, otherwise the book/track title. `Chapter.title` is
-    /// optional, so an untitled chapter also falls back to `currentTitle`.
+    /// The title shown in the chapter-nav bar: the same headline as iPhone
+    /// and Watch (the chapter's name, "Chapter N" when untitled), or the
+    /// book/track title when there is no current chapter.
     private var macChapterTitle: String {
-        if player.chapters.indices.contains(player.currentChapterIndex),
-            let title = player.chapters[player.currentChapterIndex].title,
-            !title.isEmpty
-        {
-            return title
+        guard player.chapters.indices.contains(player.currentChapterIndex) else {
+            return player.currentTitle
         }
-        return player.currentTitle
+        return ChapterLabel.headline(
+            chapterCount: player.chapters.count,
+            chapterTitle: player.chapters[player.currentChapterIndex].title ?? "",
+            chapterIndex: player.currentChapterIndex,
+            trackTitle: player.currentTitle
+        )
     }
 
     @ViewBuilder

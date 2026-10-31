@@ -14,12 +14,14 @@ enum BookProgressTrackModel {
         }
     }
 
-    static func caption(bookFraction: Double, chapterTitle: String?, chapterCount: Int) -> String {
+    /// "Chapter 1 of 20 · 1% of book". The headline above carries the
+    /// chapter's name, so the caption carries its number.
+    static func caption(bookFraction: Double, chapterIndex: Int?, chapterCount: Int) -> String {
         let pct = Int((bookFraction * 100).rounded())
-        guard chapterCount > 1, let title = chapterTitle, !title.isEmpty else {
+        guard chapterCount > 1, let chapterIndex, (0..<chapterCount).contains(chapterIndex) else {
             return String(localized: "\(pct)% of book")
         }
-        return String(localized: "\(pct)% of book · \(title) of \(chapterCount) chapters")
+        return String(localized: "Chapter \(chapterIndex + 1) of \(chapterCount) · \(pct)% of book")
     }
 
     static func caption(bookFraction: Double, detail: String?) -> String {
@@ -27,7 +29,7 @@ enum BookProgressTrackModel {
         guard let detail, !detail.isEmpty else {
             return String(localized: "\(pct)% of book")
         }
-        return String(localized: "\(pct)% of book · \(detail)")
+        return String(localized: "\(detail) · \(pct)% of book")
     }
 }
 

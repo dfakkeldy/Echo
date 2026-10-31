@@ -96,7 +96,7 @@ struct PlayerScrubberView: View {
         }
         return BookProgressTrackModel.caption(
             bookFraction: bookFraction,
-            chapterTitle: currentLogicalChapter?.title,
+            chapterIndex: model.currentChapterIndex,
             chapterCount: model.chapters.count
         )
     }

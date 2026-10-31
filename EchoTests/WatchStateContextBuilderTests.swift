@@ -136,6 +136,18 @@ struct WatchStateContextBuilderTests {
         #expect(ctx["title"] as? String == "The Revelation")
     }
 
+    @Test("title drops the narrated chapter-number prefix")
+    func titleDropsNarratedChapterPrefix() {
+        var snap = WatchStateSnapshot()
+        snap.chapterCount = 20
+        snap.currentSubtitle = "ch. 1: A Sad Part"
+        snap.currentChapterIndex = 0
+
+        let ctx = WatchStateContextBuilder.build(from: snap)
+
+        #expect(ctx["title"] as? String == "A Sad Part")
+    }
+
     @Test("title falls back to generated chapter label when subtitle is empty")
     func titleWithChaptersAndEmptySubtitle() {
         var snap = WatchStateSnapshot()
@@ -145,7 +157,7 @@ struct WatchStateContextBuilderTests {
 
         let ctx = WatchStateContextBuilder.build(from: snap)
 
-        #expect(ctx["title"] as? String == "Ch 1")
+        #expect(ctx["title"] as? String == "Chapter 1")
     }
 
     @Test("title uses track title when fewer than 2 chapters")
