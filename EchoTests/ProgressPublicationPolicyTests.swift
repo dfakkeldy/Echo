@@ -45,6 +45,25 @@ struct ProgressPublicationPolicyTests {
         #expect(maxGap(times, through: 119 * Self.tick) <= 5.0)
     }
 
+    @Test func lateTimerTicksStillPublishWithinFiveSeconds() {
+        // Every third tick fires 0.3 s late and the next one catches up.
+        var policy = ProgressPublicationPolicy()
+        var wall: TimeInterval = 0
+        var lastPublished: TimeInterval = 0
+        var worstGap: TimeInterval = 0
+        for i in 0..<400 {
+            wall += Self.tick + (i % 3 == 0 ? 0.3 : -0.15)
+            if policy.shouldPublish(
+                fraction: wall / (3 * 3600), isPlaying: true,
+                now: Self.start.addingTimeInterval(wall))
+            {
+                worstGap = max(worstGap, wall - lastPublished)
+                lastPublished = wall
+            }
+        }
+        #expect(worstGap <= 5.0)
+    }
+
     @Test func smallSeeksOnLongChapterStillPublishWithinFiveSeconds() {
         // A 30 s jump is 0.28% of three hours, under the fraction threshold.
         var policy = ProgressPublicationPolicy()

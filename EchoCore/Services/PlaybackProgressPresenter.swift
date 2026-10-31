@@ -16,9 +16,9 @@ struct ProgressPublicationPolicy {
     private var lastPublishedFraction: Double?
     private var lastPublishedAt: Date?
 
-    /// The interval sits a tick below 5 s so the 0.5 s timer, with jitter,
-    /// still publishes within 5 wall-clock seconds.
-    init(fractionThreshold: Double = 0.005, maximumInterval: TimeInterval = 4.5) {
+    /// The worst gap is `maximumInterval` plus one tick plus timer lateness, so
+    /// 4 s keeps the 0.5 s timer, with jitter, within 5 wall-clock seconds.
+    init(fractionThreshold: Double = 0.005, maximumInterval: TimeInterval = 4) {
         self.fractionThreshold = fractionThreshold
         self.maximumInterval = maximumInterval
     }
