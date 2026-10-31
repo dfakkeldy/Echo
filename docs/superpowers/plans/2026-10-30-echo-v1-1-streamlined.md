@@ -6,12 +6,12 @@ Depth: this is a program plan. For each item it fixes the problem, the invariant
 
 ## Decision 1: what v1.1 means
 
-The three v1.1 themes overlap two 1.0 gates that are still open. ROADMAP Wedge 2 has an unchecked "Performance budget" line (ROADMAP.md:59) and a "No-lost-progress guarantee" still marked [~] (ROADMAP.md:57). Wedge 3 has the UI overhaul and the UX-flow audit (ROADMAP.md:67-69).
+The three v1.1 themes overlap two 1.0 gates that are still open. ROADMAP Wedge 2 has an unchecked "Performance budget" line (ROADMAP.md:60) and a "No-lost-progress guarantee" still marked [~] (ROADMAP.md:58). Wedge 3 has the UI overhaul and the UX-flow audit (ROADMAP.md:68-70).
 
 - **(a)** v1.1 is the release after 1.0. It takes over specific items that are moved out of the 1.0 gate.
 - **(b)** "v1.1" is just a name for finishing those 1.0 gates.
 
-Both options are workable. Release names and tags are choices; ROADMAP.md:57-59 and :67-69 require *outcomes* (no lost progress, a performance budget, an obvious UI, no dead ends), not any particular architecture in this plan.
+Both options are workable. Release names and tags are choices; ROADMAP.md:58-60 and :67-69 require *outcomes* (no lost progress, a performance budget, an obvious UI, no dead ends), not any particular architecture in this plan.
 
 **Recommendation: (a), run as two tracks**, for reasons of scope and release risk:
 
@@ -50,14 +50,14 @@ How a flip works: flipping a `1.0-gate` item to `1.1` ships it after the App Sto
 
 | Finding | Status |
 |---|---|
-| P0 First launch looks playable while doing nothing | Fixed (ROADMAP.md:69), but a container-folder first pick brings back a trackless Listen surface, so partly reopened (C-6) |
+| P0 First launch looks playable while doing nothing | Fixed (ROADMAP.md:70), but a container-folder first pick brings back a trackless Listen surface, so partly reopened (C-6) |
 | P1 Chapter navigation discoverability | 44pt size fixed. Empty default slots and top placement still open (A-3) |
 | P1 Two competing More menus | Fixed on iOS. The Mac has dead menu commands instead (C-10.12) |
 | P1 Core study actions are long-press first | Open: no visible action surface, inert inline rows, banner copy (A-2, A-5) |
 | P1 Study entry points split | Open (A-1) |
 | P1 Reader empty state has no import / import hidden | Fixed on iOS. Mac still open (A-12) |
 | P1 PDF import promise | Fixed |
-| P1 Onboarding | Launch gate removed. The teaching half is open, and ROADMAP.md:68 is false (A-14) |
+| P1 Onboarding | Launch gate removed. The teaching half is open (A-14). The ROADMAP Onboarding line's false "walkthrough is wired" claim was corrected in this plan's PR (4f95205e) |
 | P2 Settings routes land on placeholders | Audio route fixed. Chapter route open (C-10.1) |
 | P2 Capture/review failures masquerade as empty | Inbox load fixed. Stats loaders (A-8), capture feedback (C-5) and Mac capture and export (C-10.13, C-10.12) open |
 | P2 ABS loading/empty states | Fixed |
@@ -139,9 +139,9 @@ Acceptance: each button performs its action in a Mac test (Transcribe starts a j
 The same picker carries five labels (LibraryView.swift:80, :276; UnifiedTopHeader.swift:40; ReaderEmptyState.swift:35; RootTabView.swift:597, :608). NowPlayingTab declares closures it never uses (:6, :9). CHANGELOG.md:150 says the folder chip appears only on Library, which is not true.
 Proposal: use "Add to Library" and "Open Book" everywhere. Remove the dead parameters. Either gate the chip to Library or correct the CHANGELOG. Update the pinned "Open a Folder" tests.
 
-**A-14 · roadmap-onboarding-line-correction-and-live-checklist · Data-driven Getting Started card · 1.0-gate · S (doc) + M (card)**
-ROADMAP.md:68 says the walkthrough "is wired", but tests assert it is gone (Wedge3ClarityOnRampTests.swift:19-25).
-Proposal: correct the ROADMAP line now. Add one dismissible "Getting started" card that teaches by doing, with four rows ticked from real data. Each row has one action button that performs the step:
+**A-14 · live-getting-started-card · Data-driven Getting Started card · 1.0-gate · M**
+The ROADMAP Wedge 3 Onboarding line (ROADMAP.md:69) used to say the walkthrough "is wired", while tests assert it is gone (Wedge3ClarityOnRampTests.swift:19-25). That correction is done (commit 4f95205e, in this plan's PR); the teaching work below is not.
+Proposal: add one dismissible "Getting started" card that teaches by doing, with four rows ticked from real data. Each row has one action button that performs the step:
 - *Add a book*: done when a book with at least one playable track, or a standalone document, is open. Action: Add to Library (C-6), then a list of the books just found with an Open button each; a single EPUB, PDF, Markdown or text file opens directly.
 - *Follow along*: done when the loaded book shows text that tracks the audio. That means aligned text for an audiobook with an EPUB/PDF, the generated text for a narrated document, or a transcript for an audio-only book. A book with partial alignment counts. Action: the matching step (Attach text, Align, Narrate or Transcribe), chosen from the book's type; the row explains why when none applies.
 - *Make a card*: done after the first flashcard exists for this book. Action: Mark passage, which saves the passage and offers "Make a card" from it (the Card Inbox editor, prefilled). Bookmarks alone do not enter the review queue, which is built from flashcards and study plans (StudyQueueBuilder.swift:15-38), so this row is about a card, not a bookmark.
@@ -166,9 +166,9 @@ Acceptance: unit tests for every row's state derivation, including audio-only, n
 - **A-15.14** *mac-playback-controls-single-source*, *mac-menu-bar-transport-completeness* (verify bare-Space conflicts in a 1.0 test), *mac-study-window-first-slice* (1.1: one Study window; the 1.0 parity work it builds on is A-16), *watch-review-glance-and-order*, *watch-player-code-consolidation* (one label source, delete WatchBookmarksView), *ready-to-start* (now 1.0, in C-6), *G3 "Where things moved" card* (critic-added, 1.1).
 
 **A-16 · mac-study-parity · Usable Mac decks, editor and Insights · 1.0-gate · L**
-ROADMAP.md:94 requires Mac parity for decks and the card editor, deep Insights and Chapter Study ergonomics. Compiling the iOS views for the Mac is not enough.
+ROADMAP.md:95 requires Mac parity for decks and the card editor, deep Insights and Chapter Study ergonomics. Compiling the iOS views for the Mac is not enough.
 Proposal: break the line into reachable Mac features, each with its own PR: Decks (list, create, rename, delete, assign cards), the full card editor, Insights with A-8's metrics, and Chapter Study Plan start and grading. Each has a menu or sidebar entry point, saves through the shared repositories, and shows load and save errors.
-Acceptance: per feature, a Mac test creates or edits data and reads it back after relaunch, and a forced repository error shows recovery. ROADMAP.md:94 is ticked feature by feature.
+Acceptance: per feature, a Mac test creates or edits data and reads it back after relaunch, and a forced repository error shows recovery. ROADMAP.md:95 is ticked feature by feature.
 
 ## B. Performance budgets
 
@@ -201,7 +201,7 @@ The fixtures F-Book, F-PDF, F-Library and F-Stats are generated once by a script
 **B-1 · Foundations: signposts + MetricKit + fan-out tests · 1.0-gate · M**
 Merges launch-signposts-budget, perf-budget-harness, signposts-and-metrickit-metrics, ui-perf-budget-harness, metrickit-launch-metrics and the signpost halves of other items. Today: 1 signposter. `didReceive([MXMetricPayload])` is empty (MetricKitDiagnosticsController.swift:84-87). `start()` re-archives past payloads on every launch, keyed by receivedAt, which duplicates them inside the 30-file retention window (:21-28, MetricKitDiagnosticsArchive.swift:17-27). The launch test is the template (EchoCoreUITests.swift:37-42).
 Proposal: add every interval in the table above, plus Reader.{reload, tapSeek}, Shelf.regroup and Narration.{prepare, renderSegment}. Archive metric payloads, deduplicated by time range, and move `start()` out of App.init. Add the `PerformanceFixtures` helper and RenderFanoutTests.
-Acceptance: all intervals appear in a single Instruments os_signpost + Hangs trace on device. ROADMAP.md:59 is rewritten with the ratified numbers.
+Acceptance: all intervals appear in a single Instruments os_signpost + Hangs trace on device. The ROADMAP Wedge 2 "Performance budget" line (ROADMAP.md:60) is rewritten with the ratified numbers.
 
 **B-2 · tick-isolation-screen-bodies · Keep the 2 Hz clock out of screen bodies · 1.0-gate · M**
 NowPlayingTab.swift:100, ReaderTab.swift:489 and PDFDocumentView.swift:271 attach `.onChange(of: currentPlaybackTime)` at the screen root. The clock is a 0.5 s Timer (AudioEngine.swift:687). TransportControlsView reads progress in its parent (:47-51). The presenter writes four Observable fields on every tick (PlaybackProgressPresenter.swift:125-131, :149-155). On Mac, `playerBar` reads `player.currentTime` directly (MacTriPaneView.swift:436, :445).
@@ -234,7 +234,7 @@ Merges: library-shelf-load-budget.
 **B-7 · Reading and narration rate · 1.1**
 - **B-7.1** *karaoke-word-clock* (M): currentTime is written only by the 2 Hz Timer (AudioEngine.swift:683-694), so the word highlight cannot keep up with roughly 3 words/s. The "12.5 Hz" comment (ReaderFeedViewModel.swift:51-53) is stale. Feed a non-mutating precise clock at 10-15 Hz, and only when the reader is visible, playing, has word_timing and Reduce Motion is off. Respect the monotonic guard (:715-724), and use no CADisplayLink in the first version. Budget: ≥8 Hz updates, ≤1 ms per tick, ≤100 ms lag measured against word starts in a trace. Validate after #421. Merges: karaoke-display-link.
 - **B-7.2** *boundary-precise-scheduling* (M): the chapter-end window is a fixed 0.5 s (PlaybackController.swift:1001) and the bookmark look-ahead is `max(0.5, 0.3×speed)` (:1060-1061). At 3x, about 1 s of the next chapter plays through sleep timers and checkpoints, and at 1x the boundary fires up to 0.5 s early. Arm a one-shot fire through a pure `BoundaryScheduler`, reusing the existing claims. Budget: ≤100 ms of media error at every preset, and one fire per boundary.
-- **B-7.3** *tick-fanout-coalescing* (narrowed): gate the reader, PDF and visual-listening tick work on visibility. Throttle the App Group position write to 5 s plus significant events. Those writes and the Watch messages fire only on a progress change of more than 0.5%, not every tick (PlaybackProgressPresenter.swift:126, :133). Test the accuracy of the Siri and Watch bookmark positions.
+- **B-7.3** *tick-fanout-coalescing* (narrowed): gate the reader, PDF and visual-listening tick work on visibility. The progress callback that drives Watch sync and position publication (PlayerModel.swift:1023, :1387) fires only when the fraction moved more than 0.5% since the *previous tick* (PlaybackProgressPresenter.swift:125-133, :149-157), and the comparison value is updated every tick. With the 0.5 s timer (AudioEngine.swift:687), a 20-minute chapter moves about 0.04% per tick, so on long chapters the callback never fires from playback alone. Requirement: Watch and App Group positions are never more than 5 s stale while playing, and are published at once on significant events (seek, chapter change, pause), whatever the chapter length; total publications stay at or below one per 5 s in steady playback. The spec chooses the mechanism. Tests: a deterministic 20-minute and a 3-hour chapter with the sleep timer off, over 120 ticks, including small seeks; and the accuracy of the Siri and Watch bookmark positions. This bug is **1.0-gate** (it is a no-lost-progress row in C-13); the coalescing is 1.1.
 - **B-7.4** *root-shell-narration-fanout* (S): RootTabView reads `isRunning` 8 times (:270, :357-366, :415-421), and it is derived from a snapshot rewritten on every block. Store a Bool that changes only when the state flips.
 - **B-7.5** *reader-vm-survives-tab-switch* (M, conditional on a ReaderTabSwitch baseline over 300 ms): a single-slot view-model cache above the tab switch (RootTabView.swift:193).
 
@@ -249,7 +249,7 @@ Merges: library-shelf-load-budget.
 - **B-8.8** *insights-single-scan-budget*: one segments read per load. Budget: StatsLoad ≤150 ms p95 at 20k segment rows, and a parity test.
 - **B-8.9** *abs-cover-cache-downsample*: in-memory NSCache only, cleared on sign-out, because the code deliberately does not cache account-scoped covers on disk (AudiobookshelfService.swift:209-210).
 - **B-8.10** *audio-graph-cpu-measure* (S): decide whether `pitch = 0.01` (AudioEngine.swift:169) or its "old workaround" comment (:436-443) is wrong, after a listening check.
-- **B-8.11** *mac-reader-share-feed-vm-and-signpost* steps 1-2, *feed-word-rate-update-cost* (signpost only), *first-run-funnel-signposts* (stateless events).
+- **B-8.11** *mac-reader-and-feed-signposts* (S): the Mac reader already shares `ReaderPlaybackSnapshot` and its indexes with iOS (Shared/Services/ReaderPlaybackSnapshot.swift:5-15, MacReaderFeedView.swift:79), so no further sharing is funded here. What remains is measurement: add the Reader.open and Reader.edit signposts to the Mac reader, a per-word-update signpost on both platforms (*feed-word-rate-update-cost*), and stateless first-run funnel events (*first-run-funnel-signposts*, no identifiers, nothing leaves the device). Acceptance: the Mac rows of the measurement table can be recorded. Any Mac reader refactor waits for those numbers.
 
 ## C. Hardened workflows
 
@@ -295,7 +295,7 @@ Proposal: move task ownership to PlayerModel. Swap anchors atomically at the end
 Acceptance: a run cancelled after Tier 0 leaves the previous anchors and word_timing rows identical by id, time and source (a content comparison, not a count). A source test confirms tearDownReader does not reference the task.
 
 **C-8 · CarPlay mic: hide for 1.0, finish in 1.x · 1.0-gate (hide, S) / later (workflow, M)**
-`carPlayVoiceMemoRecorder` is assigned at PlayerModel.swift:2094 and never read or stopped. The comment at :2073-2076 promises a save path that does not exist. The button image never changes (CarPlayManager.swift:69-74). The CarPlay entitlement is commented out (EchoCore.entitlements:9-16), and ROADMAP.md:102 defers "CarPlay capture buttons" to 1.x.
+`carPlayVoiceMemoRecorder` is assigned at PlayerModel.swift:2094 and never read or stopped. The comment at :2073-2076 promises a save path that does not exist. The button image never changes (CarPlayManager.swift:69-74). The CarPlay entitlement is commented out (EchoCore.entitlements:9-16), and ROADMAP.md:103 defers "CarPlay capture buttons" to 1.x.
 Proposal: (C-8a, 1.0) remove the mic button from the CarPlay template so a future entitlement cannot ship a recorder that never stops. (C-8b, later, with the 1.x capture buttons) a toggle with a 2-minute cap; disconnect or interruption stops it; stopping saves through the voice_memo path, links the memo to a new bookmark, resumes playback and plays an earcon; if microphone permission was denied, keep the bookmark and say so.
 Acceptance: C-8a: a source test confirms the CarPlay template has no mic button. C-8b: two taps produce 1 bookmark and 1 memo, the session category is `.playback` again, and a disconnect still saves.
 Merges: carplay-voice-memo-dead-end.
@@ -334,7 +334,7 @@ Proposal: route it through C-9's durable path, or remove the shortcut and fix us
 
 **C-12 · Further workflow items · mixed tags**
 - **C-12.1** *siri-capture-intents* (1.1, M+): an iOS AppShortcutsProvider with Mark passage, Bookmark, Skip back, Sleep 15 and Resume, all going through CaptureCoordinator (C-5a) and speaking a short result ("Saved", "Saved, will sync", "Couldn't save"). These are Siri phrases, reachable through AirPods' Siri; they do not change what headphone play/pause or double-press do, which stay remote transport commands. StartReview comes after A-1, and CheckpointGrade after C-9(5) and C-12.2. Keep them out of the macOS and echo-cli targets by target membership, not `#if os`. Don't clash with the Watch phrase (AppIntent.swift:80). If Siri is off or the intent is denied, the phone's next foreground shows nothing lost because nothing was captured; the manual says so. Budget: a spoken mark lands within 2 s while the phone is pocketed (device check).
-- **C-12.2** *checkpoint-countdown-survives-suspension* (**1.0-gate**, M): the checkpoint pauses playback (PlayerModel+StudyCheckpoint.swift:38) and pause ends the background task (PlaybackController.swift:318-329), so a countdown cannot run while the phone is locked and suspended. A persisted deadline alone only fixes the state on the next wake (StudyCheckpointCoordinator.swift:240-253). Requirement: on a locked phone, with no tap, the no-tap auto-Again happens within a few seconds of the window ending. The spec chooses the mechanism; candidates are keeping the audio session alive through the window (a quiet prompt or earcon loop) or a scheduled local notification whose expiry is applied on the next wake. The existing interruption rule stays: `suspendCountdown()` freezes the remaining time during a call (:215-225), so a long call never auto-grades. On a grade failure, restore or defer and play a spoken cue (:145-170). Acceptance: a locked-phone device check without a debugger, an eviction-during-window test (the grade is applied once on relaunch), and a long-call test (no grade). Edit ROADMAP.md:42 only after the device check.
+- **C-12.2** *checkpoint-countdown-survives-suspension* (**1.0-gate**, M): the checkpoint pauses playback (PlayerModel+StudyCheckpoint.swift:38) and pause ends the background task (PlaybackController.swift:318-329), so a countdown cannot run while the phone is locked and suspended. A persisted deadline alone only fixes the state on the next wake (StudyCheckpointCoordinator.swift:240-253). Requirement: on a locked phone, with no tap, the no-tap auto-Again happens within a few seconds of the window ending. The spec chooses the mechanism; candidates are keeping the audio session alive through the window (a quiet prompt or earcon loop) or a scheduled local notification whose expiry is applied on the next wake. The existing interruption rule stays: `suspendCountdown()` freezes the remaining time during a call (:215-225), so a long call never auto-grades. On a grade failure, restore or defer and play a spoken cue (:145-170). Acceptance: a locked-phone device check without a debugger, an eviction-during-window test (the grade is applied once on relaunch), and a long-call test (no grade). Edit the Wedge 1 "Chapter Study Mode" line (ROADMAP.md:43) only after the device check.
 - **C-12.3** *remote-skip-interval-stale* (1.1, S): `preferredIntervals` is set once (NowPlayingController.swift:50-62). Add `updateSkipIntervals`, driven by a SettingsManager `didSet`, shared with the Mac. Acceptance: changing the skip setting updates the lock-screen buttons without relaunch.
 - **C-12.4** *abs-download-survives-navigation* phase 1 (1.1, M): an app-owned coordinator and a Library progress card. Closing the sheet keeps the download running (ABSBrowseView.swift:62). Acceptance: close the sheet mid-download and the file still lands.
 - **C-12.5** *open-in-document-types* and *mac-open-paths* part 2 (1.1, M): Viewer-role document types at Alternate rank, file-URL routing, and Mac drop handling. Acceptance: opening an .epub from Files or Finder imports it.
@@ -346,7 +346,7 @@ Proposal: route it through C-9's durable path, or remove the shortcut and fix us
 
 **C-13 · no-lost-progress-verification-matrix · 1.0-gate · M**
 docs/qa/no-lost-progress-matrix.md lists call, route change, terminate, container move, offline ABS, unreachable Watch and Mac quit, each with a maximum loss. Back it with tests, a simctl terminate script run through xcode-build-slot, and a per-promotion device checklist.
-Acceptance: ≤20 media-seconds lost for every playback row (C-2's bound) and 0 lost captures for every capture row. ROADMAP.md:57 is ticked only when every row passes.
+Acceptance: ≤20 media-seconds lost for every playback row (C-2's bound) and 0 lost captures for every capture row. The ROADMAP Wedge 2 "No-lost-progress guarantee" line (ROADMAP.md:58) is ticked only when every row passes.
 
 ## D. CI and release hardening
 
@@ -363,15 +363,16 @@ Acceptance: ≤20 media-seconds lost for every playback row (C-2's bound) and 0 
 
 Each slice is a PR series, not one PR. Slices group work by area; ordering comes from the item-level "Needs" column in the Item map, not from whole slices finishing. Slices 1 and 2 can start at once. Every PR that adds a migration takes the next free number when it lands, never edits V1-V44, and ships an upgrade test from the previous shipped version (C-10.16).
 
-1. **No lost progress (recommended first).** Value: it closes the most serious open risk in the 1.0 gate (ROADMAP.md:57) without any design decision. Order inside the slice:
-   1. C-13 *spec*: write docs/qa/no-lost-progress-matrix.md with the maximum loss per row, so each later PR names the row it fixes.
+1. **No lost progress (recommended first).** Value: it closes the most serious open risk in the 1.0 gate (ROADMAP.md:58) without any design decision. Order inside the slice:
+   1. C-13a *spec*: write docs/qa/no-lost-progress-matrix.md with the maximum loss per row, so each later PR names the row it fixes.
    2. C-4a reconciler guards (trusted position, book/server/load-generation check). Must land before anything pushes more often.
    3. C-2 resume checkpoint (serial writer, media-time bound).
    4. C-3a force push on pause, then C-3b per-item pending records and the background task.
    5. C-9(1) Watch voice-memo file race.
    6. C-10.10 Mac in-memory fallback becomes an error (S), and C-10.11 Mac quit through `.terminateLater` (M, estimated separately).
    7. C-4b track matching by relative path and manifest rebase (M).
-   8. C-13 *verification*: run the matrix and tick ROADMAP.md:57 only when every row passes. This step needs C-5a and C-9(3) for the capture rows, so it closes after slice 3.
+   8. B-7.3's progress-freshness bug fix (Watch and App Group positions on long chapters).
+   9. C-13b *verification*: run the matrix and tick the No-lost-progress line only when every row passes. Its prerequisites are the 1.0 items in its Item map row (including C-5a and C-9(3) from slice 3), not the whole of slice 3; 1.1 work never blocks it.
    The ResumeCheckpoint signpost and budget arrive with slice 2; until then the checkpoint is covered by its unit tests only.
 2. **Foundations.** B-1 signposts, measurement table, fixtures and MetricKit; C-1 FeedbackPresenter and `CaptureResult`; D-8. Must land before slices 3-6 measure or announce anything.
 3. **Capture path.** C-5a, C-5b, C-9(2) timebase, then C-9(3) receipts and outbox, C-9(4-6), C-10.13 Mac Mark Passage, C-11, C-8a. Then, in 1.1, C-5c real text, A-15.1 one-tap capture, A-15.13 inbox triage and, once A-1 (slice 5) has landed, C-12.1 Siri intents. The 1.0 part needs slice 2.
@@ -421,12 +422,14 @@ Each slice is a PR series, not one PR. Slices group work by area; ordering comes
 | B-6.3 Mac DB open off App.init | 1.1 | 6 | C-10.10 |
 | B-7.1 karaoke word clock | 1.1 | 4 | B-2, #421 |
 | B-7.2 boundary-precise scheduling | 1.1 | 6 | B-1 |
-| B-7.3-B-7.4 tick and narration fan-out | 1.1 | 4 | B-2 |
+| B-7.3 progress publication freshness (bug) | 1.0-gate | 1 | — |
+| B-7.3 coalescing, B-7.4 narration fan-out | 1.1 | 4 | B-2 |
 | B-7.5 reader VM cache | 1.1, only if ReaderTabSwitch misses | 4 | B-1 baseline |
 | B-8.1-B-8.3 narration residency, memory gate, thermal | 1.1 | 6 | B-1, Phonon trial report |
 | B-8.4 playback_event index migration | 1.1 | 6 | C-10.16 |
 | B-8.5 Watch payload budget | 1.1 | 6 | C-9(4) grade receipts |
-| B-8.6-B-8.11 artwork, images, Insights, ABS covers, audio graph, Mac reader | 1.1 | 6 | B-1 |
+| B-8.6-B-8.10 artwork, images, Insights, ABS covers, audio graph | 1.1 | 6 | B-1 |
+| B-8.11 Mac reader and feed signposts | 1.1 | 6 | B-1 |
 | C-1 FeedbackPresenter | 1.0-gate | 2 | — |
 | C-2 resume checkpoint | 1.0-gate | 1 | C-4a |
 | C-3a force push on pause | 1.0-gate | 1 | C-4a |
@@ -457,10 +460,10 @@ Each slice is a PR series, not one PR. Slices group work by area; ordering comes
 | C-10.13 Mac Mark Passage | 1.0-gate | 3 | C-5a |
 | C-10.14 Mac batch retry | 1.0-gate | 6 | — |
 | C-10.14b Mac batch off main | 1.1 | 6 | #421 |
-| C-10.15 storage preflight | 1.0-gate | 6 | — |
+| C-10.15 storage preflight | 1.0-gate | 6 | B-1 baseline (narration bytes per word) |
 | C-10.16 migration upgrade test | 1.0-gate | with each migration | — |
 | C-11 Siri bookmark on Watch | 1.0-gate | 3 | C-9(3) |
-| C-12.1 Siri capture intents | 1.1 | 3 (after A-1 lands) | C-5a, A-1 |
+| C-12.1 Siri capture intents | 1.1 | 3 (after A-1 lands) | C-5a, A-1; CheckpointGrade also C-9(5), C-12.2 |
 | C-12.2 checkpoint countdown | 1.0-gate | 5 | A-1a |
 | C-12.3 remote skip intervals | 1.1 | 6 | — |
 | C-12.4 ABS download survives navigation | 1.1 | 5 | C-10.15 |
@@ -470,7 +473,8 @@ Each slice is a PR series, not one PR. Slices group work by area; ordering comes
 | C-12.8 CarPlay launch coordinator | 1.1 | 6 | — |
 | C-12.9 sync health surface | 1.1 | 5 | C-3b |
 | C-12.10 Mac Help parity | 1.0-gate | 5 | A-10 |
-| C-13 no-lost-progress matrix | 1.0-gate | 1 (spec), after 3 (verify) | slices 1 and 3 |
+| C-13a no-lost-progress matrix spec | 1.0-gate | 1 | — |
+| C-13b matrix verification | 1.0-gate | 1 (closes last) | C-2, C-3a, C-3b, C-4a, C-4b, C-9(1), C-9(3), C-5a, C-10.11, B-7.3 (callback fix) |
 | D-1, D-4-D-7 | 1.1 | 7 | — |
 | D-2 UI launch smoke | 1.0-gate | 7 | — |
 | D-3 nightly perf lane | 1.0-gate | 7 | B-1 |
