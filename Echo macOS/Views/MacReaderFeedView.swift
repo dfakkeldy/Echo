@@ -556,14 +556,13 @@ private struct MacBlockCardView: View, Equatable {
         blockContent
             .padding(.horizontal)
             .padding(.vertical, 6)
-            .background(isActive ? Color.accentColor.opacity(0.08) : Color.clear)
-            .overlay(alignment: .leading) {
-                if isActive {
-                    Rectangle()
-                        .fill(Color.accentColor)
-                        .frame(width: 3)
-                }
-            }
+            // One continuous page, as on iPhone: the block being read gets a
+            // soft rounded wash in the accent (cover) colour instead of a bar.
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(isActive ? Color.accentColor.opacity(0.12) : Color.clear)
+            )
+            .padding(.horizontal, 8)
             .contentShape(Rectangle())
             .contextMenu { alignmentMenu }
     }

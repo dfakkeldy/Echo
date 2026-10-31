@@ -7,12 +7,21 @@ private struct ReaderSettingsSnapshot: Equatable {
     var lineSpacing: Double
     var cardTintHex: String
     var appFont: String
+    /// RGBA of the page accent, compared by value: SwiftUI hands over a fresh
+    /// UIColor on every update, and reconfiguring on identity would reload
+    /// every visible cell each time.
+    var pageAccentRGBA: [CGFloat]?
 
-    init(_ settings: ReaderSettings) {
+    init(_ settings: ReaderSettings, pageAccent: UIColor? = nil) {
         fontSize = settings.fontSize
         lineSpacing = settings.lineSpacing
         cardTintHex = settings.cardTintHex
         appFont = settings.appFont
+        pageAccentRGBA = pageAccent.map { color in
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            color.getRed(&r, green: &g, blue: &b, alpha: &a)
+            return [r, g, b, a]
+        }
     }
 }
 
@@ -37,6 +46,9 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
     @Binding var topSectionTitle: String?
     @Binding var topChapterThemeColor: String?
     let settings: ReaderSettings
+    /// Cover (or chosen theme) colour for the soft wash on the paragraph being
+    /// read and its spoken word. A chapter theme colour takes precedence.
+    var pageAccent: UIColor? = nil
     var alignmentStatusByBlockID: [String: String] = [:]
     var audioStartTimeByBlockID: [String: TimeInterval] = [:]
     var chapterHasAudio: [Int: Bool] = [:]
@@ -108,7 +120,9 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             let item = NSCollectionLayoutItem(layoutSize: itemSize)
             let group = NSCollectionLayoutGroup.horizontal(layoutSize: itemSize, subitems: [item])
             let section = NSCollectionLayoutSection(group: group)
-            section.interGroupSpacing = 6
+            // One continuous page: no gap between blocks. Each text cell's own
+            // vertical inset sets the paragraph spacing.
+            section.interGroupSpacing = 0
             section.contentInsets = NSDirectionalEdgeInsets(
                 top: 8, leading: 12, bottom: 8, trailing: 12)
             return section
@@ -178,11 +192,15 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         context.coordinator.onChapterHeaderContextMenu = onChapterHeaderContextMenu
         context.coordinator.onPlayMemo = onPlayMemo
         context.coordinator.offState = offState
-        let settingsSnapshot = ReaderSettingsSnapshot(settings)
+        let settingsSnapshot = ReaderSettingsSnapshot(settings, pageAccent: pageAccent)
         let settingsChanged =
             context.coordinator.settingsSnapshot.map { $0 != settingsSnapshot } ?? false
         context.coordinator.settingsSnapshot = settingsSnapshot
         context.coordinator.settings = settings
+        context.coordinator.pageAccent = pageAccent
+        // The reader-page tint washes the whole page, not each paragraph.
+        collectionView.backgroundColor =
+            UIColor(hex: settings.cardTintHex)?.withAlphaComponent(0.08) ?? .clear
         context.coordinator.onToggleChapter = onToggleChapter
         context.coordinator.chapterHasAudio = chapterHasAudio
         context.coordinator.chapterThemeColorByKey = chapterThemeColorByKey
@@ -368,6 +386,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         var settings: ReaderSettings = ReaderSettings(
             fontSize: 17, lineSpacing: 1.4, cardTintHex: "#F5F0E8", appFont: "System")
         fileprivate var settingsSnapshot: ReaderSettingsSnapshot?
+        var pageAccent: UIColor?
         var alignmentStatusByBlockID: [String: String] = [:]
         var audioStartTimeByBlockID: [String: TimeInterval] = [:]
         var chapterHasAudio: [Int: Bool] = [:]
@@ -645,9 +664,8 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                         (activeWord?.blockID == block.id) ? activeWord?.index : nil
                     headingCell.configure(
                         with: block, settings: settings, tint: cardTint,
-                        isExplicitHighlight: block.cardColor != nil
-                            || block.chapterThemeColor != nil, searchQuery: searchQuery,
-                        highlightedWordIndex: headingWordIdx)
+                        isExplicitHighlight: block.cardColor != nil, searchQuery: searchQuery,
+                        highlightedWordIndex: headingWordIdx, accent: pageAccent)
                     headingCell.isActiveBlock = (block.id == activeBlockID)
                     // Debug-only overlay (Settings ▸ Debug Menu); nil keeps the label hidden.
                     let timeString =
@@ -715,9 +733,8 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                         (activeWord?.blockID == block.id) ? activeWord?.index : nil
                     paraCell.configure(
                         with: block, settings: settings, tint: cardTint,
-                        isExplicitHighlight: block.cardColor != nil
-                            || block.chapterThemeColor != nil, searchQuery: searchQuery,
-                        highlightedWordIndex: paraWordIdx)
+                        isExplicitHighlight: block.cardColor != nil, searchQuery: searchQuery,
+                        highlightedWordIndex: paraWordIdx, accent: pageAccent)
                     paraCell.isActiveBlock = (block.id == activeBlockID)
                     // Debug-only overlay (Settings ▸ Debug Menu); nil keeps the label hidden.
                     let timeString =
@@ -1209,16 +1226,26 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 completion: nil
             )
 
-            // Brief background highlight flash
+            // Brief background highlight flash. The page background now also
+            // shows which block is being read, so the flash ends by re-deriving
+            // it from the cell's current state rather than restoring a colour
+            // captured before the active block may have changed.
             let originalBg = cell.contentView.backgroundColor
+            let flash = (pageAccent ?? .systemBlue).withAlphaComponent(0.2)
             UIView.animate(
                 withDuration: 0.15,
                 animations: {
-                    cell.contentView.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.2)
+                    cell.contentView.backgroundColor = flash
                 },
                 completion: { _ in
                     UIView.animate(withDuration: 0.35) {
-                        cell.contentView.backgroundColor = originalBg
+                        if let paragraph = cell as? ParagraphCardCell {
+                            paragraph.applyPageBackground()
+                        } else if let heading = cell as? HeadingCardCell {
+                            heading.applyPageBackground()
+                        } else {
+                            cell.contentView.backgroundColor = originalBg
+                        }
                     }
                 })
         }

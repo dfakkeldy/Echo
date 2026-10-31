@@ -44,6 +44,19 @@ final class CodeCardCell: UICollectionViewCell {
         return label
     }()
 
+    /// The grey listing box. It sits inset inside a clear contentView so that
+    /// consecutive listings and the text around them keep a gap on the
+    /// otherwise gapless reader page.
+    private let box: UIView = {
+        let view = UIView()
+        view.layer.cornerRadius = 12
+        view.layer.cornerCurve = .continuous
+        view.backgroundColor = .secondarySystemBackground
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+    private static let boxVerticalMargin: CGFloat = 6
+
     private var textViewHeight: NSLayoutConstraint?
 
     var isActiveBlock: Bool = false {
@@ -52,22 +65,29 @@ final class CodeCardCell: UICollectionViewCell {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        contentView.addSubview(box)
         contentView.addSubview(textView)
         contentView.addSubview(languageLabel)
         contentView.layer.cornerRadius = 12
         contentView.clipsToBounds = true
-        contentView.backgroundColor = .secondarySystemBackground
-        contentView.layer.borderWidth = 0
+        box.layer.borderWidth = 0
 
         let height = textView.heightAnchor.constraint(equalToConstant: 60)
         textViewHeight = height
         NSLayoutConstraint.activate([
+            box.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            box.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            box.topAnchor.constraint(
+                equalTo: contentView.topAnchor, constant: Self.boxVerticalMargin),
+            box.bottomAnchor.constraint(
+                equalTo: contentView.bottomAnchor, constant: -Self.boxVerticalMargin),
+
             textView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 14),
             textView.trailingAnchor.constraint(
                 equalTo: contentView.trailingAnchor,
                 constant: -14
             ),
-            textView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
+            textView.topAnchor.constraint(equalTo: box.topAnchor, constant: 14),
             height,
 
             languageLabel.leadingAnchor.constraint(
@@ -80,7 +100,7 @@ final class CodeCardCell: UICollectionViewCell {
             ),
             languageLabel.topAnchor.constraint(equalTo: textView.bottomAnchor, constant: 6),
             languageLabel.bottomAnchor.constraint(
-                equalTo: contentView.bottomAnchor,
+                equalTo: box.bottomAnchor,
                 constant: -12
             ),
         ])
@@ -101,8 +121,7 @@ final class CodeCardCell: UICollectionViewCell {
         textView.setContentOffset(.zero, animated: false)
         languageLabel.text = block.codeLanguage
         languageLabel.isHidden = block.codeLanguage == nil
-        contentView.backgroundColor = .secondarySystemBackground
-        contentView.layer.borderColor = tint.cgColor
+        box.layer.borderColor = tint.cgColor
         updateFontAndHeight()
         updateActiveAppearance()
     }
@@ -139,8 +158,7 @@ final class CodeCardCell: UICollectionViewCell {
         languageLabel.isHidden = true
         textViewHeight?.constant = 60
         isActiveBlock = false
-        contentView.backgroundColor = .secondarySystemBackground
-        contentView.layer.borderColor = nil
+        box.layer.borderColor = nil
         isAccessibilityElement = false
         accessibilityLabel = nil
         accessibilityValue = nil
@@ -170,7 +188,7 @@ final class CodeCardCell: UICollectionViewCell {
     }
 
     private func updateActiveAppearance() {
-        contentView.layer.borderWidth = isActiveBlock ? 2 : 0
+        box.layer.borderWidth = isActiveBlock ? 2 : 0
     }
 }
 #endif

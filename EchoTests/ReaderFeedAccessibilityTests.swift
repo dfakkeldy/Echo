@@ -182,7 +182,10 @@ struct ReaderFeedAccessibilityTests {
         #expect(textView.selectedRange == NSRange(location: 0, length: 0))
     }
 
-    private static let textCellVerticalPadding: CGFloat = 28
+    /// Smallest top + bottom text inset of a reader text cell. Paragraphs sit
+    /// 6pt + 6pt on the continuous page (the paragraph gap); headings add more
+    /// space above, so this is a floor for both.
+    private static let textCellVerticalPadding: CGFloat = 12
 
     private struct TextCellMeasurement {
         var cellHeight: CGFloat
