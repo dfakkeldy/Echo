@@ -205,7 +205,7 @@ final class ChapterLoadingCoordinator {
                 if let title = c.title, !title.isEmpty {
                     state.currentSubtitle = title
                 } else {
-                    state.currentSubtitle = String(localized: "Ch \(idx + 1)")
+                    state.currentSubtitle = ChapterLabel.fallback(index: idx)
                 }
                 onUpdateNowPlayingInfo?(!(isPlayingProvider?() ?? false))
                 onSyncToWatch?()

@@ -140,15 +140,12 @@ enum WatchStateContextBuilder {
 
         // Title
         context["bookTitle"] = s.bookTitle
-        let title: String =
-            if s.chapterCount >= 2 {
-                s.currentSubtitle.isEmpty
-                    ? String(localized: "Ch \((s.currentChapterIndex ?? 0) + 1)")
-                    : s.currentSubtitle
-            } else {
-                s.currentTitle
-            }
-        context["title"] = title
+        context["title"] = ChapterLabel.headline(
+            chapterCount: s.chapterCount,
+            chapterTitle: s.currentSubtitle,
+            chapterIndex: s.currentChapterIndex,
+            trackTitle: s.currentTitle
+        )
 
         // Total progress
         if let duration = s.durationSeconds, duration.isFinite, duration > 0 {

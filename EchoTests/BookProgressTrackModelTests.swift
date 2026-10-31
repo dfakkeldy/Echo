@@ -21,20 +21,25 @@ struct BookProgressTrackModelTests {
         #expect(BookProgressTrackModel.tickFractions(chapters: [], totalDuration: 0).isEmpty)
     }
 
-    @Test func captionMatchesMockFormat() {
+    @Test func captionLeadsWithChapterNumberAndCount() {
         let caption = BookProgressTrackModel.caption(
-            bookFraction: 0.04, chapterTitle: "Prologue", chapterCount: 8
+            bookFraction: 0.01, chapterIndex: 0, chapterCount: 20
         )
-        #expect(caption == "4% of book · Prologue of 8 chapters")
+        #expect(caption == "Chapter 1 of 20 · 1% of book")
     }
 
     @Test func captionOmitsChapterPartWhenSingleChapter() {
-        let caption = BookProgressTrackModel.caption(bookFraction: 0.5, chapterTitle: nil, chapterCount: 1)
+        let caption = BookProgressTrackModel.caption(bookFraction: 0.5, chapterIndex: 0, chapterCount: 1)
         #expect(caption == "50% of book")
+    }
+
+    @Test func captionOmitsChapterPartWhenIndexIsUnknownOrOutOfRange() {
+        #expect(BookProgressTrackModel.caption(bookFraction: 0.5, chapterIndex: nil, chapterCount: 8) == "50% of book")
+        #expect(BookProgressTrackModel.caption(bookFraction: 0.5, chapterIndex: 8, chapterCount: 8) == "50% of book")
     }
 
     @Test func captionUsesPlaylistDetailWhenNoChapterTitleExists() {
         let caption = BookProgressTrackModel.caption(bookFraction: 0.42, detail: "Track 2 of 5")
-        #expect(caption == "42% of book · Track 2 of 5")
+        #expect(caption == "Track 2 of 5 · 42% of book")
     }
 }

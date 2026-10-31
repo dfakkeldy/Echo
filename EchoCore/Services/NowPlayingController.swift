@@ -129,7 +129,7 @@ final class NowPlayingController {
             let chapterDuration = params.chapterDuration
         {
             info[MPMediaItemPropertyTitle] =
-                params.subtitle.isEmpty ? "Ch \(chapterIdx + 1)" : params.subtitle
+                params.subtitle.isEmpty ? ChapterLabel.fallback(index: chapterIdx) : params.subtitle
             info[MPMediaItemPropertyAlbumTitle] = params.title
             info[MPMediaItemPropertyPlaybackDuration] = chapterDuration
             info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = chapterElapsed
