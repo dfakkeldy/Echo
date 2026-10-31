@@ -1,5 +1,8 @@
 Welcome to the Echo beta! Echo is an audiobook STUDY player: it lines audio up with the book text word by word, narrates text-only books entirely on-device, and turns what you hear into notes and flashcards. Core book import, local playback, reading, and voice synthesis run on-device without an Echo account. AI-provider and Audiobookshelf features, model downloads, public alignment lookup and files you choose in iCloud use network services. This 1.0 release does not expose public-alignment uploads.
 
+NEW IN 1.0.1
+• Apple Watch and Siri positions during playback: on any chapter longer than about two minutes, the Watch progress and the position used by "Bookmark this in Echo" (Siri) stopped updating while audio played, and caught up only on pause, seek or chapter change. Play a chapter for a few minutes without touching anything, then check that the Watch shows the current position and that a Siri bookmark lands within a few seconds of where you are.
+
 FIRST FIVE MINUTES
 • Add a DRM-free EPUB and tap Narrate. Echo synthesizes the voice on-device — the first run downloads the voice model once, so note how long the first spoken words take on your device.
 • Or add an audiobook (m4b, or a folder of mp3s) with its matching EPUB and run Auto-Align Chapters, then watch the text follow the narrator as it plays.

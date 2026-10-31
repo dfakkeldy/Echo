@@ -2,6 +2,45 @@
 import Foundation
 import UIKit
 
+// MARK: - ProgressPublicationPolicy
+
+/// Decides when a playback-progress tick should publish to the Watch and the
+/// App Group position. Compares against the last *published* fraction, not the
+/// previous tick's: on a long chapter a 0.5 s tick moves the fraction far less
+/// than the threshold, so a per-tick comparison never fires from playback alone.
+/// While playing, a publication is also forced once `maximumInterval` has
+/// passed, which bounds how stale the published position can get.
+struct ProgressPublicationPolicy {
+    var fractionThreshold: Double
+    var maximumInterval: TimeInterval
+    private var lastPublishedFraction: Double?
+    private var lastPublishedAt: Date?
+
+    /// The interval sits a tick below 5 s so the 0.5 s timer, with jitter,
+    /// still publishes within 5 wall-clock seconds.
+    init(fractionThreshold: Double = 0.005, maximumInterval: TimeInterval = 4.5) {
+        self.fractionThreshold = fractionThreshold
+        self.maximumInterval = maximumInterval
+    }
+
+    mutating func shouldPublish(fraction: Double, isPlaying: Bool, now: Date = .now) -> Bool {
+        let moved = lastPublishedFraction.map { abs($0 - fraction) > fractionThreshold } ?? true
+        let due =
+            isPlaying && (lastPublishedAt.map { now.timeIntervalSince($0) >= maximumInterval } ?? true)
+        guard moved || due else { return false }
+        lastPublishedFraction = fraction
+        lastPublishedAt = now
+        return true
+    }
+
+    /// Forget the baseline so the next tick (e.g. for a newly loaded item)
+    /// publishes at once.
+    mutating func reset() {
+        lastPublishedFraction = nil
+        lastPublishedAt = nil
+    }
+}
+
 // MARK: - PlaybackProgressPresenter
 
 /// Computes and presents playback progress, updates the system Now Playing
@@ -27,6 +66,9 @@ final class PlaybackProgressPresenter {
     /// Callbacks for cross-service coordination.
     @ObservationIgnored var onSyncToWatch: (() -> Void)?
     @ObservationIgnored var onChapterOutOfBounds: (() -> Void)?
+
+    @ObservationIgnored private var publicationPolicy = ProgressPublicationPolicy()
+    @ObservationIgnored var now: () -> Date = { .now }
 
     // MARK: - Elapsed time
 
@@ -79,6 +121,7 @@ final class PlaybackProgressPresenter {
     func updateProgress() {
         guard let audioEngine, let state else { return }
         guard audioEngine.isItemLoaded else {
+            publicationPolicy.reset()
             state.progressFraction = 0
             state.progressText = "--:--"
             state.elapsedText = "--:--"
@@ -123,14 +166,15 @@ final class PlaybackProgressPresenter {
 
                 if chapterElapsed.isFinite, chapterDuration.isFinite, chapterDuration > 0 {
                     let frac = state.currentScopeProgressFraction(forCurrentTrackOffset: elapsed)
-                    let didChange = abs(state.progressFraction - frac) > 0.005
+                    let shouldPublish = publicationPolicy.shouldPublish(
+                        fraction: frac, isPlaying: audioEngine.isPlaying, now: now())
                     state.progressFraction = frac
                     let remaining = max(0, chapterDuration - chapterElapsed) / speed
                     state.progressText = "-\(NowPlayingController.formatTime(remaining))"
                     state.elapsedText = NowPlayingController.formatTime(
                         max(0, chapterElapsed) / speed)
                     state.durationText = NowPlayingController.formatTime(chapterDuration / speed)
-                    if didChange { onSyncToWatch?() }
+                    if shouldPublish { onSyncToWatch?() }
                     return
                 }
             }
@@ -147,13 +191,14 @@ final class PlaybackProgressPresenter {
         }
 
         let frac = state.currentScopeProgressFraction(forCurrentTrackOffset: elapsed)
-        let didChange = abs(state.progressFraction - frac) > 0.005
+        let shouldPublish = publicationPolicy.shouldPublish(
+            fraction: frac, isPlaying: audioEngine.isPlaying, now: now())
         state.progressFraction = frac
 
         let remaining = max(0, duration - elapsed) / speed
         state.progressText = "-\(NowPlayingController.formatTime(remaining))"
         state.elapsedText = NowPlayingController.formatTime(max(0, elapsed) / speed)
         state.durationText = NowPlayingController.formatTime(duration / speed)
-        if didChange { onSyncToWatch?() }
+        if shouldPublish { onSyncToWatch?() }
     }
 }
