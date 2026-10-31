@@ -22,14 +22,6 @@ final class HeadingCardCell: UICollectionViewCell {
         return tv
     }()
 
-    private let activeBar: UIView = {
-        let view = UIView()
-        view.backgroundColor = .systemBlue
-        view.translatesAutoresizingMaskIntoConstraints = false
-        view.isHidden = true
-        return view
-    }()
-
     private let anchorLabel: UILabel = {
         let label = UILabel()
         label.font = .systemFont(ofSize: 10, weight: .bold)
@@ -44,6 +36,7 @@ final class HeadingCardCell: UICollectionViewCell {
         var block: EPubBlockRecord
         var settings: ReaderSettings
         var tint: UIColor
+        var accent: UIColor?
         var isExplicitHighlight: Bool
         var searchQuery: String?
         var highlightedWordIndex: Int?
@@ -57,35 +50,49 @@ final class HeadingCardCell: UICollectionViewCell {
     private var highlightTint: UIColor = .systemBlue
     private var textConfiguration: TextConfiguration?
 
+    // The reader is one continuous page: text sits on it with no box. A block
+    // the user coloured keeps that highlight; the block being read gets a soft
+    // rounded wash in the chapter theme or cover colour.
+    private var pageAccent: UIColor = .systemBlue
+    private var hasUserColor = false
+
     var isActiveBlock: Bool = false {
-        didSet {
-            activeBar.isHidden = !isActiveBlock
-            contentView.alpha = isActiveBlock ? 1.0 : 0.95
+        didSet { applyPageBackground() }
+    }
+
+    /// Re-derives the background from the block's state. The feed also calls
+    /// it after a tap flash so the flash never restores a stale colour.
+    func applyPageBackground() {
+        if hasUserColor, let tint = textConfiguration?.tint {
+            // A user colour keeps its highlight; an accent outline marks it as
+            // the block being read.
+            contentView.backgroundColor = tint
+            contentView.layer.borderColor = pageAccent.cgColor
+            contentView.layer.borderWidth = isActiveBlock ? 2 : 0
+        } else {
+            contentView.backgroundColor =
+                isActiveBlock ? pageAccent.withAlphaComponent(0.12) : .clear
+            contentView.layer.borderWidth = 0
         }
     }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         contentView.addSubview(label)
-        contentView.addSubview(activeBar)
         contentView.addSubview(anchorLabel)
         contentView.layer.cornerRadius = 12
+        contentView.layer.cornerCurve = .continuous
         contentView.clipsToBounds = true
 
         NSLayoutConstraint.activate([
-            activeBar.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
-            activeBar.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
-            activeBar.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
-            activeBar.widthAnchor.constraint(equalToConstant: 3),
-
             anchorLabel.trailingAnchor.constraint(
                 equalTo: contentView.trailingAnchor, constant: -8),
             anchorLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
 
             label.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 14),
             label.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -14),
-            label.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
-            label.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
+            label.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 18),
+            label.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
         ])
 
         _ = registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) {
@@ -108,7 +115,6 @@ final class HeadingCardCell: UICollectionViewCell {
         accessibilityTraits = [.button]
         accessibilityCustomActions = actions
         label.isAccessibilityElement = false
-        activeBar.isAccessibilityElement = false
         anchorLabel.isAccessibilityElement = false
     }
 
@@ -116,12 +122,13 @@ final class HeadingCardCell: UICollectionViewCell {
         with block: EPubBlockRecord, settings: ReaderSettings, tint: UIColor,
         isExplicitHighlight: Bool,
         searchQuery: String? = nil,
-        highlightedWordIndex: Int? = nil
+        highlightedWordIndex: Int? = nil, accent: UIColor? = nil
     ) {
         textConfiguration = TextConfiguration(
             block: block,
             settings: settings,
             tint: tint,
+            accent: accent,
             isExplicitHighlight: isExplicitHighlight,
             searchQuery: searchQuery,
             highlightedWordIndex: highlightedWordIndex
@@ -166,19 +173,15 @@ final class HeadingCardCell: UICollectionViewCell {
         // apply the highlight against this base text instead of mutating it in place.
         wordRanges = ParagraphCardCell.wordRanges(in: plainText)
         baseAttributed = attributed
-        highlightTint = configuration.tint
+        hasUserColor = block.cardColor != nil
+        pageAccent =
+            block.chapterThemeColor.flatMap { UIColor(hex: $0) }
+            ?? configuration.accent ?? configuration.tint
+        highlightTint = pageAccent
         label.font = font
         renderWordHighlight(configuration.highlightedWordIndex)
 
-        if block.cardColor != nil {
-            contentView.backgroundColor = configuration.tint
-        } else if block.chapterThemeColor != nil {
-            contentView.backgroundColor =
-                traitCollection.userInterfaceStyle == .dark
-                ? UIColor.black.withAlphaComponent(0.2) : UIColor.white.withAlphaComponent(0.4)
-        } else {
-            contentView.backgroundColor = configuration.tint.withAlphaComponent(0.08)
-        }
+        applyPageBackground()
 
         setNeedsLayout()
     }

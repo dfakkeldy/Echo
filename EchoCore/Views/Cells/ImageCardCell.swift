@@ -75,7 +75,8 @@ final class ImageCardCell: UICollectionViewCell {
             }
         }
         captionLabel.text = block.text
-        contentView.backgroundColor = tint.withAlphaComponent(0.05)
+        // Figures sit on the page like text; only a user colour boxes them.
+        contentView.backgroundColor = block.cardColor != nil ? tint.withAlphaComponent(0.12) : .clear
     }
 
     override func prepareForReuse() {

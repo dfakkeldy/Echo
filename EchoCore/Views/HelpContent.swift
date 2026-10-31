@@ -175,11 +175,11 @@ enum HelpContent {
 
             **Table of Contents:** Tap the list icon in the reader header to browse the book's full table of contents. Tap any entry to jump to that section.
 
-            **Auto-scroll:** The reader can follow playback automatically. When auto-scroll is on, the current paragraph highlights with a blue bar and the view scrolls to keep it centered. Scroll manually to pause auto-follow; tap the scroll-to-active button (↓) in the header to re-enable it.
+            **Auto-scroll:** The reader can follow playback automatically. When auto-scroll is on, the paragraph being read gets a soft wash in the book's cover colour and the view scrolls to keep it centered. Scroll manually to pause auto-follow; tap the scroll-to-active button (↓) in the header to re-enable it.
 
             **Reader toolbar:** When the Reader tab is active, the bottom dock keeps playback and study controls nearby: mini-player controls, inline speed presets, Mark Passage, the Read/Now Playing toggle, and bookmark, note, or memo capture.
 
-            **Card colors:** Long-press any card and choose "Change Color" to highlight it. Use this to color-code important passages, mark sections to revisit, or organize your study notes.
+            **Paragraph colors:** Long-press any paragraph and choose "Change Color" to highlight it. Use this to color-code important passages, mark sections to revisit, or organize your study notes.
 
             **Bookmarks from text:** Long-press a paragraph and choose "Save Bookmark" to create a timestamped bookmark linked to that text. The bookmark's note is pre-filled with the first 200 characters of the paragraph.
 
@@ -187,7 +187,7 @@ enum HelpContent {
 
             **Inline formatting & markers:** The reader preserves bold, italic, and underline formatting from the EPUB. Images, hyperlinks, blockquotes, and horizontal rules are detected and displayed in the reading feed.
 
-            **Reader settings:** Tap the font size icon in the header to adjust font size, line spacing, and the default card background tint.
+            **Reader settings:** Tap the font size icon in the header to adjust font size, line spacing, and the page tint.
             """
         ),
         HelpSection(

@@ -35,7 +35,7 @@ struct ReaderSettingsSheet: View {
                     }
                 }
 
-                Section("Card Background") {
+                Section("Page Tint") {
                     LazyVGrid(columns: Array(repeating: .init(.flexible()), count: 4), spacing: 12) {
                         ForEach(colorSwatches) { swatch in
                             Button {

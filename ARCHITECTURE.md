@@ -1720,7 +1720,7 @@ ReaderTab (SwiftUI)
   └── ReaderFeedCollectionView  ← UICollectionView via UIViewRepresentable
        ├── 4 cell types: HeadingCardCell, ParagraphCardCell, ImageCardCell, ChapterDividerCell
        ├── Anchor labels         ← green "locked" badge on manually-aligned cards (Heading/Paragraph)
-       ├── Active block tracking — blue bar on the card matching current playback position
+       ├── Active block tracking — soft rounded wash (chapter theme → cover accent) on the block matching current playback position
        ├── Auto-scroll — follows playhead via binary search on timeline cache; disengages on manual scroll
        ├── Force-scroll trigger  ← counter-based invalidation for repeated scroll-to-same-block
        ├── Context menu — long-press any card for:
@@ -1894,7 +1894,7 @@ RootTabView
 **ReaderTab** (available when `model.hasEPUB` is true; `model.hasPDF` provides a `PDFDocumentView` fallback) is the EPUB-backed reading surface. It renders the book as a feed of styled cards — headings, paragraphs, images, and code listings — aligned to the audio playback position. `CodeCardCell` uses selectable Dynamic-Type-aware monospaced text, horizontal scrolling without line wrapping, an optional language label, and block-level active highlighting because narration speaks only the listing cue. The header auto-hides on scroll-down and reveals on scroll-up. It includes:
 - A search bar for full-text search across the EPUB with inline match highlighting
 - A Table of Contents sheet for structural navigation
-- Auto-scroll that follows the audio playhead, highlighting the active paragraph with a blue bar
+- Auto-scroll that follows the audio playhead, highlighting the active paragraph with a soft wash in the cover colour on one continuous page
 - Long-press context menus on every card for fixing alignment, changing card colors, creating bookmarks, and copying text
 - Per-card alignment anchors that lock EPUB blocks to exact audio timestamps
 - Reader-driven chrome hiding: scroll state updates `PlayerModel.readerChromeHidden`, allowing `RootTabView` to hide top chrome while reading; alignment timestamp UI omits placeholder "None" labels when no timestamp exists.
@@ -1982,7 +1982,7 @@ The Reader uses a tap/long-press interaction model on card cells:
 | **Tap** | Image card | Open image in system viewer |
 | **Long press** | Any card | Context menu: word actions (Look Up / Save, when pressed on a word), Auto-Align Chapters, Change Color, Set Chapter Theme (headings only), Align to Now, Align to 5s Ago, Align to Chapter Start (opens chapter picker), Not in Audio (Whole Chapter, if in a chapter), Not in Audio (This Paragraph) / Include in Audio, Erase Anchor (locked anchors), Reset Alignment (all anchors), Save Bookmark, Copy Text, Save Image (images only) |
 
-**Active block tracking:** The paragraph currently matching the audio playback position is highlighted with a blue leading bar (`activeBar`) on its card. The ReaderFeedViewModel performs a binary search on a cached `[(start, end, blockID)]` array for O(log N) lookup each time the playback position changes.
+**Active block tracking:** The paragraph currently matching the audio playback position gets a soft 12pt rounded wash at 0.12 alpha in the page accent: the chapter theme colour, else the cover accent, else the page tint. Blocks have no per-paragraph box; a paragraph the user coloured keeps its highlight and gains an accent outline while it is being read. The ReaderFeedViewModel performs a binary search on a cached `[(start, end, blockID)]` array for O(log N) lookup each time the playback position changes.
 
 **Auto-scroll:** When enabled, the collection view auto-scrolls to keep the active block centered. Scrolling manually pauses auto-scroll; tapping the scroll-to-active button (↓) in the header re-engages it with an immediate forced scroll to the current playback position. The header auto-hides on scroll-down and reappears on scroll-up.
 

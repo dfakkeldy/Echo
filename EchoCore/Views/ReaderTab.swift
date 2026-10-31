@@ -194,6 +194,7 @@ struct ReaderTab: View {
                     topSectionTitle: $topSectionTitle,
                     topChapterThemeColor: $topChapterThemeColor,
                     settings: readerSettings,
+                    pageAccent: UIColor(model.resolvedThemeTint ?? model.coverTheme.accent),
                     alignmentStatusByBlockID: vm.alignmentStatusByBlockID,
                     audioStartTimeByBlockID: vm.audioStartTimeByBlockID,
                     chapterHasAudio: vm.chapterHasAudio,
