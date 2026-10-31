@@ -18,7 +18,7 @@
 - Create no per-speaker or per-block audio files.
 - Preserve the normal alignment-sidecar and word-timing schemas.
 - Preserve current uniform and `--chapter-voice` behavior.
-- Run every Apple build/test command through `/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh --`.
+- Run every Apple build/test command through `~/.claude/bin/xcode-build-slot.sh --`.
 
 ## File Map
 
@@ -73,8 +73,8 @@ Add tests that decode the design-spec example, resolve explicit blocks plus an i
 - [ ] **Step 2: Run the focused tests and verify RED**
 
 ```sh
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/BlockVoicePlanTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/BlockVoicePlanTests
 ```
 
 Expected: compile failure because `BlockVoicePlanLoader` and related types do not exist.
@@ -113,8 +113,8 @@ Use parameterized tests for unsupported schema, unknown/duplicate keys, malforme
 - [ ] **Step 5: Run the focused tests and verify GREEN**
 
 ```sh
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/BlockVoicePlanTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/BlockVoicePlanTests
 ```
 
 Expected: `BlockVoicePlanTests` passes with no warnings.
@@ -159,8 +159,8 @@ let config = NarrationRunConfig(
 - [ ] **Step 2: Run the runner suite and verify RED**
 
 ```sh
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/HeadlessNarrationRunnerTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/HeadlessNarrationRunnerTests
 ```
 
 Expected: compile failure because `voicePlanURL` is not a configuration member and `voice` is not optional.
@@ -202,8 +202,8 @@ JSON stdout, invalid source/plan exit status, and absence of created files.
 - [ ] **Step 6: Run focused tests and build the CLI**
 
 ```sh
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/HeadlessNarrationRunnerTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make echo-cli
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/HeadlessNarrationRunnerTests
+~/.claude/bin/xcode-build-slot.sh -- make echo-cli
 ```
 
 Expected: runner tests pass, `echo-cli narrate --help` includes `--voice-plan`,
@@ -244,8 +244,8 @@ Extend the recording TTS test engine to append `(text, voice)` values. Render a 
 - [ ] **Step 2: Run the service test and verify RED**
 
 ```sh
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationServiceTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationServiceTests
 ```
 
 Expected: compile failure because `renderChapter` does not accept `blockVoice`.
@@ -271,8 +271,8 @@ Render two chapters with the existing parallel recording factory and assert coll
 - [ ] **Step 5: Run service and parallel suites**
 
 ```sh
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationServiceTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/HeadlessNarrationRunnerParallelTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/NarrationServiceTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/HeadlessNarrationRunnerParallelTests
 ```
 
 Expected: both suites pass; anchor count and timing assertions are unchanged by voice switches.
@@ -309,8 +309,8 @@ Cover: identical interrupted plan resumes; reordered equivalent JSON resumes; ch
 - [ ] **Step 2: Run resume tests and verify RED**
 
 ```sh
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/HeadlessNarrationRunnerTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/HeadlessNarrationRunnerTests
 ```
 
 Expected: plan marker assertions fail because capture identity remains schema 1.
@@ -343,7 +343,7 @@ Include full plan hash and ordered chapter digests in `captureSetID`. Retain sou
 - [ ] **Step 5: Run focused and legacy resume tests**
 
 ```sh
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/HeadlessNarrationRunnerTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/HeadlessNarrationRunnerTests
 ```
 
 Expected: all plan and pre-existing chapter-plan resume cases pass.
@@ -380,8 +380,8 @@ Assert schema 7, `voice == "mixed"`, empty `chapterVoices`, exact plan hash, sor
 - [ ] **Step 2: Run audit tests and verify RED**
 
 ```sh
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PronunciationAuditTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PronunciationAuditTests
 ```
 
 Expected: compile failure because plan audit fields do not exist.
@@ -404,8 +404,8 @@ Build `blockVoices` from every resolved block. Keep speaker IDs out of the audit
 - [ ] **Step 5: Run audit and runner tests**
 
 ```sh
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PronunciationAuditTests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/HeadlessNarrationRunnerTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/PronunciationAuditTests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/HeadlessNarrationRunnerTests
 ```
 
 Expected: schema-7 tests pass and schema-6 fixture tests remain unchanged.
@@ -442,8 +442,8 @@ Render a small EPUB whose plan alternates narrator, POV, and dialogue voices. As
 - [ ] **Step 2: Run end-to-end test and verify RED**
 
 ```sh
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make build-tests
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/HeadlessNarrationRunnerTests
+~/.claude/bin/xcode-build-slot.sh -- make build-tests
+~/.claude/bin/xcode-build-slot.sh -- make test-only FILTER=EchoTests/HeadlessNarrationRunnerTests
 ```
 
 Expected: the new artifact or timing assertion fails until all plan paths reuse the chapter stream and final exporter.
@@ -455,8 +455,8 @@ Route plan chapters through the existing `AudioExportService` item list and `ass
 - [ ] **Step 4: Run the complete Echo gate**
 
 ```sh
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make echo-cli
+~/.claude/bin/xcode-build-slot.sh -- make test
+~/.claude/bin/xcode-build-slot.sh -- make echo-cli
 git diff --check
 ```
 
@@ -489,8 +489,8 @@ Confirm no-plan commands still default to `af_heart`, chapter mappings retain le
 - [ ] **Step 2: Run the final gate from a clean process**
 
 ```sh
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test
-/Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make echo-cli
+~/.claude/bin/xcode-build-slot.sh -- make test
+~/.claude/bin/xcode-build-slot.sh -- make echo-cli
 git status --short --branch
 ```
 

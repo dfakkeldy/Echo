@@ -8,32 +8,32 @@
 
 ### Fastlane and Packaging Configuration
 
-#### [MODIFY] [Appfile](file:///Users/dfakkeldy/Developer/Echo/fastlane/Appfile)
+#### [MODIFY] [Appfile](file://~/Developer/Echo/fastlane/Appfile)
 Update all bundle identifiers from `com.orbit.*` to `com.echo.*` equivalents:
 * Main bundle ID: `com.echo.audiobooks`
 * WatchKit app bundle ID: `com.echo.audiobooks.watchkitapp`
 * Widget Extension bundle ID: `com.echo.audiobooks.watchkitapp.widget`
 * macOS app bundle ID: `com.echo.audiobooks.macos`
 
-#### [MODIFY] [Fastfile](file:///Users/dfakkeldy/Developer/Echo/fastlane/Fastfile)
+#### [MODIFY] [Fastfile](file://~/Developer/Echo/fastlane/Fastfile)
 * Update `app_identifier` arrays in both iOS and macOS lanes to use the rebranded `com.echo.*` bundle IDs.
 
-#### [MODIFY] [Matchfile](file:///Users/dfakkeldy/Developer/Echo/fastlane/Matchfile)
+#### [MODIFY] [Matchfile](file://~/Developer/Echo/fastlane/Matchfile)
 * Update `git_url` to reference `echo-audiobooks-certificates.git` instead of `orbit-audiobooks-certificates.git`.
 
-#### [MODIFY] [.env.example](file:///Users/dfakkeldy/Developer/Echo/.env.example)
+#### [MODIFY] [.env.example](file://~/Developer/Echo/.env.example)
 * Rebrand header comment and Match descriptions to read `Echo Audiobooks` instead of `Orbit Audiobooks`.
 
-#### [MODIFY] [transcription_generator.py](file:///Users/dfakkeldy/Developer/Echo/Tools/transcription_generator.py)
+#### [MODIFY] [transcription_generator.py](file://~/Developer/Echo/Tools/transcription_generator.py)
 * Rebrand comments and descriptions referencing `Orbit Audiobooks` to `Echo Audiobooks`.
 
 ---
 
 ### Xcode Scheme Configuration
 
-#### [NEW] [Echo macOS.xcscheme](file:///Users/dfakkeldy/Developer/Echo/Echo.xcodeproj/xcshareddata/xcschemes/Echo%20macOS.xcscheme)
+#### [NEW] [Echo macOS.xcscheme](file://~/Developer/Echo/Echo.xcodeproj/xcshareddata/xcschemes/Echo%20macOS.xcscheme)
 * Share the `Echo macOS` scheme to make it visible to version control and future CI runners.
-* Copy the structure of [Echo.xcscheme](file:///Users/dfakkeldy/Developer/Echo/Echo.xcodeproj/xcshareddata/xcschemes/Echo.xcscheme) but set the build target and run action target to the `Echo macOS` blueprint ID (`AA0100000000000000000020`), building `Echo macOS.app`.
+* Copy the structure of [Echo.xcscheme](file://~/Developer/Echo/Echo.xcodeproj/xcshareddata/xcschemes/Echo.xcscheme) but set the build target and run action target to the `Echo macOS` blueprint ID (`AA0100000000000000000020`), building `Echo macOS.app`.
 
 ---
 

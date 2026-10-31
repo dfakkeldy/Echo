@@ -5,7 +5,7 @@ Done: MisakiSwift `EnglishG2P.applyImperativeVerbTags` (sentence-initial gold he
 Next: local `make test` not yet run (Mac build window opens 22:00); confirm hosted CI on the PR, then merge to nightly. Follow-up finding: MisakiSwift never applies gold `None` (utterance-final strong-form) keys — port divergence, separate PR.
 Resume:
 ```
-git checkout claude/echo-narration-preprocessing-e017f8 && /Users/dfakkeldy/.claude/bin/xcode-build-slot.sh -- make test
+git checkout claude/echo-narration-preprocessing-e017f8 && ~/.claude/bin/xcode-build-slot.sh -- make test
 ```
 
 ## 2026-08-22 — CI round 1 failed on stale renderVersion pins; fixed and re-pushed

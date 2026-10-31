@@ -8,7 +8,7 @@
 - Dirty state: clean (only untracked `docs/real-world-testing/` ledgers)
 - Build under test: iOS Simulator unit tests (`make build-tests` / `make test-only`), `CODE_SIGNING_ALLOWED=NO`
 - Device / OS: iPhone 17 simulator, iOS 26.5 (Xcode 26.6 host)
-- Live service: ABS at 100.95.69.48:13378 (download-to-local; covered heavily 2026-06-28 — steering this loop toward other subsystems)
+- Live service: ABS at <abs-host>:<port> (download-to-local; covered heavily 2026-06-28 — steering this loop toward other subsystems)
 - Credentials policy: read-only on live ABS; no secrets in repo/issues/logs
 - Local tool gaps: ffprobe/pdfinfo/jq present; bundler 2.5.22 missing (fastlane lanes blocked)
 

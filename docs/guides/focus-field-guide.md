@@ -1,8 +1,8 @@
 # The Focus Field Guide — ADHD & AuDHD Strategies
 
-Echo was built by an AuDHD mail carrier who needed his own tools to exist. This page is the rest of the toolbox: practical, research-backed strategies for the executive-function stuff — getting started, time blindness, staying organized, motivation, all-or-nothing thinking, hyperfocus, distractibility. Most tips work with or without Echo; where Echo genuinely helps, there's a note. Take what works, skip what doesn't.
+Echo was built for interrupted, neurodivergent attention. This page is the rest of the toolbox: practical, research-backed strategies for the executive-function stuff — getting started, time blindness, staying organized, motivation, all-or-nothing thinking, hyperfocus, distractibility. Most tips work with or without Echo; where Echo genuinely helps, there's a note. Take what works, skip what doesn't.
 
-> **This is a field guide, not medical advice.** ADHD and autism are real, diagnosable conditions — strategies like these *complement* professional care (therapy, coaching, medication where appropriate); they don't replace it. Product examples were reviewed against Nightly source on October 24, 2026; check the [manual](user-manual.md) for platform limits. Roadmap items remain planned.
+> **This is a field guide, not medical advice.** ADHD and autism are real, diagnosable conditions — strategies like these *complement* professional care (therapy, coaching, medication where appropriate); they don't replace it. Product examples were updated October 24, 2026; check the [manual](user-manual.md) for platform limits. Roadmap items remain planned.
 
 > **The premise of this whole page:** ADHD is not a knowledge problem — you usually know exactly what you should be doing. It's a *performance* problem: a gap between knowing and doing, driven by how the brain handles activation, time, working memory, and reward (Barkley, 2012). So none of these strategies are "try harder." All of them are **move the work out of your head and into the world** — externalize time, externalize memory, externalize the starting gun. That's also the design thesis behind Echo.
 

@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Work only in `/Users/dfakkeldy/.codex/worktrees/pronunciation-acceptance/Echo` on `codex/pronunciation-acceptance-audit`, based on `origin/nightly`.
+- Work only in `~/.codex/worktrees/pronunciation-acceptance/Echo` on `codex/pronunciation-acceptance-audit`, based on `origin/nightly`.
 - Preserve the unrelated dirty changes in every other Echo checkout and worktree.
 - Add no dependency, network pronunciation service, private-book fixture, model artifact, or platform-version increase.
 - Preserve pronunciation precedence: occurrence override > book override > global override > built-in override > contextual homograph rule > ordinary G2P.
@@ -518,7 +518,7 @@ git commit -m "feat(cli): generate pronunciation review artifacts"
 
 - Create: `docs/qa/2026-07-13-pronunciation-acceptance-audit.md`
 - Modify only if needed by discovered defects: files covered by Tasks 1–6 and their focused tests
-- Local-only outputs outside Git: `/Users/dfakkeldy/Developer/echo-overnight/pronunciation-acceptance-20260713/`
+- Local-only outputs outside Git: `~/Developer/echo-overnight/pronunciation-acceptance-20260713/`
 
 ### Step 1: Run focused and full automated verification
 
@@ -575,7 +575,7 @@ git commit -m "docs(qa): verify pronunciation acceptance artifacts"
 
 ### Step 6: Update durable business operating context
 
-In a separate clean worktree of `/Users/dfakkeldy/Developer/knowledge-base`, update the relevant Echo project/status/index/log pages with:
+In a separate clean worktree of `~/Developer/knowledge-base`, update the relevant Echo project/status/index/log pages with:
 
 - the source design and QA receipt links;
 - the feature branch/PR and hosted CI state;

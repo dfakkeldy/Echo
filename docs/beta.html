@@ -26,6 +26,8 @@
     <meta name="theme-color" content="#10151e" />
     <link rel="stylesheet" href="styles.css" />
     <link rel="icon" type="image/png" href="assets/icon.png" />
+    <meta name="twitter:card" content="summary" />
+    <link rel="apple-touch-icon" href="assets/icon.png" />
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -87,14 +89,22 @@
             limitations.
           </p>
           <p>
-            <strong>Reviewed October 24, 2026 against Nightly source.</strong> A
-            feature in the repository may be newer than the TestFlight build you
-            receive. Your build's <strong>What to Test</strong> notes are the
-            guide to that build.
+            <strong>Updated October 24, 2026.</strong> Your build's
+            <strong>What to Test</strong> notes describe what is new in that
+            build.
           </p>
           <h2 id="access">1. Getting access</h2>
           <p>
-            Request an invitation at
+            Echo is in public beta on TestFlight. Install Apple's free
+            TestFlight app, then open the invitation link on your device.
+          </p>
+          <p>
+            <a class="cta-button" href="https://testflight.apple.com/join/Zu9rzg59"
+              >Join the TestFlight beta <span aria-hidden="true">↗</span></a
+            >
+          </p>
+          <p>
+            If the link does not work for you, request an invitation at
             <a
               href="mailto:testflight@kinnokilabs.com?subject=Echo%20beta%20access"
               ><span>testflight@kinnokilabs.com</span></a
@@ -102,12 +112,6 @@
             <a href="https://github.com/dfakkeldy/Echo/issues">GitHub Issues</a
             >. Mention the platforms you use; do not post your email address or
             private book files in a public issue.
-          </p>
-          <p>
-            Nightly is the integration track; Weekly is the promoted beta track.
-            TestFlight access, build processing, and external eligibility are
-            separate from a PR merging. An invitation does not promise a
-            particular source revision is available yet.
           </p>
           <h2 id="requirements">2. Requirements</h2>
           <ul>
@@ -181,12 +185,6 @@
               credentials and dictated text private.
             </li>
           </ul>
-          <p>
-            Report the outcome you observed. A Watch haptic proves local saving,
-            an import's Added state proves a completed local import, and a
-            webhook acceptance proves endpoint acceptance; none establishes what
-            a downstream person did.
-          </p>
           <h2 id="plans">5. Areas to explore</h2>
           <p>
             These are optional ways to focus feedback. You do not need to
@@ -321,7 +319,7 @@
             access is permitted, importing a book may look up matching public
             alignment markers, with local fallback for an ordinary lookup
             failure. Model downloads and files you choose in iCloud also use
-            network services. This 1.0 release does not expose public-alignment
+            network services. The current version does not offer public-alignment
             uploads. These connections are optional; they are not needed for
             local playback and reading.
           </p>
@@ -356,7 +354,7 @@
         <a href="manual.html">Manual</a>
         <a href="privacy.html">Privacy</a>
         <a href="terms.html">Terms</a>
-        <a href="https://github.com/dfakkeldy/Echo/issues">Support</a>
+        <a href="https://kinnokilabs.com/echo-help/">Support</a>
         <a href="https://github.com/dfakkeldy/Echo">GitHub</a>
       </nav>
       <p class="footer-fineprint">

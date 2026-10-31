@@ -24,7 +24,7 @@
 - [ ] **Step 1: Create feature branch off main**
 
 ```bash
-cd /Users/dfakkeldy/Developer/Echo
+cd ~/Developer/Echo
 git checkout main && git pull --ff-only
 git checkout -b feat/design-review-hig-pass
 ```
