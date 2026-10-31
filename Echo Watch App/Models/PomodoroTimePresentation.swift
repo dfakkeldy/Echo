@@ -54,6 +54,28 @@ nonisolated struct PomodoroTimePresentation: Equatable, Sendable {
         )
     }
 
+    /// One-letter unit shown after the number ("25m"), so the ring reads as
+    /// a timer at a glance rather than a bare number. Empty when complete.
+    var unitSymbol: String {
+        switch unit {
+        case .hours: String(localized: "h", comment: "Pomodoro hours unit, one letter")
+        case .minutes: String(localized: "m", comment: "Pomodoro minutes unit, one letter")
+        case .seconds: String(localized: "s", comment: "Pomodoro seconds unit, one letter")
+        case .complete: ""
+        }
+    }
+
+    /// The number the button shows next to `unitSymbol`: no leading zero
+    /// ("5m", not "05m"). Falls back to `digits` once complete.
+    var unitNumber: String {
+        unit == .complete ? digits : "\(value)"
+    }
+
+    /// The whole compact label, e.g. "25m", "45s", "2h", or "00" when complete.
+    var compactLabel: String {
+        unitNumber + unitSymbol
+    }
+
     func accessibilityValue(isRunning: Bool) -> String {
         if isComplete {
             return String(localized: "Timer complete")

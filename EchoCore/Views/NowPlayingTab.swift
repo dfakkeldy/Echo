@@ -327,14 +327,15 @@ struct NowPlayingTab: View {
 
     private var metadataArea: some View {
         VStack(spacing: 5) {
-            // Eyebrow: book + author in small caps, tappable → book info (audit B4)
+            // Eyebrow: book + author, tappable → book info (audit B4). Quiet
+            // sentence case: you already know the book, so the chapter title
+            // below is the headline; uppercase tracking also cut the author off.
             Button(action: showBookSettings) {
                 Text(secondaryLineText)
-                    .customFont(.caption, weight: .semibold, appFont: model.resolvedAppFont)
-                    .textCase(.uppercase)
-                    .kerning(1.1)
+                    .customFont(.footnote, appFont: model.resolvedAppFont)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.85)
                     .frame(maxWidth: .infinity, alignment: .center)
             }
             .buttonStyle(.plain)

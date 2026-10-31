@@ -34,6 +34,17 @@ import Testing
         #expect(fractionalSecond.unit == .seconds)
     }
 
+    @Test("compact label names its unit so the ring reads as a timer")
+    func compactLabelCarriesUnit() {
+        #expect(PomodoroTimePresentation.make(remaining: 25 * 60).compactLabel == "25m")
+        #expect(PomodoroTimePresentation.make(remaining: 5 * 60).compactLabel == "5m")
+        #expect(PomodoroTimePresentation.make(remaining: 45).compactLabel == "45s")
+        #expect(PomodoroTimePresentation.make(remaining: 2 * 3600).compactLabel == "2h")
+        #expect(PomodoroTimePresentation.make(remaining: 0).compactLabel == "00")
+        #expect(PomodoroTimePresentation.make(remaining: 0).unitSymbol.isEmpty)
+        #expect(PomodoroTimePresentation.make(remaining: 25 * 60).unitNumber == "25")
+    }
+
     @Test("invalid and completed values become zero")
     func invalidValues() {
         let invalidValues: [TimeInterval] = [0, -1, .infinity, -.infinity, .nan]

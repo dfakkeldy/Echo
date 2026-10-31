@@ -57,12 +57,16 @@ struct PomodoroButton: View {
                     .rotationEffect(.degrees(-90))
                     .animation(.linear(duration: 0.2), value: ringProgress)
 
+                // Fit inside the ring's opening, not over its stroke. The
+                // bare number is the last resort when even the unit won't fit.
                 ViewThatFits {
-                    PomodoroDigits(presentation.digits, textStyle: .headline)
-                    PomodoroDigits(presentation.digits, textStyle: .subheadline)
-                    PomodoroDigits(presentation.digits, textStyle: .caption)
+                    PomodoroDigits(presentation, textStyle: .headline)
+                    PomodoroDigits(presentation, textStyle: .subheadline)
+                    PomodoroDigits(presentation, textStyle: .caption)
+                    PomodoroDigits(presentation, textStyle: .caption, showsUnit: false)
                 }
                 .foregroundStyle(.white)
+                .padding(ringSize == nil ? strokeWidth : 0)
                 .frame(width: controlSize, height: controlSize)
             }
             .contentShape(.circle)
@@ -90,19 +94,26 @@ struct PomodoroButton: View {
 }
 
 private struct PomodoroDigits: View {
-    let value: String
+    let presentation: PomodoroTimePresentation
     let textStyle: Font.TextStyle
+    let showsUnit: Bool
 
-    init(_ value: String, textStyle: Font.TextStyle) {
-        self.value = value
+    init(_ presentation: PomodoroTimePresentation, textStyle: Font.TextStyle, showsUnit: Bool = true) {
+        self.presentation = presentation
         self.textStyle = textStyle
+        self.showsUnit = showsUnit
     }
 
     var body: some View {
-        Text(value)
+        // The unit letter is set smaller so the number stays the glanceable part.
+        let number = Text(showsUnit ? presentation.unitNumber : presentation.digits)
             .font(.system(textStyle, design: .rounded, weight: .bold))
+        let unit = Text(showsUnit ? presentation.unitSymbol : "")
+            .font(.system(.caption2, design: .rounded, weight: .semibold))
+        Text("\(number)\(unit)")
             .monospacedDigit()
             .lineLimit(1)
+            .minimumScaleFactor(0.7)
     }
 }
 
