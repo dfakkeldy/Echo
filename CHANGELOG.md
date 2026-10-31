@@ -85,6 +85,12 @@ All notable changes to Echo: Audiobook Study Player.
   filenames, and stale reel entries are removed from existing playlist manifests
   while ordinary tracks, metadata, and playback settings are kept. Opening a reel
   directly still works, and intentional multi-volume folders keep their volumes.
+- While audio plays, Echo now refreshes the position used by the "Bookmark this
+  in Echo" Siri shortcut, and the live update to an open Watch app, at least
+  every 4 seconds. Before, these refreshed only when one 0.5-second tick moved
+  the chapter more than 0.5%, which never happened on chapters longer than about
+  100 seconds at 1x, so a Siri bookmark could land at the last pause, skip or
+  chapter change. The Watch's background copy is still refreshed every 30 seconds.
 - Public alignment uploads are unavailable in Echo 1.0. The upload control is
   hidden; community alignment lookup and local import fallback are unchanged.
   Playback, reading, and local alignment remain available.
