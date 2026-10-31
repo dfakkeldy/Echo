@@ -5,11 +5,14 @@ import UIKit
 // MARK: - ProgressPublicationPolicy
 
 /// Decides when a playback-progress tick should publish to the Watch and the
-/// App Group position. Compares against the last *published* fraction, not the
-/// previous tick's: on a long chapter a 0.5 s tick moves the fraction far less
-/// than the threshold, so a per-tick comparison never fires from playback alone.
-/// While playing, a publication is also forced once `maximumInterval` has
-/// passed, which bounds how stale the published position can get.
+/// App Group position. A per-tick comparison alone never fires from playback on
+/// a long chapter, because a 0.5 s tick moves the fraction far less than the
+/// threshold. So this also publishes when the fraction has moved past the
+/// threshold since the last publication, and, while playing, once
+/// `maximumInterval` has passed. The per-tick comparison against the displayed
+/// fraction is kept so that every tick that published before still does: a
+/// pause publishes outside this policy, so the last published fraction can
+/// trail a paused position.
 struct ProgressPublicationPolicy {
     var fractionThreshold: Double
     var maximumInterval: TimeInterval
@@ -23,11 +26,15 @@ struct ProgressPublicationPolicy {
         self.maximumInterval = maximumInterval
     }
 
-    mutating func shouldPublish(fraction: Double, isPlaying: Bool, now: Date = .now) -> Bool {
-        let moved = lastPublishedFraction.map { abs($0 - fraction) > fractionThreshold } ?? true
+    mutating func shouldPublish(
+        fraction: Double, displayedFraction: Double, isPlaying: Bool, now: Date = .now
+    ) -> Bool {
+        let movedSinceTick = abs(displayedFraction - fraction) > fractionThreshold
+        let movedSincePublish =
+            lastPublishedFraction.map { abs($0 - fraction) > fractionThreshold } ?? true
         let due =
             isPlaying && (lastPublishedAt.map { now.timeIntervalSince($0) >= maximumInterval } ?? true)
-        guard moved || due else { return false }
+        guard movedSinceTick || movedSincePublish || due else { return false }
         lastPublishedFraction = fraction
         lastPublishedAt = now
         return true
@@ -68,7 +75,6 @@ final class PlaybackProgressPresenter {
     @ObservationIgnored var onChapterOutOfBounds: (() -> Void)?
 
     @ObservationIgnored private var publicationPolicy = ProgressPublicationPolicy()
-    @ObservationIgnored var now: () -> Date = { .now }
 
     // MARK: - Elapsed time
 
@@ -167,7 +173,8 @@ final class PlaybackProgressPresenter {
                 if chapterElapsed.isFinite, chapterDuration.isFinite, chapterDuration > 0 {
                     let frac = state.currentScopeProgressFraction(forCurrentTrackOffset: elapsed)
                     let shouldPublish = publicationPolicy.shouldPublish(
-                        fraction: frac, isPlaying: audioEngine.isPlaying, now: now())
+                        fraction: frac, displayedFraction: state.progressFraction,
+                        isPlaying: audioEngine.isPlaying)
                     state.progressFraction = frac
                     let remaining = max(0, chapterDuration - chapterElapsed) / speed
                     state.progressText = "-\(NowPlayingController.formatTime(remaining))"
@@ -192,7 +199,8 @@ final class PlaybackProgressPresenter {
 
         let frac = state.currentScopeProgressFraction(forCurrentTrackOffset: elapsed)
         let shouldPublish = publicationPolicy.shouldPublish(
-            fraction: frac, isPlaying: audioEngine.isPlaying, now: now())
+            fraction: frac, displayedFraction: state.progressFraction,
+            isPlaying: audioEngine.isPlaying)
         state.progressFraction = frac
 
         let remaining = max(0, duration - elapsed) / speed

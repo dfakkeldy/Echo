@@ -4,32 +4,43 @@ import Testing
 
 @testable import Echo
 
+/// `shouldPublish` is `mutating`, so every call is hoisted into a `let`:
+/// `#expect` rewrites a call written inside it into a closure over an
+/// immutable copy, which does not compile.
 struct ProgressPublicationPolicyTests {
     private static let tick: TimeInterval = 0.5
     private static let start = Date(timeIntervalSinceReferenceDate: 1_000)
 
-    /// Plays `ticks` timer ticks through a chapter of `chapterSeconds`, applying
-    /// any `seeks` (tick index → seconds jumped) before that tick, and returns
-    /// the wall-clock times of the ticks that published.
-    private func publishTimes(
-        chapterSeconds: TimeInterval,
-        ticks: Int = 120,
-        seeks: [Int: TimeInterval] = [:],
-        policy: inout ProgressPublicationPolicy
-    ) -> [TimeInterval] {
-        var position: TimeInterval = 60
+    /// Drives the policy the way `PlaybackProgressPresenter.updateProgress()`
+    /// does: `displayed` is the fraction the previous tick showed.
+    private struct Player {
+        var policy = ProgressPublicationPolicy()
+        var displayed: Double = 0
         var published: [TimeInterval] = []
-        for i in 0..<ticks {
-            position += Self.tick + (seeks[i] ?? 0)
-            let wall = TimeInterval(i) * Self.tick
-            if policy.shouldPublish(
-                fraction: position / chapterSeconds, isPlaying: true,
-                now: Self.start.addingTimeInterval(wall))
-            {
-                published.append(wall)
-            }
+
+        mutating func tick(fraction: Double, isPlaying: Bool = true, at wall: TimeInterval) -> Bool
+        {
+            let fires = policy.shouldPublish(
+                fraction: fraction, displayedFraction: displayed, isPlaying: isPlaying,
+                now: ProgressPublicationPolicyTests.start.addingTimeInterval(wall))
+            displayed = fraction
+            if fires { published.append(wall) }
+            return fires
         }
-        return published
+    }
+
+    /// Plays 120 timer ticks through a chapter of `chapterSeconds`, applying
+    /// any `seeks` (tick index → seconds jumped) before that tick.
+    private func play(
+        chapterSeconds: TimeInterval, seeks: [Int: TimeInterval] = [:]
+    ) -> Player {
+        var player = Player()
+        var position: TimeInterval = 60
+        for i in 0..<120 {
+            position += Self.tick + (seeks[i] ?? 0)
+            _ = player.tick(fraction: position / chapterSeconds, at: TimeInterval(i) * Self.tick)
+        }
+        return player
     }
 
     private func maxGap(_ times: [TimeInterval], through end: TimeInterval) -> TimeInterval {
@@ -37,100 +48,89 @@ struct ProgressPublicationPolicyTests {
     }
 
     @Test(arguments: [20 * 60.0, 3 * 3600.0])
-    func longChapterPublishesWithinFiveSeconds(chapterSeconds: TimeInterval) {
-        var policy = ProgressPublicationPolicy()
-        let times = publishTimes(chapterSeconds: chapterSeconds, policy: &policy)
+    func longChapterPublishesEveryFourAndAHalfSecondsAtMost(chapterSeconds: TimeInterval) {
+        let times = play(chapterSeconds: chapterSeconds).published
         #expect(times.first == 0)
         #expect(times.count > 1)
-        #expect(maxGap(times, through: 119 * Self.tick) <= 5.0)
+        #expect(maxGap(times, through: 119 * Self.tick) <= 4.5)
     }
 
     @Test func lateTimerTicksStillPublishWithinFiveSeconds() {
-        // Every third tick fires 0.3 s late and the next one catches up.
-        var policy = ProgressPublicationPolicy()
-        var wall: TimeInterval = 0
-        var lastPublished: TimeInterval = 0
-        var worstGap: TimeInterval = 0
+        // A repeating Timer stays on its 0.5 s grid; each tick lands up to
+        // 0.45 s late on it, in a fixed varied pattern.
+        let lateness: [TimeInterval] = [0.45, 0, 0.1, 0.3, 0.05, 0.45, 0.2, 0]
+        var player = Player()
         for i in 0..<400 {
-            wall += Self.tick + (i % 3 == 0 ? 0.3 : -0.15)
-            if policy.shouldPublish(
-                fraction: wall / (3 * 3600), isPlaying: true,
-                now: Self.start.addingTimeInterval(wall))
-            {
-                worstGap = max(worstGap, wall - lastPublished)
-                lastPublished = wall
-            }
+            let wall = TimeInterval(i) * Self.tick + lateness[i % lateness.count]
+            _ = player.tick(fraction: wall / (3 * 3600), at: wall)
         }
-        #expect(worstGap <= 5.0)
+        #expect(maxGap(player.published, through: 399 * Self.tick) < 5.0)
     }
 
-    @Test func smallSeeksOnLongChapterStillPublishWithinFiveSeconds() {
+    @Test func smallSeeksOnLongChapterStillPublishOnSchedule() {
         // A 30 s jump is 0.28% of three hours, under the fraction threshold.
-        var policy = ProgressPublicationPolicy()
-        let times = publishTimes(
-            chapterSeconds: 3 * 3600, seeks: [40: 30, 41: -15, 80: 10], policy: &policy)
-        #expect(maxGap(times, through: 119 * Self.tick) <= 5.0)
+        let times = play(chapterSeconds: 3 * 3600, seeks: [40: 30, 41: -15, 80: 10]).published
+        #expect(maxGap(times, through: 119 * Self.tick) <= 4.5)
     }
 
     @Test func largeSeekPublishesOnTheSameTick() {
-        var policy = ProgressPublicationPolicy()
         // Two minutes on a 20-minute chapter is a 10% jump.
-        let times = publishTimes(chapterSeconds: 20 * 60, seeks: [33: 120], policy: &policy)
+        let times = play(chapterSeconds: 20 * 60, seeks: [33: 120]).published
         #expect(times.contains(33 * Self.tick))
     }
 
-    @Test func shortChapterPublishesWheneverPerTickComparisonDid() {
+    @Test func publishesWheneverThePerTickComparisonDid() {
         // A 60 s chapter moves 0.83% per tick, so the old per-tick rule fired
-        // every tick. The fix must not publish less often than that.
-        let chapterSeconds: TimeInterval = 60
-        var policy = ProgressPublicationPolicy()
+        // on every tick, and a reset to 0 (track change) fires it too.
+        var player = Player()
         var position: TimeInterval = 0
-        var previousFraction: Double = 0
-        var oldRuleFired = 0
         for i in 0..<100 {
             position += Self.tick
-            let fraction = position / chapterSeconds
-            let oldRuleFires = abs(previousFraction - fraction) > 0.005
-            previousFraction = fraction
-            let fires = policy.shouldPublish(
-                fraction: fraction, isPlaying: true,
-                now: Self.start.addingTimeInterval(TimeInterval(i) * Self.tick))
-            if oldRuleFires {
-                oldRuleFired += 1
-                #expect(fires, "tick \(i)")
-            }
+            if i == 50 { player.displayed = 0 }
+            let oldRuleFires = abs(player.displayed - position / 60) > 0.005
+            let fires = player.tick(fraction: position / 60, at: TimeInterval(i) * Self.tick)
+            #expect(fires || !oldRuleFires, "tick \(i)")
         }
-        #expect(oldRuleFired == 100)
+    }
+
+    @Test func pausedSmallBackwardSeekPublishes() {
+        // On a 20-minute chapter (threshold 6 s of audio), play so the last
+        // publication trails the live position, pause, then skip back by an
+        // amount that lands near that stale publication but is more than the
+        // threshold from where the pause left the display.
+        var player = Player()
+        let chapter: TimeInterval = 20 * 60
+        var position: TimeInterval = 60
+        var wall: TimeInterval = 0
+        for _ in 0..<7 {
+            position += Self.tick
+            _ = player.tick(fraction: position / chapter, at: wall)
+            wall += Self.tick
+        }
+        // The pause refresh runs while paused; the pause itself publishes elsewhere.
+        _ = player.tick(fraction: position / chapter, isPlaying: false, at: wall)
+        position -= 7
+        let fires = player.tick(fraction: position / chapter, isPlaying: false, at: wall + 1)
+        #expect(fires)
     }
 
     @Test func pausedPositionDoesNotRepublishAsTimePasses() {
-        var policy = ProgressPublicationPolicy()
-        #expect(policy.shouldPublish(fraction: 0.4, isPlaying: false, now: Self.start))
+        var player = Player()
+        let first = player.tick(fraction: 0.4, isPlaying: false, at: 0)
+        #expect(first)
         for second in 1...60 {
-            let fires = policy.shouldPublish(
-                fraction: 0.4, isPlaying: false,
-                now: Self.start.addingTimeInterval(TimeInterval(second)))
+            let fires = player.tick(fraction: 0.4, isPlaying: false, at: TimeInterval(second))
             #expect(!fires, "second \(second)")
         }
     }
 
-    @Test func pausedSeekPublishes() {
-        var policy = ProgressPublicationPolicy()
-        _ = policy.shouldPublish(fraction: 0.4, isPlaying: false, now: Self.start)
-        let fires = policy.shouldPublish(
-            fraction: 0.5, isPlaying: false, now: Self.start.addingTimeInterval(1))
-        #expect(fires)
-    }
-
     @Test func resetPublishesTheNextTickAtOnce() {
-        var policy = ProgressPublicationPolicy()
-        _ = policy.shouldPublish(fraction: 0.4, isPlaying: true, now: Self.start)
-        let beforeReset = policy.shouldPublish(
-            fraction: 0.4, isPlaying: true, now: Self.start.addingTimeInterval(1))
+        var player = Player()
+        _ = player.tick(fraction: 0.4, at: 0)
+        let beforeReset = player.tick(fraction: 0.4, at: 1)
         #expect(!beforeReset)
-        policy.reset()
-        let afterReset = policy.shouldPublish(
-            fraction: 0.4, isPlaying: true, now: Self.start.addingTimeInterval(1.5))
+        player.policy.reset()
+        let afterReset = player.tick(fraction: 0.4, at: 1.5)
         #expect(afterReset)
     }
 }
