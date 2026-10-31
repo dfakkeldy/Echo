@@ -8,6 +8,12 @@ struct WatchPomodoroAccessibilitySourceTests {
         let source = try Self.source()
 
         #expect(source.contains("PomodoroTimePresentation.make"))
+        // The ring shows a unit ("25m") and fits inside the stroke, with the
+        // bare number only as the last fallback.
+        #expect(source.contains("presentation.unitSymbol"))
+        #expect(source.contains(".padding(ringSize == nil ? strokeWidth : 0)"))
+        #expect(source.contains("showsUnit: false)"))
+        #expect(source.contains(".minimumScaleFactor("))
         #expect(source.contains("ViewThatFits"))
         #expect(source.contains("textStyle: .headline"))
         #expect(source.contains("textStyle: .subheadline"))
