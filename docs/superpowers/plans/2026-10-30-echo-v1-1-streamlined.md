@@ -15,12 +15,32 @@ Echo 1.0 is on the App Store; it was promoted to main on 2026-10-18 (`f8ad7ecc`)
 
 The test for which track: someone already using 1.0 would call a `1.0.x` item "fixed" and a `1.1` item "new". Where one item mixes both, its header says which part ships where.
 
-**Getting a patch through the branch ladder.** Feature PRs target nightly, and a promotion carries everything on nightly to main. Once 1.1 work lands on nightly, a weekly→main promotion would ship it inside a "1.0.x" update. On 2026-10-31 nightly already holds 33 commits that are not on main. There are two workable routes, and the choice is Dan's (Open Question 8):
+**Patch route.** Checked on 2026-10-31 against main `70e0dfc2`, weekly and nightly `b9c9040d`.
 
-- **(i)** land the `1.0.x` fixes on nightly first, and keep 1.1 PRs off nightly (or behind a flag) until that patch is promoted;
-- **(ii)** ship `1.0.x` fixes as hotfixes branched from main and merged back down (AGENTS.md, "Branches"), leaving nightly to 1.1.
+*Why weekly→main cannot carry a patch now.* nightly holds 25 non-merge commits that main lacks. They include the v44 migration (#654), the Phonon narration engine with a new SwiftPM dependency, a model download and an arm64-only Mac build (#650), and Watch Inbox, which sends dictated text to a webhook (#644). That is 1.1 scope, with App Privacy and review impact. weekly has no code that main lacks.
 
-Recommendation: (ii) for slice 1's data-loss fixes, which are small and self-contained, and (i) for the rest. Either way, check what nightly already holds before the first patch promotion. The repository also has a stale `v1.1` tag on 0d40d965 (2026-04-19, before the version was reset to 0.5), so the real 1.1 release needs that tag retired or a different tag name.
+*TestFlight is already blocked.* All three branches still say `MARKETING_VERSION = 1.0` (16 entries in Echo.xcodeproj/project.pbxproj). Apple has closed the 1.0 train, so Release Trains run 41077343581 (2026-10-30) failed with ITMS-90062 and 90186 ("The train version '1.0' is closed"). Every nightly and weekly upload will fail until the version goes up.
+
+*Route: hotfix from main, built by the weekly train.* Steps marked **Dan** need his authorization.
+
+1. **Dan** picks the versions: 1.0.1 on main and 1.1 on nightly. Raise nightly to 1.1 in its own PR now so internal TestFlight works again. Do not promote nightly→weekly until 1.0.1 has been submitted.
+2. Branch `hotfix/1.0.1-<topic>` from `origin/main`. The B-7.3 fix lives in `EchoCore/Services/PlaybackProgressPresenter.swift`, which is identical on main and nightly.
+3. Make the fix and add its regression test. Set all 16 `MARKETING_VERSION` entries to 1.0.1 and leave `CURRENT_PROJECT_VERSION` alone. Update `fastlane/testflight/what_to_test.txt`, because the weekly channel ships the committed file (Fastfile:247-259). Run `make test`, `make fastlane-test` and `make doc-contract-test` through the build-slot wrapper.
+4. Open a PR into main. "Build gate + tests" is the only required check. **Dan** merges it.
+5. Merge main down into weekly with a PR whose head is `main`, as a merge commit, never a squash (the #660 pattern).
+6. **Dan** uploads: dispatch Release Trains with `channel=weekly` (release-trains.yml:50-55) or wait for the Monday cron. CI signs with readonly match. Avoid a local `fastlane beta`: outside CI, match runs with readonly off and can create new certificates (Fastfile:297, :365-381).
+7. Test the processed build on a device: long-chapter Watch and App Group position, then import, play, lock screen and resume (docs/release-checklist.md).
+8. **Dan** handles App Store Connect: create the 1.0.1 version, select the build, write What's New (`fastlane/metadata/en-US/release_notes.txt` is empty, and `upload_metadata` force-overwrites all metadata, Fastfile:593-602), submit, then release.
+9. Tag `v1.0.1`, which is free. `v1.1` (0d40d965, 2026-04-19) and `v1.0.2` (52cd6fb3) already exist from before the version reset, so the real 1.1 needs a different tag name or the old one retired.
+10. Back-merge main into nightly as a merge commit (the #659/#662 pattern). Keep nightly's 1.1 version lines and both sides' CHANGELOG entries, and do not also re-apply the fix as a separate commit.
+
+*Build numbers* need no manual work. The lane uses the highest iOS or Mac TestFlight build number plus 1 (Fastfile:270-277).
+
+*Migration rule for hotfixes.* B-7.3 needs no migration. If a hotfix ever does, register it right after v43 on main as `v43_hotfix_<desc>` (DatabaseService.swift:289), never as v44, which nightly already uses. Name it on the pattern of `v37_repair_anthology_build_attempt_receipts` (DatabaseService.swift:267), make it idempotent, and never rename or drop it on nightly. GRDB runs every registered migration that has not run yet, in registration order. A nightly TestFlight install that already ran v44 therefore gets the hotfix migration after v44. The two must not depend on each other, and the C-10.16 upgrade test covers both orders.
+
+*What to carry into 1.0.1.* By default, only the slice-1 fixes that are ready. Two nightly fixes cherry-pick cleanly onto main and are optional: f60ca9dc (#634, pronunciation reels counted as folder books) and c7869a4b (#638, slideshow and read-along layout). Leave out a12077e5 (#642), which bumps renderVersion and forces every narration cache to regenerate.
+
+*Open points.* Unverified: whether Mac 1.0 is live, which affects whether 1.0.1 ships for iOS only or for iOS and Mac. Also unverified: whether App Store Connect already has a 1.0.1 record. If a fix touches `PlayerModel.swift` or `WatchSyncManager.swift`, which differ slightly between main and nightly, the back-merge may need hand resolution.
 
 **ROADMAP.** Recording what 1.0 actually shipped, and turning the open gate lines into `1.0.x` or 1.1 targets, is a ROADMAP edit for Dan (Open Question 9). This plan does not make it.
 
@@ -507,5 +527,5 @@ Each slice is a PR series, not one PR. Slices group work by area; ordering comes
 5. **Experimental player.** Keep it parked and opt-in for v1.1, with only the trap fixed, or schedule it to graduate?
 6. **Sample book.** Should Echo bundle a short public-domain sample (audio plus text) so a new user can finish the Getting started card (A-14) without their own files? The June audit's "Recommended Next Order" lists a Try Sample path; it is unscheduled until you decide.
 7. **Paragraph action bar.** Should the visible action bar (A-2) sit on the paragraph being spoken all the time, or appear only on a paragraph after you tap it?
-8. **Patch route.** Should `1.0.x` fixes ship as hotfixes from main (recommended for slice 1), or by holding 1.1 work off nightly until the patch is promoted? See Decision 1.
+8. **Patch versions and scope.** Confirm the patch route in Decision 1: 1.0.1 on main and 1.1 on nightly, raised now so TestFlight uploads work again. Should 1.0.1 ship for iOS only or for iOS and Mac, and should it carry #634 and #638?
 9. **ROADMAP after launch.** Should Part A's launch gate be rewritten to record what 1.0 shipped, with the open lines (ROADMAP.md:58, :60, :68-70) re-labelled as `1.0.x` or 1.1 targets?
