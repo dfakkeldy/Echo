@@ -11,7 +11,7 @@ The three v1.1 themes overlap two 1.0 gates that are still open. ROADMAP Wedge 2
 - **(a)** v1.1 is the release after 1.0. It takes over specific items that are moved out of the 1.0 gate.
 - **(b)** "v1.1" is just a name for finishing those 1.0 gates.
 
-Both options are workable. Release names and tags are choices; ROADMAP.md:58-60 and :67-69 require *outcomes* (no lost progress, a performance budget, an obvious UI, no dead ends), not any particular architecture in this plan.
+Both options are workable. Release names and tags are choices; ROADMAP.md:58-60 and :68-70 require *outcomes* (no lost progress, a performance budget, an obvious UI, no dead ends), not any particular architecture in this plan.
 
 **Recommendation: (a), run as two tracks**, for reasons of scope and release risk:
 
