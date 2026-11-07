@@ -22,79 +22,9 @@ struct DeckListView: View {
     var body: some View {
         Group {
             if snapshot.isEmpty {
-                // One primary door: the same deck import Settings offers.
-                ContentUnavailableView {
-                    Label("No Decks", systemImage: "rectangle.stack")
-                } description: {
-                    Text("Import a deck, or make cards from a book in the player.")
-                } actions: {
-                    Button("Import Deck", systemImage: "square.and.arrow.down") {
-                        showingDeckImporter = true
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(model.databaseService == nil)
-                }
+                emptyState
             } else {
-                List {
-                    // "All Cards" pseudo-deck
-                    NavigationLink {
-                        DeckDetailView(scope: .all, deckName: "All Cards")
-                    } label: {
-                        HStack {
-                            Text("All Cards")
-                            Spacer()
-                            Text("^[\(snapshot.totalCardCount) card](inflect: true)")
-                                .foregroundStyle(.secondary)
-                            if snapshot.totalDueCount > 0 {
-                                Text("\(snapshot.totalDueCount) due")
-                                    .foregroundStyle(.red)
-                                    .font(.caption)
-                            }
-                        }
-                    }
-
-                    if snapshot.unassignedCardCount > 0 {
-                        NavigationLink {
-                            DeckDetailView(scope: .unassigned, deckName: "Unassigned")
-                        } label: {
-                            HStack {
-                                Text("Unassigned")
-                                Spacer()
-                                Text("^[\(snapshot.unassignedCardCount) card](inflect: true)")
-                                    .foregroundStyle(.secondary)
-                                if snapshot.unassignedDueCount > 0 {
-                                    Text("\(snapshot.unassignedDueCount) due")
-                                        .foregroundStyle(.red)
-                                        .font(.caption)
-                                }
-                            }
-                        }
-                    }
-
-                    ForEach(snapshot.namedDecks) { deck in
-                        NavigationLink {
-                            DeckDetailView(scope: .deck(id: deck.id), deckName: deck.name)
-                        } label: {
-                            HStack {
-                                Text(deck.name)
-                                Spacer()
-                                Text("\(deck.cardCount)")
-                                    .foregroundStyle(.secondary)
-                                if deck.dueCount > 0 {
-                                    Text("\(deck.dueCount) due")
-                                        .foregroundStyle(.red)
-                                        .font(.caption)
-                                }
-                            }
-                        }
-                        .swipeActions {
-                            deckManagementActions(for: deck)
-                        }
-                        .contextMenu {
-                            deckManagementActions(for: deck)
-                        }
-                    }
-                }
+                deckList
             }
         }
         .navigationTitle("Decks")
@@ -154,10 +84,7 @@ struct DeckListView: View {
         }
         .alert(
             importAlert?.title ?? "",
-            isPresented: Binding(
-                get: { importAlert != nil },
-                set: { if !$0 { importAlert = nil } }
-            )
+            isPresented: importAlertBinding
         ) {
             Button("OK") { importAlert = nil }
         } message: {
@@ -171,6 +98,90 @@ struct DeckListView: View {
         } message: {
             Text(creationError ?? "")
         }
+    }
+
+
+    // MARK: - Content
+    // Split out of `body`: one expression holding both states plus every
+    // alert and importer exceeded the type checker's time limit on CI.
+
+    private var emptyState: some View {
+        // One primary door: the same deck import Settings offers.
+        ContentUnavailableView {
+            Label("No Decks", systemImage: "rectangle.stack")
+        } description: {
+            Text("Import a deck, or make cards from a book in the player.")
+        } actions: {
+            Button("Import Deck", systemImage: "square.and.arrow.down") {
+                showingDeckImporter = true
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(model.databaseService == nil)
+        }
+    }
+
+    private var deckList: some View {
+        List {
+            // "All Cards" pseudo-deck
+            NavigationLink {
+                DeckDetailView(scope: .all, deckName: "All Cards")
+            } label: {
+                countRow(
+                    title: Text("All Cards"),
+                    count: Text("^[\(snapshot.totalCardCount) card](inflect: true)"),
+                    due: snapshot.totalDueCount)
+            }
+
+            if snapshot.unassignedCardCount > 0 {
+                NavigationLink {
+                    DeckDetailView(scope: .unassigned, deckName: "Unassigned")
+                } label: {
+                    countRow(
+                        title: Text("Unassigned"),
+                        count: Text("^[\(snapshot.unassignedCardCount) card](inflect: true)"),
+                        due: snapshot.unassignedDueCount)
+                }
+            }
+
+            ForEach(snapshot.namedDecks) { deck in
+                namedDeckRow(deck)
+            }
+        }
+    }
+
+    private func namedDeckRow(_ deck: DeckSummary) -> some View {
+        NavigationLink {
+            DeckDetailView(scope: .deck(id: deck.id), deckName: deck.name)
+        } label: {
+            countRow(title: Text(deck.name), count: Text("\(deck.cardCount)"), due: deck.dueCount)
+        }
+        .swipeActions {
+            deckManagementActions(for: deck)
+        }
+        .contextMenu {
+            deckManagementActions(for: deck)
+        }
+    }
+
+    private func countRow(title: Text, count: Text, due: Int) -> some View {
+        HStack {
+            title
+            Spacer()
+            count
+                .foregroundStyle(.secondary)
+            if due > 0 {
+                Text("\(due) due")
+                    .foregroundStyle(.red)
+                    .font(.caption)
+            }
+        }
+    }
+
+    private var importAlertBinding: Binding<Bool> {
+        Binding(
+            get: { importAlert != nil },
+            set: { if !$0 { importAlert = nil } }
+        )
     }
 
     @ViewBuilder
