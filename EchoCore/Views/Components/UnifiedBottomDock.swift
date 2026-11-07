@@ -36,6 +36,16 @@ struct UnifiedBottomDock: View {
     private var showsControls: Bool {
         model.hasPlaybackContent
             && (model.selectedTab == .nowPlaying || model.folderURL != nil)
+            && !(model.selectedTab == .nowPlaying && isAwaitingNarration)
+    }
+
+    /// A narration book with no audio yet. The player's narration card owns
+    /// the one way to start ("Listen"), so the transport row (skip back /
+    /// play / skip forward) stays hidden instead of offering a second, live-
+    /// looking Play that has nothing to play. Same rule as
+    /// `NowPlayingTab.isAwaitingNarration`.
+    private var isAwaitingNarration: Bool {
+        model.isNarrationBook && model.tracks.isEmpty
     }
 
     /// The stacked rows (controls/mini-player → divider → utility toolbar),
@@ -50,13 +60,15 @@ struct UnifiedBottomDock: View {
         VStack(spacing: 0) {
             // Upper layer: Large Controls (Now Playing) or Mini-player (other tabs)
             if model.selectedTab == .nowPlaying && model.hasPlaybackContent {
-                TransportControlsView()
-                    .padding(.horizontal, 16)
-                    .transition(
-                        .asymmetric(
-                            insertion: .scale(scale: 0.95).combined(with: .opacity),
-                            removal: .scale(scale: 0.95).combined(with: .opacity)
-                        ))
+                if !isAwaitingNarration {
+                    TransportControlsView()
+                        .padding(.horizontal, 16)
+                        .transition(
+                            .asymmetric(
+                                insertion: .scale(scale: 0.95).combined(with: .opacity),
+                                removal: .scale(scale: 0.95).combined(with: .opacity)
+                            ))
+                }
             } else if model.folderURL != nil && model.hasPlaybackContent {
                 PlayerControlBar()
                     .padding(.horizontal, 16)

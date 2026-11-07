@@ -49,8 +49,8 @@ struct PlaybackOptionsSheetTests {
             "Bookmark loop availability must use the shared PlayerModel rule."
         )
         #expect(
-            source.contains(".disabled(bookmarkLoopUnavailable)"),
-            "The Bookmark segment must be disabled while bookmark looping is unavailable."
+            source.contains("if !bookmarkLoopUnavailable {"),
+            "The Bookmark segment must not look live while bookmark looping is unavailable; a segmented control ignores per-segment .disabled, so it is hidden."
         )
         #expect(
             source.contains(

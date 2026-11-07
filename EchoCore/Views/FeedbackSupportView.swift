@@ -3,9 +3,21 @@ import SwiftUI
 
 struct FeedbackSupportView: View {
     private let buildMetadata = AppBuildMetadata()
+    @State private var showingFeedbackForm = false
 
     var body: some View {
         Form {
+            #if os(iOS)
+                // The in-app form (rating, category, optional diagnostics)
+                // lives here so Support has one entry in root Settings.
+                Section {
+                    Button {
+                        showingFeedbackForm = true
+                    } label: {
+                        Label("Send Feedback", systemImage: "bubble.left.and.text.bubble.right")
+                    }
+                }
+            #endif
             Section {
                 // Each row leaves Echo (Mail or the browser), so each carries
                 // a trailing arrow.up.right.
@@ -30,8 +42,14 @@ struct FeedbackSupportView: View {
                         .monospacedDigit()
                         .textSelection(.enabled)
                 }
+                .settingsFooterStyle()
             }
         }
+        #if os(iOS)
+            .sheet(isPresented: $showingFeedbackForm) {
+                FeedbackFormView()
+            }
+        #endif
     }
 }
 

@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import GRDB
 import SwiftUI
+import UniformTypeIdentifiers
 import os.log
 
 /// Lists all flashcard decks with card counts and due counts.
 struct DeckListView: View {
     @Environment(PlayerModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
     @State private var snapshot = DeckLibrarySnapshot.empty
     @State private var isShowingNewDeckPrompt = false
     @State private var newDeckName = ""
@@ -13,16 +15,25 @@ struct DeckListView: View {
     @State private var renameDeckName = ""
     @State private var deckPendingDeletion: DeckSummary?
     @State private var creationError: String?
+    @State private var showingDeckImporter = false
+    @State private var importAlert: (title: String, message: String)?
     private let logger = Logger(category: "DeckListView")
 
     var body: some View {
         Group {
             if snapshot.isEmpty {
-                ContentUnavailableView(
-                    "No Decks",
-                    systemImage: "rectangle.stack",
-                    description: Text("Import a deck or create flashcards to get started.")
-                )
+                // One primary door: the same deck import Settings offers.
+                ContentUnavailableView {
+                    Label("No Decks", systemImage: "rectangle.stack")
+                } description: {
+                    Text("Import a deck, or make cards from a book in the player.")
+                } actions: {
+                    Button("Import Deck", systemImage: "square.and.arrow.down") {
+                        showingDeckImporter = true
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.databaseService == nil)
+                }
             } else {
                 List {
                     // "All Cards" pseudo-deck
@@ -89,6 +100,10 @@ struct DeckListView: View {
         .navigationTitle("Decks")
         .task { await load() }
         .toolbar {
+            // Same exit as Card Inbox.
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Done") { dismiss() }
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button("New Deck", systemImage: "plus") {
                     newDeckName = ""
@@ -128,6 +143,25 @@ struct DeckListView: View {
             }
         } message: { deck in
             Text("Cards in \(deck.name) will stay in your library without a deck.")
+        }
+        .fileImporter(
+            isPresented: $showingDeckImporter,
+            allowedContentTypes: [.folder, .json],
+            allowsMultipleSelection: false
+        ) { result in
+            importAlert = SettingsView.deckImportAlert(for: result, db: model.databaseService)
+            Task { await load() }
+        }
+        .alert(
+            importAlert?.title ?? "",
+            isPresented: Binding(
+                get: { importAlert != nil },
+                set: { if !$0 { importAlert = nil } }
+            )
+        ) {
+            Button("OK") { importAlert = nil }
+        } message: {
+            Text(importAlert?.message ?? "")
         }
         .alert(
             "Deck Change Failed",

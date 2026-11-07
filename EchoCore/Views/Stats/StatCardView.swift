@@ -30,7 +30,7 @@ struct StatCardView: View {
             Text(value)
                 .font(.title2)
                 .fontWeight(.bold)
-                .foregroundStyle(tint.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.tint))
+                .foregroundStyle(valueStyle)
             if let subtitle {
                 Text(subtitle)
                     .font(.caption2)
@@ -42,4 +42,13 @@ struct StatCardView: View {
         .background(Color.primary.opacity(0.05))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
+
+    /// "—" means no data yet: secondary grey, so it never reads as an
+    /// accent-coloured value or a loading bar.
+    private var valueStyle: AnyShapeStyle {
+        if value == Self.noValue { return AnyShapeStyle(.secondary) }
+        return tint.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.tint)
+    }
+
+    static let noValue = "—"
 }

@@ -4,7 +4,7 @@ import SwiftUI
 /// Sheet showing the audiobook's chapter list for "Align to Chapter."
 ///
 /// A tap selects a chapter and closes the sheet, so rows carry no push
-/// chevron. The playing chapter is marked (accent title + checkmark) and
+/// chevron. The playing chapter is marked by one signal, a checkmark, and
 /// scrolled into view on open, so the list says "you are here".
 struct ChapterPickerSheet: View {
     let chapters: [Chapter]
@@ -29,7 +29,7 @@ struct ChapterPickerSheet: View {
             .navigationTitle("Pick Chapter")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Cancel") { dismiss() }
+                    Button("Done") { dismiss() }
                 }
             }
         }
@@ -55,8 +55,7 @@ struct ChapterPickerSheet: View {
             HStack(spacing: 12) {
                 Text(displayTitle)
                     .font(.body)
-                    .fontWeight(isCurrent ? .semibold : .regular)
-                    .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                    .foregroundStyle(.primary)
                     .lineLimit(2)
                 Spacer(minLength: 8)
                 Text(start)

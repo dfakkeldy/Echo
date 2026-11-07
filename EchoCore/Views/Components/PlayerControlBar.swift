@@ -39,7 +39,8 @@ struct PlayerControlBar: View {
                     fontStyle: .subheadline,
                     fontWeight: .semibold,
                     appFont: settings.appFont,
-                    foregroundStyle: .primary
+                    foregroundStyle: .primary,
+                    restingAlignment: .leading
                 )
 
                 Spacer(minLength: 4)

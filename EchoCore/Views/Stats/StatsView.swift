@@ -76,7 +76,7 @@ struct StatsView: View {
     @ViewBuilder
     private var overviewSection: some View {
         if let o = overview {
-            Section("Overview") {
+            StatsSection("Overview") {
                 LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 8) {
                     StatCardView(title: "Total", value: fmt(o.totalListeningDuration),
                                  systemImage: "clock")
@@ -98,7 +98,7 @@ struct StatsView: View {
     // MARK: - Listening Chart
 
     private var listeningChart: some View {
-        Section("Listening") {
+        StatsSection("Listening") {
             Chart(bucketedTotals) { bucket in
                 BarMark(
                     x: .value("Date", bucket.startDate, unit: selectedBucket.calendarComponent),
@@ -114,7 +114,7 @@ struct StatsView: View {
     // MARK: - Books
 
     private var booksSection: some View {
-        Section("Books") {
+        StatsSection("Books") {
             Chart(perBookTotals.prefix(8)) { book in
                 SectorMark(
                     angle: .value("Time", book.totalAdjustedDuration),
@@ -145,7 +145,7 @@ struct StatsView: View {
     @ViewBuilder
     private var srsSection: some View {
         if let s = srsStats {
-            Section("Study (SRS)") {
+            StatsSection("Study (SRS)") {
                 StudyLibraryLinksView(onReviewTap: launchStudySession)
 
                 // One accent for every tile; red only for a real overdue count.
@@ -202,7 +202,7 @@ struct StatsView: View {
     // MARK: - Planner
 
     private var plannerSection: some View {
-        Section("Planner") {
+        StatsSection("Planner") {
             LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 8) {
                 StatCardView(
                     title: "Completed",
@@ -353,7 +353,7 @@ private struct ListeningInsightsSectionView: View {
     let timeOfDayHistogram: [HourBucket]
 
     var body: some View {
-        Section("Listening Patterns") {
+        StatsSection("Listening Patterns") {
             if !speedTrend.isEmpty {
                 SpeedTrendChartView(points: speedTrend)
             }
@@ -543,6 +543,29 @@ private struct GradeDistributionChartView: View {
             .frame(height: 150)
             .chartXAxisLabel("grade")
             .chartYAxisLabel("cards")
+        }
+    }
+}
+
+/// A titled group on the Stats page. Titles sit flush left over the
+/// content, like Settings headers, instead of the centred title a bare
+/// `Section` gets outside a List.
+private struct StatsSection<Content: View>: View {
+    let title: LocalizedStringKey
+    @ViewBuilder let content: Content
+
+    init(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.title3.weight(.semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityAddTraits(.isHeader)
+            content
         }
     }
 }

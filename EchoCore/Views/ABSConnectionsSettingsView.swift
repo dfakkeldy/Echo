@@ -246,24 +246,26 @@ private struct ABSAddServerSection: View {
 
     var body: some View {
         // Label + field rows, so each field still says what it is after the
-        // user starts typing.
+        // user starts typing. Fields are leading-aligned in a fixed column
+        // and their grey prompts say what to type, so an empty field never
+        // reads as a filled-in value.
         Section {
             LabeledContent("Server") {
-                TextField("https://host:13378", text: $baseURL)
+                TextField("host:13378", text: $baseURL)
                     .textInputAutocapitalization(.never)
                     .keyboardType(.URL)
                     .autocorrectionDisabled()
-                    .multilineTextAlignment(.trailing)
+                    .frame(width: Self.fieldWidth, alignment: .leading)
             }
             LabeledContent("Username") {
-                TextField("Username", text: $username)
+                TextField("Required", text: $username)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                    .multilineTextAlignment(.trailing)
+                    .frame(width: Self.fieldWidth, alignment: .leading)
             }
             LabeledContent("Password") {
-                SecureField("Password", text: $password)
-                    .multilineTextAlignment(.trailing)
+                SecureField("Optional", text: $password)
+                    .frame(width: Self.fieldWidth, alignment: .leading)
             }
         } header: {
             Text("Add Audiobookshelf Server")
@@ -271,6 +273,7 @@ private struct ABSAddServerSection: View {
             Text(
                 "Stream and sync books from your own Audiobookshelf server. Bare hosts use HTTPS. Type http:// only for a local server you trust."
             )
+            .settingsFooterStyle()
         }
 
         // The commit action is a real button outside the field group, so it
@@ -287,12 +290,11 @@ private struct ABSAddServerSection: View {
             .disabled(!canConnect)
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
-        } footer: {
-            if !isConnecting && (baseURL.isEmpty || username.isEmpty) {
-                Text("Enter a server and username to connect.")
-            }
         }
     }
+
+    /// One field column for all three rows, wide enough for a host and port.
+    private static let fieldWidth: CGFloat = 180
 }
 
 private struct ABSConnectButtonLabel: View {

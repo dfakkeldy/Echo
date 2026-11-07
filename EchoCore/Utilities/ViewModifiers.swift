@@ -34,9 +34,28 @@ struct CustomFontModifier: ViewModifier {
     }
 }
 
+// MARK: - Settings Footer Style
+
+/// Settings section footers: footnote size, secondary colour, app font.
+/// Settings sets `\.font` to the body-size app font for its rows; without
+/// this, every footer renders as large as the rows it explains.
+struct SettingsFooterStyle: ViewModifier {
+    @AppStorage("appFont") private var appFont = SettingsManager.systemFontName
+
+    func body(content: Content) -> some View {
+        content
+            .customFont(.footnote, appFont: appFont)
+            .foregroundStyle(.secondary)
+    }
+}
+
 // MARK: - View Extensions
 
 extension View {
+    func settingsFooterStyle() -> some View {
+        modifier(SettingsFooterStyle())
+    }
+
     func customFont(
         _ style: Font.TextStyle, weight: Font.Weight = .regular,
         appFont: String = SettingsManager.systemFontName

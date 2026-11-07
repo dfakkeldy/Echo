@@ -32,14 +32,19 @@ struct PlaybackOptionsSheet: View {
                     .pickerStyle(.segmented)
                     .accessibilityLabel(Text("Playback speed"))
                 }
+                .listRowBackground(CoverSheetRowBackground())
 
                 Section {
                     Picker("Loop Mode", selection: loopSelection) {
                         Text("Off").tag(LoopMode.off)
                         Text("Chapter").tag(LoopMode.chapter)
-                        Text("Bookmark")
-                            .tag(LoopMode.bookmark)
-                            .disabled(bookmarkLoopUnavailable)
+                        // A segmented control draws a per-segment `.disabled`
+                        // at full strength (council round 2, P06), so a
+                        // Bookmark segment that cannot act would look live.
+                        // It appears only once it works; the footer says how.
+                        if !bookmarkLoopUnavailable {
+                            Text("Bookmark").tag(LoopMode.bookmark)
+                        }
                     }
                     .pickerStyle(.segmented)
                     .accessibilityLabel(Text("Loop mode"))
@@ -50,8 +55,12 @@ struct PlaybackOptionsSheet: View {
                         Text(
                             "Add at least two enabled bookmarks on this track to use bookmark looping."
                         )
+                        // Room before the Skip header, so the footnote reads
+                        // as Loop's and not as Skip's caption.
+                        .padding(.bottom, 12)
                     }
                 }
+                .listRowBackground(CoverSheetRowBackground())
 
                 Section("Skip") {
                     Picker("Skip Backward", selection: $settings.seekBackwardDuration) {
@@ -74,10 +83,12 @@ struct PlaybackOptionsSheet: View {
                         SmartRewindSettingsView()
                     }
                 }
+                .listRowBackground(CoverSheetRowBackground())
 
                 Section(footer: Text(volumeBoostFooter)) {
                     Toggle("Volume Boost", isOn: volumeBoostBinding)
                 }
+                .listRowBackground(CoverSheetRowBackground())
             }
             .navigationTitle("Playback Options")
             .navigationBarTitleDisplayMode(.inline)

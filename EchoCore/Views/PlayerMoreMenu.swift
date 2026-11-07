@@ -56,16 +56,20 @@ struct PlayerMoreMenu: View {
             // actions on this book, then exports (one submenu), then the app.
             // `.menuOrder(.fixed)` below keeps this reading order even though
             // the menu opens upward from the dock.
+            // Items that can't act on this book are hidden, not greyed: a
+            // dimmed row only says "not here" without saying why.
             Section {
-                Button(action: onShowChapters) {
-                    Label("Chapters", systemImage: "list.bullet.indent")
+                if model.chapters.count >= 2 {
+                    Button(action: onShowChapters) {
+                        Label("Chapters", systemImage: "list.bullet.indent")
+                    }
                 }
-                .disabled(model.chapters.count < 2)
 
-                Button(action: onShowBookmarks) {
-                    Label("Bookmarks", systemImage: "bookmark")
+                if !model.tracks.isEmpty {
+                    Button(action: onShowBookmarks) {
+                        Label("Bookmarks", systemImage: "bookmark")
+                    }
                 }
-                .disabled(model.tracks.isEmpty)
             }
 
             // Current book
@@ -125,10 +129,11 @@ struct PlayerMoreMenu: View {
                 Button(action: onHelp) {
                     Label("Help", systemImage: "questionmark.circle")
                 }
+                // Fidget needs no audio: the doodle and tactile modes work for
+                // any book, and the visualizer mode hides itself without a tap.
                 Button(action: onFidget) {
                     Label("Fidget", systemImage: "circle.hexagongrid")
                 }
-                .disabled(model.tracks.isEmpty)
             }
         } label: {
             chip

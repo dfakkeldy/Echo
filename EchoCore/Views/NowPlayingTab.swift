@@ -247,7 +247,7 @@ struct NowPlayingTab: View {
                     tracksEmpty: model.tracks.isEmpty,
                     isRunning: model.hasActiveNarrationWork)
                 {
-                    NarrationNudgeView {
+                    NarrationNudgeView(buttonSystemImage: "play.fill") {
                         settings.narrationVoiceID = preferredVoice.id.rawValue
                         model.startNarrationPlayback(voice: preferredVoice)
                     }

@@ -19,7 +19,6 @@ struct SettingsView: View {
     private let buildMetadata = AppBuildMetadata()
     @State private var showingDeckImporter = false
     @State private var showingAllStudyNotesExport = false
-    @State private var showingFeedback = false
     @State private var importAlert: (title: String, message: String)?
     /// Debug-menu mirror of the reader's alignment-timestamp overlay toggle.
     @State private var showAlignmentTimestamps = UserDefaults.standard.bool(
@@ -50,12 +49,14 @@ struct SettingsView: View {
                     }
                 }
 
-                // No header: a one-row group named after its only row
-                // just says the same word twice.
+                // Headed like every other group, so the page reads as one
+                // rhythm: header, card, header, card.
                 Section {
                     NavigationLink("Appearance") {
                         SettingsAppearanceView()
                     }
+                } header: {
+                    Text("Look & Feel")
                 }
 
                 Section("Controls") {
@@ -76,7 +77,7 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("Study & Notes") {
+                Section {
                     NavigationLink("AI Card Generation") {
                         AICardGenerationSettingsView()
                             .navigationTitle("AI Card Generation")
@@ -90,8 +91,16 @@ struct SettingsView: View {
                     }
 
                     SettingsStudyRows()
+                } header: {
+                    Text("Study & Notes")
+                } footer: {
+                    // Limit notes sit under the card, not inside it.
+                    SettingsStudyLimitsFooter()
+                }
 
-                    AutoExportSettingsRows()
+                // Export rows: their status line is this group's footer.
+                Section {
+                    AutoExportSettingsRows(showsStatus: false)
 
                     Button {
                         showingAllStudyNotesExport = true
@@ -99,6 +108,9 @@ struct SettingsView: View {
                         Label("Export All Study Notes", systemImage: "square.and.arrow.up")
                     }
                     .disabled(model.databaseService == nil)
+                } footer: {
+                    AutoExportStatusText()
+                        .settingsFooterStyle()
                 }
 
                 Section("Advanced & Privacy") {
@@ -148,14 +160,12 @@ struct SettingsView: View {
                             Text(
                                 "Loads audio files from Development Assets into the player and renders chapter 1 through the on-device ONNX narration engine."
                             )
+                            .settingsFooterStyle()
                         }
                     }
                 #endif
 
-                SettingsSupportAboutSection(
-                    buildMetadata: buildMetadata,
-                    showingFeedback: $showingFeedback
-                )
+                SettingsSupportAboutSection(buildMetadata: buildMetadata)
             }
             .navigationTitle("Settings")
             .toolbar {
@@ -164,10 +174,13 @@ struct SettingsView: View {
                 }
             }
         }
+        // System font: no override, so headers and footers keep their
+        // own text styles. A custom font sets the body size for rows;
+        // footers opt back down with `settingsFooterStyle()`.
         .environment(
             \.font,
             settings.appFont == SettingsManager.systemFontName
-                ? .body : .custom(settings.appFont, size: 17, relativeTo: .body)
+                ? nil : Font.custom(settings.appFont, size: 17, relativeTo: .body)
         )
         .fileImporter(
             isPresented: $showingDeckImporter,
@@ -175,9 +188,6 @@ struct SettingsView: View {
             allowsMultipleSelection: false,
             onCompletion: handleImportResult
         )
-        .sheet(isPresented: $showingFeedback) {
-            FeedbackFormView()
-        }
         .sheet(isPresented: $showingAllStudyNotesExport) {
             if let writer = model.databaseService?.writer {
                 AllStudyNotesExportView(databaseWriter: writer)
@@ -224,22 +234,29 @@ struct SettingsView: View {
     }
 
     private func handleImportResult(_ result: Result<[URL], Error>) {
+        importAlert = Self.deckImportAlert(for: result, db: model.databaseService)
+    }
+
+    /// Runs a deck import the file importer picked and returns the alert to
+    /// show. Shared with the Decks screen's empty-state Import Deck button.
+    static func deckImportAlert(
+        for result: Result<[URL], Error>, db: DatabaseService?
+    ) -> (title: String, message: String)? {
         switch result {
         case .success(let urls):
-            guard let url = urls.first, let db = model.databaseService else { return }
-            let importer = DeckImportService()
+            guard let url = urls.first, let db else { return nil }
             do {
-                let result = try importer.importDeckVNext(from: url, db: db.writer)
-                importAlert = ("Import Complete", importCompletionMessage(for: result))
+                let result = try DeckImportService().importDeckVNext(from: url, db: db.writer)
+                return ("Import Complete", importCompletionMessage(for: result))
             } catch {
-                importAlert = ("Import Failed", error.localizedDescription)
+                return ("Import Failed", error.localizedDescription)
             }
         case .failure(let error):
-            importAlert = ("Import Failed", error.localizedDescription)
+            return ("Import Failed", error.localizedDescription)
         }
     }
 
-    private func importCompletionMessage(for result: ImportDeckResult) -> String {
+    private static func importCompletionMessage(for result: ImportDeckResult) -> String {
         if result.warningCount == 0 {
             return
                 "Imported \(result.importedCount) cards. \(result.anchoredCount) anchored to EPUB text."
@@ -296,7 +313,7 @@ private struct SettingsStudyRows: View {
         }
 
         // Short label, value trailing, one line each (Global New Chapters
-        // used to wrap). The footnote below names the limit, so a disabled
+        // used to wrap). The section footer names the limit, so a disabled
         // "+" at the top of the range is not a silent dead end.
         Stepper(value: $settings.studyGlobalNewChapterLimit, in: Self.chapterLimitRange) {
             LabeledContent("New chapters per day") {
@@ -306,24 +323,14 @@ private struct SettingsStudyRows: View {
             }
             .lineLimit(1)
         }
-        if settings.studyGlobalNewChapterLimit >= Self.chapterLimitRange.upperBound {
-            Text("12 new chapters a day is the most Echo schedules.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        }
 
         Stepper(value: $settings.studyNewCardsPerDayLimit, in: Self.cardLimitRange) {
-            LabeledContent("New AI cards per build") {
+            LabeledContent("New AI cards per batch") {
                 Text("\(settings.studyNewCardsPerDayLimit)")
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
             .lineLimit(1)
-        }
-        if settings.studyNewCardsPerDayLimit >= Self.cardLimitRange.upperBound {
-            Text("100 new cards per build is the most Echo offers.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
         }
 
         NavigationLink("Chapter Checkpoints") {
@@ -331,8 +338,8 @@ private struct SettingsStudyRows: View {
         }
     }
 
-    private static let chapterLimitRange = 1...12
-    private static let cardLimitRange = 1...100
+    static let chapterLimitRange = 1...12
+    static let cardLimitRange = 1...100
 
     private func setReviewNotificationsEnabled(_ isEnabled: Bool) {
         guard isEnabled else {
@@ -379,6 +386,29 @@ private struct SettingsStudyRows: View {
     }
 }
 
+/// Footer for Study & Notes: names a limit only when its stepper is at it.
+private struct SettingsStudyLimitsFooter: View {
+    @Environment(SettingsManager.self) private var settings
+
+    var body: some View {
+        let chapterCap = settings.studyGlobalNewChapterLimit
+            >= SettingsStudyRows.chapterLimitRange.upperBound
+        let cardCap = settings.studyNewCardsPerDayLimit
+            >= SettingsStudyRows.cardLimitRange.upperBound
+        if chapterCap || cardCap {
+            VStack(alignment: .leading, spacing: 4) {
+                if chapterCap {
+                    Text("12 new chapters a day is the most Echo schedules.")
+                }
+                if cardCap {
+                    Text("100 new cards per batch is the most Echo offers.")
+                }
+            }
+            .settingsFooterStyle()
+        }
+    }
+}
+
 private struct CheckpointSettingsView: View {
     @Environment(SettingsManager.self) private var settings
 
@@ -390,18 +420,8 @@ private struct CheckpointSettingsView: View {
             // The explanation comes first, then each control with its own
             // one-line footer.
             Section {
-                // Menu style keeps the value trailing on the label's line,
-                // like "Checkpoint timeout" below.
-                Picker("When the timer runs out", selection: $settings.checkpointTimeoutBehavior) {
-                    Text("Replay chapter")
-                        .tag(CheckpointTimeoutBehavior.replay.rawValue)
-                    Text("Move on")
-                        .tag(CheckpointTimeoutBehavior.gradeAndAdvance.rawValue)
-                    Text("Wait")
-                        .tag(CheckpointTimeoutBehavior.wait.rawValue)
-                }
-                .pickerStyle(.menu)
-
+                // The timer first, then what happens when it runs out.
+                // Menu style keeps each value trailing on its label's line.
                 if settings.checkpointTimeoutBehavior != CheckpointTimeoutBehavior.wait.rawValue {
                     Picker("Checkpoint timeout", selection: $settings.checkpointTimeoutSeconds) {
                         Text("10 seconds").tag(10)
@@ -411,6 +431,16 @@ private struct CheckpointSettingsView: View {
                     }
                     .pickerStyle(.menu)
                 }
+
+                Picker("When the timer runs out", selection: $settings.checkpointTimeoutBehavior) {
+                    Text("Replay chapter")
+                        .tag(CheckpointTimeoutBehavior.replay.rawValue)
+                    Text("Move on")
+                        .tag(CheckpointTimeoutBehavior.gradeAndAdvance.rawValue)
+                    Text("Wait")
+                        .tag(CheckpointTimeoutBehavior.wait.rawValue)
+                }
+                .pickerStyle(.menu)
             } header: {
                 Text(
                     "When a due study chapter ends, Echo pauses and asks how well you remember it. Only books with an active study plan have checkpoints."
@@ -418,18 +448,21 @@ private struct CheckpointSettingsView: View {
                 .textCase(nil)
             } footer: {
                 Text(timeoutFooter)
+                    .settingsFooterStyle()
             }
 
             Section {
                 Toggle("Auto-advance after Good", isOn: $settings.checkpointAutoAdvance)
             } footer: {
                 Text("Moves to the next chapter when you grade Good.")
+                    .settingsFooterStyle()
             }
 
             Section {
                 Toggle("Lock-screen button grading", isOn: $settings.checkpointRemoteGrading)
             } footer: {
                 Text("Skip forward means Good. Skip back means Again.")
+                    .settingsFooterStyle()
             }
         }
         .navigationTitle("Chapter Checkpoints")
@@ -472,21 +505,27 @@ private struct SettingsSilenceDetectionSection: View {
             Text(
                 "How far back to scan for silence when locating playback position during reverse playback. For testing."
             )
+            .settingsFooterStyle()
         }
     }
 }
 
 private struct SettingsSupportAboutSection: View {
     let buildMetadata: AppBuildMetadata
-    @Binding var showingFeedback: Bool
     @State private var copiedCommit = false
 
     var body: some View {
         Section {
-            NavigationLink("Feedback & Support") {
+            // One icon rule: rows that go somewhere carry an icon in the
+            // accent colour with primary-colour text; the Version and
+            // Commit facts carry none. Feedback & Support is the one
+            // route to email (its page opens Mail with the build filled in).
+            NavigationLink {
                 FeedbackSupportView()
                     .navigationTitle("Feedback & Support")
                     .navigationBarTitleDisplayMode(.inline)
+            } label: {
+                Label("Feedback & Support", systemImage: "envelope")
             }
             NavigationLink {
                 HelpView()
@@ -494,36 +533,39 @@ private struct SettingsSupportAboutSection: View {
             } label: {
                 Label("Help", systemImage: "questionmark.circle")
             }
-            Button {
-                showingFeedback = true
-            } label: {
-                Label("Send Feedback", systemImage: "bubble.left.and.text.bubble.right")
-            }
             Link(destination: FeedbackSupport.privacyPolicyURL) {
-                Label("Privacy Policy", systemImage: "hand.raised")
+                Label {
+                    Text("Privacy Policy")
+                        .foregroundStyle(.primary)
+                } icon: {
+                    Image(systemName: "hand.raised")
+                }
             }
 
             LabeledContent("Version", value: buildMetadata.versionString)
-            LabeledContent {
-                HStack {
-                    Text(buildMetadata.commitString)
-                        .textSelection(.enabled)
-                    Button("Copy", systemImage: copiedCommit ? "checkmark" : "doc.on.doc") {
-                        copyCommitHash()
-                    }
-                    .disabled(buildMetadata.gitCommitHash == nil)
-                    .buttonStyle(.bordered)
-                    .accessibilityLabel("Copy commit hash")
-                }
-            } label: {
+            // A plain row, so the copy control cannot stretch it taller.
+            HStack {
                 Text("Commit")
+                Spacer()
+                Text(buildMetadata.commitString)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                Button {
+                    copyCommitHash()
+                } label: {
+                    Image(systemName: copiedCommit ? "checkmark" : "doc.on.doc")
+                }
+                .buttonStyle(.borderless)
+                .disabled(buildMetadata.gitCommitHash == nil)
+                .accessibilityLabel("Copy commit hash")
             }
         } header: {
             Text("Support & About")
         } footer: {
-            Text(
-                "Use these details when comparing installs or reporting a bug. The commit hash is stamped into the app at build time."
-            )
+            Text("Use these details when comparing installs or reporting a bug.")
+                .settingsFooterStyle()
         }
     }
 

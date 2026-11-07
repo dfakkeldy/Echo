@@ -38,7 +38,12 @@ struct SessionsListView: View {
                         Button(
                             "Start listening", systemImage: "play.fill", action: onStartListening
                         )
+                        // A standard-size capsule: the one way forward
+                        // from this empty room should not be a small chip.
                         .buttonStyle(.borderedProminent)
+                        .buttonBorderShape(.capsule)
+                        .controlSize(.large)
+                        .frame(minHeight: 50)
                     }
                 }
             } else {

@@ -847,6 +847,19 @@ struct ReaderTab: View {
                 }
                 .padding(.horizontal)
             }
+            // Fade the trailing edge so a chip that runs past the screen reads
+            // as "scroll for more" rather than as clipped text.
+            .mask(
+                LinearGradient(
+                    stops: [
+                        .init(color: .black, location: 0),
+                        .init(color: .black, location: 0.9),
+                        .init(color: .clear, location: 1),
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
 
             Picker(
                 "Scope",
@@ -1190,18 +1203,28 @@ struct ReaderTab: View {
     private func hintBanner(
         icon: String, message: String, dismissible: Bool, onDismiss: @escaping () -> Void
     ) -> some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .top, spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 15))
                 .foregroundStyle(Color.accentColor)
                 .frame(width: 24)
-            Text(message)
-                .font(.caption)
-                // ~75% of the label colour: .secondary measured ~45% white on
-                // the dark page, too faint for a hint the user must read once.
-                .foregroundStyle(.primary.opacity(0.75))
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer()
+            VStack(alignment: .leading, spacing: 6) {
+                Text(message)
+                    .font(.caption)
+                    // ~75% of the label colour: .secondary measured ~45% white on
+                    // the dark page, too faint for a hint the user must read once.
+                    .foregroundStyle(.primary.opacity(0.75))
+                    .fixedSize(horizontal: false, vertical: true)
+                if dismissible {
+                    // A plain-language way out next to the words, for readers
+                    // who don't read a bare ✕ as "I understand".
+                    Button("Got it", action: onDismiss)
+                        .font(.caption.weight(.semibold))
+                        .buttonStyle(.borderless)
+                        .tint(.accentColor)
+                }
+            }
+            Spacer(minLength: 0)
             if dismissible {
                 Button(action: onDismiss) {
                     Image(systemName: "xmark.circle.fill")
@@ -1361,10 +1384,13 @@ struct EPUBTOCSheet: View {
         // Presented from the reader's book chrome, so it continues the cover's
         // tonal room like the other book sheets.
         CoverThemedSheet(theme: model.coverTheme) {
+            // Same inset tonal cards as the Chapters sheet, so both pickers
+            // read as one object.
             List {
                 ForEach(chapters) { chapter in
                     TOCNodeView(
                         node: chapter,
+                        depth: 0,
                         activeBlockID: activeBlockID,
                         onSelect: { blockID in
                             onSelect(blockID)
@@ -1374,12 +1400,13 @@ struct EPUBTOCSheet: View {
                     )
                 }
             }
-            .listStyle(.plain)
+            .listStyle(.insetGrouped)
+            .presentationDetents([.medium, .large])
             .navigationTitle("Table of Contents")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Cancel") { dismiss() }
+                    Button("Done") { dismiss() }
                 }
             }
             .onAppear {
@@ -1411,23 +1438,41 @@ struct EPUBTOCSheet: View {
 
 struct TOCNodeView: View {
     let node: TOCNode
+    var depth: Int = 0
     let activeBlockID: String?
     let onSelect: (String) -> Void
     @Binding var expandedNodes: Set<String>
 
+    /// Each node is its own list row; an open group's children follow as
+    /// further rows, indented one step per level.
     var body: some View {
         nodeRow
-            // Rows sit straight on the sheet's tonal wash, not on grey cards.
-            .listRowBackground(Color.clear)
+            .listRowBackground(CoverSheetRowBackground())
+        if isExpanded {
+            ForEach(node.children) { child in
+                TOCNodeView(
+                    node: child,
+                    depth: depth + 1,
+                    activeBlockID: activeBlockID,
+                    onSelect: onSelect,
+                    expandedNodes: $expandedNodes
+                )
+            }
+        }
     }
 
-    /// One disclosure rule: a group shows the system chevron (down when open,
-    /// right when closed) and a leaf shows none. Only one row is "current": a
-    /// group whose own start is the active block defers the mark to the child
-    /// that shares it, so a check never sits beside a chevron.
+    /// One chevron meaning: a leading chevron only on groups, turning down
+    /// when open (the reader's section headers use the same rule). The
+    /// trailing column holds only the current-row check, so a check never
+    /// sits beside a chevron. Only one row is "current": a group whose own
+    /// start is the active block defers the mark to the child that shares it.
     private var isCurrent: Bool {
         guard node.blockID == activeBlockID else { return false }
         return !Self.containsActive(node.children, activeBlockID: activeBlockID)
+    }
+
+    private var isExpanded: Bool {
+        !node.children.isEmpty && expandedNodes.contains(node.id)
     }
 
     private static func containsActive(_ nodes: [TOCNode], activeBlockID: String?) -> Bool {
@@ -1436,51 +1481,52 @@ struct TOCNodeView: View {
         }
     }
 
-    @ViewBuilder
-    private var nodeRow: some View {
-        if node.children.isEmpty {
-            TOCRow(title: node.title, isActive: isCurrent) {
-                onSelect(node.blockID)
-            }
-        } else {
-            DisclosureGroup(
-                isExpanded: Binding(
-                    get: { expandedNodes.contains(node.id) },
-                    set: { isExp in
-                        if isExp {
-                            expandedNodes.insert(node.id)
-                        } else {
-                            expandedNodes.remove(node.id)
-                        }
-                    }
-                )
-            ) {
-                ForEach(node.children) { child in
-                    TOCNodeView(
-                        node: child,
-                        activeBlockID: activeBlockID,
-                        onSelect: onSelect,
-                        expandedNodes: $expandedNodes
-                    )
-                }
-            } label: {
-                TOCRow(title: node.title, isActive: isCurrent) {
-                    onSelect(node.blockID)
-                }
+    private func toggle() {
+        withAnimation(.snappy) {
+            if expandedNodes.contains(node.id) {
+                expandedNodes.remove(node.id)
+            } else {
+                expandedNodes.insert(node.id)
             }
         }
+    }
+
+    private var nodeRow: some View {
+        HStack(spacing: 6) {
+            if node.children.isEmpty {
+                Color.clear.frame(width: 28, height: 28)
+                    .accessibilityHidden(true)
+            } else {
+                Button(action: toggle) {
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .frame(width: 28, height: 28)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(Text(isExpanded ? "Collapse \(node.title)" : "Expand \(node.title)"))
+            }
+            TOCRow(title: node.title, isActive: isCurrent, isNested: depth > 0) {
+                onSelect(node.blockID)
+            }
+        }
+        .padding(.leading, CGFloat(depth) * 16)
     }
 }
 
 struct TOCRow: View {
     let title: String
     let isActive: Bool
+    var isNested: Bool = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             HStack {
                 Text(title)
+                    .font(isNested ? .subheadline : .body)
                     .foregroundStyle(
                         isActive ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.primary)
                     )
@@ -1492,6 +1538,7 @@ struct TOCRow: View {
                         .font(.caption.bold())
                 }
             }
+            .contentShape(.rect)
         }
         .buttonStyle(.plain)
     }

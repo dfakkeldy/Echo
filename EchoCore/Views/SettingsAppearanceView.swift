@@ -29,6 +29,7 @@ struct SettingsAppearanceView: View {
                 #endif
             } footer: {
                 Text(colorSchemeFooter)
+                    .settingsFooterStyle()
             }
             Section {
                 NavigationLink {
@@ -62,6 +63,7 @@ struct SettingsAppearanceView: View {
                 Text(
                     "Vivid Cover Accent picks the cover's brightest color, even a small one. Off blends the cover's colors."
                 )
+                .settingsFooterStyle()
             }
             // Text settings in one group; no "Typography" header over two
             // rows that already say Font and Reader Defaults.
@@ -93,23 +95,28 @@ struct SettingsAppearanceView: View {
                 Text(
                     "Short chapter names shows \u{201C}Ch. 12\u{201D} instead of \u{201C}Chapter 12\u{201D} on the watch and mini-player."
                 )
+                .settingsFooterStyle()
             }
         }
         .navigationTitle("Appearance")
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    /// Describes the option that is selected, not only the Cover option.
+    /// Names the selected option first, so the footer reads as a
+    /// description of the current choice, not a list of all four.
     private var colorSchemeFooter: String {
         switch settings.appAppearance {
-        case "Light": String(localized: "Echo always uses light mode.")
-        case "Dark": String(localized: "Echo always uses dark mode.")
+        case "Light":
+            String(localized: "Light: Echo stays light, whatever the system setting.")
+        case "Dark":
+            String(localized: "Dark: Echo stays dark, whatever the system setting.")
         case "Cover":
             String(
                 localized:
-                    "Follows the book you're listening to: light for pale covers, dark for deep ones. Books with no preference follow the system."
+                    "Cover: light for pale covers, dark for deep ones. Books with no preference follow the system."
             )
-        default: String(localized: "Echo follows your device's light or dark setting.")
+        default:
+            String(localized: "System: Echo matches your device's light or dark setting.")
         }
     }
 

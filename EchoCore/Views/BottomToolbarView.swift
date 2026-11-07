@@ -221,7 +221,34 @@ struct BottomToolbarView: View {
 
     // MARK: - Bookmark
 
+    /// The capture slot. A book with no text has exactly one capture action,
+    /// Add bookmark, so a tap runs it directly: a menu holding one row is a
+    /// step that decides nothing. With text, note and memo join it and the
+    /// slot opens the menu.
+    @ViewBuilder
     private var bookmarkCaptureMenu: some View {
+        if bookHasText {
+            captureMenu
+        } else {
+            Button {
+                createBookmarkDraft()
+            } label: {
+                captureChip
+            }
+            .accessibilityLabel(Text("Bookmark, note, or memo"))
+            .accessibilityHint(Text("Adds a bookmark here"))
+            .disabled(model.tracks.isEmpty)
+        }
+    }
+
+    private var captureChip: some View {
+        utilityChip(isActive: isReaderVoiceMemoRecording) {
+            Image(systemName: isReaderVoiceMemoRecording ? "mic.circle.fill" : "bookmark.fill")
+                .font(.title2)
+        }
+    }
+
+    private var captureMenu: some View {
         Menu {
             Button {
                 createBookmarkDraft()
@@ -269,10 +296,7 @@ struct BottomToolbarView: View {
                 .disabled(!canCreateReaderCapture || onToggleReaderMemo == nil)
             }
         } label: {
-            utilityChip(isActive: isReaderVoiceMemoRecording) {
-                Image(systemName: isReaderVoiceMemoRecording ? "mic.circle.fill" : "bookmark.fill")
-                    .font(.title2)
-            }
+            captureChip
         }
         .accessibilityLabel(Text("Bookmark, note, or memo"))
         .disabled(model.tracks.isEmpty && !canCreateReaderCapture)

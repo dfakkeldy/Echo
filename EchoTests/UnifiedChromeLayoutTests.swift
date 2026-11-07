@@ -108,6 +108,10 @@ struct UnifiedChromeLayoutTests {
             !source.contains("private var addBookmarkButton"),
             "The old immediate bookmark button should be replaced by the capture menu."
         )
+        #expect(
+            source.contains("if bookHasText {\n            captureMenu"),
+            "With one capture action (no book text) a tap adds the bookmark directly; the menu is for 2+ actions."
+        )
     }
 
     @Test func bottomDockIsRootAnchoredForEveryMainScreen() throws {

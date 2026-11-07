@@ -11,9 +11,9 @@ struct BookOverridesSections: View {
     /// Shown as the section header; pass the book title in the unified
     /// Settings sheet so the section reads "Emotional Design — overrides global".
     var headerTitle: String? = nil
-    /// Book Settings (a cover-themed sheet) puts the rule above the controls
-    /// it explains and gives rows the translucent sheet card. The Settings
-    /// root keeps the neutral system look with the rule as a footer.
+    /// Book Settings (a cover-themed sheet) gives rows the translucent sheet
+    /// card; the Settings root keeps the neutral system look. Both put the
+    /// rule in the footer, under the controls it explains.
     var coverThemed: Bool = false
 
     private var explanation: Text {
@@ -82,22 +82,13 @@ struct BookOverridesSections: View {
             .padding(.vertical, 4)
 
         } header: {
-            if coverThemed {
-                VStack(alignment: .leading, spacing: 4) {
-                    if let headerTitle {
-                        Text(headerTitle)
-                    }
-                    explanation
-                        .font(.footnote)
-                        .textCase(nil)
-                }
-            } else if let headerTitle {
+            if let headerTitle {
                 Text(headerTitle)
             }
         } footer: {
-            if !coverThemed {
-                explanation
-            }
+            // The rule sits under the card it explains in both homes, like
+            // every other section footnote.
+            explanation
         }
         .listRowBackground(coverThemed ? CoverSheetRowBackground() : nil)
     }
@@ -138,12 +129,17 @@ struct BookSettingsView: View {
                         if let echoDeckBuilderExportURL {
                             // Same accent as its sibling actions: all three
                             // rows act at once (open a sheet or share sheet).
+                            // A Form draws a ShareLink's title in primary,
+                            // so the tint goes on the title text itself or
+                            // this row reads white beside its accent siblings.
                             ShareLink(item: echoDeckBuilderExportURL) {
-                                Label(
-                                    "Make Flashcards in EchoDeckBuilder",
-                                    systemImage: "square.and.arrow.up"
-                                )
-                                .foregroundStyle(.tint)
+                                Label {
+                                    Text("Make Flashcards in EchoDeckBuilder")
+                                        .foregroundStyle(.tint)
+                                } icon: {
+                                    Image(systemName: "square.and.arrow.up")
+                                        .foregroundStyle(.tint)
+                                }
                             }
                         } else {
                             Button(
@@ -162,30 +158,32 @@ struct BookSettingsView: View {
                 // active, or why it fell back to paragraph-level. Cross-platform
                 // (no iOS-only dependency) so macOS gets parity. Lives here rather
                 // than in the reader chrome to keep the reader UX untouched.
-                // It is status, not a control, so it renders as caption text
-                // with no row card.
+                // It is status, not a control, but it sits in a card row like
+                // the sections around it rather than floating as loose text.
                 if model.databaseService?.writer != nil, model.state.folderURL != nil {
                     Section {
-                        EmptyView()
-                    } header: {
-                        Text("Read-Along")
-                    } footer: {
                         VStack(alignment: .leading, spacing: 4) {
                             Label {
                                 Text("Highlighting: \(readAlongStatus ?? String(localized: "Checking…"))")
                             } icon: {
                                 Image(systemName: "info.circle")
                             }
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                             // Only present when the state is user-fixable, and it
                             // names the action that fixes it rather than leaving
                             // the reason as a dead end.
                             if let readAlongRecoveryHint {
                                 Text(readAlongRecoveryHint)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
                             }
                         }
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 2)
+                    } header: {
+                        Text("Read-Along")
                     }
+                    .listRowBackground(CoverSheetRowBackground())
                 }
 
                 #if os(iOS)

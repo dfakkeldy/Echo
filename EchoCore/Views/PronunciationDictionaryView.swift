@@ -5,7 +5,7 @@ import SwiftUI
 /// row is a `word → IPA` pair; narration pronounces an overridden word from the
 /// supplied IPA, bypassing the built-in lexicon (and the removed BART fallback).
 /// Useful for proper nouns and technical terms the lexicon-only G2P can't guess
-/// — e.g. "Kubernetes" → "kuːbərˈnɛtɪs".
+/// — e.g. "Persephone" → "pərˈsɛfəni".
 ///
 /// Pushed from `SettingsView`, so it is a bare `Form` (no `NavigationStack` of
 /// its own) and binds to the shared `PronunciationOverrideStore` so edits take
@@ -53,6 +53,7 @@ struct PronunciationDictionaryView: View {
                 Text(
                     "Words here are pronounced from the IPA you provide, overriding the built-in dictionary. Tip: for books full of invented names, add the main characters here."
                 )
+                .settingsFooterStyle()
             }
 
             Section {
@@ -62,14 +63,20 @@ struct PronunciationDictionaryView: View {
                 TextField("IPA", text: $newIPA)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                // Grey until both fields have text, then the accent colour
+                // like every other in-card action.
                 Button("Add pronunciation", systemImage: "plus.circle", action: addEntry)
-                    .disabled(trimmedWord.isEmpty || trimmedIPA.isEmpty)
+                    .foregroundStyle(
+                        canAdd ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary)
+                    )
+                    .disabled(!canAdd)
             } header: {
                 Text("Add a pronunciation")
             } footer: {
                 Text(
-                    "Enter IPA only — e.g. kuːbərˈnɛtɪs for Kubernetes. Stress marks: ˈ primary, ˌ secondary."
+                    "Enter IPA only — e.g. pərˈsɛfəni for Persephone. Stress marks: ˈ primary, ˌ secondary."
                 )
+                .settingsFooterStyle()
             }
         }
         .navigationTitle("Pronunciation")
@@ -84,6 +91,10 @@ struct PronunciationDictionaryView: View {
         } message: {
             Text(saveError ?? "")
         }
+    }
+
+    private var canAdd: Bool {
+        !trimmedWord.isEmpty && !trimmedIPA.isEmpty
     }
 
     private var trimmedWord: String {

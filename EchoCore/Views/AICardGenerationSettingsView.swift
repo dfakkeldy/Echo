@@ -27,9 +27,9 @@ struct AICardGenerationSettingsView: View {
                 .onChange(of: preference) { _, new in
                     store.generatorPreference = new
                 }
+            } footer: {
                 Text(StudyDeckFMAvailability.statusMessage)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .settingsFooterStyle()
             }
 
             // On-device only never uses the cloud provider, so its settings
@@ -53,31 +53,36 @@ struct AICardGenerationSettingsView: View {
                 switchPreset(to: new)
             }
 
-            // Label + trailing value, so model IDs and the endpoint are
-            // never bare, unexplained rows.
+            // Label + a bordered field, so each value reads as something
+            // to type into, not a fixed fact.
             LabeledContent("Endpoint") {
                 TextField("https://", text: $config.baseURL)
                     .autocorrectionDisabled()
                     .multilineTextAlignment(.trailing)
+                    .textFieldStyle(.roundedBorder)
             }
             LabeledContent("API token") {
                 SecureField("Required", text: $token)
                     .textContentType(.password)
                     .multilineTextAlignment(.trailing)
+                    .textFieldStyle(.roundedBorder)
             }
             LabeledContent("Model") {
                 TextField("Required", text: $config.primaryModel)
                     .autocorrectionDisabled()
                     .multilineTextAlignment(.trailing)
+                    .textFieldStyle(.roundedBorder)
             }
             LabeledContent("Fast model") {
                 TextField("Optional", text: $lightModel)
                     .autocorrectionDisabled()
                     .multilineTextAlignment(.trailing)
+                    .textFieldStyle(.roundedBorder)
             }
 
-            // Preset providers have fixed capabilities: show them as plain
-            // values instead of dimmed toggles that read as neither on nor off.
+            // Preset providers have fixed capabilities: read-only facts in
+            // a collapsed group, in secondary grey, so they never compete
+            // with the fields above. Custom providers edit them as toggles.
             if config.preset == .custom {
                 Toggle(
                     "Structured output",
@@ -85,21 +90,25 @@ struct AICardGenerationSettingsView: View {
                 )
                 Toggle("Extended thinking", isOn: $config.capabilities.supportsThinking)
             } else {
-                LabeledContent(
-                    "Structured output",
-                    value: config.capabilities.supportsStructuredOutput
-                        ? String(localized: "Supported") : String(localized: "Not supported")
-                )
-                LabeledContent(
-                    "Extended thinking",
-                    value: config.capabilities.supportsThinking
-                        ? String(localized: "Supported") : String(localized: "Not supported")
-                )
+                DisclosureGroup("Model details") {
+                    LabeledContent(
+                        "Structured output",
+                        value: config.capabilities.supportsStructuredOutput
+                            ? String(localized: "Supported") : String(localized: "Not supported")
+                    )
+                    LabeledContent(
+                        "Extended thinking",
+                        value: config.capabilities.supportsThinking
+                            ? String(localized: "Supported") : String(localized: "Not supported")
+                    )
+                }
+                .foregroundStyle(.secondary)
             }
         } header: {
             Text("Cloud Provider")
         } footer: {
             Text("The fast model writes the short book brief.")
+                .settingsFooterStyle()
         }
 
         Section {
@@ -108,8 +117,15 @@ struct AICardGenerationSettingsView: View {
                 isOn: $consented
             )
 
-            Button(saved ? "Saved" : "Save") { save() }
-                .disabled(!canSave)
+            // A real button under the consent it depends on.
+            Button {
+                save()
+            } label: {
+                Text(saved ? "Saved" : "Save")
+                    .frame(maxWidth: .infinity, minHeight: 32)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!canSave)
 
             if store.token(for: config.preset) != nil {
                 Button("Remove Token", role: .destructive) { removeToken() }
@@ -117,6 +133,7 @@ struct AICardGenerationSettingsView: View {
         } footer: {
             if !canSave && !saved {
                 Text(saveRequirement)
+                    .settingsFooterStyle()
             }
         }
 
@@ -132,6 +149,7 @@ struct AICardGenerationSettingsView: View {
             Text(
                 "Generating cards sends this book's text to \(config.preset.displayName) over HTTPS, billed to your own account. Echo's other features (narration, alignment, playback) remain fully on-device."
             )
+            .settingsFooterStyle()
         }
     }
 

@@ -48,11 +48,18 @@ nonisolated final class EchoDesignCouncilShots: XCTestCase {
             shot("P03_SpeedMenu", app)
             dismissMenu(in: app)
         }
+        // With one capture action (an audio-only book) a tap opens the draft
+        // sheet directly, so there is no menu to shoot: P04 is skipped and the
+        // sheet is P05. With 2+ actions the slot is a menu (P04) first.
         if openMenu(app.buttons["Bookmark, note, or memo"], in: app) {
-            shot("P04_CaptureMenu", app)
             let add = app.buttons["Add bookmark"].firstMatch
             if add.waitForExistence(timeout: 2), add.isHittable {
+                shot("P04_CaptureMenu", app)
                 add.tap()
+                settle(1.5)
+                shot("P05_BookmarkDraft", app)
+                closePresentedSheet(in: app, preferCancel: true)
+            } else if app.navigationBars["New Bookmark"].waitForExistence(timeout: 2) {
                 settle(1.5)
                 shot("P05_BookmarkDraft", app)
                 closePresentedSheet(in: app, preferCancel: true)

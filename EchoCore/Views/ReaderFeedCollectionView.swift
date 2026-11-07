@@ -1650,7 +1650,7 @@ private final class ChapterDividerCell: UICollectionViewCell {
         super.init(frame: frame)
 
         chevron.contentMode = .scaleAspectFit
-        chevron.tintColor = .tertiaryLabel
+        chevron.tintColor = .secondaryLabel
         chevron.setContentHuggingPriority(.required, for: .horizontal)
 
         titleLabel.font = .preferredFont(forTextStyle: .headline)
@@ -1694,9 +1694,11 @@ private final class ChapterDividerCell: UICollectionViewCell {
             audioIcon.tintColor = .tintColor
             titleLabel.textColor = .label
         } else {
+            // Text-only is said by the trailing icon alone; the title stays at
+            // full contrast so a collapsed section never reads as disabled.
             audioIcon.image = UIImage(systemName: "text.alignleft")
             audioIcon.tintColor = .tertiaryLabel
-            titleLabel.textColor = .secondaryLabel
+            titleLabel.textColor = .label
         }
         // Phase 2: dim the whole row when anything is off.
         let dimmed = offState.isDimmed

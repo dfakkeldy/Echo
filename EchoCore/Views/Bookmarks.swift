@@ -57,6 +57,7 @@ import os.log
                             TextField("Bookmark title", text: $title)
                                 .textInputAutocapitalization(.sentences)
                         }
+                        .listRowBackground(CoverSheetRowBackground())
                         Section("Time") {
                             HStack {
                                 // The buttons say their step, so the stepper
@@ -79,12 +80,16 @@ import os.log
                                 .accessibilityLabel(Text("Forward 1 second"))
                             }
                         }
+                        .listRowBackground(CoverSheetRowBackground())
 
                         Section {
                             TextField("Add a note…", text: $note, axis: .vertical)
                                 .lineLimit(3...8)
                         }
+                        .listRowBackground(CoverSheetRowBackground())
 
+                        // Attachments: image and voice memo share one card,
+                        // since both add something to the same bookmark.
                         Section {
                             if let name = bookmarkImageFileName {
                                 HStack {
@@ -113,9 +118,7 @@ import os.log
                                 Text("Image selection is unavailable on this platform.")
                                     .foregroundStyle(.secondary)
                             #endif
-                        }
 
-                        Section {
                             if let name = voiceMemoFileName {
                                 HStack {
                                     Image(systemName: "waveform")
@@ -173,6 +176,7 @@ import os.log
                                 }
                             }
                         }
+                        .listRowBackground(CoverSheetRowBackground())
                     }
                     .navigationTitle(
                         bookmarkID == nil
@@ -190,9 +194,12 @@ import os.log
                             }
                         }
                         ToolbarItem(placement: .topBarTrailing) {
+                            // Save is the one action that keeps the work, so
+                            // it carries the filled accent; Cancel stays plain.
                             Button("Save") {
                                 saveBookmark()
                             }
+                            .buttonStyle(.borderedProminent)
                             .bold()
                         }
                     }

@@ -16,8 +16,9 @@ struct StudySessionView: View {
                         Label {
                             Text("No cards yet")
                         } icon: {
+                            // Grey like the Card Inbox and Decks empty states.
                             Image(systemName: "rectangle.stack")
-                                .foregroundStyle(.tint)
+                                .foregroundStyle(.secondary)
                         }
                     } description: {
                         Text(
@@ -43,7 +44,8 @@ struct StudySessionView: View {
                     Spacer(minLength: 16)
                 }
             }
-            .navigationTitle("Study")
+            // Matches the "Review Queue" row that opens it.
+            .navigationTitle("Review Queue")
             #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
             #endif

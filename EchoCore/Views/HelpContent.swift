@@ -15,7 +15,7 @@ enum HelpContent {
             body: """
             Tap the folder icon in the top-left corner to open the file picker. You can select a single audio file or an entire folder.
 
-            Supported formats: MP3, M4A, and M4B.
+            Supported formats: MP3, M4A, and M4B audio, plus EPUB, PDF, plain text (.txt), and Markdown (.md) books. Echo can read a text-only book aloud, or pair it with its audiobook.
 
             When you select a folder, all supported audio files inside are added to your playlist in alphabetical order. Chapter markers embedded in M4B and M4A files are automatically detected and used for chapter navigation.
 

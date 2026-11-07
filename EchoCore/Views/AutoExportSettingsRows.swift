@@ -8,6 +8,12 @@ struct AutoExportSettingsRows: View {
     @Environment(AutoExportService.self) private var autoExport
     @State private var showingFolderPicker = false
     @State private var showingPaywall = false
+    /// Off when the host shows `AutoExportStatusText` as its section footer.
+    private let showsStatus: Bool
+
+    init(showsStatus: Bool = true) {
+        self.showsStatus = showsStatus
+    }
 
     var body: some View {
         Group {
@@ -25,9 +31,11 @@ struct AutoExportSettingsRows: View {
                     }
                 }
             }
-            Text(statusText)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            if showsStatus {
+                AutoExportStatusText()
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
         }
         .fileImporter(
             isPresented: $showingFolderPicker,
@@ -63,6 +71,17 @@ struct AutoExportSettingsRows: View {
         if autoExport.needsFolderRepick { return "Folder unavailable - re-select" }
         guard let path = autoExport.destinationDisplayPath else { return "Choose..." }
         return URL(fileURLWithPath: path).lastPathComponent
+    }
+
+}
+
+/// One line on what auto-export is doing; a row or a section footer.
+struct AutoExportStatusText: View {
+    @Environment(SettingsManager.self) private var settings
+    @Environment(AutoExportService.self) private var autoExport
+
+    var body: some View {
+        Text(statusText)
     }
 
     private var statusText: String {

@@ -59,6 +59,7 @@ struct PhonePlayerSettingsView: View {
                 Text(
                     "Compact uses a smaller scrubber and reorganizes transport controls for a more minimal player."
                 )
+                .settingsFooterStyle()
             }
 
             Section {
@@ -89,6 +90,7 @@ struct PhonePlayerSettingsView: View {
                 Text("Mini-Player")
             } footer: {
                 Text("The three buttons shown in the mini-player on Now Playing and Read surfaces.")
+                    .settingsFooterStyle()
             }
 
             Section("Player Buttons") {

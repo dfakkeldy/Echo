@@ -108,9 +108,10 @@ struct SettingsExtractionTests {
         #expect(source.contains("Section(\"Library & Accounts\")"))
         #expect(source.contains("ABSConnectionsSettingsView()"))
         #expect(source.contains("ProTranscriptsSettingsView()"))
-        #expect(source.contains("Section(\"Study & Notes\")"))
+        #expect(source.contains("Text(\"Study & Notes\")"))
         #expect(source.contains("SettingsStudyRows()"))
-        #expect(source.contains("AutoExportSettingsRows()"))
+        #expect(source.contains("AutoExportSettingsRows(showsStatus: false)"))
+        #expect(source.contains("AutoExportStatusText()"))
         #expect(source.contains("AllStudyNotesExportView"))
         #expect(source.contains("Section(\"Advanced & Privacy\")"))
         #expect(source.contains("PronunciationDictionaryView(store: .shared)"))
@@ -153,10 +154,11 @@ struct SettingsExtractionTests {
         let shell = try Self.source(named: "SettingsView.swift")
         let studySlice = try Self.slice(
             of: shell,
-            after: "Section(\"Study & Notes\")",
+            after: "Text(\"Study & Notes\")",
             until: "Section(\"Advanced & Privacy\")"
         )
-        #expect(studySlice.contains("AutoExportSettingsRows()"))
+        #expect(studySlice.contains("AutoExportSettingsRows(showsStatus: false)"))
+        #expect(studySlice.contains("AutoExportStatusText()"))
     }
 
     @Test func studyNotesExportSheetExposesAutoExportRows() throws {

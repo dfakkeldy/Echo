@@ -28,11 +28,14 @@ struct CardInboxView: View {
                         }
                     }
                 } else if passages.isEmpty {
+                    // Plain copy that names the control. No button: marking
+                    // happens in the player, not here.
                     ContentUnavailableView(
-                        "Card Inbox Empty",
+                        "Nothing waiting",
                         systemImage: "tray",
                         description: Text(
-                            "Mark passages during playback to convert them into flashcards later.")
+                            "While listening, use Mark passage for later. Marked passages wait here until you turn them into cards."
+                        )
                     )
                 } else {
                     List {

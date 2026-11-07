@@ -66,7 +66,11 @@ struct ProTranscriptsSettingsView: View {
                         .disabled(isRetryingProducts || isPurchasingPro || isRestoringPurchases)
                     }
                 } footer: {
+                    // Centred on the button's axis, not left-aligned under it.
                     Text("One-time purchase. No subscription.")
+                        .settingsFooterStyle()
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
                 }
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
@@ -80,8 +84,8 @@ struct ProTranscriptsSettingsView: View {
                     if isRestoringPurchases {
                         ProgressView()
                     } else {
+                        // Body size: a quiet link, but still easy to read and hit.
                         Text("Restore Purchases")
-                            .font(.footnote)
                     }
                 }
                 .buttonStyle(.borderless)
