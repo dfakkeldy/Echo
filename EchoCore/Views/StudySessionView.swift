@@ -21,8 +21,12 @@ struct StudySessionView: View {
                                 .foregroundStyle(.secondary)
                         }
                     } description: {
+                        // Names what the player shows: the book's title sits
+                        // above the chapter name and opens Book Settings. The
+                        // queue is a sheet over Stats with no route back to
+                        // the player, so it gives directions, not a button.
                         Text(
-                            "To make cards, tap the book name in the player, then choose Generate Study Deck."
+                            "To make cards, open the player, tap the book title above the chapter name, then choose Generate Study Deck."
                         )
                     }
                 } else if viewModel.isComplete {

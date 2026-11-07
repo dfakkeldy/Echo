@@ -221,6 +221,10 @@ import os.log
                         stopPreview()
                     }
                 }
+                // Opens just tall enough for the form, so the sheet ends where
+                // it ends; attachments, a long note or larger text sizes pull
+                // up to full height.
+                .presentationDetents([.fraction(0.66), .large])
             }
 
             private func loadFromModel() {

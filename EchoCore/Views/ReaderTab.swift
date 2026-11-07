@@ -633,6 +633,9 @@ struct ReaderTab: View {
                 }
             }
         }
+        // Half height fits the empty state and a few sessions; a longer
+        // history pulls up to full height.
+        .presentationDetents([.medium, .large])
     }
 
     @ViewBuilder
@@ -1367,6 +1370,22 @@ struct EPUBTOCSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var expandedChapters: Set<String> = []
+    @State private var detent: PresentationDetent = .medium
+    /// One row's height, scaled with Dynamic Type.
+    @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 56
+
+    private var fittedDetent: PresentationDetent {
+        CoverSheetFit.listDetent(rows: visibleRowCount(chapters), rowHeight: rowHeight)
+    }
+
+    /// Rows on show: every top-level node plus the children of open groups,
+    /// matching `TOCNodeView`'s expansion rule.
+    private func visibleRowCount(_ nodes: [TOCNode]) -> Int {
+        nodes.reduce(0) { count, node in
+            let isOpen = !node.children.isEmpty && expandedChapters.contains(node.id)
+            return count + 1 + (isOpen ? visibleRowCount(node.children) : 0)
+        }
+    }
 
     private var chapters: [TOCNode] {
         var allBlocks: [EPubBlockRecord] = []
@@ -1401,7 +1420,13 @@ struct EPUBTOCSheet: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .presentationDetents([.medium, .large])
+            // Fitted to the rows on show, so a short contents list has no
+            // empty floor. Opening or closing a group refits the sheet unless
+            // the reader has pulled it up to full height.
+            .presentationDetents([fittedDetent, .large], selection: $detent)
+            .onChange(of: fittedDetent, initial: true) { _, fitted in
+                if detent != .large { detent = fitted }
+            }
             .navigationTitle("Table of Contents")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1506,7 +1531,8 @@ struct TOCNodeView: View {
                         .contentShape(.rect)
                 }
                 .buttonStyle(.borderless)
-                .accessibilityLabel(Text(isExpanded ? "Collapse \(node.title)" : "Expand \(node.title)"))
+                .accessibilityLabel(
+                    Text(isExpanded ? "Collapse \(node.title)" : "Expand \(node.title)"))
             }
             TOCRow(title: node.title, isActive: isCurrent, isNested: depth > 0) {
                 onSelect(node.blockID)

@@ -12,6 +12,8 @@ struct ChapterPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(SettingsManager.self) private var settings
     @Environment(PlayerModel.self) private var model
+    /// One row's height, scaled with Dynamic Type.
+    @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 50
 
     var body: some View {
         CoverThemedSheet(theme: model.coverTheme) {
@@ -36,7 +38,11 @@ struct ChapterPickerSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        // Fitted to a short book's rows so the sheet has no empty floor; a
+        // long list still opens at medium and scrolls to the current chapter.
+        .presentationDetents([
+            CoverSheetFit.listDetent(rows: chapters.count, rowHeight: rowHeight), .large,
+        ])
     }
 
     private var currentChapter: Chapter? {

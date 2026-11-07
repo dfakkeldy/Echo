@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import GRDB
-import os.log
 import SwiftUI
+import os.log
 
 /// Mark-later inbox: passages flagged for flashcard conversion, grouped by book.
 struct CardInboxView: View {
@@ -28,13 +28,16 @@ struct CardInboxView: View {
                         }
                     }
                 } else if passages.isEmpty {
-                    // Plain copy that names the control. No button: marking
-                    // happens in the player, not here.
+                    // Copy that shows the control: the dock's mark button is an
+                    // unlabelled icon, so the sentence draws that same icon and
+                    // keeps the button's VoiceOver name beside it. No button:
+                    // marking happens in the player, and this inbox has no
+                    // route back to it.
                     ContentUnavailableView(
                         "Nothing waiting",
                         systemImage: "tray",
                         description: Text(
-                            "While listening, use Mark passage for later. Marked passages wait here until you turn them into cards."
+                            "While listening, tap \(Image(systemName: "rectangle.stack.badge.plus")) Mark passage for later in the player. Marked passages wait here until you turn them into cards."
                         )
                     )
                 } else {
@@ -105,7 +108,8 @@ struct CardInboxView: View {
         loadError = nil
         guard let db = model.databaseService else {
             passages = []
-            loadError = String(localized: "The app database is unavailable. Reopen the book and try again.")
+            loadError = String(
+                localized: "The app database is unavailable. Reopen the book and try again.")
             return
         }
         do {
@@ -154,7 +158,8 @@ struct CardInboxView: View {
 
     private func markConverted(_ passage: MarkedPassage, cardID: String) {
         guard let db = model.databaseService else {
-            loadError = String(localized: "The app database is unavailable. Reopen the book and try again.")
+            loadError = String(
+                localized: "The app database is unavailable. Reopen the book and try again.")
             return
         }
         do {
@@ -168,7 +173,8 @@ struct CardInboxView: View {
 
     private func dismissPassage(_ passage: MarkedPassage) {
         guard let db = model.databaseService else {
-            loadError = String(localized: "The app database is unavailable. Reopen the book and try again.")
+            loadError = String(
+                localized: "The app database is unavailable. Reopen the book and try again.")
             return
         }
         do {

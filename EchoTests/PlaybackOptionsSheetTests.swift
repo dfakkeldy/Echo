@@ -59,18 +59,22 @@ struct PlaybackOptionsSheetTests {
         )
     }
 
-    @Test func sheetLinksToDurableControlsSettings() throws {
+    /// Council round 4 (P06): the sheet's "Controls" toolbar link duplicated a
+    /// route Settings already owns and read as a second exit, so it was
+    /// removed. Durable button/layout customization stays reachable from
+    /// Settings (pinned by `SettingsExtractionTests`).
+    @Test func sheetHasNoSecondExitToControlsSettings() throws {
         let source = try Self.source(named: "PlaybackOptionsSheet.swift")
-        #expect(source.contains("PhonePlayerSettingsView()"))
         #expect(
-            source.contains("Label(\"Controls\", systemImage: \"slider.horizontal.3\")"),
-            "The Controls link must keep its title and symbol."
+            !source.contains("PhonePlayerSettingsView()"),
+            "Playback Options must not link to Phone Player Settings; Settings reaches it."
         )
-        #expect(
-            source.contains(".labelStyle(.titleOnly)"),
-            "Controls shows its word, not a bare sliders glyph that reads as a copy of this sheet."
-        )
+        #expect(!source.contains("Label(\"Controls\""))
         #expect(!source.contains("Text(\"More\")"))
+        #expect(
+            !source.contains("placement: .topBarTrailing"),
+            "Done is the sheet's only toolbar button."
+        )
     }
 
     private static func source(named fileName: String) throws -> String {

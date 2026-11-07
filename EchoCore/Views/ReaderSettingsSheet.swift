@@ -27,6 +27,9 @@ struct ReaderSettingsSheet: View {
         // PlayerModel are iOS-only; this file also builds for macOS.)
         #if os(iOS)
             CoverThemedSheet(theme: model.coverTheme) { form }
+                // Opens just tall enough for its controls, so the sheet ends
+                // where they end; larger text sizes pull up to full height.
+                .presentationDetents([.fraction(0.86), .large])
         #else
             NavigationStack { form }
         #endif
@@ -36,8 +39,9 @@ struct ReaderSettingsSheet: View {
         Form {
             Section("Font Size") {
                 Stepper(
-                    "\(Int(settings.fontSize)) pt", value: $settings.fontSize, in: 12...28, step: 1)
-                    .tonalCardRow()
+                    "\(Int(settings.fontSize)) pt", value: $settings.fontSize, in: 12...28, step: 1
+                )
+                .tonalCardRow()
                 // The sample is drawn on the page the reader draws: the
                 // system page colour with the chosen tint washed over it at
                 // the reader's own strength, at the chosen size and line
@@ -137,7 +141,9 @@ struct ReaderSettingsSheet: View {
                         }
                         Button("Cancel", role: .cancel) {}
                     } message: {
-                        Text("Font size, line spacing and page tint go back to 17 pt, 1.4× and Sepia.")
+                        Text(
+                            "Font size, line spacing and page tint go back to 17 pt, 1.4× and Sepia."
+                        )
                     }
             }
         }

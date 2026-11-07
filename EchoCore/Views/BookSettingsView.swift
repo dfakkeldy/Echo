@@ -147,10 +147,23 @@ struct BookSettingsView: View {
                             .buttonStyle(.borderless)
                             .foregroundStyle(.tint)
                         } else {
-                            Button(
-                                "Make Flashcards in EchoDeckBuilder",
-                                systemImage: "square.and.arrow.up"
-                            ) {}
+                            // On the wash a disabled Form button keeps a
+                            // primary title, so it read as a live row in the
+                            // wrong colour. Draw it plainly disabled and say
+                            // what it needs.
+                            Button {
+                            } label: {
+                                Label {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Make Flashcards in EchoDeckBuilder")
+                                        Text("Needs this book's EPUB")
+                                            .font(.footnote)
+                                    }
+                                } icon: {
+                                    Image(systemName: "square.and.arrow.up")
+                                }
+                                .foregroundStyle(.secondary)
+                            }
                             .disabled(true)
                         }
                     #endif

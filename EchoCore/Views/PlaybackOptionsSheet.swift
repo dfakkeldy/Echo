@@ -96,21 +96,14 @@ struct PlaybackOptionsSheet: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Done") { dismiss() }
                 }
-                // Durable button/layout customization lives in Phone Player
-                // Settings. A word, not a bare sliders glyph: the glyph read as
-                // a second copy of this sheet (council round 3, P06). The word
-                // is short so the inline "Playback Options" title never truncates.
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        PhonePlayerSettingsView()
-                    } label: {
-                        Label("Controls", systemImage: "slider.horizontal.3")
-                            .labelStyle(.titleOnly)
-                    }
-                    .accessibilityHint(Text("Choose the player's buttons and layout"))
-                }
+                // No link to Phone Player Settings here: Settings already
+                // reaches it, and a second toolbar button read as a second
+                // exit (council round 4, P06).
             }
         }
+        // Opens just tall enough for its sections, so the sheet ends where
+        // they end; Smart Rewind and larger text sizes pull up to full height.
+        .presentationDetents([.fraction(0.8), .large])
     }
 
     // MARK: - Speed
