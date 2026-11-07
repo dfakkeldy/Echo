@@ -26,4 +26,22 @@ struct HelpViewMarkdownTests {
             #expect(!text.contains("**"), "\(section.title) still shows literal asterisks")
         }
     }
+
+    @Test func boldLeadInBecomesASubheadParagraph() {
+        let blocks = HelpView.blocks("Intro line.\n\n**Search:** Type any phrase.\n\n**Note** stays inline.")
+        #expect(blocks.count == 3)
+        #expect(blocks[0] == HelpView.HelpBlock(heading: nil, text: "Intro line."))
+        #expect(blocks[1] == HelpView.HelpBlock(heading: "Search", text: "Type any phrase."))
+        #expect(blocks[2].heading == nil)
+    }
+
+    @Test func everyHelpSectionKeepsItsTextAcrossBlocks() {
+        for section in HelpContent.sections {
+            let blocks = HelpView.blocks(section.body)
+            #expect(!blocks.isEmpty, "\(section.title) has no paragraphs")
+            for block in blocks {
+                #expect(!(block.heading ?? "").contains("*"))
+            }
+        }
+    }
 }

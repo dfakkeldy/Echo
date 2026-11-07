@@ -96,16 +96,18 @@ struct PlaybackOptionsSheet: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Done") { dismiss() }
                 }
-                // Durable button/layout customization lives in Settings > Controls.
+                // Durable button/layout customization lives in Phone Player
+                // Settings. A word, not a bare sliders glyph: the glyph read as
+                // a second copy of this sheet (council round 3, P06). The word
+                // is short so the inline "Playback Options" title never truncates.
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
                         PhonePlayerSettingsView()
                     } label: {
-                        // Icon-only so the inline "Playback Options" title never truncates;
-                        // the Label text stays as the accessibility label.
-                        Label("More Controls", systemImage: "slider.horizontal.3")
-                            .labelStyle(.iconOnly)
+                        Label("Controls", systemImage: "slider.horizontal.3")
+                            .labelStyle(.titleOnly)
                     }
+                    .accessibilityHint(Text("Choose the player's buttons and layout"))
                 }
             }
         }
@@ -167,12 +169,19 @@ struct PlaybackOptionsSheet: View {
         )
     }
 
-    /// Reflects the RESOLVED value when a book is loaded.
+    /// The toggle shows the global flag, so the footer speaks only when the
+    /// loaded book overrides it (Book Settings); repeating the toggle's own
+    /// on/off state added nothing (council round 3, P06).
     private var volumeBoostFooter: String {
         if model.folderURL != nil {
-            return model.resolvedVolumeBoostEnabled
-                ? String(localized: "Boost is on for this book.")
-                : String(localized: "Boost is off for this book.")
+            switch model.bookVolumeBoostOverride {
+            case "alwaysOn":
+                return String(localized: "This book always uses boost (set in Book Settings).")
+            case "alwaysOff":
+                return String(localized: "This book never uses boost (set in Book Settings).")
+            default:
+                break
+            }
         }
         return String(localized: "Raises quiet recordings. Applies to all books unless overridden.")
     }

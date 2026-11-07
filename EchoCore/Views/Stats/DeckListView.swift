@@ -34,10 +34,14 @@ struct DeckListView: View {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done") { dismiss() }
             }
-            ToolbarItem(placement: .primaryAction) {
-                Button("New Deck", systemImage: "plus") {
-                    newDeckName = ""
-                    isShowingNewDeckPrompt = true
+            // The empty state's Import Deck button is the one door while
+            // there are no decks; "+" joins once a deck exists.
+            if !snapshot.isEmpty {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("New Deck", systemImage: "plus") {
+                        newDeckName = ""
+                        isShowingNewDeckPrompt = true
+                    }
                 }
             }
         }
@@ -108,7 +112,7 @@ struct DeckListView: View {
     private var emptyState: some View {
         // One primary door: the same deck import Settings offers.
         ContentUnavailableView {
-            Label("No Decks", systemImage: "rectangle.stack")
+            Label("No decks yet", systemImage: "rectangle.stack")
         } description: {
             Text("Import a deck, or make cards from a book in the player.")
         } actions: {

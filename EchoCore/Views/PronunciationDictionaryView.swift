@@ -32,8 +32,11 @@ struct PronunciationDictionaryView: View {
         Form {
             Section {
                 if sortedEntries.isEmpty {
+                    // Plain secondary text on the page, not a filled card
+                    // that reads as a tappable row.
                     Text("No custom pronunciations yet.")
-                        .foregroundStyle(.secondary)
+                        .settingsFooterStyle()
+                        .listRowBackground(Color.clear)
                 } else {
                     ForEach(sortedEntries, id: \.word) { entry in
                         HStack {

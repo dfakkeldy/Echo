@@ -86,9 +86,11 @@ struct BookOverridesSections: View {
                 Text(headerTitle)
             }
         } footer: {
-            // The rule sits under the card it explains in both homes, like
-            // every other section footnote.
+            // The rule sits under the card it explains in both homes, at
+            // the same footnote size as every other section footer (the
+            // sheets set `\.font` to body size for their rows).
             explanation
+                .settingsFooterStyle()
         }
         .listRowBackground(coverThemed ? CoverSheetRowBackground() : nil)
     }
@@ -129,18 +131,21 @@ struct BookSettingsView: View {
                         if let echoDeckBuilderExportURL {
                             // Same accent as its sibling actions: all three
                             // rows act at once (open a sheet or share sheet).
-                            // A Form draws a ShareLink's title in primary,
-                            // so the tint goes on the title text itself or
-                            // this row reads white beside its accent siblings.
+                            // A Form draws a ShareLink's title in primary and
+                            // ignores a tint on the title text, so the row
+                            // takes the borderless button style, which draws
+                            // its label in the accent. The full-width shape
+                            // keeps the whole row tappable.
                             ShareLink(item: echoDeckBuilderExportURL) {
-                                Label {
-                                    Text("Make Flashcards in EchoDeckBuilder")
-                                        .foregroundStyle(.tint)
-                                } icon: {
-                                    Image(systemName: "square.and.arrow.up")
-                                        .foregroundStyle(.tint)
-                                }
+                                Label(
+                                    "Make Flashcards in EchoDeckBuilder",
+                                    systemImage: "square.and.arrow.up"
+                                )
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(.rect)
                             }
+                            .buttonStyle(.borderless)
+                            .foregroundStyle(.tint)
                         } else {
                             Button(
                                 "Make Flashcards in EchoDeckBuilder",
@@ -152,36 +157,37 @@ struct BookSettingsView: View {
                 }
                 .listRowBackground(CoverSheetRowBackground())
 
-                BookOverridesSections(model: model, coverThemed: true)
+                // Headed like the sections around it, so the override card
+                // does not float without a name.
+                BookOverridesSections(
+                    model: model,
+                    headerTitle: String(localized: "This Book"),
+                    coverThemed: true
+                )
 
                 // Read-along status: whether word-level (sidecar) highlighting is
                 // active, or why it fell back to paragraph-level. Cross-platform
                 // (no iOS-only dependency) so macOS gets parity. Lives here rather
                 // than in the reader chrome to keep the reader UX untouched.
-                // It is status, not a control, but it sits in a card row like
-                // the sections around it rather than floating as loose text.
+                // It is status, not a control, so it is a plain value row
+                // ("Highlighting … Paragraph-level"), not an icon-led card
+                // that looks tappable.
                 if model.databaseService?.writer != nil, model.state.folderURL != nil {
                     Section {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Label {
-                                Text("Highlighting: \(readAlongStatus ?? String(localized: "Checking…"))")
-                            } icon: {
-                                Image(systemName: "info.circle")
-                            }
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            // Only present when the state is user-fixable, and it
-                            // names the action that fixes it rather than leaving
-                            // the reason as a dead end.
-                            if let readAlongRecoveryHint {
-                                Text(readAlongRecoveryHint)
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
+                        LabeledContent("Highlighting") {
+                            Text(readAlongStatus ?? String(localized: "Checking…"))
+                                .multilineTextAlignment(.trailing)
                         }
-                        .padding(.vertical, 2)
                     } header: {
                         Text("Read-Along")
+                    } footer: {
+                        // Only present when the state is user-fixable, and it
+                        // names the action that fixes it rather than leaving
+                        // the reason as a dead end.
+                        if let readAlongRecoveryHint {
+                            Text(readAlongRecoveryHint)
+                                .settingsFooterStyle()
+                        }
                     }
                     .listRowBackground(CoverSheetRowBackground())
                 }

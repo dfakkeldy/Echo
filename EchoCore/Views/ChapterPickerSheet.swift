@@ -26,7 +26,10 @@ struct ChapterPickerSheet: View {
                     }
                 }
             }
-            .navigationTitle("Pick Chapter")
+            // Inline, like Table of Contents and Reader Settings, so the
+            // rows sit close to the grabber.
+            .navigationTitle("Chapters")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }

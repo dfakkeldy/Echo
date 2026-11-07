@@ -7,6 +7,7 @@ struct ReaderSettingsSheet: View {
         @Environment(PlayerModel.self) private var model
     #endif
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     @State private var confirmingReset = false
 
     private let colorSwatches: [ReaderColorSwatch] = [
@@ -37,9 +38,13 @@ struct ReaderSettingsSheet: View {
                 Stepper(
                     "\(Int(settings.fontSize)) pt", value: $settings.fontSize, in: 12...28, step: 1)
                     .tonalCardRow()
-                // The sample is drawn the way the reader draws a card — the
-                // chosen tint washed over the page with a tinted edge, at the
-                // chosen size and line spacing — so every change shows here.
+                // The sample is drawn on the page the reader draws: the
+                // system page colour with the chosen tint washed over it at
+                // the reader's own strength, at the chosen size and line
+                // spacing. The edge is the tint itself at full strength, so
+                // the chosen swatch is recognisable even where the honest
+                // wash is faint (dark mode), and the box never reads as a
+                // grey-edged text field.
                 Text("The quick brown fox jumps over the lazy dog.")
                     .font(.system(size: settings.fontSize))
                     .lineSpacing(settings.fontSize * max(0, settings.lineSpacing - 1))
@@ -49,7 +54,7 @@ struct ReaderSettingsSheet: View {
                     .background { pagePreviewBackground.clipShape(.rect(cornerRadius: 10)) }
                     .overlay(
                         RoundedRectangle(cornerRadius: 10)
-                            .stroke(Color(hex: settings.cardTintHex).opacity(0.5), lineWidth: 1)
+                            .strokeBorder(Color(hex: settings.cardTintHex), lineWidth: 2)
                     )
                     .padding(.vertical, 4)
                     .tonalCardRow()
@@ -66,7 +71,7 @@ struct ReaderSettingsSheet: View {
                 .tonalCardRow()
             }
 
-            Section("Page Tint") {
+            Section {
                 LazyVGrid(columns: Array(repeating: .init(.flexible()), count: 4), spacing: 12) {
                     ForEach(colorSwatches) { swatch in
                         Button {
@@ -103,6 +108,14 @@ struct ReaderSettingsSheet: View {
                 }
                 .padding(.vertical, 8)
                 .tonalCardRow()
+            } header: {
+                Text("Page Tint")
+            } footer: {
+                // Says why the preview page stays dark with a light tint
+                // picked, instead of brightening the preview into a lie.
+                if colorScheme == .dark {
+                    Text("In dark mode the tint is a faint wash over the dark page.")
+                }
             }
 
             Section {

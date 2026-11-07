@@ -39,13 +39,25 @@ struct CustomFontModifier: ViewModifier {
 /// Settings section footers: footnote size, secondary colour, app font.
 /// Settings sets `\.font` to the body-size app font for its rows; without
 /// this, every footer renders as large as the rows it explains.
+///
+/// The bottom padding restores the grouped-Form rhythm: without it the
+/// next section's header (or card) sits tight under a footer, while
+/// sections without a footer keep the full gap.
+/// Pass `trailingGap: false` for explanatory text set as a section header,
+/// which sits directly above its card.
 struct SettingsFooterStyle: ViewModifier {
     @AppStorage("appFont") private var appFont = SettingsManager.systemFontName
+    let trailingGap: Bool
+
+    init(trailingGap: Bool = true) {
+        self.trailingGap = trailingGap
+    }
 
     func body(content: Content) -> some View {
         content
             .customFont(.footnote, appFont: appFont)
             .foregroundStyle(.secondary)
+            .padding(.bottom, trailingGap ? 12 : 0)
     }
 }
 
@@ -54,6 +66,11 @@ struct SettingsFooterStyle: ViewModifier {
 extension View {
     func settingsFooterStyle() -> some View {
         modifier(SettingsFooterStyle())
+    }
+
+    /// Footer-sized secondary text used as a section's intro header.
+    func settingsIntroStyle() -> some View {
+        modifier(SettingsFooterStyle(trailingGap: false))
     }
 
     func customFont(

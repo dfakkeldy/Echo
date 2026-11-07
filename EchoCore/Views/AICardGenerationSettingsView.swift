@@ -53,36 +53,33 @@ struct AICardGenerationSettingsView: View {
                 switchPreset(to: new)
             }
 
-            // Label + a bordered field, so each value reads as something
-            // to type into, not a fixed fact.
+            // Plain inline trailing fields on the row background, like
+            // Connections: the placeholder says what to type.
             LabeledContent("Endpoint") {
                 TextField("https://", text: $config.baseURL)
                     .autocorrectionDisabled()
                     .multilineTextAlignment(.trailing)
-                    .textFieldStyle(.roundedBorder)
             }
             LabeledContent("API token") {
                 SecureField("Required", text: $token)
                     .textContentType(.password)
                     .multilineTextAlignment(.trailing)
-                    .textFieldStyle(.roundedBorder)
             }
             LabeledContent("Model") {
                 TextField("Required", text: $config.primaryModel)
                     .autocorrectionDisabled()
                     .multilineTextAlignment(.trailing)
-                    .textFieldStyle(.roundedBorder)
             }
             LabeledContent("Fast model") {
                 TextField("Optional", text: $lightModel)
                     .autocorrectionDisabled()
                     .multilineTextAlignment(.trailing)
-                    .textFieldStyle(.roundedBorder)
             }
 
             // Preset providers have fixed capabilities: read-only facts in
-            // a collapsed group, in secondary grey, so they never compete
-            // with the fields above. Custom providers edit them as toggles.
+            // a collapsed group (values in secondary grey, the row itself in
+            // primary so it reads as tappable). Custom providers edit them
+            // as toggles.
             if config.preset == .custom {
                 Toggle(
                     "Structured output",
@@ -102,7 +99,6 @@ struct AICardGenerationSettingsView: View {
                             ? String(localized: "Supported") : String(localized: "Not supported")
                     )
                 }
-                .foregroundStyle(.secondary)
             }
         } header: {
             Text("Cloud Provider")
@@ -127,17 +123,7 @@ struct AICardGenerationSettingsView: View {
             .buttonStyle(.borderedProminent)
             .disabled(!canSave)
 
-            if store.token(for: config.preset) != nil {
-                Button("Remove Token", role: .destructive) { removeToken() }
-            }
-        } footer: {
-            if !canSave && !saved {
-                Text(saveRequirement)
-                    .settingsFooterStyle()
-            }
-        }
-
-        Section {
+            // Test sits beside Save, not orphaned in a section of its own.
             Button(isTesting ? "Testing..." : "Test Connection") { runConnectionTest() }
                 .disabled(isTesting || token.isEmpty || config.baseURL.isEmpty)
             if let testResult {
@@ -145,10 +131,19 @@ struct AICardGenerationSettingsView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
+
+            if store.token(for: config.preset) != nil {
+                Button("Remove Token", role: .destructive) { removeToken() }
+            }
         } footer: {
-            Text(
-                "Generating cards sends this book's text to \(config.preset.displayName) over HTTPS, billed to your own account. Echo's other features (narration, alignment, playback) remain fully on-device."
-            )
+            VStack(alignment: .leading, spacing: 6) {
+                if !canSave && !saved {
+                    Text(saveRequirement)
+                }
+                Text(
+                    "Generating cards sends this book's text to \(config.preset.displayName) over HTTPS, billed to your own account. Echo's other features (narration, alignment, playback) remain fully on-device."
+                )
+            }
             .settingsFooterStyle()
         }
     }

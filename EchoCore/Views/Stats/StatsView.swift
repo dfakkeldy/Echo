@@ -145,7 +145,7 @@ struct StatsView: View {
     @ViewBuilder
     private var srsSection: some View {
         if let s = srsStats {
-            StatsSection("Study (SRS)") {
+            StatsSection("Study") {
                 StudyLibraryLinksView(onReviewTap: launchStudySession)
 
                 // One accent for every tile; red only for a real overdue count.

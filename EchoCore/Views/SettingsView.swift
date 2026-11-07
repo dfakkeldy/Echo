@@ -446,6 +446,7 @@ private struct CheckpointSettingsView: View {
                     "When a due study chapter ends, Echo pauses and asks how well you remember it. Only books with an active study plan have checkpoints."
                 )
                 .textCase(nil)
+                .settingsIntroStyle()
             } footer: {
                 Text(timeoutFooter)
                     .settingsFooterStyle()
@@ -533,14 +534,27 @@ private struct SettingsSupportAboutSection: View {
             } label: {
                 Label("Help", systemImage: "questionmark.circle")
             }
+            // An external page: primary text, accent icon and a trailing
+            // arrow.up.right, like the external rows in Feedback & Support.
+            // The plain style stops the List from tinting the whole label.
             Link(destination: FeedbackSupport.privacyPolicyURL) {
-                Label {
-                    Text("Privacy Policy")
-                        .foregroundStyle(.primary)
-                } icon: {
-                    Image(systemName: "hand.raised")
+                HStack {
+                    Label {
+                        Text("Privacy Policy")
+                            .foregroundStyle(.primary)
+                    } icon: {
+                        Image(systemName: "hand.raised")
+                            .foregroundStyle(.tint)
+                    }
+                    Spacer()
+                    Image(systemName: "arrow.up.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
                 }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
 
             LabeledContent("Version", value: buildMetadata.versionString)
             // A plain row, so the copy control cannot stretch it taller.

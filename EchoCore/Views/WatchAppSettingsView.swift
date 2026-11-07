@@ -28,7 +28,7 @@ struct WatchAppSettingsView: View {
                 NavigationLink {
                     WatchInboxSettingsView()
                 } label: {
-                    Label("Watch Inbox", systemImage: "tray.and.arrow.down.fill")
+                    Label("Watch Inbox", systemImage: "tray.and.arrow.down")
                 }
             }
             // Segmented pickers hide their own label inside a Form, so each

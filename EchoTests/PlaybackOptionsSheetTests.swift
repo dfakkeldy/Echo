@@ -63,12 +63,12 @@ struct PlaybackOptionsSheetTests {
         let source = try Self.source(named: "PlaybackOptionsSheet.swift")
         #expect(source.contains("PhonePlayerSettingsView()"))
         #expect(
-            source.contains("Label(\"More Controls\", systemImage: \"slider.horizontal.3\")"),
-            "The More Controls affordance must keep its accessible title even when rendered icon-only."
+            source.contains("Label(\"Controls\", systemImage: \"slider.horizontal.3\")"),
+            "The Controls link must keep its title and symbol."
         )
         #expect(
-            source.contains(".labelStyle(.iconOnly)"),
-            "More Controls renders icon-only so the inline navigation title never truncates."
+            source.contains(".labelStyle(.titleOnly)"),
+            "Controls shows its word, not a bare sliders glyph that reads as a copy of this sheet."
         )
         #expect(!source.contains("Text(\"More\")"))
     }

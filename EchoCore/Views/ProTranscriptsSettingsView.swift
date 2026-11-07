@@ -19,13 +19,14 @@ struct ProTranscriptsSettingsView: View {
                 Text("Echo Pro includes")
             }
 
-            Section {
-                LabeledContent("Status") {
-                    Text(
-                        storeManager.hasUnlockedPro
-                            ? String(localized: "Unlocked") : String(localized: "Locked")
-                    )
-                    .foregroundStyle(storeManager.hasUnlockedPro ? .green : .secondary)
+            // While locked, the Unlock button already states the status;
+            // a status line appears only once Pro is unlocked.
+            if storeManager.hasUnlockedPro {
+                Section {
+                    LabeledContent("Status") {
+                        Text(String(localized: "Unlocked"))
+                            .foregroundStyle(.green)
+                    }
                 }
             }
 
