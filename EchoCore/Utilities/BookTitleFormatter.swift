@@ -29,4 +29,26 @@ nonisolated enum BookTitleFormatter {
         let joined = words.joined(separator: " ")
         return joined.isEmpty ? name : joined
     }
+
+    /// Guesses an author from the folder that contains a book's folder
+    /// (`…/Author/Book/`). Returns nil when that name is a container rather
+    /// than a person: the app's own Documents folder, a generic category
+    /// folder, or a system path component such as the app-container UUID,
+    /// which used to leak into the player eyebrow for files at Documents root.
+    static func folderAuthorGuess(folderURL: URL) -> String? {
+        let parent = folderURL.deletingLastPathComponent().lastPathComponent
+        let trimmed = parent.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "/",
+            !containerFolderNames.contains(folderURL.lastPathComponent),
+            !containerFolderNames.contains(trimmed),
+            UUID(uuidString: trimmed) == nil
+        else { return nil }
+        return trimmed
+    }
+
+    /// Folder names that hold books but never name an author.
+    private static let containerFolderNames: Set<String> = [
+        "Developer", "Documents", "Downloads", "Inbox", "Library", "Books",
+        "Audiobooks", "Mobile Documents", "Data", "Application", "tmp",
+    ]
 }

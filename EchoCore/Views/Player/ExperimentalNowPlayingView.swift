@@ -95,11 +95,10 @@
 
         private var authorText: String {
             if let author = model.bookMetadataAuthor { return author }
-            if let folderURL = model.folderURL {
-                let author = folderURL.deletingLastPathComponent().lastPathComponent
-                if author != "Developer" && author != "Documents" && !author.isEmpty {
-                    return author
-                }
+            if let folderURL = model.folderURL,
+                let author = BookTitleFormatter.folderAuthorGuess(folderURL: folderURL)
+            {
+                return author
             }
             return ""
         }
