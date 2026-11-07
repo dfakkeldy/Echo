@@ -1,0 +1,37 @@
+name: Merge gate
+
+# Fails a PR that touches the merge stop list (CI, release and signing, secrets, agent
+# permissions, promotions past nightly, big deletions) or has had the needs-dan label,
+# until Dan adds the dan-approved label himself after its latest commit. Required on
+# the integration branch, so auto-merge and the merge button wait for it.
+# https://github.com/dfakkeldy/merge-gate
+#
+# This file is the same in every repository; copy it from dfakkeldy/merge-gate.
+# - pull_request_target runs this file from the base branch, so a PR can't change
+#   its own gate. Never add a checkout step: nothing here may run the PR's code.
+# - edited is here for a change of base branch (a retarget to main).
+# - Never add a job-level `if:`. A skipped job reports success to branch protection.
+# - The check belongs to the head commit, which several PRs can share, so runs for
+#   one commit queue behind each other and each judges every open PR on it.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+  checks: read
+
+concurrency:
+  group: merge-gate-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Merge gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: dfakkeldy/merge-gate@main
