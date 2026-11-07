@@ -64,46 +64,35 @@ struct SleepTimerMenuContent: View {
             Divider()
         }
 
-        Button {
-            model.setSleepTimer(.minutes(15))
-            Haptic.play(.light)
-        } label: {
-            Label("15 Minutes", systemImage: "15.circle")
-        }
-        Button {
-            model.setSleepTimer(.minutes(30))
-            Haptic.play(.light)
-        } label: {
-            Label("30 Minutes", systemImage: "30.circle")
-        }
-        Button {
-            model.setSleepTimer(.minutes(45))
-            Haptic.play(.light)
-        } label: {
-            Label("45 Minutes", systemImage: "45.circle")
-        }
-        Button {
-            model.setSleepTimer(.minutes(60))
-            Haptic.play(.light)
-        } label: {
-            Label("1 Hour", systemImage: "1.circle")
-        }
+        // Plain text rows: the label already says the duration, so no icon
+        // repeats it.
+        option("15 Minutes", mode: .minutes(15))
+        option("30 Minutes", mode: .minutes(30))
+        option("45 Minutes", mode: .minutes(45))
+        option("1 Hour", mode: .minutes(60))
         Divider()
-        Button {
-            model.setSleepTimer(.endOfChapter)
-            Haptic.play(.light)
-        } label: {
-            Label("End of Chapter", systemImage: "book.closed")
-        }
-        if model.sleepTimerMode.isActive {
-            Divider()
-            Button(role: .destructive) {
-                model.cancelSleepTimer()
-                Haptic.play(.light)
-            } label: {
-                Label("Off", systemImage: "xmark.circle")
-            }
-        }
+        option("End of Chapter", mode: .endOfChapter)
+        Divider()
+        option("Off", mode: .off)
+    }
+
+    /// A menu Toggle renders the system checkmark, so the armed choice (or
+    /// "Off" when nothing is armed) is the only row that looks different.
+    private func option(_ title: LocalizedStringKey, mode: SleepTimerMode) -> some View {
+        Toggle(
+            title,
+            isOn: Binding(
+                get: { model.sleepTimerMode == mode },
+                set: { _ in
+                    if mode == .off {
+                        model.cancelSleepTimer()
+                    } else {
+                        model.setSleepTimer(mode)
+                    }
+                    Haptic.play(.light)
+                }
+            )
+        )
     }
 }
 

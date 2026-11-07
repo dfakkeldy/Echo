@@ -28,26 +28,34 @@ struct WatchAppSettingsView: View {
                 NavigationLink {
                     WatchInboxSettingsView()
                 } label: {
-                    Label("Watch Inbox", systemImage: "tray.and.arrow.down.fill")
+                    Label("Watch Inbox", systemImage: "tray.and.arrow.down")
                 }
             }
+            // Segmented pickers hide their own label inside a Form, so each
+            // one sits under a visible caption that says what it sets.
             Section("Face") {
-                Picker("Face Style", selection: $settings.watchArtworkLayout) {
-                    Label("Classic", systemImage: "photo").tag("classic")
-                    Label("Full Face", systemImage: "rectangle.expand.vertical").tag("immersive")
-                }
-                .pickerStyle(.segmented)
-                .onChange(of: settings.watchArtworkLayout) { _, _ in
-                    model.syncToWatch()
+                WatchSegmentRow("Face style") {
+                    Picker("Face Style", selection: $settings.watchArtworkLayout) {
+                        Label("Classic", systemImage: "photo").tag("classic")
+                        Label("Full Face", systemImage: "rectangle.expand.vertical").tag("immersive")
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .onChange(of: settings.watchArtworkLayout) { _, _ in
+                        model.syncToWatch()
+                    }
                 }
 
-                Picker("Classic Background", selection: $settings.watchBackgroundStyle) {
-                    Text("Blurred").tag("artwork")
-                    Text("Black").tag("black")
-                }
-                .pickerStyle(.segmented)
-                .onChange(of: settings.watchBackgroundStyle) { _, _ in
-                    model.syncToWatch()
+                WatchSegmentRow("Classic background") {
+                    Picker("Classic Background", selection: $settings.watchBackgroundStyle) {
+                        Text("Blurred").tag("artwork")
+                        Text("Black").tag("black")
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .onChange(of: settings.watchBackgroundStyle) { _, _ in
+                        model.syncToWatch()
+                    }
                 }
 
                 Toggle("Scroll Title", isOn: $settings.watchTitleScrollEnabled)
@@ -56,14 +64,17 @@ struct WatchAppSettingsView: View {
                     }
 
                 if settings.watchTitleScrollEnabled {
-                    Picker("Scroll Speed", selection: $settings.watchTitleScrollSpeed) {
-                        Text("Slow").tag(15.0)
-                        Text("Normal").tag(30.0)
-                        Text("Fast").tag(60.0)
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: settings.watchTitleScrollSpeed) { _, _ in
-                        model.syncToWatch()
+                    WatchSegmentRow("Scroll speed") {
+                        Picker("Scroll Speed", selection: $settings.watchTitleScrollSpeed) {
+                            Text("Slow").tag(15.0)
+                            Text("Normal").tag(30.0)
+                            Text("Fast").tag(60.0)
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .onChange(of: settings.watchTitleScrollSpeed) { _, _ in
+                            model.syncToWatch()
+                        }
                     }
                 }
 
@@ -73,28 +84,25 @@ struct WatchAppSettingsView: View {
                     }
 
                 if settings.watchDateEnabled {
-                    Picker("Date Format", selection: $settings.watchDateFormat) {
-                        Text("Auto").tag("auto")
-                        Text("Mon Jun 8").tag("long")
-                        Text("Mon 06/08").tag("short")
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: settings.watchDateFormat) { _, _ in
-                        model.syncToWatch()
+                    WatchSegmentRow("Date format") {
+                        Picker("Date Format", selection: $settings.watchDateFormat) {
+                            Text("Auto").tag("auto")
+                            Text("Mon Jun 8").tag("long")
+                            Text("Mon 06/08").tag("short")
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .onChange(of: settings.watchDateFormat) { _, _ in
+                            model.syncToWatch()
+                        }
                     }
                 }
             }
 
+            // Each toggle sits above the picker it governs; the picker hides
+            // while its toggle is off (the stored choice is kept). Both
+            // pickers list Book first.
             Section("Progress") {
-                Picker("Circular Ring", selection: $settings.circularRingMode) {
-                    Text("Book").tag("total")
-                    Text("Chapter").tag("chapter")
-                }
-                .pickerStyle(.segmented)
-                .onChange(of: settings.circularRingMode) { _, _ in
-                    model.syncToWatch()
-                }
-
                 Toggle("Show Circular Ring", isOn: Binding(
                     get: { !settings.circularRingHidden },
                     set: { settings.circularRingHidden = !$0 }
@@ -103,13 +111,18 @@ struct WatchAppSettingsView: View {
                     model.syncToWatch()
                 }
 
-                Picker("Linear Bar", selection: $settings.linearBarMode) {
-                    Text("Chapter").tag("chapter")
-                    Text("Book").tag("total")
-                }
-                .pickerStyle(.segmented)
-                .onChange(of: settings.linearBarMode) { _, _ in
-                    model.syncToWatch()
+                if !settings.circularRingHidden {
+                    WatchSegmentRow("Ring shows progress of") {
+                        Picker("Circular Ring", selection: $settings.circularRingMode) {
+                            Text("Book").tag("total")
+                            Text("Chapter").tag("chapter")
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .onChange(of: settings.circularRingMode) { _, _ in
+                            model.syncToWatch()
+                        }
+                    }
                 }
 
                 Toggle("Show Linear Bar", isOn: Binding(
@@ -119,16 +132,33 @@ struct WatchAppSettingsView: View {
                 .onChange(of: settings.linearBarHidden) { _, _ in
                     model.syncToWatch()
                 }
+
+                if !settings.linearBarHidden {
+                    WatchSegmentRow("Bar shows progress of") {
+                        Picker("Linear Bar", selection: $settings.linearBarMode) {
+                            Text("Book").tag("total")
+                            Text("Chapter").tag("chapter")
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .onChange(of: settings.linearBarMode) { _, _ in
+                            model.syncToWatch()
+                        }
+                    }
+                }
             }
 
             Section("Controls") {
-                Picker("Digital Crown", selection: $settings.crownAction) {
-                    Text("Volume").tag("volume")
-                    Text("Scrubbing").tag("scrub")
-                }
-                .pickerStyle(.segmented)
-                .onChange(of: settings.crownAction) { _, _ in
-                    model.syncToWatch()
+                WatchSegmentRow("Digital Crown controls") {
+                    Picker("Digital Crown", selection: $settings.crownAction) {
+                        Text("Volume").tag("volume")
+                        Text("Scrubbing").tag("scrub")
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .onChange(of: settings.crownAction) { _, _ in
+                        model.syncToWatch()
+                    }
                 }
 
                 VStack(alignment: .leading) {
@@ -315,6 +345,26 @@ struct WatchAppSettingsView: View {
         var out = s
         while out.count < 5 { out.append(.empty) }
         return Array(out.prefix(5))
+    }
+}
+
+/// A visible caption above a segmented picker. Inside a `Form`, a segmented
+/// `Picker` drops its own title, which left the watch controls unlabelled.
+private struct WatchSegmentRow<Content: View>: View {
+    let title: LocalizedStringKey
+    let content: Content
+
+    init(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+            content
+        }
+        .padding(.vertical, 2)
     }
 }
 

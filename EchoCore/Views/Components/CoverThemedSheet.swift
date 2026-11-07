@@ -57,3 +57,22 @@ struct CoverThemedSheet<Content: View>: View {
         .ignoresSafeArea()
     }
 }
+
+/// Opening heights for short book sheets, so each sheet ends where its content
+/// ends instead of leaving an empty floor (council round 4). `.large` stays in
+/// every detent set, so content that grows or scrolls can still be pulled up.
+enum CoverSheetFit {
+    /// Grabber, inline title bar and the inset-grouped list's top inset.
+    static let listChrome: CGFloat = 106
+    /// Breathing room under the last card.
+    static let bottomMargin: CGFloat = 20
+    /// A fitted list taller than this opens at `.medium`, as before: about
+    /// half an iPhone screen, so a long list never opens nearly full height.
+    static let maxFittedHeight: CGFloat = 440
+
+    /// The opening detent for an inset-grouped list of `rows` rows.
+    static func listDetent(rows: Int, rowHeight: CGFloat) -> PresentationDetent {
+        let height = listChrome + CGFloat(max(rows, 1)) * rowHeight + bottomMargin
+        return height <= maxFittedHeight ? .height(height) : .medium
+    }
+}

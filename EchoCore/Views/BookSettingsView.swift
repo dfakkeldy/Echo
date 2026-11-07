@@ -11,6 +11,16 @@ struct BookOverridesSections: View {
     /// Shown as the section header; pass the book title in the unified
     /// Settings sheet so the section reads "Emotional Design — overrides global".
     var headerTitle: String? = nil
+    /// Book Settings (a cover-themed sheet) gives rows the translucent sheet
+    /// card; the Settings root keeps the neutral system look. Both put the
+    /// rule in the footer, under the controls it explains.
+    var coverThemed: Bool = false
+
+    private var explanation: Text {
+        Text(
+            "Overrides apply to this book only. \u{201C}Inherit\u{201D} follows the global setting."
+        )
+    }
 
     var body: some View {
         Section {
@@ -76,10 +86,13 @@ struct BookOverridesSections: View {
                 Text(headerTitle)
             }
         } footer: {
-            Text(
-                "Overrides apply to this book only. \u{201C}Inherit\u{201D} follows the global setting."
-            )
+            // The rule sits under the card it explains in both homes, at
+            // the same footnote size as every other section footer (the
+            // sheets set `\.font` to body size for their rows).
+            explanation
+                .settingsFooterStyle()
         }
+        .listRowBackground(coverThemed ? CoverSheetRowBackground() : nil)
     }
 }
 
@@ -116,44 +129,80 @@ struct BookSettingsView: View {
                         // .epub file) so the row is disabled — like the macOS
                         // sibling — rather than enabled-but-always-failing.
                         if let echoDeckBuilderExportURL {
+                            // Same accent as its sibling actions: all three
+                            // rows act at once (open a sheet or share sheet).
+                            // A Form draws a ShareLink's title in primary and
+                            // ignores a tint on the title text, so the row
+                            // takes the borderless button style, which draws
+                            // its label in the accent. The full-width shape
+                            // keeps the whole row tappable.
                             ShareLink(item: echoDeckBuilderExportURL) {
                                 Label(
                                     "Make Flashcards in EchoDeckBuilder",
                                     systemImage: "square.and.arrow.up"
                                 )
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(.rect)
                             }
+                            .buttonStyle(.borderless)
+                            .foregroundStyle(.tint)
                         } else {
-                            Button(
-                                "Make Flashcards in EchoDeckBuilder",
-                                systemImage: "square.and.arrow.up"
-                            ) {}
+                            // On the wash a disabled Form button keeps a
+                            // primary title, so it read as a live row in the
+                            // wrong colour. Draw it plainly disabled and say
+                            // what it needs.
+                            Button {
+                            } label: {
+                                Label {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Make Flashcards in EchoDeckBuilder")
+                                        Text("Needs this book's EPUB")
+                                            .font(.footnote)
+                                    }
+                                } icon: {
+                                    Image(systemName: "square.and.arrow.up")
+                                }
+                                .foregroundStyle(.secondary)
+                            }
                             .disabled(true)
                         }
                     #endif
                 }
+                .listRowBackground(CoverSheetRowBackground())
 
-                BookOverridesSections(model: model)
+                // Headed like the sections around it, so the override card
+                // does not float without a name.
+                BookOverridesSections(
+                    model: model,
+                    headerTitle: String(localized: "This Book"),
+                    coverThemed: true
+                )
 
                 // Read-along status: whether word-level (sidecar) highlighting is
                 // active, or why it fell back to paragraph-level. Cross-platform
                 // (no iOS-only dependency) so macOS gets parity. Lives here rather
                 // than in the reader chrome to keep the reader UX untouched.
+                // It is status, not a control, so it is a plain value row
+                // ("Highlighting … Paragraph-level"), not an icon-led card
+                // that looks tappable.
                 if model.databaseService?.writer != nil, model.state.folderURL != nil {
-                    Section("Read-Along") {
+                    Section {
                         LabeledContent("Highlighting") {
-                            Text(readAlongStatus ?? "Checking…")
-                                .foregroundStyle(.secondary)
+                            Text(readAlongStatus ?? String(localized: "Checking…"))
                                 .multilineTextAlignment(.trailing)
                         }
+                    } header: {
+                        Text("Read-Along")
+                    } footer: {
                         // Only present when the state is user-fixable, and it
-                        // names the action that fixes it rather than leaving the
-                        // reason as a dead end.
+                        // names the action that fixes it rather than leaving
+                        // the reason as a dead end.
                         if let readAlongRecoveryHint {
                             Text(readAlongRecoveryHint)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .settingsFooterStyle()
                         }
                     }
+                    .listRowBackground(CoverSheetRowBackground())
                 }
 
                 #if os(iOS)
@@ -166,6 +215,7 @@ struct BookSettingsView: View {
                             NarrationQASettingsLink(db: db, audiobookID: audiobookID)
                                 .id(audiobookID)
                         }
+                        .listRowBackground(CoverSheetRowBackground())
                     }
                 #endif
             }

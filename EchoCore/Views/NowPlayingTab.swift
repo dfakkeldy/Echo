@@ -122,7 +122,7 @@ struct NowPlayingTab: View {
 
     @ViewBuilder
     private var visualListeningOrArtworkView: some View {
-        if let snapshot = activeVisualListeningSnapshot {
+        if let snapshot = activeVisualListeningSnapshot, !isAwaitingNarration {
             VisualListeningStageView(
                 snapshot: snapshot,
                 syncPoint: $visualListeningSyncPoint,
@@ -132,6 +132,13 @@ struct NowPlayingTab: View {
         } else {
             artworkView
         }
+    }
+
+    /// A narration book with no audio yet: the player is an invitation to
+    /// narrate, so it shows the cover and the narration card, not live-looking
+    /// playback controls that have nothing to play.
+    private var isAwaitingNarration: Bool {
+        model.isNarrationBook && model.tracks.isEmpty
     }
 
     private var activeVisualListeningSnapshot: VisualListeningSnapshot? {
@@ -190,13 +197,15 @@ struct NowPlayingTab: View {
 
             narrationNudgeSection
 
+            if !isAwaitingNarration {
             // D. Main Scrubber (completely exposed, floating over background)
             // `containerRelativeFrame` (not `.padding`) sets an explicit
             // width: the scrubber's greedy `Slider`/`maxWidth: .infinity`
             // content overflows a padding-reduced proposal back to full
             // bleed, so padding alone left the slider + time labels jammed
             // against the screen edges.
-            scrubberView(usesContainerRelativeWidth: usesContainerRelativeScrubberWidth)
+                scrubberView(usesContainerRelativeWidth: usesContainerRelativeScrubberWidth)
+            }
         }
     }
 
@@ -238,7 +247,7 @@ struct NowPlayingTab: View {
                     tracksEmpty: model.tracks.isEmpty,
                     isRunning: model.hasActiveNarrationWork)
                 {
-                    NarrationNudgeView {
+                    NarrationNudgeView(buttonSystemImage: "play.fill") {
                         settings.narrationVoiceID = preferredVoice.id.rawValue
                         model.startNarrationPlayback(voice: preferredVoice)
                     }
@@ -414,7 +423,7 @@ struct NowPlayingTab: View {
             chapterCount: model.chapters.count,
             chapterTitle: model.currentSubtitle,
             chapterIndex: model.currentChapterIndex,
-            trackTitle: model.currentTitle
+            trackTitle: model.bookDisplayTitle
         )
     }
 
@@ -425,6 +434,9 @@ struct NowPlayingTab: View {
             let bookTitle = model.bookDisplayTitle
             let author = authorText
             return author.isEmpty ? bookTitle : "\(bookTitle) • \(author)"
+        } else if isAwaitingNarration {
+            // No audio yet: "Audiobook" would be untrue. Author, or nothing.
+            return authorText
         } else {
             return authorText.isEmpty ? String(localized: "Audiobook") : authorText
         }
@@ -436,11 +448,10 @@ struct NowPlayingTab: View {
         if let author = model.bookMetadataAuthor {
             return author
         }
-        if let folderURL = model.folderURL {
-            let author = folderURL.deletingLastPathComponent().lastPathComponent
-            if author != "Developer" && author != "Documents" && !author.isEmpty {
-                return author
-            }
+        if let folderURL = model.folderURL,
+            let author = BookTitleFormatter.folderAuthorGuess(folderURL: folderURL)
+        {
+            return author
         }
         return ""
     }

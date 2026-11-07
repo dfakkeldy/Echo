@@ -17,7 +17,8 @@ struct AICardGenerationSettingsView: View {
 
     var body: some View {
         Form {
-            Section("Generator") {
+            // No "Generator" header over a "Generator" row.
+            Section {
                 Picker("Generator", selection: $preference) {
                     Text("Automatic").tag(StudyDeckGeneratorPreference.auto)
                     Text("On-device only").tag(StudyDeckGeneratorPreference.onDevice)
@@ -26,75 +27,137 @@ struct AICardGenerationSettingsView: View {
                 .onChange(of: preference) { _, new in
                     store.generatorPreference = new
                 }
+            } footer: {
                 Text(StudyDeckFMAvailability.statusMessage)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .settingsFooterStyle()
             }
 
-            Section("Cloud Provider") {
-                Picker("Provider", selection: $config.preset) {
-                    ForEach(AIProviderPreset.allCases) { preset in
-                        Text(preset.displayName).tag(preset)
-                    }
-                }
-                .onChange(of: config.preset) { _, new in
-                    switchPreset(to: new)
-                }
+            // On-device only never uses the cloud provider, so its settings
+            // stay out of the way. The stored config is left untouched.
+            if preference != .onDevice {
+                cloudSections
+            }
+        }
+        .onAppear { loadStoredState() }
+    }
 
-                TextField("Base URL", text: $config.baseURL)
+    @ViewBuilder
+    private var cloudSections: some View {
+        Section {
+            Picker("Provider", selection: $config.preset) {
+                ForEach(AIProviderPreset.allCases) { preset in
+                    Text(preset.displayName).tag(preset)
+                }
+            }
+            .onChange(of: config.preset) { _, new in
+                switchPreset(to: new)
+            }
+
+            // Plain inline trailing fields on the row background, like
+            // Connections: the placeholder says what to type.
+            LabeledContent("Endpoint") {
+                TextField("https://", text: $config.baseURL)
                     .autocorrectionDisabled()
-                SecureField("API token", text: $token)
+                    .multilineTextAlignment(.trailing)
+            }
+            LabeledContent("API token") {
+                SecureField("Required", text: $token)
                     .textContentType(.password)
-                TextField("Model", text: $config.primaryModel)
+                    .multilineTextAlignment(.trailing)
+            }
+            LabeledContent("Model") {
+                TextField("Required", text: $config.primaryModel)
                     .autocorrectionDisabled()
-                TextField("Light model (book brief, optional)", text: $lightModel)
+                    .multilineTextAlignment(.trailing)
+            }
+            LabeledContent("Fast model") {
+                TextField("Optional", text: $lightModel)
                     .autocorrectionDisabled()
+                    .multilineTextAlignment(.trailing)
+            }
 
+            // Preset providers have fixed capabilities: read-only facts in
+            // a collapsed group (values in secondary grey, the row itself in
+            // primary so it reads as tappable). Custom providers edit them
+            // as toggles.
+            if config.preset == .custom {
                 Toggle(
                     "Structured output",
                     isOn: $config.capabilities.supportsStructuredOutput
                 )
-                .disabled(config.preset != .custom)
                 Toggle("Extended thinking", isOn: $config.capabilities.supportsThinking)
-                    .disabled(config.preset != .custom)
-            }
-
-            Section {
-                Toggle(
-                    "I understand this book's text is sent to \(config.preset.displayName) using my token",
-                    isOn: $consented
-                )
-
-                Button(saved ? "Saved" : "Save") { save() }
-                    .disabled(
-                        token.isEmpty || !consented
-                            || config.baseURL.isEmpty || config.primaryModel.isEmpty
+            } else {
+                DisclosureGroup("Model details") {
+                    LabeledContent(
+                        "Structured output",
+                        value: config.capabilities.supportsStructuredOutput
+                            ? String(localized: "Supported") : String(localized: "Not supported")
                     )
-
-                if store.token(for: config.preset) != nil {
-                    Button("Remove Token", role: .destructive) { removeToken() }
+                    LabeledContent(
+                        "Extended thinking",
+                        value: config.capabilities.supportsThinking
+                            ? String(localized: "Supported") : String(localized: "Not supported")
+                    )
                 }
             }
+        } header: {
+            Text("Cloud Provider")
+        } footer: {
+            Text("The fast model writes the short book brief.")
+                .settingsFooterStyle()
+        }
 
-            Section {
-                Button(isTesting ? "Testing..." : "Test Connection") { runConnectionTest() }
-                    .disabled(isTesting || token.isEmpty || config.baseURL.isEmpty)
-                if let testResult {
-                    Text(testResult)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+        Section {
+            Toggle(
+                "I understand this book's text is sent to \(config.preset.displayName) using my token",
+                isOn: $consented
+            )
+
+            // A real button under the consent it depends on.
+            Button {
+                save()
+            } label: {
+                Text(saved ? "Saved" : "Save")
+                    .frame(maxWidth: .infinity, minHeight: 32)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!canSave)
+
+            // Test sits beside Save, not orphaned in a section of its own.
+            Button(isTesting ? "Testing..." : "Test Connection") { runConnectionTest() }
+                .disabled(isTesting || token.isEmpty || config.baseURL.isEmpty)
+            if let testResult {
+                Text(testResult)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
-            Section {
+            if store.token(for: config.preset) != nil {
+                Button("Remove Token", role: .destructive) { removeToken() }
+            }
+        } footer: {
+            VStack(alignment: .leading, spacing: 6) {
+                if !canSave && !saved {
+                    Text(saveRequirement)
+                }
                 Text(
                     "Generating cards sends this book's text to \(config.preset.displayName) over HTTPS, billed to your own account. Echo's other features (narration, alignment, playback) remain fully on-device."
                 )
-                .font(.footnote)
-                .foregroundStyle(.secondary)
             }
+            .settingsFooterStyle()
         }
-        .onAppear { loadStoredState() }
+    }
+
+    private var canSave: Bool {
+        !token.isEmpty && consented && !config.baseURL.isEmpty && !config.primaryModel.isEmpty
+    }
+
+    /// The one thing still missing before Save can run.
+    private var saveRequirement: String {
+        if config.baseURL.isEmpty { return String(localized: "Enter an endpoint to save.") }
+        if token.isEmpty { return String(localized: "Enter an API token to save.") }
+        if config.primaryModel.isEmpty { return String(localized: "Enter a model to save.") }
+        return String(localized: "Accept the notice above to save.")
     }
 
     private func loadStoredState() {

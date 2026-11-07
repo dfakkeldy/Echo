@@ -39,7 +39,8 @@ struct PlayerControlBar: View {
                     fontStyle: .subheadline,
                     fontWeight: .semibold,
                     appFont: settings.appFont,
-                    foregroundStyle: .primary
+                    foregroundStyle: .primary,
+                    restingAlignment: .leading
                 )
 
                 Spacer(minLength: 4)
@@ -154,7 +155,9 @@ struct PlayerControlBar: View {
             chapterCount: model.chapters.count,
             chapterTitle: model.currentSubtitle,
             chapterIndex: model.currentChapterIndex,
-            trackTitle: model.currentTitle.strippingTrackNumberPrefix()
+            // Single-track books (an EPUB/PDF, one m4b without chapters): the
+            // track IS the book, so show its display title, never the file slug.
+            trackTitle: model.bookDisplayTitle
         )
     }
 

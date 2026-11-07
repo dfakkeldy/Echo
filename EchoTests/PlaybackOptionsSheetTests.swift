@@ -49,8 +49,8 @@ struct PlaybackOptionsSheetTests {
             "Bookmark loop availability must use the shared PlayerModel rule."
         )
         #expect(
-            source.contains(".disabled(bookmarkLoopUnavailable)"),
-            "The Bookmark segment must be disabled while bookmark looping is unavailable."
+            source.contains("if !bookmarkLoopUnavailable {"),
+            "The Bookmark segment must not look live while bookmark looping is unavailable; a segmented control ignores per-segment .disabled, so it is hidden."
         )
         #expect(
             source.contains(
@@ -59,18 +59,22 @@ struct PlaybackOptionsSheetTests {
         )
     }
 
-    @Test func sheetLinksToDurableControlsSettings() throws {
+    /// Council round 4 (P06): the sheet's "Controls" toolbar link duplicated a
+    /// route Settings already owns and read as a second exit, so it was
+    /// removed. Durable button/layout customization stays reachable from
+    /// Settings (pinned by `SettingsExtractionTests`).
+    @Test func sheetHasNoSecondExitToControlsSettings() throws {
         let source = try Self.source(named: "PlaybackOptionsSheet.swift")
-        #expect(source.contains("PhonePlayerSettingsView()"))
         #expect(
-            source.contains("Label(\"More Controls\", systemImage: \"slider.horizontal.3\")"),
-            "The More Controls affordance must keep its accessible title even when rendered icon-only."
+            !source.contains("PhonePlayerSettingsView()"),
+            "Playback Options must not link to Phone Player Settings; Settings reaches it."
         )
-        #expect(
-            source.contains(".labelStyle(.iconOnly)"),
-            "More Controls renders icon-only so the inline navigation title never truncates."
-        )
+        #expect(!source.contains("Label(\"Controls\""))
         #expect(!source.contains("Text(\"More\")"))
+        #expect(
+            !source.contains("placement: .topBarTrailing"),
+            "Done is the sheet's only toolbar button."
+        )
     }
 
     private static func source(named fileName: String) throws -> String {

@@ -102,11 +102,15 @@ struct UnifiedChromeLayoutTests {
         #expect(source.contains("bookmarkCaptureMenu"), "The bookmark slot should be a menu-backed capture control.")
         #expect(source.contains("Menu {"), "The bookmark slot should open a SwiftUI menu.")
         #expect(source.contains("Label(\"Add bookmark\""), "The menu should include Add bookmark.")
-        #expect(source.contains("Label(\"Add note\""), "The menu should include Add note.")
-        #expect(source.contains("Label(\"Record memo\""), "The menu should include Record memo.")
+        #expect(source.contains("Text(\"Add note\")"), "The menu should include Add note.")
+        #expect(source.contains("Text(\"Record memo\")"), "The menu should include Record memo.")
         #expect(
             !source.contains("private var addBookmarkButton"),
             "The old immediate bookmark button should be replaced by the capture menu."
+        )
+        #expect(
+            source.contains("if bookHasText {\n            captureMenu"),
+            "With one capture action (no book text) a tap adds the bookmark directly; the menu is for 2+ actions."
         )
     }
 

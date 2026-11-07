@@ -19,12 +19,11 @@ struct SettingsNowPlayingView: View {
                     }
                 }
                 .pickerStyle(.menu)
-            } header: {
-                Text("Playback Defaults")
             } footer: {
                 Text(
                     "Used for new books. Existing books keep the last speed you selected for that book."
                 )
+                .settingsFooterStyle()
             }
 
             Section("Skip Durations") {
@@ -54,6 +53,7 @@ struct SettingsNowPlayingView: View {
                     }
                 } footer: {
                     Text("Automatically rewinds after pauses so you can regain context.")
+                        .settingsFooterStyle()
                 }
             #endif
 
@@ -63,26 +63,35 @@ struct SettingsNowPlayingView: View {
                 Text(
                     "When enabled, voice memos attached to bookmarks play automatically when the audiobook reaches that timestamp."
                 )
+                .settingsFooterStyle()
             }
 
             #if os(iOS)
                 Section {
                     Toggle("Experimental Player Layout", isOn: $settings.experimentalNowPlayingLayout)
-                    Button("Reset Button Layout", role: .destructive) {
-                        settings.experimentalPlayerLayoutData =
-                            ExperimentalPlayerLayout.defaultLayout.encoded()
+                    // Only meaningful while the layout is on; hidden rather
+                    // than shown as a dead, dimmed row.
+                    if settings.experimentalNowPlayingLayout {
+                        Button("Reset Button Layout", role: .destructive) {
+                            settings.experimentalPlayerLayoutData =
+                                ExperimentalPlayerLayout.defaultLayout.encoded()
+                        }
                     }
-                    .disabled(!settings.experimentalNowPlayingLayout)
                 } header: {
                     Text("Experimental")
                 } footer: {
                     Text(
                         "A full-bleed cover layout with floating glass buttons you can rearrange. Turn off any time to return to the standard player."
                     )
+                    .settingsFooterStyle()
                 }
             #endif
         }
-        .navigationTitle("Now Playing")
+        // Matches the Settings row that opens this page.
+        .navigationTitle("Playback Defaults")
+        #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     private var defaultSpeedSelection: Binding<Double> {

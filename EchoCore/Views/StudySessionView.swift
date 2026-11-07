@@ -4,16 +4,42 @@ import SwiftUI
 struct StudySessionView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var viewModel: StudySessionViewModel
+    /// False when the library holds no flashcards at all, so an empty queue
+    /// reads as "nothing made yet" rather than "you finished".
+    var hasAnyCards: Bool = true
 
     var body: some View {
         NavigationStack {
             VStack {
-                if viewModel.isComplete {
-                    ContentUnavailableView(
-                        "All Done",
-                        systemImage: "checkmark.circle.fill",
-                        description: Text("You've finished today's study queue.")
-                    )
+                if viewModel.isComplete, !hasAnyCards {
+                    ContentUnavailableView {
+                        Label {
+                            Text("No cards yet")
+                        } icon: {
+                            // Grey like the Card Inbox and Decks empty states.
+                            Image(systemName: "rectangle.stack")
+                                .foregroundStyle(.secondary)
+                        }
+                    } description: {
+                        // Names what the player shows: the book's title sits
+                        // above the chapter name and opens Book Settings. The
+                        // queue is a sheet over Stats with no route back to
+                        // the player, so it gives directions, not a button.
+                        Text(
+                            "To make cards, open the player, tap the book title above the chapter name, then choose Generate Study Deck."
+                        )
+                    }
+                } else if viewModel.isComplete {
+                    ContentUnavailableView {
+                        Label {
+                            Text("All Done")
+                        } icon: {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.tint)
+                        }
+                    } description: {
+                        Text("You've finished today's study queue.")
+                    }
                 } else if let entry = viewModel.currentEntry {
                     StudyProgressHeader(progress: viewModel.progress)
                     Spacer(minLength: 16)
@@ -22,12 +48,13 @@ struct StudySessionView: View {
                     Spacer(minLength: 16)
                 }
             }
-            .navigationTitle("Study")
+            // Matches the "Review Queue" row that opens it.
+            .navigationTitle("Review Queue")
             #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
             }

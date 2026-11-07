@@ -121,7 +121,9 @@ struct ReaderTab: View {
                         .padding(.horizontal, 8)
                         .padding(.top, 8)
                 }
-                if let title = topChapterTitle, !title.isEmpty {
+                if let title = topChapterTitle, !title.isEmpty,
+                    !Self.repeatsHeader(ChapterLabel.name(title), part: topPartTitle, chapter: nil)
+                {
                     let isTop = topPartTitle?.isEmpty ?? true
                     Text(ChapterLabel.name(title))
                         .font(isTop ? .headline : .subheadline)
@@ -131,7 +133,9 @@ struct ReaderTab: View {
                         .padding(.horizontal, 8)
                         .padding(.top, isTop ? 8 : 0)
                 }
-                if let section = topSectionTitle, !section.isEmpty {
+                if let section = topSectionTitle, !section.isEmpty,
+                    !Self.repeatsHeader(section, part: topPartTitle, chapter: topChapterTitle)
+                {
                     Text(section)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -169,6 +173,18 @@ struct ReaderTab: View {
         .background(.ultraThinMaterial)
         .shadow(color: Color.black.opacity(0.05), radius: 3, y: 2)
         .zIndex(1)
+    }
+
+    /// True when the section line would print the same words as the line
+    /// above it (an EPUB's "Titlepage" chapter whose only heading is also
+    /// "Titlepage"), so the header shows the name once.
+    static func repeatsHeader(_ section: String, part: String?, chapter: String?) -> Bool {
+        let key = section.trimmingCharacters(in: .whitespacesAndNewlines)
+        return [part, chapter.map { ChapterLabel.name($0) }, chapter]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .contains {
+                $0.compare(key, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+            }
     }
 
     @ViewBuilder
@@ -372,7 +388,8 @@ struct ReaderTab: View {
                 if showCaptureErrorInRoot, pendingMemoSave != nil {
                     Button("Retry") {
                         Task { @MainActor in
-                            await Task.yield(); retryMemoSave()
+                            await Task.yield()
+                            retryMemoSave()
                         }
                     }
                 }
@@ -538,6 +555,15 @@ struct ReaderTab: View {
                 )
             )
         }
+        // One continuous page surface from the header to the screen edge, so
+        // the return pill and the dock float on the same wash as the text.
+        .background {
+            Color(
+                uiColor: UIColor(hex: readerSettings.cardTintHex)?.withAlphaComponent(0.08)
+                    ?? .clear
+            )
+            .ignoresSafeArea()
+        }
     }
 
     private func readerLoadingContent() -> some View {
@@ -579,10 +605,19 @@ struct ReaderTab: View {
     }
 
     private func readerSessionsSheet() -> some View {
-        NavigationStack {
+        // Presented from the reader's book chrome, so it continues the cover's
+        // tonal room like the other book sheets.
+        CoverThemedSheet(theme: model.coverTheme) {
             Group {
                 if let db = model.databaseService {
-                    SessionsListView(audiobookID: audiobookID, dbService: db)
+                    SessionsListView(
+                        audiobookID: audiobookID,
+                        dbService: db,
+                        onStartListening: {
+                            showSessions = false
+                            if !model.isPlaying { model.play() }
+                        }
+                    )
                 } else {
                     // Database init failed and the user chose "Continue Offline".
                     ContentUnavailableView(
@@ -591,12 +626,16 @@ struct ReaderTab: View {
                         description: Text("Sessions need the database, which couldn't be opened."))
                 }
             }
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { showSessions = false }
                 }
             }
         }
+        // Half height fits the empty state and a few sessions; a longer
+        // history pulls up to full height.
+        .presentationDetents([.medium, .large])
     }
 
     @ViewBuilder
@@ -811,6 +850,19 @@ struct ReaderTab: View {
                 }
                 .padding(.horizontal)
             }
+            // Fade the trailing edge so a chip that runs past the screen reads
+            // as "scroll for more" rather than as clipped text.
+            .mask(
+                LinearGradient(
+                    stops: [
+                        .init(color: .black, location: 0),
+                        .init(color: .black, location: 0.9),
+                        .init(color: .clear, location: 1),
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
 
             Picker(
                 "Scope",
@@ -1154,16 +1206,28 @@ struct ReaderTab: View {
     private func hintBanner(
         icon: String, message: String, dismissible: Bool, onDismiss: @escaping () -> Void
     ) -> some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .top, spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 15))
                 .foregroundStyle(Color.accentColor)
                 .frame(width: 24)
-            Text(message)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer()
+            VStack(alignment: .leading, spacing: 6) {
+                Text(message)
+                    .font(.caption)
+                    // ~75% of the label colour: .secondary measured ~45% white on
+                    // the dark page, too faint for a hint the user must read once.
+                    .foregroundStyle(.primary.opacity(0.75))
+                    .fixedSize(horizontal: false, vertical: true)
+                if dismissible {
+                    // A plain-language way out next to the words, for readers
+                    // who don't read a bare ✕ as "I understand".
+                    Button("Got it", action: onDismiss)
+                        .font(.caption.weight(.semibold))
+                        .buttonStyle(.borderless)
+                        .tint(.accentColor)
+                }
+            }
+            Spacer(minLength: 0)
             if dismissible {
                 Button(action: onDismiss) {
                     Image(systemName: "xmark.circle.fill")
@@ -1302,28 +1366,25 @@ struct EPUBTOCSheet: View {
     var tocEntries: [EPubTOCEntryRecord] = []
     let activeBlockID: String?
     let onSelect: (String) -> Void
+    @Environment(PlayerModel.self) private var model
     @Environment(\.dismiss) private var dismiss
 
     @State private var expandedChapters: Set<String> = []
-
-    private var chapters: [TOCNode] {
-        var allBlocks: [EPubBlockRecord] = []
-        for section in sections {
-            for item in section.items {
-                if case .block(let b) = item {
-                    allBlocks.append(b)
-                }
-            }
-        }
-        return TOCTreeBuilder.build(from: allBlocks, tocEntries: tocEntries)
-    }
+    @State private var detent: PresentationDetent = .medium
+    /// One row's height, scaled with Dynamic Type.
+    @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 56
 
     var body: some View {
-        NavigationStack {
+        // Presented from the reader's book chrome, so it continues the cover's
+        // tonal room like the other book sheets.
+        CoverThemedSheet(theme: model.coverTheme) {
+            // Same inset tonal cards as the Chapters sheet, so both pickers
+            // read as one object.
             List {
                 ForEach(chapters) { chapter in
                     TOCNodeView(
                         node: chapter,
+                        depth: 0,
                         activeBlockID: activeBlockID,
                         onSelect: { blockID in
                             onSelect(blockID)
@@ -1333,11 +1394,19 @@ struct EPUBTOCSheet: View {
                     )
                 }
             }
-            .listStyle(.plain)
+            .listStyle(.insetGrouped)
+            // Fitted to the rows on show, so a short contents list has no
+            // empty floor. Opening or closing a group refits the sheet unless
+            // the reader has pulled it up to full height.
+            .presentationDetents([fittedDetent, .large], selection: $detent)
+            .onChange(of: fittedDetent, initial: true) { _, fitted in
+                if detent != .large { detent = fitted }
+            }
             .navigationTitle("Table of Contents")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Cancel") { dismiss() }
+                    Button("Done") { dismiss() }
                 }
             }
             .onAppear {
@@ -1367,56 +1436,126 @@ struct EPUBTOCSheet: View {
     }
 }
 
+// Sizing and tree helpers sit apart so the struct opens on `body`.
+extension EPUBTOCSheet {
+    private var fittedDetent: PresentationDetent {
+        CoverSheetFit.listDetent(rows: visibleRowCount(chapters), rowHeight: rowHeight)
+    }
+
+    /// Rows on show: every top-level node plus the children of open groups,
+    /// matching `TOCNodeView`'s expansion rule.
+    private func visibleRowCount(_ nodes: [TOCNode]) -> Int {
+        nodes.reduce(0) { count, node in
+            let isOpen = !node.children.isEmpty && expandedChapters.contains(node.id)
+            return count + 1 + (isOpen ? visibleRowCount(node.children) : 0)
+        }
+    }
+
+    private var chapters: [TOCNode] {
+        var allBlocks: [EPubBlockRecord] = []
+        for section in sections {
+            for item in section.items {
+                if case .block(let b) = item {
+                    allBlocks.append(b)
+                }
+            }
+        }
+        return TOCTreeBuilder.build(from: allBlocks, tocEntries: tocEntries)
+    }
+}
+
 struct TOCNodeView: View {
     let node: TOCNode
+    var depth: Int = 0
     let activeBlockID: String?
     let onSelect: (String) -> Void
     @Binding var expandedNodes: Set<String>
 
+    /// Each node is its own list row; an open group's children follow as
+    /// further rows, indented one step per level.
     var body: some View {
-        if node.children.isEmpty {
-            TOCRow(title: node.title, isActive: node.blockID == activeBlockID) {
-                onSelect(node.blockID)
-            }
-        } else {
-            DisclosureGroup(
-                isExpanded: Binding(
-                    get: { expandedNodes.contains(node.id) },
-                    set: { isExp in
-                        if isExp {
-                            expandedNodes.insert(node.id)
-                        } else {
-                            expandedNodes.remove(node.id)
-                        }
-                    }
+        nodeRow
+            .listRowBackground(CoverSheetRowBackground())
+        if isExpanded {
+            ForEach(node.children) { child in
+                TOCNodeView(
+                    node: child,
+                    depth: depth + 1,
+                    activeBlockID: activeBlockID,
+                    onSelect: onSelect,
+                    expandedNodes: $expandedNodes
                 )
-            ) {
-                ForEach(node.children) { child in
-                    TOCNodeView(
-                        node: child,
-                        activeBlockID: activeBlockID,
-                        onSelect: onSelect,
-                        expandedNodes: $expandedNodes
-                    )
-                }
-            } label: {
-                TOCRow(title: node.title, isActive: node.blockID == activeBlockID) {
-                    onSelect(node.blockID)
-                }
             }
         }
+    }
+
+    /// One chevron meaning: a leading chevron only on groups, turning down
+    /// when open (the reader's section headers use the same rule). The
+    /// trailing column holds only the current-row check, so a check never
+    /// sits beside a chevron. Only one row is "current": a group whose own
+    /// start is the active block defers the mark to the child that shares it.
+    private var isCurrent: Bool {
+        guard node.blockID == activeBlockID else { return false }
+        return !Self.containsActive(node.children, activeBlockID: activeBlockID)
+    }
+
+    private var isExpanded: Bool {
+        !node.children.isEmpty && expandedNodes.contains(node.id)
+    }
+
+    private static func containsActive(_ nodes: [TOCNode], activeBlockID: String?) -> Bool {
+        nodes.contains {
+            $0.blockID == activeBlockID || containsActive($0.children, activeBlockID: activeBlockID)
+        }
+    }
+
+    private func toggle() {
+        withAnimation(.snappy) {
+            if expandedNodes.contains(node.id) {
+                expandedNodes.remove(node.id)
+            } else {
+                expandedNodes.insert(node.id)
+            }
+        }
+    }
+
+    private var nodeRow: some View {
+        HStack(spacing: 6) {
+            if node.children.isEmpty {
+                Color.clear.frame(width: 28, height: 28)
+                    .accessibilityHidden(true)
+            } else {
+                Button(action: toggle) {
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .frame(width: 28, height: 28)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(
+                    Text(isExpanded ? "Collapse \(node.title)" : "Expand \(node.title)"))
+            }
+            TOCRow(title: node.title, isActive: isCurrent, isNested: depth > 0) {
+                onSelect(node.blockID)
+            }
+        }
+        .padding(.leading, CGFloat(depth) * 16)
     }
 }
 
 struct TOCRow: View {
     let title: String
     let isActive: Bool
+    var isNested: Bool = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             HStack {
                 Text(title)
+                    .font(isNested ? .subheadline : .body)
                     .foregroundStyle(
                         isActive ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.primary)
                     )
@@ -1428,6 +1567,7 @@ struct TOCRow: View {
                         .font(.caption.bold())
                 }
             }
+            .contentShape(.rect)
         }
         .buttonStyle(.plain)
     }

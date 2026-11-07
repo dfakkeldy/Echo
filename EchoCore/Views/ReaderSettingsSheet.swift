@@ -3,7 +3,12 @@ import SwiftUI
 
 struct ReaderSettingsSheet: View {
     @Binding var settings: ReaderSettings
+    #if os(iOS)
+        @Environment(PlayerModel.self) private var model
+    #endif
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var confirmingReset = false
 
     private let colorSwatches: [ReaderColorSwatch] = [
         ReaderColorSwatch(hex: "#F5F0E8", name: "Sepia"),
@@ -17,73 +22,170 @@ struct ReaderSettingsSheet: View {
     ]
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("Font Size") {
-                    Stepper("\(Int(settings.fontSize)) pt", value: $settings.fontSize, in: 12...28, step: 1)
-                    Text("The quick brown fox jumps over the lazy dog.")
-                        .font(.system(size: settings.fontSize))
-                        .lineLimit(2)
-                }
+        // Presented from the reader's book chrome, so it continues the cover's
+        // tonal room like the other book sheets. (The cover scaffold and
+        // PlayerModel are iOS-only; this file also builds for macOS.)
+        #if os(iOS)
+            CoverThemedSheet(theme: model.coverTheme) { form }
+                // Opens just tall enough for its controls, so the sheet ends
+                // where they end; larger text sizes pull up to full height.
+                .presentationDetents([.fraction(0.86), .large])
+        #else
+            NavigationStack { form }
+        #endif
+    }
 
-                Section("Line Spacing") {
-                    VStack {
-                        Slider(value: $settings.lineSpacing, in: 1.0...2.5, step: 0.1)
-                        Text(verbatim: lineSpacingMultiplierText)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+    private var form: some View {
+        Form {
+            Section("Font Size") {
+                Stepper(
+                    "\(Int(settings.fontSize)) pt", value: $settings.fontSize, in: 12...28, step: 1
+                )
+                .tonalCardRow()
+                // The sample is drawn on the page the reader draws: the
+                // system page colour with the chosen tint washed over it at
+                // the reader's own strength, at the chosen size and line
+                // spacing. The edge is the tint itself at full strength, so
+                // the chosen swatch is recognisable even where the honest
+                // wash is faint (dark mode), and the box never reads as a
+                // grey-edged text field.
+                Text("The quick brown fox jumps over the lazy dog.")
+                    .font(.system(size: settings.fontSize))
+                    .lineSpacing(settings.fontSize * max(0, settings.lineSpacing - 1))
+                    .lineLimit(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background { pagePreviewBackground.clipShape(.rect(cornerRadius: 10)) }
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(Color(hex: settings.cardTintHex), lineWidth: 2)
+                    )
+                    .padding(.vertical, 4)
+                    .tonalCardRow()
+            }
 
-                Section("Page Tint") {
-                    LazyVGrid(columns: Array(repeating: .init(.flexible()), count: 4), spacing: 12) {
-                        ForEach(colorSwatches) { swatch in
-                            Button {
-                                settings.cardTintHex = swatch.hex
-                            } label: {
-                                VStack(spacing: 4) {
-                                    Circle()
-                                        .fill(Color(hex: swatch.hex))
-                                        .frame(width: 44, height: 44)
-                                        .overlay(
-                                            settings.cardTintHex == swatch.hex
-                                                ? Image(systemName: "checkmark")
-                                                    .foregroundStyle(swatch.usesLightCheckmark ? .white : .black)
-                                                : nil
+            Section("Line Spacing") {
+                HStack(spacing: 12) {
+                    Slider(value: $settings.lineSpacing, in: 1.0...2.5, step: 0.1)
+                    Text(verbatim: lineSpacingMultiplierText)
+                        .font(.callout.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(minWidth: 36, alignment: .trailing)
+                }
+                .tonalCardRow()
+            }
+
+            Section {
+                LazyVGrid(columns: Array(repeating: .init(.flexible()), count: 4), spacing: 12) {
+                    ForEach(colorSwatches) { swatch in
+                        Button {
+                            settings.cardTintHex = swatch.hex
+                        } label: {
+                            VStack(spacing: 4) {
+                                Circle()
+                                    .fill(Color(hex: swatch.hex))
+                                    .frame(width: 44, height: 44)
+                                    .overlay(
+                                        settings.cardTintHex == swatch.hex
+                                            ? Image(systemName: "checkmark")
+                                                .foregroundStyle(
+                                                    swatch.usesLightCheckmark ? .white : .black)
+                                            : nil
+                                    )
+                                    .overlay(
+                                        // A light ring keeps dark swatches visible
+                                        // against a dark sheet.
+                                        Circle().stroke(
+                                            swatch.usesLightCheckmark
+                                                ? Color.white.opacity(0.7)
+                                                : Color.secondary.opacity(0.3),
+                                            lineWidth: swatch.usesLightCheckmark ? 1.5 : 1
                                         )
-                                        .overlay(
-                                            Circle().stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-                                        )
-                                    Text(swatch.name)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
+                                    )
+                                Text(swatch.name)
+                                    .font(.caption2)
+                                    .foregroundStyle(.primary.opacity(0.75))
                             }
-                            .buttonStyle(.plain)
                         }
+                        .buttonStyle(.plain)
                     }
-                    .padding(.vertical, 8)
                 }
+                .padding(.vertical, 8)
+                .tonalCardRow()
+            } header: {
+                Text("Page Tint")
+            } footer: {
+                // Says why the preview page stays dark with a light tint
+                // picked, instead of brightening the preview into a lie.
+                if colorScheme == .dark {
+                    Text("In dark mode the tint is a faint wash over the dark page.")
+                }
+            }
 
-                Section {
-                    Button("Reset to Defaults", role: .destructive) {
-                        settings.fontSize = 17.0
-                        settings.lineSpacing = 1.4
-                        settings.cardTintHex = "#F5F0E8"
+            Section {
+                // A plain row in its own card: resetting only undoes three
+                // reading preferences, so it is not styled as destructive.
+                // It still asks first, since it overwrites the user's choices.
+                Button("Reset to Defaults") { confirmingReset = true }
+                    .frame(maxWidth: .infinity)
+                    .tonalCardRow()
+                    .confirmationDialog(
+                        "Reset reader settings?",
+                        isPresented: $confirmingReset,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Reset to Defaults") {
+                            settings.fontSize = 17.0
+                            settings.lineSpacing = 1.4
+                            settings.cardTintHex = "#F5F0E8"
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text(
+                            "Font size, line spacing and page tint go back to 17 pt, 1.4× and Sepia."
+                        )
                     }
-                }
             }
-            .navigationTitle("Reader Settings")
-            .toolbar {
-                ToolbarItem(placement: .automatic) {
-                    Button("Done") { dismiss() }
-                }
+        }
+        .navigationTitle("Reader Settings")
+        #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            ToolbarItem(placement: .automatic) {
+                Button("Done") { dismiss() }
             }
+        }
+    }
+
+    /// The reader page: the system page colour with the tint washed over it
+    /// at the same strength `ReaderTab` uses.
+    private var pagePreviewBackground: some View {
+        ZStack {
+            #if canImport(UIKit)
+                Color(uiColor: .systemBackground)
+            #else
+                Color(nsColor: .textBackgroundColor)
+            #endif
+            Color(hex: settings.cardTintHex).opacity(0.08)
         }
     }
 
     private var lineSpacingMultiplierText: String {
         settings.lineSpacing.formatted(.number.precision(.fractionLength(1))) + "×"
+    }
+}
+
+extension View {
+    /// Rows on the cover-wash sheet use the tonal card fill, not system grey.
+    /// (The wash and its card fill are iOS-only; macOS keeps the system card.)
+    @ViewBuilder
+    fileprivate func tonalCardRow() -> some View {
+        #if os(iOS)
+            listRowBackground(CoverSheetRowBackground())
+        #else
+            self
+        #endif
     }
 }
 
@@ -103,14 +205,18 @@ extension Color {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
         var int: UInt64 = 0
         Scanner(string: hex).scanHexInt64(&int)
-        let r, g, b: Double
+        let r: Double
+        let g: Double
+        let b: Double
         switch hex.count {
         case 6:
             r = Double((int >> 16) & 0xFF) / 255
             g = Double((int >> 8) & 0xFF) / 255
             b = Double(int & 0xFF) / 255
         default:
-            r = 1; g = 1; b = 1
+            r = 1
+            g = 1
+            b = 1
         }
         self.init(red: r, green: g, blue: b)
     }

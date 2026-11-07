@@ -7,7 +7,10 @@ struct NarrationNudgeView: View {
     var title: LocalizedStringKey = "No audiobook for this one"
     var message: LocalizedStringKey =
         "Echo can narrate it on-device so you can study hands-free."
-    var buttonTitle: LocalizedStringKey = "Listen \u{25B8}"
+    var buttonTitle: LocalizedStringKey = "Listen"
+    /// SF Symbol drawn before the button title; `nil` (the default, used by
+    /// the Mac's "Choose Document…" invitation) for a title-only button.
+    var buttonSystemImage: String? = nil
     let onListen: () -> Void
 
     var body: some View {
@@ -22,6 +25,7 @@ struct NarrationNudgeView: View {
                     Text(message)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .accessibilityElement(children: .combine)
@@ -29,19 +33,23 @@ struct NarrationNudgeView: View {
             Button {
                 onListen()
             } label: {
-                Text(buttonTitle)
-                    .bold()
-                    .frame(maxWidth: .infinity)
+                Group {
+                    if let buttonSystemImage {
+                        Label(buttonTitle, systemImage: buttonSystemImage)
+                    } else {
+                        Text(buttonTitle)
+                    }
+                }
+                .bold()
+                .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .clipShape(.rect(cornerRadius: 12))
         }
         .padding()
-        #if os(macOS)
-            .background(Color(nsColor: .windowBackgroundColor))
-        #else
-            .background(Color(.secondarySystemBackground))
-        #endif
+        // A tint of the surface it sits on (the player's cover wash on iPhone),
+        // not an opaque grey card laid over a coloured room.
+        .background(Color.primary.opacity(0.08))
         .clipShape(.rect(cornerRadius: 16))
     }
 }

@@ -9,33 +9,52 @@ import PencilKit
 /// Drawings are auto-saved to the App Group container on disappear,
 /// keyed by audiobookID so each book keeps its own set of doodles.
 struct DoodlePadView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @State private var canvasView = PKCanvasView()
-    @State private var selectedColor: Color = .black
+    /// Index into `colors`; 0 is the ink that contrasts with the canvas.
+    @State private var selectedIndex = 0
+    @State private var hasDrawn = false
     let audiobookID: String
 
-    let colors: [Color] = [.black, .red, .blue, .green, .orange, .purple]
+    /// The first swatch is "ink": white on the dark canvas, black on the light
+    /// one, so the default pen is never invisible against its own page.
+    private var colors: [Color] {
+        [colorScheme == .dark ? .white : .black, .red, .blue, .green, .orange, .purple]
+    }
+
+    private static let colorNames: [LocalizedStringKey] = [
+        "Ink", "Red", "Blue", "Green", "Orange", "Purple",
+    ]
 
     var body: some View {
         VStack(spacing: 0) {
-            // Color palette + trash
+            // Color palette + trash, in its own padded band above the canvas.
             HStack(spacing: 12) {
-                ForEach(colors, id: \.self) { color in
+                ForEach(Array(colors.enumerated()), id: \.offset) { index, color in
                     Circle()
                         .fill(color)
                         .frame(width: 28, height: 28)
                         .overlay(
-                            Circle()
-                                .stroke(color == selectedColor ? Color.primary : Color.clear,
-                                        lineWidth: 2)
+                            Circle().stroke(Color.secondary.opacity(0.4), lineWidth: 1)
                         )
-                        .onTapGesture {
-                            selectedColor = color
-                            canvasView.tool = PKInkingTool(.pen, color: UIColor(color), width: 3)
-                        }
+                        .padding(3)
+                        .overlay(
+                            Circle()
+                                .stroke(
+                                    index == selectedIndex ? Color.accentColor : Color.clear,
+                                    lineWidth: 2)
+                        )
+                        .contentShape(Circle())
+                        .onTapGesture { select(index) }
+                        .accessibilityElement()
+                        .accessibilityLabel(Text(Self.colorNames[index]))
+                        .accessibilityAddTraits(
+                            index == selectedIndex ? [.isButton, .isSelected] : .isButton)
                 }
                 Spacer()
                 Button {
                     canvasView.drawing = PKDrawing()
+                    hasDrawn = false
                 } label: {
                     Image(systemName: "trash")
                         .font(.title3)
@@ -44,17 +63,49 @@ struct DoodlePadView: View {
             }
             .padding(.horizontal)
             .padding(.top, 8)
+            .padding(.bottom, 16)
 
-            // PencilKit canvas
-            PKCanvasRepresentable(canvasView: $canvasView)
-                .onAppear {
-                    canvasView.tool = PKInkingTool(.pen, color: UIColor(selectedColor), width: 3)
-                    canvasView.drawingPolicy = .anyInput
+            // PencilKit canvas: an inset, rounded surface that belongs to the
+            // sheet and runs to its bottom edge.
+            PKCanvasRepresentable(canvasView: $canvasView) {
+                hasDrawn = true
+            }
+            .onAppear {
+                canvasView.backgroundColor = .clear
+                canvasView.isOpaque = false
+                canvasView.drawingPolicy = .anyInput
+                applyTool()
+                hasDrawn = !canvasView.drawing.bounds.isEmpty
+            }
+            .onDisappear {
+                saveDrawing()
+            }
+            .onChange(of: colorScheme) { _, _ in applyTool() }
+            .background(Color(uiColor: .secondarySystemBackground))
+            .overlay {
+                if !hasDrawn {
+                    Text("Draw anything")
+                        .font(.title3)
+                        .foregroundStyle(.tertiary)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
                 }
-                .onDisappear {
-                    saveDrawing()
-                }
+            }
+            .clipShape(.rect(cornerRadius: 20, style: .continuous))
+            .padding(.horizontal)
+            .padding(.bottom, 8)
+            .animation(.easeOut(duration: 0.2), value: hasDrawn)
         }
+    }
+
+    private func select(_ index: Int) {
+        selectedIndex = index
+        applyTool()
+    }
+
+    private func applyTool() {
+        let color = colors[min(selectedIndex, colors.count - 1)]
+        canvasView.tool = PKInkingTool(.pen, color: UIColor(color), width: 3)
     }
 
     // MARK: - Persistence
@@ -77,12 +128,37 @@ struct DoodlePadView: View {
 /// Bridges a `PKCanvasView` into SwiftUI via `UIViewRepresentable`.
 private struct PKCanvasRepresentable: UIViewRepresentable {
     @Binding var canvasView: PKCanvasView
+    /// Called on the first stroke so the "Draw anything" hint can fade out.
+    var onDraw: () -> Void = {}
 
-    func makeUIView(context: Context) -> PKCanvasView {
-        canvasView
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onDraw: onDraw)
     }
 
-    func updateUIView(_ uiView: PKCanvasView, context: Context) {}
+    func makeUIView(context: Context) -> PKCanvasView {
+        canvasView.delegate = context.coordinator
+        return canvasView
+    }
+
+    func updateUIView(_ uiView: PKCanvasView, context: Context) {
+        context.coordinator.onDraw = onDraw
+    }
+
+    final class Coordinator: NSObject, PKCanvasViewDelegate {
+        var onDraw: () -> Void
+
+        init(onDraw: @escaping () -> Void) {
+            self.onDraw = onDraw
+        }
+
+        func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
+            onDraw()
+        }
+
+        func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+            if !canvasView.drawing.bounds.isEmpty { onDraw() }
+        }
+    }
 }
 
 #endif

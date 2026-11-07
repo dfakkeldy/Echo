@@ -30,6 +30,15 @@ struct PhonePlayerSettingsView: View {
         .previousSection, .nextSection, .speed, .bookmark, .markPassage, .empty,
     ]
 
+    /// Names each mini-player slot by where it sits, not by an index.
+    private func miniPlayerSlotTitle(_ slot: Int) -> String {
+        switch slot {
+        case 0: String(localized: "Left button")
+        case 1: String(localized: "Middle button")
+        default: String(localized: "Right button")
+        }
+    }
+
     private var phoneSlotChoices: [WatchAction] {
         palette + [.empty]
     }
@@ -50,12 +59,13 @@ struct PhonePlayerSettingsView: View {
                 Text(
                     "Compact uses a smaller scrubber and reorganizes transport controls for a more minimal player."
                 )
+                .settingsFooterStyle()
             }
 
             Section {
                 ForEach(0..<3, id: \.self) { slot in
                     Picker(
-                        String(localized: "Slot \(slot + 1)"),
+                        miniPlayerSlotTitle(slot),
                         selection: Binding(
                             get: {
                                 settings.miniPlayerPage.indices.contains(slot)
@@ -80,6 +90,7 @@ struct PhonePlayerSettingsView: View {
                 Text("Mini-Player")
             } footer: {
                 Text("The three buttons shown in the mini-player on Now Playing and Read surfaces.")
+                    .settingsFooterStyle()
             }
 
             Section("Player Buttons") {

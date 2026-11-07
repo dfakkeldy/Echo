@@ -19,7 +19,9 @@ struct PlaybackOptionsSheet: View {
     var body: some View {
         @Bindable var settings = settings
 
-        NavigationStack {
+        // Reached from the player's speed chip, so it continues the book's
+        // cover-tonal room like the other player sheets.
+        CoverThemedSheet(theme: model.coverTheme) {
             Form {
                 Section("Speed") {
                     Picker("Playback Speed", selection: speedSelection) {
@@ -30,14 +32,19 @@ struct PlaybackOptionsSheet: View {
                     .pickerStyle(.segmented)
                     .accessibilityLabel(Text("Playback speed"))
                 }
+                .listRowBackground(CoverSheetRowBackground())
 
                 Section {
                     Picker("Loop Mode", selection: loopSelection) {
                         Text("Off").tag(LoopMode.off)
                         Text("Chapter").tag(LoopMode.chapter)
-                        Text("Bookmark")
-                            .tag(LoopMode.bookmark)
-                            .disabled(bookmarkLoopUnavailable)
+                        // A segmented control draws a per-segment `.disabled`
+                        // at full strength (council round 2, P06), so a
+                        // Bookmark segment that cannot act would look live.
+                        // It appears only once it works; the footer says how.
+                        if !bookmarkLoopUnavailable {
+                            Text("Bookmark").tag(LoopMode.bookmark)
+                        }
                     }
                     .pickerStyle(.segmented)
                     .accessibilityLabel(Text("Loop mode"))
@@ -48,8 +55,12 @@ struct PlaybackOptionsSheet: View {
                         Text(
                             "Add at least two enabled bookmarks on this track to use bookmark looping."
                         )
+                        // Room before the Skip header, so the footnote reads
+                        // as Loop's and not as Skip's caption.
+                        .padding(.bottom, 12)
                     }
                 }
+                .listRowBackground(CoverSheetRowBackground())
 
                 Section("Skip") {
                     Picker("Skip Backward", selection: $settings.seekBackwardDuration) {
@@ -72,10 +83,12 @@ struct PlaybackOptionsSheet: View {
                         SmartRewindSettingsView()
                     }
                 }
+                .listRowBackground(CoverSheetRowBackground())
 
                 Section(footer: Text(volumeBoostFooter)) {
                     Toggle("Volume Boost", isOn: volumeBoostBinding)
                 }
+                .listRowBackground(CoverSheetRowBackground())
             }
             .navigationTitle("Playback Options")
             .navigationBarTitleDisplayMode(.inline)
@@ -83,19 +96,14 @@ struct PlaybackOptionsSheet: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Done") { dismiss() }
                 }
-                // Durable button/layout customization lives in Settings > Controls.
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        PhonePlayerSettingsView()
-                    } label: {
-                        // Icon-only so the inline "Playback Options" title never truncates;
-                        // the Label text stays as the accessibility label.
-                        Label("More Controls", systemImage: "slider.horizontal.3")
-                            .labelStyle(.iconOnly)
-                    }
-                }
+                // No link to Phone Player Settings here: Settings already
+                // reaches it, and a second toolbar button read as a second
+                // exit (council round 4, P06).
             }
         }
+        // Opens just tall enough for its sections, so the sheet ends where
+        // they end; Smart Rewind and larger text sizes pull up to full height.
+        .presentationDetents([.fraction(0.8), .large])
     }
 
     // MARK: - Speed
@@ -154,12 +162,19 @@ struct PlaybackOptionsSheet: View {
         )
     }
 
-    /// Reflects the RESOLVED value when a book is loaded.
+    /// The toggle shows the global flag, so the footer speaks only when the
+    /// loaded book overrides it (Book Settings); repeating the toggle's own
+    /// on/off state added nothing (council round 3, P06).
     private var volumeBoostFooter: String {
         if model.folderURL != nil {
-            return model.resolvedVolumeBoostEnabled
-                ? String(localized: "Boost is on for this book.")
-                : String(localized: "Boost is off for this book.")
+            switch model.bookVolumeBoostOverride {
+            case "alwaysOn":
+                return String(localized: "This book always uses boost (set in Book Settings).")
+            case "alwaysOff":
+                return String(localized: "This book never uses boost (set in Book Settings).")
+            default:
+                break
+            }
         }
         return String(localized: "Raises quiet recordings. Applies to all books unless overridden.")
     }

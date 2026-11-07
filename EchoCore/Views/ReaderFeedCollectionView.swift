@@ -198,9 +198,12 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         context.coordinator.settingsSnapshot = settingsSnapshot
         context.coordinator.settings = settings
         context.coordinator.pageAccent = pageAccent
-        // The reader-page tint washes the whole page, not each paragraph.
-        collectionView.backgroundColor =
-            UIColor(hex: settings.cardTintHex)?.withAlphaComponent(0.08) ?? .clear
+        // The reader-page tint washes the whole page, not each paragraph. The
+        // wash is drawn by ReaderTab behind the whole reader (under the bottom
+        // dock clearance too), so the collection stays clear: painting it here
+        // stopped the wash at the collection's frame and left a black band
+        // between the feed and the dock.
+        collectionView.backgroundColor = .clear
         context.coordinator.onToggleChapter = onToggleChapter
         context.coordinator.chapterHasAudio = chapterHasAudio
         context.coordinator.chapterThemeColorByKey = chapterThemeColorByKey
@@ -1647,7 +1650,7 @@ private final class ChapterDividerCell: UICollectionViewCell {
         super.init(frame: frame)
 
         chevron.contentMode = .scaleAspectFit
-        chevron.tintColor = .tertiaryLabel
+        chevron.tintColor = .secondaryLabel
         chevron.setContentHuggingPriority(.required, for: .horizontal)
 
         titleLabel.font = .preferredFont(forTextStyle: .headline)
@@ -1691,9 +1694,11 @@ private final class ChapterDividerCell: UICollectionViewCell {
             audioIcon.tintColor = .tintColor
             titleLabel.textColor = .label
         } else {
+            // Text-only is said by the trailing icon alone; the title stays at
+            // full contrast so a collapsed section never reads as disabled.
             audioIcon.image = UIImage(systemName: "text.alignleft")
             audioIcon.tintColor = .tertiaryLabel
-            titleLabel.textColor = .secondaryLabel
+            titleLabel.textColor = .label
         }
         // Phase 2: dim the whole row when anything is off.
         let dimmed = offState.isDimmed

@@ -8,6 +8,8 @@ struct SettingsAdvancedView: View {
     @Environment(SettingsManager.self) private var settings
     @Environment(PlayerModel.self) private var model
     @State private var contextMemoryStatus: String?
+    @State private var deleteStatus: String?
+    @State private var showingDeleteConfirmation = false
 
     var body: some View {
         @Bindable var settings = settings
@@ -28,6 +30,7 @@ struct SettingsAdvancedView: View {
                 Text(
                     "When enabled, the app will continuously transcribe audio in the background while playing and attempt to align it with the text."
                 )
+                .settingsFooterStyle()
             }
 
             Section {
@@ -37,18 +40,43 @@ struct SettingsAdvancedView: View {
                         get: { settings.locationCaptureEnabled },
                         set: { isEnabled in setLocationCaptureEnabled(isEnabled) }
                     ))
-
-                Button(role: .destructive, action: deleteContextMemory) {
-                    Label("Delete Context Memory", systemImage: "trash")
-                }
-                .disabled(model.databaseService == nil)
-            } header: {
-                Text("Context Memory")
             } footer: {
                 Text(
                     contextMemoryStatus
-                        ?? "Off by default. When enabled, Echo stores approximate place names for new bookmarks. Delete removes saved bookmark places and session location history from this device."
+                        ?? "Off by default. When on, Echo stores approximate place names for new bookmarks."
                 )
+                .settingsFooterStyle()
+            }
+
+            // The delete sits in its own group, apart from the toggle, so
+            // a destructive action is never one row below a switch. Its
+            // footer carries the result of the last action.
+            Section {
+                // Icon and text share one destructive red; the delete is
+                // confirmed first because it cannot be undone.
+                Button(role: .destructive) {
+                    showingDeleteConfirmation = true
+                } label: {
+                    Label("Delete Context Memory", systemImage: "trash")
+                        .foregroundStyle(.red)
+                }
+                .disabled(model.databaseService == nil)
+                .confirmationDialog(
+                    "Delete Context Memory?",
+                    isPresented: $showingDeleteConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("Delete", role: .destructive, action: deleteContextMemory)
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("Removes saved bookmark places and session location history from this device. This cannot be undone.")
+                }
+            } footer: {
+                Text(
+                    deleteStatus
+                        ?? "Removes saved bookmark places and session location history from this device."
+                )
+                .settingsFooterStyle()
             }
 
             Section {
@@ -56,17 +84,17 @@ struct SettingsAdvancedView: View {
             } header: {
                 Text("Diagnostics")
             } footer: {
-                Text(
-                    "Turns on Echo-owned verbose diagnostics for troubleshooting. This does not include book content."
-                )
+                Text("Records extra detail to help fix bugs. Never includes book text.")
+                    .settingsFooterStyle()
             }
         }
         .navigationTitle("Advanced")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private func deleteContextMemory() {
         guard let writer = model.databaseService?.writer else {
-            contextMemoryStatus = "Open the app database before deleting Context Memory."
+            deleteStatus = "Open the app database before deleting Context Memory."
             return
         }
 
@@ -76,10 +104,10 @@ struct SettingsAdvancedView: View {
             let locationCapture = model.locationCapture
             Task { await locationCapture.flushCache() }
             let totalBookmarks = max(summary.bookmarkCount, visibleBookmarkCount)
-            contextMemoryStatus =
+            deleteStatus =
                 "Deleted place data from \(totalBookmarks) bookmark(s) and \(summary.sessionLocationCount) session location(s)."
         } catch {
-            contextMemoryStatus = "Could not delete Context Memory: \(error.localizedDescription)"
+            deleteStatus = "Could not delete Context Memory: \(error.localizedDescription)"
         }
     }
 

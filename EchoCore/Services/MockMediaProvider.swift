@@ -6,6 +6,9 @@ import os.log
 struct MockMediaProvider {
     static let forceDarkAppearanceLaunchArgument = "--echo-screenshot-appearance-dark"
     static let forceSampleBookLaunchArgument = "--echo-screenshot-fixture-gatsby"
+    /// Forces the local `EchoScreenshotSample.m4b` (copied into Documents) so
+    /// player screens can be captured with real audio. Design-review harness only.
+    static let forceSampleAudiobookLaunchArgument = "--echo-screenshot-fixture-audio"
     static let sampleFileName = "EchoScreenshotSample.m4b"
     static let sampleBookDirectoryName = "The Great Gatsby"
     static let sampleBookFileName = "f-scott-fitzgerald_the-great-gatsby.epub"
@@ -13,6 +16,14 @@ struct MockMediaProvider {
     private static let sampleBookResourceName = "f-scott-fitzgerald_the-great-gatsby"
     private static let sampleBookBundleSubdirectory = "standardebooks_great_gatsby"
     private static let logger = Logger(category: "MockMediaProvider")
+
+    /// True when a screenshot fixture launch argument is present, so debug-only
+    /// Settings sections stay out of design-review captures.
+    static var isScreenshotRun: Bool {
+        let arguments = ProcessInfo.processInfo.arguments
+        return arguments.contains(forceSampleBookLaunchArgument)
+            || arguments.contains(forceSampleAudiobookLaunchArgument)
+    }
 
     static func seedSampleMediaIfNeeded() {
         seedSampleAudiobookIfNeeded()
@@ -78,7 +89,11 @@ struct MockMediaProvider {
     static func forcedSampleMediaURL(
         arguments: [String] = ProcessInfo.processInfo.arguments
     ) -> URL? {
-        prefersSampleBook(arguments: arguments) ? sampleBookURL() : nil
+        if prefersSampleBook(arguments: arguments) { return sampleBookURL() }
+        if arguments.contains(forceSampleAudiobookLaunchArgument) {
+            return sampleAudiobookURL()
+        }
+        return nil
     }
 
     static func sampleMediaURL(

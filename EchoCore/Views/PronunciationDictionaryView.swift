@@ -5,7 +5,7 @@ import SwiftUI
 /// row is a `word → IPA` pair; narration pronounces an overridden word from the
 /// supplied IPA, bypassing the built-in lexicon (and the removed BART fallback).
 /// Useful for proper nouns and technical terms the lexicon-only G2P can't guess
-/// — e.g. "Kubernetes" → "kuːbərˈnɛtɪs".
+/// — e.g. "Persephone" → "pərˈsɛfəni".
 ///
 /// Pushed from `SettingsView`, so it is a bare `Form` (no `NavigationStack` of
 /// its own) and binds to the shared `PronunciationOverrideStore` so edits take
@@ -30,8 +30,14 @@ struct PronunciationDictionaryView: View {
 
     var body: some View {
         Form {
-            if !sortedEntries.isEmpty {
-                Section {
+            Section {
+                if sortedEntries.isEmpty {
+                    // Plain secondary text on the page, not a filled card
+                    // that reads as a tappable row.
+                    Text("No custom pronunciations yet.")
+                        .settingsFooterStyle()
+                        .listRowBackground(Color.clear)
+                } else {
                     ForEach(sortedEntries, id: \.word) { entry in
                         HStack {
                             Text(entry.word)
@@ -43,13 +49,14 @@ struct PronunciationDictionaryView: View {
                         }
                     }
                     .onDelete(perform: deleteEntries)
-                } header: {
-                    Text("Saved pronunciations")
-                } footer: {
-                    Text(
-                        "Words here are pronounced from the IPA you provide, overriding the built-in dictionary. Tip: for books full of invented names, add the main characters here."
-                    )
                 }
+            } header: {
+                Text("Saved pronunciations")
+            } footer: {
+                Text(
+                    "Words here are pronounced from the IPA you provide, overriding the built-in dictionary. Tip: for books full of invented names, add the main characters here."
+                )
+                .settingsFooterStyle()
             }
 
             Section {
@@ -59,17 +66,24 @@ struct PronunciationDictionaryView: View {
                 TextField("IPA", text: $newIPA)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                Button("Add pronunciation", systemImage: "plus.circle.fill", action: addEntry)
-                    .disabled(trimmedWord.isEmpty || trimmedIPA.isEmpty)
+                // Grey until both fields have text, then the accent colour
+                // like every other in-card action.
+                Button("Add pronunciation", systemImage: "plus.circle", action: addEntry)
+                    .foregroundStyle(
+                        canAdd ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary)
+                    )
+                    .disabled(!canAdd)
             } header: {
                 Text("Add a pronunciation")
             } footer: {
                 Text(
-                    "Enter IPA only — e.g. kuːbərˈnɛtɪs for Kubernetes. Stress marks: ˈ primary, ˌ secondary."
+                    "Enter IPA only — e.g. pərˈsɛfəni for Persephone. Stress marks: ˈ primary, ˌ secondary."
                 )
+                .settingsFooterStyle()
             }
         }
         .navigationTitle("Pronunciation")
+        .navigationBarTitleDisplayMode(.inline)
         .alert(
             "Can't save that pronunciation",
             isPresented: Binding(
@@ -80,6 +94,10 @@ struct PronunciationDictionaryView: View {
         } message: {
             Text(saveError ?? "")
         }
+    }
+
+    private var canAdd: Bool {
+        !trimmedWord.isEmpty && !trimmedIPA.isEmpty
     }
 
     private var trimmedWord: String {

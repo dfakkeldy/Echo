@@ -52,79 +52,93 @@ struct PlayerMoreMenu: View {
                 Button("Edit Buttons…", systemImage: "slider.horizontal.3", action: onEditLayout)
                 Divider()
             }
-            // Playback context
-            Button(action: onShowChapters) {
-                Label("Chapters", systemImage: "list.bullet.indent")
-            }
-            .disabled(model.chapters.count < 2)
+            // Sections ordered by use: getting around the book first, then
+            // actions on this book, then exports (one submenu), then the app.
+            // `.menuOrder(.fixed)` below keeps this reading order even though
+            // the menu opens upward from the dock.
+            // Items that can't act on this book are hidden, not greyed: a
+            // dimmed row only says "not here" without saying why.
+            Section {
+                if model.chapters.count >= 2 {
+                    Button(action: onShowChapters) {
+                        Label("Chapters", systemImage: "list.bullet.indent")
+                    }
+                }
 
-            Button(action: onShowBookmarks) {
-                Label("Bookmarks", systemImage: "bookmark")
+                if !model.tracks.isEmpty {
+                    Button(action: onShowBookmarks) {
+                        Label("Bookmarks", systemImage: "bookmark")
+                    }
+                }
             }
-            .disabled(model.tracks.isEmpty)
-
-            Divider()
 
             // Current book
-            if let onAddDocument {
-                Button(action: onAddDocument) {
-                    Label(
-                        model.hasEPUB || model.hasPDF
-                            ? "Replace Document…" : "Add Document…",
-                        systemImage: "book.pages"
-                    )
+            Section {
+                if let onAddDocument {
+                    Button(action: onAddDocument) {
+                        Label(
+                            model.hasEPUB || model.hasPDF
+                                ? "Replace Document…" : "Add Document…",
+                            systemImage: "book.pages"
+                        )
+                    }
+                }
+                if let onOpenBookOrFolder {
+                    Button(action: onOpenBookOrFolder) {
+                        Label("Open Book or Folder…", systemImage: "folder")
+                    }
+                }
+                if showsReaderSleepTimer {
+                    Menu {
+                        SleepTimerMenuContent(showsActiveStatus: true)
+                    } label: {
+                        Label("Sleep Timer", systemImage: "moon.zzz")
+                    }
+                }
+                if onExport != nil || onVideoExport != nil || onStudyNotesExport != nil {
+                    Menu {
+                        if let onExport {
+                            Button(action: onExport) {
+                                Label("Export Audiobook…", systemImage: "waveform")
+                            }
+                        }
+                        if let onVideoExport {
+                            Button(action: onVideoExport) {
+                                Label(.videoExportMenuTitle, systemImage: "film")
+                            }
+                        }
+                        if let onStudyNotesExport {
+                            Button(action: onStudyNotesExport) {
+                                Label("Export Notes…", systemImage: "doc.text")
+                            }
+                        }
+                    } label: {
+                        Label("Export", systemImage: "square.and.arrow.up")
+                    }
                 }
             }
-            if let onOpenBookOrFolder {
-                Button(action: onOpenBookOrFolder) {
-                    Label("Open Book or Folder…", systemImage: "folder")
-                }
-            }
-            if showsReaderSleepTimer {
-                Menu {
-                    SleepTimerMenuContent(showsActiveStatus: true)
-                } label: {
-                    Label(
-                        "Sleep Timer",
-                        systemImage: model.sleepTimerMode.isActive ? "moon.zzz.fill" : "moon.zzz"
-                    )
-                }
-            }
-            if let onExport {
-                Button(action: onExport) {
-                    Label("Export Audiobook (.m4b)…", systemImage: "square.and.arrow.up")
-                }
-            }
-            if let onVideoExport {
-                Button(action: onVideoExport) {
-                    Label(.videoExportMenuTitle, systemImage: "film")
-                }
-            }
-            if let onStudyNotesExport {
-                Button(action: onStudyNotesExport) {
-                    Label("Export Study Notes…", systemImage: "doc.text")
-                }
-            }
-
-            Divider()
 
             // App level
-            Button(action: onStats) {
-                Label("Stats", systemImage: "chart.bar.fill")
-            }
-            Button(action: onFidget) {
-                Label("Fidget", systemImage: "circle.hexagongrid.fill")
-            }
-            .disabled(model.tracks.isEmpty)
-            Button(action: onSettings) {
-                Label("Settings", systemImage: "gearshape")
-            }
-            Button(action: onHelp) {
-                Label("Help", systemImage: "questionmark.circle")
+            Section {
+                Button(action: onStats) {
+                    Label("Stats", systemImage: "chart.bar")
+                }
+                Button(action: onSettings) {
+                    Label("Settings", systemImage: "gearshape")
+                }
+                Button(action: onHelp) {
+                    Label("Help", systemImage: "questionmark.circle")
+                }
+                // Fidget needs no audio: the doodle and tactile modes work for
+                // any book, and the visualizer mode hides itself without a tap.
+                Button(action: onFidget) {
+                    Label("Fidget", systemImage: "circle.hexagongrid")
+                }
             }
         } label: {
             chip
         }
+        .menuOrder(.fixed)
     }
 
     @ViewBuilder

@@ -73,6 +73,7 @@ struct ABSConnectionsSettingsView: View {
             }
         }
         .navigationTitle("Connections")
+        .navigationBarTitleDisplayMode(.inline)
         .task { connected = (try? model.absServerDAO?.current()) ?? nil }
         .sheet(item: $browseDestination, onDismiss: cancelBrowse) { destination in
             ABSBrowseView(browseModel: destination.model) { book in
@@ -239,28 +240,61 @@ private struct ABSAddServerSection: View {
     let isConnecting: Bool
     let connect: () async -> Void
 
+    private var canConnect: Bool {
+        !isConnecting && !baseURL.isEmpty && !username.isEmpty
+    }
+
     var body: some View {
+        // Label + field rows, so each field still says what it is after the
+        // user starts typing. Fields are leading-aligned in a fixed column
+        // and their grey prompts say what to type, so an empty field never
+        // reads as a filled-in value.
         Section {
-            TextField("Server URL (https://host:13378)", text: $baseURL)
-                .textInputAutocapitalization(.never)
-                .keyboardType(.URL)
-                .autocorrectionDisabled()
-            TextField("Username", text: $username)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-            SecureField("Password", text: $password)
+            LabeledContent("Server") {
+                TextField("host:13378", text: $baseURL)
+                    .textInputAutocapitalization(.never)
+                    .keyboardType(.URL)
+                    .autocorrectionDisabled()
+                    .frame(width: Self.fieldWidth, alignment: .leading)
+            }
+            LabeledContent("Username") {
+                TextField("Required", text: $username)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .frame(width: Self.fieldWidth, alignment: .leading)
+            }
+            LabeledContent("Password") {
+                SecureField("Optional", text: $password)
+                    .frame(width: Self.fieldWidth, alignment: .leading)
+            }
+        } header: {
+            Text("Add Audiobookshelf Server")
+        } footer: {
+            Text(
+                "Stream and sync books from your own Audiobookshelf server. Bare hosts use HTTPS. Type http:// only for a local server you trust."
+            )
+            .settingsFooterStyle()
+        }
+
+        // The commit action is a real button outside the field group, so it
+        // can't be mistaken for a fourth placeholder field.
+        Section {
             Button {
                 Task { await connect() }
             } label: {
                 ABSConnectButtonLabel(isConnecting: isConnecting)
+                    .frame(maxWidth: .infinity)
             }
-            .disabled(isConnecting || baseURL.isEmpty || username.isEmpty)
-        } header: {
-            Text("Add Audiobookshelf Server")
-        } footer: {
-            Text("Bare hosts use HTTPS. Type http:// only for a local server you trust.")
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(!canConnect)
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
         }
     }
+
+    /// One field column for all three rows, wide enough for a host and port.
+    private static let fieldWidth: CGFloat = 180
 }
 
 private struct ABSConnectButtonLabel: View {

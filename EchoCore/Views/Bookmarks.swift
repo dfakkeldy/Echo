@@ -47,50 +47,50 @@ import os.log
             private let logger = Logger(category: "EditBookmark")
 
             var body: some View {
-                NavigationStack {
+                // Presented from the player dock, so it continues the book's
+                // cover-tonal room instead of flashing to system grey.
+                CoverThemedSheet(theme: model.coverTheme) {
                     Form {
-                        Section("Title") {
+                        // Each field's placeholder already names it, so the
+                        // sections carry no headers that repeat their field.
+                        Section {
                             TextField("Bookmark title", text: $title)
                                 .textInputAutocapitalization(.sentences)
                         }
+                        .listRowBackground(CoverSheetRowBackground())
                         Section("Time") {
                             HStack {
-                                Button {
+                                // The buttons say their step, so the stepper
+                                // never has to be guessed at.
+                                Button("−1s") {
                                     timestamp = max(0, timestamp - 1)
-                                } label: {
-                                    Label("-1s", systemImage: "minus.circle.fill")
-                                        .labelStyle(.iconOnly)
-                                        .font(.title2)
                                 }
-                                .buttonStyle(.plain)
-                                .accessibilityAddTraits(.isButton)
-
-                                Spacer()
+                                .buttonStyle(.bordered)
+                                .accessibilityLabel(Text("Back 1 second"))
 
                                 Text(NowPlayingController.formatTime(timestamp))
-                                    .font(.system(.title3, design: .monospaced))
+                                    .customFont(.title3, appFont: model.resolvedAppFont)
+                                    .monospacedDigit()
                                     .frame(maxWidth: .infinity)
 
-                                Spacer()
-
-                                Button {
+                                Button("+1s") {
                                     timestamp += 1
-                                } label: {
-                                    Label("+1s", systemImage: "plus.circle.fill")
-                                        .labelStyle(.iconOnly)
-                                        .font(.title2)
                                 }
-                                .buttonStyle(.plain)
-                                .accessibilityAddTraits(.isButton)
+                                .buttonStyle(.bordered)
+                                .accessibilityLabel(Text("Forward 1 second"))
                             }
                         }
+                        .listRowBackground(CoverSheetRowBackground())
 
-                        Section("Note") {
+                        Section {
                             TextField("Add a note…", text: $note, axis: .vertical)
                                 .lineLimit(3...8)
                         }
+                        .listRowBackground(CoverSheetRowBackground())
 
-                        Section("Picture Bookmark") {
+                        // Attachments: image and voice memo share one card,
+                        // since both add something to the same bookmark.
+                        Section {
                             if let name = bookmarkImageFileName {
                                 HStack {
                                     Image(systemName: "photo")
@@ -118,9 +118,7 @@ import os.log
                                 Text("Image selection is unavailable on this platform.")
                                     .foregroundStyle(.secondary)
                             #endif
-                        }
 
-                        Section("Voice Memo") {
                             if let name = voiceMemoFileName {
                                 HStack {
                                     Image(systemName: "waveform")
@@ -178,8 +176,13 @@ import os.log
                                 }
                             }
                         }
+                        .listRowBackground(CoverSheetRowBackground())
                     }
-                    .navigationTitle("Edit Bookmark")
+                    .navigationTitle(
+                        bookmarkID == nil
+                            ? LocalizedStringKey("New Bookmark")
+                            : LocalizedStringKey("Edit Bookmark")
+                    )
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .topBarLeading) {
@@ -191,9 +194,12 @@ import os.log
                             }
                         }
                         ToolbarItem(placement: .topBarTrailing) {
+                            // Save is the one action that keeps the work, so
+                            // it carries the filled accent; Cancel stays plain.
                             Button("Save") {
                                 saveBookmark()
                             }
+                            .buttonStyle(.borderedProminent)
                             .bold()
                         }
                     }
@@ -215,6 +221,10 @@ import os.log
                         stopPreview()
                     }
                 }
+                // Opens just tall enough for the form, so the sheet ends where
+                // it ends; attachments, a long note or larger text sizes pull
+                // up to full height.
+                .presentationDetents([.fraction(0.66), .large])
             }
 
             private func loadFromModel() {
