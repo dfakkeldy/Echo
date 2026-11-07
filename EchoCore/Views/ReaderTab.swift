@@ -1374,31 +1374,6 @@ struct EPUBTOCSheet: View {
     /// One row's height, scaled with Dynamic Type.
     @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 56
 
-    private var fittedDetent: PresentationDetent {
-        CoverSheetFit.listDetent(rows: visibleRowCount(chapters), rowHeight: rowHeight)
-    }
-
-    /// Rows on show: every top-level node plus the children of open groups,
-    /// matching `TOCNodeView`'s expansion rule.
-    private func visibleRowCount(_ nodes: [TOCNode]) -> Int {
-        nodes.reduce(0) { count, node in
-            let isOpen = !node.children.isEmpty && expandedChapters.contains(node.id)
-            return count + 1 + (isOpen ? visibleRowCount(node.children) : 0)
-        }
-    }
-
-    private var chapters: [TOCNode] {
-        var allBlocks: [EPubBlockRecord] = []
-        for section in sections {
-            for item in section.items {
-                if case .block(let b) = item {
-                    allBlocks.append(b)
-                }
-            }
-        }
-        return TOCTreeBuilder.build(from: allBlocks, tocEntries: tocEntries)
-    }
-
     var body: some View {
         // Presented from the reader's book chrome, so it continues the cover's
         // tonal room like the other book sheets.
@@ -1458,6 +1433,34 @@ struct EPUBTOCSheet: View {
                 }
             }
         }
+    }
+}
+
+// Sizing and tree helpers sit apart so the struct opens on `body`.
+extension EPUBTOCSheet {
+    private var fittedDetent: PresentationDetent {
+        CoverSheetFit.listDetent(rows: visibleRowCount(chapters), rowHeight: rowHeight)
+    }
+
+    /// Rows on show: every top-level node plus the children of open groups,
+    /// matching `TOCNodeView`'s expansion rule.
+    private func visibleRowCount(_ nodes: [TOCNode]) -> Int {
+        nodes.reduce(0) { count, node in
+            let isOpen = !node.children.isEmpty && expandedChapters.contains(node.id)
+            return count + 1 + (isOpen ? visibleRowCount(node.children) : 0)
+        }
+    }
+
+    private var chapters: [TOCNode] {
+        var allBlocks: [EPubBlockRecord] = []
+        for section in sections {
+            for item in section.items {
+                if case .block(let b) = item {
+                    allBlocks.append(b)
+                }
+            }
+        }
+        return TOCTreeBuilder.build(from: allBlocks, tocEntries: tocEntries)
     }
 }
 
